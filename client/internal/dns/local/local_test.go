@@ -102,7 +102,7 @@ func TestLocalResolver_Update_StaleRecord(t *testing.T) {
 		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "2.2.2.2",
 	}
 
-	recordKey := BuildRecordKey(recordName, uint16(recordClass), recordType)
+	recordKey := dns.Question{Name: recordName, Qtype: uint16(recordClass), Qclass: recordType}
 
 	resolver := NewResolver()
 

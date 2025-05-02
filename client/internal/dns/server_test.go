@@ -110,6 +110,7 @@ func generateDummyHandler(domain string, servers []nbdns.NameServer) *upstreamRe
 }
 
 func TestUpdateDNSServer(t *testing.T) {
+
 	nameServers := []nbdns.NameServer{
 		{
 			IP:     netip.MustParseAddr("8.8.8.8"),
@@ -123,22 +124,21 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 	}
 
-	dummyHandler := &local.Resolver{}
+	dummyHandler := local.NewResolver()
 
 	testCases := []struct {
 		name                string
 		initUpstreamMap     registeredHandlerMap
-		initLocalMap        local.RegistrationMap
+		initLocalRecords    []nbdns.SimpleRecord
 		initSerial          uint64
 		inputSerial         uint64
 		inputUpdate         nbdns.Config
 		shouldFail          bool
 		expectedUpstreamMap registeredHandlerMap
-		expectedLocalMap    local.RegistrationMap
+		expectedLocalQs     []dns.Question
 	}{
 		{
 			name:            "Initial Config Should Succeed",
-			initLocalMap:    make(local.RegistrationMap),
 			initUpstreamMap: make(registeredHandlerMap),
 			initSerial:      0,
 			inputSerial:     1,
@@ -178,11 +178,11 @@ func TestUpdateDNSServer(t *testing.T) {
 					priority: PriorityDefault,
 				},
 			},
-			expectedLocalMap: local.RegistrationMap{local.BuildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
+			expectedLocalQs: []dns.Question{{Name: "peera.netbird.cloud.", Qtype: dns.TypeA, Qclass: dns.ClassINET}},
 		},
 		{
-			name:         "New Config Should Succeed",
-			initLocalMap: local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}},
+			name:             "New Config Should Succeed",
+			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   "netbird.cloud",
@@ -219,22 +219,22 @@ func TestUpdateDNSServer(t *testing.T) {
 					priority: PriorityMatchDomain,
 				},
 			},
-			expectedLocalMap: local.RegistrationMap{local.BuildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
+			expectedLocalQs: []dns.Question{{Name: zoneRecords[0].Name, Qtype: 1, Qclass: 1}},
 		},
 		{
-			name:            "Smaller Config Serial Should Be Skipped",
-			initLocalMap:    make(local.RegistrationMap),
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      2,
-			inputSerial:     1,
-			shouldFail:      true,
+			name:             "Smaller Config Serial Should Be Skipped",
+			initLocalRecords: []nbdns.SimpleRecord{},
+			initUpstreamMap:  make(registeredHandlerMap),
+			initSerial:       2,
+			inputSerial:      1,
+			shouldFail:       true,
 		},
 		{
-			name:            "Empty NS Group Domain Or Not Primary Element Should Fail",
-			initLocalMap:    make(local.RegistrationMap),
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
+			name:             "Empty NS Group Domain Or Not Primary Element Should Fail",
+			initLocalRecords: []nbdns.SimpleRecord{},
+			initUpstreamMap:  make(registeredHandlerMap),
+			initSerial:       0,
+			inputSerial:      1,
 			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
@@ -252,11 +252,11 @@ func TestUpdateDNSServer(t *testing.T) {
 			shouldFail: true,
 		},
 		{
-			name:            "Invalid NS Group Nameservers list Should Fail",
-			initLocalMap:    make(local.RegistrationMap),
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
+			name:             "Invalid NS Group Nameservers list Should Fail",
+			initLocalRecords: []nbdns.SimpleRecord{},
+			initUpstreamMap:  make(registeredHandlerMap),
+			initSerial:       0,
+			inputSerial:      1,
 			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
@@ -274,11 +274,11 @@ func TestUpdateDNSServer(t *testing.T) {
 			shouldFail: true,
 		},
 		{
-			name:            "Invalid Custom Zone Records list Should Skip",
-			initLocalMap:    make(local.RegistrationMap),
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
+			name:             "Invalid Custom Zone Records list Should Skip",
+			initLocalRecords: []nbdns.SimpleRecord{},
+			initUpstreamMap:  make(registeredHandlerMap),
+			initSerial:       0,
+			inputSerial:      1,
 			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
@@ -300,8 +300,8 @@ func TestUpdateDNSServer(t *testing.T) {
 			}},
 		},
 		{
-			name:         "Empty Config Should Succeed and Clean Maps",
-			initLocalMap: local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}},
+			name:             "Empty Config Should Succeed and Clean Maps",
+			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
@@ -313,11 +313,11 @@ func TestUpdateDNSServer(t *testing.T) {
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: true},
 			expectedUpstreamMap: make(registeredHandlerMap),
-			expectedLocalMap:    make(local.RegistrationMap),
+			expectedLocalQs:     []dns.Question{},
 		},
 		{
-			name:         "Disabled Service Should clean map",
-			initLocalMap: local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}},
+			name:             "Disabled Service Should clean map",
+			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
 			initUpstreamMap: registeredHandlerMap{
 				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
@@ -329,7 +329,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: false},
 			expectedUpstreamMap: make(registeredHandlerMap),
-			expectedLocalMap:    make(local.RegistrationMap),
+			expectedLocalQs:     []dns.Question{},
 		},
 	}
 
@@ -380,7 +380,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			}()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
-			dnsServer.localResolver.RegisteredMap = testCase.initLocalMap
+			dnsServer.localResolver.Update(testCase.initLocalRecords)
 			dnsServer.updateSerial = testCase.initSerial
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
@@ -402,15 +402,23 @@ func TestUpdateDNSServer(t *testing.T) {
 				}
 			}
 
-			if len(dnsServer.localResolver.RegisteredMap) != len(testCase.expectedLocalMap) {
-				t.Fatalf("update local failed, registered map size is different than expected, want %d, got %d", len(testCase.expectedLocalMap), len(dnsServer.localResolver.RegisteredMap))
+			var responseMSG *dns.Msg
+			responseWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					responseMSG = m
+					return nil
+				},
+			}
+			for _, q := range testCase.expectedLocalQs {
+				dnsServer.localResolver.ServeDNS(responseWriter, &dns.Msg{
+					Question: []dns.Question{q},
+				})
 			}
 
-			for key := range testCase.expectedLocalMap {
-				_, found := dnsServer.localResolver.RegisteredMap[key]
-				if !found {
-					t.Fatalf("update local failed, key %v was not found in the localResolver.registeredMap: %#v", key, dnsServer.localResolver.RegisteredMap)
-				}
+			if len(testCase.expectedLocalQs) > 0 {
+				assert.NotNil(t, responseMSG, "response message should not be nil")
+				assert.Equal(t, dns.RcodeSuccess, responseMSG.Rcode, "response code should be success")
+				assert.NotEmpty(t, responseMSG.Answer, "response message should have answers")
 			}
 		})
 	}
@@ -498,7 +506,8 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 			priority: PriorityMatchDomain,
 		},
 	}
-	dnsServer.localResolver.RegisteredMap = local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}}
+	//dnsServer.localResolver.RegisteredMap = local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}}
+	dnsServer.localResolver.Update([]nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}})
 	dnsServer.updateSerial = 0
 
 	nameServers := []nbdns.NameServer{
@@ -585,7 +594,7 @@ func TestDNSServerStartStop(t *testing.T) {
 			}
 			time.Sleep(100 * time.Millisecond)
 			defer dnsServer.Stop()
-			_, err = dnsServer.localResolver.RegisterRecord(zoneRecords[0])
+			err = dnsServer.localResolver.RegisterRecord(zoneRecords[0])
 			if err != nil {
 				t.Error(err)
 			}
