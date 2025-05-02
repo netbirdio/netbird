@@ -1245,12 +1245,12 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
-		Key:         pubKey,
-		LocalKey:    e.config.WgPrivateKey.PublicKey().String(),
-		AgentVersion:    agentVersion,
-		Timeout:     timeout,
-		WgConfig:    wgConfig,
-		LocalWgPort: e.config.WgPort,
+		Key:          pubKey,
+		LocalKey:     e.config.WgPrivateKey.PublicKey().String(),
+		AgentVersion: agentVersion,
+		Timeout:      timeout,
+		WgConfig:     wgConfig,
+		LocalWgPort:  e.config.WgPort,
 		RosenpassConfig: peer.RosenpassConfig{
 			PubKey:         e.getRosenpassPubKey(),
 			Addr:           e.getRosenpassAddr(),

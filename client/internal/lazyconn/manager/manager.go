@@ -43,7 +43,7 @@ type Manager struct {
 	connStateListener    *dispatcher.ConnectionListener
 	managedPeers         map[string]*lazyconn.PeerConfig
 	managedPeersByConnID map[peerid.ConnID]*managedPeer
-	excludes             map[string]struct{}
+	excludes             map[string]lazyconn.PeerConfig
 	managedPeersMu       sync.Mutex
 
 	activityManager    *activity.Manager
@@ -60,7 +60,7 @@ func NewManager(config Config, wgIface lazyconn.WGIface, connStateDispatcher *di
 		inactivityThreshold:  inactivity.DefaultInactivityThreshold,
 		managedPeers:         make(map[string]*lazyconn.PeerConfig),
 		managedPeersByConnID: make(map[peerid.ConnID]*managedPeer),
-		excludes:             make(map[string]struct{}),
+		excludes:             make(map[string]lazyconn.PeerConfig),
 		activityManager:      activity.NewManager(wgIface),
 		inactivityMonitors:   make(map[peerid.ConnID]*inactivity.Monitor),
 		onInactive:           make(chan peerid.ConnID),
@@ -98,15 +98,49 @@ func (m *Manager) Start(ctx context.Context, activeFn func(peerID string), inact
 }
 
 // ExcludePeer marks peers for a permanent connection
-func (m *Manager) ExcludePeer(peerIDs []string) {
+// It removes peers from the managed list if they are added to the exclude list
+// Adds them back to the managed list and start the inactivity listener if they are removed from the exclude list. In
+// this case, we suppose that the connection status is connected or connecting.
+// If the peer is not exists yet in the managed list then the responsibility is the upper layer to call the AddPeer function
+func (m *Manager) ExcludePeer(ctx context.Context, peerConfigs []lazyconn.PeerConfig) []string {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
-	log.Infof("update excluded peers from lazy connection: %v", peerIDs)
 
-	m.excludes = make(map[string]struct{})
-	for _, peerID := range peerIDs {
-		m.excludes[peerID] = struct{}{}
+	added := make([]string, 0)
+	excludes := make(map[string]lazyconn.PeerConfig, len(peerConfigs))
+
+	for _, peerCfg := range peerConfigs {
+		log.Infof("update excluded lazy connection list with peer: %s", peerCfg.PublicKey)
+		excludes[peerCfg.PublicKey] = peerCfg
 	}
+
+	// if a peer is newly added to the exclude list, remove from the managed peers list
+	for pubKey, peerCfg := range excludes {
+		if _, wasExcluded := m.excludes[pubKey]; wasExcluded {
+			continue
+		}
+
+		added = append(added, pubKey)
+		peerCfg.Log.Infof("peer newly added to lazy connection exclude list")
+		m.removePeer(pubKey)
+	}
+
+	// if a peer has been removed from exclude list then it should be added to the managed peers
+	for pubKey, peerCfg := range m.excludes {
+		if _, stillExcluded := excludes[pubKey]; stillExcluded {
+			continue
+		}
+
+		peerCfg.Log.Infof("peer removed from lazy connection exclude list")
+
+		if err := m.addActivePeer(ctx, peerCfg); err != nil {
+			log.Errorf("failed to add peer to lazy connection manager: %s", err)
+			continue
+		}
+	}
+
+	m.excludes = excludes
+	return added
 }
 
 func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
@@ -144,22 +178,7 @@ func (m *Manager) RemovePeer(peerID string) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	cfg, ok := m.managedPeers[peerID]
-	if !ok {
-		return
-	}
-
-	cfg.Log.Infof("removing lazy peer")
-
-	if im, ok := m.inactivityMonitors[cfg.PeerConnID]; ok {
-		im.Stop()
-		delete(m.inactivityMonitors, cfg.PeerConnID)
-		cfg.Log.Debugf("inactivity monitor stopped")
-	}
-
-	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
-	delete(m.managedPeers, peerID)
-	delete(m.managedPeersByConnID, cfg.PeerConnID)
+	m.removePeer(peerID)
 }
 
 // ActivatePeer activates a peer connection when a signal message is received
@@ -189,6 +208,45 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 	cfg.Log.Debugf("reset inactivity monitor timer")
 	m.inactivityMonitors[cfg.PeerConnID].ResetTimer()
 	return true
+}
+
+func (m *Manager) addActivePeer(ctx context.Context, peerCfg lazyconn.PeerConfig) error {
+	if _, ok := m.managedPeers[peerCfg.PublicKey]; ok {
+		peerCfg.Log.Warnf("peer already managed")
+		return nil
+	}
+
+	im := inactivity.NewInactivityMonitor(peerCfg.PeerConnID, m.inactivityThreshold)
+	m.inactivityMonitors[peerCfg.PeerConnID] = im
+
+	m.managedPeers[peerCfg.PublicKey] = &peerCfg
+	m.managedPeersByConnID[peerCfg.PeerConnID] = &managedPeer{
+		peerCfg:         &peerCfg,
+		expectedWatcher: watcherInactivity,
+	}
+
+	peerCfg.Log.Infof("starting inactivity monitor on peer that has been removed from exclude list")
+	go im.Start(ctx, m.onInactive)
+	return nil
+}
+
+func (m *Manager) removePeer(peerID string) {
+	cfg, ok := m.managedPeers[peerID]
+	if !ok {
+		return
+	}
+
+	cfg.Log.Infof("removing lazy peer")
+
+	if im, ok := m.inactivityMonitors[cfg.PeerConnID]; ok {
+		im.Stop()
+		delete(m.inactivityMonitors, cfg.PeerConnID)
+		cfg.Log.Debugf("inactivity monitor stopped")
+	}
+
+	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
+	delete(m.managedPeers, peerID)
+	delete(m.managedPeersByConnID, cfg.PeerConnID)
 }
 
 func (m *Manager) close() {
