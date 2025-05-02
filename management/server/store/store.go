@@ -55,6 +55,7 @@ type Store interface {
 	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
 	GetAccountByUser(ctx context.Context, userID string) (*types.Account, error)
 	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types.Account, error)
+	GetAnyAccountID(ctx context.Context) (string, error)
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)

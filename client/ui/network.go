@@ -34,7 +34,8 @@ const (
 type filter string
 
 func (s *serviceClient) showNetworksUI() {
-	s.wRoutes = s.app.NewWindow("Networks")
+	s.wNetworks = s.app.NewWindow("Networks")
+	s.wNetworks.SetOnClosed(s.cancel)
 
 	allGrid := container.New(layout.NewGridLayout(3))
 	go s.updateNetworks(allGrid, allNetworks)
@@ -78,8 +79,8 @@ func (s *serviceClient) showNetworksUI() {
 
 	content := container.NewBorder(nil, buttonBox, nil, nil, scrollContainer)
 
-	s.wRoutes.SetContent(content)
-	s.wRoutes.Show()
+	s.wNetworks.SetContent(content)
+	s.wNetworks.Show()
 
 	s.startAutoRefresh(10*time.Second, tabs, allGrid, overlappingGrid, exitNodeGrid)
 }
@@ -148,7 +149,7 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 		grid.Add(resolvedIPsSelector)
 	}
 
-	s.wRoutes.Content().Refresh()
+	s.wNetworks.Content().Refresh()
 	grid.Refresh()
 }
 
@@ -305,7 +306,7 @@ func (s *serviceClient) getNetworksRequest(f filter, appendRoute bool) *proto.Se
 func (s *serviceClient) showError(err error) {
 	wrappedMessage := wrapText(err.Error(), 50)
 
-	dialog.ShowError(fmt.Errorf("%s", wrappedMessage), s.wRoutes)
+	dialog.ShowError(fmt.Errorf("%s", wrappedMessage), s.wNetworks)
 }
 
 func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) {
@@ -316,14 +317,15 @@ func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container
 		}
 	}()
 
-	s.wRoutes.SetOnClosed(func() {
+	s.wNetworks.SetOnClosed(func() {
 		ticker.Stop()
+		s.cancel()
 	})
 }
 
 func (s *serviceClient) updateNetworksBasedOnDisplayTab(tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) {
 	grid, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
-	s.wRoutes.Content().Refresh()
+	s.wNetworks.Content().Refresh()
 	s.updateNetworks(grid, f)
 }
 
@@ -373,7 +375,7 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 			node.Selected,
 		)
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(s.ctx)
 		s.mExitNodeItems = append(s.mExitNodeItems, menuHandler{
 			MenuItem: menuItem,
 			cancel:   cancel,

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
+	"github.com/eko/gocache/store/redis/v4"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
@@ -237,7 +238,7 @@ func BuildManager(
 
 	if !isNil(am.idpManager) {
 		go func() {
-			err := am.warmupIDPCache(ctx)
+			err := am.warmupIDPCache(ctx, cacheStore)
 			if err != nil {
 				log.WithContext(ctx).Warnf("failed warming up cache due to error: %v", err)
 				// todo retry?
@@ -494,7 +495,25 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 	return nil, status.Errorf(status.Internal, "error while creating new account")
 }
 
-func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
+func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, store cacheStore.StoreInterface) error {
+	cold, err := am.isCacheCold(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	if !cold {
+		log.WithContext(ctx).Debug("cache already populated, skipping warm up")
+		return nil
+	}
+
+	if delayStr, ok := os.LookupEnv("NB_IDP_CACHE_WARMUP_DELAY"); ok {
+		delay, err := time.ParseDuration(delayStr)
+		if err != nil {
+			return fmt.Errorf("invalid IDP warmup delay: %w", err)
+		}
+		time.Sleep(delay)
+	}
+
 	userData, err := am.idpManager.GetAllAccounts(ctx)
 	if err != nil {
 		return err
@@ -532,6 +551,32 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
 	}
 	log.WithContext(ctx).Infof("warmed up IDP cache with %d entries for %d accounts", rcvdUsers, len(userData))
 	return nil
+}
+
+// isCacheCold checks if the cache needs warming up.
+func (am *DefaultAccountManager) isCacheCold(ctx context.Context, store cacheStore.StoreInterface) (bool, error) {
+	if store.GetType() != redis.RedisType {
+		return true, nil
+	}
+
+	accountID, err := am.Store.GetAnyAccountID(ctx)
+	if err != nil {
+		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+			return true, nil
+		}
+		return false, err
+	}
+
+	_, err = store.Get(ctx, accountID)
+	if err == nil {
+		return false, nil
+	}
+
+	if notFoundErr := new(cacheStore.NotFound); errors.As(err, &notFoundErr) {
+		return true, nil
+	}
+
+	return false, fmt.Errorf("failed to check cache: %w", err)
 }
 
 // DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
@@ -667,7 +712,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
 
-	account, err := am.Store.GetAccount(ctx, accountIDString)
+	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountIDString)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -676,7 +721,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	if err != nil {
 		return nil, nil, err
 	}
-	log.WithContext(ctx).Debugf("%d entries received from IdP management", len(userData))
+	log.WithContext(ctx).Debugf("%d entries received from IdP management for account %s", len(userData), accountIDString)
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
 	for _, datum := range userData {
@@ -684,7 +729,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	}
 
 	matchedUserData := make([]*idp.UserData, 0)
-	for _, user := range account.Users {
+	for _, user := range accountUsers {
 		if user.IsServiceUser {
 			continue
 		}
