@@ -60,10 +60,10 @@ func Test_NewStore(t *testing.T) {
 
 	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
 		if store == nil {
-			t.Errorf("expected to create a new Store")
+			t.Fatalf("expected to create a new Store")
 		}
 		if len(store.GetAllAccounts(context.Background())) != 0 {
-			t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
+			t.Fatalf("expected to create a new empty Accounts map when creating a new FileStore")
 		}
 	})
 }
@@ -1115,7 +1115,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 
 	group := &types.Group{
 		ID:        "group-id",
-		AccountID: "account-id",
+		AccountID: "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 		Name:      "group-name",
 		Issued:    "api",
 		Peers:     nil,
