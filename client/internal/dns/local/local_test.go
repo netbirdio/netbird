@@ -134,3 +134,339 @@ func TestLocalResolver_Update_StaleRecord(t *testing.T) {
 	assert.Contains(t, rrSlice2[0].String(), record2.RData, "The single record should be the updated one (%s)", record2.RData)
 	assert.NotContains(t, rrSlice2[0].String(), record1.RData, "The stale record (%s) should not be present", record1.RData)
 }
+
+// TestLocalResolver_MultipleRecords_SameQuestion verifies that multiple records
+// with the same question are stored properly
+func TestLocalResolver_MultipleRecords_SameQuestion(t *testing.T) {
+	resolver := NewResolver()
+
+	recordName := "multi.example.com."
+	recordType := dns.TypeA
+
+	// Create two records with the same name and type but different IPs
+	record1 := nbdns.SimpleRecord{
+		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1",
+	}
+	record2 := nbdns.SimpleRecord{
+		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.2",
+	}
+
+	update := []nbdns.SimpleRecord{record1, record2}
+
+	// Apply update with both records
+	resolver.Update(update)
+
+	// Create question that matches both records
+	question := dns.Question{
+		Name:   recordName,
+		Qtype:  recordType,
+		Qclass: dns.ClassINET,
+	}
+
+	// Verify both records are stored
+	resolver.mu.RLock()
+	records, found := resolver.records[question]
+	resolver.mu.RUnlock()
+
+	require.True(t, found, "Records for question %v not found", question)
+	require.Len(t, records, 2, "Should have exactly 2 records for the same question")
+
+	// Verify both record data values are present
+	recordStrings := []string{records[0].String(), records[1].String()}
+	assert.Contains(t, recordStrings[0]+recordStrings[1], record1.RData, "First record data should be present")
+	assert.Contains(t, recordStrings[0]+recordStrings[1], record2.RData, "Second record data should be present")
+}
+
+// TestLocalResolver_RecordRotation verifies that records are rotated in a round-robin fashion
+func TestLocalResolver_RecordRotation(t *testing.T) {
+	resolver := NewResolver()
+
+	recordName := "rotation.example.com."
+	recordType := dns.TypeA
+
+	// Create three records with the same name and type but different IPs
+	record1 := nbdns.SimpleRecord{
+		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "192.168.1.1",
+	}
+	record2 := nbdns.SimpleRecord{
+		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "192.168.1.2",
+	}
+	record3 := nbdns.SimpleRecord{
+		Name: recordName, Type: int(recordType), Class: nbdns.DefaultClass, TTL: 300, RData: "192.168.1.3",
+	}
+
+	update := []nbdns.SimpleRecord{record1, record2, record3}
+
+	// Apply update with all three records
+	resolver.Update(update)
+
+	msg := new(dns.Msg).SetQuestion(recordName, recordType)
+
+	// First lookup - should return the records in original order
+	var responses [3]*dns.Msg
+
+	// Perform three lookups to verify rotation
+	for i := 0; i < 3; i++ {
+		responseWriter := &test.MockResponseWriter{
+			WriteMsgFunc: func(m *dns.Msg) error {
+				responses[i] = m
+				return nil
+			},
+		}
+
+		resolver.ServeDNS(responseWriter, msg)
+	}
+
+	// Verify all three responses contain answers
+	for i, resp := range responses {
+		require.NotNil(t, resp, "Response %d should not be nil", i)
+		require.Len(t, resp.Answer, 3, "Response %d should have 3 answers", i)
+	}
+
+	// Verify the first record in each response is different due to rotation
+	firstRecordIPs := []string{
+		responses[0].Answer[0].String(),
+		responses[1].Answer[0].String(),
+		responses[2].Answer[0].String(),
+	}
+
+	// Each record should be different (rotated)
+	assert.NotEqual(t, firstRecordIPs[0], firstRecordIPs[1], "First lookup should differ from second lookup due to rotation")
+	assert.NotEqual(t, firstRecordIPs[1], firstRecordIPs[2], "Second lookup should differ from third lookup due to rotation")
+	assert.NotEqual(t, firstRecordIPs[0], firstRecordIPs[2], "First lookup should differ from third lookup due to rotation")
+
+	// After three rotations, we should have cycled through all records
+	assert.Contains(t, firstRecordIPs[0]+firstRecordIPs[1]+firstRecordIPs[2], record1.RData)
+	assert.Contains(t, firstRecordIPs[0]+firstRecordIPs[1]+firstRecordIPs[2], record2.RData)
+	assert.Contains(t, firstRecordIPs[0]+firstRecordIPs[1]+firstRecordIPs[2], record3.RData)
+}
+
+// TestLocalResolver_CaseInsensitiveMatching verifies that DNS record lookups are case-insensitive
+func TestLocalResolver_CaseInsensitiveMatching(t *testing.T) {
+	resolver := NewResolver()
+
+	// Create record with lowercase name
+	lowerCaseRecord := nbdns.SimpleRecord{
+		Name:  "lower.example.com.",
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "10.10.10.10",
+	}
+
+	// Create record with mixed case name
+	mixedCaseRecord := nbdns.SimpleRecord{
+		Name:  "MiXeD.ExAmPlE.CoM.",
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "20.20.20.20",
+	}
+
+	// Update resolver with the records
+	resolver.Update([]nbdns.SimpleRecord{lowerCaseRecord, mixedCaseRecord})
+
+	testCases := []struct {
+		name          string
+		queryName     string
+		expectedRData string
+		shouldResolve bool
+	}{
+		{
+			name:          "Query lowercase with lowercase record",
+			queryName:     "lower.example.com.",
+			expectedRData: "10.10.10.10",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query uppercase with lowercase record",
+			queryName:     "LOWER.EXAMPLE.COM.",
+			expectedRData: "10.10.10.10",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query mixed case with lowercase record",
+			queryName:     "LoWeR.eXaMpLe.CoM.",
+			expectedRData: "10.10.10.10",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query lowercase with mixed case record",
+			queryName:     "mixed.example.com.",
+			expectedRData: "20.20.20.20",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query uppercase with mixed case record",
+			queryName:     "MIXED.EXAMPLE.COM.",
+			expectedRData: "20.20.20.20",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query with different casing pattern",
+			queryName:     "mIxEd.ExaMpLe.cOm.",
+			expectedRData: "20.20.20.20",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query non-existent domain",
+			queryName:     "nonexistent.example.com.",
+			shouldResolve: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var responseMSG *dns.Msg
+
+			// Create DNS query with the test case name
+			msg := new(dns.Msg).SetQuestion(tc.queryName, dns.TypeA)
+
+			// Create mock response writer to capture the response
+			responseWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					responseMSG = m
+					return nil
+				},
+			}
+
+			// Perform DNS query
+			resolver.ServeDNS(responseWriter, msg)
+
+			// Check if we expect a successful resolution
+			if !tc.shouldResolve {
+				if responseMSG == nil || len(responseMSG.Answer) == 0 {
+					// Expected no answer, test passes
+					return
+				}
+				t.Fatalf("Expected no resolution for %s, but got answer: %v", tc.queryName, responseMSG.Answer)
+			}
+
+			// Verify we got a response
+			require.NotNil(t, responseMSG, "Should have received a response message")
+			require.Greater(t, len(responseMSG.Answer), 0, "Response should contain at least one answer")
+
+			// Verify the response contains the expected data
+			answerString := responseMSG.Answer[0].String()
+			assert.Contains(t, answerString, tc.expectedRData,
+				"Answer should contain the expected IP address %s, got: %s",
+				tc.expectedRData, answerString)
+		})
+	}
+}
+
+// TestLocalResolver_CNAMEFallback verifies that the resolver correctly falls back
+// to checking for CNAME records when the requested record type isn't found
+func TestLocalResolver_CNAMEFallback(t *testing.T) {
+	resolver := NewResolver()
+
+	// Create a CNAME record (but no A record for this name)
+	cnameRecord := nbdns.SimpleRecord{
+		Name:  "alias.example.com.",
+		Type:  int(dns.TypeCNAME),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "target.example.com.",
+	}
+
+	// Create an A record for the CNAME target
+	targetRecord := nbdns.SimpleRecord{
+		Name:  "target.example.com.",
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "192.168.100.100",
+	}
+
+	// Update resolver with both records
+	resolver.Update([]nbdns.SimpleRecord{cnameRecord, targetRecord})
+
+	testCases := []struct {
+		name          string
+		queryName     string
+		queryType     uint16
+		expectedType  string
+		expectedRData string
+		shouldResolve bool
+	}{
+		{
+			name:          "Directly query CNAME record",
+			queryName:     "alias.example.com.",
+			queryType:     dns.TypeCNAME,
+			expectedType:  "CNAME",
+			expectedRData: "target.example.com.",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query A record but get CNAME fallback",
+			queryName:     "alias.example.com.",
+			queryType:     dns.TypeA,
+			expectedType:  "CNAME",
+			expectedRData: "target.example.com.",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query AAAA record but get CNAME fallback",
+			queryName:     "alias.example.com.",
+			queryType:     dns.TypeAAAA,
+			expectedType:  "CNAME",
+			expectedRData: "target.example.com.",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query direct A record",
+			queryName:     "target.example.com.",
+			queryType:     dns.TypeA,
+			expectedType:  "A",
+			expectedRData: "192.168.100.100",
+			shouldResolve: true,
+		},
+		{
+			name:          "Query non-existent name",
+			queryName:     "nonexistent.example.com.",
+			queryType:     dns.TypeA,
+			shouldResolve: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var responseMSG *dns.Msg
+
+			// Create DNS query with the test case parameters
+			msg := new(dns.Msg).SetQuestion(tc.queryName, tc.queryType)
+
+			// Create mock response writer to capture the response
+			responseWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					responseMSG = m
+					return nil
+				},
+			}
+
+			// Perform DNS query
+			resolver.ServeDNS(responseWriter, msg)
+
+			// Check if we expect a successful resolution
+			if !tc.shouldResolve {
+				if responseMSG == nil || len(responseMSG.Answer) == 0 || responseMSG.Rcode != dns.RcodeSuccess {
+					// Expected no resolution, test passes
+					return
+				}
+				t.Fatalf("Expected no resolution for %s, but got answer: %v", tc.queryName, responseMSG.Answer)
+			}
+
+			// Verify we got a successful response
+			require.NotNil(t, responseMSG, "Should have received a response message")
+			require.Equal(t, dns.RcodeSuccess, responseMSG.Rcode, "Response should have success status code")
+			require.Greater(t, len(responseMSG.Answer), 0, "Response should contain at least one answer")
+
+			// Verify the response contains the expected data
+			answerString := responseMSG.Answer[0].String()
+			assert.Contains(t, answerString, tc.expectedType,
+				"Answer should be of type %s, got: %s", tc.expectedType, answerString)
+			assert.Contains(t, answerString, tc.expectedRData,
+				"Answer should contain the expected data %s, got: %s", tc.expectedRData, answerString)
+		})
+	}
+}
