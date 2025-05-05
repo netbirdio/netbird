@@ -14,7 +14,7 @@ const (
 // Group of the peers for ACL
 type Group struct {
 	// ID of the group
-	ID string
+	ID string `gorm:"primaryKey"`
 
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`

@@ -82,6 +82,10 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
 		}
 		conns = 1
+		_, err = sql.Exec("PRAGMA foreign_keys = ON")
+		if err != nil {
+			return nil, fmt.Errorf("failed to set foreign keys for sqlite: %w", err)
+		}
 	}
 
 	sql.SetMaxOpenConns(conns)
