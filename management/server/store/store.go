@@ -315,6 +315,15 @@ func getMigrations(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[routerTypes.NetworkRouter](ctx, db, "enabled", true)
 		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[networkTypes.Network](ctx, db, "idx_networks_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[resourceTypes.NetworkResource](ctx, db, "idx_network_resources_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[routerTypes.NetworkRouter](ctx, db, "idx_network_routers_id")
+		},
 	}
 }
 
