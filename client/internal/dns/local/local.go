@@ -52,7 +52,7 @@ func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	question := r.Question[0]
 	question.Name = strings.ToLower(dns.Fqdn(question.Name))
 
-	log.Tracef("received local question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+	log.Tracef("received local question: domain=%s type=%v class=%v", r.Question[0].Name, question.Qtype, question.Qclass)
 
 	replyMessage := &dns.Msg{}
 	replyMessage.SetReply(r)
