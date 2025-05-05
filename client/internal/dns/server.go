@@ -418,7 +418,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		s.service.Stop()
 	}
 
-	localMuxUpdates, localRecordsByDomain, err := s.buildLocalHandlerUpdate(update.CustomZones)
+	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("local handler updater: %w", err)
 	}
@@ -432,7 +432,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	s.updateMux(muxUpdates)
 
 	// register local records
-	s.localResolver.Update(localRecordsByDomain)
+	s.localResolver.Update(localRecords)
 
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
