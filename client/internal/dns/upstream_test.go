@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/netbirdio/netbird/client/internal/dns/test"
 )
 
 func TestUpstreamResolver_ServeDNS(t *testing.T) {
@@ -66,7 +68,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			}
 
 			var responseMSG *dns.Msg
-			responseWriter := &mockResponseWriter{
+			responseWriter := &test.MockResponseWriter{
 				WriteMsgFunc: func(m *dns.Msg) error {
 					responseMSG = m
 					return nil
@@ -130,7 +132,7 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 	resolver.failsTillDeact = 0
 	resolver.reactivatePeriod = time.Microsecond * 100
 
-	responseWriter := &mockResponseWriter{
+	responseWriter := &test.MockResponseWriter{
 		WriteMsgFunc: func(m *dns.Msg) error { return nil },
 	}
 
