@@ -268,7 +268,9 @@ func (e *Engine) Stop() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	e.connMgr.Close()
+	if e.connMgr != nil {
+		e.connMgr.Close()
+	}
 
 	// stopping network monitor first to avoid starting the engine again
 	if e.networkMonitor != nil {
