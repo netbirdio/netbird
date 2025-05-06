@@ -853,6 +853,42 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	account.Users["service-user-1"] = &types.User{
+		Id:            "service-user-1",
+		Role:          types.UserRoleAdmin,
+		IsServiceUser: true,
+		Issued:        types.UserIssuedAPI,
+		PATs: map[string]*types.PersonalAccessToken{
+			"pat-1": {
+				ID:          "pat-1",
+				UserID:      "service-user-1",
+				Name:        "service-user-1",
+				HashedToken: "hashedToken",
+				CreatedAt:   time.Now(),
+			},
+		},
+	}
+	account.Users[userId] = &types.User{
+		Id:            "service-user-2",
+		Role:          types.UserRoleUser,
+		IsServiceUser: true,
+		Issued:        types.UserIssuedAPI,
+		PATs: map[string]*types.PersonalAccessToken{
+			"pat-2": {
+				ID:          "pat-2",
+				UserID:      userId,
+				Name:        userId,
+				HashedToken: "hashedToken",
+				CreatedAt:   time.Now(),
+			},
+		},
+	}
+
+	err = manager.Store.SaveAccount(context.Background(), account)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	err = manager.DeleteAccount(context.Background(), account.Id, userId)
 	if err != nil {
 		t.Fatal(err)
@@ -862,6 +898,14 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 	if err == nil {
 		t.Fatal(fmt.Errorf("expected to get an error when trying to get deleted account, got %v", getAccount))
 	}
+
+	pats, err := manager.Store.GetUserPATs(context.Background(), store.LockingStrengthShare, "service-user-1")
+	require.NoError(t, err)
+	assert.Len(t, pats, 0)
+
+	pats, err = manager.Store.GetUserPATs(context.Background(), store.LockingStrengthShare, userId)
+	require.NoError(t, err)
+	assert.Len(t, pats, 0)
 }
 
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
