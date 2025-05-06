@@ -603,11 +603,15 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	}
 
 	for _, otherUser := range account.Users {
-		if otherUser.IsServiceUser {
+		if otherUser.Id == userID {
 			continue
 		}
 
-		if otherUser.Id == userID {
+		if otherUser.IsServiceUser {
+			err = am.deleteServiceUser(ctx, accountID, userID, otherUser)
+			if err != nil {
+				return err
+			}
 			continue
 		}
 
