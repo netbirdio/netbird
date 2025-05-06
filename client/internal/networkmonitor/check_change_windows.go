@@ -13,7 +13,7 @@ import (
 func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 	routeMonitor, err := systemops.NewRouteMonitor(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to create route monitor: %w", err)
+		return fmt.Errorf("create route monitor: %w", err)
 	}
 	defer func() {
 		if err := routeMonitor.Stop(); err != nil {
@@ -38,28 +38,30 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 }
 
 func routeChanged(route systemops.RouteUpdate, nexthopv4, nexthopv6 systemops.Nexthop) bool {
-	intf := "<nil>"
-	if route.Interface != nil {
-		intf = route.Interface.Name
-		if isSoftInterface(intf) {
-			log.Debugf("Network monitor: ignoring default route change for soft interface %s", intf)
-			return false
-		}
+	if intf := route.NextHop.Intf; intf != nil && isSoftInterface(intf.Name) {
+		log.Debugf("Network monitor: ignoring default route change for next hop with soft interface %s", route.NextHop)
+		return false
 	}
 
 	switch route.Type {
 	case systemops.RouteModified:
 		// TODO: get routing table to figure out if our route is affected for modified routes
-		log.Infof("Network monitor: default route changed: via %s, interface %s", route.NextHop, intf)
-		return true
+
+		// Ignore changes to our tracked routes where neither next hop ip nor interface have changed.
+		if route.NextHop.IP.Is4() && !nexthopv4.Equal(route.NextHop) || route.NextHop.IP.Is6() && !nexthopv6.Equal(route.NextHop) {
+			log.Infof("Network monitor: default route changed: via %s", route.NextHop)
+			return true
+		}
 	case systemops.RouteAdded:
-		if route.NextHop.Is4() && route.NextHop != nexthopv4.IP || route.NextHop.Is6() && route.NextHop != nexthopv6.IP {
-			log.Infof("Network monitor: default route added: via %s, interface %s", route.NextHop, intf)
+		// We are only interested in new routes that are different
+		if route.NextHop.IP.Is4() && !nexthopv4.Equal(route.NextHop) || route.NextHop.IP.Is6() && !nexthopv6.Equal(route.NextHop) {
+			log.Infof("Network monitor: default route added: via %s", route.NextHop)
 			return true
 		}
 	case systemops.RouteDeleted:
-		if nexthopv4.Intf != nil && route.NextHop == nexthopv4.IP || nexthopv6.Intf != nil && route.NextHop == nexthopv6.IP {
-			log.Infof("Network monitor: default route removed: via %s, interface %s", route.NextHop, intf)
+		// We are only interested in our tracked routes being deleted
+		if route.NextHop.IP.Is4() && nexthopv4.Equal(route.NextHop) || route.NextHop.IP.Is6() && nexthopv6.Equal(route.NextHop) {
+			log.Infof("Network monitor: default route removed: via %s", route.NextHop)
 			return true
 		}
 	}
