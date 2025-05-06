@@ -208,7 +208,7 @@ func mapPeers(
 		transferSent := int64(0)
 
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
-		if skipDetailByFilters(pbPeerState, isPeerConnected, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter) {
+		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter) {
 			continue
 		}
 		if isPeerConnected {
@@ -542,23 +542,16 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 	return peersString
 }
 
-func skipDetailByFilters(
-	peerState *proto.PeerState,
-	isConnected bool,
-	statusFilter string,
-	prefixNamesFilter []string,
-	prefixNamesFilterMap map[string]struct{},
-	ipsFilter map[string]struct{},
-) bool {
+func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}) bool {
 	statusEval := false
 	ipEval := false
 	nameEval := true
 
 	if statusFilter != "" {
 		lowerStatusFilter := strings.ToLower(statusFilter)
-		if lowerStatusFilter == "disconnected" && isConnected {
-			statusEval = true
-		} else if lowerStatusFilter == "connected" && !isConnected {
+		lowerConnectionStatus := strings.ToLower(peerStatus)
+
+		if lowerStatusFilter != lowerConnectionStatus {
 			statusEval = true
 		}
 	}
