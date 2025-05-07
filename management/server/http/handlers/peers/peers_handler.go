@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -23,6 +27,7 @@ import (
 // Handler is a handler that returns peers of the account
 type Handler struct {
 	accountManager account.Manager
+	rateLimiter    *rate.Limiter
 }
 
 func AddEndpoints(accountManager account.Manager, router *mux.Router) {
@@ -35,8 +40,14 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 
 // NewHandler creates a new peers Handler
 func NewHandler(accountManager account.Manager) *Handler {
+	apiRatePerM, err := strconv.Atoi(os.Getenv("NB_API_RATE_PER_M"))
+	if apiRatePerM == 0 || err != nil {
+		apiRatePerM = 60
+	}
+	log.Infof("peers API rate limit set to %d/min", apiRatePerM)
 	return &Handler{
 		accountManager: accountManager,
+		rateLimiter:    rate.NewLimiter(rate.Every(time.Minute/time.Duration(apiRatePerM)), 1),
 	}
 }
 
@@ -54,6 +65,11 @@ func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
 }
 
 func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {
+	if !h.rateLimiter.Allow() {
+		util.WriteError(ctx, fmt.Errorf("temp rate limit reached"), w)
+		return
+	}
+
 	peer, err := h.accountManager.GetPeer(ctx, accountID, peerID, userID)
 	if err != nil {
 		util.WriteError(ctx, err, w)
