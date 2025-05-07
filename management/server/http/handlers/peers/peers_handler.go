@@ -107,7 +107,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 	req := &api.PeerRequest{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusPreconditionRequired, w)
 		return
 	}
 
@@ -204,7 +204,7 @@ func (h *Handler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 // GetAllPeers returns a list of all peers associated with a provided account
 func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	if !h.rateLimiter.Allow() {
-		util.WriteError(r.Context(), fmt.Errorf("temp rate limit reached"), w)
+		util.WriteError(r.Context(), status.Errorf(status.StatusTooManyRequests, "temp rate limit reached"), w)
 		return
 	}
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
