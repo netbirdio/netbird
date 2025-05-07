@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/rs/xid"
@@ -448,32 +447,41 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 }
 
 var (
-	semaphoreLimit int32 = 10
-	semaphores           = sync.Map{}
+	semaphoreLimit = 10
+	semaphores     = make(map[string]chan struct{})
+	mu             sync.Mutex
 )
 
 func TryAcquire(key string) error {
-	v, _ := semaphores.LoadOrStore(key, new(atomic.Int32))
-	counter := v.(*atomic.Int32)
+	mu.Lock()
+	ch, ok := semaphores[key]
+	if !ok {
+		ch = make(chan struct{}, semaphoreLimit)
+		semaphores[key] = ch
+	}
+	mu.Unlock()
 
-	for {
-		current := counter.Load()
-		if current >= semaphoreLimit {
-			return errors.New("keep your calm")
-		}
-		if counter.CompareAndSwap(current, current+1) {
-			return nil
-		}
+	select {
+	case ch <- struct{}{}:
+		return nil
+	default:
+		return errors.New("keep your calm")
 	}
 }
 
 func Release(key string) {
-	v, ok := semaphores.Load(key)
+	mu.Lock()
+	ch, ok := semaphores[key]
+	mu.Unlock()
 	if !ok {
 		return
 	}
-	counter := v.(*atomic.Int32)
-	counter.Add(-1)
+
+	select {
+	case <-ch:
+	default:
+		return
+	}
 }
 
 // AddPeer adds a new peer to the Store.

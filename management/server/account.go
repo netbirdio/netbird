@@ -1522,8 +1522,8 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 		return err
 	}
 
-	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer unlock()
+	// unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
+	// defer unlock()
 
 	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
 	defer unlockPeer()
