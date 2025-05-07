@@ -1311,7 +1311,7 @@ func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStre
 	query := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Where(accountIDCondition, accountID)
 
 	if nameFilter != "" {
-		query = query.Where("name LIKE ?", "%"+nameFilter+"%")
+		query = query.Where("name = ?", nameFilter)
 	}
 	if ipFilter != "" {
 		query = query.Where("ip LIKE ?", "%"+ipFilter+"%")
