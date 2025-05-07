@@ -448,7 +448,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 }
 
 var (
-	semaphoreLimit int32 = 50
+	semaphoreLimit int32 = 10
 	semaphores           = sync.Map{}
 )
 
