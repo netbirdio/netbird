@@ -15,7 +15,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
-	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -874,16 +873,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 		if !peer.AllowExtraDNSLabels && len(login.ExtraDNSLabels) > 0 {
 			return status.Errorf(status.PreconditionFailed, "couldn't login peer: setup key doesn't allow extra DNS labels")
-		}
-
-		extraLabels, err := domain.ValidateDomainsStrSlice(login.ExtraDNSLabels)
-		if err != nil {
-			return status.Errorf(status.InvalidArgument, "invalid extra DNS labels: %v", err)
-		}
-
-		if !slices.Equal(peer.ExtraDNSLabels, extraLabels) {
-			peer.ExtraDNSLabels = extraLabels
-			shouldStorePeer = true
 		}
 
 		if shouldStorePeer {
