@@ -67,7 +67,11 @@ func NewManager(config Config, wgIface lazyconn.WGIface, connStateDispatcher *di
 	}
 
 	if config.InactivityThreshold != nil {
-		m.inactivityThreshold = *config.InactivityThreshold
+		if *config.InactivityThreshold >= inactivity.MinimumInactivityThreshold {
+			m.inactivityThreshold = *config.InactivityThreshold
+		} else {
+			log.Warnf("inactivity threshold is too low, using %v", m.inactivityThreshold)
+		}
 	}
 
 	m.connStateListener = &dispatcher.ConnectionListener{
@@ -182,7 +186,7 @@ func (m *Manager) RemovePeer(peerID string) {
 }
 
 // ActivatePeer activates a peer connection when a signal message is received
-func (m *Manager) ActivatePeer(peerID string) (found bool) {
+func (m *Manager) ActivatePeer(ctx context.Context, peerID string) (found bool) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
@@ -197,7 +201,7 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 	}
 
 	// signal messages coming continuously after success activation, with this avoid the multiple activation
-	if mp.expectedWatcher != watcherActivity {
+	if mp.expectedWatcher == watcherInactivity {
 		return false
 	}
 
@@ -205,8 +209,15 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 
 	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
 
-	cfg.Log.Debugf("reset inactivity monitor timer")
-	m.inactivityMonitors[cfg.PeerConnID].ResetTimer()
+	im, ok := m.inactivityMonitors[cfg.PeerConnID]
+	if !ok {
+		cfg.Log.Errorf("inactivity monitor not found for peer")
+		return false
+	}
+
+	mp.peerCfg.Log.Infof("starting inactivity monitor")
+	go im.Start(ctx, m.onInactive)
+
 	return true
 }
 

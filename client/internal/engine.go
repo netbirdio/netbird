@@ -1299,7 +1299,7 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn, ok := e.connMgr.OnSignalMsg(msg.Key)
+			conn, ok := e.connMgr.OnSignalMsg(e.ctx, msg.Key)
 			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
