@@ -548,10 +548,7 @@ func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFi
 	nameEval := true
 
 	if statusFilter != "" {
-		lowerStatusFilter := strings.ToLower(statusFilter)
-		lowerConnectionStatus := strings.ToLower(peerStatus)
-
-                if !strings.EqualFold(peerStatus, statusFilter) {
+		if !strings.EqualFold(peerStatus, statusFilter) {
 			statusEval = true
 		}
 	}
