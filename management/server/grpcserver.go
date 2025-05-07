@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +50,9 @@ type GRPCServer struct {
 	ephemeralManager   *EphemeralManager
 	peerLocks          sync.Map
 	authManager        auth.Manager
+
+	syncLimiter  *rate.Limiter
+	loginLimiter *rate.Limiter
 }
 
 // NewServer creates a new Management server
@@ -77,6 +82,16 @@ func NewServer(
 		}
 	}
 
+	loginRatePerS, err := strconv.Atoi(os.Getenv("NB_LOGIN_RATE_PER_M"))
+	if loginRatePerS == 0 || err != nil {
+		loginRatePerS = 300
+	}
+
+	syncRatePerS, err := strconv.Atoi(os.Getenv("NB_SYNC_RATE_PER_M"))
+	if syncRatePerS == 0 || err != nil {
+		syncRatePerS = 300
+	}
+
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
@@ -88,6 +103,8 @@ func NewServer(
 		authManager:        authManager,
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
+		syncLimiter:        rate.NewLimiter(rate.Every(time.Minute/time.Duration(syncRatePerS)), 1),
+		loginLimiter:       rate.NewLimiter(rate.Every(time.Minute/time.Duration(loginRatePerS)), 1),
 	}, nil
 }
 
@@ -126,12 +143,10 @@ func getRealIP(ctx context.Context) net.IP {
 	return nil
 }
 
-var syncLimiter = rate.NewLimiter(rate.Every(time.Minute/300), 1)
-
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
-	if !syncLimiter.Allow() {
+	if !s.syncLimiter.Allow() {
 		return status.Errorf(codes.Internal, "temp rate limit reached")
 	}
 
@@ -418,14 +433,12 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 	return peerKey, nil
 }
 
-var loginLimiter = rate.NewLimiter(rate.Every(time.Minute/300), 1)
-
 // Login endpoint first checks whether peer is registered under any account
 // In case it is, the login is successful
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	if !loginLimiter.Allow() {
+	if !s.loginLimiter.Allow() {
 		return nil, status.Errorf(codes.Internal, "temp rate limit reached")
 	}
 
