@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -13,6 +14,7 @@ import (
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
@@ -411,11 +413,17 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 	return peerKey, nil
 }
 
+var loginLimiter = rate.NewLimiter(rate.Every(time.Minute/100), 1)
+
 // Login endpoint first checks whether peer is registered under any account
 // In case it is, the login is successful
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	if !loginLimiter.Allow() {
+		return nil, errors.New("rate limit exceeded")
+	}
+
 	reqStart := time.Now()
 	defer func() {
 		if s.appMetrics != nil {
@@ -434,16 +442,6 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, err
 	}
 
-	//nolint
-	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
-	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
-	if err != nil {
-		// this case should not happen and already indicates an issue but we don't want the system to fail due to being unable to log in detail
-		accountID = "UNKNOWN"
-	}
-	//nolint
-	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
-
 	err = TryAcquire(loginReq.GetPeerKeys().String())
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while acquiring grpc semaphore for %s: %v", loginReq.GetPeerKeys().String(), err)
@@ -453,6 +451,16 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	defer func() {
 		Release(loginReq.GetPeerKeys().String())
 	}()
+
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
+	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
+	if err != nil {
+		// this case should not happen and already indicates an issue but we don't want the system to fail due to being unable to log in detail
+		accountID = "UNKNOWN"
+	}
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
