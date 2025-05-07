@@ -51,8 +51,10 @@ type GRPCServer struct {
 	peerLocks          sync.Map
 	authManager        auth.Manager
 
-	syncLimiter  *rate.Limiter
-	loginLimiter *rate.Limiter
+	syncLimiter       *rate.Limiter
+	loginLimiter      *rate.Limiter
+	loginLimiterStore sync.Map
+	loginPeerLimit    rate.Limit
 }
 
 // NewServer creates a new Management server
@@ -86,6 +88,10 @@ func NewServer(
 	if loginRatePerS == 0 || err != nil {
 		loginRatePerS = 200
 	}
+	loginPeerRatePerS, err := strconv.Atoi(os.Getenv("NB_LOGIN_PEER_RATE_PER_M"))
+	if loginPeerRatePerS == 0 || err != nil {
+		loginPeerRatePerS = 200
+	}
 	log.WithContext(ctx).Infof("login rate limit set to %d/min", loginRatePerS)
 
 	syncRatePerS, err := strconv.Atoi(os.Getenv("NB_SYNC_RATE_PER_M"))
@@ -107,6 +113,7 @@ func NewServer(
 		ephemeralManager:   ephemeralManager,
 		syncLimiter:        rate.NewLimiter(rate.Every(time.Minute/time.Duration(syncRatePerS)), 1),
 		loginLimiter:       rate.NewLimiter(rate.Every(time.Minute/time.Duration(loginRatePerS)), 1),
+		loginPeerLimit:     rate.Every(time.Minute / time.Duration(loginPeerRatePerS)),
 	}, nil
 }
 
@@ -440,8 +447,15 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	if !s.loginLimiter.Allow() {
+	limiter, _ := s.loginLimiterStore.LoadOrStore(req.WgPubKey, rate.NewLimiter(s.loginPeerLimit, 1))
+	if !limiter.(*rate.Limiter).Allow() {
 		return nil, status.Errorf(codes.Internal, "temp rate limit reached")
+	}
+
+	if os.Getenv("ENABLE_LOGIN_RATE_LIMIT") == "true" {
+		if !s.loginLimiter.Allow() {
+			return nil, status.Errorf(codes.Internal, "temp rate limit reached")
+		}
 	}
 
 	reqStart := time.Now()
