@@ -474,13 +474,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer func() {
-		if unlock != nil {
-			unlock()
-		}
-	}()
-
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireWriteLockByUID (e.g., database is slow)
 	// and the peer disconnects with a timeout and tries to register again.
@@ -656,9 +649,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
-
-	unlock()
-	unlock = nil
 
 	if updateAccountPeers {
 		am.BufferUpdateAccountPeers(ctx, accountID)
