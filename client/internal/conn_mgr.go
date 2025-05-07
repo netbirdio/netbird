@@ -78,6 +78,7 @@ func (e *ConnMgr) SetExcludeList(peerIDs []string) {
 		var peerConn *peer.Conn
 		var exists bool
 		if peerConn, exists = e.peerStore.PeerConn(peerID); !exists {
+			log.Warnf("failed to find peer conn for peerID: %s", peerID)
 			continue
 		}
 
