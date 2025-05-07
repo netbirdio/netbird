@@ -37,6 +37,8 @@ const (
 
 	// Unauthenticated indicates that user is not authenticated due to absence of valid credentials
 	Unauthenticated Type = 10
+
+	StatusTooManyRequests = 11
 )
 
 // Type is a type of the Error
