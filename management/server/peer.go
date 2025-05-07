@@ -463,7 +463,6 @@ func TryAcquire(key string) error {
 	return nil
 }
 
-// Release marks a worker key as free.
 func Release(key string) {
 	mu.Lock()
 	defer mu.Unlock()

@@ -444,6 +444,16 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
+	err = TryAcquire(loginReq.GetPeerKeys().String())
+	if err != nil {
+		log.WithContext(ctx).Debugf("error while acquiring grpc semaphore for %s: %v", loginReq.GetPeerKeys().String(), err)
+		return nil, err
+	}
+
+	defer func() {
+		Release(loginReq.GetPeerKeys().String())
+	}()
+
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
 			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(), realIP)
