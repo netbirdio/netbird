@@ -20,7 +20,9 @@ func (a *DNSAPI) ListNameserverGroups(ctx context.Context) ([]api.NameserverGrou
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.NameserverGroup](resp)
 	return ret, err
 }
@@ -32,7 +34,9 @@ func (a *DNSAPI) GetNameserverGroup(ctx context.Context, nameserverGroupID strin
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.NameserverGroup](resp)
 	return &ret, err
 }
@@ -48,7 +52,9 @@ func (a *DNSAPI) CreateNameserverGroup(ctx context.Context, request api.PostApiD
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.NameserverGroup](resp)
 	return &ret, err
 }
@@ -64,7 +70,9 @@ func (a *DNSAPI) UpdateNameserverGroup(ctx context.Context, nameserverGroupID st
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.NameserverGroup](resp)
 	return &ret, err
 }
@@ -76,7 +84,9 @@ func (a *DNSAPI) DeleteNameserverGroup(ctx context.Context, nameserverGroupID st
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }
@@ -88,7 +98,9 @@ func (a *DNSAPI) GetSettings(ctx context.Context) (*api.DNSSettings, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.DNSSettings](resp)
 	return &ret, err
 }
@@ -104,7 +116,9 @@ func (a *DNSAPI) UpdateSettings(ctx context.Context, request api.PutApiDnsSettin
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.DNSSettings](resp)
 	return &ret, err
 }

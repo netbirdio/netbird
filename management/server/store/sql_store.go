@@ -802,7 +802,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 
 func (s *SqlStore) GetAnyAccountID(ctx context.Context) (string, error) {
 	var account types.Account
-	result := s.db.WithContext(ctx).Select("id").Limit(1).Find(&account)
+	result := s.db.WithContext(ctx).Select("id").Order("created_at desc").Limit(1).Find(&account)
 	if result.Error != nil {
 		return "", status.NewGetAccountFromStoreError(result.Error)
 	}
@@ -1683,18 +1683,26 @@ func (s *SqlStore) SavePolicy(ctx context.Context, lockStrength LockingStrength,
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error {
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&types.Policy{}, accountAndIDQueryCondition, accountID, policyID)
-	if err := result.Error; err != nil {
-		log.WithContext(ctx).Errorf("failed to delete policy from store: %s", err)
-		return status.Errorf(status.Internal, "failed to delete policy from store")
-	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("policy_id = ?", policyID).Delete(&types.PolicyRule{}).Error; err != nil {
+			return fmt.Errorf("delete policy rules: %w", err)
+		}
 
-	if result.RowsAffected == 0 {
-		return status.NewPolicyNotFoundError(policyID)
-	}
+		result := tx.Clauses(clause.Locking{Strength: string(lockStrength)}).
+			Where(accountAndIDQueryCondition, accountID, policyID).
+			Delete(&types.Policy{})
 
-	return nil
+		if err := result.Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to delete policy from store: %s", err)
+			return status.Errorf(status.Internal, "failed to delete policy from store")
+		}
+
+		if result.RowsAffected == 0 {
+			return status.NewPolicyNotFoundError(policyID)
+		}
+
+		return nil
+	})
 }
 
 // GetAccountPostureChecks retrieves posture checks for an account.

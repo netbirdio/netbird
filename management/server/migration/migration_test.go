@@ -227,3 +227,25 @@ func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case2(t *testing.
 
 	assert.Equal(t, "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=", key.Key, "Key should be hashed")
 }
+
+func TestDropIndex(t *testing.T) {
+	db := setupDatabase(t)
+
+	err := db.AutoMigrate(&types.SetupKey{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+
+	err = db.Save(&types.SetupKey{
+		Id:  "1",
+		Key: "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
+	}).Error
+	require.NoError(t, err, "Failed to insert setup key")
+
+	exist := db.Migrator().HasIndex(&types.SetupKey{}, "idx_setup_keys_account_id")
+	assert.True(t, exist, "Should have the index")
+
+	err = migration.DropIndex[types.SetupKey](context.Background(), db, "idx_setup_keys_account_id")
+	require.NoError(t, err, "Migration should not fail to remove index")
+
+	exist = db.Migrator().HasIndex(&types.SetupKey{}, "idx_setup_keys_account_id")
+	assert.False(t, exist, "Should not have the index")
+}

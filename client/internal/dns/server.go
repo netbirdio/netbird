@@ -15,6 +15,8 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/internal/dns/local"
+	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -46,8 +48,6 @@ type Server interface {
 	ProbeAvailability()
 }
 
-type handlerID string
-
 type nsGroupsByDomain struct {
 	domain string
 	groups []*nbdns.NameServerGroup
@@ -61,7 +61,7 @@ type DefaultServer struct {
 	mux                sync.Mutex
 	service            service
 	dnsMuxMap          registeredHandlerMap
-	localResolver      *localResolver
+	localResolver      *local.Resolver
 	wgInterface        WGIface
 	hostManager        hostManager
 	updateSerial       uint64
@@ -84,9 +84,9 @@ type DefaultServer struct {
 
 type handlerWithStop interface {
 	dns.Handler
-	stop()
-	probeAvailability()
-	id() handlerID
+	Stop()
+	ProbeAvailability()
+	ID() types.HandlerID
 }
 
 type handlerWrapper struct {
@@ -95,7 +95,7 @@ type handlerWrapper struct {
 	priority int
 }
 
-type registeredHandlerMap map[handlerID]handlerWrapper
+type registeredHandlerMap map[types.HandlerID]handlerWrapper
 
 // NewDefaultServer returns a new dns server
 func NewDefaultServer(
@@ -171,16 +171,14 @@ func newDefaultServer(
 	handlerChain := NewHandlerChain()
 	ctx, stop := context.WithCancel(ctx)
 	defaultServer := &DefaultServer{
-		ctx:          ctx,
-		ctxCancel:    stop,
-		disableSys:   disableSys,
-		service:      dnsService,
-		handlerChain: handlerChain,
-		extraDomains: make(map[domain.Domain]int),
-		dnsMuxMap:    make(registeredHandlerMap),
-		localResolver: &localResolver{
-			registeredMap: make(registrationMap),
-		},
+		ctx:            ctx,
+		ctxCancel:      stop,
+		disableSys:     disableSys,
+		service:        dnsService,
+		handlerChain:   handlerChain,
+		extraDomains:   make(map[domain.Domain]int),
+		dnsMuxMap:      make(registeredHandlerMap),
+		localResolver:  local.NewResolver(),
 		wgInterface:    wgInterface,
 		statusRecorder: statusRecorder,
 		stateManager:   stateManager,
@@ -403,7 +401,7 @@ func (s *DefaultServer) ProbeAvailability() {
 		wg.Add(1)
 		go func(mux handlerWithStop) {
 			defer wg.Done()
-			mux.probeAvailability()
+			mux.ProbeAvailability()
 		}(mux.handler)
 	}
 	wg.Wait()
@@ -420,7 +418,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 		s.service.Stop()
 	}
 
-	localMuxUpdates, localRecordsByDomain, err := s.buildLocalHandlerUpdate(update.CustomZones)
+	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
 	if err != nil {
 		return fmt.Errorf("local handler updater: %w", err)
 	}
@@ -434,7 +432,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	s.updateMux(muxUpdates)
 
 	// register local records
-	s.updateLocalResolver(localRecordsByDomain)
+	s.localResolver.Update(localRecords)
 
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
@@ -516,11 +514,9 @@ func (s *DefaultServer) handleErrNoGroupaAll(err error) {
 	)
 }
 
-func (s *DefaultServer) buildLocalHandlerUpdate(
-	customZones []nbdns.CustomZone,
-) ([]handlerWrapper, map[string][]nbdns.SimpleRecord, error) {
+func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.SimpleRecord, error) {
 	var muxUpdates []handlerWrapper
-	localRecords := make(map[string][]nbdns.SimpleRecord)
+	var localRecords []nbdns.SimpleRecord
 
 	for _, customZone := range customZones {
 		if len(customZone.Records) == 0 {
@@ -534,17 +530,13 @@ func (s *DefaultServer) buildLocalHandlerUpdate(
 			priority: PriorityMatchDomain,
 		})
 
-		// group all records under this domain
 		for _, record := range customZone.Records {
-			var class uint16 = dns.ClassINET
 			if record.Class != nbdns.DefaultClass {
 				log.Warnf("received an invalid class type: %s", record.Class)
 				continue
 			}
-
-			key := buildRecordKey(record.Name, class, uint16(record.Type))
-
-			localRecords[key] = append(localRecords[key], record)
+			// zone records contain the fqdn, so we can just flatten them
+			localRecords = append(localRecords, record)
 		}
 	}
 
@@ -627,7 +619,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		}
 
 		if len(handler.upstreamServers) == 0 {
-			handler.stop()
+			handler.Stop()
 			log.Errorf("received a nameserver group with an invalid nameserver list")
 			continue
 		}
@@ -656,7 +648,7 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	// this will introduce a short period of time when the server is not able to handle DNS requests
 	for _, existing := range s.dnsMuxMap {
 		s.deregisterHandler([]string{existing.domain}, existing.priority)
-		existing.handler.stop()
+		existing.handler.Stop()
 	}
 
 	muxUpdateMap := make(registeredHandlerMap)
@@ -667,7 +659,7 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 			containsRootUpdate = true
 		}
 		s.registerHandler([]string{update.domain}, update.handler, update.priority)
-		muxUpdateMap[update.handler.id()] = update
+		muxUpdateMap[update.handler.ID()] = update
 	}
 
 	// If there's no root update and we had a root handler, restore it
@@ -681,33 +673,6 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	}
 
 	s.dnsMuxMap = muxUpdateMap
-}
-
-func (s *DefaultServer) updateLocalResolver(update map[string][]nbdns.SimpleRecord) {
-	// remove old records that are no longer present
-	for key := range s.localResolver.registeredMap {
-		_, found := update[key]
-		if !found {
-			s.localResolver.deleteRecord(key)
-		}
-	}
-
-	updatedMap := make(registrationMap)
-	for _, recs := range update {
-		for _, rec := range recs {
-			// convert the record to a dns.RR and register
-			key, err := s.localResolver.registerRecord(rec)
-			if err != nil {
-				log.Warnf("got an error while registering the record (%s), error: %v",
-					rec.String(), err)
-				continue
-			}
-
-			updatedMap[key] = struct{}{}
-		}
-	}
-
-	s.localResolver.registeredMap = updatedMap
 }
 
 func getNSHostPort(ns nbdns.NameServer) string {
