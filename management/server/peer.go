@@ -447,41 +447,28 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 }
 
 var (
-	semaphoreLimit = 10
-	semaphores     = make(map[string]chan struct{})
-	mu             sync.Mutex
+	mu      sync.Mutex
+	busyMap = make(map[string]bool)
 )
 
 func TryAcquire(key string) error {
 	mu.Lock()
-	ch, ok := semaphores[key]
-	if !ok {
-		ch = make(chan struct{}, semaphoreLimit)
-		semaphores[key] = ch
-	}
-	mu.Unlock()
+	defer mu.Unlock()
 
-	select {
-	case ch <- struct{}{}:
-		return nil
-	default:
+	if busyMap[key] {
 		return errors.New("keep your calm")
 	}
+
+	busyMap[key] = true
+	return nil
 }
 
+// Release marks a worker key as free.
 func Release(key string) {
 	mu.Lock()
-	ch, ok := semaphores[key]
-	mu.Unlock()
-	if !ok {
-		return
-	}
+	defer mu.Unlock()
 
-	select {
-	case <-ch:
-	default:
-		return
-	}
+	delete(busyMap, key)
 }
 
 // AddPeer adds a new peer to the Store.
