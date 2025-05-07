@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -13,6 +14,7 @@ import (
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
@@ -125,9 +127,15 @@ func getRealIP(ctx context.Context) net.IP {
 	return nil
 }
 
+var syncLimiter = rate.NewLimiter(rate.Every(time.Minute/300), 1)
+
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
+	if !syncLimiter.Allow() {
+		return errors.New("rate limit exceeded")
+	}
+
 	reqStart := time.Now()
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequest()
@@ -411,11 +419,17 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 	return peerKey, nil
 }
 
+var loginLimiter = rate.NewLimiter(rate.Every(time.Minute/300), 1)
+
 // Login endpoint first checks whether peer is registered under any account
 // In case it is, the login is successful
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	if !loginLimiter.Allow() {
+		return nil, errors.New("rate limit exceeded")
+	}
+
 	reqStart := time.Now()
 	defer func() {
 		if s.appMetrics != nil {

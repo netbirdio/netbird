@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
-	"errors"
 	"fmt"
 	"net"
 	"slices"
@@ -15,7 +14,6 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
-	"golang.org/x/time/rate"
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -782,17 +780,11 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 	return nil, nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
 }
 
-var loginLimiter = rate.NewLimiter(rate.Every(time.Minute/500), 1)
-
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
-		if !loginLimiter.Allow() {
-			return nil, nil, nil, errors.New("rate limit exceeded")
-		}
-
 		return am.handlePeerLoginNotFound(ctx, login, err)
 	}
 
