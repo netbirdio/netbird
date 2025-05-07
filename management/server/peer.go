@@ -767,10 +767,11 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 		// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 		// Try registering it.
 		newPeer := &nbpeer.Peer{
-			Key:      login.WireGuardPubKey,
-			Meta:     login.Meta,
-			SSHKey:   login.SSHKey,
-			Location: nbpeer.Location{ConnectionIP: login.ConnectionIP},
+			Key:            login.WireGuardPubKey,
+			Meta:           login.Meta,
+			SSHKey:         login.SSHKey,
+			Location:       nbpeer.Location{ConnectionIP: login.ConnectionIP},
+			ExtraDNSLabels: login.ExtraDNSLabels,
 		}
 
 		return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
