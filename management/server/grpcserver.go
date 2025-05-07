@@ -84,12 +84,12 @@ func NewServer(
 
 	loginRatePerS, err := strconv.Atoi(os.Getenv("NB_LOGIN_RATE_PER_M"))
 	if loginRatePerS == 0 || err != nil {
-		loginRatePerS = 300
+		loginRatePerS = 200
 	}
 
 	syncRatePerS, err := strconv.Atoi(os.Getenv("NB_SYNC_RATE_PER_M"))
 	if syncRatePerS == 0 || err != nil {
-		syncRatePerS = 300
+		syncRatePerS = 200
 	}
 
 	return &GRPCServer{
