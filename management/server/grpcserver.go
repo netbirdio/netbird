@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -133,7 +132,7 @@ var syncLimiter = rate.NewLimiter(rate.Every(time.Minute/300), 1)
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
 	if !syncLimiter.Allow() {
-		return errors.New("rate limit exceeded")
+		return status.Errorf(codes.Internal, "temp rate limit reached")
 	}
 
 	reqStart := time.Now()
@@ -427,7 +426,7 @@ var loginLimiter = rate.NewLimiter(rate.Every(time.Minute/300), 1)
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	if !loginLimiter.Allow() {
-		return nil, errors.New("rate limit exceeded")
+		return nil, status.Errorf(codes.Internal, "temp rate limit reached")
 	}
 
 	reqStart := time.Now()
