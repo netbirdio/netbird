@@ -86,11 +86,13 @@ func NewServer(
 	if loginRatePerS == 0 || err != nil {
 		loginRatePerS = 200
 	}
+	log.WithContext(ctx).Infof("login rate limit set to %d/min", loginRatePerS)
 
 	syncRatePerS, err := strconv.Atoi(os.Getenv("NB_SYNC_RATE_PER_M"))
 	if syncRatePerS == 0 || err != nil {
 		syncRatePerS = 200
 	}
+	log.WithContext(ctx).Infof("sync rate limit set to %d/min", syncRatePerS)
 
 	return &GRPCServer{
 		wgKey: key,
