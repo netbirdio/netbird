@@ -44,6 +44,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
 const (
@@ -101,6 +102,10 @@ type DefaultAccountManager struct {
 
 	accountUpdateLocks               sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
+
+	addPeerMap         sync.Map
+	addPeerSemaphore   *semaphoregroup.SemaphoreGroup
+	addPeerSemaphoreMu sync.Mutex
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
