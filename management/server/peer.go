@@ -484,15 +484,6 @@ func Release(key string) {
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
 func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
-	if err := TryAcquire(peer.AccountID); err != nil {
-		log.Debugf("failed to acquire semaphore: %v", err)
-		return nil, nil, nil, status.Errorf(status.PreconditionFailed, "failed to acquire semaphore: %v", err)
-	}
-
-	go func() {
-		defer Release(peer.AccountID)
-	}()
-
 	if setupKey == "" && userID == "" {
 		// no auth method provided => reject access
 		return nil, nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
@@ -513,6 +504,15 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	if err != nil {
 		return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
 	}
+
+	if err := TryAcquire(accountID); err != nil {
+		log.Debugf("failed to acquire semaphore: %v", err)
+		return nil, nil, nil, status.Errorf(status.PreconditionFailed, "failed to acquire semaphore: %v", err)
+	}
+
+	go func() {
+		defer Release(accountID)
+	}()
 
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireWriteLockByUID (e.g., database is slow)
