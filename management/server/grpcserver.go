@@ -84,6 +84,12 @@ func NewServer(
 		}
 	}
 
+	multiplier := time.Second
+	d, e := time.ParseDuration(os.Getenv("NB_LOGIN_RATE"))
+	if e == nil {
+		multiplier = d
+	}
+
 	loginRatePerS, err := strconv.Atoi(os.Getenv("NB_LOGIN_RATE_PER_M"))
 	if loginRatePerS == 0 || err != nil {
 		loginRatePerS = 200
@@ -112,7 +118,7 @@ func NewServer(
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
 		syncLimiter:        rate.NewLimiter(rate.Every(time.Minute/time.Duration(syncRatePerS)), 1),
-		loginLimiter:       rate.NewLimiter(rate.Every(time.Minute/time.Duration(loginRatePerS)), 1),
+		loginLimiter:       rate.NewLimiter(rate.Every(multiplier/time.Duration(loginRatePerS)), 1),
 		loginPeerLimit:     rate.Every(time.Minute / time.Duration(loginPeerRatePerS)),
 	}, nil
 }
