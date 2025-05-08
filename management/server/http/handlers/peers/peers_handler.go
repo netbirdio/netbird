@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -28,6 +31,8 @@ import (
 type Handler struct {
 	accountManager account.Manager
 	rateLimiter    *rate.Limiter
+	limiterStore   sync.Map
+	reqLimit       rate.Limit
 }
 
 func AddEndpoints(accountManager account.Manager, router *mux.Router) {
@@ -48,6 +53,7 @@ func NewHandler(accountManager account.Manager) *Handler {
 	return &Handler{
 		accountManager: accountManager,
 		rateLimiter:    rate.NewLimiter(rate.Every(time.Minute/time.Duration(apiRatePerM)), 1),
+		reqLimit:       rate.Every(time.Minute / time.Duration(apiRatePerM)),
 	}
 }
 
@@ -200,13 +206,40 @@ func (h *Handler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), status.Errorf(status.NotFound, "unknown METHOD"), w)
 	}
 }
+func getCallerIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (can be a comma-separated list)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Use first IP in the list
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[0])
+	}
+
+	// Then check X-Real-IP
+	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
+		return xrip
+	}
+
+	// Fallback to RemoteAddr
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr // may be raw IP
+	}
+	return ip
+}
 
 // GetAllPeers returns a list of all peers associated with a provided account
 func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
-	if !h.rateLimiter.Allow() {
+	ip := getCallerIP(r)
+	limiter, _ := h.limiterStore.LoadOrStore(ip, rate.NewLimiter(h.reqLimit, 1))
+	if !limiter.(*rate.Limiter).Allow() {
+		log.WithContext(r.Context()).Errorf("rate limit exceeded for IP: %s", ip)
 		util.WriteError(r.Context(), status.Errorf(status.StatusTooManyRequests, "temp rate limit reached"), w)
 		return
 	}
+	//if !h.rateLimiter.Allow() {
+	//	util.WriteError(r.Context(), status.Errorf(status.StatusTooManyRequests, "temp rate limit reached"), w)
+	//	return
+	//}
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
