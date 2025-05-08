@@ -481,6 +481,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 	}()
 
+	startGlobal := time.Now()
+
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireWriteLockByUID (e.g., database is slow)
 	// and the peer disconnects with a timeout and tries to register again.
@@ -505,6 +507,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		var ephemeral bool
 		var groupsToAdd []string
 		var allowExtraDNSLabels bool
+
+		start := time.Now()
 		if addedByUser {
 			user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, userID)
 			if err != nil {
@@ -537,6 +541,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
+		log.WithContext(ctx).Debugf("AddPeer: setup key get took %v", time.Since(start))
+
+		start = time.Now()
 		if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
 			if am.idpManager != nil {
 				userdata, err := am.idpManager.GetUserDataByID(ctx, userID, idp.AppMetadata{WTAccountID: accountID})
@@ -545,16 +552,21 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 				}
 			}
 		}
+		log.WithContext(ctx).Debugf("AddPeer: idp took %v", time.Since(start))
 
+		start = time.Now()
 		freeLabel, err := am.getFreeDNSLabel(ctx, transaction, accountID, peer.Meta.Hostname)
 		if err != nil {
 			return fmt.Errorf("failed to get free DNS label: %w", err)
 		}
+		log.WithContext(ctx).Debugf("AddPeer: free label took %v", time.Since(start))
 
+		start = time.Now()
 		freeIP, err := getFreeIP(ctx, transaction, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get free IP: %w", err)
 		}
+		log.WithContext(ctx).Debugf("AddPeer: ip took %v", time.Since(start))
 
 		registrationTime := time.Now().UTC()
 		newPeer = &nbpeer.Peer{
@@ -578,10 +590,14 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			ExtraDNSLabels:              peer.ExtraDNSLabels,
 			AllowExtraDNSLabels:         allowExtraDNSLabels,
 		}
+
+		start = time.Now()
 		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get account settings: %w", err)
 		}
+
+		log.WithContext(ctx).Debugf("AddPeer: settings took %v", time.Since(start))
 
 		opEvent.TargetID = newPeer.ID
 		opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain(settings))
@@ -589,6 +605,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			opEvent.Meta["setup_key_name"] = setupKeyName
 		}
 
+		start = time.Now()
 		if am.geo != nil && newPeer.Location.ConnectionIP != nil {
 			location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
 			if err != nil {
@@ -600,8 +617,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
+		log.WithContext(ctx).Debugf("AddPeer: geo took %v", time.Since(start))
+
 		newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
 
+		start = time.Now()
 		err = transaction.AddPeerToAllGroup(ctx, store.LockingStrengthUpdate, accountID, newPeer.ID)
 		if err != nil {
 			return fmt.Errorf("failed adding peer to All group: %w", err)
@@ -616,10 +636,15 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
+		log.WithContext(ctx).Debugf("AddPeer: add peer to group took %v", time.Since(start))
+
+		start = time.Now()
 		err = transaction.AddPeerToAccount(ctx, store.LockingStrengthUpdate, newPeer)
 		if err != nil {
 			return fmt.Errorf("failed to add peer to account: %w", err)
 		}
+
+		log.WithContext(ctx).Debugf("AddPeer: add peer to account took %v", time.Since(start))
 
 		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
 		if err != nil {
@@ -638,10 +663,13 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
+		start = time.Now()
 		updateAccountPeers, err = isPeerInActiveGroup(ctx, transaction, accountID, newPeer.ID)
 		if err != nil {
 			return err
 		}
+
+		log.WithContext(ctx).Debugf("AddPeer: is peer in active group took %v", time.Since(start))
 
 		log.WithContext(ctx).Debugf("Peer %s added to account %s", newPeer.ID, accountID)
 		return nil
@@ -659,6 +687,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	unlock()
 	unlock = nil
+
+	log.WithContext(ctx).Debugf("AddPeer took %v", time.Since(startGlobal))
 
 	if updateAccountPeers {
 		am.BufferUpdateAccountPeers(ctx, accountID)
