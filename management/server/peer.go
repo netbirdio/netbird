@@ -419,7 +419,7 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 	}
 	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id, peerID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return nil, err
@@ -1038,7 +1038,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 	log.WithContext(ctx).Debugf("GetPeersCustomZone: took %s", time.Since(start))
 	start = time.Now()
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return nil, nil, nil, err
@@ -1197,13 +1197,12 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
-		return
-	}
-
 	for _, peer := range account.Peers {
+		proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountID, peer.ID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+			return
+		}
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue
@@ -1300,7 +1299,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountId)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountId, peerId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return
