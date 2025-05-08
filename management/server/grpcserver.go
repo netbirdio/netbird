@@ -95,6 +95,13 @@ func NewServer(
 	if loginRatePerS == 0 || err != nil {
 		loginRatePerS = 200
 	}
+
+	loginBurst, err := strconv.Atoi(os.Getenv("NB_LOGIN_BURST"))
+	if loginBurst == 0 || err != nil {
+		loginBurst = 200
+	}
+	log.WithContext(ctx).Infof("login burst limit set to %d", loginBurst)
+
 	loginPeerRatePerS, err := strconv.Atoi(os.Getenv("NB_LOGIN_PEER_RATE_PER_M"))
 	if loginPeerRatePerS == 0 || err != nil {
 		loginPeerRatePerS = 200
@@ -106,6 +113,12 @@ func NewServer(
 		syncRatePerS = 200
 	}
 	log.WithContext(ctx).Infof("sync rate limit set to %d/min", syncRatePerS)
+
+	syncBurst, err := strconv.Atoi(os.Getenv("NB_SYNC_BURST"))
+	if syncBurst == 0 || err != nil {
+		syncBurst = 200
+	}
+	log.WithContext(ctx).Infof("sync burst limit set to %d", syncBurst)
 
 	return &GRPCServer{
 		wgKey: key,
@@ -119,7 +132,7 @@ func NewServer(
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
 		syncLimiter:        rate.NewLimiter(rate.Every(time.Minute/time.Duration(syncRatePerS)), 100),
-		loginLimiter:       rate.NewLimiter(rate.Every(multiplier/time.Duration(loginRatePerS)), 100),
+		loginLimiter:       rate.NewLimiter(rate.Every(multiplier/time.Duration(loginRatePerS)), loginBurst),
 		loginPeerLimit:     rate.Every(time.Minute / time.Duration(loginPeerRatePerS)),
 	}, nil
 }
