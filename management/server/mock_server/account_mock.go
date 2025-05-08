@@ -889,3 +889,7 @@ func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth n
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
 }
+
+func (am *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+	// noop
+}
