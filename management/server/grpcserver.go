@@ -118,8 +118,8 @@ func NewServer(
 		authManager:        authManager,
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
-		syncLimiter:        rate.NewLimiter(rate.Every(time.Minute/time.Duration(syncRatePerS)), 1),
-		loginLimiter:       rate.NewLimiter(rate.Every(multiplier/time.Duration(loginRatePerS)), 1),
+		syncLimiter:        rate.NewLimiter(rate.Every(time.Minute/time.Duration(syncRatePerS)), 100),
+		loginLimiter:       rate.NewLimiter(rate.Every(multiplier/time.Duration(loginRatePerS)), 100),
 		loginPeerLimit:     rate.Every(time.Minute / time.Duration(loginPeerRatePerS)),
 	}, nil
 }
@@ -466,7 +466,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 
 		// Create new limiter for this peer
-		newLimiter := rate.NewLimiter(s.loginPeerLimit, 1)
+		newLimiter := rate.NewLimiter(s.loginPeerLimit, 100)
 		s.loginLimiterStore.Store(req.WgPubKey, newLimiter)
 
 		if !newLimiter.Allow() {
@@ -484,18 +484,18 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
-	//limiter, _ := s.loginLimiterStore.LoadOrStore(req.WgPubKey, rate.NewLimiter(s.loginPeerLimit, 1))
-	//if !limiter.(*rate.Limiter).Allow() {
+	// limiter, _ := s.loginLimiterStore.LoadOrStore(req.WgPubKey, rate.NewLimiter(s.loginPeerLimit, 1))
+	// if !limiter.(*rate.Limiter).Allow() {
 	//	time.Sleep(time.Millisecond * time.Duration(rand.IntN(10)*100))
 	//	log.WithContext(ctx).Warnf("rate limit exceeded for %s", req.WgPubKey)
 	//	return nil, status.Errorf(codes.Internal, "temp rate limit reached")
-	//}
+	// }
 	//
-	//if os.Getenv("ENABLE_LOGIN_RATE_LIMIT") == "true" {
+	// if os.Getenv("ENABLE_LOGIN_RATE_LIMIT") == "true" {
 	//	if !s.loginLimiter.Allow() {
 	//		return nil, status.Errorf(codes.Internal, "temp rate limit reached")
 	//	}
-	//}
+	// }
 
 	reqStart := time.Now()
 	defer func() {
