@@ -163,6 +163,8 @@ func getRealIP(ctx context.Context) net.IP {
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
 	if !s.syncLimiter.Allow() {
+		time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
+		log.Warnf("sync rate limit exceeded for peer %s", req.WgPubKey)
 		return status.Errorf(codes.Internal, "temp rate limit reached")
 	}
 

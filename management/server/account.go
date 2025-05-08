@@ -202,7 +202,7 @@ func BuildManager(
 	if err != nil {
 		initialInterval = 1
 	} else {
-		initialInterval = int64(interval) * 10
+		initialInterval = int64(interval) * 2
 		go func() {
 			time.Sleep(30 * time.Second)
 			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
