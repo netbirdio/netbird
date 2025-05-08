@@ -997,48 +997,56 @@ func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Co
 }
 
 func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
-	start := time.Now()
+	mstart := time.Now()
 	defer func() {
-		log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(start))
+		log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(mstart))
 	}()
 
 	if isRequiresApproval {
+		start := time.Now()
 		network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return nil, nil, nil, err
 		}
+
+		log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(start))
 
 		emptyMap := &types.NetworkMap{
 			Network: network.Copy(),
 		}
 		return peer, emptyMap, nil, nil
 	}
-
+	start := time.Now()
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
+	log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(start))
+	start = time.Now()
 	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
+	log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(start))
+	start = time.Now()
 	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
+	log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(start))
+	start = time.Now()
 	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
-
+	log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(start))
+	start = time.Now()
 	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return nil, nil, nil, err
 	}
-
+	log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(start))
+	start = time.Now()
 	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics())
-
+	log.WithContext(ctx).Debugf("getValidatedPeerWithMap: took %s", time.Since(start))
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
 	if ok {
 		networkMap.Merge(proxyNetworkMap)
