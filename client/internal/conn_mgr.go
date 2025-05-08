@@ -175,7 +175,7 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	conn.Log.Infof("removed peer from lazy conn manager")
 }
 
-func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
+func (e *ConnMgr) OnSignalMsg(ctx context.Context, peerKey string) (*peer.Conn, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -188,7 +188,7 @@ func (e *ConnMgr) OnSignalMsg(peerKey string) (*peer.Conn, bool) {
 		return conn, true
 	}
 
-	if found := e.lazyConnMgr.ActivatePeer(peerKey); found {
+	if found := e.lazyConnMgr.ActivatePeer(ctx, peerKey); found {
 		conn.Log.Infof("activated peer from inactive state")
 		if err := conn.Open(e.ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)

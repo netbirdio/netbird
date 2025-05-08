@@ -9,6 +9,7 @@ import (
 
 const (
 	DefaultInactivityThreshold = 60 * time.Minute // idle after 1 hour inactivity
+	MinimumInactivityThreshold = 3 * time.Minute
 )
 
 type Monitor struct {
