@@ -477,19 +477,19 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 	for i := 0; i < 2; i++ {
 		accountId := xid.New().String()
 
-		_, err := am.Store.GetAccount(ctx, accountId)
-		statusErr, _ := status.FromError(err)
-		switch {
-		case err == nil:
-			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
-			continue
-		case statusErr.Type() == status.NotFound:
-			newAccount := newAccountWithId(ctx, accountId, userID, domain)
-			am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
-			return newAccount, nil
-		default:
+		exists, err := am.Store.AccountExists(ctx, store.LockingStrengthShare, accountId)
+		if err != nil {
 			return nil, err
 		}
+
+		if exists {
+			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
+			continue
+		}
+
+		newAccount := newAccountWithId(ctx, accountId, userID, domain)
+		am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
+		return newAccount, nil
 	}
 
 	return nil, status.Errorf(status.Internal, "error while creating new account")
