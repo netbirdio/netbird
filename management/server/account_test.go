@@ -3295,3 +3295,47 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 		})
 	})
 }
+
+func TestDefaultAccountManager_AddNewUserToDomainAccount(t *testing.T) {
+	testCases := []struct {
+		name         string
+		userAuth     nbcontext.UserAuth
+		expectedRole types.UserRole
+	}{
+		{
+			name: "existing user",
+			userAuth: nbcontext.UserAuth{
+				Domain: "example.com",
+				UserId: "user1",
+			},
+			expectedRole: types.UserRoleOwner,
+		},
+		{
+			name: "new user",
+			userAuth: nbcontext.UserAuth{
+				Domain: "example.com",
+				UserId: "user2",
+			},
+			expectedRole: types.UserRoleUser,
+		},
+	}
+
+	manager, err := createManager(t)
+	require.NoError(t, err)
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), "user1", "example.com")
+	require.NoError(t, err, "create init user failed")
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			userAccountID, err := manager.addNewUserToDomainAccount(context.Background(), accountID, tc.userAuth)
+			require.NoError(t, err)
+			assert.Equal(t, accountID, userAccountID)
+
+			user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, tc.userAuth.UserId)
+			require.NoError(t, err)
+			assert.Equal(t, accountID, user.AccountID)
+			assert.Equal(t, tc.expectedRole, user.Role)
+		})
+	}
+}
