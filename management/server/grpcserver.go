@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"os"
@@ -455,6 +456,8 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	limiter, _ := s.loginLimiterStore.LoadOrStore(req.WgPubKey, rate.NewLimiter(s.loginPeerLimit, 1))
 	if !limiter.(*rate.Limiter).Allow() {
+		time.Sleep(time.Millisecond * time.Duration(rand.IntN(10)*100))
+		log.WithContext(ctx).Warnf("rate limit exceeded for %s", req.WgPubKey)
 		return nil, status.Errorf(codes.Internal, "temp rate limit reached")
 	}
 
