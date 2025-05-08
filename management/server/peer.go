@@ -1282,7 +1282,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	log.WithContext(ctx).Infof("updateAccountPeers: waiting for updates to complete took %s", time.Since(globalStart))
 
 	if am.metrics != nil {
-		am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(start))
+		am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(globalStart))
 	}
 }
 
