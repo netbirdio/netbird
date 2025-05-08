@@ -453,6 +453,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
 func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	startGlobal := time.Now()
 	if setupKey == "" && userID == "" {
 		// no auth method provided => reject access
 		return nil, nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
@@ -473,15 +474,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	if err != nil {
 		return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
 	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer func() {
-		if unlock != nil {
-			unlock()
-		}
-	}()
-
-	startGlobal := time.Now()
 
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireWriteLockByUID (e.g., database is slow)
@@ -684,9 +676,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
-
-	unlock()
-	unlock = nil
 
 	log.WithContext(ctx).Debugf("AddPeer took %v", time.Since(startGlobal))
 
