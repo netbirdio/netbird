@@ -469,6 +469,10 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountLoginRequest()
+	}
+
 	limiterIface, ok := s.loginLimiterStore.Load(req.WgPubKey)
 	if !ok {
 		// Check global limiter before allowing a new peer limiter
@@ -516,9 +520,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart))
 		}
 	}()
-	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountLoginRequest()
-	}
+
 	realIP := getRealIP(ctx)
 	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
