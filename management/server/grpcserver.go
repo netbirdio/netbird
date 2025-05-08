@@ -131,7 +131,7 @@ func NewServer(
 		authManager:        authManager,
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
-		syncLimiter:        rate.NewLimiter(rate.Every(time.Minute/time.Duration(syncRatePerS)), 100),
+		syncLimiter:        rate.NewLimiter(rate.Every(time.Minute/time.Duration(syncRatePerS)), syncBurst),
 		loginLimiter:       rate.NewLimiter(rate.Every(multiplier/time.Duration(loginRatePerS)), loginBurst),
 		loginPeerLimit:     rate.Every(time.Minute / time.Duration(loginPeerRatePerS)),
 	}, nil
@@ -479,7 +479,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 
 		// Create new limiter for this peer
-		newLimiter := rate.NewLimiter(s.loginPeerLimit, 100)
+		newLimiter := rate.NewLimiter(s.loginPeerLimit, 1000)
 		s.loginLimiterStore.Store(req.WgPubKey, newLimiter)
 
 		if !newLimiter.Allow() {
