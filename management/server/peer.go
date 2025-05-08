@@ -1201,15 +1201,13 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	for _, peer := range account.Peers {
-		startProxy := time.Now()
-		proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountID, peer.ID)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
-			return
-		}
-		log.WithContext(ctx).Infof("updateAccountPeers: getProxyNetworkMaps took %s", time.Since(startProxy))
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMapsAll(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return
+	}
 
+	for _, peer := range account.Peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue

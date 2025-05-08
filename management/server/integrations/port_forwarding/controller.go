@@ -9,6 +9,7 @@ import (
 type Controller interface {
 	SendUpdate(ctx context.Context, accountID string, affectedProxyID string, affectedPeerIDs []string)
 	GetProxyNetworkMaps(ctx context.Context, accountID, peerID string) (map[string]*nbtypes.NetworkMap, error)
+	GetProxyNetworkMapsAll(ctx context.Context, accountID string) (map[string]*nbtypes.NetworkMap, error)
 	IsPeerInIngressPorts(ctx context.Context, accountID, peerID string) (bool, error)
 }
 
