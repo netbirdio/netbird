@@ -454,18 +454,44 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	limiter, _ := s.loginLimiterStore.LoadOrStore(req.WgPubKey, rate.NewLimiter(s.loginPeerLimit, 1))
-	if !limiter.(*rate.Limiter).Allow() {
-		time.Sleep(time.Millisecond * time.Duration(rand.IntN(10)*100))
-		log.WithContext(ctx).Warnf("rate limit exceeded for %s", req.WgPubKey)
-		return nil, status.Errorf(codes.Internal, "temp rate limit reached")
-	}
-
-	if os.Getenv("ENABLE_LOGIN_RATE_LIMIT") == "true" {
+	limiterIface, ok := s.loginLimiterStore.Load(req.WgPubKey)
+	if !ok {
+		// Check global limiter before allowing a new peer limiter
 		if !s.loginLimiter.Allow() {
-			return nil, status.Errorf(codes.Internal, "temp rate limit reached")
+			return nil, fmt.Errorf("temp rate limit reached (global limit)")
+		}
+
+		// Create new limiter for this peer
+		newLimiter := rate.NewLimiter(s.loginPeerLimit, 1)
+		s.loginLimiterStore.Store(req.WgPubKey, newLimiter)
+
+		if !newLimiter.Allow() {
+			time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
+			log.WithContext(ctx).Warnf("rate limit exceeded for peer %s", req.WgPubKey)
+			return nil, fmt.Errorf("temp rate limit reached (new peer limit)")
+		}
+	} else {
+		// Use existing limiter for this peer
+		limiter := limiterIface.(*rate.Limiter)
+		if !limiter.Allow() {
+			time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
+			log.WithContext(ctx).Warnf("rate limit exceeded for peer %s", req.WgPubKey)
+			return nil, fmt.Errorf("temp rate limit reached (peer limit)")
 		}
 	}
+
+	//limiter, _ := s.loginLimiterStore.LoadOrStore(req.WgPubKey, rate.NewLimiter(s.loginPeerLimit, 1))
+	//if !limiter.(*rate.Limiter).Allow() {
+	//	time.Sleep(time.Millisecond * time.Duration(rand.IntN(10)*100))
+	//	log.WithContext(ctx).Warnf("rate limit exceeded for %s", req.WgPubKey)
+	//	return nil, status.Errorf(codes.Internal, "temp rate limit reached")
+	//}
+	//
+	//if os.Getenv("ENABLE_LOGIN_RATE_LIMIT") == "true" {
+	//	if !s.loginLimiter.Allow() {
+	//		return nil, status.Errorf(codes.Internal, "temp rate limit reached")
+	//	}
+	//}
 
 	reqStart := time.Now()
 	defer func() {
