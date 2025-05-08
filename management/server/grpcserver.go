@@ -458,6 +458,8 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	if !ok {
 		// Check global limiter before allowing a new peer limiter
 		if !s.loginLimiter.Allow() {
+			time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
+			log.WithContext(ctx).Warnf("rate limit exceeded for peer %s", req.WgPubKey)
 			return nil, fmt.Errorf("temp rate limit reached (global limit)")
 		}
 
