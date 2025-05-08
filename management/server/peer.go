@@ -1174,19 +1174,23 @@ func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accoun
 // UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+	start := time.Now()
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers. failed to get account: %v", err)
 		return
 	}
+	log.WithContext(ctx).Infof("updateAccountPeers: getAccount took %s", time.Since(start))
 
-	start := time.Now()
+	start = time.Now()
 
 	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to get validate peers: %v", err)
 		return
 	}
+
+	log.WithContext(ctx).Infof("updateAccountPeers: validatePeers took %s", time.Since(start))
 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
@@ -1198,11 +1202,14 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	routers := account.GetResourceRoutersMap()
 
 	for _, peer := range account.Peers {
+		startProxy := time.Now()
 		proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountID, peer.ID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 			return
 		}
+		log.WithContext(ctx).Infof("updateAccountPeers: getProxyNetworkMaps took %s", time.Since(startProxy))
+
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue
