@@ -43,24 +43,26 @@ func routeChanged(route systemops.RouteUpdate, nexthopv4, nexthopv6 systemops.Ne
 		return false
 	}
 
-	switch route.Type {
-	case systemops.RouteModified:
-		// TODO: get routing table to figure out if our route is affected for modified routes
+	// TODO: for the empty nexthop ip (on-link), determine the family differently
+	nexthop := nexthopv4
+	if route.NextHop.IP.Is6() {
+		nexthop = nexthopv6
+	}
 
-		// Ignore changes to our tracked routes where neither next hop ip nor interface have changed.
-		if route.NextHop.IP.Is4() && !nexthopv4.Equal(route.NextHop) || route.NextHop.IP.Is6() && !nexthopv6.Equal(route.NextHop) {
-			log.Infof("Network monitor: default route changed: via %s", route.NextHop)
-			return true
-		}
-	case systemops.RouteAdded:
-		// We are only interested in new routes that are different
-		if route.NextHop.IP.Is4() && !nexthopv4.Equal(route.NextHop) || route.NextHop.IP.Is6() && !nexthopv6.Equal(route.NextHop) {
-			log.Infof("Network monitor: default route added: via %s", route.NextHop)
+	switch route.Type {
+	case systemops.RouteModified, systemops.RouteAdded:
+		// For added/modified routes, we care about different next hops
+		if !nexthop.Equal(route.NextHop) {
+			action := "changed"
+			if route.Type == systemops.RouteAdded {
+				action = "added"
+			}
+			log.Infof("Network monitor: default route %s: via %s", action, route.NextHop)
 			return true
 		}
 	case systemops.RouteDeleted:
-		// We are only interested in our tracked routes being deleted
-		if route.NextHop.IP.Is4() && nexthopv4.Equal(route.NextHop) || route.NextHop.IP.Is6() && nexthopv6.Equal(route.NextHop) {
+		// For deleted routes, we care about our tracked next hop being deleted
+		if nexthop.Equal(route.NextHop) {
 			log.Infof("Network monitor: default route removed: via %s", route.NextHop)
 			return true
 		}
