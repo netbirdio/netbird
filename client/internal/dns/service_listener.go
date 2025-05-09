@@ -23,16 +23,15 @@ const (
 )
 
 type serviceViaListener struct {
-	wgInterface      WGIface
-	dnsMux           *dns.ServeMux
-	customAddr       *netip.AddrPort
-	server           *dns.Server
-	tcpServer        *dns.Server
-	listenIP         string
-	listenPort       uint16
-	listenerCount    int
-	listenerFlagLock sync.Mutex
-	ebpfService      ebpfMgr.Manager
+	wgInterface       WGIface
+	dnsMux            *dns.ServeMux
+	customAddr        *netip.AddrPort
+	server            *dns.Server
+	listenIP          string
+	listenPort        uint16
+	listenerIsRunning bool
+	listenerFlagLock  sync.Mutex
+	ebpfService       ebpfMgr.Manager
 }
 
 func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *serviceViaListener {
@@ -47,75 +46,59 @@ func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *service
 			Handler: mux,
 			UDPSize: 65535,
 		},
-		tcpServer: &dns.Server{
-			Net:     "tcp",
-			Handler: mux,
-		},
 	}
 
 	return s
 }
 
-// Listen starts both UDP and TCP DNS listeners concurrently.
 func (s *serviceViaListener) Listen() error {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
-	if s.listenerCount > 0 {
+	if s.listenerIsRunning {
 		return nil
 	}
 
-	ip, port, err := s.evalListenAddress()
+	var err error
+	s.listenIP, s.listenPort, err = s.evalListenAddress()
 	if err != nil {
 		log.Errorf("failed to eval runtime address: %s", err)
 		return fmt.Errorf("eval listen address: %w", err)
 	}
-	s.listenIP = ip
-	s.listenPort = port
+	s.server.Addr = fmt.Sprintf("%s:%d", s.listenIP, s.listenPort)
+	log.Debugf("starting dns on %s", s.server.Addr)
+	go func() {
+		s.setListenerStatus(true)
+		defer s.setListenerStatus(false)
 
-	addr := fmt.Sprintf("%s:%d", ip, port)
-	s.server.Addr = addr
-	s.tcpServer.Addr = addr
-
-	// mark two listeners as active
-	s.listenerCount = 2
-
-	log.Tracef("starting DNS servers on %s (udp & tcp)", addr)
-	go s.serve(s.server)
-	go s.serve(s.tcpServer)
+		err := s.server.ListenAndServe()
+		if err != nil {
+			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.listenPort, err)
+		}
+	}()
 
 	return nil
 }
 
-// serve runs a dns.Server and updates listener count on exit
-func (s *serviceViaListener) serve(srv *dns.Server) {
-	defer s.setListenerStatus(false)
-	if err := srv.ListenAndServe(); err != nil {
-		log.Errorf("%s server on %s returned an error: %v", srv.Net, srv.Addr, err)
-	}
-}
-
-// Stop gracefully shuts down both UDP and TCP listeners
 func (s *serviceViaListener) Stop() {
 	s.listenerFlagLock.Lock()
-	if s.listenerCount == 0 {
-		s.listenerFlagLock.Unlock()
+	defer s.listenerFlagLock.Unlock()
+
+	if !s.listenerIsRunning {
 		return
 	}
-	s.listenerFlagLock.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := s.server.ShutdownContext(ctx); err != nil {
-		log.Errorf("stopping UDP DNS server returned an error: %v", err)
-	}
-	if err := s.tcpServer.ShutdownContext(ctx); err != nil {
-		log.Errorf("stopping TCP DNS server returned an error: %v", err)
+	err := s.server.ShutdownContext(ctx)
+	if err != nil {
+		log.Errorf("stopping dns server listener returned an error: %v", err)
 	}
 
 	if s.ebpfService != nil {
-		if err := s.ebpfService.FreeDNSFwd(); err != nil {
+		err = s.ebpfService.FreeDNSFwd()
+		if err != nil {
 			log.Errorf("stopping traffic forwarder returned an error: %v", err)
 		}
 	}
@@ -136,8 +119,9 @@ func (s *serviceViaListener) RuntimePort() int {
 
 	if s.ebpfService != nil {
 		return defaultPort
+	} else {
+		return int(s.listenPort)
 	}
-	return int(s.listenPort)
 }
 
 func (s *serviceViaListener) RuntimeIP() string {
@@ -147,14 +131,8 @@ func (s *serviceViaListener) RuntimeIP() string {
 func (s *serviceViaListener) setListenerStatus(running bool) {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
-	if running {
-		s.listenerCount++
-	} else {
-		s.listenerCount--
-		if s.listenerCount < 0 {
-			s.listenerCount = 0
-		}
-	}
+
+	s.listenerIsRunning = running
 }
 
 // evalListenAddress figure out the listen address for the DNS server
