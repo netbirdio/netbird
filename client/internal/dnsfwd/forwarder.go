@@ -53,19 +53,18 @@ func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewall.Manager
 
 func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 	log.Infof("starting DNS forwarder on address=%s", f.listenAddress)
-	mux := dns.NewServeMux()
-	f.mux = mux
-
-	tcpMux := dns.NewServeMux()
-	f.tcpMux = tcpMux
 
 	// UDP server
+	mux := dns.NewServeMux()
+	f.mux = mux
 	f.dnsServer = &dns.Server{
 		Addr:    f.listenAddress,
 		Net:     "udp",
 		Handler: mux,
 	}
 	// TCP server
+	tcpMux := dns.NewServeMux()
+	f.tcpMux = tcpMux
 	f.tcpServer = &dns.Server{
 		Addr:    f.listenAddress,
 		Net:     "tcp",
