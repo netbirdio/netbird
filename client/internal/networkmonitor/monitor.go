@@ -118,9 +118,12 @@ func (nw *NetworkMonitor) Stop() {
 }
 
 func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{}, nexthop4 systemops.Nexthop, nexthop6 systemops.Nexthop) {
+	defer close(event)
 	for {
 		if err := checkChangeFn(ctx, nexthop4, nexthop6); err != nil {
-			close(event)
+			if !errors.Is(err, context.Canceled) {
+				log.Errorf("Network monitor: failed to check for changes: %v", err)
+			}
 			return
 		}
 		// prevent blocking
