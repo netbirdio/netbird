@@ -127,7 +127,7 @@ func (f *DNSForwarder) Close(ctx context.Context) error {
 		}
 	}
 
-	return result.ErrorOrNil()
+	return nberrors.FormatErrorOrNil(result)
 }
 
 func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns.Msg {
@@ -254,13 +254,8 @@ func (f *DNSForwarder) handleDNSError(w dns.ResponseWriter, query, resp *dns.Msg
 			resp.Rcode = dns.RcodeNameError
 		}
 
-		var qType string
-		if len(query.Question) > 0 {
-			qType = dns.TypeToString[query.Question[0].Qtype]
-		}
-
 		if dnsErr.Server != "" {
-			log.Warnf("failed to resolve query for type=%s domain=%s server=%s: %v", qType, domain, dnsErr.Server, err)
+			log.Warnf("failed to resolve query for type=%s domain=%s server=%s: %v", dns.TypeToString[query.Question[0].Qtype], domain, dnsErr.Server, err)
 		} else {
 			log.Warnf(errResolveFailed, domain, err)
 		}
