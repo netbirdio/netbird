@@ -2,9 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/management/server/types"
@@ -16,6 +20,17 @@ const (
 	ExitSetupFailed                  = 1
 	idpSignKeyRefreshEnabledFlagName = "idp-sign-key-refresh-enabled"
 )
+
+func startPprof() {
+	go func() {
+		runtime.SetBlockProfileRate(1)
+		runtime.SetMutexProfileFraction(1)
+		log.Debugf("Starting pprof server on 0.0.0.0:6060")
+		if err := http.ListenAndServe("0.0.0.0:6060", nil); err != nil {
+			log.Fatalf("pprof server failed: %v", err)
+		}
+	}()
+}
 
 var (
 	dnsDomain                string

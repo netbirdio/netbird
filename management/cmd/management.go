@@ -134,6 +134,7 @@ var (
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
+			startPprof()
 
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
