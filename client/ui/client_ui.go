@@ -526,7 +526,7 @@ func (s *serviceClient) updateStatus() error {
 		var systrayIconState bool
 
 		switch {
-		case status.Status == string(internal.StatusConnected):
+		case status.Status == string(internal.StatusConnected) && !s.mUp.Disabled():
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
