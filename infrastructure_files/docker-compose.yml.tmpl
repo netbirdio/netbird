@@ -57,7 +57,7 @@ services:
     environment:
     - NB_LOG_LEVEL=info
     - NB_LISTEN_ADDRESS=:$NETBIRD_RELAY_PORT
-    - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_DOMAIN:$NETBIRD_RELAY_PORT
+    - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_ENDPOINT
     # todo: change to a secure secret
     - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
     ports:
