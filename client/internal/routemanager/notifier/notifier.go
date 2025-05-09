@@ -33,7 +33,7 @@ func (n *Notifier) SetInitialClientRoutes(clientRoutes []*route.Route) {
 	nets := make([]string, 0)
 	for _, r := range clientRoutes {
 		// filter out domain routes
-		if !r.Network.IsValid() {
+		if r.IsDynamic() {
 			continue
 		}
 		nets = append(nets, r.Network.String())
