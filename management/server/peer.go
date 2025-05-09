@@ -1235,6 +1235,14 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		return
 	}
 	log.WithContext(ctx).Infof("updateAccountPeers: getProxyNetworkMaps took %s", time.Since(start))
+	for _, id := range []string{"d07kd1ei389c73dq19gg", "d07kcaui389c73dq19g0", "d0e7uo6i389c73f040v0"} {
+		peerMap, ok := proxyNetworkMaps[id]
+		if !ok {
+			log.WithContext(ctx).Infof("updateAccountPeers xxx: proxy network map %s not found", id)
+			continue
+		}
+		log.WithContext(ctx).Infof("updateAccountPeers xxx: peer %s has %d peers, %d offline peers, %d, firewall rules, %d forwarding rules, %d routing rules", id, len(peerMap.Peers), len(peerMap.OfflinePeers), len(peerMap.FirewallRules), len(peerMap.ForwardingRules), len(peerMap.RoutesFirewallRules))
+	}
 
 	for _, peer := range account.Peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
