@@ -24,6 +24,8 @@
 
 !define AUTOSTART_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 
+!define NETBIRD_DATA_DIR "$COMMONPROGRAMDATA\Netbird"
+
 Unicode True
 
 ######################################################################
@@ -49,6 +51,10 @@ ShowInstDetails Show
 
 ######################################################################
 
+!include "MUI2.nsh"
+!include LogicLib.nsh
+!include "nsDialogs.nsh"
+
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "${BANNER}"
@@ -57,9 +63,6 @@ ShowInstDetails Show
 !define MUI_FINISHPAGE_RUN_TEXT "Start ${UI_APP_NAME}"
 !define MUI_FINISHPAGE_RUN_FUNCTION "LaunchLink"
 ######################################################################
-
-!include "MUI2.nsh"
-!include LogicLib.nsh
 
 !define MUI_ABORTWARNING
 !define MUI_UNABORTWARNING
@@ -70,12 +73,15 @@ ShowInstDetails Show
 
 !insertmacro MUI_PAGE_DIRECTORY
 
-; Custom page for autostart checkbox
 Page custom AutostartPage AutostartPageLeave
 
 !insertmacro MUI_PAGE_INSTFILES
 
 !insertmacro MUI_PAGE_FINISH
+
+!insertmacro MUI_UNPAGE_WELCOME
+
+UninstPage custom un.DeleteDataPage un.DeleteDataPageLeave
 
 !insertmacro MUI_UNPAGE_CONFIRM
 
@@ -88,6 +94,10 @@ Page custom AutostartPage AutostartPageLeave
 ; Variables for autostart option
 Var AutostartCheckbox
 Var AutostartEnabled
+
+; Variables for uninstall data deletion option
+Var DeleteDataCheckbox
+Var DeleteDataEnabled
 
 ######################################################################
 
@@ -104,8 +114,8 @@ Function AutostartPage
 
   ${NSD_CreateCheckbox} 0 20u 100% 10u "Start ${APP_NAME} UI automatically when Windows starts"
   Pop $AutostartCheckbox
-  ${NSD_Check} $AutostartCheckbox ; Default to checked
-  StrCpy $AutostartEnabled "1" ; Default to enabled
+  ${NSD_Check} $AutostartCheckbox
+  StrCpy $AutostartEnabled "1"
 
   nsDialogs::Show
 FunctionEnd
@@ -113,6 +123,30 @@ FunctionEnd
 ; Function to handle leaving the autostart page
 Function AutostartPageLeave
   ${NSD_GetState} $AutostartCheckbox $AutostartEnabled
+FunctionEnd
+
+; Function to create the uninstall data deletion page
+Function un.DeleteDataPage
+  !insertmacro MUI_HEADER_TEXT "Uninstall Options" "Choose whether to delete ${APP_NAME} data."
+
+  nsDialogs::Create 1018
+  Pop $0
+
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateCheckbox} 0 20u 100% 10u "Delete all ${APP_NAME} configuration and state data (${NETBIRD_DATA_DIR})"
+  Pop $DeleteDataCheckbox
+  ${NSD_Uncheck} $DeleteDataCheckbox
+  StrCpy $DeleteDataEnabled "0"
+
+  nsDialogs::Show
+FunctionEnd
+
+; Function to handle leaving the data deletion page
+Function un.DeleteDataPageLeave
+  ${NSD_GetState} $DeleteDataCheckbox $DeleteDataEnabled
 FunctionEnd
 
 Function GetAppFromCommand
@@ -176,10 +210,10 @@ ${EndIf}
 FunctionEnd
 ######################################################################
 Section -MainProgram
-	${INSTALL_TYPE}
-	# SetOverwrite ifnewer
-	SetOutPath "$INSTDIR"
-	File /r "..\\dist\\netbird_windows_amd64\\"
+    ${INSTALL_TYPE}
+    # SetOverwrite ifnewer
+    SetOutPath "$INSTDIR"
+    File /r "..\\dist\\netbird_windows_amd64\\"
 SectionEnd
 ######################################################################
 
@@ -225,31 +259,58 @@ SectionEnd
 Section Uninstall
 ${INSTALL_TYPE}
 
+DetailPrint "Stopping Netbird service..."
 ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop'
+DetailPrint "Uninstalling Netbird service..."
 ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
 
-# kill ui client
+DetailPrint "Terminating Netbird UI process..."
 ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 
 ; Remove autostart registry entry
+DetailPrint "Removing autostart registry entry if exists..."
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
+; Handle data deletion based on checkbox
+DetailPrint "Checking if user requested data deletion..."
+${If} $DeleteDataEnabled == "1"
+    DetailPrint "User opted to delete Netbird data. Removing ${NETBIRD_DATA_DIR}..."
+    ClearErrors
+    RMDir /r "${NETBIRD_DATA_DIR}"
+    IfErrors 0 +2 ; If no errors, jump over the message
+    DetailPrint "Error deleting Netbird data directory. It might be in use or already removed."
+    DetailPrint "Netbird data directory removal complete."
+${Else}
+    DetailPrint "User did not opt to delete Netbird data."
+${EndIf}
+
 # wait the service uninstall take unblock the executable
+DetailPrint "Waiting for service handle to be released..."
 Sleep 3000
+
+DetailPrint "Deleting application files..."
 Delete "$INSTDIR\${UI_APP_EXE}"
 Delete "$INSTDIR\${MAIN_APP_EXE}"
 Delete "$INSTDIR\wintun.dll"
 Delete "$INSTDIR\opengl32.dll"
+DetailPrint "Removing application directory..."
 RmDir /r "$INSTDIR"
 
+DetailPrint "Removing shortcuts..."
 SetShellVarContext all
 Delete "$DESKTOP\${APP_NAME}.lnk"
 Delete "$SMPROGRAMS\${APP_NAME}.lnk"
 
+DetailPrint "Removing registry keys..."
 DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
 DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
+DeleteRegKey ${REG_ROOT} "${UI_REG_APP_PATH}"
+
+DetailPrint "Removing application directory from PATH..."
 EnVar::SetHKLM
 EnVar::DeleteValue "path" "$INSTDIR"
+
+DetailPrint "Uninstallation finished."
 SectionEnd
 
 
