@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -1290,15 +1291,21 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 		SSHEnabled: false,
 		LastLogin:  util.ToPtr(time.Now()),
+		ExtraDNSLabels: []string{
+			"extraLabel1",
+			"extraLabel2",
+		},
 	}
 
 	addedPeer, _, _, err := am.AddPeer(context.Background(), "", existingUserID, newPeer)
 	require.NoError(t, err)
+	assert.Equal(t, newPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels)
 
 	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, addedPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 	assert.Equal(t, peer.UserID, existingUserID)
+	assert.Equal(t, newPeer.ExtraDNSLabels, peer.ExtraDNSLabels)
 
 	account, err := s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
@@ -1339,15 +1346,12 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
-	existingSetupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
 	_, err = s.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	newPeer := &nbpeer.Peer{
-		ID:        xid.New().String(),
+	newPeerTemplate := &nbpeer.Peer{
 		AccountID: existingAccountID,
-		Key:       "newPeerKey",
 		UserID:    "",
 		IP:        net.IP{123, 123, 123, 123},
 		Meta: nbpeer.PeerSystemMeta{
@@ -1358,31 +1362,96 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		DNSLabel:   "newPeer.test",
 		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
 		SSHEnabled: false,
+		ExtraDNSLabels: []string{
+			"extraLabel1",
+			"extraLabel2",
+		},
 	}
 
-	addedPeer, _, _, err := am.AddPeer(context.Background(), existingSetupKeyID, "", newPeer)
+	testCases := []struct {
+		name                      string
+		existingSetupKeyID        string
+		expectedGroupIDsInAccount []string
+		expectAddPeerError        bool
+		expectedErrorMsgSubstring string
+	}{
+		{
+			name:                      "Successful registration with setup key allowing extra DNS labels",
+			existingSetupKeyID:        "A2C8E62B-38F5-4553-B31E-DD66C696CEBD",
+			expectAddPeerError:        false,
+			expectedGroupIDsInAccount: []string{"cfefqs706sqkneg59g2g", "cfefqs706sqkneg59g4g"},
+		},
+		{
+			name:                      "Failed registration with setup key not allowing extra DNS labels",
+			existingSetupKeyID:        "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
+			expectAddPeerError:        true,
+			expectedErrorMsgSubstring: "setup key doesn't allow extra DNS labels",
+		},
+		{
+			name:                      "Absent setup key",
+			existingSetupKeyID:        "AAAAAAAA-38F5-4553-B31E-DD66C696CEBB",
+			expectAddPeerError:        true,
+			expectedErrorMsgSubstring: "failed adding new peer: account not found",
+		},
+	}
 
-	require.NoError(t, err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			currentPeer := &nbpeer.Peer{
+				ID:             xid.New().String(),
+				AccountID:      newPeerTemplate.AccountID,
+				Key:            "newPeerKey_" + xid.New().String(),
+				UserID:         newPeerTemplate.UserID,
+				IP:             newPeerTemplate.IP,
+				Meta:           newPeerTemplate.Meta,
+				Name:           newPeerTemplate.Name,
+				DNSLabel:       newPeerTemplate.DNSLabel,
+				Status:         &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+				SSHEnabled:     newPeerTemplate.SSHEnabled,
+				ExtraDNSLabels: newPeerTemplate.ExtraDNSLabels,
+			}
 
-	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, newPeer.Key)
-	require.NoError(t, err)
-	assert.Equal(t, peer.AccountID, existingAccountID)
+			addedPeer, _, _, err := am.AddPeer(context.Background(), tc.existingSetupKeyID, "", currentPeer)
 
-	account, err := s.GetAccount(context.Background(), existingAccountID)
-	require.NoError(t, err)
-	assert.Contains(t, account.Peers, addedPeer.ID)
-	assert.Contains(t, account.Groups["cfefqs706sqkneg59g2g"].Peers, addedPeer.ID)
-	assert.Contains(t, account.Groups["cfefqs706sqkneg59g4g"].Peers, addedPeer.ID)
+			if tc.expectAddPeerError {
+				require.Error(t, err, "Expected an error when adding peer with setup key: %s", tc.existingSetupKeyID)
+				assert.Contains(t, err.Error(), tc.expectedErrorMsgSubstring, "Error message mismatch")
+				return
+			}
 
-	assert.Equal(t, uint64(1), account.Network.Serial)
+			require.NoError(t, err, "Expected no error when adding peer with setup key: %s", tc.existingSetupKeyID)
+			assert.NotNil(t, addedPeer, "addedPeer should not be nil on success")
+			assert.Equal(t, currentPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels, "ExtraDNSLabels mismatch")
 
-	lastUsed, err := time.Parse("2006-01-02T15:04:05Z", "0001-01-01T00:00:00Z")
-	assert.NoError(t, err)
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, currentPeer.Key)
+			require.NoError(t, err, "Failed to get peer by pub key: %s", currentPeer.Key)
+			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
+			assert.Equal(t, currentPeer.ExtraDNSLabels, peerFromStore.ExtraDNSLabels, "ExtraDNSLabels mismatch for peer from store")
+			assert.Equal(t, addedPeer.ID, peerFromStore.ID, "Peer ID mismatch between addedPeer and peerFromStore")
 
-	hashedKey := sha256.Sum256([]byte(existingSetupKeyID))
-	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
-	assert.NotEqual(t, lastUsed, account.SetupKeys[encodedHashedKey].LastUsed)
-	assert.Equal(t, 1, account.SetupKeys[encodedHashedKey].UsedTimes)
+			account, err := s.GetAccount(context.Background(), existingAccountID)
+			require.NoError(t, err, "Failed to get account: %s", existingAccountID)
+			assert.Contains(t, account.Peers, addedPeer.ID, "Peer ID not found in account.Peers")
+
+			for _, groupID := range tc.expectedGroupIDsInAccount {
+				require.NotNil(t, account.Groups[groupID], "Group %s not found in account", groupID)
+				assert.Contains(t, account.Groups[groupID].Peers, addedPeer.ID, "Peer ID %s not found in group %s", addedPeer.ID, groupID)
+			}
+
+			assert.Equal(t, uint64(1), account.Network.Serial, "Network.Serial mismatch; this assumes specific initial state or increment logic.")
+
+			hashedKey := sha256.Sum256([]byte(tc.existingSetupKeyID))
+			encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+			setupKeyData, ok := account.SetupKeys[encodedHashedKey]
+			require.True(t, ok, "Setup key data not found in account.SetupKeys for key ID %s (encoded: %s)", tc.existingSetupKeyID, encodedHashedKey)
+
+			var zeroTime time.Time
+			assert.NotEqual(t, zeroTime, setupKeyData.LastUsed, "Setup key LastUsed time should have been updated and not be zero.")
+
+			assert.Equal(t, 1, setupKeyData.UsedTimes, "Setup key UsedTimes should be 1 after first use.")
+		})
+	}
 
 }
 
@@ -1454,6 +1523,160 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
 	assert.Equal(t, lastUsed, account.SetupKeys[encodedHashedKey].GetLastUsed().UTC())
 	assert.Equal(t, 0, account.SetupKeys[encodedHashedKey].UsedTimes)
+}
+
+func Test_LoginPeer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	eventStore := &activity.InMemoryEventStore{}
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	assert.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	permissionsManager := permissions.NewManager(s)
+
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	assert.NoError(t, err)
+
+	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	_, err = s.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err, "Failed to get existing account, check testdata/extended-store.sql. Account ID: %s", existingAccountID)
+
+	baseMeta := nbpeer.PeerSystemMeta{
+		Hostname: "loginPeerHost",
+		GoOS:     "linux",
+	}
+
+	newPeerTemplate := &nbpeer.Peer{
+		AccountID: existingAccountID,
+		UserID:    "",
+		IP:        net.IP{123, 123, 123, 123},
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "newPeer",
+			GoOS:     "linux",
+		},
+		Name:       "newPeerName",
+		DNSLabel:   "newPeer.test",
+		Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled: false,
+		ExtraDNSLabels: []string{
+			"extraLabel1",
+			"extraLabel2",
+		},
+	}
+
+	testCases := []struct {
+		name                         string
+		setupKey                     string
+		wireGuardPubKey              string
+		expectExtraDNSLabelsMismatch bool
+		extraDNSLabels               []string
+		expectLoginError             bool
+		expectedErrorMsgSubstring    string
+	}{
+		{
+			name:             "Successful login with setup key",
+			setupKey:         "A2C8E62B-38F5-4553-B31E-DD66C696CEBD",
+			expectLoginError: false,
+		},
+		{
+			name:                         "Successful login with setup key with DNS labels mismatch",
+			setupKey:                     "A2C8E62B-38F5-4553-B31E-DD66C696CEBD",
+			expectExtraDNSLabelsMismatch: true,
+			extraDNSLabels:               []string{"anotherLabel1", "anotherLabel2"},
+			expectLoginError:             false,
+		},
+		{
+			name:                         "Failed login with setup key not allowing extra DNS labels",
+			setupKey:                     "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
+			expectExtraDNSLabelsMismatch: true,
+			extraDNSLabels:               []string{"anotherLabel1", "anotherLabel2"},
+			expectLoginError:             true,
+			expectedErrorMsgSubstring:    "setup key doesn't allow extra DNS labels",
+		},
+	}
+
+	for _, tc := range testCases {
+		currentWireGuardPubKey := "testPubKey_" + xid.New().String()
+
+		t.Run(tc.name, func(t *testing.T) {
+			upperKey := strings.ToUpper(tc.setupKey)
+			hashedKey := sha256.Sum256([]byte(upperKey))
+			encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+			sk, err := s.GetSetupKeyBySecret(context.Background(), store.LockingStrengthUpdate, encodedHashedKey)
+			require.NoError(t, err, "Failed to get setup key %s from storage", tc.setupKey)
+
+			currentPeer := &nbpeer.Peer{
+				ID:         xid.New().String(),
+				AccountID:  newPeerTemplate.AccountID,
+				Key:        currentWireGuardPubKey,
+				UserID:     newPeerTemplate.UserID,
+				IP:         newPeerTemplate.IP,
+				Meta:       newPeerTemplate.Meta,
+				Name:       newPeerTemplate.Name,
+				DNSLabel:   newPeerTemplate.DNSLabel,
+				Status:     &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+				SSHEnabled: newPeerTemplate.SSHEnabled,
+			}
+			// add peer manually to bypass creation during login stage
+			if sk.AllowExtraDNSLabels {
+				currentPeer.ExtraDNSLabels = newPeerTemplate.ExtraDNSLabels
+			}
+			_, _, _, err = am.AddPeer(context.Background(), tc.setupKey, "", currentPeer)
+			require.NoError(t, err, "Expected no error when adding peer with setup key: %s", tc.setupKey)
+
+			loginInput := types.PeerLogin{
+				WireGuardPubKey: currentWireGuardPubKey,
+				SSHKey:          "test-ssh-key",
+				Meta:            baseMeta,
+				UserID:          "",
+				SetupKey:        tc.setupKey,
+				ConnectionIP:    net.ParseIP("192.0.2.100"),
+			}
+
+			if tc.expectExtraDNSLabelsMismatch {
+				loginInput.ExtraDNSLabels = tc.extraDNSLabels
+			}
+
+			loggedinPeer, networkMap, postureChecks, loginErr := am.LoginPeer(context.Background(), loginInput)
+			if tc.expectLoginError {
+				require.Error(t, loginErr, "Expected an error during LoginPeer with setup key: %s", tc.setupKey)
+				assert.Contains(t, loginErr.Error(), tc.expectedErrorMsgSubstring, "Error message mismatch")
+				assert.Nil(t, loggedinPeer, "LoggedinPeer should be nil on error")
+				assert.Nil(t, networkMap, "NetworkMap should be nil on error")
+				assert.Nil(t, postureChecks, "PostureChecks should be empty or nil on error")
+				return
+			}
+
+			require.NoError(t, loginErr, "Expected no error during LoginPeer with setup key: %s", tc.setupKey)
+			assert.NotNil(t, loggedinPeer, "loggedinPeer should not be nil on success")
+			if tc.expectExtraDNSLabelsMismatch {
+				assert.NotEqual(t, tc.extraDNSLabels, loggedinPeer.ExtraDNSLabels, "ExtraDNSLabels should not match on loggedinPeer")
+				assert.Equal(t, currentPeer.ExtraDNSLabels, loggedinPeer.ExtraDNSLabels, "ExtraDNSLabels mismatch on loggedinPeer")
+			} else {
+				assert.Equal(t, currentPeer.ExtraDNSLabels, loggedinPeer.ExtraDNSLabels, "ExtraDNSLabels mismatch on loggedinPeer")
+			}
+			assert.NotNil(t, networkMap, "networkMap should not be nil on success")
+
+			assert.Equal(t, existingAccountID, loggedinPeer.AccountID, "AccountID mismatch for logged peer")
+
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, loginInput.WireGuardPubKey)
+			require.NoError(t, err, "Failed to get peer by pub key: %s", loginInput.WireGuardPubKey)
+			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
+			assert.Equal(t, loggedinPeer.ID, peerFromStore.ID, "Peer ID mismatch between loggedinPeer and peerFromStore")
+		})
+	}
 }
 
 func TestPeerAccountPeersUpdate(t *testing.T) {
