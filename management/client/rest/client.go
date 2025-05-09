@@ -14,6 +14,7 @@ import (
 type Client struct {
 	managementURL string
 	authHeader    string
+	httpClient    *http.Client
 
 	// Accounts NetBird account APIs
 	// see more: https://docs.netbird.io/api/resources/accounts
@@ -69,21 +70,33 @@ type Client struct {
 }
 
 // New initialize new Client instance using PAT token
-func New(managementURL, token string) *Client {
+func New(managementURL, token string, opts ...option) *Client {
 	client := &Client{
 		managementURL: managementURL,
 		authHeader:    "Token " + token,
+		httpClient:    http.DefaultClient,
 	}
+
+	for _, option := range opts {
+		option(client)
+	}
+
 	client.initialize()
 	return client
 }
 
 // NewWithBearerToken initialize new Client instance using Bearer token type
-func NewWithBearerToken(managementURL, token string) *Client {
+func NewWithBearerToken(managementURL, token string, opts ...option) *Client {
 	client := &Client{
 		managementURL: managementURL,
 		authHeader:    "Bearer " + token,
+		httpClient:    http.DefaultClient,
 	}
+
+	for _, option := range opts {
+		option(client)
+	}
+
 	client.initialize()
 	return client
 }
