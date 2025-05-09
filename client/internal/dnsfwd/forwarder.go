@@ -100,6 +100,7 @@ func (f *DNSForwarder) UpdateDomains(entries []*ForwarderEntry) {
 	oldDomains := filterDomains(f.fwdEntries)
 	for _, d := range oldDomains {
 		f.mux.HandleRemove(d.PunycodeString())
+		f.tcpMux.HandleRemove(d.PunycodeString())
 	}
 
 	newDomains := filterDomains(entries)
@@ -160,7 +161,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns
 	defer cancel()
 	ips, err := net.DefaultResolver.LookupNetIP(ctx, network, domain)
 	if err != nil {
-		f.handleDNSError(w, resp, domain, err)
+		f.handleDNSError(w, query, resp, domain, err)
 		return nil
 	}
 
@@ -177,9 +178,8 @@ func (f *DNSForwarder) handleDNSQueryUDP(w dns.ResponseWriter, query *dns.Msg) {
 		return
 	}
 
-	defaultUDPSize := 512
 	opt := query.IsEdns0()
-	maxSize := defaultUDPSize
+	maxSize := dns.MinMsgSize
 	if opt != nil {
 		// client advertised a larger EDNS0 buffer
 		maxSize = int(opt.UDPSize())
@@ -243,7 +243,7 @@ func (f *DNSForwarder) updateFirewall(matchingEntries []*ForwarderEntry, prefixe
 }
 
 // handleDNSError processes DNS lookup errors and sends an appropriate error response
-func (f *DNSForwarder) handleDNSError(w dns.ResponseWriter, resp *dns.Msg, domain string, err error) {
+func (f *DNSForwarder) handleDNSError(w dns.ResponseWriter, query, resp *dns.Msg, domain string, err error) {
 	var dnsErr *net.DNSError
 
 	switch {
@@ -254,8 +254,13 @@ func (f *DNSForwarder) handleDNSError(w dns.ResponseWriter, resp *dns.Msg, domai
 			resp.Rcode = dns.RcodeNameError
 		}
 
+		var qType string
+		if len(query.Question) > 0 {
+			qType = dns.TypeToString[query.Question[0].Qtype]
+		}
+
 		if dnsErr.Server != "" {
-			log.Warnf("failed to resolve query for domain=%s server=%s: %v", domain, dnsErr.Server, err)
+			log.Warnf("failed to resolve query for type=%s domain=%s server=%s: %v", qType, domain, dnsErr.Server, err)
 		} else {
 			log.Warnf(errResolveFailed, domain, err)
 		}
