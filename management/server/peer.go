@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -553,6 +554,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		freeIP, err := getFreeIP(ctx, transaction, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get free IP: %w", err)
+		}
+
+		if err := domain.ValidateDomainsList(peer.ExtraDNSLabels); err != nil {
+			return status.Errorf(status.InvalidArgument, "invalid extra DNS labels: %v", err)
 		}
 
 		registrationTime := time.Now().UTC()
