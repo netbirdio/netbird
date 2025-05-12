@@ -178,11 +178,19 @@ const (
 	UserStatusInvited UserStatus = "invited"
 )
 
-// Defines values for UserPermissionsDashboardView.
+// Defines values for GetApiEventsNetworkTrafficParamsType.
 const (
-	UserPermissionsDashboardViewBlocked UserPermissionsDashboardView = "blocked"
-	UserPermissionsDashboardViewFull    UserPermissionsDashboardView = "full"
-	UserPermissionsDashboardViewLimited UserPermissionsDashboardView = "limited"
+	GetApiEventsNetworkTrafficParamsTypeTYPEDROP    GetApiEventsNetworkTrafficParamsType = "TYPE_DROP"
+	GetApiEventsNetworkTrafficParamsTypeTYPEEND     GetApiEventsNetworkTrafficParamsType = "TYPE_END"
+	GetApiEventsNetworkTrafficParamsTypeTYPESTART   GetApiEventsNetworkTrafficParamsType = "TYPE_START"
+	GetApiEventsNetworkTrafficParamsTypeTYPEUNKNOWN GetApiEventsNetworkTrafficParamsType = "TYPE_UNKNOWN"
+)
+
+// Defines values for GetApiEventsNetworkTrafficParamsDirection.
+const (
+	GetApiEventsNetworkTrafficParamsDirectionDIRECTIONUNKNOWN GetApiEventsNetworkTrafficParamsDirection = "DIRECTION_UNKNOWN"
+	GetApiEventsNetworkTrafficParamsDirectionEGRESS           GetApiEventsNetworkTrafficParamsDirection = "EGRESS"
+	GetApiEventsNetworkTrafficParamsDirectionINGRESS          GetApiEventsNetworkTrafficParamsDirection = "INGRESS"
 )
 
 // AccessiblePeer defines model for AccessiblePeer.
@@ -223,6 +231,18 @@ type AccessiblePeer struct {
 
 // Account defines model for Account.
 type Account struct {
+	// CreatedAt Account creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy Account creator
+	CreatedBy string `json:"created_by"`
+
+	// Domain Account domain
+	Domain string `json:"domain"`
+
+	// DomainCategory Account domain category
+	DomainCategory string `json:"domain_category"`
+
 	// Id Account ID
 	Id       string          `json:"id"`
 	Settings AccountSettings `json:"settings"`
@@ -247,7 +267,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
-	Extra *AccountExtraSettings `json:"extra,omitempty"`
+	// DnsDomain Allows to define a custom dns domain for the account
+	DnsDomain *string               `json:"dns_domain,omitempty"`
+	Extra     *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
@@ -906,6 +928,24 @@ type NetworkTrafficEvent struct {
 
 	// UserName Name of the user who initiated the event (if any).
 	UserName *string `json:"user_name"`
+}
+
+// NetworkTrafficEventsResponse defines model for NetworkTrafficEventsResponse.
+type NetworkTrafficEventsResponse struct {
+	// Data List of network traffic events
+	Data []NetworkTrafficEvent `json:"data"`
+
+	// Page Current page number
+	Page int `json:"page"`
+
+	// PageSize Number of items per page
+	PageSize int `json:"page_size"`
+
+	// TotalPages Total number of pages available
+	TotalPages int `json:"total_pages"`
+
+	// TotalRecords Total number of event records available
+	TotalRecords int `json:"total_records"`
 }
 
 // NetworkTrafficLocation defines model for NetworkTrafficLocation.
@@ -1710,12 +1750,10 @@ type UserCreateRequest struct {
 
 // UserPermissions defines model for UserPermissions.
 type UserPermissions struct {
-	// DashboardView User's permission to view the dashboard
-	DashboardView *UserPermissionsDashboardView `json:"dashboard_view,omitempty"`
+	// IsRestricted Indicates whether this User's Peers view is restricted
+	IsRestricted bool                       `json:"is_restricted"`
+	Modules      map[string]map[string]bool `json:"modules"`
 }
-
-// UserPermissionsDashboardView User's permission to view the dashboard
-type UserPermissionsDashboardView string
 
 // UserRequest defines model for UserRequest.
 type UserRequest struct {
@@ -1728,6 +1766,42 @@ type UserRequest struct {
 	// Role User's NetBird account role
 	Role string `json:"role"`
 }
+
+// GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParams struct {
+	// Page Page number
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of items per page
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// UserId Filter by user ID
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// Protocol Filter by protocol
+	Protocol *int `form:"protocol,omitempty" json:"protocol,omitempty"`
+
+	// Type Filter by event type
+	Type *GetApiEventsNetworkTrafficParamsType `form:"type,omitempty" json:"type,omitempty"`
+
+	// Direction Filter by direction
+	Direction *GetApiEventsNetworkTrafficParamsDirection `form:"direction,omitempty" json:"direction,omitempty"`
+
+	// Search Filters events with a partial match on user email, source and destination names and source and destination addresses
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// StartDate Start date for filtering events (ISO 8601 format, e.g., 2024-01-01T00:00:00Z).
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
+
+	// EndDate End date for filtering events (ISO 8601 format, e.g., 2024-01-31T23:59:59Z).
+	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
+}
+
+// GetApiEventsNetworkTrafficParamsType defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParamsType string
+
+// GetApiEventsNetworkTrafficParamsDirection defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParamsDirection string
 
 // GetApiPeersParams defines parameters for GetApiPeers.
 type GetApiPeersParams struct {

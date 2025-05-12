@@ -50,6 +50,12 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 				accCopy.UpdateSettings(newSettings)
 				return accCopy, nil
 			},
+			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+				return account.Copy(), nil
+			},
+			GetAccountMetaFunc: func(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+				return account.GetMeta(), nil
+			},
 		},
 		settingsManager: settingsMockManager,
 	}
@@ -102,6 +108,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{},
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -122,6 +129,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{},
 				RegularUsersViewBlocked:         false,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -142,6 +150,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{"test"},
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -162,6 +171,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{},
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: false,
 			expectedID:    accountID,

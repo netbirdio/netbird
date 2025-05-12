@@ -19,6 +19,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -81,21 +82,21 @@ func (u *upstreamResolverBase) String() string {
 }
 
 // ID returns the unique handler ID
-func (u *upstreamResolverBase) id() handlerID {
+func (u *upstreamResolverBase) ID() types.HandlerID {
 	servers := slices.Clone(u.upstreamServers)
 	slices.Sort(servers)
 
 	hash := sha256.New()
 	hash.Write([]byte(u.domain + ":"))
 	hash.Write([]byte(strings.Join(servers, ",")))
-	return handlerID("upstream-" + hex.EncodeToString(hash.Sum(nil)[:8]))
+	return types.HandlerID("upstream-" + hex.EncodeToString(hash.Sum(nil)[:8]))
 }
 
 func (u *upstreamResolverBase) MatchSubdomains() bool {
 	return true
 }
 
-func (u *upstreamResolverBase) stop() {
+func (u *upstreamResolverBase) Stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
 }
@@ -198,9 +199,9 @@ func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 	)
 }
 
-// probeAvailability tests all upstream servers simultaneously and
+// ProbeAvailability tests all upstream servers simultaneously and
 // disables the resolver if none work
-func (u *upstreamResolverBase) probeAvailability() {
+func (u *upstreamResolverBase) ProbeAvailability() {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 

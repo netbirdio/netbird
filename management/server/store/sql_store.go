@@ -658,6 +658,21 @@ func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
 	return all
 }
 
+func (s *SqlStore) GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.AccountMeta, error) {
+	var accountMeta types.AccountMeta
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&types.Account{}).
+		First(&accountMeta, idQueryCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when getting account meta %s from the store: %s", accountID, result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewAccountNotFoundError(accountID)
+		}
+		return nil, status.NewGetAccountFromStoreError(result.Error)
+	}
+
+	return &accountMeta, nil
+}
+
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
 	start := time.Now()
 	defer func() {
@@ -783,6 +798,19 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 	}
 
 	return s.GetAccount(ctx, peer.AccountID)
+}
+
+func (s *SqlStore) GetAnyAccountID(ctx context.Context) (string, error) {
+	var account types.Account
+	result := s.db.WithContext(ctx).Select("id").Order("created_at desc").Limit(1).Find(&account)
+	if result.Error != nil {
+		return "", status.NewGetAccountFromStoreError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	return account.Id, nil
 }
 
 func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error) {
@@ -1655,18 +1683,26 @@ func (s *SqlStore) SavePolicy(ctx context.Context, lockStrength LockingStrength,
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error {
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&types.Policy{}, accountAndIDQueryCondition, accountID, policyID)
-	if err := result.Error; err != nil {
-		log.WithContext(ctx).Errorf("failed to delete policy from store: %s", err)
-		return status.Errorf(status.Internal, "failed to delete policy from store")
-	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("policy_id = ?", policyID).Delete(&types.PolicyRule{}).Error; err != nil {
+			return fmt.Errorf("delete policy rules: %w", err)
+		}
 
-	if result.RowsAffected == 0 {
-		return status.NewPolicyNotFoundError(policyID)
-	}
+		result := tx.Clauses(clause.Locking{Strength: string(lockStrength)}).
+			Where(accountAndIDQueryCondition, accountID, policyID).
+			Delete(&types.Policy{})
 
-	return nil
+		if err := result.Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to delete policy from store: %s", err)
+			return status.Errorf(status.Internal, "failed to delete policy from store")
+		}
+
+		if result.RowsAffected == 0 {
+			return status.NewPolicyNotFoundError(policyID)
+		}
+
+		return nil
+	})
 }
 
 // GetAccountPostureChecks retrieves posture checks for an account.

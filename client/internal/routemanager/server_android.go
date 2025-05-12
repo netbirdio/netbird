@@ -18,7 +18,7 @@ type serverRouter struct {
 func (r serverRouter) cleanUp() {
 }
 
-func (r serverRouter) updateRoutes(map[route.ID]*route.Route) error {
+func (r serverRouter) updateRoutes(map[route.ID]*route.Route, bool) error {
 	return nil
 }
 

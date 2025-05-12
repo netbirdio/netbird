@@ -60,10 +60,10 @@ func Test_NewStore(t *testing.T) {
 
 	runTestForAllEngines(t, "", func(t *testing.T, store Store) {
 		if store == nil {
-			t.Errorf("expected to create a new Store")
+			t.Fatalf("expected to create a new Store")
 		}
 		if len(store.GetAllAccounts(context.Background())) != 0 {
-			t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
+			t.Fatalf("expected to create a new empty Accounts map when creating a new FileStore")
 		}
 	})
 }
@@ -1115,7 +1115,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 
 	group := &types.Group{
 		ID:        "group-id",
-		AccountID: "account-id",
+		AccountID: "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 		Name:      "group-name",
 		Issued:    "api",
 		Peers:     nil,
@@ -3246,4 +3246,45 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 	accountGroups, err = store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)
 	require.NoError(t, err)
 	require.Equal(t, 8003, len(accountGroups))
+}
+
+func TestSqlStore_GetAccountMeta(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	accountMeta, err := store.GetAccountMeta(context.Background(), LockingStrengthShare, accountID)
+	require.NoError(t, err)
+	require.NotNil(t, accountMeta)
+	require.Equal(t, accountID, accountMeta.AccountID)
+	require.Equal(t, "edafee4e-63fb-11ec-90d6-0242ac120003", accountMeta.CreatedBy)
+	require.Equal(t, "test.com", accountMeta.Domain)
+	require.Equal(t, "private", accountMeta.DomainCategory)
+	require.Equal(t, time.Date(2024, time.October, 2, 14, 1, 38, 210000000, time.UTC), accountMeta.CreatedAt.UTC())
+}
+
+func TestSqlStore_GetAnyAccountID(t *testing.T) {
+	t.Run("should return account ID when accounts exist", func(t *testing.T) {
+		store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+		t.Cleanup(cleanup)
+		require.NoError(t, err)
+
+		accountID, err := store.GetAnyAccountID(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, "bf1c8084-ba50-4ce7-9439-34653001fc3b", accountID)
+	})
+
+	t.Run("should return error when no accounts exist", func(t *testing.T) {
+		store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+		t.Cleanup(cleanup)
+		require.NoError(t, err)
+
+		accountID, err := store.GetAnyAccountID(context.Background())
+		require.Error(t, err)
+		sErr, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, sErr.Type(), status.NotFound)
+		assert.Empty(t, accountID)
+	})
 }

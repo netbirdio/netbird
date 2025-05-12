@@ -30,7 +30,7 @@ func (p NetworkResourceType) String() string {
 }
 
 type NetworkResource struct {
-	ID          string `gorm:"index"`
+	ID          string `gorm:"primaryKey"`
 	NetworkID   string `gorm:"index"`
 	AccountID   string `gorm:"index"`
 	Name        string

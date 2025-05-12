@@ -20,7 +20,9 @@ func (a *RoutesAPI) List(ctx context.Context) ([]api.Route, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Route](resp)
 	return ret, err
 }
@@ -32,7 +34,9 @@ func (a *RoutesAPI) Get(ctx context.Context, routeID string) (*api.Route, error)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Route](resp)
 	return &ret, err
 }
@@ -48,7 +52,9 @@ func (a *RoutesAPI) Create(ctx context.Context, request api.PostApiRoutesJSONReq
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Route](resp)
 	return &ret, err
 }
@@ -64,7 +70,9 @@ func (a *RoutesAPI) Update(ctx context.Context, routeID string, request api.PutA
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Route](resp)
 	return &ret, err
 }
@@ -76,7 +84,9 @@ func (a *RoutesAPI) Delete(ctx context.Context, routeID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

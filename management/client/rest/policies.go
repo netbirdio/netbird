@@ -20,7 +20,9 @@ func (a *PoliciesAPI) List(ctx context.Context) ([]api.Policy, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Policy](resp)
 	return ret, err
 }
@@ -32,7 +34,9 @@ func (a *PoliciesAPI) Get(ctx context.Context, policyID string) (*api.Policy, er
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Policy](resp)
 	return &ret, err
 }
@@ -48,7 +52,9 @@ func (a *PoliciesAPI) Create(ctx context.Context, request api.PostApiPoliciesJSO
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Policy](resp)
 	return &ret, err
 }
@@ -64,7 +70,9 @@ func (a *PoliciesAPI) Update(ctx context.Context, policyID string, request api.P
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Policy](resp)
 	return &ret, err
 }
@@ -76,7 +84,9 @@ func (a *PoliciesAPI) Delete(ctx context.Context, policyID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

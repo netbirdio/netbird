@@ -17,6 +17,7 @@ import (
 	"time"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
+	"github.com/eko/gocache/store/redis/v4"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
@@ -237,7 +238,7 @@ func BuildManager(
 
 	if !isNil(am.idpManager) {
 		go func() {
-			err := am.warmupIDPCache(ctx)
+			err := am.warmupIDPCache(ctx, cacheStore)
 			if err != nil {
 				log.WithContext(ctx).Warnf("failed warming up cache due to error: %v", err)
 				// todo retry?
@@ -273,6 +274,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 
 	if newSettings.PeerLoginExpiration < time.Hour {
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
+	}
+
+	if newSettings.DNSDomain != "" && !isDomainValid(newSettings.DNSDomain) {
+		return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
 	}
 
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
@@ -321,6 +326,12 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
 		}
+		updateAccountPeers = true
+		account.Network.Serial++
+	}
+
+	if oldSettings.DNSDomain != newSettings.DNSDomain {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, nil)
 		updateAccountPeers = true
 		account.Network.Serial++
 	}
@@ -484,7 +495,25 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 	return nil, status.Errorf(status.Internal, "error while creating new account")
 }
 
-func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
+func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context, store cacheStore.StoreInterface) error {
+	cold, err := am.isCacheCold(ctx, store)
+	if err != nil {
+		return err
+	}
+
+	if !cold {
+		log.WithContext(ctx).Debug("cache already populated, skipping warm up")
+		return nil
+	}
+
+	if delayStr, ok := os.LookupEnv("NB_IDP_CACHE_WARMUP_DELAY"); ok {
+		delay, err := time.ParseDuration(delayStr)
+		if err != nil {
+			return fmt.Errorf("invalid IDP warmup delay: %w", err)
+		}
+		time.Sleep(delay)
+	}
+
 	userData, err := am.idpManager.GetAllAccounts(ctx)
 	if err != nil {
 		return err
@@ -524,6 +553,32 @@ func (am *DefaultAccountManager) warmupIDPCache(ctx context.Context) error {
 	return nil
 }
 
+// isCacheCold checks if the cache needs warming up.
+func (am *DefaultAccountManager) isCacheCold(ctx context.Context, store cacheStore.StoreInterface) (bool, error) {
+	if store.GetType() != redis.RedisType {
+		return true, nil
+	}
+
+	accountID, err := am.Store.GetAnyAccountID(ctx)
+	if err != nil {
+		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+			return true, nil
+		}
+		return false, err
+	}
+
+	_, err = store.Get(ctx, accountID)
+	if err == nil {
+		return false, nil
+	}
+
+	if notFoundErr := new(cacheStore.NotFound); errors.As(err, &notFoundErr) {
+		return true, nil
+	}
+
+	return false, fmt.Errorf("failed to check cache: %w", err)
+}
+
 // DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
 func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, userID string) error {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
@@ -548,11 +603,15 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	}
 
 	for _, otherUser := range account.Users {
-		if otherUser.IsServiceUser {
+		if otherUser.Id == userID {
 			continue
 		}
 
-		if otherUser.Id == userID {
+		if otherUser.IsServiceUser {
+			err = am.deleteServiceUser(ctx, accountID, userID, otherUser)
+			if err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -657,7 +716,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	log.WithContext(ctx).Debugf("account %s not found in cache, reloading", accountID)
 	accountIDString := fmt.Sprintf("%v", accountID)
 
-	account, err := am.Store.GetAccount(ctx, accountIDString)
+	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountIDString)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -666,7 +725,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	if err != nil {
 		return nil, nil, err
 	}
-	log.WithContext(ctx).Debugf("%d entries received from IdP management", len(userData))
+	log.WithContext(ctx).Debugf("%d entries received from IdP management for account %s", len(userData), accountIDString)
 
 	dataMap := make(map[string]*idp.UserData, len(userData))
 	for _, datum := range userData {
@@ -674,7 +733,7 @@ func (am *DefaultAccountManager) loadAccount(ctx context.Context, accountID any)
 	}
 
 	matchedUserData := make([]*idp.UserData, 0)
-	for _, user := range account.Users {
+	for _, user := range accountUsers {
 		if user.IsServiceUser {
 			continue
 		}
@@ -1055,6 +1114,19 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 	}
 
 	return am.Store.GetAccount(ctx, accountID)
+}
+
+// GetAccountMeta returns the account metadata associated with this account ID.
+func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	return am.Store.GetAccountMeta(ctx, store.LockingStrengthShare, accountID)
 }
 
 func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
@@ -1480,8 +1552,15 @@ func isDomainValid(domain string) bool {
 }
 
 // GetDNSDomain returns the configured dnsDomain
-func (am *DefaultAccountManager) GetDNSDomain() string {
-	return am.dnsDomain
+func (am *DefaultAccountManager) GetDNSDomain(settings *types.Settings) string {
+	if settings == nil {
+		return am.dnsDomain
+	}
+	if settings.DNSDomain == "" {
+		return am.dnsDomain
+	}
+
+	return settings.DNSDomain
 }
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
