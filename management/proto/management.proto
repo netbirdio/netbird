@@ -254,6 +254,8 @@ message PeerConfig {
   string fqdn = 4;
 
   bool RoutingPeerDnsResolutionEnabled = 5;
+
+  bool LazyConnectionEnabled = 6;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections

@@ -23,7 +23,12 @@ import (
 // - Maintaining a list of excluded peers that should always have permanent connections
 // - Handling connection establishment based on peer signaling
 type ConnMgr struct {
-	peerStore   *peerstore.Store
+	peerStore      *peerstore.Store
+	statusRecorder *peer.Status
+	iface          lazyconn.WGIface
+	dispatcher     *dispatcher.ConnectionDispatcher
+	enabledLocally bool
+
 	lazyConnMgr *manager.Manager
 
 	mu        sync.Mutex
@@ -34,16 +39,18 @@ type ConnMgr struct {
 
 func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *dispatcher.ConnectionDispatcher) *ConnMgr {
 	e := &ConnMgr{
-		peerStore: peerStore,
+		peerStore:      peerStore,
+		statusRecorder: statusRecorder,
+		iface:          iface,
+		dispatcher:     dispatcher,
 	}
 	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
+		e.enabledLocally = true
 		cfg := manager.Config{
 			InactivityThreshold: inactivityThresholdEnv(),
 		}
-		e.lazyConnMgr = manager.NewManager(cfg, iface, dispatcher)
-		statusRecorder.UpdateLazyConnection(true)
-	} else {
-		statusRecorder.UpdateLazyConnection(false)
+		e.lazyConnMgr = manager.NewManager(cfg, e.iface, e.dispatcher)
+		e.statusRecorder.UpdateLazyConnection(true)
 	}
 	return e
 }
@@ -64,6 +71,29 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 		defer e.wg.Done()
 		e.lazyConnMgr.Start(ctx, e.onActive, e.onInactive)
 	}()
+}
+
+func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) {
+	// todo review deadlock
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.enabledLocally {
+		return
+	}
+	if enabled {
+		if e.lazyConnMgr != nil {
+			return
+		}
+
+		log.Infof("lazy connection manager is enabled by management feature flag")
+		e.initLazyManager(ctx)
+		e.statusRecorder.UpdateLazyConnection(true)
+		return
+	}
+
+	e.closeManager()
+	e.statusRecorder.UpdateLazyConnection(false)
 }
 
 // SetExcludeList sets the list of peer IDs that should always have permanent connections.
@@ -205,6 +235,34 @@ func (e *ConnMgr) Close() {
 	e.ctxCancel()
 	e.wg.Wait()
 	e.lazyConnMgr = nil
+}
+
+func (e *ConnMgr) initLazyManager(parentCtx context.Context) {
+	cfg := manager.Config{
+		InactivityThreshold: inactivityThresholdEnv(),
+	}
+	e.lazyConnMgr = manager.NewManager(cfg, e.iface, e.dispatcher)
+
+	ctx, cancel := context.WithCancel(parentCtx)
+	e.ctx = ctx
+	e.ctxCancel = cancel
+
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		e.lazyConnMgr.Start(ctx, e.onActive, e.onInactive)
+	}()
+}
+
+func (e *ConnMgr) closeManager() {
+	if e.lazyConnMgr == nil {
+		return
+	}
+
+	e.ctxCancel()
+	e.wg.Wait()
+	e.lazyConnMgr = nil
+	// todo open all connections
 }
 
 func (e *ConnMgr) onActive(peerID string) {
