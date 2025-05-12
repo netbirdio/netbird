@@ -108,7 +108,7 @@ func TestSetupKeys_Create_200(t *testing.T) {
 		})
 		ret, err := c.SetupKeys.Create(context.Background(), api.PostApiSetupKeysJSONRequestBody{
 			ExpiresIn: 5,
-		}, "")
+		})
 		require.NoError(t, err)
 		assert.Equal(t, testSteupKeyGenerated, *ret)
 	})
@@ -124,7 +124,7 @@ func TestSetupKeys_Create_Err(t *testing.T) {
 		})
 		ret, err := c.SetupKeys.Create(context.Background(), api.PostApiSetupKeysJSONRequestBody{
 			ExpiresIn: 5,
-		}, "")
+		})
 		assert.Error(t, err)
 		assert.Equal(t, "No", err.Error())
 		assert.Nil(t, ret)
@@ -207,7 +207,7 @@ func TestSetupKeys_Integration(t *testing.T) {
 			Ephemeral:  ptr(false),
 			Name:       "test",
 			Type:       "reusable",
-		}, "")
+		})
 
 		require.NoError(t, err)
 		assert.Equal(t, true, skClear.Valid)

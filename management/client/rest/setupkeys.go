@@ -43,11 +43,8 @@ func (a *SetupKeysAPI) Get(ctx context.Context, setupKeyID string) (*api.SetupKe
 
 // Create generate new Setup Key
 // See more: https://docs.netbird.io/api/resources/setup-keys#create-a-setup-key
-func (a *SetupKeysAPI) Create(ctx context.Context, request api.PostApiSetupKeysJSONRequestBody, accountID string) (*api.SetupKeyClear, error) {
+func (a *SetupKeysAPI) Create(ctx context.Context, request api.PostApiSetupKeysJSONRequestBody) (*api.SetupKeyClear, error) {
 	path := "/api/setup-keys"
-	if accountID != "" {
-		path += "?account=" + accountID
-	}
 
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
