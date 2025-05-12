@@ -11,6 +11,8 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/route"
 )
 
 const (
@@ -19,11 +21,19 @@ const (
 	dnsTTL     = 60 //seconds
 )
 
+// ForwarderEntry is a mapping from a domain to a resource ID and a hash of the parent domain list.
+type ForwarderEntry struct {
+	Domain domain.Domain
+	ResID  route.ResID
+	Set    firewall.Set
+}
+
 type Manager struct {
 	firewall       firewall.Manager
 	statusRecorder *peer.Status
 
 	fwRules      []firewall.Rule
+	tcpRules     []firewall.Rule
 	dnsForwarder *DNSForwarder
 }
 
@@ -34,7 +44,7 @@ func NewManager(fw firewall.Manager, statusRecorder *peer.Status) *Manager {
 	}
 }
 
-func (m *Manager) Start(domains []string, resIds map[string]string) error {
+func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 	log.Infof("starting DNS forwarder")
 	if m.dnsForwarder != nil {
 		return nil
@@ -44,9 +54,9 @@ func (m *Manager) Start(domains []string, resIds map[string]string) error {
 		return err
 	}
 
-	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, m.statusRecorder)
+	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, m.firewall, m.statusRecorder)
 	go func() {
-		if err := m.dnsForwarder.Listen(domains, resIds); err != nil {
+		if err := m.dnsForwarder.Listen(fwdEntries); err != nil {
 			// todo handle close error if it is exists
 			log.Errorf("failed to start DNS forwarder, err: %v", err)
 		}
@@ -55,12 +65,12 @@ func (m *Manager) Start(domains []string, resIds map[string]string) error {
 	return nil
 }
 
-func (m *Manager) UpdateDomains(domains []string, resIds map[string]string) {
+func (m *Manager) UpdateDomains(entries []*ForwarderEntry) {
 	if m.dnsForwarder == nil {
 		return
 	}
 
-	m.dnsForwarder.UpdateDomains(domains, resIds)
+	m.dnsForwarder.UpdateDomains(entries)
 }
 
 func (m *Manager) Stop(ctx context.Context) error {
@@ -81,34 +91,47 @@ func (m *Manager) Stop(ctx context.Context) error {
 	return nberrors.FormatErrorOrNil(mErr)
 }
 
-func (h *Manager) allowDNSFirewall() error {
+func (m *Manager) allowDNSFirewall() error {
 	dport := &firewall.Port{
 		IsRange: false,
 		Values:  []uint16{ListenPort},
 	}
 
-	if h.firewall == nil {
+	if m.firewall == nil {
 		return nil
 	}
 
-	dnsRules, err := h.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept, "")
+	dnsRules, err := m.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept, "")
 	if err != nil {
 		log.Errorf("failed to add allow DNS router rules, err: %v", err)
 		return err
 	}
-	h.fwRules = dnsRules
+	m.fwRules = dnsRules
+
+	tcpRules, err := m.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolTCP, nil, dport, firewall.ActionAccept, "")
+	if err != nil {
+		log.Errorf("failed to add allow DNS router rules, err: %v", err)
+		return err
+	}
+	m.tcpRules = tcpRules
 
 	return nil
 }
 
-func (h *Manager) dropDNSFirewall() error {
+func (m *Manager) dropDNSFirewall() error {
 	var mErr *multierror.Error
-	for _, rule := range h.fwRules {
-		if err := h.firewall.DeletePeerRule(rule); err != nil {
+	for _, rule := range m.fwRules {
+		if err := m.firewall.DeletePeerRule(rule); err != nil {
+			mErr = multierror.Append(mErr, fmt.Errorf("failed to delete DNS router rules, err: %v", err))
+		}
+	}
+	for _, rule := range m.tcpRules {
+		if err := m.firewall.DeletePeerRule(rule); err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("failed to delete DNS router rules, err: %v", err))
 		}
 	}
 
-	h.fwRules = nil
+	m.fwRules = nil
+	m.tcpRules = nil
 	return nberrors.FormatErrorOrNil(mErr)
 }

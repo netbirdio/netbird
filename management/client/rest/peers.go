@@ -20,7 +20,9 @@ func (a *PeersAPI) List(ctx context.Context) ([]api.Peer, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Peer](resp)
 	return ret, err
 }
@@ -32,7 +34,9 @@ func (a *PeersAPI) Get(ctx context.Context, peerID string) (*api.Peer, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Peer](resp)
 	return &ret, err
 }
@@ -48,7 +52,9 @@ func (a *PeersAPI) Update(ctx context.Context, peerID string, request api.PutApi
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Peer](resp)
 	return &ret, err
 }
@@ -60,7 +66,9 @@ func (a *PeersAPI) Delete(ctx context.Context, peerID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }
@@ -72,7 +80,9 @@ func (a *PeersAPI) ListAccessiblePeers(ctx context.Context, peerID string) ([]ap
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Peer](resp)
 	return ret, err
 }

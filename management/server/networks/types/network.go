@@ -7,7 +7,7 @@ import (
 )
 
 type Network struct {
-	ID          string `gorm:"index"`
+	ID          string `gorm:"primaryKey"`
 	AccountID   string `gorm:"index"`
 	Name        string
 	Description string

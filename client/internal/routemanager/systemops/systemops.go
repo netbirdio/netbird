@@ -1,6 +1,7 @@
 package systemops
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -13,6 +14,20 @@ import (
 type Nexthop struct {
 	IP   netip.Addr
 	Intf *net.Interface
+}
+
+// Equal checks if two nexthops are equal.
+func (n Nexthop) Equal(other Nexthop) bool {
+	return n.IP == other.IP && (n.Intf == nil && other.Intf == nil ||
+		n.Intf != nil && other.Intf != nil && n.Intf.Index == other.Intf.Index)
+}
+
+// String returns a string representation of the nexthop.
+func (n Nexthop) String() string {
+	if n.Intf == nil {
+		return n.IP.String()
+	}
+	return fmt.Sprintf("%s @ %d (%s)", n.IP.String(), n.Intf.Index, n.Intf.Name)
 }
 
 type ExclusionCounter = refcounter.Counter[netip.Prefix, struct{}, Nexthop]

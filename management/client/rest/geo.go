@@ -18,7 +18,9 @@ func (a *GeoLocationAPI) ListCountries(ctx context.Context) ([]api.Country, erro
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Country](resp)
 	return ret, err
 }
@@ -30,7 +32,9 @@ func (a *GeoLocationAPI) ListCountryCities(ctx context.Context, countryCode stri
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.City](resp)
 	return ret, err
 }

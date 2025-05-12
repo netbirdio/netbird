@@ -18,7 +18,9 @@ func (a *EventsAPI) List(ctx context.Context) ([]api.Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Event](resp)
 	return ret, err
 }

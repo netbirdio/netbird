@@ -50,10 +50,12 @@ type Store interface {
 	GetAccountsCounter(ctx context.Context) (int64, error)
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+	GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.AccountMeta, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
 	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
 	GetAccountByUser(ctx context.Context, userID string) (*types.Account, error)
 	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types.Account, error)
+	GetAnyAccountID(ctx context.Context) (string, error)
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
@@ -312,6 +314,15 @@ func getMigrations(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[routerTypes.NetworkRouter](ctx, db, "enabled", true)
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[networkTypes.Network](ctx, db, "idx_networks_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[resourceTypes.NetworkResource](ctx, db, "idx_network_resources_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[routerTypes.NetworkRouter](ctx, db, "idx_network_routers_id")
 		},
 	}
 }

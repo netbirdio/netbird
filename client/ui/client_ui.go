@@ -51,14 +51,17 @@ const (
 )
 
 func main() {
-	daemonAddr, showSettings, showNetworks, errorMsg, saveLogsInFile := parseFlags()
+	daemonAddr, showSettings, showNetworks, showDebug, errorMsg, saveLogsInFile := parseFlags()
 
 	// Initialize file logging if needed.
+	var logFile string
 	if saveLogsInFile {
-		if err := initLogFile(); err != nil {
+		file, err := initLogFile()
+		if err != nil {
 			log.Errorf("error while initializing log: %v", err)
 			return
 		}
+		logFile = file
 	}
 
 	// Create the Fyne application.
@@ -72,13 +75,13 @@ func main() {
 	}
 
 	// Create the service client (this also builds the settings or networks UI if requested).
-	client := newServiceClient(daemonAddr, a, showSettings, showNetworks)
+	client := newServiceClient(daemonAddr, logFile, a, showSettings, showNetworks, showDebug)
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if showSettings || showNetworks {
+	if showSettings || showNetworks || showDebug {
 		a.Run()
 		return
 	}
@@ -99,7 +102,7 @@ func main() {
 }
 
 // parseFlags reads and returns all needed command-line flags.
-func parseFlags() (daemonAddr string, showSettings, showNetworks bool, errorMsg string, saveLogsInFile bool) {
+func parseFlags() (daemonAddr string, showSettings, showNetworks, showDebug bool, errorMsg string, saveLogsInFile bool) {
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
@@ -107,25 +110,17 @@ func parseFlags() (daemonAddr string, showSettings, showNetworks bool, errorMsg 
 	flag.StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	flag.BoolVar(&showSettings, "settings", false, "run settings window")
 	flag.BoolVar(&showNetworks, "networks", false, "run networks window")
+	flag.BoolVar(&showDebug, "debug", false, "run debug window")
 	flag.StringVar(&errorMsg, "error-msg", "", "displays an error message window")
-
-	tmpDir := "/tmp"
-	if runtime.GOOS == "windows" {
-		tmpDir = os.TempDir()
-	}
-	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", tmpDir))
+	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.Parse()
 	return
 }
 
 // initLogFile initializes logging into a file.
-func initLogFile() error {
-	tmpDir := "/tmp"
-	if runtime.GOOS == "windows" {
-		tmpDir = os.TempDir()
-	}
-	logFile := path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
-	return util.InitLog("trace", logFile)
+func initLogFile() (string, error) {
+	logFile := path.Join(os.TempDir(), fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
+	return logFile, util.InitLog("trace", logFile)
 }
 
 // watchSettingsChanges listens for Fyne theme/settings changes and updates the client icon.
@@ -168,9 +163,10 @@ var iconConnectingMacOS []byte
 var iconErrorMacOS []byte
 
 type serviceClient struct {
-	ctx  context.Context
-	addr string
-	conn proto.DaemonServiceClient
+	ctx    context.Context
+	cancel context.CancelFunc
+	addr   string
+	conn   proto.DaemonServiceClient
 
 	icAbout              []byte
 	icConnected          []byte
@@ -231,13 +227,14 @@ type serviceClient struct {
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
-	showRoutes           bool
-	wRoutes              fyne.Window
+	showNetworks         bool
+	wNetworks            fyne.Window
 
 	eventManager *event.Manager
 
 	exitNodeMu     sync.Mutex
 	mExitNodeItems []menuHandler
+	logFile        string
 }
 
 type menuHandler struct {
@@ -248,25 +245,30 @@ type menuHandler struct {
 // newServiceClient instance constructor
 //
 // This constructor also builds the UI elements for the settings window.
-func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes bool) *serviceClient {
+func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool, showNetworks bool, showDebug bool) *serviceClient {
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &serviceClient{
-		ctx:              context.Background(),
+		ctx:              ctx,
+		cancel:           cancel,
 		addr:             addr,
 		app:              a,
+		logFile:          logFile,
 		sendNotification: false,
 
 		showAdvancedSettings: showSettings,
-		showRoutes:           showRoutes,
+		showNetworks:         showNetworks,
 		update:               version.NewUpdate(),
 	}
 
 	s.setNewIcons()
 
-	if showSettings {
+	switch {
+	case showSettings:
 		s.showSettingsUI()
-		return s
-	} else if showRoutes {
+	case showNetworks:
 		s.showNetworksUI()
+	case showDebug:
+		s.showDebugUI()
 	}
 
 	return s
@@ -313,6 +315,8 @@ func (s *serviceClient) updateIcon() {
 func (s *serviceClient) showSettingsUI() {
 	// add settings window UI elements.
 	s.wSettings = s.app.NewWindow("NetBird Settings")
+	s.wSettings.SetOnClosed(s.cancel)
+
 	s.iMngURL = widget.NewEntry()
 	s.iAdminURL = widget.NewEntry()
 	s.iConfigFile = widget.NewEntry()
@@ -457,7 +461,7 @@ func (s *serviceClient) menuUpClick() error {
 
 	if status.Status == string(internal.StatusConnected) {
 		log.Warnf("already connected")
-		return err
+		return nil
 	}
 
 	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
@@ -482,7 +486,7 @@ func (s *serviceClient) menuDownClick() error {
 		return err
 	}
 
-	if status.Status != string(internal.StatusConnected) {
+	if status.Status != string(internal.StatusConnected) && status.Status != string(internal.StatusConnecting) {
 		log.Warnf("already down")
 		return nil
 	}
@@ -520,7 +524,9 @@ func (s *serviceClient) updateStatus() error {
 		}
 
 		var systrayIconState bool
-		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
+
+		switch {
+		case status.Status == string(internal.StatusConnected):
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -535,7 +541,9 @@ func (s *serviceClient) updateStatus() error {
 			s.mNetworks.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
-		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
+		case status.Status == string(internal.StatusConnecting):
+			s.setConnectingStatus()
+		case status.Status != string(internal.StatusConnected) && s.mUp.Disabled():
 			s.setDisconnectedStatus()
 			systrayIconState = false
 		}
@@ -592,6 +600,17 @@ func (s *serviceClient) setDisconnectedStatus() {
 	s.mNetworks.Disable()
 	s.mExitNode.Disable()
 	go s.updateExitNodes()
+}
+
+func (s *serviceClient) setConnectingStatus() {
+	s.connected = false
+	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
+	systray.SetTooltip("NetBird (Connecting)")
+	s.mStatus.SetTitle("Connecting")
+	s.mUp.Disable()
+	s.mDown.Enable()
+	s.mNetworks.Disable()
+	s.mExitNode.Disable()
 }
 
 func (s *serviceClient) onTrayReady() {
@@ -728,11 +747,10 @@ func (s *serviceClient) onTrayReady() {
 					s.runSelfCommand("settings", "true")
 				}()
 			case <-s.mCreateDebugBundle.ClickedCh:
+				s.mCreateDebugBundle.Disable()
 				go func() {
-					if err := s.createAndOpenDebugBundle(); err != nil {
-						log.Errorf("Failed to create debug bundle: %v", err)
-						s.app.SendNotification(fyne.NewNotification("Error", "Failed to create debug bundle"))
-					}
+					defer s.mCreateDebugBundle.Enable()
+					s.runSelfCommand("debug", "true")
 				}()
 			case <-s.mQuit.ClickedCh:
 				systray.Quit()
@@ -774,7 +792,7 @@ func (s *serviceClient) onTrayReady() {
 func (s *serviceClient) runSelfCommand(command, arg string) {
 	proc, err := os.Executable()
 	if err != nil {
-		log.Errorf("show %s failed with error: %v", command, err)
+		log.Errorf("Error getting executable path: %v", err)
 		return
 	}
 
@@ -783,14 +801,48 @@ func (s *serviceClient) runSelfCommand(command, arg string) {
 		fmt.Sprintf("--daemon-addr=%s", s.addr),
 	)
 
-	out, err := cmd.CombinedOutput()
-	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-		log.Errorf("start %s UI: %v, %s", command, err, string(out))
+	if out := s.attachOutput(cmd); out != nil {
+		defer func() {
+			if err := out.Close(); err != nil {
+				log.Errorf("Error closing log file %s: %v", s.logFile, err)
+			}
+		}()
+	}
+
+	log.Printf("Running command: %s --%s=%s --daemon-addr=%s", proc, command, arg, s.addr)
+
+	err = cmd.Run()
+
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			log.Printf("Command '%s %s' failed with exit code %d", command, arg, exitErr.ExitCode())
+		} else {
+			log.Printf("Failed to start/run command '%s %s': %v", command, arg, err)
+		}
 		return
 	}
-	if len(out) != 0 {
-		log.Infof("command %s executed: %s", command, string(out))
+
+	log.Printf("Command '%s %s' completed successfully.", command, arg)
+}
+
+func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
+	if s.logFile == "" {
+		// attach child's streams to parent's streams
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		return nil
 	}
+
+	out, err := os.OpenFile(s.logFile, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		log.Errorf("Failed to open log file %s: %v", s.logFile, err)
+		return nil
+	}
+	cmd.Stdout = out
+	cmd.Stderr = out
+	return out
 }
 
 func normalizedVersion(version string) string {
@@ -803,9 +855,7 @@ func normalizedVersion(version string) string {
 
 // onTrayExit is called when the tray icon is closed.
 func (s *serviceClient) onTrayExit() {
-	for _, item := range s.mExitNodeItems {
-		item.cancel()
-	}
+	s.cancel()
 }
 
 // getSrvClient connection to the service.
@@ -814,7 +864,7 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		return s.conn, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(s.ctx, timeout)
 	defer cancel()
 
 	conn, err := grpc.DialContext(

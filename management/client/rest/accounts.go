@@ -20,7 +20,9 @@ func (a *AccountsAPI) List(ctx context.Context) ([]api.Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Account](resp)
 	return ret, err
 }
@@ -36,7 +38,9 @@ func (a *AccountsAPI) Update(ctx context.Context, accountID string, request api.
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Account](resp)
 	return &ret, err
 }
@@ -48,7 +52,9 @@ func (a *AccountsAPI) Delete(ctx context.Context, accountID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

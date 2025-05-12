@@ -20,7 +20,9 @@ func (a *UsersAPI) List(ctx context.Context) ([]api.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.User](resp)
 	return ret, err
 }
@@ -36,7 +38,9 @@ func (a *UsersAPI) Create(ctx context.Context, request api.PostApiUsersJSONReque
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.User](resp)
 	return &ret, err
 }
@@ -52,7 +56,9 @@ func (a *UsersAPI) Update(ctx context.Context, userID string, request api.PutApi
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.User](resp)
 	return &ret, err
 }
@@ -64,7 +70,9 @@ func (a *UsersAPI) Delete(ctx context.Context, userID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }
@@ -76,7 +84,9 @@ func (a *UsersAPI) ResendInvitation(ctx context.Context, userID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }
@@ -88,7 +98,9 @@ func (a *UsersAPI) Current(ctx context.Context) (*api.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	ret, err := parseResponse[api.User](resp)
 	return &ret, err

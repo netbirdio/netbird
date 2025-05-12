@@ -13,7 +13,10 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -1020,90 +1023,6 @@ func TestDefaultAccountManager_ListUsers(t *testing.T) {
 	assert.Equal(t, 2, regular)
 }
 
-func TestDefaultAccountManager_ListUsers_DashboardPermissions(t *testing.T) {
-	testCases := []struct {
-		name                         string
-		role                         types.UserRole
-		limitedViewSettings          bool
-		expectedDashboardPermissions string
-	}{
-		{
-			name:                         "Regular user, no limited view settings",
-			role:                         types.UserRoleUser,
-			limitedViewSettings:          false,
-			expectedDashboardPermissions: "limited",
-		},
-		{
-			name:                         "Admin user, no limited view settings",
-			role:                         types.UserRoleAdmin,
-			limitedViewSettings:          false,
-			expectedDashboardPermissions: "full",
-		},
-		{
-			name:                         "Owner, no limited view settings",
-			role:                         types.UserRoleOwner,
-			limitedViewSettings:          false,
-			expectedDashboardPermissions: "full",
-		},
-		{
-			name:                         "Regular user, limited view settings",
-			role:                         types.UserRoleUser,
-			limitedViewSettings:          true,
-			expectedDashboardPermissions: "blocked",
-		},
-		{
-			name:                         "Admin user, limited view settings",
-			role:                         types.UserRoleAdmin,
-			limitedViewSettings:          true,
-			expectedDashboardPermissions: "full",
-		},
-		{
-			name:                         "Owner, limited view settings",
-			role:                         types.UserRoleOwner,
-			limitedViewSettings:          true,
-			expectedDashboardPermissions: "full",
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-			if err != nil {
-				t.Fatalf("Error when creating store: %s", err)
-			}
-			t.Cleanup(cleanup)
-
-			account := newAccountWithId(context.Background(), mockAccountID, mockUserID, "")
-			account.Users["normal_user1"] = types.NewUser("normal_user1", testCase.role, false, false, "", []string{}, types.UserIssuedAPI)
-			account.Settings.RegularUsersViewBlocked = testCase.limitedViewSettings
-			delete(account.Users, mockUserID)
-
-			err = store.SaveAccount(context.Background(), account)
-			if err != nil {
-				t.Fatalf("Error when saving account: %s", err)
-			}
-
-			permissionsManager := permissions.NewManager(store)
-			am := DefaultAccountManager{
-				Store:              store,
-				eventStore:         &activity.InMemoryEventStore{},
-				permissionsManager: permissionsManager,
-			}
-
-			users, err := am.ListUsers(context.Background(), mockAccountID)
-			if err != nil {
-				t.Fatalf("Error when checking user role: %s", err)
-			}
-
-			assert.Equal(t, 1, len(users))
-
-			userInfo, _ := users[0].ToUserInfo(nil, account.Settings)
-			assert.Equal(t, testCase.expectedDashboardPermissions, userInfo.Permissions.DashboardView)
-		})
-	}
-
-}
-
 func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {
@@ -1654,121 +1573,154 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 
 	tt := []struct {
 		name           string
-		accountId      string
-		userId         string
+		userAuth       nbcontext.UserAuth
 		expectedErr    error
-		expectedResult *types.UserInfo
+		expectedResult *users.UserInfoWithPermissions
 	}{
 		{
 			name:        "not found",
-			accountId:   account1.Id,
-			userId:      "not-found",
+			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "not-found"},
 			expectedErr: status.NewUserNotFoundError("not-found"),
 		},
 		{
 			name:        "not part of account",
-			accountId:   account1.Id,
-			userId:      "account2Owner",
+			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "account2Owner"},
 			expectedErr: status.NewUserNotPartOfAccountError(),
 		},
 		{
 			name:        "blocked",
-			accountId:   account1.Id,
-			userId:      "blocked-user",
+			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "blocked-user"},
 			expectedErr: status.NewUserBlockedError(),
 		},
 		{
 			name:        "service user",
-			accountId:   account1.Id,
-			userId:      "service-user",
+			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "service-user"},
 			expectedErr: status.NewPermissionDeniedError(),
 		},
 		{
-			name:      "owner user",
-			accountId: account1.Id,
-			userId:    "account1Owner",
-			expectedResult: &types.UserInfo{
-				ID:                   "account1Owner",
-				Name:                 "",
-				Role:                 "owner",
-				AutoGroups:           []string{},
-				Status:               "active",
-				IsServiceUser:        false,
-				IsBlocked:            false,
-				NonDeletable:         false,
-				LastLogin:            time.Time{},
-				Issued:               "api",
-				IntegrationReference: integration_reference.IntegrationReference{},
-				Permissions: types.UserPermissions{
-					DashboardView: "full",
+			name:     "owner user",
+			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "account1Owner"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "account1Owner",
+					Name:                 "",
+					Role:                 "owner",
+					AutoGroups:           []string{},
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
 				},
+				Permissions: mergeRolePermissions(roles.Owner),
 			},
 		},
 		{
-			name:      "regular user",
-			accountId: account1.Id,
-			userId:    "regular-user",
-			expectedResult: &types.UserInfo{
-				ID:                   "regular-user",
-				Name:                 "",
-				Role:                 "user",
-				Status:               "active",
-				IsServiceUser:        false,
-				IsBlocked:            false,
-				NonDeletable:         false,
-				LastLogin:            time.Time{},
-				Issued:               "api",
-				IntegrationReference: integration_reference.IntegrationReference{},
-				Permissions: types.UserPermissions{
-					DashboardView: "limited",
+			name:     "regular user",
+			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "regular-user"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "regular-user",
+					Name:                 "",
+					Role:                 "user",
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
 				},
+				Permissions: mergeRolePermissions(roles.User),
 			},
 		},
 		{
-			name:      "admin user",
-			accountId: account1.Id,
-			userId:    "admin-user",
-			expectedResult: &types.UserInfo{
-				ID:                   "admin-user",
-				Name:                 "",
-				Role:                 "admin",
-				Status:               "active",
-				IsServiceUser:        false,
-				IsBlocked:            false,
-				NonDeletable:         false,
-				LastLogin:            time.Time{},
-				Issued:               "api",
-				IntegrationReference: integration_reference.IntegrationReference{},
-				Permissions: types.UserPermissions{
-					DashboardView: "full",
+			name:     "admin user",
+			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "admin-user"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "admin-user",
+					Name:                 "",
+					Role:                 "admin",
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
 				},
+				Permissions: mergeRolePermissions(roles.Admin),
 			},
 		},
 		{
-			name:      "settings blocked regular user",
-			accountId: account2.Id,
-			userId:    "settings-blocked-user",
-			expectedResult: &types.UserInfo{
-				ID:                   "settings-blocked-user",
-				Name:                 "",
-				Role:                 "user",
-				Status:               "active",
-				IsServiceUser:        false,
-				IsBlocked:            false,
-				NonDeletable:         false,
-				LastLogin:            time.Time{},
-				Issued:               "api",
-				IntegrationReference: integration_reference.IntegrationReference{},
-				Permissions: types.UserPermissions{
-					DashboardView: "blocked",
+			name:     "settings blocked regular user",
+			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "settings-blocked-user",
+					Name:                 "",
+					Role:                 "user",
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
 				},
+				Permissions: mergeRolePermissions(roles.User),
+				Restricted:  true,
+			},
+		},
+
+		{
+			name:     "settings blocked regular user child account",
+			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user", IsChild: true},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "settings-blocked-user",
+					Name:                 "",
+					Role:                 "user",
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
+				},
+				Permissions: mergeRolePermissions(roles.User),
+				Restricted:  false,
+			},
+		},
+		{
+			name:     "settings blocked owner user",
+			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "account2Owner"},
+			expectedResult: &users.UserInfoWithPermissions{
+				UserInfo: &types.UserInfo{
+					ID:                   "account2Owner",
+					Name:                 "",
+					Role:                 "owner",
+					AutoGroups:           []string{},
+					Status:               "active",
+					IsServiceUser:        false,
+					IsBlocked:            false,
+					NonDeletable:         false,
+					LastLogin:            time.Time{},
+					Issued:               "api",
+					IntegrationReference: integration_reference.IntegrationReference{},
+				},
+				Permissions: mergeRolePermissions(roles.Owner),
 			},
 		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := am.GetCurrentUserInfo(context.Background(), tc.accountId, tc.userId)
+			result, err := am.GetCurrentUserInfo(context.Background(), tc.userAuth)
 
 			if tc.expectedErr != nil {
 				assert.Equal(t, err, tc.expectedErr)
@@ -1779,4 +1731,18 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			assert.EqualValues(t, tc.expectedResult, result)
 		})
 	}
+}
+
+func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
+	permissions := roles.Permissions{}
+
+	for k := range modules.All {
+		if rolePermissions, ok := role.Permissions[k]; ok {
+			permissions[k] = rolePermissions
+			continue
+		}
+		permissions[k] = role.AutoAllowNew
+	}
+
+	return permissions
 }

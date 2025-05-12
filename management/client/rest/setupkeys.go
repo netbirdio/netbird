@@ -20,7 +20,9 @@ func (a *SetupKeysAPI) List(ctx context.Context) ([]api.SetupKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.SetupKey](resp)
 	return ret, err
 }
@@ -32,7 +34,9 @@ func (a *SetupKeysAPI) Get(ctx context.Context, setupKeyID string) (*api.SetupKe
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.SetupKey](resp)
 	return &ret, err
 }
@@ -53,7 +57,9 @@ func (a *SetupKeysAPI) Create(ctx context.Context, request api.PostApiSetupKeysJ
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.SetupKeyClear](resp)
 	return &ret, err
 }
@@ -69,7 +75,9 @@ func (a *SetupKeysAPI) Update(ctx context.Context, setupKeyID string, request ap
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.SetupKey](resp)
 	return &ret, err
 }
@@ -81,7 +89,9 @@ func (a *SetupKeysAPI) Delete(ctx context.Context, setupKeyID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

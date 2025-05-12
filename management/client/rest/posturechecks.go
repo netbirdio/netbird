@@ -20,7 +20,9 @@ func (a *PostureChecksAPI) List(ctx context.Context) ([]api.PostureCheck, error)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.PostureCheck](resp)
 	return ret, err
 }
@@ -32,7 +34,9 @@ func (a *PostureChecksAPI) Get(ctx context.Context, postureCheckID string) (*api
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.PostureCheck](resp)
 	return &ret, err
 }
@@ -48,7 +52,9 @@ func (a *PostureChecksAPI) Create(ctx context.Context, request api.PostApiPostur
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.PostureCheck](resp)
 	return &ret, err
 }
@@ -64,7 +70,9 @@ func (a *PostureChecksAPI) Update(ctx context.Context, postureCheckID string, re
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.PostureCheck](resp)
 	return &ret, err
 }
@@ -76,7 +84,9 @@ func (a *PostureChecksAPI) Delete(ctx context.Context, postureCheckID string) er
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

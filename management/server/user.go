@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -19,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
 )
 
@@ -122,11 +124,6 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		CreatedAt:            time.Now().UTC(),
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return nil, err
-	}
-
 	if err = am.Store.SaveUser(ctx, store.LockingStrengthUpdate, newUser); err != nil {
 		return nil, err
 	}
@@ -138,7 +135,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 
 	am.StoreEvent(ctx, userID, newUser.Id, accountID, activity.UserInvited, nil)
 
-	return newUser.ToUserInfo(idpUser, settings)
+	return newUser.ToUserInfo(idpUser)
 }
 
 // createNewIdpUser validates the invite and creates a new user in the IdP
@@ -360,6 +357,7 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, err
 	}
 
+	// @note this is essential to prevent non admin users with Pats create permission frpm creating one for a service user
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
 		return nil, status.NewAdminPermissionError()
 	}
@@ -727,19 +725,14 @@ func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initi
 // If the AccountManager has a non-nil idpManager and the User is not a service user,
 // it will attempt to look up the UserData from the cache.
 func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.User, accountID string) (*types.UserInfo, error) {
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return nil, err
-	}
-
 	if !isNil(am.idpManager) && !user.IsServiceUser {
 		userData, err := am.lookupUserInCache(ctx, user.Id, accountID)
 		if err != nil {
 			return nil, err
 		}
-		return user.ToUserInfo(userData, settings)
+		return user.ToUserInfo(userData)
 	}
-	return user.ToUserInfo(nil, settings)
+	return user.ToUserInfo(nil)
 }
 
 // validateUserUpdate validates the update operation for a user.
@@ -879,17 +872,12 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 		queriedUsers = append(queriedUsers, usersFromIntegration...)
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return nil, err
-	}
-
 	userInfosMap := make(map[string]*types.UserInfo)
 
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
 		for _, accountUser := range accountUsers {
-			info, err := accountUser.ToUserInfo(nil, settings)
+			info, err := accountUser.ToUserInfo(nil)
 			if err != nil {
 				return nil, err
 			}
@@ -902,7 +890,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 	for _, localUser := range accountUsers {
 		var info *types.UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
-			info, err = localUser.ToUserInfo(queriedUser, settings)
+			info, err = localUser.ToUserInfo(queriedUser)
 			if err != nil {
 				return nil, err
 			}
@@ -910,14 +898,6 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 			name := ""
 			if localUser.IsServiceUser {
 				name = localUser.ServiceUserName
-			}
-
-			dashboardViewPermissions := "full"
-			if !localUser.HasAdminPower() {
-				dashboardViewPermissions = "limited"
-				if settings.RegularUsersViewBlocked {
-					dashboardViewPermissions = "blocked"
-				}
 			}
 
 			info = &types.UserInfo{
@@ -929,7 +909,6 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 				Status:        string(types.UserStatusActive),
 				IsServiceUser: localUser.IsServiceUser,
 				NonDeletable:  localUser.NonDeletable,
-				Permissions:   types.UserPermissions{DashboardView: dashboardViewPermissions},
 			}
 		}
 		userInfosMap[info.ID] = info
@@ -940,6 +919,12 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
 func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return err
+	}
+	dnsDomain := am.GetDNSDomain(settings)
+
 	var peerIDs []string
 	for _, peer := range peers {
 		// nolint:staticcheck
@@ -957,7 +942,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		am.StoreEvent(
 			ctx,
 			peer.UserID, peer.ID, accountID,
-			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
+			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
 		)
 	}
 
@@ -1233,8 +1218,10 @@ func validateUserInvite(invite *types.UserInfo) error {
 	return nil
 }
 
-// GetCurrentUserInfo retrieves the account's current user info
-func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*types.UserInfo, error) {
+// GetCurrentUserInfo retrieves the account's current user info and permissions
+func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
+	accountID, userID := userAuth.AccountId, userAuth.UserId
+
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
 	if err != nil {
 		return nil, err
@@ -1252,10 +1239,25 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, account
 		return nil, err
 	}
 
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	userInfo, err := am.getUserInfo(ctx, user, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	return userInfo, nil
+	userWithPermissions := &users.UserInfoWithPermissions{
+		UserInfo:   userInfo,
+		Restricted: !userAuth.IsChild && user.IsRestrictable() && settings.RegularUsersViewBlocked,
+	}
+
+	permissions, err := am.permissionsManager.GetPermissionsByRole(ctx, user.Role)
+	if err == nil {
+		userWithPermissions.Permissions = permissions
+	}
+
+	return userWithPermissions, nil
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -83,7 +84,7 @@ type MockAccountManager struct {
 	CreateUserFunc                      func(ctx context.Context, accountID, userID string, key *types.UserInfo) (*types.UserInfo, error)
 	GetAccountIDFromUserAuthFunc        func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
 	DeleteAccountFunc                   func(ctx context.Context, accountID, userID string) error
-	GetDNSDomainFunc                    func() string
+	GetDNSDomainFunc                    func(settings *types.Settings) string
 	StoreEventFunc                      func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEventsFunc                       func(ctx context.Context, accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettingsFunc                  func(ctx context.Context, accountID, userID string) (*types.DNSSettings, error)
@@ -115,7 +116,8 @@ type MockAccountManager struct {
 	CreateAccountByPrivateDomainFunc    func(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 	UpdateToPrimaryAccountFunc          func(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfoFunc                    func(ctx context.Context, accountID string) (*types.UserInfo, error)
-	GetCurrentUserInfoFunc              func(ctx context.Context, accountID, userID string) (*types.UserInfo, error)
+	GetCurrentUserInfoFunc              func(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
+	GetAccountMetaFunc                  func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -619,9 +621,9 @@ func (am *MockAccountManager) GetPeers(ctx context.Context, accountID, userID, n
 }
 
 // GetDNSDomain mocks GetDNSDomain of the AccountManager interface
-func (am *MockAccountManager) GetDNSDomain() string {
+func (am *MockAccountManager) GetDNSDomain(settings *types.Settings) string {
 	if am.GetDNSDomainFunc != nil {
-		return am.GetDNSDomainFunc()
+		return am.GetDNSDomainFunc(settings)
 	}
 	return ""
 }
@@ -803,6 +805,14 @@ func (am *MockAccountManager) GetAccountByID(ctx context.Context, accountID stri
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByID is not implemented")
 }
 
+// GetAccountByID mocks GetAccountByID of the AccountManager interface
+func (am *MockAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+	if am.GetAccountMetaFunc != nil {
+		return am.GetAccountMetaFunc(ctx, accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountMeta is not implemented")
+}
+
 // GetUserByID mocks GetUserByID of the AccountManager interface
 func (am *MockAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {
 	if am.GetUserByIDFunc != nil {
@@ -873,9 +883,9 @@ func (am *MockAccountManager) GetOwnerInfo(ctx context.Context, accountId string
 	return nil, status.Errorf(codes.Unimplemented, "method GetOwnerInfo is not implemented")
 }
 
-func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, accountID, userID string) (*types.UserInfo, error) {
+func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
 	if am.GetCurrentUserInfoFunc != nil {
-		return am.GetCurrentUserInfoFunc(ctx, accountID, userID)
+		return am.GetCurrentUserInfoFunc(ctx, userAuth)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
 }

@@ -20,7 +20,9 @@ func (a *TokensAPI) List(ctx context.Context, userID string) ([]api.PersonalAcce
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.PersonalAccessToken](resp)
 	return ret, err
 }
@@ -32,7 +34,9 @@ func (a *TokensAPI) Get(ctx context.Context, userID, tokenID string) (*api.Perso
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.PersonalAccessToken](resp)
 	return &ret, err
 }
@@ -48,7 +52,9 @@ func (a *TokensAPI) Create(ctx context.Context, userID string, request api.PostA
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.PersonalAccessTokenGenerated](resp)
 	return &ret, err
 }
@@ -60,7 +66,9 @@ func (a *TokensAPI) Delete(ctx context.Context, userID, tokenID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

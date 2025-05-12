@@ -158,6 +158,13 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		return nil
 	}
 
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get account settings for group events: %v", err)
+		return nil
+	}
+	dnsDomain := am.GetDNSDomain(settings)
+
 	for _, peerID := range addedPeers {
 		peer, ok := peers[peerID]
 		if !ok {
@@ -168,7 +175,7 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		eventsToStore = append(eventsToStore, func() {
 			meta := map[string]any{
 				"group": newGroup.Name, "group_id": newGroup.ID,
-				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(dnsDomain),
 			}
 			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupAddedToPeer, meta)
 		})
@@ -184,7 +191,7 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		eventsToStore = append(eventsToStore, func() {
 			meta := map[string]any{
 				"group": newGroup.Name, "group_id": newGroup.ID,
-				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(dnsDomain),
 			}
 			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupRemovedFromPeer, meta)
 		})

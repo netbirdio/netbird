@@ -20,7 +20,9 @@ func (a *NetworksAPI) List(ctx context.Context) ([]api.Network, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Network](resp)
 	return ret, err
 }
@@ -32,7 +34,9 @@ func (a *NetworksAPI) Get(ctx context.Context, networkID string) (*api.Network, 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Network](resp)
 	return &ret, err
 }
@@ -48,7 +52,9 @@ func (a *NetworksAPI) Create(ctx context.Context, request api.PostApiNetworksJSO
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Network](resp)
 	return &ret, err
 }
@@ -64,7 +70,9 @@ func (a *NetworksAPI) Update(ctx context.Context, networkID string, request api.
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Network](resp)
 	return &ret, err
 }
@@ -76,7 +84,9 @@ func (a *NetworksAPI) Delete(ctx context.Context, networkID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }
@@ -102,7 +112,9 @@ func (a *NetworkResourcesAPI) List(ctx context.Context) ([]api.NetworkResource, 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.NetworkResource](resp)
 	return ret, err
 }
@@ -114,7 +126,9 @@ func (a *NetworkResourcesAPI) Get(ctx context.Context, networkResourceID string)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.NetworkResource](resp)
 	return &ret, err
 }
@@ -130,7 +144,9 @@ func (a *NetworkResourcesAPI) Create(ctx context.Context, request api.PostApiNet
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.NetworkResource](resp)
 	return &ret, err
 }
@@ -146,7 +162,9 @@ func (a *NetworkResourcesAPI) Update(ctx context.Context, networkResourceID stri
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.NetworkResource](resp)
 	return &ret, err
 }
@@ -158,7 +176,9 @@ func (a *NetworkResourcesAPI) Delete(ctx context.Context, networkResourceID stri
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }
@@ -184,7 +204,9 @@ func (a *NetworkRoutersAPI) List(ctx context.Context) ([]api.NetworkRouter, erro
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.NetworkRouter](resp)
 	return ret, err
 }
@@ -196,7 +218,9 @@ func (a *NetworkRoutersAPI) Get(ctx context.Context, networkRouterID string) (*a
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.NetworkRouter](resp)
 	return &ret, err
 }
@@ -212,7 +236,9 @@ func (a *NetworkRoutersAPI) Create(ctx context.Context, request api.PostApiNetwo
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.NetworkRouter](resp)
 	return &ret, err
 }
@@ -228,7 +254,9 @@ func (a *NetworkRoutersAPI) Update(ctx context.Context, networkRouterID string, 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.NetworkRouter](resp)
 	return &ret, err
 }
@@ -240,7 +268,9 @@ func (a *NetworkRoutersAPI) Delete(ctx context.Context, networkRouterID string) 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

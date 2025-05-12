@@ -34,7 +34,8 @@ const (
 type filter string
 
 func (s *serviceClient) showNetworksUI() {
-	s.wRoutes = s.app.NewWindow("Networks")
+	s.wNetworks = s.app.NewWindow("Networks")
+	s.wNetworks.SetOnClosed(s.cancel)
 
 	allGrid := container.New(layout.NewGridLayout(3))
 	go s.updateNetworks(allGrid, allNetworks)
@@ -78,8 +79,8 @@ func (s *serviceClient) showNetworksUI() {
 
 	content := container.NewBorder(nil, buttonBox, nil, nil, scrollContainer)
 
-	s.wRoutes.SetContent(content)
-	s.wRoutes.Show()
+	s.wNetworks.SetContent(content)
+	s.wNetworks.Show()
 
 	s.startAutoRefresh(10*time.Second, tabs, allGrid, overlappingGrid, exitNodeGrid)
 }
@@ -148,7 +149,7 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 		grid.Add(resolvedIPsSelector)
 	}
 
-	s.wRoutes.Content().Refresh()
+	s.wNetworks.Content().Refresh()
 	grid.Refresh()
 }
 
@@ -305,7 +306,7 @@ func (s *serviceClient) getNetworksRequest(f filter, appendRoute bool) *proto.Se
 func (s *serviceClient) showError(err error) {
 	wrappedMessage := wrapText(err.Error(), 50)
 
-	dialog.ShowError(fmt.Errorf("%s", wrappedMessage), s.wRoutes)
+	dialog.ShowError(fmt.Errorf("%s", wrappedMessage), s.wNetworks)
 }
 
 func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) {
@@ -316,14 +317,15 @@ func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container
 		}
 	}()
 
-	s.wRoutes.SetOnClosed(func() {
+	s.wNetworks.SetOnClosed(func() {
 		ticker.Stop()
+		s.cancel()
 	})
 }
 
 func (s *serviceClient) updateNetworksBasedOnDisplayTab(tabs *container.AppTabs, allGrid, overlappingGrid, exitNodesGrid *fyne.Container) {
 	grid, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
-	s.wRoutes.Content().Refresh()
+	s.wNetworks.Content().Refresh()
 	s.updateNetworks(grid, f)
 }
 
@@ -373,7 +375,7 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 			node.Selected,
 		)
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(s.ctx)
 		s.mExitNodeItems = append(s.mExitNodeItems, menuHandler{
 			MenuItem: menuItem,
 			cancel:   cancel,
@@ -456,19 +458,27 @@ func (s *serviceClient) toggleExitNode(nodeID string, item *systray.MenuItem) er
 		}
 	}
 
-	if item.Checked() && len(ids) == 0 {
-		// exit node is the only selected node, deselect it
+	// exit node is the only selected node, deselect it
+	deselectAll := item.Checked() && len(ids) == 0
+	if deselectAll {
 		ids = append(ids, nodeID)
-		exitNode = nil
+		for _, node := range exitNodes {
+			if node.ID == nodeID {
+				// set desired state for recreation
+				node.Selected = false
+			}
+		}
 	}
 
 	// deselect all other selected exit nodes
-	if err := s.deselectOtherExitNodes(conn, ids, item); err != nil {
+	if err := s.deselectOtherExitNodes(conn, ids); err != nil {
 		return err
 	}
 
-	if err := s.selectNewExitNode(conn, exitNode, nodeID, item); err != nil {
-		return err
+	if !deselectAll {
+		if err := s.selectNewExitNode(conn, exitNode, nodeID, item); err != nil {
+			return err
+		}
 	}
 
 	// linux/bsd doesn't handle Check/Uncheck well, so we recreate the menu
@@ -479,7 +489,7 @@ func (s *serviceClient) toggleExitNode(nodeID string, item *systray.MenuItem) er
 	return nil
 }
 
-func (s *serviceClient) deselectOtherExitNodes(conn proto.DaemonServiceClient, ids []string, currentItem *systray.MenuItem) error {
+func (s *serviceClient) deselectOtherExitNodes(conn proto.DaemonServiceClient, ids []string) error {
 	// deselect all other selected exit nodes
 	if len(ids) > 0 {
 		deselectReq := &proto.SelectNetworksRequest{
@@ -494,9 +504,6 @@ func (s *serviceClient) deselectOtherExitNodes(conn proto.DaemonServiceClient, i
 
 	// uncheck all other exit node menu items
 	for _, i := range s.mExitNodeItems {
-		if i.MenuItem == currentItem {
-			continue
-		}
 		i.Uncheck()
 		log.Infof("Unchecked exit node %v", i)
 	}
@@ -518,6 +525,7 @@ func (s *serviceClient) selectNewExitNode(conn proto.DaemonServiceClient, exitNo
 	}
 
 	item.Check()
+	log.Infof("Checked exit node '%s'", nodeID)
 
 	return nil
 }
