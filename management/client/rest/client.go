@@ -117,7 +117,7 @@ func (c *Client) initialize() {
 	c.Events = &EventsAPI{c}
 }
 
-func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.managementURL+path, body)
 	if err != nil {
 		return nil, err
