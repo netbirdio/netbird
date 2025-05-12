@@ -29,7 +29,6 @@ type MockAppMetrics struct {
 	StoreMetricsFunc             func() *StoreMetrics
 	UpdateChannelMetricsFunc     func() *UpdateChannelMetrics
 	AddAccountManagerMetricsFunc func() *AccountManagerMetrics
-	EventStreamingMetricsFunc    func() *EventStreamingMetrics
 }
 
 // GetMeter mocks the GetMeter function of the AppMetrics interface
@@ -104,14 +103,6 @@ func (mock *MockAppMetrics) AccountManagerMetrics() *AccountManagerMetrics {
 	return nil
 }
 
-// EventStreamingMetrics mocks the EventStreamingMetrics function of the AppMetrics interface
-func (mock *MockAppMetrics) EventStreamingMetrics() *EventStreamingMetrics {
-	if mock.EventStreamingMetricsFunc != nil {
-		return mock.EventStreamingMetricsFunc()
-	}
-	return nil
-}
-
 // AppMetrics is metrics interface
 type AppMetrics interface {
 	GetMeter() metric2.Meter
@@ -123,7 +114,6 @@ type AppMetrics interface {
 	StoreMetrics() *StoreMetrics
 	UpdateChannelMetrics() *UpdateChannelMetrics
 	AccountManagerMetrics() *AccountManagerMetrics
-	EventStreamingMetrics() *EventStreamingMetrics
 }
 
 // defaultAppMetrics are core application metrics based on OpenTelemetry https://opentelemetry.io/
@@ -138,7 +128,6 @@ type defaultAppMetrics struct {
 	storeMetrics          *StoreMetrics
 	updateChannelMetrics  *UpdateChannelMetrics
 	accountManagerMetrics *AccountManagerMetrics
-	eventStreamingMetrics *EventStreamingMetrics
 }
 
 // IDPMetrics returns metrics for the idp package
@@ -169,16 +158,6 @@ func (appMetrics *defaultAppMetrics) UpdateChannelMetrics() *UpdateChannelMetric
 // AccountManagerMetrics returns metrics for the account manager
 func (appMetrics *defaultAppMetrics) AccountManagerMetrics() *AccountManagerMetrics {
 	return appMetrics.accountManagerMetrics
-}
-
-// EventStreamingMetrics returns metrics for the event streaming module
-func (appMetrics *defaultAppMetrics) EventStreamingMetrics() *EventStreamingMetrics {
-	return appMetrics.eventStreamingMetrics
-}
-
-// RegisterEventStreamingMetrics sets the event streaming metrics
-func (appMetrics *defaultAppMetrics) RegisterEventStreamingMetrics(metrics *EventStreamingMetrics) {
-	appMetrics.eventStreamingMetrics = metrics
 }
 
 // Close stop application metrics HTTP handler and closes listener.
