@@ -186,6 +186,12 @@ const (
 	GetApiEventsNetworkTrafficParamsTypeTYPEUNKNOWN GetApiEventsNetworkTrafficParamsType = "TYPE_UNKNOWN"
 )
 
+// Defines values for GetApiEventsNetworkTrafficParamsConnectionType.
+const (
+	GetApiEventsNetworkTrafficParamsConnectionTypeP2P    GetApiEventsNetworkTrafficParamsConnectionType = "P2P"
+	GetApiEventsNetworkTrafficParamsConnectionTypeROUTED GetApiEventsNetworkTrafficParamsConnectionType = "ROUTED"
+)
+
 // Defines values for GetApiEventsNetworkTrafficParamsDirection.
 const (
 	GetApiEventsNetworkTrafficParamsDirectionDIRECTIONUNKNOWN GetApiEventsNetworkTrafficParamsDirection = "DIRECTION_UNKNOWN"
@@ -1784,6 +1790,9 @@ type GetApiEventsNetworkTrafficParams struct {
 	// Type Filter by event type
 	Type *GetApiEventsNetworkTrafficParamsType `form:"type,omitempty" json:"type,omitempty"`
 
+	// ConnectionType Filter by connection type
+	ConnectionType *GetApiEventsNetworkTrafficParamsConnectionType `form:"connection_type,omitempty" json:"connection_type,omitempty"`
+
 	// Direction Filter by direction
 	Direction *GetApiEventsNetworkTrafficParamsDirection `form:"direction,omitempty" json:"direction,omitempty"`
 
@@ -1799,6 +1808,9 @@ type GetApiEventsNetworkTrafficParams struct {
 
 // GetApiEventsNetworkTrafficParamsType defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsType string
+
+// GetApiEventsNetworkTrafficParamsConnectionType defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParamsConnectionType string
 
 // GetApiEventsNetworkTrafficParamsDirection defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsDirection string
