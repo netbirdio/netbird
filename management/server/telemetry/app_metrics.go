@@ -176,6 +176,11 @@ func (appMetrics *defaultAppMetrics) EventStreamingMetrics() *EventStreamingMetr
 	return appMetrics.eventStreamingMetrics
 }
 
+// RegisterEventStreamingMetrics sets the event streaming metrics
+func (appMetrics *defaultAppMetrics) RegisterEventStreamingMetrics(metrics *EventStreamingMetrics) {
+	appMetrics.eventStreamingMetrics = metrics
+}
+
 // Close stop application metrics HTTP handler and closes listener.
 func (appMetrics *defaultAppMetrics) Close() error {
 	if appMetrics.listener == nil {
@@ -257,11 +262,6 @@ func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 		return nil, fmt.Errorf("failed to initialize account manager metrics: %w", err)
 	}
 
-	eventStreamingMetrics, err := NewEventStreamingMetrics(ctx, meter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize event streaming metrics: %w", err)
-	}
-
 	return &defaultAppMetrics{
 		Meter:                 meter,
 		ctx:                   ctx,
@@ -271,6 +271,5 @@ func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 		storeMetrics:          storeMetrics,
 		updateChannelMetrics:  updateChannelMetrics,
 		accountManagerMetrics: accountManagerMetrics,
-		eventStreamingMetrics: eventStreamingMetrics,
 	}, nil
 }
