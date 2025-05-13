@@ -178,13 +178,6 @@ const (
 	UserStatusInvited UserStatus = "invited"
 )
 
-// Defines values for UserPermissionsDashboardView.
-const (
-	UserPermissionsDashboardViewBlocked UserPermissionsDashboardView = "blocked"
-	UserPermissionsDashboardViewFull    UserPermissionsDashboardView = "full"
-	UserPermissionsDashboardViewLimited UserPermissionsDashboardView = "limited"
-)
-
 // Defines values for GetApiEventsNetworkTrafficParamsType.
 const (
 	GetApiEventsNetworkTrafficParamsTypeTYPEDROP    GetApiEventsNetworkTrafficParamsType = "TYPE_DROP"
@@ -1769,12 +1762,10 @@ type UserCreateRequest struct {
 
 // UserPermissions defines model for UserPermissions.
 type UserPermissions struct {
-	// DashboardView User's permission to view the dashboard
-	DashboardView *UserPermissionsDashboardView `json:"dashboard_view,omitempty"`
+	// IsRestricted Indicates whether this User's Peers view is restricted
+	IsRestricted bool                       `json:"is_restricted"`
+	Modules      map[string]map[string]bool `json:"modules"`
 }
-
-// UserPermissionsDashboardView User's permission to view the dashboard
-type UserPermissionsDashboardView string
 
 // UserRequest defines model for UserRequest.
 type UserRequest struct {

@@ -6,7 +6,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/netbirdio/signal-dispatcher/dispatcher"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -14,6 +13,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
+
+	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -69,7 +70,7 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 
 // Send forwards a message to the signal peer
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	log.Debugf("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
 	if _, found := s.registry.Get(msg.RemoteKey); found {
 		s.forwardMessageToPeer(ctx, msg)
@@ -112,7 +113,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 				return err
 			}
 
-			log.Debugf("Received a response from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+			log.Tracef("Received a response from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
 			_, err = s.dispatcher.SendMessage(stream.Context(), msg)
 			if err != nil {
@@ -149,7 +150,7 @@ func (s *Server) DeregisterPeer(p *peer.Peer) {
 }
 
 func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedMessage) {
-	log.Debugf("forwarding a new message from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+	log.Tracef("forwarding a new message from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 	getRegistrationStart := time.Now()
 
 	// lookup the target peer where the message is going to
@@ -168,7 +169,7 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 
 	// forward the message to the target peer
 	if err := dstPeer.Stream.Send(msg); err != nil {
-		log.Warnf("error while forwarding message from peer [%s] to peer [%s] %v", msg.Key, msg.RemoteKey, err)
+		log.Tracef("error while forwarding message from peer [%s] to peer [%s] %v", msg.Key, msg.RemoteKey, err)
 		// todo respond to the sender?
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeError)))
 		return

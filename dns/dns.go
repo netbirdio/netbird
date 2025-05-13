@@ -66,17 +66,17 @@ func (s SimpleRecord) String() string {
 func (s SimpleRecord) Len() uint16 {
 	emptyString := s.RData == ""
 	switch s.Type {
-	case 1:
+	case int(dns.TypeA):
 		if emptyString {
 			return 0
 		}
 		return net.IPv4len
-	case 5:
+	case int(dns.TypeCNAME):
 		if emptyString || s.RData == "." {
 			return 1
 		}
 		return uint16(len(s.RData) + 1)
-	case 28:
+	case int(dns.TypeAAAA):
 		if emptyString {
 			return 0
 		}

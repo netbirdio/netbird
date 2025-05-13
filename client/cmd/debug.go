@@ -235,13 +235,6 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
 	}
 
-	// Disable network map persistence after creating the debug bundle
-	if _, err := client.SetNetworkMapPersistence(cmd.Context(), &proto.SetNetworkMapPersistenceRequest{
-		Enabled: false,
-	}); err != nil {
-		return fmt.Errorf("failed to disable network map persistence: %v", status.Convert(err).Message())
-	}
-
 	if stateWasDown {
 		if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
 			return fmt.Errorf("failed to down: %v", status.Convert(err).Message())

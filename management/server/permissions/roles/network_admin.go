@@ -23,9 +23,9 @@ var NetworkAdmin = RolePermissions{
 		},
 		modules.Groups: {
 			operations.Read:   true,
-			operations.Create: false,
-			operations.Update: false,
-			operations.Delete: false,
+			operations.Create: true,
+			operations.Update: true,
+			operations.Delete: true,
 		},
 		modules.Settings: {
 			operations.Read:   true,
@@ -86,6 +86,12 @@ var NetworkAdmin = RolePermissions{
 			operations.Create: true,
 			operations.Update: true,
 			operations.Delete: true,
+		},
+		modules.Peers: {
+			operations.Read:   true,
+			operations.Create: false,
+			operations.Update: false,
+			operations.Delete: false,
 		},
 	},
 }

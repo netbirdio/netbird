@@ -79,7 +79,7 @@ func (registry *Registry) Register(peer *Peer) {
 	p, loaded := registry.Peers.LoadOrStore(peer.Id, peer)
 	if loaded {
 		pp := p.(*Peer)
-		log.Warnf("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
+		log.Tracef("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
 			peer.Id, peer.StreamID, pp.StreamID)
 		registry.Peers.Store(peer.Id, peer)
 		return
@@ -104,7 +104,7 @@ func (registry *Registry) Deregister(peer *Peer) {
 		pp := p.(*Peer)
 		if peer.StreamID < pp.StreamID {
 			registry.Peers.Store(peer.Id, p)
-			log.Warnf("attempted to remove newer registered stream of a peer [%s] [newer streamID %d, previous StreamID %d]. Ignoring.",
+			log.Debugf("attempted to remove newer registered stream of a peer [%s] [newer streamID %d, previous StreamID %d]. Ignoring.",
 				peer.Id, pp.StreamID, peer.StreamID)
 			return
 		}

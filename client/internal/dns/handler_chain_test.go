@@ -1,7 +1,6 @@
 package dns_test
 
 import (
-	"net"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -9,6 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/dns/test"
 )
 
 // TestHandlerChain_ServeDNS_Priorities tests that handlers are executed in priority order
@@ -30,7 +30,7 @@ func TestHandlerChain_ServeDNS_Priorities(t *testing.T) {
 	r.SetQuestion("example.com.", dns.TypeA)
 
 	// Create test writer
-	w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 	// Setup expectations - only highest priority handler should be called
 	dnsRouteHandler.On("ServeDNS", mock.Anything, r).Once()
@@ -142,7 +142,7 @@ func TestHandlerChain_ServeDNS_DomainMatching(t *testing.T) {
 
 			r := new(dns.Msg)
 			r.SetQuestion(tt.queryDomain, dns.TypeA)
-			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			chain.ServeDNS(w, r)
 
@@ -259,7 +259,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 			// Create and execute request
 			r := new(dns.Msg)
 			r.SetQuestion(tt.queryDomain, dns.TypeA)
-			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 			chain.ServeDNS(w, r)
 
 			// Verify expectations
@@ -316,7 +316,7 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 	}).Once()
 
 	// Execute
-	w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	chain.ServeDNS(w, r)
 
 	// Verify all handlers were called in order
@@ -324,20 +324,6 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 	handler2.AssertExpectations(t)
 	handler3.AssertExpectations(t)
 }
-
-// mockResponseWriter implements dns.ResponseWriter for testing
-type mockResponseWriter struct {
-	mock.Mock
-}
-
-func (m *mockResponseWriter) LocalAddr() net.Addr       { return nil }
-func (m *mockResponseWriter) RemoteAddr() net.Addr      { return nil }
-func (m *mockResponseWriter) WriteMsg(*dns.Msg) error   { return nil }
-func (m *mockResponseWriter) Write([]byte) (int, error) { return 0, nil }
-func (m *mockResponseWriter) Close() error              { return nil }
-func (m *mockResponseWriter) TsigStatus() error         { return nil }
-func (m *mockResponseWriter) TsigTimersOnly(bool)       {}
-func (m *mockResponseWriter) Hijack()                   {}
 
 func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 	tests := []struct {
@@ -425,7 +411,7 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 			// Create test request
 			r := new(dns.Msg)
 			r.SetQuestion(tt.query, dns.TypeA)
-			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			// Setup expectations
 			for priority, handler := range handlers {
@@ -471,7 +457,7 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	chain.AddHandler(testDomain, matchHandler, nbdns.PriorityMatchDomain)
 
 	// Test 1: Initial state
-	w1 := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w1 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	// Highest priority handler (routeHandler) should be called
 	routeHandler.On("ServeDNS", mock.Anything, r).Return().Once()
 	matchHandler.On("ServeDNS", mock.Anything, r).Maybe()   // Ensure others are not expected yet
@@ -490,7 +476,7 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	// Test 2: Remove highest priority handler
 	chain.RemoveHandler(testDomain, nbdns.PriorityDNSRoute)
 
-	w2 := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w2 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	// Now middle priority handler (matchHandler) should be called
 	matchHandler.On("ServeDNS", mock.Anything, r).Return().Once()
 	defaultHandler.On("ServeDNS", mock.Anything, r).Maybe() // Ensure default is not expected yet
@@ -506,7 +492,7 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	// Test 3: Remove middle priority handler
 	chain.RemoveHandler(testDomain, nbdns.PriorityMatchDomain)
 
-	w3 := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w3 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	// Now lowest priority handler (defaultHandler) should be called
 	defaultHandler.On("ServeDNS", mock.Anything, r).Return().Once()
 
@@ -519,7 +505,7 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	// Test 4: Remove last handler
 	chain.RemoveHandler(testDomain, nbdns.PriorityDefault)
 
-	w4 := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w4 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	chain.ServeDNS(w4, r) // Call ServeDNS on the now empty chain for this domain
 
 	for _, m := range mocks {
@@ -675,7 +661,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 			// Execute request
 			r := new(dns.Msg)
 			r.SetQuestion(tt.query, dns.TypeA)
-			chain.ServeDNS(&mockResponseWriter{}, r)
+			chain.ServeDNS(&test.MockResponseWriter{}, r)
 
 			// Verify each handler was called exactly as expected
 			for _, h := range tt.addHandlers {
@@ -819,7 +805,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 
 			r := new(dns.Msg)
 			r.SetQuestion(tt.query, dns.TypeA)
-			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			// Setup handler expectations
 			for pattern, handler := range handlers {
@@ -969,7 +955,7 @@ func TestHandlerChain_AddRemoveRoundtrip(t *testing.T) {
 			handler := &nbdns.MockHandler{}
 			r := new(dns.Msg)
 			r.SetQuestion(tt.queryPattern, dns.TypeA)
-			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			// First verify no handler is called before adding any
 			chain.ServeDNS(w, r)
