@@ -968,6 +968,10 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
+	if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, networkMap.GetPeerConfig().GetLazyConnectionEnabled()); err != nil {
+		log.Errorf("failed to update lazy connection feature flag: %v", err)
+	}
+
 	if e.firewall != nil {
 		if localipfw, ok := e.firewall.(localIpUpdater); ok {
 			if err := localipfw.UpdateLocalIPs(); err != nil {

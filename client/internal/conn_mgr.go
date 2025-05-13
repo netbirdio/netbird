@@ -27,7 +27,7 @@ type ConnMgr struct {
 	statusRecorder *peer.Status
 	iface          lazyconn.WGIface
 	dispatcher     *dispatcher.ConnectionDispatcher
-	enabledLocally bool
+	enabledByEnv   bool
 
 	lazyConnMgr *manager.Manager
 
@@ -45,7 +45,7 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 		dispatcher:     dispatcher,
 	}
 	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
-		e.enabledLocally = true
+		e.enabledByEnv = true
 		cfg := manager.Config{
 			InactivityThreshold: inactivityThresholdEnv(),
 		}
@@ -55,6 +55,8 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 	return e
 }
 
+// Start initializes the connection manager and starts the lazy connection manager if enabled by env var or cmd line option.
+// todo prevent multiple calls to Start() if the lazy connection manager is already started
 func (e *ConnMgr) Start(parentCtx context.Context) {
 	if e.lazyConnMgr == nil {
 		log.Infof("lazy connection manager is disabled")
@@ -73,27 +75,36 @@ func (e *ConnMgr) Start(parentCtx context.Context) {
 	}()
 }
 
-func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) {
+// UpdatedRemoteFeatureFlag is called when the remote feature flag is updated.
+// If enabled, it initializes the lazy connection manager and start it. Do not need to call Start() again.
+func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) error {
 	// todo review deadlock
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.enabledLocally {
-		return
+	// do not disable lazy connection manager if it was enabled by env var
+	if e.enabledByEnv {
+		return nil
 	}
+
 	if enabled {
+		// if the lazy connection manager is already started, do not start it again
 		if e.lazyConnMgr != nil {
-			return
+			return nil
 		}
 
 		log.Infof("lazy connection manager is enabled by management feature flag")
 		e.initLazyManager(ctx)
 		e.statusRecorder.UpdateLazyConnection(true)
-		return
+		return e.addPeersToLazyConnManager(ctx)
+	} else {
+		if e.lazyConnMgr == nil {
+			return nil
+		}
+		e.closeManager(ctx)
+		e.statusRecorder.UpdateLazyConnection(false)
+		return nil
 	}
-
-	e.closeManager()
-	e.statusRecorder.UpdateLazyConnection(false)
 }
 
 // SetExcludeList sets the list of peer IDs that should always have permanent connections.
@@ -254,7 +265,30 @@ func (e *ConnMgr) initLazyManager(parentCtx context.Context) {
 	}()
 }
 
-func (e *ConnMgr) closeManager() {
+func (e *ConnMgr) addPeersToLazyConnManager(ctx context.Context) error {
+	peers := e.peerStore.PeersPubKey()
+	lazyPeerCfgs := make([]lazyconn.PeerConfig, 0, len(peers))
+	for _, peerID := range peers {
+		var peerConn *peer.Conn
+		var exists bool
+		if peerConn, exists = e.peerStore.PeerConn(peerID); !exists {
+			log.Warnf("failed to find peer conn for peerID: %s", peerID)
+			continue
+		}
+
+		lazyPeerCfg := lazyconn.PeerConfig{
+			PublicKey:  peerID,
+			AllowedIPs: peerConn.WgConfig().AllowedIps,
+			PeerConnID: peerConn.ConnID(),
+			Log:        peerConn.Log,
+		}
+		lazyPeerCfgs = append(lazyPeerCfgs, lazyPeerCfg)
+	}
+
+	return e.lazyConnMgr.AddActivePeers(ctx, lazyPeerCfgs)
+}
+
+func (e *ConnMgr) closeManager(ctx context.Context) {
 	if e.lazyConnMgr == nil {
 		return
 	}
@@ -262,7 +296,10 @@ func (e *ConnMgr) closeManager() {
 	e.ctxCancel()
 	e.wg.Wait()
 	e.lazyConnMgr = nil
-	// todo open all connections
+
+	for _, peerID := range e.peerStore.PeersPubKey() {
+		e.peerStore.PeerConnOpen(ctx, peerID)
+	}
 }
 
 func (e *ConnMgr) onActive(peerID string) {

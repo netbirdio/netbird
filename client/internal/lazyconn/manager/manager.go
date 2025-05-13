@@ -178,6 +178,24 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 	return false, nil
 }
 
+func (m *Manager) AddActivePeers(ctx context.Context, peerCfg []lazyconn.PeerConfig) error {
+	m.managedPeersMu.Lock()
+	defer m.managedPeersMu.Unlock()
+
+	for _, cfg := range peerCfg {
+		if _, ok := m.managedPeers[cfg.PublicKey]; ok {
+			cfg.Log.Errorf("peer already managed")
+			continue
+		}
+
+		if err := m.addActivePeer(ctx, cfg); err != nil {
+			cfg.Log.Errorf("failed to add peer to lazy connection manager: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *Manager) RemovePeer(peerID string) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
