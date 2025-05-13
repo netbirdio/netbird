@@ -136,7 +136,7 @@ func (e *ConnMgr) SetExcludeList(peerIDs []string) {
 	}
 }
 
-func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
+func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Conn) (exists bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -145,7 +145,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	}
 
 	if !e.isStartedWithLazyMgr() {
-		if err := conn.Open(e.ctx); err != nil {
+		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
 		return
@@ -153,7 +153,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 
 	if !lazyconn.IsSupported(conn.AgentVersionString()) {
 		conn.Log.Warnf("peer does not support lazy connection (%s), open permanent connection", conn.AgentVersionString())
-		if err := conn.Open(e.ctx); err != nil {
+		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
 		return
@@ -168,7 +168,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 	excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
 	if err != nil {
 		conn.Log.Errorf("failed to add peer to lazyconn manager: %v", err)
-		if err := conn.Open(e.ctx); err != nil {
+		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
 		return
@@ -176,7 +176,7 @@ func (e *ConnMgr) AddPeerConn(peerKey string, conn *peer.Conn) (exists bool) {
 
 	if excluded {
 		conn.Log.Infof("peer is on lazy conn manager exclude list, opening connection")
-		if err := conn.Open(e.ctx); err != nil {
+		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
 		return

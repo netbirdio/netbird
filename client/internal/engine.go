@@ -1226,7 +1226,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}
 
-	if exists := e.connMgr.AddPeerConn(peerKey, conn); exists {
+	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
 		conn.Close()
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
