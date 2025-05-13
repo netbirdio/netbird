@@ -46,33 +46,20 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 	}
 	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
 		e.enabledByEnv = true
-		cfg := manager.Config{
-			InactivityThreshold: inactivityThresholdEnv(),
-		}
-		e.lazyConnMgr = manager.NewManager(cfg, e.iface, e.dispatcher)
-		e.statusRecorder.UpdateLazyConnection(true)
 	}
 	return e
 }
 
 // Start initializes the connection manager and starts the lazy connection manager if enabled by env var or cmd line option.
 // todo prevent multiple calls to Start() if the lazy connection manager is already started
-func (e *ConnMgr) Start(parentCtx context.Context) {
-	if e.lazyConnMgr == nil {
+func (e *ConnMgr) Start(ctx context.Context) {
+	if !e.enabledByEnv {
 		log.Infof("lazy connection manager is disabled")
-		e.ctx = parentCtx
 		return
 	}
 
-	ctx, cancel := context.WithCancel(parentCtx)
-	e.ctx = ctx
-	e.ctxCancel = cancel
-
-	e.wg.Add(1)
-	go func() {
-		defer e.wg.Done()
-		e.lazyConnMgr.Start(ctx, e.onActive, e.onInactive)
-	}()
+	e.initLazyManager(ctx)
+	e.statusRecorder.UpdateLazyConnection(true)
 }
 
 // UpdatedRemoteFeatureFlag is called when the remote feature flag is updated.
