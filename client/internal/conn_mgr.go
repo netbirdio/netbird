@@ -64,6 +64,7 @@ func (e *ConnMgr) Start(ctx context.Context) {
 
 // UpdatedRemoteFeatureFlag is called when the remote feature flag is updated.
 // If enabled, it initializes the lazy connection manager and start it. Do not need to call Start() again.
+// If disabled, then it closes the lazy connection manager and open the connections to all peers.
 func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) error {
 	// todo review deadlock
 	e.mu.Lock()

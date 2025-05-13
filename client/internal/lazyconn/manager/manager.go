@@ -178,6 +178,8 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 	return false, nil
 }
 
+// AddActivePeers adds a list of peers to the lazy connection manager
+// suppose these peers was in connected or in connecting states
 func (m *Manager) AddActivePeers(ctx context.Context, peerCfg []lazyconn.PeerConfig) error {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
