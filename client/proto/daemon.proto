@@ -134,6 +134,7 @@ message LoginRequest {
   // omits initialized empty slices due to omitempty tags
   bool cleanDNSLabels = 27;
 
+  bool isFreeBSDDesktopClient = 28;
 }
 
 message LoginResponse {

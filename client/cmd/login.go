@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -98,11 +99,12 @@ var loginCmd = &cobra.Command{
 		}
 
 		loginRequest := proto.LoginRequest{
-			SetupKey:             providedSetupKey,
-			ManagementUrl:        managementURL,
-			IsLinuxDesktopClient: isLinuxRunningDesktop(),
-			Hostname:             hostName,
-			DnsLabels:            dnsLabelsReq,
+			SetupKey:               providedSetupKey,
+			ManagementUrl:          managementURL,
+			IsLinuxDesktopClient:   isLinuxRunningDesktop(),
+			IsFreeBSDDesktopClient: isFreeBSDRunningDesktop(),
+			Hostname:               hostName,
+			DnsLabels:              dnsLabelsReq,
 		}
 
 		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -195,7 +197,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 }
 
 func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *internal.Config) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isLinuxRunningDesktop())
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isLinuxRunningDesktop(), isFreeBSDRunningDesktop())
 	if err != nil {
 		return nil, err
 	}
@@ -245,5 +247,23 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 
 // isLinuxRunningDesktop checks if a Linux OS is running desktop environment
 func isLinuxRunningDesktop() bool {
-	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
+	return runtime.GOOS == "linux" && (os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != "")
+}
+
+// isFreeBSDRunningDesktop
+func isFreeBSDRunningDesktop() bool {
+	if runtime.GOOS != "freebsd" {
+		return false
+	}
+
+	// standard XDG variables
+	if os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != "" {
+		return true
+	}
+	// X11 or Wayland socket
+	if os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != "" {
+		return true
+	}
+
+	return false
 }

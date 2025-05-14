@@ -193,7 +193,7 @@ func (a *Auth) login(urlOpener URLOpener) error {
 }
 
 func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false)
+	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false, false)
 	if err != nil {
 		return nil, err
 	}
