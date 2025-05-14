@@ -250,7 +250,7 @@ func isLinuxRunningDesktop() bool {
 	return runtime.GOOS == "linux" && (os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != "")
 }
 
-// isFreeBSDRunningDesktop
+// isFreeBSDRunningDesktop checks if a FreeBSD OS is running desktop environment
 func isFreeBSDRunningDesktop() bool {
 	if runtime.GOOS != "freebsd" {
 		return false
