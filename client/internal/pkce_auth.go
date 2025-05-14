@@ -40,8 +40,6 @@ type PKCEAuthProviderConfig struct {
 	UseIDToken bool
 	// ClientCertPair is used for mTLS authentication to the IDP
 	ClientCertPair *tls.Certificate
-	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
-	DisablePromptLogin bool
 	// LoginFlag is used to configure the PKCE flow login behavior
 	LoginFlag types.LoginFlag
 }
@@ -102,7 +100,6 @@ func GetPKCEAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmURL
 			RedirectURLs:          protoPKCEAuthorizationFlow.GetProviderConfig().GetRedirectURLs(),
 			UseIDToken:            protoPKCEAuthorizationFlow.GetProviderConfig().GetUseIDToken(),
 			ClientCertPair:        clientCert,
-			DisablePromptLogin:    protoPKCEAuthorizationFlow.GetProviderConfig().GetDisablePromptLogin(),
 			LoginFlag:             types.LoginFlag(protoPKCEAuthorizationFlow.GetProviderConfig().GetLoginFlag()),
 		},
 	}
