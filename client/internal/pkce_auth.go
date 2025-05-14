@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	mgm "github.com/netbirdio/netbird/management/client"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // PKCEAuthorizationFlow represents PKCE Authorization Flow information
@@ -41,6 +42,8 @@ type PKCEAuthProviderConfig struct {
 	ClientCertPair *tls.Certificate
 	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
 	DisablePromptLogin bool
+	// LoginFlag is used to configure the PKCE flow login behavior
+	LoginFlag types.LoginFlag
 }
 
 // GetPKCEAuthorizationFlowInfo initialize a PKCEAuthorizationFlow instance and return with it
@@ -100,6 +103,7 @@ func GetPKCEAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmURL
 			UseIDToken:            protoPKCEAuthorizationFlow.GetProviderConfig().GetUseIDToken(),
 			ClientCertPair:        clientCert,
 			DisablePromptLogin:    protoPKCEAuthorizationFlow.GetProviderConfig().GetDisablePromptLogin(),
+			LoginFlag:             types.LoginFlag(protoPKCEAuthorizationFlow.GetProviderConfig().GetLoginFlag()),
 		},
 	}
 

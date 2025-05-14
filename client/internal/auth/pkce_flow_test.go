@@ -7,15 +7,34 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 func TestPromptLogin(t *testing.T) {
+	const (
+		promptLogin = "prompt=login"
+		maxAge0     = "max_age=0"
+	)
+
 	tt := []struct {
-		name   string
-		prompt bool
+		name      string
+		loginFlag types.LoginFlag
+		expect    string
 	}{
-		{"PromptLogin", true},
-		{"NoPromptLogin", false},
+		{
+			name:      "Prompt login",
+			loginFlag: types.LoginFlagPrompt,
+			expect:    promptLogin,
+		},
+		{
+			name:      "Max age 0 login",
+			loginFlag: types.LoginFlagMaxAge0,
+			expect:    maxAge0,
+		},
+		{
+			name:      "Disabled additional login flags",
+			loginFlag: types.LoginFlagDisabled,
+		},
 	}
 
 	for _, tc := range tt {
@@ -28,7 +47,7 @@ func TestPromptLogin(t *testing.T) {
 				AuthorizationEndpoint: "https://test-auth-endpoint.com/authorize",
 				RedirectURLs:          []string{"http://127.0.0.1:33992/"},
 				UseIDToken:            true,
-				DisablePromptLogin:    !tc.prompt,
+				LoginFlag:             tc.loginFlag,
 			}
 			pkce, err := NewPKCEAuthorizationFlow(config)
 			if err != nil {
@@ -38,11 +57,12 @@ func TestPromptLogin(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to request auth info: %v", err)
 			}
-			pattern := "prompt=login"
-			if tc.prompt {
-				require.Contains(t, authInfo.VerificationURIComplete, pattern)
+
+			if tc.loginFlag != types.LoginFlagDisabled {
+				require.Contains(t, authInfo.VerificationURIComplete, tc.expect)
 			} else {
-				require.NotContains(t, authInfo.VerificationURIComplete, pattern)
+				require.NotContains(t, authInfo.VerificationURIComplete, promptLogin)
+				require.NotContains(t, authInfo.VerificationURIComplete, maxAge0)
 			}
 		})
 	}

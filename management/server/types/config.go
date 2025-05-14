@@ -29,6 +29,22 @@ const (
 	DefaultDeviceAuthFlowScope string = "openid"
 )
 
+type LoginFlag uint8
+
+const (
+	LoginFlagDisabled LoginFlag = iota
+	LoginFlagPrompt
+	LoginFlagMaxAge0
+)
+
+func (l LoginFlag) IsPromptLogin() bool {
+	return l == LoginFlagPrompt
+}
+
+func (l LoginFlag) IsMaxAge0Login() bool {
+	return l == LoginFlagMaxAge0
+}
+
 var MgmtConfigPath string
 
 // Config of the Management service
@@ -156,6 +172,8 @@ type ProviderConfig struct {
 	RedirectURLs []string
 	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
 	DisablePromptLogin bool
+	// LoginFlag is used to configure the PKCE flow login behavior
+	LoginFlag LoginFlag
 }
 
 // StoreConfig contains Store configuration
