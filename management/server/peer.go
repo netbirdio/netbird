@@ -556,6 +556,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			return fmt.Errorf("failed to get free IP: %w", err)
 		}
 
+		if err := domain.ValidateDomainsList(peer.ExtraDNSLabels); err != nil {
+			return status.Errorf(status.InvalidArgument, "invalid extra DNS labels: %v", err)
+		}
+
 		registrationTime := time.Now().UTC()
 		newPeer = &nbpeer.Peer{
 			ID:                          xid.New().String(),
@@ -767,10 +771,11 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 		// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 		// Try registering it.
 		newPeer := &nbpeer.Peer{
-			Key:      login.WireGuardPubKey,
-			Meta:     login.Meta,
-			SSHKey:   login.SSHKey,
-			Location: nbpeer.Location{ConnectionIP: login.ConnectionIP},
+			Key:            login.WireGuardPubKey,
+			Meta:           login.Meta,
+			SSHKey:         login.SSHKey,
+			Location:       nbpeer.Location{ConnectionIP: login.ConnectionIP},
+			ExtraDNSLabels: login.ExtraDNSLabels,
 		}
 
 		return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
@@ -873,16 +878,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 		if !peer.AllowExtraDNSLabels && len(login.ExtraDNSLabels) > 0 {
 			return status.Errorf(status.PreconditionFailed, "couldn't login peer: setup key doesn't allow extra DNS labels")
-		}
-
-		extraLabels, err := domain.ValidateDomainsStrSlice(login.ExtraDNSLabels)
-		if err != nil {
-			return status.Errorf(status.InvalidArgument, "invalid extra DNS labels: %v", err)
-		}
-
-		if !slices.Equal(peer.ExtraDNSLabels, extraLabels) {
-			peer.ExtraDNSLabels = extraLabels
-			shouldStorePeer = true
 		}
 
 		if shouldStorePeer {
