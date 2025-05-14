@@ -15,11 +15,9 @@ type PoliciesAPI struct {
 
 // List list all policies
 // See more: https://docs.netbird.io/api/resources/policies#list-all-policies
-func (a *PoliciesAPI) List(ctx context.Context, accountID string) ([]api.Policy, error) {
+func (a *PoliciesAPI) List(ctx context.Context) ([]api.Policy, error) {
 	path := "/api/policies"
-	if accountID != "" {
-		path += "?account=" + accountID
-	}
+
 	resp, err := a.c.NewRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -65,11 +63,9 @@ func (a *PoliciesAPI) Create(ctx context.Context, request api.PostApiPoliciesJSO
 
 // Update update policy info
 // See more: https://docs.netbird.io/api/resources/policies#update-a-policy
-func (a *PoliciesAPI) Update(ctx context.Context, policyID string, request api.PutApiPoliciesPolicyIdJSONRequestBody, accountID string) (*api.Policy, error) {
+func (a *PoliciesAPI) Update(ctx context.Context, policyID string, request api.PutApiPoliciesPolicyIdJSONRequestBody) (*api.Policy, error) {
 	path := "/api/policies/" + policyID
-	if accountID != "" {
-		path += "?account=" + accountID
-	}
+
 	requestBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
