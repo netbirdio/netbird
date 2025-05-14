@@ -64,13 +64,8 @@ func (t TokenInfo) GetTokenToUse() string {
 // and if that also fails, the authentication process is deemed unsuccessful
 //
 // On Linux distros without desktop environment support, it only tries to initialize the Device Code Flow
-func NewOAuthFlow(ctx context.Context, config *internal.Config, isLinuxDesktopClient, isFreeBSDDesktopClient bool) (OAuthFlow, error) {
-	if runtime.GOOS == "linux" && !isLinuxDesktopClient {
-		return authenticateWithDeviceCodeFlow(ctx, config)
-	}
-
-	// On FreeBSD without desktop environment support, it only tries to initialize the Device Code Flow
-	if runtime.GOOS == "freebsd" && !isFreeBSDDesktopClient {
+func NewOAuthFlow(ctx context.Context, config *internal.Config, isUnixDesktopClient bool) (OAuthFlow, error) {
+	if (runtime.GOOS == "linux" || runtime.GOOS == "freebsd") && !isUnixDesktopClient {
 		return authenticateWithDeviceCodeFlow(ctx, config)
 	}
 

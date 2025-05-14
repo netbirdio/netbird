@@ -446,7 +446,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsLinuxDesktopClient, msg.IsFreeBSDDesktopClient)
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
