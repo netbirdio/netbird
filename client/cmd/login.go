@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -98,11 +99,11 @@ var loginCmd = &cobra.Command{
 		}
 
 		loginRequest := proto.LoginRequest{
-			SetupKey:             providedSetupKey,
-			ManagementUrl:        managementURL,
-			IsLinuxDesktopClient: isLinuxRunningDesktop(),
-			Hostname:             hostName,
-			DnsLabels:            dnsLabelsReq,
+			SetupKey:            providedSetupKey,
+			ManagementUrl:       managementURL,
+			IsUnixDesktopClient: isUnixRunningDesktop(),
+			Hostname:            hostName,
+			DnsLabels:           dnsLabelsReq,
 		}
 
 		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -195,7 +196,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 }
 
 func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *internal.Config) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isLinuxRunningDesktop())
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop())
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +244,10 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 	}
 }
 
-// isLinuxRunningDesktop checks if a Linux OS is running desktop environment
-func isLinuxRunningDesktop() bool {
+// isUnixRunningDesktop checks if a Linux OS is running desktop environment
+func isUnixRunningDesktop() bool {
+	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
+		return false
+	}
 	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
