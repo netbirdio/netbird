@@ -29,10 +29,11 @@ const (
 	labelTypeStream        = "stream"
 	labelTypeMessage       = "message"
 
-	labelError             = "error"
-	labelErrorMissingId    = "missing_id"
-	labelErrorMissingMeta  = "missing_meta"
-	labelErrorFailedHeader = "failed_header"
+	labelError                   = "error"
+	labelErrorMissingId          = "missing_id"
+	labelErrorMissingMeta        = "missing_meta"
+	labelErrorFailedHeader       = "failed_header"
+	labelErrorFailedRegistration = "failed_registration"
 
 	labelRegistrationStatus   = "status"
 	labelRegistrationFound    = "found"
@@ -139,7 +140,12 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer) (
 
 	p := peer.NewPeer(id[0], stream)
 	s.registry.Register(p)
-	s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
+	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
+	if err != nil {
+		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedRegistration)))
+		log.Errorf("error while registering message listener for peer [%s] %v", p.Id, err)
+		return nil, status.Errorf(codes.Internal, "error while registering message listener")
+	}
 	return p, nil
 }
 
