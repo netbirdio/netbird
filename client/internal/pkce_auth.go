@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	mgm "github.com/netbirdio/netbird/management/client"
+	"github.com/netbirdio/netbird/management/client/common"
 )
 
 // PKCEAuthorizationFlow represents PKCE Authorization Flow information
@@ -40,7 +41,7 @@ type PKCEAuthProviderConfig struct {
 	// ClientCertPair is used for mTLS authentication to the IDP
 	ClientCertPair *tls.Certificate
 	// LoginFlag is used to configure the PKCE flow login behavior
-	LoginFlag mgm.LoginFlag
+	LoginFlag common.LoginFlag
 }
 
 // GetPKCEAuthorizationFlowInfo initialize a PKCEAuthorizationFlow instance and return with it
@@ -99,7 +100,7 @@ func GetPKCEAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmURL
 			RedirectURLs:          protoPKCEAuthorizationFlow.GetProviderConfig().GetRedirectURLs(),
 			UseIDToken:            protoPKCEAuthorizationFlow.GetProviderConfig().GetUseIDToken(),
 			ClientCertPair:        clientCert,
-			LoginFlag:             mgm.LoginFlag(protoPKCEAuthorizationFlow.GetProviderConfig().GetLoginFlag()),
+			LoginFlag:             common.LoginFlag(protoPKCEAuthorizationFlow.GetProviderConfig().GetLoginFlag()),
 		},
 	}
 

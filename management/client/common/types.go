@@ -1,4 +1,4 @@
-package client
+package common
 
 // LoginFlag introduces additional login flags to the PKCE authorization request
 type LoginFlag uint8

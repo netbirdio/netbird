@@ -3,6 +3,7 @@ package types
 import (
 	"net/netip"
 
+	"github.com/netbirdio/netbird/management/client/common"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/util"
 )
@@ -28,22 +29,6 @@ const (
 	// DefaultDeviceAuthFlowScope defines the bare minimum scope to request in the device authorization flow
 	DefaultDeviceAuthFlowScope string = "openid"
 )
-
-type LoginFlag uint8
-
-const (
-	LoginFlagDisabled LoginFlag = iota
-	LoginFlagPrompt
-	LoginFlagMaxAge0
-)
-
-func (l LoginFlag) IsPromptLogin() bool {
-	return l == LoginFlagPrompt
-}
-
-func (l LoginFlag) IsMaxAge0Login() bool {
-	return l == LoginFlagMaxAge0
-}
 
 var MgmtConfigPath string
 
@@ -173,7 +158,7 @@ type ProviderConfig struct {
 	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
 	DisablePromptLogin bool
 	// LoginFlag is used to configure the PKCE flow login behavior
-	LoginFlag LoginFlag
+	LoginFlag common.LoginFlag
 }
 
 // StoreConfig contains Store configuration
