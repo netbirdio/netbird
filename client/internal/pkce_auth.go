@@ -102,6 +102,7 @@ func GetPKCEAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmURL
 			RedirectURLs:          protoPKCEAuthorizationFlow.GetProviderConfig().GetRedirectURLs(),
 			UseIDToken:            protoPKCEAuthorizationFlow.GetProviderConfig().GetUseIDToken(),
 			ClientCertPair:        clientCert,
+			DisablePromptLogin:    protoPKCEAuthorizationFlow.GetProviderConfig().GetDisablePromptLogin(),
 			LoginFlag:             common.LoginFlag(protoPKCEAuthorizationFlow.GetProviderConfig().GetLoginFlag()),
 		},
 	}

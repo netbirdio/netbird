@@ -4,10 +4,8 @@ package common
 type LoginFlag uint8
 
 const (
-	// LoginFlagDisabled disables additional login flags
-	LoginFlagDisabled LoginFlag = iota
 	// LoginFlagPrompt adds prompt=login to the authorization request
-	LoginFlagPrompt
+	LoginFlagPrompt LoginFlag = iota
 	// LoginFlagMaxAge0 adds max_age=0 to the authorization request
 	LoginFlagMaxAge0
 )

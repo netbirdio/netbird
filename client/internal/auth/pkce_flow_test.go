@@ -17,9 +17,10 @@ func TestPromptLogin(t *testing.T) {
 	)
 
 	tt := []struct {
-		name      string
-		loginFlag mgm.LoginFlag
-		expect    string
+		name               string
+		loginFlag          mgm.LoginFlag
+		disablePromptLogin bool
+		expect             string
 	}{
 		{
 			name:      "Prompt login",
@@ -32,8 +33,9 @@ func TestPromptLogin(t *testing.T) {
 			expect:    maxAge0,
 		},
 		{
-			name:      "Disabled additional login flags",
-			loginFlag: mgm.LoginFlagDisabled,
+			name:               "Disable prompt login",
+			loginFlag:          mgm.LoginFlagPrompt,
+			disablePromptLogin: true,
 		},
 	}
 
@@ -58,10 +60,10 @@ func TestPromptLogin(t *testing.T) {
 				t.Fatalf("Failed to request auth info: %v", err)
 			}
 
-			if tc.loginFlag != mgm.LoginFlagDisabled {
+			if !tc.disablePromptLogin {
 				require.Contains(t, authInfo.VerificationURIComplete, tc.expect)
 			} else {
-				require.NotContains(t, authInfo.VerificationURIComplete, promptLogin)
+				require.Contains(t, authInfo.VerificationURIComplete, promptLogin)
 				require.NotContains(t, authInfo.VerificationURIComplete, maxAge0)
 			}
 		})
