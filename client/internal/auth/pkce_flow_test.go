@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/management/server/types"
+	mgm "github.com/netbirdio/netbird/management/client"
 )
 
 func TestPromptLogin(t *testing.T) {
@@ -18,22 +18,22 @@ func TestPromptLogin(t *testing.T) {
 
 	tt := []struct {
 		name      string
-		loginFlag types.LoginFlag
+		loginFlag mgm.LoginFlag
 		expect    string
 	}{
 		{
 			name:      "Prompt login",
-			loginFlag: types.LoginFlagPrompt,
+			loginFlag: mgm.LoginFlagPrompt,
 			expect:    promptLogin,
 		},
 		{
 			name:      "Max age 0 login",
-			loginFlag: types.LoginFlagMaxAge0,
+			loginFlag: mgm.LoginFlagMaxAge0,
 			expect:    maxAge0,
 		},
 		{
 			name:      "Disabled additional login flags",
-			loginFlag: types.LoginFlagDisabled,
+			loginFlag: mgm.LoginFlagDisabled,
 		},
 	}
 
@@ -58,7 +58,7 @@ func TestPromptLogin(t *testing.T) {
 				t.Fatalf("Failed to request auth info: %v", err)
 			}
 
-			if tc.loginFlag != types.LoginFlagDisabled {
+			if tc.loginFlag != mgm.LoginFlagDisabled {
 				require.Contains(t, authInfo.VerificationURIComplete, tc.expect)
 			} else {
 				require.NotContains(t, authInfo.VerificationURIComplete, promptLogin)
