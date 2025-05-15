@@ -1925,7 +1925,7 @@ func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallMana
 		if r.Peer == "" {
 			continue
 		}
-		log.Infof("excluded peer from lazy connection: %s", r.Peer)
+		log.Infof("exclude router peer from lazy connection: %s", r.Peer)
 		excludedPeers = append(excludedPeers, r.Peer)
 	}
 
@@ -1936,7 +1936,7 @@ func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallMana
 				if allowedIP != ip.String() {
 					continue
 				}
-				log.Infof("excluded peer from lazy connection: %s", p.GetWgPubKey())
+				log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
 				excludedPeers = append(excludedPeers, p.GetWgPubKey())
 			}
 		}
