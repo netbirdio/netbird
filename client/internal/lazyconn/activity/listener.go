@@ -4,6 +4,8 @@ import (
 	"net"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 )
 
@@ -18,18 +20,24 @@ type Listener struct {
 	isClosed bool // use to avoid error log when closing the listener
 }
 
-func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig, conn *net.UDPConn, addr *net.UDPAddr) (*Listener, error) {
+func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig) (*Listener, error) {
 	d := &Listener{
-		wgIface:  wgIface,
-		peerCfg:  cfg,
-		conn:     conn,
-		endpoint: addr,
+		wgIface: wgIface,
+		peerCfg: cfg,
 	}
+
+	conn, err := d.newConn()
+	if err != nil {
+		return nil, err
+	}
+	d.conn = conn
+	d.endpoint = conn.LocalAddr().(*net.UDPAddr)
+
 	if err := d.createEndpoint(); err != nil {
 		return nil, err
 	}
 	d.done.Lock()
-	cfg.Log.Infof("created activity listener: %s", addr.String())
+	cfg.Log.Infof("created activity listener: %s", conn.LocalAddr().(*net.UDPAddr).String())
 	return d, nil
 }
 
@@ -77,4 +85,19 @@ func (d *Listener) removeEndpoint() error {
 func (d *Listener) createEndpoint() error {
 	d.peerCfg.Log.Debugf("creating lazy endpoint: %s", d.endpoint.String())
 	return d.wgIface.UpdatePeer(d.peerCfg.PublicKey, d.peerCfg.AllowedIPs, 0, d.endpoint, nil)
+}
+
+func (d *Listener) newConn() (*net.UDPConn, error) {
+	addr := &net.UDPAddr{
+		Port: 0,
+		IP:   listenIP,
+	}
+
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		log.Errorf("failed to listen on %s: %s", addr, err)
+		return nil, err
+	}
+
+	return conn, nil
 }

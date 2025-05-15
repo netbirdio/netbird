@@ -10,11 +10,6 @@ import (
 )
 
 func TestNewListener(t *testing.T) {
-	a := newPortAllocator()
-	conn, addr, err := a.newConn()
-	if err != nil {
-		t.Fatalf("failed to bind activity listener: %v", err)
-	}
 	peer := &MocPeer{
 		PeerID: "examplePublicKey1",
 	}
@@ -25,7 +20,7 @@ func TestNewListener(t *testing.T) {
 		Log:        log.WithField("peer", "examplePublicKey1"),
 	}
 
-	l, err := NewListener(MocWGIface{}, cfg, conn, addr)
+	l, err := NewListener(MocWGIface{}, cfg)
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
 	}

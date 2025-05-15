@@ -5,5 +5,5 @@ package activity
 import "net"
 
 var (
-	listenIP = net.ParseIP("127.0.0.1")
+	listenIP = net.IP{127, 0, 0, 1}
 )

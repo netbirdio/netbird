@@ -1,7 +1,6 @@
 package activity
 
 import (
-	"fmt"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -15,9 +14,8 @@ type Manager struct {
 
 	wgIface lazyconn.WGIface
 
-	portGenerator *portAllocator
-	peers         map[peerid.ConnID]*Listener
-	done          chan struct{}
+	peers map[peerid.ConnID]*Listener
+	done  chan struct{}
 
 	mu sync.Mutex
 }
@@ -26,7 +24,6 @@ func NewManager(wgIface lazyconn.WGIface) *Manager {
 	m := &Manager{
 		OnActivityChan: make(chan peerid.ConnID, 1),
 		wgIface:        wgIface,
-		portGenerator:  newPortAllocator(),
 		peers:          make(map[peerid.ConnID]*Listener),
 		done:           make(chan struct{}),
 	}
@@ -42,12 +39,7 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 		return nil
 	}
 
-	conn, addr, err := m.portGenerator.newConn()
-	if err != nil {
-		return fmt.Errorf("failed to bind activity listener: %v", err)
-	}
-
-	listener, err := NewListener(m.wgIface, peerCfg, conn, addr)
+	listener, err := NewListener(m.wgIface, peerCfg)
 	if err != nil {
 		return err
 	}
