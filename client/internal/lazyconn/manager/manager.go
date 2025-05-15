@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn/inactivity"
 	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
+	"github.com/netbirdio/netbird/client/internal/peerstore"
 )
 
 const (
@@ -37,6 +38,7 @@ type Config struct {
 // - Maintaining a list of excluded peers that should always have permanent connections
 // - Handling connection establishment based on peer signaling
 type Manager struct {
+	peerStore           *peerstore.Store
 	connStateDispatcher *dispatcher.ConnectionDispatcher
 	inactivityThreshold time.Duration
 
@@ -53,9 +55,10 @@ type Manager struct {
 	onInactive chan peerid.ConnID
 }
 
-func NewManager(config Config, wgIface lazyconn.WGIface, connStateDispatcher *dispatcher.ConnectionDispatcher) *Manager {
+func NewManager(config Config, peerStore *peerstore.Store, wgIface lazyconn.WGIface, connStateDispatcher *dispatcher.ConnectionDispatcher) *Manager {
 	log.Infof("setup lazy connection service")
 	m := &Manager{
+		peerStore:            peerStore,
 		connStateDispatcher:  connStateDispatcher,
 		inactivityThreshold:  inactivity.DefaultInactivityThreshold,
 		managedPeers:         make(map[string]*lazyconn.PeerConfig),
@@ -85,7 +88,7 @@ func NewManager(config Config, wgIface lazyconn.WGIface, connStateDispatcher *di
 }
 
 // Start starts the manager and listens for peer activity and inactivity events
-func (m *Manager) Start(ctx context.Context, activeFn func(peerID string), inactiveFn func(peerID string)) {
+func (m *Manager) Start(ctx context.Context) {
 	defer m.close()
 
 	ctx, m.cancel = context.WithCancel(ctx)
@@ -94,9 +97,9 @@ func (m *Manager) Start(ctx context.Context, activeFn func(peerID string), inact
 		case <-ctx.Done():
 			return
 		case peerConnID := <-m.activityManager.OnActivityChan:
-			m.onPeerActivity(ctx, peerConnID, activeFn)
+			m.onPeerActivity(ctx, peerConnID)
 		case peerConnID := <-m.onInactive:
-			m.onPeerInactivityTimedOut(peerConnID, inactiveFn)
+			m.onPeerInactivityTimedOut(peerConnID)
 		}
 	}
 }
@@ -176,6 +179,26 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 		expectedWatcher: watcherActivity,
 	}
 	return false, nil
+}
+
+// AddActivePeers adds a list of peers to the lazy connection manager
+// suppose these peers was in connected or in connecting states
+func (m *Manager) AddActivePeers(ctx context.Context, peerCfg []lazyconn.PeerConfig) error {
+	m.managedPeersMu.Lock()
+	defer m.managedPeersMu.Unlock()
+
+	for _, cfg := range peerCfg {
+		if _, ok := m.managedPeers[cfg.PublicKey]; ok {
+			cfg.Log.Errorf("peer already managed")
+			continue
+		}
+
+		if err := m.addActivePeer(ctx, cfg); err != nil {
+			cfg.Log.Errorf("failed to add peer to lazy connection manager: %v", err)
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *Manager) RemovePeer(peerID string) {
@@ -277,7 +300,7 @@ func (m *Manager) close() {
 	log.Infof("lazy connection manager closed")
 }
 
-func (m *Manager) onPeerActivity(ctx context.Context, peerConnID peerid.ConnID, onActiveListenerFn func(peerID string)) {
+func (m *Manager) onPeerActivity(ctx context.Context, peerConnID peerid.ConnID) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
@@ -299,10 +322,10 @@ func (m *Manager) onPeerActivity(ctx context.Context, peerConnID peerid.ConnID, 
 	mp.peerCfg.Log.Infof("starting inactivity monitor")
 	go m.inactivityMonitors[peerConnID].Start(ctx, m.onInactive)
 
-	onActiveListenerFn(mp.peerCfg.PublicKey)
+	m.peerStore.PeerConnOpen(ctx, mp.peerCfg.PublicKey)
 }
 
-func (m *Manager) onPeerInactivityTimedOut(peerConnID peerid.ConnID, onInactiveListenerFn func(peerID string)) {
+func (m *Manager) onPeerInactivityTimedOut(peerConnID peerid.ConnID) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
@@ -320,7 +343,7 @@ func (m *Manager) onPeerInactivityTimedOut(peerConnID peerid.ConnID, onInactiveL
 	mp.peerCfg.Log.Infof("connection timed out")
 
 	// this is blocking operation, potentially can be optimized
-	onInactiveListenerFn(mp.peerCfg.PublicKey)
+	m.peerStore.PeerConnClose(mp.peerCfg.PublicKey)
 
 	mp.peerCfg.Log.Infof("start activity monitor")
 

@@ -968,6 +968,10 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
+	if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, networkMap.GetPeerConfig().GetLazyConnectionEnabled()); err != nil {
+		log.Errorf("failed to update lazy connection feature flag: %v", err)
+	}
+
 	if e.firewall != nil {
 		if localipfw, ok := e.firewall.(localIpUpdater); ok {
 			if err := localipfw.UpdateLocalIPs(); err != nil {
@@ -1222,7 +1226,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 	}
 
-	if exists := e.connMgr.AddPeerConn(peerKey, conn); exists {
+	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
 		conn.Close()
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
