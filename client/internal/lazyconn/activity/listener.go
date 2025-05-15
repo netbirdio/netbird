@@ -35,8 +35,7 @@ func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig, conn *net.UD
 
 func (d *Listener) ReadPackets() {
 	for {
-		buffer := make([]byte, 10)
-		n, remoteAddr, err := d.conn.ReadFromUDP(buffer)
+		n, remoteAddr, err := d.conn.ReadFromUDP(make([]byte, 1))
 		if err != nil {
 			if d.isClosed {
 				d.peerCfg.Log.Debugf("exit from activity listener")
@@ -46,7 +45,7 @@ func (d *Listener) ReadPackets() {
 			break
 		}
 
-		if n < 4 {
+		if n < 1 {
 			d.peerCfg.Log.Warnf("received %d bytes from %s, too short", n, remoteAddr)
 			continue
 		}
