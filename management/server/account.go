@@ -246,6 +246,7 @@ func (am *DefaultAccountManager) startWarmup(ctx context.Context) {
 	interval, err := strconv.Atoi(intervalStr)
 	if err != nil {
 		initialInterval = 1
+		log.WithContext(ctx).Warnf("failed to parse peer update interval, using default value %dms: %v", initialInterval, err)
 	} else {
 		initialInterval = int64(interval) * 10
 		go func() {
@@ -253,6 +254,7 @@ func (am *DefaultAccountManager) startWarmup(ctx context.Context) {
 			startupPeriod, err := strconv.Atoi(startupPeriodStr)
 			if err != nil {
 				startupPeriod = 1
+				log.WithContext(ctx).Warnf("failed to parse peer update startup period, using default value %ds: %v", startupPeriod, err)
 			}
 			time.Sleep(time.Duration(startupPeriod) * time.Second)
 			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
