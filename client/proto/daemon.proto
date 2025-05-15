@@ -94,7 +94,7 @@ message LoginRequest {
 
   bytes customDNSAddress = 7;
 
-  bool isLinuxDesktopClient = 8;
+  bool isUnixDesktopClient = 8;
 
   string hostname = 9;
 

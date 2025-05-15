@@ -383,12 +383,12 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				s.adminURL = iAdminURL
 
 				loginRequest := proto.LoginRequest{
-					ManagementUrl:        iMngURL,
-					AdminURL:             iAdminURL,
-					IsLinuxDesktopClient: runtime.GOOS == "linux",
-					RosenpassPermissive:  &s.sRosenpassPermissive.Checked,
-					InterfaceName:        &s.iInterfaceName.Text,
-					WireguardPort:        &port,
+					ManagementUrl:       iMngURL,
+					AdminURL:            iAdminURL,
+					IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+					RosenpassPermissive: &s.sRosenpassPermissive.Checked,
+					InterfaceName:       &s.iInterfaceName.Text,
+					WireguardPort:       &port,
 				}
 
 				if s.iPreSharedKey.Text != censoredPreSharedKey {
@@ -415,7 +415,7 @@ func (s *serviceClient) login() error {
 	}
 
 	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{
-		IsLinuxDesktopClient: runtime.GOOS == "linux",
+		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
 	})
 	if err != nil {
 		log.Errorf("login to management URL with: %v", err)
@@ -1033,11 +1033,11 @@ func (s *serviceClient) updateConfig() error {
 	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 
 	loginRequest := proto.LoginRequest{
-		IsLinuxDesktopClient:  runtime.GOOS == "linux",
-		ServerSSHAllowed:      &sshAllowed,
-		RosenpassEnabled:      &rosenpassEnabled,
-		DisableAutoConnect:    &disableAutoStart,
-		DisableNotifications:  &notificationsDisabled,
+		IsUnixDesktopClient:  runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+		ServerSSHAllowed:     &sshAllowed,
+		RosenpassEnabled:     &rosenpassEnabled,
+		DisableAutoConnect:   &disableAutoStart,
+		DisableNotifications: &notificationsDisabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 	}
 

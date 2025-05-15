@@ -20,7 +20,9 @@ func (a *GroupsAPI) List(ctx context.Context) ([]api.Group, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Group](resp)
 	return ret, err
 }
@@ -32,7 +34,9 @@ func (a *GroupsAPI) Get(ctx context.Context, groupID string) (*api.Group, error)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Group](resp)
 	return &ret, err
 }
@@ -48,7 +52,9 @@ func (a *GroupsAPI) Create(ctx context.Context, request api.PostApiGroupsJSONReq
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Group](resp)
 	return &ret, err
 }
@@ -64,7 +70,9 @@ func (a *GroupsAPI) Update(ctx context.Context, groupID string, request api.PutA
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Group](resp)
 	return &ret, err
 }
@@ -76,7 +84,9 @@ func (a *GroupsAPI) Delete(ctx context.Context, groupID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

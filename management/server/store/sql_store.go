@@ -82,10 +82,6 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
 		}
 		conns = 1
-		_, err = sql.Exec("PRAGMA foreign_keys = ON")
-		if err != nil {
-			return nil, fmt.Errorf("failed to set foreign keys for sqlite: %w", err)
-		}
 	}
 
 	sql.SetMaxOpenConns(conns)
@@ -1687,18 +1683,26 @@ func (s *SqlStore) SavePolicy(ctx context.Context, lockStrength LockingStrength,
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error {
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Delete(&types.Policy{}, accountAndIDQueryCondition, accountID, policyID)
-	if err := result.Error; err != nil {
-		log.WithContext(ctx).Errorf("failed to delete policy from store: %s", err)
-		return status.Errorf(status.Internal, "failed to delete policy from store")
-	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("policy_id = ?", policyID).Delete(&types.PolicyRule{}).Error; err != nil {
+			return fmt.Errorf("delete policy rules: %w", err)
+		}
 
-	if result.RowsAffected == 0 {
-		return status.NewPolicyNotFoundError(policyID)
-	}
+		result := tx.Clauses(clause.Locking{Strength: string(lockStrength)}).
+			Where(accountAndIDQueryCondition, accountID, policyID).
+			Delete(&types.Policy{})
 
-	return nil
+		if err := result.Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to delete policy from store: %s", err)
+			return status.Errorf(status.Internal, "failed to delete policy from store")
+		}
+
+		if result.RowsAffected == 0 {
+			return status.NewPolicyNotFoundError(policyID)
+		}
+
+		return nil
+	})
 }
 
 // GetAccountPostureChecks retrieves posture checks for an account.
