@@ -34,6 +34,8 @@ const (
 	systemdDbusResolvConfModeForeign       = "foreign"
 
 	dbusErrorUnknownObject = "org.freedesktop.DBus.Error.UnknownObject"
+
+	dnsSecDisabled = "no"
 )
 
 type systemdDbusConfigurator struct {
@@ -100,8 +102,9 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 		return fmt.Errorf("set interface DNS server %s:%d: %w", config.ServerIP, config.ServerPort, err)
 	}
 
-	if err = s.callLinkMethod(systemdDbusSetDNSSECMethodSuffix, "no"); err != nil {
-		log.Errorf("failed to set DNSSEC to 'no': %v", err)
+	// We don't support dnssec. On some machines this is default on so we explicitly set it to off
+	if err = s.callLinkMethod(systemdDbusSetDNSSECMethodSuffix, dnsSecDisabled); err != nil {
+		log.Warnf("failed to set DNSSEC to 'no': %v", err)
 	}
 
 	var (
