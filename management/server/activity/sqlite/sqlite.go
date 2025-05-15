@@ -9,8 +9,10 @@ import (
 	"runtime"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 )
@@ -80,7 +82,8 @@ const (
 
 // Store is the implementation of the activity.Store interface backed by SQLite
 type Store struct {
-	db           *sql.DB
+	oldDb        *sql.DB
+	db           *gorm.DB
 	fieldEncrypt *FieldEncrypt
 
 	insertStatement     *sql.Stmt
@@ -91,25 +94,38 @@ type Store struct {
 
 // NewSQLiteStore creates a new Store with an event table if not exists.
 func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
-	dbFile := filepath.Join(dataDir, eventSinkDB)
-	db, err := sql.Open("sqlite3", dbFile)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(runtime.NumCPU())
-
 	crypt, err := NewFieldEncrypt(encryptionKey)
 	if err != nil {
-		_ = db.Close()
+
 		return nil, err
 	}
 
-	if err = migrate(ctx, crypt, db); err != nil {
-		_ = db.Close()
+	dbFile := filepath.Join(dataDir, eventSinkDB)
+	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sql, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	sql.SetMaxOpenConns(runtime.NumCPU())
+
+	// TODO: add gorm migration (table + manual migrations)
+	if err = migrate(ctx, crypt, sql); err != nil {
+		_ = sql.Close()
 		return nil, fmt.Errorf("events database migration: %w", err)
 	}
 
-	return createStore(crypt, db)
+	err = db.AutoMigrate(&activity.Event{})
+	if err != nil {
+		return nil, fmt.Errorf("events auto migrate: %w", err)
+	}
+
+	return createStore(crypt, db, sql)
 }
 
 func (store *Store) processResult(ctx context.Context, result *sql.Rows) ([]*activity.Event, error) {
@@ -218,32 +234,17 @@ func (store *Store) Get(ctx context.Context, accountID string, offset, limit int
 
 // Save an event in the SQLite events table end encrypt the "email" element in meta map
 func (store *Store) Save(_ context.Context, event *activity.Event) (*activity.Event, error) {
-	var jsonMeta string
-	meta, err := store.saveDeletedUserEmailAndNameInEncrypted(event)
-	if err != nil {
-		return nil, err
-	}
-
-	if meta != nil {
-		metaBytes, err := json.Marshal(event.Meta)
-		if err != nil {
-			return nil, err
-		}
-		jsonMeta = string(metaBytes)
-	}
-
-	result, err := store.insertStatement.Exec(event.Activity, event.Timestamp, event.InitiatorID, event.TargetID, event.AccountID, jsonMeta)
-	if err != nil {
-		return nil, err
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, err
-	}
-
 	eventCopy := event.Copy()
-	eventCopy.ID = uint64(id)
+	meta, err := store.saveDeletedUserEmailAndNameInEncrypted(eventCopy)
+	if err != nil {
+		return nil, err
+	}
+	eventCopy.Meta = meta
+
+	if err := store.db.Create(eventCopy).Error; err != nil {
+		return nil, err
+	}
+
 	return eventCopy, nil
 }
 
@@ -284,42 +285,36 @@ func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event
 
 // Close the Store
 func (store *Store) Close(_ context.Context) error {
-	if store.db != nil {
-		return store.db.Close()
+	if store.oldDb != nil {
+		return store.oldDb.Close()
 	}
 	return nil
 }
 
 // createStore initializes and returns a new Store instance with prepared SQL statements.
-func createStore(crypt *FieldEncrypt, db *sql.DB) (*Store, error) {
-	insertStmt, err := db.Prepare(insertQuery)
+func createStore(crypt *FieldEncrypt, db *gorm.DB, sql *sql.DB) (*Store, error) {
+	selectDescStmt, err := sql.Prepare(selectDescQuery)
 	if err != nil {
-		_ = db.Close()
+		_ = sql.Close()
 		return nil, err
 	}
 
-	selectDescStmt, err := db.Prepare(selectDescQuery)
+	selectAscStmt, err := sql.Prepare(selectAscQuery)
 	if err != nil {
-		_ = db.Close()
+		_ = sql.Close()
 		return nil, err
 	}
 
-	selectAscStmt, err := db.Prepare(selectAscQuery)
+	deleteUserStmt, err := sql.Prepare(insertDeleteUserQuery)
 	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	deleteUserStmt, err := db.Prepare(insertDeleteUserQuery)
-	if err != nil {
-		_ = db.Close()
+		_ = sql.Close()
 		return nil, err
 	}
 
 	return &Store{
+		oldDb:               sql,
 		db:                  db,
 		fieldEncrypt:        crypt,
-		insertStatement:     insertStmt,
 		selectDescStatement: selectDescStmt,
 		selectAscStatement:  selectAscStmt,
 		deleteUserStmt:      deleteUserStmt,

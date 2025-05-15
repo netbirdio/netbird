@@ -68,7 +68,7 @@ func TestMigrate(t *testing.T) {
 	require.NoError(t, err, "Failed to select updated data")
 	require.Equal(t, gcmEncAlgo, encAlgo, "enc_algo should be set to 'GCM' after migration")
 
-	store, err := createStore(crypt, db)
+	store, err := createStore(crypt, nil, db)
 	require.NoError(t, err, "Failed to create store")
 
 	events, err := store.Get(context.Background(), "accountID", 0, 1, false)
