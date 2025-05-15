@@ -3,6 +3,7 @@ package activity
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
 
@@ -17,7 +18,7 @@ type Listener struct {
 	endpoint *net.UDPAddr
 	done     sync.Mutex
 
-	isClosed bool // use to avoid error log when closing the listener
+	isClosed atomic.Bool // use to avoid error log when closing the listener
 }
 
 func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig) (*Listener, error) {
@@ -45,7 +46,7 @@ func (d *Listener) ReadPackets() {
 	for {
 		n, remoteAddr, err := d.conn.ReadFromUDP(make([]byte, 1))
 		if err != nil {
-			if d.isClosed {
+			if d.isClosed.Load() {
 				d.peerCfg.Log.Debugf("exit from activity listener")
 			} else {
 				d.peerCfg.Log.Errorf("failed to read from activity listener: %s", err)
@@ -70,7 +71,8 @@ func (d *Listener) ReadPackets() {
 
 func (d *Listener) Close() {
 	d.peerCfg.Log.Infof("closing listener: %s", d.conn.LocalAddr().String())
-	d.isClosed = true
+	d.isClosed.Store(true)
+
 	if err := d.conn.Close(); err != nil {
 		d.peerCfg.Log.Errorf("failed to close UDP listener: %s", err)
 	}
