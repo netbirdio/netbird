@@ -1,6 +1,7 @@
 package activity
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -29,7 +30,7 @@ func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig) (*Listener, 
 
 	conn, err := d.newConn()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to creating activity listener: %v", err)
 	}
 	d.conn = conn
 	d.endpoint = conn.LocalAddr().(*net.UDPAddr)
@@ -97,7 +98,7 @@ func (d *Listener) newConn() (*net.UDPConn, error) {
 
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
-		log.Errorf("failed to listen on %s: %s", addr, err)
+		log.Errorf("failed to create activity listener on %s: %s", addr, err)
 		return nil, err
 	}
 
