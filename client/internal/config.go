@@ -74,6 +74,8 @@ type ConfigInput struct {
 	DisableNotifications *bool
 
 	DNSLabels domain.List
+
+	LazyConnectionEnabled *bool
 }
 
 // Config Configuration type
@@ -138,6 +140,8 @@ type Config struct {
 	ClientCertKeyPath string
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
+
+	LazyConnectionEnabled bool
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -521,6 +525,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			input.DNSLabels.SafeString(),
 			config.DNSLabels.SafeString())
 		config.DNSLabels = input.DNSLabels
+		updated = true
+	}
+
+	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
+		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
+		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
 		updated = true
 	}
 

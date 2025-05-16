@@ -135,14 +135,15 @@ type NSGroupState struct {
 
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
-	Peers                []State
-	ManagementState      ManagementState
-	SignalState          SignalState
-	LocalPeerState       LocalPeerState
-	RosenpassState       RosenpassState
-	Relays               []relay.ProbeResult
-	NSGroupStates        []NSGroupState
-	NumOfForwardingRules int
+	Peers                 []State
+	ManagementState       ManagementState
+	SignalState           SignalState
+	LocalPeerState        LocalPeerState
+	RosenpassState        RosenpassState
+	Relays                []relay.ProbeResult
+	NSGroupStates         []NSGroupState
+	NumOfForwardingRules  int
+	LazyConnectionEnabled bool
 }
 
 // Status holds a state of peers, signal, management connections and relays
@@ -164,6 +165,7 @@ type Status struct {
 	rosenpassPermissive   bool
 	nsGroupStates         []NSGroupState
 	resolvedDomainsStates map[domain.Domain]ResolvedDomainInfo
+	lazyConnectionEnabled bool
 
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
@@ -219,7 +221,7 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 }
 
 // AddPeer adds peer to Daemon status map
-func (d *Status) AddPeer(peerPubKey string, fqdn string) error {
+func (d *Status) AddPeer(peerPubKey string, fqdn string, ip string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -229,7 +231,8 @@ func (d *Status) AddPeer(peerPubKey string, fqdn string) error {
 	}
 	d.peers[peerPubKey] = State{
 		PubKey:     peerPubKey,
-		ConnStatus: StatusDisconnected,
+		IP:         ip,
+		ConnStatus: StatusIdle,
 		FQDN:       fqdn,
 		Mux:        new(sync.RWMutex),
 	}
@@ -511,9 +514,9 @@ func shouldSkipNotify(receivedConnStatus ConnStatus, curr State) bool {
 	switch {
 	case receivedConnStatus == StatusConnecting:
 		return true
-	case receivedConnStatus == StatusDisconnected && curr.ConnStatus == StatusConnecting:
+	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusConnecting:
 		return true
-	case receivedConnStatus == StatusDisconnected && curr.ConnStatus == StatusDisconnected:
+	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusIdle:
 		return curr.IP != ""
 	default:
 		return false
@@ -689,6 +692,12 @@ func (d *Status) UpdateRosenpass(rosenpassEnabled, rosenpassPermissive bool) {
 	d.rosenpassEnabled = rosenpassEnabled
 }
 
+func (d *Status) UpdateLazyConnection(enabled bool) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.lazyConnectionEnabled = enabled
+}
+
 // MarkSignalDisconnected sets SignalState to disconnected
 func (d *Status) MarkSignalDisconnected(err error) {
 	d.mux.Lock()
@@ -759,6 +768,12 @@ func (d *Status) GetRosenpassState() RosenpassState {
 		d.rosenpassEnabled,
 		d.rosenpassPermissive,
 	}
+}
+
+func (d *Status) GetLazyConnection() bool {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	return d.lazyConnectionEnabled
 }
 
 func (d *Status) GetManagementState() ManagementState {
@@ -872,12 +887,13 @@ func (d *Status) GetResolvedDomainsStates() map[domain.Domain]ResolvedDomainInfo
 // GetFullStatus gets full status
 func (d *Status) GetFullStatus() FullStatus {
 	fullStatus := FullStatus{
-		ManagementState:      d.GetManagementState(),
-		SignalState:          d.GetSignalState(),
-		Relays:               d.GetRelayStates(),
-		RosenpassState:       d.GetRosenpassState(),
-		NSGroupStates:        d.GetDNSStates(),
-		NumOfForwardingRules: len(d.ForwardingRules()),
+		ManagementState:       d.GetManagementState(),
+		SignalState:           d.GetSignalState(),
+		Relays:                d.GetRelayStates(),
+		RosenpassState:        d.GetRosenpassState(),
+		NSGroupStates:         d.GetDNSStates(),
+		NumOfForwardingRules:  len(d.ForwardingRules()),
+		LazyConnectionEnabled: d.GetLazyConnection(),
 	}
 
 	d.mux.Lock()

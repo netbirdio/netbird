@@ -8,10 +8,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	reconnectMaxElapsedTime = 30 * time.Minute
-)
-
 type isConnectedFunc func() bool
 
 // Guard is responsible for the reconnection logic.
@@ -25,7 +21,6 @@ type isConnectedFunc func() bool
 type Guard struct {
 	Reconnect               chan struct{}
 	log                     *log.Entry
-	isController            bool
 	isConnectedOnAllWay     isConnectedFunc
 	timeout                 time.Duration
 	srWatcher               *SRWatcher
@@ -33,11 +28,10 @@ type Guard struct {
 	iCEConnDisconnected     chan struct{}
 }
 
-func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
+func NewGuard(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
 	return &Guard{
 		Reconnect:               make(chan struct{}, 1),
 		log:                     log,
-		isController:            isController,
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
 		srWatcher:               srWatcher,
@@ -46,12 +40,8 @@ func NewGuard(log *log.Entry, isController bool, isConnectedFn isConnectedFunc, 
 	}
 }
 
-func (g *Guard) Start(ctx context.Context) {
-	if g.isController {
-		g.reconnectLoopWithRetry(ctx)
-	} else {
-		g.listenForDisconnectEvents(ctx)
-	}
+func (g *Guard) Start(ctx context.Context, eventCallback func()) {
+	g.reconnectLoopWithRetry(ctx, eventCallback)
 }
 
 func (g *Guard) SetRelayedConnDisconnected() {
@@ -68,9 +58,9 @@ func (g *Guard) SetICEConnDisconnected() {
 	}
 }
 
-// reconnectLoopWithRetry periodically check (max 30 min) the connection status.
+// reconnectLoopWithRetry periodically check the connection status.
 // Try to send offer while the P2P is not established or while the Relay is not connected if is it supported
-func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
+func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	waitForInitialConnectionTry(ctx)
 
 	srReconnectedChan := g.srWatcher.NewListener()
@@ -93,7 +83,7 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 			}
 
 			if !g.isConnectedOnAllWay() {
-				g.triggerOfferSending()
+				callback()
 			}
 
 		case <-g.relayedConnDisconnected:
@@ -121,39 +111,12 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context) {
 	}
 }
 
-// listenForDisconnectEvents is used when the peer is not a controller and it should reconnect to the peer
-// when the connection is lost. It will try to establish a connection only once time if before the connection was established
-// It track separately the ice and relay connection status. Just because a lower priority connection reestablished it does not
-// mean that to switch to it. We always force to use the higher priority connection.
-func (g *Guard) listenForDisconnectEvents(ctx context.Context) {
-	srReconnectedChan := g.srWatcher.NewListener()
-	defer g.srWatcher.RemoveListener(srReconnectedChan)
-
-	g.log.Infof("start listen for reconnect events...")
-	for {
-		select {
-		case <-g.relayedConnDisconnected:
-			g.log.Debugf("Relay connection changed, triggering reconnect")
-			g.triggerOfferSending()
-		case <-g.iCEConnDisconnected:
-			g.log.Debugf("ICE state changed, try to send new offer")
-			g.triggerOfferSending()
-		case <-srReconnectedChan:
-			g.triggerOfferSending()
-		case <-ctx.Done():
-			g.log.Debugf("context is done, stop reconnect loop")
-			return
-		}
-	}
-}
-
 func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: 0.1,
 		Multiplier:          2,
 		MaxInterval:         g.timeout,
-		MaxElapsedTime:      reconnectMaxElapsedTime,
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -162,13 +125,6 @@ func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
 	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
 
 	return ticker
-}
-
-func (g *Guard) triggerOfferSending() {
-	select {
-	case g.Reconnect <- struct{}{}:
-	default:
-	}
 }
 
 // Give chance to the peer to establish the initial connection.

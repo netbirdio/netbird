@@ -43,7 +43,6 @@ type OfferAnswer struct {
 
 type Handshaker struct {
 	mu                  sync.Mutex
-	ctx                 context.Context
 	log                 *log.Entry
 	config              ConnConfig
 	signaler            *Signaler
@@ -57,9 +56,8 @@ type Handshaker struct {
 	remoteAnswerCh chan OfferAnswer
 }
 
-func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
+func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
 	return &Handshaker{
-		ctx:            ctx,
 		log:            log,
 		config:         config,
 		signaler:       signaler,
@@ -74,10 +72,10 @@ func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAn
 	h.onNewOfferListeners = append(h.onNewOfferListeners, offer)
 }
 
-func (h *Handshaker) Listen() {
+func (h *Handshaker) Listen(ctx context.Context) {
 	for {
 		h.log.Info("wait for remote offer confirmation")
-		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
+		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation(ctx)
 		if err != nil {
 			var connectionClosedError *ConnectionClosedError
 			if errors.As(err, &connectionClosedError) {
@@ -127,7 +125,7 @@ func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) bool {
 	}
 }
 
-func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
+func (h *Handshaker) waitForRemoteOfferConfirmation(ctx context.Context) (*OfferAnswer, error) {
 	select {
 	case remoteOfferAnswer := <-h.remoteOffersCh:
 		// received confirmation from the remote peer -> ready to proceed
@@ -137,7 +135,7 @@ func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
 		return &remoteOfferAnswer, nil
 	case remoteOfferAnswer := <-h.remoteAnswerCh:
 		return &remoteOfferAnswer, nil
-	case <-h.ctx.Done():
+	case <-ctx.Done():
 		// closed externally
 		return nil, NewConnectionClosedError(h.config.Key)
 	}
