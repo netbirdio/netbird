@@ -57,3 +57,10 @@ func (e *Event) Copy() *Event {
 		Meta:           meta,
 	}
 }
+
+type DeletedUser struct {
+	ID      string `gorm:"primaryKey"`
+	Email   string `gorm:"not null"`
+	Name    string
+	EncAlgo string `gorm:"not null"`
+}

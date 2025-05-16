@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -72,8 +72,6 @@ const (
 			and some selfhosted deployments might have duplicates already so we need to clean the table first.
 	*/
 
-	insertDeleteUserQuery = `INSERT INTO deleted_users(id, email, name, enc_algo) VALUES(?, ?, ?, ?)`
-
 	fallbackName  = "unknown"
 	fallbackEmail = "unknown@unknown.com"
 
@@ -86,10 +84,8 @@ type Store struct {
 	db           *gorm.DB
 	fieldEncrypt *FieldEncrypt
 
-	insertStatement     *sql.Stmt
 	selectAscStatement  *sql.Stmt
 	selectDescStatement *sql.Stmt
-	deleteUserStmt      *sql.Stmt
 }
 
 // NewSQLiteStore creates a new Store with an event table if not exists.
@@ -112,15 +108,13 @@ func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (
 	if err != nil {
 		return nil, err
 	}
-	sql.SetMaxOpenConns(runtime.NumCPU())
+	sql.SetMaxOpenConns(1)
 
-	// TODO: add gorm migration (table + manual migrations)
-	if err = migrate(ctx, crypt, sql); err != nil {
-		_ = sql.Close()
+	if err = migrate(ctx, crypt, db); err != nil {
 		return nil, fmt.Errorf("events database migration: %w", err)
 	}
 
-	err = db.AutoMigrate(&activity.Event{})
+	err = db.AutoMigrate(&activity.Event{}, &activity.DeletedUser{})
 	if err != nil {
 		return nil, fmt.Errorf("events auto migrate: %w", err)
 	}
@@ -241,7 +235,7 @@ func (store *Store) Save(_ context.Context, event *activity.Event) (*activity.Ev
 	}
 	eventCopy.Meta = meta
 
-	if err := store.db.Create(eventCopy).Error; err != nil {
+	if err = store.db.Create(eventCopy).Error; err != nil {
 		return nil, err
 	}
 
@@ -261,16 +255,27 @@ func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event
 		return event.Meta, nil
 	}
 
+	deletedUser := activity.DeletedUser{
+		ID:      event.TargetID,
+		EncAlgo: gcmEncAlgo,
+	}
+
 	encryptedEmail, err := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", email))
 	if err != nil {
 		return nil, err
 	}
+	deletedUser.Email = encryptedEmail
+
 	encryptedName, err := store.fieldEncrypt.Encrypt(fmt.Sprintf("%s", name))
 	if err != nil {
 		return nil, err
 	}
+	deletedUser.Name = encryptedName
 
-	_, err = store.deleteUserStmt.Exec(event.TargetID, encryptedEmail, encryptedName, gcmEncAlgo)
+	err = store.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"email", "name"}),
+	}).Create(deletedUser).Error
 	if err != nil {
 		return nil, err
 	}
@@ -305,19 +310,12 @@ func createStore(crypt *FieldEncrypt, db *gorm.DB, sql *sql.DB) (*Store, error) 
 		return nil, err
 	}
 
-	deleteUserStmt, err := sql.Prepare(insertDeleteUserQuery)
-	if err != nil {
-		_ = sql.Close()
-		return nil, err
-	}
-
 	return &Store{
 		oldDb:               sql,
 		db:                  db,
 		fieldEncrypt:        crypt,
 		selectDescStatement: selectDescStmt,
 		selectAscStatement:  selectAscStmt,
-		deleteUserStmt:      deleteUserStmt,
 	}, nil
 }
 

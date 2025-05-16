@@ -2,156 +2,111 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
+	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/migration"
 )
 
-func migrate(ctx context.Context, crypt *FieldEncrypt, db *sql.DB) error {
-	if _, err := db.Exec(createTableQuery); err != nil {
-		return err
-	}
+func migrate(ctx context.Context, crypt *FieldEncrypt, db *gorm.DB) error {
+	migrations := getMigrations(ctx, crypt)
 
-	if _, err := db.Exec(creatTableDeletedUsersQuery); err != nil {
-		return err
-	}
-
-	if err := updateDeletedUsersTable(ctx, db); err != nil {
-		return fmt.Errorf("failed to update deleted_users table: %v", err)
-	}
-
-	return migrateLegacyEncryptedUsersToGCM(ctx, crypt, db)
-}
-
-// updateDeletedUsersTable checks and updates the deleted_users table schema to ensure required columns exist.
-func updateDeletedUsersTable(ctx context.Context, db *sql.DB) error {
-	exists, err := checkColumnExists(db, "deleted_users", "name")
-	if err != nil {
-		return err
-	}
-
-	if !exists {
-		log.WithContext(ctx).Debug("Adding name column to the deleted_users table")
-
-		_, err = db.Exec(`ALTER TABLE deleted_users ADD COLUMN name TEXT;`)
-		if err != nil {
+	for _, m := range migrations {
+		if err := m(db); err != nil {
 			return err
 		}
-
-		log.WithContext(ctx).Debug("Successfully added name column to the deleted_users table")
-	}
-
-	exists, err = checkColumnExists(db, "deleted_users", "enc_algo")
-	if err != nil {
-		return err
-	}
-
-	if !exists {
-		log.WithContext(ctx).Debug("Adding enc_algo column to the deleted_users table")
-
-		_, err = db.Exec(`ALTER TABLE deleted_users ADD COLUMN enc_algo TEXT;`)
-		if err != nil {
-			return err
-		}
-
-		log.WithContext(ctx).Debug("Successfully added enc_algo column to the deleted_users table")
 	}
 
 	return nil
 }
 
-// migrateLegacyEncryptedUsersToGCM migrates previously encrypted data using,
+type migrationFunc func(*gorm.DB) error
+
+func getMigrations(ctx context.Context, crypt *FieldEncrypt) []migrationFunc {
+	return []migrationFunc{
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[activity.DeletedUser](ctx, db, "name", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[activity.DeletedUser](ctx, db, "enc_algo", "")
+		},
+		func(db *gorm.DB) error {
+			return migrateLegacyEncryptedUsersToGCM(ctx, db, crypt)
+		},
+		// TODO: Migrate All deleted users to remove duplicates and add the id as primary key
+	}
+}
+
+// migrateLegacyEncryptedUsersToGCM migrates previously encrypted data using
 // legacy CBC encryption with a static IV to the new GCM encryption method.
-func migrateLegacyEncryptedUsersToGCM(ctx context.Context, crypt *FieldEncrypt, db *sql.DB) error {
-	log.WithContext(ctx).Debug("Migrating CBC encrypted deleted users to GCM")
+func migrateLegacyEncryptedUsersToGCM(ctx context.Context, db *gorm.DB, crypt *FieldEncrypt) error {
+	model := &activity.DeletedUser{}
 
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %v", err)
+	if !db.Migrator().HasTable(model) {
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no CBC to GCM migration needed", model)
+		return nil
 	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
 
-	rows, err := tx.Query(fmt.Sprintf(`SELECT id, email, name FROM deleted_users where enc_algo IS NULL OR enc_algo != '%s'`, gcmEncAlgo))
+	var deletedUsers []activity.DeletedUser
+	err := db.Model(model).Find(&deletedUsers, "enc_algo IS NULL OR enc_algo != ?", gcmEncAlgo).Error
 	if err != nil {
-		return fmt.Errorf("failed to execute select query: %v", err)
+		return fmt.Errorf("failed to query deleted_users: %w", err)
 	}
-	defer rows.Close()
 
-	updateStmt, err := tx.Prepare(`UPDATE deleted_users SET email = ?, name = ?, enc_algo = ? WHERE id = ?`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare update statement: %v", err)
+	if len(deletedUsers) == 0 {
+		log.WithContext(ctx).Debug("No CBC encrypted deleted users to migrate")
+		return nil
 	}
-	defer updateStmt.Close()
 
-	if err = processUserRows(ctx, crypt, rows, updateStmt); err != nil {
+	if err = db.Transaction(func(tx *gorm.DB) error {
+		for _, user := range deletedUsers {
+			if err = migrateDeletedUser(tx, user, crypt); err != nil {
+				return fmt.Errorf("failed to migrate deleted user %s: %w", user.ID, err)
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
-	}
-
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %v", err)
 	}
 
 	log.WithContext(ctx).Debug("Successfully migrated CBC encrypted deleted users to GCM")
+
 	return nil
 }
 
-// processUserRows processes database rows of user data, decrypts legacy encryption fields, and re-encrypts them using GCM.
-func processUserRows(ctx context.Context, crypt *FieldEncrypt, rows *sql.Rows, updateStmt *sql.Stmt) error {
-	for rows.Next() {
-		var (
-			id, decryptedEmail, decryptedName string
-			email, name                       *string
-		)
+func migrateDeletedUser(transaction *gorm.DB, user activity.DeletedUser, crypt *FieldEncrypt) error {
+	var err error
+	var decryptedEmail, decryptedName string
 
-		err := rows.Scan(&id, &email, &name)
+	if user.Email != "" {
+		decryptedEmail, err = crypt.LegacyDecrypt(user.Email)
 		if err != nil {
-			return err
-		}
-
-		if email != nil {
-			decryptedEmail, err = crypt.LegacyDecrypt(*email)
-			if err != nil {
-				log.WithContext(ctx).Warnf("skipping migrating deleted user %s: %v",
-					id,
-					fmt.Errorf("failed to decrypt email: %w", err),
-				)
-				continue
-			}
-		}
-
-		if name != nil {
-			decryptedName, err = crypt.LegacyDecrypt(*name)
-			if err != nil {
-				log.WithContext(ctx).Warnf("skipping migrating deleted user %s: %v",
-					id,
-					fmt.Errorf("failed to decrypt name: %w", err),
-				)
-				continue
-			}
-		}
-
-		encryptedEmail, err := crypt.Encrypt(decryptedEmail)
-		if err != nil {
-			return fmt.Errorf("failed to encrypt email: %w", err)
-		}
-
-		encryptedName, err := crypt.Encrypt(decryptedName)
-		if err != nil {
-			return fmt.Errorf("failed to encrypt name: %w", err)
-		}
-
-		_, err = updateStmt.Exec(encryptedEmail, encryptedName, gcmEncAlgo, id)
-		if err != nil {
-			return err
+			return fmt.Errorf("failed to decrypt email: %w", err)
 		}
 	}
 
-	if err := rows.Err(); err != nil {
-		return err
+	if user.Name != "" {
+		decryptedName, err = crypt.LegacyDecrypt(user.Name)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt name: %w", err)
+		}
 	}
 
-	return nil
+	updatedUser := user
+	updatedUser.EncAlgo = gcmEncAlgo
+
+	updatedUser.Email, err = crypt.Encrypt(decryptedEmail)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt email: %w", err)
+	}
+
+	updatedUser.Name, err = crypt.Encrypt(decryptedName)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt name: %w", err)
+	}
+
+	return transaction.Model(&user).Where("id = ?", updatedUser.ID).Updates(updatedUser).Error
 }
