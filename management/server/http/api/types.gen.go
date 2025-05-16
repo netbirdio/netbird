@@ -880,29 +880,16 @@ type NetworkTrafficEvent struct {
 	// Direction Direction of the traffic (e.g. DIRECTION_UNKNOWN, INGRESS, EGRESS).
 	Direction string `json:"direction"`
 
+	// Events List of events that are correlated to this flow (e.g., start, end).
+	Events []NetworkTrafficSubEvent `json:"events"`
+
 	// FlowId FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection).
-	FlowId string `json:"flow_id"`
-
-	// IcmpCode ICMP code (if applicable).
-	IcmpCode int `json:"icmp_code"`
-
-	// IcmpType ICMP type (if applicable).
-	IcmpType int `json:"icmp_type"`
-
-	// Id ID of the event. Unique.
-	Id string `json:"id"`
-
-	// PolicyId ID of the policy that allowed this event.
-	PolicyId string `json:"policy_id"`
-
-	// PolicyName Name of the policy that allowed this event.
-	PolicyName string `json:"policy_name"`
+	FlowId string               `json:"flow_id"`
+	Icmp   NetworkTrafficICMP   `json:"icmp"`
+	Policy NetworkTrafficPolicy `json:"policy"`
 
 	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
 	Protocol int `json:"protocol"`
-
-	// ReceiveTimestamp Timestamp when the event was received by our API.
-	ReceiveTimestamp time.Time `json:"receive_timestamp"`
 
 	// ReporterId ID of the reporter of the event (e.g., the peer that reported the event).
 	ReporterId string `json:"reporter_id"`
@@ -914,26 +901,12 @@ type NetworkTrafficEvent struct {
 	RxPackets int                    `json:"rx_packets"`
 	Source    NetworkTrafficEndpoint `json:"source"`
 
-	// Timestamp Timestamp of the event. Send by the peer.
-	Timestamp time.Time `json:"timestamp"`
-
 	// TxBytes Number of bytes transmitted.
 	TxBytes int `json:"tx_bytes"`
 
 	// TxPackets Number of packets transmitted.
-	TxPackets int `json:"tx_packets"`
-
-	// Type Type of the event (e.g. TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
-	Type string `json:"type"`
-
-	// UserEmail Email of the user who initiated the event (if any).
-	UserEmail *string `json:"user_email"`
-
-	// UserId UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
-	UserId *string `json:"user_id"`
-
-	// UserName Name of the user who initiated the event (if any).
-	UserName *string `json:"user_name"`
+	TxPackets int                `json:"tx_packets"`
+	User      NetworkTrafficUser `json:"user"`
 }
 
 // NetworkTrafficEventsResponse defines model for NetworkTrafficEventsResponse.
@@ -954,6 +927,15 @@ type NetworkTrafficEventsResponse struct {
 	TotalRecords int `json:"total_records"`
 }
 
+// NetworkTrafficICMP defines model for NetworkTrafficICMP.
+type NetworkTrafficICMP struct {
+	// Code ICMP code (if applicable).
+	Code int `json:"code"`
+
+	// Type ICMP type (if applicable).
+	Type int `json:"type"`
+}
+
 // NetworkTrafficLocation defines model for NetworkTrafficLocation.
 type NetworkTrafficLocation struct {
 	// CityName Name of the city (if known).
@@ -961,6 +943,36 @@ type NetworkTrafficLocation struct {
 
 	// CountryCode ISO country code (if known).
 	CountryCode string `json:"country_code"`
+}
+
+// NetworkTrafficPolicy defines model for NetworkTrafficPolicy.
+type NetworkTrafficPolicy struct {
+	// Id ID of the policy that allowed this event.
+	Id string `json:"id"`
+
+	// Name Name of the policy that allowed this event.
+	Name string `json:"name"`
+}
+
+// NetworkTrafficSubEvent defines model for NetworkTrafficSubEvent.
+type NetworkTrafficSubEvent struct {
+	// Timestamp Timestamp of the event as sent by the peer.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Type Type of the event (e.g., TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
+	Type string `json:"type"`
+}
+
+// NetworkTrafficUser defines model for NetworkTrafficUser.
+type NetworkTrafficUser struct {
+	// Email Email of the user who initiated the event (if any).
+	Email string `json:"email"`
+
+	// Id UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
+	Id string `json:"id"`
+
+	// Name Name of the user who initiated the event (if any).
+	Name string `json:"name"`
 }
 
 // OSVersionCheck Posture check for the version of operating system
