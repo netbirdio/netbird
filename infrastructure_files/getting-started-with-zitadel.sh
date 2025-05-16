@@ -525,6 +525,41 @@ initEnvironment() {
   echo "Password: $ZITADEL_ADMIN_PASSWORD" | tee -a .env
 }
 
+# Check if domain is managed by Cloudflare and the Cloudflare API token is set
+is_domain_managed_by_cloudflare() {
+  domain=$1
+  # Perform a DNS query for the domain's NS records
+  ns_records=$(dig +short NS "$domain" | grep -i "cloudflare")
+  # Check if any of Cloudflare's nameserver are present in the NS records
+  cloudflare_ns=("cloudflare.com" "cf-domain.com")
+  is_cloudflare=false
+  for ns in $NS_RECORDS; do
+      ns=${ns%.}  # Remove the trailing dot
+      for cf_ns in "${cloudflare_ns[@]}"; do
+          if [[ ${ns,,} == *"${cf_ns,,}" ]]; then
+              is_cloudflare=true
+              break
+          fi
+      done
+      if $is_cloudflare; then
+          break
+      fi
+  done
+
+  if [ $is_cloudflare ]; then
+    # Domain $domain is managed by Cloudflare
+    if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+      # CLOUDFLARE_API_TOKEN is not set. Please set it to use Cloudflare DNS.
+      return 1
+    fi
+
+    return 0
+  else
+    # Domain $domain is not managed by Cloudflare
+    return 1
+  fi
+}
+
 renderCaddyfile() {
   cat <<EOF
 {
@@ -532,6 +567,12 @@ renderCaddyfile() {
 	servers :80,:443 {
     protocols h1 h2c h2 h3
   }
+EOF
+  # If Cloudflare DNS is used, add acme_dns
+  if is_domain_managed_by_cloudflare "$NETBIRD_DOMAIN"; then
+    echo "    acme_dns cloudflare $CLOUDFLARE_API_TOKEN"
+  fi
+  cat <<EOF
 }
 
 (security_headers) {
@@ -784,7 +825,7 @@ version: "3.4"
 services:
   # Caddy reverse proxy
   caddy:
-    image: caddy
+    image: $(is_domain_managed_by_cloudflare "$NETBIRD_DOMAIN" && echo 'ghcr.io/caddybuilds/caddy-cloudflare' || echo 'caddy')
     restart: unless-stopped
     networks: [ netbird ]
     ports:

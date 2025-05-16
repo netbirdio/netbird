@@ -7,18 +7,18 @@
   <p>
    <a href="https://img.shields.io/badge/license-BSD--3-blue)">
        <img src="https://sonarcloud.io/api/project_badges/measure?project=netbirdio_netbird&metric=alert_status" />
-     </a> 
+     </a>
      <a href="https://github.com/netbirdio/netbird/blob/main/LICENSE">
        <img src="https://img.shields.io/badge/license-BSD--3-blue" />
-     </a> 
+     </a>
     <br>
     <a href="https://docs.netbird.io/slack-url">
         <img src="https://img.shields.io/badge/slack-@netbird-red.svg?logo=slack"/>
-     </a>  
+     </a>
      <br>
     <a href="https://gurubase.io/g/netbird">
         <img src="https://img.shields.io/badge/Gurubase-Ask%20NetBird%20Guru-006BFF"/>
-     </a>    
+     </a>
   </p>
 </div>
 
@@ -31,12 +31,12 @@
   <br/>
    Join our <a href="https://docs.netbird.io/slack-url">Slack channel</a>
   <br/>
- 
+
 </strong>
 <br>
 <a href="https://github.com/netbirdio/kubernetes-operator">
     New: NetBird Kubernetes Operator
-  </a> 
+  </a>
 </p>
 
 <br>
@@ -97,6 +97,12 @@ Follow the [Advanced guide with a custom identity provider](https://docs.netbird
 ```bash
 export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started-with-zitadel.sh | bash
 ```
+- If your domain is managed by Cloudflare, you might encounter issues like [this](https://github.com/netbirdio/netbird/issues/2834). To resolve this, you can enable Caddy to use the Cloudflare DNS challenge by providing a Cloudflare API Token (make sure the token has 'Zone DNS Edit' permission):
+
+```bash
+export NETBIRD_DOMAIN=netbird.example.com; export CLOUDFLARE_API_TOKEN=<your-token-here>; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started-with-zitadel.sh | bash
+```
+
 - Once finished, you can manage the resources via `docker-compose`
 
 ### A bit on NetBird internals
@@ -105,8 +111,8 @@ export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbird
 -  NetBird agent uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between machines.
 -  Connection candidates are discovered with the help of [STUN](https://en.wikipedia.org/wiki/STUN) servers.
 -  Agents negotiate a connection through [Signal Service](signal/) passing p2p encrypted messages with candidates.
--  Sometimes the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT) and a p2p connection isn't possible. When this occurs the system falls back to a relay server called [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT), and a secure WireGuard tunnel is established via the TURN server. 
- 
+-  Sometimes the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT) and a p2p connection isn't possible. When this occurs the system falls back to a relay server called [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT), and a secure WireGuard tunnel is established via the TURN server.
+
 [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in NetBird setups.
 
 <p float="left" align="middle">
