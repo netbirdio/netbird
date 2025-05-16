@@ -602,6 +602,7 @@ renderCaddyfile() {
     reverse_proxy /debug/* h2c://zitadel:8080
     reverse_proxy /device/* h2c://zitadel:8080
     reverse_proxy /device h2c://zitadel:8080
+    reverse_proxy /zitadel.user.v2.UserService/* h2c://zitadel:8080
     # Dashboard
     reverse_proxy /* dashboard:80
 }
