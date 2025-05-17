@@ -59,7 +59,6 @@ require (
 	github.com/hashicorp/go-version v1.6.0
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-netroute v0.2.1
-	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/mdlayher/socket v0.5.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
@@ -195,6 +194,7 @@ require (
 	github.com/libdns/libdns v0.2.2 // indirect
 	github.com/lufia/plan9stats v0.0.0-20240513124658-fba389f38bae // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
+	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
 	github.com/mholt/acmez/v2 v2.0.1 // indirect

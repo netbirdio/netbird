@@ -66,7 +66,7 @@ func (am *DefaultAccountManager) StoreEvent(ctx context.Context, initiatorID, ta
 		go func() {
 			_, err := am.eventStore.Save(ctx, &activity.Event{
 				Timestamp:   time.Now().UTC(),
-				Activity:    activityID,
+				Activity:    activityID.(activity.Activity),
 				InitiatorID: initiatorID,
 				TargetID:    targetID,
 				AccountID:   accountID,

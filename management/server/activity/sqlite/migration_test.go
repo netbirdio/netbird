@@ -2,38 +2,39 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"path/filepath"
 	"testing"
-	"time"
 
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/netbirdio/netbird/management/server/activity"
-
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/migration"
 )
 
-func setupDatabase(t *testing.T) *sql.DB {
+const (
+	insertDeletedUserQuery = `INSERT INTO deleted_users (id, email, name, enc_algo) VALUES (?, ?, ?, ?)`
+)
+
+func setupDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 
 	dbFile := filepath.Join(t.TempDir(), eventSinkDB)
-	db, err := sql.Open("sqlite3", dbFile)
-	require.NoError(t, err, "Failed to open database")
+	db, err := gorm.Open(sqlite.Open(dbFile))
+	require.NoError(t, err)
 
+	sql, err := db.DB()
+	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = db.Close()
+		_ = sql.Close()
 	})
-
-	_, err = db.Exec(createTableQuery)
-	require.NoError(t, err, "Failed to create events table")
-
-	_, err = db.Exec(`CREATE TABLE deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT);`)
-	require.NoError(t, err, "Failed to create deleted_users table")
 
 	return db
 }
 
-func TestMigrate(t *testing.T) {
+func TestMigrateLegacyEncryptedUsersToGCM(t *testing.T) {
 	db := setupDatabase(t)
 
 	key, err := GenerateKey()
@@ -42,43 +43,98 @@ func TestMigrate(t *testing.T) {
 	crypt, err := NewFieldEncrypt(key)
 	require.NoError(t, err, "Failed to initialize FieldEncrypt")
 
-	legacyEmail := crypt.LegacyEncrypt("testaccount@test.com")
-	legacyName := crypt.LegacyEncrypt("Test Account")
+	t.Run("empty table, no migration required", func(t *testing.T) {
+		require.NoError(t, migrateLegacyEncryptedUsersToGCM(context.Background(), db, crypt))
+		assert.False(t, db.Migrator().HasTable("deleted_users"))
+	})
 
-	_, err = db.Exec(`INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) VALUES(?, ?, ?, ?, ?, ?)`,
-		activity.UserDeleted, time.Now(), "initiatorID", "targetID", "accountID", "")
-	require.NoError(t, err, "Failed to insert event")
+	require.NoError(t, db.Exec(`CREATE TABLE deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT);`).Error)
+	assert.True(t, db.Migrator().HasTable("deleted_users"))
+	assert.False(t, db.Migrator().HasColumn("deleted_users", "enc_algo"))
 
-	_, err = db.Exec(`INSERT INTO deleted_users(id, email, name) VALUES(?, ?, ?)`, "targetID", legacyEmail, legacyName)
-	require.NoError(t, err, "Failed to insert legacy encrypted data")
+	require.NoError(t, migration.MigrateNewField[activity.DeletedUser](context.Background(), db, "enc_algo", ""))
+	assert.True(t, db.Migrator().HasColumn("deleted_users", "enc_algo"))
 
-	colExists, err := checkColumnExists(db, "deleted_users", "enc_algo")
-	require.NoError(t, err, "Failed to check if enc_algo column exists")
-	require.False(t, colExists, "enc_algo column should not exist before migration")
+	t.Run("legacy users migration", func(t *testing.T) {
+		legacyEmail := crypt.LegacyEncrypt("test.user@test.com")
+		legacyName := crypt.LegacyEncrypt("Test User")
 
-	err = migrate(context.Background(), crypt, db)
-	require.NoError(t, err, "Migration failed")
+		require.NoError(t, db.Exec(insertDeletedUserQuery, "user1", legacyEmail, legacyName, "").Error)
+		require.NoError(t, db.Exec(insertDeletedUserQuery, "user2", legacyEmail, legacyName, "legacy").Error)
 
-	colExists, err = checkColumnExists(db, "deleted_users", "enc_algo")
-	require.NoError(t, err, "Failed to check if enc_algo column exists after migration")
-	require.True(t, colExists, "enc_algo column should exist after migration")
+		require.NoError(t, migrateLegacyEncryptedUsersToGCM(context.Background(), db, crypt))
 
-	var encAlgo string
-	err = db.QueryRow(`SELECT enc_algo FROM deleted_users LIMIT 1`, "").Scan(&encAlgo)
-	require.NoError(t, err, "Failed to select updated data")
-	require.Equal(t, gcmEncAlgo, encAlgo, "enc_algo should be set to 'GCM' after migration")
+		var users []activity.DeletedUser
+		require.NoError(t, db.Find(&users).Error)
+		assert.Len(t, users, 2)
 
-	store, err := createStore(crypt, db)
-	require.NoError(t, err, "Failed to create store")
+		for _, user := range users {
+			assert.Equal(t, gcmEncAlgo, user.EncAlgo)
 
-	events, err := store.Get(context.Background(), "accountID", 0, 1, false)
-	require.NoError(t, err, "Failed to get events")
+			decryptedEmail, err := crypt.Decrypt(user.Email)
+			require.NoError(t, err)
+			assert.Equal(t, "test.user@test.com", decryptedEmail)
 
-	require.Len(t, events, 1, "Should have one event")
-	require.Equal(t, activity.UserDeleted, events[0].Activity, "activity should match")
-	require.Equal(t, "initiatorID", events[0].InitiatorID, "initiator id should match")
-	require.Equal(t, "targetID", events[0].TargetID, "target id should match")
-	require.Equal(t, "accountID", events[0].AccountID, "account id should match")
-	require.Equal(t, "testaccount@test.com", events[0].Meta["email"], "email should match")
-	require.Equal(t, "Test Account", events[0].Meta["username"], "username should match")
+			decryptedName, err := crypt.Decrypt(user.Name)
+			require.NoError(t, err)
+			require.Equal(t, "Test User", decryptedName)
+		}
+	})
+
+	t.Run("users already migrated, no migration", func(t *testing.T) {
+		encryptedEmail, err := crypt.Encrypt("test.user@test.com")
+		require.NoError(t, err)
+
+		encryptedName, err := crypt.Encrypt("Test User")
+		require.NoError(t, err)
+
+		require.NoError(t, db.Exec(insertDeletedUserQuery, "user3", encryptedEmail, encryptedName, gcmEncAlgo).Error)
+		require.NoError(t, migrateLegacyEncryptedUsersToGCM(context.Background(), db, crypt))
+
+		var users []activity.DeletedUser
+		require.NoError(t, db.Find(&users).Error)
+		assert.Len(t, users, 3)
+
+		for _, user := range users {
+			assert.Equal(t, gcmEncAlgo, user.EncAlgo)
+
+			decryptedEmail, err := crypt.Decrypt(user.Email)
+			require.NoError(t, err)
+			assert.Equal(t, "test.user@test.com", decryptedEmail)
+
+			decryptedName, err := crypt.Decrypt(user.Name)
+			require.NoError(t, err)
+			require.Equal(t, "Test User", decryptedName)
+		}
+	})
+}
+
+func TestMigrateDuplicateDeletedUsers(t *testing.T) {
+	db := setupDatabase(t)
+
+	require.NoError(t, migrateDuplicateDeletedUsers(context.Background(), db))
+	assert.False(t, db.Migrator().HasTable("deleted_users"))
+
+	require.NoError(t, db.Exec(`CREATE TABLE deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, enc_algo TEXT NOT NULL);`).Error)
+	assert.True(t, db.Migrator().HasTable("deleted_users"))
+
+	isPrimaryKey, err := isColumnPrimaryKey[activity.DeletedUser](db, "id")
+	require.NoError(t, err)
+	assert.False(t, isPrimaryKey)
+
+	require.NoError(t, db.Exec(insertDeletedUserQuery, "user1", "email1", "name1", "GCM").Error)
+	require.NoError(t, db.Exec(insertDeletedUserQuery, "user1", "email2", "name2", "GCM").Error)
+	require.NoError(t, migrateDuplicateDeletedUsers(context.Background(), db))
+
+	isPrimaryKey, err = isColumnPrimaryKey[activity.DeletedUser](db, "id")
+	require.NoError(t, err)
+	assert.True(t, isPrimaryKey)
+
+	var users []activity.DeletedUser
+	require.NoError(t, db.Find(&users).Error)
+	assert.Len(t, users, 1)
+	assert.Equal(t, "user1", users[0].ID)
+	assert.Equal(t, "email2", users[0].Email)
+	assert.Equal(t, "name2", users[0].Name)
+	assert.Equal(t, "GCM", users[0].EncAlgo)
 }

@@ -19,22 +19,22 @@ type Event struct {
 	// Timestamp of the event
 	Timestamp time.Time
 	// Activity that was performed during the event
-	Activity ActivityDescriber
+	Activity Activity `gorm:"type:integer"`
 	// ID of the event (can be empty, meaning that it wasn't yet generated)
-	ID uint64
+	ID uint64 `gorm:"primaryKey;autoIncrement"`
 	// InitiatorID is the ID of an object that initiated the event (e.g., a user)
 	InitiatorID string
 	// InitiatorName is the name of an object that initiated the event.
-	InitiatorName string
+	InitiatorName string `gorm:"-"`
 	// InitiatorEmail is the email address of an object that initiated the event.
-	InitiatorEmail string
+	InitiatorEmail string `gorm:"-"`
 	// TargetID is the ID of an object that was effected by the event (e.g., a peer)
 	TargetID string
 	// AccountID is the ID of an account where the event happened
 	AccountID string
 
 	// Meta of the event, e.g. deleted peer information like name, IP, etc
-	Meta map[string]any
+	Meta map[string]any `gorm:"serializer:json"`
 }
 
 // Copy the event
@@ -56,4 +56,11 @@ func (e *Event) Copy() *Event {
 		AccountID:      e.AccountID,
 		Meta:           meta,
 	}
+}
+
+type DeletedUser struct {
+	ID      string `gorm:"primaryKey"`
+	Email   string `gorm:"not null"`
+	Name    string
+	EncAlgo string `gorm:"not null"`
 }
