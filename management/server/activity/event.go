@@ -19,7 +19,7 @@ type Event struct {
 	// Timestamp of the event
 	Timestamp time.Time
 	// Activity that was performed during the event
-	Activity ActivityDescriber `gorm:"type:integer"`
+	Activity Activity `gorm:"type:integer"`
 	// ID of the event (can be empty, meaning that it wasn't yet generated)
 	ID uint64 `gorm:"primaryKey;autoIncrement"`
 	// InitiatorID is the ID of an object that initiated the event (e.g., a user)

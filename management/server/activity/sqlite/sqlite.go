@@ -2,11 +2,8 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
@@ -19,50 +16,26 @@ import (
 
 const (
 	// eventSinkDB is the default name of the events database
-	eventSinkDB   = "events.db"
+	eventSinkDB = "events.db"
+
 	fallbackName  = "unknown"
 	fallbackEmail = "unknown@unknown.com"
-	gcmEncAlgo    = "GCM"
 
-	selectDescQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
-		FROM events 
-		LEFT JOIN (
-		    SELECT id, MAX(name) as name, MAX(email) as email 
-		    FROM deleted_users
-		    GROUP BY id
-		) i ON events.initiator_id = i.id 
-		LEFT JOIN (
-		    SELECT id, MAX(name) as name, MAX(email) as email 
-		    FROM deleted_users
-		    GROUP BY id
-		) t ON events.target_id = t.id
-		WHERE account_id = ? 
-		ORDER BY timestamp DESC LIMIT ? OFFSET ?;`
-
-	selectAscQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
-		FROM events 
-		LEFT JOIN (
-		    SELECT id, MAX(name) as name, MAX(email) as email 
-		    FROM deleted_users
-		    GROUP BY id
-		) i ON events.initiator_id = i.id 
-		LEFT JOIN (
-		    SELECT id, MAX(name) as name, MAX(email) as email 
-		    FROM deleted_users
-		    GROUP BY id
-		) t ON events.target_id = t.id
-		WHERE account_id = ? 
-		ORDER BY timestamp ASC LIMIT ? OFFSET ?;`
+	gcmEncAlgo = "GCM"
 )
+
+type eventWithNames struct {
+	activity.Event
+	InitiatorName  string
+	InitiatorEmail string
+	TargetName     string
+	TargetEmail    string
+}
 
 // Store is the implementation of the activity.Store interface backed by SQLite
 type Store struct {
-	oldDb        *sql.DB
 	db           *gorm.DB
 	fieldEncrypt *FieldEncrypt
-
-	selectAscStatement  *sql.Stmt
-	selectDescStatement *sql.Stmt
 }
 
 // NewSQLiteStore creates a new Store with an event table if not exists.
@@ -96,111 +69,98 @@ func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (
 		return nil, fmt.Errorf("events auto migrate: %w", err)
 	}
 
-	return createStore(crypt, db, sql)
+	return &Store{
+		db:           db,
+		fieldEncrypt: crypt,
+	}, nil
 }
 
-func (store *Store) processResult(ctx context.Context, result *sql.Rows) ([]*activity.Event, error) {
-	events := make([]*activity.Event, 0)
+func (store *Store) processResult(ctx context.Context, events []*eventWithNames) ([]*activity.Event, error) {
+	activityEvents := make([]*activity.Event, 0)
 	var cryptErr error
-	for result.Next() {
-		var id int64
-		var operation activity.Activity
-		var timestamp time.Time
-		var initiator string
-		var initiatorName *string
-		var initiatorEmail *string
-		var target string
-		var targetUserName *string
-		var targetEmail *string
-		var account string
-		var jsonMeta string
-		err := result.Scan(&id, &operation, &timestamp, &initiator, &initiatorName, &initiatorEmail, &target, &targetUserName, &targetEmail, &account, &jsonMeta)
-		if err != nil {
-			return nil, err
+
+	for _, event := range events {
+		e := event.Event
+		if e.Meta == nil {
+			e.Meta = make(map[string]any)
 		}
 
-		meta := make(map[string]any)
-		if jsonMeta != "" {
-			err = json.Unmarshal([]byte(jsonMeta), &meta)
+		if event.TargetName != "" {
+			name, err := store.fieldEncrypt.Decrypt(event.TargetName)
 			if err != nil {
-				return nil, err
-			}
-		}
-
-		if targetUserName != nil {
-			name, err := store.fieldEncrypt.Decrypt(*targetUserName)
-			if err != nil {
-				cryptErr = fmt.Errorf("failed to decrypt username for target id: %s", target)
-				meta["username"] = fallbackName
+				cryptErr = fmt.Errorf("failed to decrypt username for target id: %s", event.TargetName)
+				e.Meta["username"] = fallbackName
 			} else {
-				meta["username"] = name
+				e.Meta["username"] = name
 			}
 		}
 
-		if targetEmail != nil {
-			email, err := store.fieldEncrypt.Decrypt(*targetEmail)
+		if event.TargetEmail != "" {
+			email, err := store.fieldEncrypt.Decrypt(event.TargetEmail)
 			if err != nil {
-				cryptErr = fmt.Errorf("failed to decrypt email address for target id: %s", target)
-				meta["email"] = fallbackEmail
+				cryptErr = fmt.Errorf("failed to decrypt email address for target id: %s", event.TargetEmail)
+				e.Meta["email"] = fallbackEmail
 			} else {
-				meta["email"] = email
+				e.Meta["email"] = email
 			}
 		}
 
-		event := &activity.Event{
-			Timestamp:   timestamp,
-			Activity:    operation,
-			ID:          uint64(id),
-			InitiatorID: initiator,
-			TargetID:    target,
-			AccountID:   account,
-			Meta:        meta,
-		}
-
-		if initiatorName != nil {
-			name, err := store.fieldEncrypt.Decrypt(*initiatorName)
+		if event.InitiatorName != "" {
+			name, err := store.fieldEncrypt.Decrypt(event.InitiatorName)
 			if err != nil {
-				cryptErr = fmt.Errorf("failed to decrypt username of initiator: %s", initiator)
-				event.InitiatorName = fallbackName
+				cryptErr = fmt.Errorf("failed to decrypt username of initiator: %s", event.InitiatorName)
+				e.InitiatorName = fallbackName
 			} else {
-				event.InitiatorName = name
+				e.InitiatorName = name
 			}
 		}
 
-		if initiatorEmail != nil {
-			email, err := store.fieldEncrypt.Decrypt(*initiatorEmail)
+		if event.InitiatorEmail != "" {
+			email, err := store.fieldEncrypt.Decrypt(event.InitiatorEmail)
 			if err != nil {
-				cryptErr = fmt.Errorf("failed to decrypt email address of initiator: %s", initiator)
-				event.InitiatorEmail = fallbackEmail
+				cryptErr = fmt.Errorf("failed to decrypt email address of initiator: %s", event.InitiatorEmail)
+				e.InitiatorEmail = fallbackEmail
 			} else {
-				event.InitiatorEmail = email
+				e.InitiatorEmail = email
 			}
 		}
 
-		events = append(events, event)
+		activityEvents = append(activityEvents, &e)
 	}
 
 	if cryptErr != nil {
 		log.WithContext(ctx).Warnf("%s", cryptErr)
 	}
 
-	return events, nil
+	return activityEvents, nil
 }
 
 // Get returns "limit" number of events from index ordered descending or ascending by a timestamp
 func (store *Store) Get(ctx context.Context, accountID string, offset, limit int, descending bool) ([]*activity.Event, error) {
-	stmt := store.selectDescStatement
+	baseQuery := store.db.Model(&activity.Event{}).
+		Select(`
+      events.*,
+      u.name  AS initiator_name,
+      u.email AS initiator_email,
+      t.name  AS target_name,
+      t.email AS target_email
+    `).
+		Joins(`LEFT JOIN deleted_users u ON u.id = events.initiator_id`).
+		Joins(`LEFT JOIN deleted_users t ON t.id = events.target_id`)
+
+	orderDir := "DESC"
 	if !descending {
-		stmt = store.selectAscStatement
+		orderDir = "ASC"
 	}
 
-	result, err := stmt.Query(accountID, limit, offset)
+	var events []*eventWithNames
+	err := baseQuery.Order("events.timestamp "+orderDir).Offset(offset).Limit(limit).
+		Find(&events, "account_id = ?", accountID).Error
 	if err != nil {
 		return nil, err
 	}
 
-	defer result.Close() //nolint
-	return store.processResult(ctx, result)
+	return store.processResult(ctx, events)
 }
 
 // Save an event in the SQLite events table end encrypt the "email" element in meta map
@@ -267,31 +227,12 @@ func (store *Store) saveDeletedUserEmailAndNameInEncrypted(event *activity.Event
 
 // Close the Store
 func (store *Store) Close(_ context.Context) error {
-	if store.oldDb != nil {
-		return store.oldDb.Close()
+	if store.db != nil {
+		sql, err := store.db.DB()
+		if err != nil {
+			return err
+		}
+		return sql.Close()
 	}
 	return nil
-}
-
-// createStore initializes and returns a new Store instance with prepared SQL statements.
-func createStore(crypt *FieldEncrypt, db *gorm.DB, sql *sql.DB) (*Store, error) {
-	selectDescStmt, err := sql.Prepare(selectDescQuery)
-	if err != nil {
-		_ = sql.Close()
-		return nil, err
-	}
-
-	selectAscStmt, err := sql.Prepare(selectAscQuery)
-	if err != nil {
-		_ = sql.Close()
-		return nil, err
-	}
-
-	return &Store{
-		oldDb:               sql,
-		db:                  db,
-		fieldEncrypt:        crypt,
-		selectDescStatement: selectDescStmt,
-		selectAscStatement:  selectAscStmt,
-	}, nil
 }
