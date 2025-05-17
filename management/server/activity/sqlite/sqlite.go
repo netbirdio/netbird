@@ -19,17 +19,10 @@ import (
 
 const (
 	// eventSinkDB is the default name of the events database
-	eventSinkDB      = "events.db"
-	createTableQuery = "CREATE TABLE IF NOT EXISTS events " +
-		"(id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-		"activity INTEGER, " +
-		"timestamp DATETIME, " +
-		"initiator_id TEXT," +
-		"account_id TEXT," +
-		"meta TEXT," +
-		" target_id TEXT);"
-
-	creatTableDeletedUsersQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, enc_algo TEXT NOT NULL);`
+	eventSinkDB   = "events.db"
+	fallbackName  = "unknown"
+	fallbackEmail = "unknown@unknown.com"
+	gcmEncAlgo    = "GCM"
 
 	selectDescQuery = `SELECT events.id, activity, timestamp, initiator_id, i.name as "initiator_name", i.email as "initiator_email", target_id, t.name as "target_name", t.email as "target_email", account_id, meta
 		FROM events 
@@ -60,22 +53,6 @@ const (
 		) t ON events.target_id = t.id
 		WHERE account_id = ? 
 		ORDER BY timestamp ASC LIMIT ? OFFSET ?;`
-
-	insertQuery = "INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) " +
-		"VALUES(?, ?, ?, ?, ?, ?)"
-
-	/*
-		 TODO:
-			The insert should avoid duplicated IDs in the table. So the query should be changes to something like:
-			`INSERT INTO deleted_users(id, email, name) VALUES(?, ?, ?) ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name;`
-			For this to work we have to set the id column as primary key. But this is not possible because the id column is not unique
-			and some selfhosted deployments might have duplicates already so we need to clean the table first.
-	*/
-
-	fallbackName  = "unknown"
-	fallbackEmail = "unknown@unknown.com"
-
-	gcmEncAlgo = "GCM"
 )
 
 // Store is the implementation of the activity.Store interface backed by SQLite
@@ -317,36 +294,4 @@ func createStore(crypt *FieldEncrypt, db *gorm.DB, sql *sql.DB) (*Store, error) 
 		selectDescStatement: selectDescStmt,
 		selectAscStatement:  selectAscStmt,
 	}, nil
-}
-
-// checkColumnExists checks if a column exists in a specified table
-func checkColumnExists(db *sql.DB, tableName, columnName string) (bool, error) {
-	query := fmt.Sprintf("PRAGMA table_info(%s);", tableName)
-	rows, err := db.Query(query)
-	if err != nil {
-		return false, fmt.Errorf("failed to query table info: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull, pk int
-		var dfltValue sql.NullString
-
-		err = rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk)
-		if err != nil {
-			return false, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		if name == columnName {
-			return true, nil
-		}
-	}
-
-	if err = rows.Err(); err != nil {
-		return false, err
-	}
-
-	return false, nil
 }

@@ -36,7 +36,9 @@ func getMigrations(ctx context.Context, crypt *FieldEncrypt) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migrateLegacyEncryptedUsersToGCM(ctx, db, crypt)
 		},
-		// TODO: Migrate All deleted users to remove duplicates and add the id as primary key
+		func(db *gorm.DB) error {
+			return migrateDuplicateDeletedUsers(ctx, db)
+		},
 	}
 }
 
@@ -63,7 +65,7 @@ func migrateLegacyEncryptedUsersToGCM(ctx context.Context, db *gorm.DB, crypt *F
 
 	if err = db.Transaction(func(tx *gorm.DB) error {
 		for _, user := range deletedUsers {
-			if err = migrateDeletedUser(tx, user, crypt); err != nil {
+			if err = updateDeletedUserData(tx, user, crypt); err != nil {
 				return fmt.Errorf("failed to migrate deleted user %s: %w", user.ID, err)
 			}
 		}
@@ -77,7 +79,7 @@ func migrateLegacyEncryptedUsersToGCM(ctx context.Context, db *gorm.DB, crypt *F
 	return nil
 }
 
-func migrateDeletedUser(transaction *gorm.DB, user activity.DeletedUser, crypt *FieldEncrypt) error {
+func updateDeletedUserData(transaction *gorm.DB, user activity.DeletedUser, crypt *FieldEncrypt) error {
 	var err error
 	var decryptedEmail, decryptedName string
 
@@ -108,5 +110,72 @@ func migrateDeletedUser(transaction *gorm.DB, user activity.DeletedUser, crypt *
 		return fmt.Errorf("failed to encrypt name: %w", err)
 	}
 
-	return transaction.Model(&user).Where("id = ?", updatedUser.ID).Updates(updatedUser).Error
+	return transaction.Model(&updatedUser).Omit("id").Updates(updatedUser).Error
+}
+
+// MigrateDuplicateDeletedUsers removes duplicates and ensures the id column is marked as the primary key
+func migrateDuplicateDeletedUsers(ctx context.Context, db *gorm.DB) error {
+	model := &activity.DeletedUser{}
+	if !db.Migrator().HasTable(model) {
+		log.WithContext(ctx).Debugf("Table for %T does not exist, no duplicate migration needed", model)
+		return nil
+	}
+
+	isPrimaryKey, err := isColumnPrimaryKey[activity.DeletedUser](db, "id")
+	if err != nil {
+		return err
+	}
+
+	if isPrimaryKey {
+		log.WithContext(ctx).Debug("No duplicate deleted users to migrate")
+		return nil
+	}
+
+	if err = db.Transaction(func(tx *gorm.DB) error {
+		groupById := tx.Model(model).Select("MAX(rowid)").Group("id")
+		if err = tx.Delete(model, "rowid NOT IN (?)", groupById).Error; err != nil {
+			return err
+		}
+
+		if err = tx.Migrator().RenameTable("deleted_users", "deleted_users_old"); err != nil {
+			return err
+		}
+
+		if err = tx.Migrator().CreateTable(model); err != nil {
+			return err
+		}
+
+		if err = tx.Exec(`
+            INSERT INTO deleted_users (id, email, name, enc_algo) SELECT id, email, name, enc_algo
+              FROM deleted_users_old;`).Error; err != nil {
+			return err
+		}
+
+		return tx.Migrator().DropTable("deleted_users_old")
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Debug("Successfully migrated duplicate deleted users")
+
+	return nil
+}
+
+// isColumnPrimaryKey checks if a column is a primary key in the given model
+func isColumnPrimaryKey[T any](db *gorm.DB, columnName string) (bool, error) {
+	var model T
+
+	cols, err := db.Migrator().ColumnTypes(&model)
+	if err != nil {
+		return false, err
+	}
+
+	for _, col := range cols {
+		if col.Name() == columnName {
+			isPrimaryKey, _ := col.PrimaryKey()
+			return isPrimaryKey, nil
+		}
+	}
+
+	return false, nil
 }
