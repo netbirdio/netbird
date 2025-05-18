@@ -179,6 +179,7 @@ jobs:
           grep -A 7 Relay management.json | grep "rel://$CI_NETBIRD_DOMAIN:33445"
           grep -A 7 Relay management.json | egrep '"Secret": ".+"'
           grep DisablePromptLogin management.json | grep 'true'
+          grep LoginFlag management.json | grep 0
 
       - name: Install modules
         run: go mod tidy

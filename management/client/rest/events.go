@@ -14,7 +14,7 @@ type EventsAPI struct {
 // List list all events
 // See more: https://docs.netbird.io/api/resources/events#list-all-events
 func (a *EventsAPI) List(ctx context.Context) ([]api.Event, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/events", nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/events", nil)
 	if err != nil {
 		return nil, err
 	}

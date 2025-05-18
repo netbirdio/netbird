@@ -14,6 +14,7 @@ import (
 type Client struct {
 	managementURL string
 	authHeader    string
+	httpClient    HttpClient
 
 	// Accounts NetBird account APIs
 	// see more: https://docs.netbird.io/api/resources/accounts
@@ -70,20 +71,29 @@ type Client struct {
 
 // New initialize new Client instance using PAT token
 func New(managementURL, token string) *Client {
-	client := &Client{
-		managementURL: managementURL,
-		authHeader:    "Token " + token,
-	}
-	client.initialize()
-	return client
+	return NewWithOptions(
+		WithManagementURL(managementURL),
+		WithPAT(token),
+	)
 }
 
 // NewWithBearerToken initialize new Client instance using Bearer token type
 func NewWithBearerToken(managementURL, token string) *Client {
+	return NewWithOptions(
+		WithManagementURL(managementURL),
+		WithBearerToken(token),
+	)
+}
+
+func NewWithOptions(opts ...option) *Client {
 	client := &Client{
-		managementURL: managementURL,
-		authHeader:    "Bearer " + token,
+		httpClient: http.DefaultClient,
 	}
+
+	for _, option := range opts {
+		option(client)
+	}
+
 	client.initialize()
 	return client
 }
@@ -104,7 +114,7 @@ func (c *Client) initialize() {
 	c.Events = &EventsAPI{c}
 }
 
-func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.managementURL+path, body)
 	if err != nil {
 		return nil, err
@@ -116,7 +126,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 		req.Header.Add("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
