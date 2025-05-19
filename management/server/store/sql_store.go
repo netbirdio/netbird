@@ -89,20 +89,21 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
 
 	if !skipMigration {
-		if err := migrate(ctx, db); err != nil {
-			return nil, fmt.Errorf("migrate: %w", err)
-		}
-		err = db.AutoMigrate(
-			&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{},
-			&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
-			&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
-			&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("auto migrate: %w", err)
-		}
-	} else {
 		log.WithContext(ctx).Infof("skipping migration")
+		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+	}
+
+	if err := migrate(ctx, db); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	err = db.AutoMigrate(
+		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{},
+		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
+		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
+		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 
 	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
