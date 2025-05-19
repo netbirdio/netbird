@@ -12,7 +12,7 @@ var minVersion *version.Version
 func init() {
 	// Parse the minimum version
 	// todo update version before first release
-	minVer, err := version.NewVersion("0.40.0")
+	minVer, err := version.NewVersion("0.44.1")
 	if err != nil {
 		log.Panic(err)
 	}
