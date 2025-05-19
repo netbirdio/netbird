@@ -88,7 +88,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 
 	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
 
-	if !skipMigration {
+	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
 		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
 	}
