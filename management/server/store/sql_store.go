@@ -1135,7 +1135,7 @@ func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, 
 
 // NewMysqlStoreFromSqlStore restores a store from SqlStore and stores MySQL DB.
 func NewMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewMysqlStore(ctx, dsn, metrics, true)
+	store, err := NewMysqlStore(ctx, dsn, metrics, false)
 	if err != nil {
 		return nil, err
 	}
