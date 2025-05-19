@@ -66,7 +66,7 @@ type installation struct {
 type migrationFunc func(*gorm.DB) error
 
 // NewSqlStore creates a new SqlStore instance.
-func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, metrics telemetry.AppMetrics) (*SqlStore, error) {
+func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
 	sql, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -88,17 +88,21 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 
 	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
 
-	if err := migrate(ctx, db); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	err = db.AutoMigrate(
-		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{},
-		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
-		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
-		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("auto migrate: %w", err)
+	if !skipMigration {
+		if err := migrate(ctx, db); err != nil {
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
+		err = db.AutoMigrate(
+			&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{},
+			&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
+			&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
+			&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("auto migrate: %w", err)
+		}
+	} else {
+		log.WithContext(ctx).Infof("skipping migration")
 	}
 
 	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
@@ -1016,7 +1020,7 @@ func (s *SqlStore) GetStoreEngine() types.Engine {
 }
 
 // NewSqliteStore creates a new SQLite store.
-func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
 	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
 	if runtime.GOOS == "windows" {
 		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
@@ -1029,27 +1033,27 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, types.SqliteStoreEngine, metrics)
+	return NewSqlStore(ctx, db, types.SqliteStoreEngine, metrics, skipMigration)
 }
 
 // NewPostgresqlStore creates a new Postgres store.
-func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
 	db, err := gorm.Open(postgres.Open(dsn), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics)
+	return NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, skipMigration)
 }
 
 // NewMysqlStore creates a new MySQL store.
-func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
+func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
 	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), getGormConfig())
 	if err != nil {
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics)
+	return NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics, skipMigration)
 }
 
 func getGormConfig() *gorm.Config {
@@ -1060,26 +1064,26 @@ func getGormConfig() *gorm.Config {
 }
 
 // newPostgresStore initializes a new Postgres store.
-func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics) (Store, error) {
+func newPostgresStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
 	dsn, ok := os.LookupEnv(postgresDsnEnv)
 	if !ok {
 		return nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 	}
-	return NewPostgresqlStore(ctx, dsn, metrics)
+	return NewPostgresqlStore(ctx, dsn, metrics, skipMigration)
 }
 
 // newMysqlStore initializes a new MySQL store.
-func newMysqlStore(ctx context.Context, metrics telemetry.AppMetrics) (Store, error) {
+func newMysqlStore(ctx context.Context, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
 	dsn, ok := os.LookupEnv(mysqlDsnEnv)
 	if !ok {
 		return nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 	}
-	return NewMysqlStore(ctx, dsn, metrics)
+	return NewMysqlStore(ctx, dsn, metrics, skipMigration)
 }
 
 // NewSqliteStoreFromFileStore restores a store from FileStore and stores SQLite DB in the file located in datadir.
-func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, dataDir string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewSqliteStore(ctx, dataDir, metrics)
+func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, dataDir string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+	store, err := NewSqliteStore(ctx, dataDir, metrics, skipMigration)
 	if err != nil {
 		return nil, err
 	}
@@ -1108,7 +1112,7 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 
 // NewPostgresqlStoreFromSqlStore restores a store from SqlStore and stores Postgres DB.
 func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewPostgresqlStore(ctx, dsn, metrics)
+	store, err := NewPostgresqlStore(ctx, dsn, metrics, false)
 	if err != nil {
 		return nil, err
 	}
@@ -1130,7 +1134,7 @@ func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, 
 
 // NewMysqlStoreFromSqlStore restores a store from SqlStore and stores MySQL DB.
 func NewMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewMysqlStore(ctx, dsn, metrics)
+	store, err := NewMysqlStore(ctx, dsn, metrics, true)
 	if err != nil {
 		return nil, err
 	}

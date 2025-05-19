@@ -243,7 +243,7 @@ func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) type
 }
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
-func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
 	kind = getStoreEngine(ctx, dataDir, kind)
 
 	if err := checkFileStoreEngine(kind, dataDir); err != nil {
@@ -253,13 +253,13 @@ func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics te
 	switch kind {
 	case types.SqliteStoreEngine:
 		log.WithContext(ctx).Info("using SQLite store engine")
-		return NewSqliteStore(ctx, dataDir, metrics)
+		return NewSqliteStore(ctx, dataDir, metrics, skipMigration)
 	case types.PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
-		return newPostgresStore(ctx, metrics)
+		return newPostgresStore(ctx, metrics, skipMigration)
 	case types.MysqlStoreEngine:
 		log.WithContext(ctx).Info("using MySQL store engine")
-		return newMysqlStore(ctx, metrics)
+		return newMysqlStore(ctx, metrics, skipMigration)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
@@ -354,7 +354,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		}
 	}
 
-	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil)
+	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
@@ -563,7 +563,7 @@ func MigrateFileStoreToSqlite(ctx context.Context, dataDir string) error {
 	log.WithContext(ctx).Infof("%d account will be migrated from file store %s to sqlite store %s",
 		fsStoreAccounts, fileStorePath, sqlStorePath)
 
-	store, err := NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil)
+	store, err := NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil, true)
 	if err != nil {
 		return fmt.Errorf("failed creating file store: %s: %v", dataDir, err)
 	}
