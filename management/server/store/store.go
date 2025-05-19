@@ -44,6 +44,7 @@ const (
 	LockingStrengthShare       LockingStrength = "SHARE"         // Allows reading but prevents changes by other transactions.
 	LockingStrengthNoKeyUpdate LockingStrength = "NO KEY UPDATE" // Similar to UPDATE but allows changes to related rows.
 	LockingStrengthKeyShare    LockingStrength = "KEY SHARE"     // Protects against changes to primary/unique keys but allows other updates.
+	LockingStrengthNone        LockingStrength = "NONE"          // No locking, allowing all transactions to proceed without restrictions.
 )
 
 type Store interface {
