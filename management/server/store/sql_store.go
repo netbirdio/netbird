@@ -2105,7 +2105,7 @@ func getRecords[T any](db *gorm.DB, lockStrength LockingStrength, accountID stri
 
 	var record []T
 
-	result := tx.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&record, accountIDCondition, accountID)
+	result := tx.Find(&record, accountIDCondition, accountID)
 	if err := result.Error; err != nil {
 		parts := strings.Split(fmt.Sprintf("%T", record), ".")
 		recordType := parts[len(parts)-1]
