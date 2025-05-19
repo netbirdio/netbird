@@ -1917,7 +1917,7 @@ func (s *SqlStore) GetPostureChecksByIDs(ctx context.Context, lockStrength Locki
 	}
 
 	var postureChecks []*posture.Checks
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Find(&postureChecks, accountAndIDsQueryCondition, accountID, postureChecksIDs)
+	result := tx.Find(&postureChecks, accountAndIDsQueryCondition, accountID, postureChecksIDs)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get posture checks by ID's from store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get posture checks by ID's from store")
