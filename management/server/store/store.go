@@ -354,7 +354,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		}
 	}
 
-	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil, true)
+	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil, false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
