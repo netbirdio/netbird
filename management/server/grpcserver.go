@@ -84,11 +84,16 @@ func NewServer(
 		}
 	}
 
-	syncRatePerS, err := strconv.Atoi(os.Getenv("NB_SYNC_RATE_PER_M"))
-	if syncRatePerS == 0 || err != nil {
-		syncRatePerS = 200
+	syncTokenPerInterval, err := strconv.Atoi(os.Getenv("NB_SYNC_RATE_PER_M"))
+	if syncTokenPerInterval == 0 || err != nil {
+		syncTokenPerInterval = 200
 	}
-	log.WithContext(ctx).Infof("sync rate limit set to %d/min", syncRatePerS)
+	log.WithContext(ctx).Infof("sync rate limit set to %d/min", syncTokenPerInterval)
+
+	syncTokenInterval, err := time.ParseDuration(os.Getenv("NB_SYNC_RATE_INTERVAL"))
+	if syncTokenInterval == 0 || err != nil {
+		syncTokenInterval = time.Minute
+	}
 
 	syncBurst, err := strconv.Atoi(os.Getenv("NB_SYNC_BURST"))
 	if syncBurst == 0 || err != nil {
@@ -107,7 +112,7 @@ func NewServer(
 		authManager:        authManager,
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
-		syncRate:           rate.Every(time.Minute / time.Duration(syncRatePerS)),
+		syncRate:           rate.Every(syncTokenInterval / time.Duration(syncTokenPerInterval)),
 		syncBurst:          syncBurst,
 	}, nil
 }
