@@ -542,8 +542,16 @@ func (g *BundleGenerator) addLogfile() error {
 	} else if len(files) > 0 {
 		// pick the file with the latest ModTime
 		sort.Slice(files, func(i, j int) bool {
-			fi, _ := os.Stat(files[i])
-			fj, _ := os.Stat(files[j])
+			fi, err := os.Stat(files[i])
+			if err != nil {
+				log.Warnf("failed to stat rotated log %s: %v", files[i], err)
+				return false
+			}
+			fj, err := os.Stat(files[j])
+			if err != nil {
+				log.Warnf("failed to stat rotated log %s: %v", files[j], err)
+				return false
+			}
 			return fi.ModTime().Before(fj.ModTime())
 		})
 		latest := files[len(files)-1]
@@ -583,16 +591,13 @@ func (g *BundleGenerator) addSingleLogfile(logPath, targetName string) error {
 		}
 	}()
 
-	var logReader io.Reader
+	var logReader io.Reader = logFile
 	if g.anonymize {
 		var writer *io.PipeWriter
 		logReader, writer = io.Pipe()
 
 		go anonymizeLog(logFile, writer, g.anonymizer)
-	} else {
-		logReader = logFile
 	}
-
 	if err := g.addFileToZip(logReader, targetName); err != nil {
 		return fmt.Errorf("add %s to zip: %w", targetName, err)
 	}
@@ -614,18 +619,22 @@ func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
 	}
 	defer gzr.Close()
 
-	pr, pw := io.Pipe()
-	go func() {
-		anonymizeLog(gzr, pw, g.anonymizer)
-		pw.Close()
-	}()
+	var logReader io.Reader = gzr
+	if g.anonymize {
+		var pw *io.PipeWriter
+		logReader, pw = io.Pipe()
+		go anonymizeLog(gzr, pw, g.anonymizer)
+	}
 
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
-	if _, err := io.Copy(gw, pr); err != nil {
+	if _, err := io.Copy(gw, logReader); err != nil {
 		return fmt.Errorf("re-gzip: %w", err)
 	}
-	gw.Close()
+
+	if err := gw.Close(); err != nil {
+		return fmt.Errorf("close gzip writer: %w", err)
+	}
 
 	if err := g.addFileToZip(&buf, targetName); err != nil {
 		return fmt.Errorf("add anonymized gz: %w", err)
