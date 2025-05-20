@@ -352,11 +352,7 @@ func toLastHandshake(stringVar string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, fmt.Errorf("parse handshake sec: %w", err)
 	}
-	nsec, err := strconv.ParseInt(stringVar, 10, 64)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("parse handshake nsec: %w", err)
-	}
-	return time.Unix(sec, nsec), nil
+	return time.Unix(sec, 0), nil
 }
 
 func toBytes(s string) (int64, error) {
