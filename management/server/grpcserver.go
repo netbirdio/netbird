@@ -94,6 +94,7 @@ func NewServer(
 	if syncTokenInterval == 0 || err != nil {
 		syncTokenInterval = time.Minute
 	}
+	log.WithContext(ctx).Infof("sync rate interval set to %s", syncTokenInterval)
 
 	syncBurst, err := strconv.Atoi(os.Getenv("NB_SYNC_BURST"))
 	if syncBurst == 0 || err != nil {
