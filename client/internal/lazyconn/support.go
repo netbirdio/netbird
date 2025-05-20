@@ -4,21 +4,11 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-version"
-	log "github.com/sirupsen/logrus"
 )
 
-var minVersion *version.Version
-
-func init() {
-	// Parse the minimum version
-	// todo update version before first release
-	minVer, err := version.NewVersion("0.44.1")
-	if err != nil {
-		log.Panic(err)
-	}
-
-	minVersion = minVer
-}
+var (
+	minVersion = version.Must(version.NewVersion("0.45.0"))
+)
 
 func IsSupported(agentVersion string) bool {
 	if agentVersion == "development" {

@@ -8,9 +8,9 @@ func TestIsSupported(t *testing.T) {
 		want    bool
 	}{
 		{"development", true},
-		{"0.44.1", true},
-		{"v0.44.1", true},
-		{"0.44.1", true},
+		{"0.45.0", true},
+		{"v0.45.0", true},
+		{"0.45.1", true},
 		{"0.45.1-SNAPSHOT-559e6731", true},
 		{"v0.45.1-dev", true},
 		{"a7d5c522", false},
