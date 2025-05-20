@@ -3,8 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/netip"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +16,7 @@ import (
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
@@ -47,6 +51,10 @@ type GRPCServer struct {
 	ephemeralManager   *EphemeralManager
 	peerLocks          sync.Map
 	authManager        auth.Manager
+
+	syncLimiterStore sync.Map
+	syncRate         rate.Limit
+	syncBurst        int
 }
 
 // NewServer creates a new Management server
@@ -76,6 +84,18 @@ func NewServer(
 		}
 	}
 
+	syncRatePerS, err := strconv.Atoi(os.Getenv("NB_SYNC_RATE_PER_M"))
+	if syncRatePerS == 0 || err != nil {
+		syncRatePerS = 200
+	}
+	log.WithContext(ctx).Infof("sync rate limit set to %d/min", syncRatePerS)
+
+	syncBurst, err := strconv.Atoi(os.Getenv("NB_SYNC_BURST"))
+	if syncBurst == 0 || err != nil {
+		syncBurst = 200
+	}
+	log.WithContext(ctx).Infof("sync burst limit set to %d", syncBurst)
+
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
@@ -87,6 +107,8 @@ func NewServer(
 		authManager:        authManager,
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
+		syncRate:           rate.Every(time.Minute / time.Duration(syncRatePerS)),
+		syncBurst:          syncBurst,
 	}, nil
 }
 
@@ -160,6 +182,29 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 			return status.Errorf(codes.PermissionDenied, "peer is not registered")
 		}
 		return err
+	}
+
+	if accountID == "cvlkjjbl0ubs73clbdr0" {
+		limiterIface, ok := s.syncLimiterStore.Load(req.WgPubKey)
+		if !ok {
+			// Create new limiter for this peer
+			newLimiter := rate.NewLimiter(s.syncRate, s.syncBurst)
+			s.syncLimiterStore.Store(req.WgPubKey, newLimiter)
+
+			if !newLimiter.Allow() {
+				time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
+				log.WithContext(ctx).Warnf("rate limit exceeded for peer %s", req.WgPubKey)
+				return fmt.Errorf("sync rate limit reached for this peer")
+			}
+		} else {
+			// Use existing limiter for this peer
+			limiter := limiterIface.(*rate.Limiter)
+			if !limiter.Allow() {
+				time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
+				log.WithContext(ctx).Warnf("rate limit exceeded for peer %s", req.WgPubKey)
+				return fmt.Errorf("sync rate limit reached for this peer")
+			}
+		}
 	}
 
 	// nolint:staticcheck
