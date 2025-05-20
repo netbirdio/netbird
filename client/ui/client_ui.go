@@ -181,6 +181,7 @@ type serviceClient struct {
 	mUp                *systray.MenuItem
 	mDown              *systray.MenuItem
 	mSettings          *systray.MenuItem
+	mProfiles          *profileMenu
 	mAbout             *systray.MenuItem
 	mGitHub            *systray.MenuItem
 	mVersionUI         *systray.MenuItem
@@ -634,6 +635,9 @@ func (s *serviceClient) onTrayReady() {
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()
+
+	s.mProfiles = newProfileMenu(systray.AddMenuItem("Profiles", profilesMenuDescr))
+	s.mProfiles.loadProfiles()
 
 	s.exitNodeMu.Lock()
 	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
