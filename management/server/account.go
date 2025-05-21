@@ -196,21 +196,7 @@ func BuildManager(
 		permissionsManager:       permissionsManager,
 	}
 
-	var initialInterval int64
-	intervalStr := os.Getenv("PEER_UPDATE_INTERVAL_MS")
-	interval, err := strconv.Atoi(intervalStr)
-	if err != nil {
-		initialInterval = 1
-	} else {
-		initialInterval = int64(interval) * 10
-		go func() {
-			time.Sleep(30 * time.Second)
-			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
-			log.WithContext(ctx).Infof("set peer update buffer interval to %dms", interval)
-		}()
-	}
-	am.updateAccountPeersBufferInterval.Store(initialInterval)
-	log.WithContext(ctx).Infof("set peer update buffer interval to %dms", initialInterval)
+	am.startWarmup(ctx)
 
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
@@ -252,6 +238,32 @@ func BuildManager(
 	})
 
 	return am, nil
+}
+
+func (am *DefaultAccountManager) startWarmup(ctx context.Context) {
+	var initialInterval int64
+	intervalStr := os.Getenv("NB_PEER_UPDATE_INTERVAL_MS")
+	interval, err := strconv.Atoi(intervalStr)
+	if err != nil {
+		initialInterval = 1
+		log.WithContext(ctx).Warnf("failed to parse peer update interval, using default value %dms: %v", initialInterval, err)
+	} else {
+		initialInterval = int64(interval) * 10
+		go func() {
+			startupPeriodStr := os.Getenv("NB_PEER_UPDATE_STARTUP_PERIOD_S")
+			startupPeriod, err := strconv.Atoi(startupPeriodStr)
+			if err != nil {
+				startupPeriod = 1
+				log.WithContext(ctx).Warnf("failed to parse peer update startup period, using default value %ds: %v", startupPeriod, err)
+			}
+			time.Sleep(time.Duration(startupPeriod) * time.Second)
+			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
+			log.WithContext(ctx).Infof("set peer update buffer interval to %dms", interval)
+		}()
+	}
+	am.updateAccountPeersBufferInterval.Store(initialInterval)
+	log.WithContext(ctx).Infof("set peer update buffer interval to %dms", initialInterval)
+
 }
 
 func (am *DefaultAccountManager) GetExternalCacheManager() account.ExternalCacheManager {
@@ -603,11 +615,15 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	}
 
 	for _, otherUser := range account.Users {
-		if otherUser.IsServiceUser {
+		if otherUser.Id == userID {
 			continue
 		}
 
-		if otherUser.Id == userID {
+		if otherUser.IsServiceUser {
+			err = am.deleteServiceUser(ctx, accountID, userID, otherUser)
+			if err != nil {
+				return err
+			}
 			continue
 		}
 

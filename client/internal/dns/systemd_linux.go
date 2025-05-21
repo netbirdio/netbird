@@ -30,9 +30,12 @@ const (
 	systemdDbusSetDNSMethodSuffix          = systemdDbusLinkInterface + ".SetDNS"
 	systemdDbusSetDefaultRouteMethodSuffix = systemdDbusLinkInterface + ".SetDefaultRoute"
 	systemdDbusSetDomainsMethodSuffix      = systemdDbusLinkInterface + ".SetDomains"
+	systemdDbusSetDNSSECMethodSuffix       = systemdDbusLinkInterface + ".SetDNSSEC"
 	systemdDbusResolvConfModeForeign       = "foreign"
 
 	dbusErrorUnknownObject = "org.freedesktop.DBus.Error.UnknownObject"
+
+	dnsSecDisabled = "no"
 )
 
 type systemdDbusConfigurator struct {
@@ -95,9 +98,13 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 		Family:  unix.AF_INET,
 		Address: ipAs4[:],
 	}
-	err = s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput})
-	if err != nil {
-		return fmt.Errorf("setting the interface DNS server %s:%d failed with error: %w", config.ServerIP, config.ServerPort, err)
+	if err = s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput}); err != nil {
+		return fmt.Errorf("set interface DNS server %s:%d: %w", config.ServerIP, config.ServerPort, err)
+	}
+
+	// We don't support dnssec. On some machines this is default on so we explicitly set it to off
+	if err = s.callLinkMethod(systemdDbusSetDNSSECMethodSuffix, dnsSecDisabled); err != nil {
+		log.Warnf("failed to set DNSSEC to 'no': %v", err)
 	}
 
 	var (

@@ -691,10 +691,11 @@ func toSyncResponse(ctx context.Context, config *types.Config, peer *nbpeer.Peer
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		dst = append(dst, &proto.RemotePeerConfig{
-			WgPubKey:   rPeer.Key,
-			AllowedIps: []string{rPeer.IP.String() + "/32"},
-			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
-			Fqdn:       rPeer.FQDN(dnsName),
+			WgPubKey:     rPeer.Key,
+			AllowedIps:   []string{rPeer.IP.String() + "/32"},
+			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
+			Fqdn:         rPeer.FQDN(dnsName),
+			AgentVersion: rPeer.Meta.WtVersion,
 		})
 	}
 	return dst
@@ -847,6 +848,7 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.En
 			RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
 			UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
 			DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
+			LoginFlag:             uint32(s.config.PKCEAuthorizationFlow.ProviderConfig.LoginFlag),
 		},
 	}
 

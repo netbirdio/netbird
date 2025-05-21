@@ -3,6 +3,7 @@ package types
 import (
 	"net/netip"
 
+	"github.com/netbirdio/netbird/management/client/common"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/util"
 )
@@ -156,6 +157,8 @@ type ProviderConfig struct {
 	RedirectURLs []string
 	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
 	DisablePromptLogin bool
+	// LoginFlag is used to configure the PKCE flow login behavior
+	LoginFlag common.LoginFlag
 }
 
 // StoreConfig contains Store configuration
