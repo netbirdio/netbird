@@ -124,7 +124,9 @@ func (m *Manager) disableFlow() error {
 	m.logger.Close()
 
 	if m.receiverClient != nil {
-		return m.receiverClient.Close()
+		clientErr := m.receiverClient.Close()
+		m.receiverClient = nil
+		return clientErr
 	}
 
 	return nil
