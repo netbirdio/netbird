@@ -342,6 +342,16 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		account.Network.Serial++
 	}
 
+	if oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled {
+		if newSettings.LazyConnectionEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionDisabled, nil)
+		}
+		updateAccountPeers = true
+		account.Network.Serial++
+	}
+
 	if oldSettings.DNSDomain != newSettings.DNSDomain {
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, nil)
 		updateAccountPeers = true
