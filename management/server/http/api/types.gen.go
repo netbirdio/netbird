@@ -289,6 +289,9 @@ type AccountSettings struct {
 	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
 	JwtGroupsEnabled *bool `json:"jwt_groups_enabled,omitempty"`
 
+	// LazyConnectionEnabled Enables or disables lazy connection
+	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
+
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
 

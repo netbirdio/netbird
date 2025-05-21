@@ -118,6 +118,10 @@ components:
           example: my-organization.org
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
+        lazy_connection_enabled:
+          description: Enables or disables lazy connection
+          type: boolean
+          example: true
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
