@@ -134,6 +134,7 @@ message LoginRequest {
   // omits initialized empty slices due to omitempty tags
   bool cleanDNSLabels = 27;
 
+  optional bool lazyConnectionEnabled = 28;
 }
 
 message LoginResponse {
@@ -274,6 +275,8 @@ message FullStatus {
   int32 NumberOfForwardingRules = 8;
 
   repeated SystemEvent events = 7;
+
+  bool lazyConnectionEnabled = 9;
 }
 
 // Networks
