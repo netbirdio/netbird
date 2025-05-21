@@ -383,7 +383,8 @@ func TestParsingToJSON(t *testing.T) {
               "error": "timeout"
             }
           ],
-          "events": []
+          "events": [],
+          "lazyConnectionEnabled": false
         }`
 	// @formatter:on
 
@@ -484,6 +485,7 @@ dnsServers:
       enabled: false
       error: timeout
 events: []
+lazyConnectionEnabled: false
 `
 
 	assert.Equal(t, expectedYAML, yaml)
@@ -548,6 +550,7 @@ FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
+Lazy connection: false
 Networks: 10.10.0.0/24
 Forwarding rules: 0
 Peers count: 2/2 Connected
@@ -570,6 +573,7 @@ FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
+Lazy connection: false
 Networks: 10.10.0.0/24
 Forwarding rules: 0
 Peers count: 2/2 Connected
