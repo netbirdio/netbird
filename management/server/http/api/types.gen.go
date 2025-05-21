@@ -1270,7 +1270,7 @@ type PolicyRule struct {
 
 	// Description Policy rule friendly description
 	Description         *string   `json:"description,omitempty"`
-	DestinationResource *Resource `json:"destinationResource,omitempty"`
+	DestinationResource *Resource `json:"destination_resource,omitempty"`
 
 	// Destinations Policy rule destination group IDs
 	Destinations *[]GroupMinimum `json:"destinations,omitempty"`
@@ -1292,7 +1292,7 @@ type PolicyRule struct {
 
 	// Protocol Policy rule type of the traffic
 	Protocol       PolicyRuleProtocol `json:"protocol"`
-	SourceResource *Resource          `json:"sourceResource,omitempty"`
+	SourceResource *Resource          `json:"source_resource,omitempty"`
 
 	// Sources Policy rule source group IDs
 	Sources *[]GroupMinimum `json:"sources,omitempty"`
@@ -1347,7 +1347,7 @@ type PolicyRuleUpdate struct {
 
 	// Description Policy rule friendly description
 	Description         *string   `json:"description,omitempty"`
-	DestinationResource *Resource `json:"destinationResource,omitempty"`
+	DestinationResource *Resource `json:"destination_resource,omitempty"`
 
 	// Destinations Policy rule destination group IDs
 	Destinations *[]string `json:"destinations,omitempty"`
@@ -1369,7 +1369,7 @@ type PolicyRuleUpdate struct {
 
 	// Protocol Policy rule type of the traffic
 	Protocol       PolicyRuleUpdateProtocol `json:"protocol"`
-	SourceResource *Resource                `json:"sourceResource,omitempty"`
+	SourceResource *Resource                `json:"source_resource,omitempty"`
 
 	// Sources Policy rule source group IDs
 	Sources *[]string `json:"sources,omitempty"`
