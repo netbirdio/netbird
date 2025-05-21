@@ -35,6 +35,6 @@ type wgIfaceBase interface {
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
 	GetWGDevice() *wgdevice.Device
-	GetStats(peerKey string) (configurer.WGStats, error)
+	GetStats() (map[string]configurer.WGStats, error)
 	GetNet() *netstack.Net
 }
