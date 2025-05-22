@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/miekg/dns"
@@ -18,7 +19,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
+const (
+	domainPattern = `^(?i)[\.\*a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
+	maxLabelLen   = 63
+)
+
+var invalidDomainName = errors.New("invalid domain name")
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
@@ -320,12 +326,17 @@ func validateDomain(domain string) error {
 	}
 
 	labels, valid := dns.IsDomainName(domain)
-	if !valid {
-		return errors.New("invalid domain name")
+
+	// validate the TLD domains length
+	if labels == 0 && strings.HasPrefix(domain, ".") {
+		if len(domain)-1 > maxLabelLen {
+			return invalidDomainName
+		}
+		return nil
 	}
 
-	if labels < 2 {
-		return errors.New("domain should consists of a minimum of two labels")
+	if !valid {
+		return invalidDomainName
 	}
 
 	return nil
