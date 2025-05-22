@@ -119,7 +119,7 @@ components:
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
         lazy_connection_enabled:
-          description: Enables or disables lazy connection
+          description: Enables or disables experimental lazy connection
           type: boolean
           example: true
       required:
