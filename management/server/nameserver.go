@@ -18,10 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-const (
-	domainPattern = `^(?i)[\*a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
-	maxLabelLen   = 63
-)
+const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
 
 var invalidDomainName = errors.New("invalid domain name")
 

@@ -904,9 +904,14 @@ func TestValidateDomain(t *testing.T) {
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid wildcard domain",
-			domain:  "*.example",
+			name:    "Valid domain name with trailing dot",
+			domain:  "example.",
 			errFunc: require.NoError,
+		},
+		{
+			name:    "Invalid wildcard domain name",
+			domain:  "*.example",
+			errFunc: require.Error,
 		},
 		{
 			name:    "Invalid domain name with leading dot",
