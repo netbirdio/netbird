@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -41,7 +42,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 		groups        []string
 		nameServers   []nbdns.NameServer
 		primary       bool
-		domains       []string
+		domains       domain.List
 		searchDomains bool
 	}
 
@@ -102,7 +103,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 				description: "super",
 				groups:      []string{group1ID},
 				primary:     false,
-				domains:     []string{validDomain},
+				domains:     domain.List{validDomain},
 				nameServers: []nbdns.NameServer{
 					{
 						IP:     netip.MustParseAddr("1.1.1.1"),
@@ -123,7 +124,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 				Name:        "super",
 				Description: "super",
 				Primary:     false,
-				Domains:     []string{"example.com"},
+				Domains:     domain.List{"example.com"},
 				Groups:      []string{group1ID},
 				NameServers: []nbdns.NameServer{
 					{
@@ -360,7 +361,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 				name:        "super",
 				description: "super",
 				groups:      []string{group1ID},
-				domains:     []string{invalidDomain},
+				domains:     domain.List{invalidDomain},
 				nameServers: []nbdns.NameServer{
 					{
 						IP:     netip.MustParseAddr("1.1.1.1"),
@@ -447,8 +448,8 @@ func TestSaveNameServerGroup(t *testing.T) {
 	validGroups := []string{group2ID}
 	invalidGroups := []string{"nonExisting"}
 	disabledPrimary := false
-	validDomains := []string{validDomain}
-	invalidDomains := []string{invalidDomain}
+	validDomains := domain.List{validDomain}
+	invalidDomains := domain.List{invalidDomain}
 
 	validNameServerList := []nbdns.NameServer{
 		{
@@ -491,7 +492,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 		newID           *string
 		newName         *string
 		newPrimary      *bool
-		newDomains      []string
+		newDomains      domain.List
 		newNSList       []nbdns.NameServer
 		newGroups       []string
 		skipCopying     bool
@@ -909,6 +910,11 @@ func TestValidateDomain(t *testing.T) {
 			errFunc: require.NoError,
 		},
 		{
+			name:    "Valid domain name with double hyphen",
+			domain:  "xn--bcher-kva.com",
+			errFunc: require.NoError,
+		},
+		{
 			name:    "Invalid wildcard domain name",
 			domain:  "*.example",
 			errFunc: require.Error,
@@ -924,8 +930,8 @@ func TestValidateDomain(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:    "Invalid domain name with double hyphen",
-			domain:  "test--example.com",
+			name:    "Invalid domain name with double dot",
+			domain:  "example..com",
 			errFunc: require.Error,
 		},
 		{
@@ -1009,7 +1015,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 				Port:   nbdns.DefaultDNSPort,
 			}},
 			[]string{"groupA"},
-			true, []string{}, true, userID, false,
+			true, domain.List{}, true, userID, false,
 		)
 		assert.NoError(t, err)
 
@@ -1054,7 +1060,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 				Port:   nbdns.DefaultDNSPort,
 			}},
 			[]string{"groupB"},
-			true, []string{}, true, userID, false,
+			true, domain.List{}, true, userID, false,
 		)
 		assert.NoError(t, err)
 
