@@ -1,5 +1,3 @@
-//go:build windows
-
 package systemops
 
 import (
@@ -9,9 +7,8 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"os/exec"
+	"runtime/debug"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -21,7 +18,6 @@ import (
 	"github.com/yusufpapurcu/wmi"
 	"golang.org/x/sys/windows"
 
-	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
@@ -58,9 +54,13 @@ type MSFT_NetRoute struct {
 	AddressFamily     uint16
 }
 
-// MIB_IPFORWARD_ROW2 is defined in https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipforward_row2
+// luid represents a locally unique identifier for network interfaces
+type luid uint64
+
+// MIB_IPFORWARD_ROW2 represents a route entry in the routing table.
+// It is defined in https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipforward_row2
 type MIB_IPFORWARD_ROW2 struct {
-	InterfaceLuid        uint64
+	InterfaceLuid        luid
 	InterfaceIndex       uint32
 	DestinationPrefix    IP_ADDRESS_PREFIX
 	NextHop              SOCKADDR_INET_NEXTHOP
@@ -108,9 +108,14 @@ type SOCKADDR_INET_NEXTHOP struct {
 type MIB_NOTIFICATION_TYPE int32
 
 var (
-	modiphlpapi                = windows.NewLazyDLL("iphlpapi.dll")
-	procNotifyRouteChange2     = modiphlpapi.NewProc("NotifyRouteChange2")
-	procCancelMibChangeNotify2 = modiphlpapi.NewProc("CancelMibChangeNotify2")
+	modiphlpapi                     = windows.NewLazyDLL("iphlpapi.dll")
+	procNotifyRouteChange2          = modiphlpapi.NewProc("NotifyRouteChange2")
+	procCancelMibChangeNotify2      = modiphlpapi.NewProc("CancelMibChangeNotify2")
+	procCreateIpForwardEntry2       = modiphlpapi.NewProc("CreateIpForwardEntry2")
+	procDeleteIpForwardEntry2       = modiphlpapi.NewProc("DeleteIpForwardEntry2")
+	procGetIpForwardEntry2          = modiphlpapi.NewProc("GetIpForwardEntry2")
+	procInitializeIpForwardEntry    = modiphlpapi.NewProc("InitializeIpForwardEntry")
+	procConvertInterfaceIndexToLuid = modiphlpapi.NewProc("ConvertInterfaceIndexToLuid")
 
 	prefixList []netip.Prefix
 	lastUpdate time.Time
@@ -147,23 +152,186 @@ func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
 		nexthop.Intf = &net.Interface{Index: zone}
 	}
 
-	return addRouteCmd(prefix, nexthop)
+	return addRoute(prefix, nexthop)
 }
 
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	args := []string{"delete", prefix.String()}
-	if nexthop.IP.IsValid() {
-		ip := nexthop.IP.WithZone("")
-		args = append(args, ip.Unmap().String())
+	return deleteRoute(prefix, nexthop)
+}
+
+// setupRouteEntry prepares a route entry with common configuration
+func setupRouteEntry(prefix netip.Prefix, nexthop Nexthop) (*MIB_IPFORWARD_ROW2, error) {
+	route := &MIB_IPFORWARD_ROW2{}
+
+	initializeIPForwardEntry(route)
+
+	// Convert interface index to luid if interface is specified
+	if nexthop.Intf != nil {
+		var luid luid
+		if err := convertInterfaceIndexToLUID(uint32(nexthop.Intf.Index), &luid); err != nil {
+			return nil, fmt.Errorf("convert interface index to luid: %w", err)
+		}
+		route.InterfaceLuid = luid
+		route.InterfaceIndex = uint32(nexthop.Intf.Index)
 	}
 
-	routeCmd := uspfilter.GetSystem32Command("route")
+	if err := setDestinationPrefix(&route.DestinationPrefix, prefix); err != nil {
+		return nil, fmt.Errorf("set destination prefix: %w", err)
+	}
 
-	out, err := exec.Command(routeCmd, args...).CombinedOutput()
-	log.Tracef("route %s: %s", strings.Join(args, " "), out)
+	if nexthop.IP.IsValid() {
+		if err := setNextHop(&route.NextHop, nexthop.IP); err != nil {
+			return nil, fmt.Errorf("set next hop: %w", err)
+		}
+	}
 
-	if err != nil {
-		return fmt.Errorf("remove route: %w", err)
+	return route, nil
+}
+
+// addRoute adds a route using Windows iphelper APIs
+func addRoute(prefix netip.Prefix, nexthop Nexthop) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in addRoute: %v, stack trace: %s", r, debug.Stack())
+		}
+	}()
+
+	route, setupErr := setupRouteEntry(prefix, nexthop)
+	if setupErr != nil {
+		return fmt.Errorf("setup route entry: %w", setupErr)
+	}
+
+	route.Metric = 1
+	route.ValidLifetime = 0xffffffff
+	route.PreferredLifetime = 0xffffffff
+
+	return createIPForwardEntry2(route)
+}
+
+// deleteRoute deletes a route using Windows iphelper APIs
+func deleteRoute(prefix netip.Prefix, nexthop Nexthop) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in deleteRoute: %v, stack trace: %s", r, debug.Stack())
+		}
+	}()
+
+	route, setupErr := setupRouteEntry(prefix, nexthop)
+	if setupErr != nil {
+		return fmt.Errorf("setup route entry: %w", setupErr)
+	}
+
+	if err := getIPForwardEntry2(route); err != nil {
+		return fmt.Errorf("get route entry: %w", err)
+	}
+
+	return deleteIPForwardEntry2(route)
+}
+
+// setDestinationPrefix sets the destination prefix in the route structure
+func setDestinationPrefix(prefix *IP_ADDRESS_PREFIX, dest netip.Prefix) error {
+	addr := dest.Addr()
+	prefix.PrefixLength = uint8(dest.Bits())
+
+	if addr.Is4() {
+		prefix.Prefix.sin6_family = windows.AF_INET
+		ip4 := addr.As4()
+		binary.BigEndian.PutUint32(prefix.Prefix.data[:4],
+			uint32(ip4[0])<<24|uint32(ip4[1])<<16|uint32(ip4[2])<<8|uint32(ip4[3]))
+		return nil
+	}
+
+	if addr.Is6() {
+		prefix.Prefix.sin6_family = windows.AF_INET6
+		ip6 := addr.As16()
+		copy(prefix.Prefix.data[4:20], ip6[:])
+
+		if zone := addr.Zone(); zone != "" {
+			if scopeID, err := strconv.ParseUint(zone, 10, 32); err == nil {
+				binary.BigEndian.PutUint32(prefix.Prefix.data[20:24], uint32(scopeID))
+			}
+		}
+		return nil
+	}
+
+	return fmt.Errorf("invalid address family")
+}
+
+// setNextHop sets the next hop address in the route structure
+func setNextHop(nextHop *SOCKADDR_INET_NEXTHOP, addr netip.Addr) error {
+	if addr.Is4() {
+		nextHop.sin6_family = windows.AF_INET
+		ip4 := addr.As4()
+		binary.BigEndian.PutUint32(nextHop.data[:4],
+			uint32(ip4[0])<<24|uint32(ip4[1])<<16|uint32(ip4[2])<<8|uint32(ip4[3]))
+		return nil
+	}
+
+	if addr.Is6() {
+		nextHop.sin6_family = windows.AF_INET6
+		ip6 := addr.As16()
+		copy(nextHop.data[4:20], ip6[:])
+
+		// Handle zone if present
+		if zone := addr.Zone(); zone != "" {
+			if scopeID, err := strconv.ParseUint(zone, 10, 32); err == nil {
+				binary.BigEndian.PutUint32(nextHop.data[20:24], uint32(scopeID))
+			}
+		}
+		return nil
+	}
+
+	return fmt.Errorf("invalid address family")
+}
+
+// Windows API wrappers
+func createIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
+	r1, _, e1 := syscall.SyscallN(procCreateIpForwardEntry2.Addr(), uintptr(unsafe.Pointer(route)))
+	if r1 != 0 {
+		if e1 != 0 {
+			return fmt.Errorf("CreateIpForwardEntry2: %w", e1)
+		}
+		return fmt.Errorf("CreateIpForwardEntry2: code %d", r1)
+	}
+	return nil
+}
+
+func deleteIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
+	r1, _, e1 := syscall.SyscallN(procDeleteIpForwardEntry2.Addr(), uintptr(unsafe.Pointer(route)))
+	if r1 != 0 {
+		if e1 != 0 {
+			return fmt.Errorf("DeleteIpForwardEntry2: %w", e1)
+		}
+		return fmt.Errorf("DeleteIpForwardEntry2: code %d", r1)
+	}
+	return nil
+}
+
+func getIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
+	r1, _, e1 := syscall.SyscallN(procGetIpForwardEntry2.Addr(), uintptr(unsafe.Pointer(route)))
+	if r1 != 0 {
+		if e1 != 0 {
+			return fmt.Errorf("GetIpForwardEntry2: %w", e1)
+		}
+		return fmt.Errorf("GetIpForwardEntry2: code %d", r1)
+	}
+	return nil
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-initializeipforwardentry
+func initializeIPForwardEntry(route *MIB_IPFORWARD_ROW2) {
+	// Does not return anything. Trying to handle the error might return an uninitialized value.
+	_, _, _ = syscall.SyscallN(procInitializeIpForwardEntry.Addr(), uintptr(unsafe.Pointer(route)))
+}
+
+func convertInterfaceIndexToLUID(interfaceIndex uint32, interfaceLUID *luid) error {
+	r1, _, e1 := syscall.SyscallN(procConvertInterfaceIndexToLuid.Addr(),
+		uintptr(interfaceIndex), uintptr(unsafe.Pointer(interfaceLUID)))
+	if r1 != 0 {
+		if e1 != 0 {
+			return fmt.Errorf("ConvertInterfaceIndexToLuid: %w", e1)
+		}
+		return fmt.Errorf("ConvertInterfaceIndexToLuid: code %d", r1)
 	}
 	return nil
 }
@@ -386,35 +554,6 @@ func GetRoutes() ([]Route, error) {
 	}
 
 	return routes, nil
-}
-
-func addRouteCmd(prefix netip.Prefix, nexthop Nexthop) error {
-	args := []string{"add", prefix.String()}
-
-	if nexthop.IP.IsValid() {
-		ip := nexthop.IP.WithZone("")
-		args = append(args, ip.Unmap().String())
-	} else {
-		addr := "0.0.0.0"
-		if prefix.Addr().Is6() {
-			addr = "::"
-		}
-		args = append(args, addr)
-	}
-
-	if nexthop.Intf != nil {
-		args = append(args, "if", strconv.Itoa(nexthop.Intf.Index))
-	}
-
-	routeCmd := uspfilter.GetSystem32Command("route")
-
-	out, err := exec.Command(routeCmd, args...).CombinedOutput()
-	log.Tracef("route %s: %s", strings.Join(args, " "), out)
-	if err != nil {
-		return fmt.Errorf("route add: %w", err)
-	}
-
-	return nil
 }
 
 func isCacheDisabled() bool {
