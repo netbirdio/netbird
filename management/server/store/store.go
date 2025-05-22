@@ -365,11 +365,14 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
+	var sqlStore Store
+	var cleanup func()
+
 	maxRetries := 2
 	for i := 0; i < maxRetries; i++ {
-		sqlStore, cleanUp, err := getSqlStoreEngine(ctx, store, kind)
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind)
 		if err == nil {
-			return sqlStore, cleanUp, nil
+			return sqlStore, cleanup, nil
 		}
 		if i < maxRetries-1 {
 			time.Sleep(100 * time.Millisecond)
@@ -427,16 +430,16 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) 
 }
 
 func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
+	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok || dsn == "" {
 		var err error
-		_, err = testutil.CreatePostgresTestContainer()
+		_, dsn, err = testutil.CreatePostgresTestContainer()
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	dsn, ok := os.LookupEnv(postgresDsnEnv)
-	if !ok {
+	if dsn == "" {
 		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 	}
 
@@ -447,28 +450,28 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 
 	dsn, cleanup, err := createRandomDB(dsn, db, kind)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, nil, err
 	}
 
 	store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, nil, err
 	}
 
 	return store, cleanup, nil
 }
 
 func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
-	if envDsn, ok := os.LookupEnv(mysqlDsnEnv); !ok || envDsn == "" {
+	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	if !ok || dsn == "" {
 		var err error
-		_, err = testutil.CreateMysqlTestContainer()
+		_, dsn, err = testutil.CreateMysqlTestContainer()
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	dsn, ok := os.LookupEnv(mysqlDsnEnv)
-	if !ok {
+	if dsn == "" {
 		return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 	}
 
@@ -479,7 +482,7 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine
 
 	dsn, cleanup, err := createRandomDB(dsn, db, kind)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, nil, err
 	}
 
 	store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
