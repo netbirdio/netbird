@@ -22,6 +22,8 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
+const InfiniteLifetime = 0xffffffff
+
 type RouteUpdateType int
 
 // RouteUpdate represents a change in the routing table.
@@ -205,8 +207,8 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop) (err error) {
 	}
 
 	route.Metric = 1
-	route.ValidLifetime = 0xffffffff
-	route.PreferredLifetime = 0xffffffff
+	route.ValidLifetime = InfiniteLifetime
+	route.PreferredLifetime = InfiniteLifetime
 
 	return createIPForwardEntry2(route)
 }
