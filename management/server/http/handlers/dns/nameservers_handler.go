@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -83,7 +84,13 @@ func (h *nameserversHandler) createNameserverGroup(w http.ResponseWriter, r *htt
 		return
 	}
 
-	nsGroup, err := h.accountManager.CreateNameServerGroup(r.Context(), accountID, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled, userID, req.SearchDomainsEnabled)
+	domains, err := domain.FromStringList(req.Domains)
+	if err != nil {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains format"), w)
+		return
+	}
+
+	nsGroup, err := h.accountManager.CreateNameServerGroup(r.Context(), accountID, req.Name, req.Description, nsList, req.Groups, req.Primary, domains, req.Enabled, userID, req.SearchDomainsEnabled)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -123,12 +130,18 @@ func (h *nameserversHandler) updateNameserverGroup(w http.ResponseWriter, r *htt
 		return
 	}
 
+	domains, err := domain.FromStringList(req.Domains)
+	if err != nil {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains format"), w)
+		return
+	}
+
 	updatedNSGroup := &nbdns.NameServerGroup{
 		ID:                   nsGroupID,
 		Name:                 req.Name,
 		Description:          req.Description,
 		Primary:              req.Primary,
-		Domains:              req.Domains,
+		Domains:              domains,
 		NameServers:          nsList,
 		Groups:               req.Groups,
 		Enabled:              req.Enabled,
@@ -227,7 +240,7 @@ func toNameserverGroupResponse(serverNSGroup *nbdns.NameServerGroup) *api.Namese
 		Name:                 serverNSGroup.Name,
 		Description:          serverNSGroup.Description,
 		Primary:              serverNSGroup.Primary,
-		Domains:              serverNSGroup.Domains,
+		Domains:              serverNSGroup.Domains.ToSafeStringList(),
 		Groups:               serverNSGroup.Groups,
 		Nameservers:          nsList,
 		Enabled:              serverNSGroup.Enabled,

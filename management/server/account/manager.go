@@ -78,7 +78,7 @@ type Manager interface {
 	DeleteRoute(ctx context.Context, accountID string, routeID route.ID, userID string) error
 	ListRoutes(ctx context.Context, accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
-	CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains domain.List, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(ctx context.Context, accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroup(ctx context.Context, accountID, nsGroupID, userID string) error
 	ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
