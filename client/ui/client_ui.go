@@ -51,11 +51,11 @@ const (
 )
 
 func main() {
-	daemonAddr, showSettings, showNetworks, showDebug, errorMsg, saveLogsInFile := parseFlags()
+	flags := parseFlags()
 
 	// Initialize file logging if needed.
 	var logFile string
-	if saveLogsInFile {
+	if flags.saveLogsInFile {
 		file, err := initLogFile()
 		if err != nil {
 			log.Errorf("error while initializing log: %v", err)
@@ -71,19 +71,27 @@ func main() {
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnected))
 
 	// Show error message window if needed.
-	if errorMsg != "" {
-		showErrorMessage(errorMsg)
+	if flags.errorMsg != "" {
+		showErrorMessage(flags.errorMsg)
 		return
 	}
 
 	// Create the service client (this also builds the settings or networks UI if requested).
-	client := newServiceClient(daemonAddr, logFile, a, showSettings, showNetworks, showDebug)
+	client := newServiceClient(&newServiceClientArgs{
+		addr:         flags.daemonAddr,
+		logFile:      logFile,
+		app:          a,
+		showSettings: flags.showSettings,
+		showNetworks: flags.showNetworks,
+		showDebug:    flags.showDebug,
+		showProfiles: flags.showProfiles,
+	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if showSettings || showNetworks || showDebug {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showProfiles {
 		a.Run()
 		return
 	}
@@ -103,20 +111,33 @@ func main() {
 	systray.Run(client.onTrayReady, client.onTrayExit)
 }
 
+type cliFlags struct {
+	daemonAddr     string
+	showSettings   bool
+	showNetworks   bool
+	showProfiles   bool
+	showDebug      bool
+	errorMsg       string
+	saveLogsInFile bool
+}
+
 // parseFlags reads and returns all needed command-line flags.
-func parseFlags() (daemonAddr string, showSettings, showNetworks, showDebug bool, errorMsg string, saveLogsInFile bool) {
+func parseFlags() *cliFlags {
+	var flags cliFlags
+
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
-	flag.StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
-	flag.BoolVar(&showSettings, "settings", false, "run settings window")
-	flag.BoolVar(&showNetworks, "networks", false, "run networks window")
-	flag.BoolVar(&showDebug, "debug", false, "run debug window")
-	flag.StringVar(&errorMsg, "error-msg", "", "displays an error message window")
-	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
+	flag.StringVar(&flags.daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
+	flag.BoolVar(&flags.showSettings, "settings", false, "run settings window")
+	flag.BoolVar(&flags.showNetworks, "networks", false, "run networks window")
+	flag.BoolVar(&flags.showProfiles, "profiles", false, "run profiles window")
+	flag.BoolVar(&flags.showDebug, "debug", false, "run debug window")
+	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
+	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.Parse()
-	return
+	return &flags
 }
 
 // initLogFile initializes logging into a file.
@@ -180,6 +201,7 @@ type serviceClient struct {
 
 	// systray menu items
 	mStatus            *systray.MenuItem
+	mProfileName       *systray.MenuItem
 	mUp                *systray.MenuItem
 	mDown              *systray.MenuItem
 	mSettings          *systray.MenuItem
@@ -233,6 +255,7 @@ type serviceClient struct {
 	isUpdateIconActive   bool
 	showNetworks         bool
 	wNetworks            fyne.Window
+	wProfiles            fyne.Window
 
 	eventManager *event.Manager
 
@@ -246,33 +269,45 @@ type menuHandler struct {
 	cancel context.CancelFunc
 }
 
+type newServiceClientArgs struct {
+	addr         string
+	logFile      string
+	app          fyne.App
+	showSettings bool
+	showNetworks bool
+	showDebug    bool
+	showProfiles bool
+}
+
 // newServiceClient instance constructor
 //
 // This constructor also builds the UI elements for the settings window.
-func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool, showNetworks bool, showDebug bool) *serviceClient {
+func newServiceClient(args *newServiceClientArgs) *serviceClient {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &serviceClient{
 		ctx:              ctx,
 		cancel:           cancel,
-		addr:             addr,
-		app:              a,
-		logFile:          logFile,
+		addr:             args.addr,
+		app:              args.app,
+		logFile:          args.logFile,
 		sendNotification: false,
 
-		showAdvancedSettings: showSettings,
-		showNetworks:         showNetworks,
+		showAdvancedSettings: args.showSettings,
+		showNetworks:         args.showNetworks,
 		update:               version.NewUpdate(),
 	}
 
 	s.setNewIcons()
 
 	switch {
-	case showSettings:
+	case args.showSettings:
 		s.showSettingsUI()
-	case showNetworks:
+	case args.showNetworks:
 		s.showNetworksUI()
-	case showDebug:
+	case args.showDebug:
 		s.showDebugUI()
+	case args.showProfiles:
+		s.showProfilesUI()
 	}
 
 	return s
@@ -624,6 +659,8 @@ func (s *serviceClient) onTrayReady() {
 	// setup systray menu items
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
 	s.mStatus.Disable()
+	s.mProfileName = systray.AddMenuItem("Profile: Home", "Selected Profile: Home")
+	s.mProfileName.Disable()
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
@@ -641,7 +678,7 @@ func (s *serviceClient) onTrayReady() {
 	s.loadSettings()
 
 	s.mProfiles = newProfileMenu(systray.AddMenuItem("Profiles", profilesMenuDescr))
-	s.mProfiles.loadProfiles()
+	go s.updateProfiles()
 
 	s.exitNodeMu.Lock()
 	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
@@ -790,6 +827,12 @@ func (s *serviceClient) listenEvents() {
 			go func() {
 				defer s.mNetworks.Enable()
 				s.runSelfCommand("networks", "true")
+			}()
+		case <-s.mProfiles.manageItem.ClickedCh:
+			s.mProfiles.manageItem.Disable()
+			go func() {
+				defer s.mProfiles.manageItem.Enable()
+				s.runSelfCommand("profiles", "true")
 			}()
 		case <-s.mNotifications.ClickedCh:
 			if s.mNotifications.Checked() {
@@ -1039,11 +1082,11 @@ func (s *serviceClient) updateConfig() error {
 	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 
 	loginRequest := proto.LoginRequest{
-		IsUnixDesktopClient:  runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-		ServerSSHAllowed:     &sshAllowed,
-		RosenpassEnabled:     &rosenpassEnabled,
-		DisableAutoConnect:   &disableAutoStart,
-		DisableNotifications: &notificationsDisabled,
+		IsUnixDesktopClient:   runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+		ServerSSHAllowed:      &sshAllowed,
+		RosenpassEnabled:      &rosenpassEnabled,
+		DisableAutoConnect:    &disableAutoStart,
+		DisableNotifications:  &notificationsDisabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 	}
 

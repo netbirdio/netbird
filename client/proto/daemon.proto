@@ -67,6 +67,9 @@ service DaemonService {
   rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
+
+  // List available networks
+  rpc GetProfiles(GetProfilesRequest) returns (GetProfilesResponse) {}
 }
 
 
@@ -479,4 +482,19 @@ message GetEventsRequest {}
 
 message GetEventsResponse {
   repeated SystemEvent events = 1;
+}
+
+
+// Profiles
+message Profile {
+  string name = 1;
+  bool selected = 2;
+
+}
+
+message GetProfilesRequest {
+}
+
+message GetProfilesResponse {
+  repeated Profile profiles = 1;
 }
