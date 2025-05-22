@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"regexp"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/miekg/dns"
@@ -20,7 +19,7 @@ import (
 )
 
 const (
-	domainPattern = `^(?i)[\.\*a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
+	domainPattern = `^(?i)[\*a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
 	maxLabelLen   = 63
 )
 
@@ -325,16 +324,7 @@ func validateDomain(domain string) error {
 		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
 	}
 
-	labels, valid := dns.IsDomainName(domain)
-
-	// validate the TLD domains length
-	if labels == 0 && strings.HasPrefix(domain, ".") {
-		if len(domain)-1 > maxLabelLen {
-			return invalidDomainName
-		}
-		return nil
-	}
-
+	_, valid := dns.IsDomainName(domain)
 	if !valid {
 		return invalidDomainName
 	}

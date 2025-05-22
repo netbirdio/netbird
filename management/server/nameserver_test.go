@@ -904,14 +904,19 @@ func TestValidateDomain(t *testing.T) {
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid top level domain",
-			domain:  ".com",
-			errFunc: require.NoError,
-		},
-		{
 			name:    "Valid wildcard domain",
 			domain:  "*.example",
 			errFunc: require.NoError,
+		},
+		{
+			name:    "Invalid domain name with leading dot",
+			domain:  ".com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain name with dot only",
+			domain:  ".",
+			errFunc: require.Error,
 		},
 		{
 			name:    "Invalid domain name with double hyphen",
@@ -921,11 +926,6 @@ func TestValidateDomain(t *testing.T) {
 		{
 			name:    "Invalid domain name with a label exceeding 63 characters",
 			domain:  "dnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdns.com",
-			errFunc: require.Error,
-		},
-		{
-			name:    "Invalid top level domain with exceeding 63 characters",
-			domain:  ".dnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdns",
 			errFunc: require.Error,
 		},
 		{
