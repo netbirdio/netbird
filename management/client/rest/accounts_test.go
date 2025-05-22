@@ -66,6 +66,15 @@ func TestAccounts_List_Err(t *testing.T) {
 	})
 }
 
+func TestAccounts_List_ConnErr(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		ret, err := c.Accounts.List(context.Background())
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "404")
+		assert.Empty(t, ret)
+	})
+}
+
 func TestAccounts_Update_200(t *testing.T) {
 	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
 		mux.HandleFunc("/api/accounts/Test", func(w http.ResponseWriter, r *http.Request) {
