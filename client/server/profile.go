@@ -31,12 +31,34 @@ func (s *Server) GetProfiles(context.Context, *proto.GetProfilesRequest) (*proto
 	}, nil
 }
 
+// CreateProfile creates a new profile with the specified name.
+func (s *Server) CreateProfile(ctx context.Context, req *proto.CreateProfileRequest) (*proto.CreateProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	return &proto.CreateProfileResponse{
+		Success: true,
+		Error:   "",
+	}, nil
+}
+
 // SwitchProfile switches the current profile to the one specified in the request.
 func (s *Server) SwitchProfile(ctx context.Context, req *proto.SwitchProfileRequest) (*proto.SwitchProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
 	return &proto.SwitchProfileResponse{
+		Success: true,
+		Error:   "",
+	}, nil
+}
+
+// RemoveProfile removes the specified profile from the server.
+func (s *Server) RemoveProfile(ctx context.Context, req *proto.RemoveProfileRequest) (*proto.RemoveProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	return &proto.RemoveProfileResponse{
 		Success: true,
 		Error:   "",
 	}, nil

@@ -177,11 +177,25 @@ func (s *serviceClient) showProfilesUI() {
 					dialog.ShowError(errors.New("profile name cannot be empty"), s.wProfiles)
 					return
 				}
-				// backend create
-				//s.createProfile(name)
-				// add to slice, default unselected
-				//profiles = append(profiles, profile{name: name, selected: false})
-				//refresh()
+				conn, err := s.getSrvClient(defaultFailTimeout)
+				if err != nil {
+					dialog.ShowError(err, s.wProfiles)
+					return
+				}
+
+				// add profile
+				err = mProfiles.addProfile(s.ctx, conn, name)
+				if err != nil {
+					dialog.ShowError(fmt.Errorf("failed to create profile: %w", err), s.wProfiles)
+					return
+				}
+				dialog.ShowInformation(
+					"Profile Created",
+					fmt.Sprintf("Profile '%s' created successfully", name),
+					s.wProfiles,
+				)
+				// update slice
+				refresh()
 			},
 			s.wProfiles,
 		)
@@ -239,6 +253,22 @@ func (p *profileMenu) updateProfiles(ctx context.Context, conn proto.DaemonServi
 	// Add new profiles
 	p.profiles = append(p.profiles, profiles...)
 
+}
+
+func (p *profileMenu) addProfile(ctx context.Context, conn proto.DaemonServiceClient, profileName string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultFailTimeout)
+	defer cancel()
+
+	resp, err := conn.CreateProfile(ctx, &proto.CreateProfileRequest{Profile: profileName})
+	if err != nil {
+		return fmt.Errorf("create profile: %v", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("create profile: %s", resp.Error)
+	}
+
+	return nil
 }
 
 func (p *profileMenu) switchProfile(pCtx context.Context, conn proto.DaemonServiceClient, profileName string) error {

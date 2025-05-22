@@ -205,7 +205,6 @@ type serviceClient struct {
 	mUp                *systray.MenuItem
 	mDown              *systray.MenuItem
 	mSettings          *systray.MenuItem
-	profileMenu        *systray.MenuItem
 	mProfiles          *systray.MenuItem
 	mAbout             *systray.MenuItem
 	mGitHub            *systray.MenuItem
