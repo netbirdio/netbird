@@ -144,6 +144,7 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
 }
 
 func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	// if we don't have an interface but a zone, extract the interface index from the zone
 	if nexthop.IP.Zone() != "" && nexthop.Intf == nil {
 		zone, err := strconv.Atoi(nexthop.IP.Zone())
 		if err != nil {
