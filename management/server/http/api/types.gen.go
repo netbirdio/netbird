@@ -1787,6 +1787,9 @@ type GetApiEventsNetworkTrafficParams struct {
 	// UserId Filter by user ID
 	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
 
+	// ReporterId Filter by reporter ID
+	ReporterId *string `form:"reporter_id,omitempty" json:"reporter_id,omitempty"`
+
 	// Protocol Filter by protocol
 	Protocol *int `form:"protocol,omitempty" json:"protocol,omitempty"`
 
@@ -1799,7 +1802,7 @@ type GetApiEventsNetworkTrafficParams struct {
 	// Direction Filter by direction
 	Direction *GetApiEventsNetworkTrafficParamsDirection `form:"direction,omitempty" json:"direction,omitempty"`
 
-	// Search Filters events with a partial match on user email, source and destination names and source and destination addresses
+	// Search Case-insensitive partial match on user email, source/destination names, and source/destination addresses
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 
 	// StartDate Start date for filtering events (ISO 8601 format, e.g., 2024-01-01T00:00:00Z).
