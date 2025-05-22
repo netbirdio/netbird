@@ -828,10 +828,10 @@ func (s *serviceClient) listenEvents() {
 				defer s.mNetworks.Enable()
 				s.runSelfCommand("networks", "true")
 			}()
-		case <-s.mProfiles.manageItem.ClickedCh:
-			s.mProfiles.manageItem.Disable()
+		case <-s.mProfiles.menu.ClickedCh:
+			s.mProfiles.menu.Disable()
 			go func() {
-				defer s.mProfiles.manageItem.Enable()
+				defer s.mProfiles.menu.Enable()
 				s.runSelfCommand("profiles", "true")
 			}()
 		case <-s.mNotifications.ClickedCh:

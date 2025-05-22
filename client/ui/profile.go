@@ -17,20 +17,25 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-var mockProfiles = []profile{
-	{name: "Default", selected: false},
-	{name: "Home", selected: true},
-	{name: "Work", selected: false},
-}
-
 // showProfilesUI creates and displays the Profiles window with a list of existing profiles,
 // a button to add new profiles, allows removal, and lets the user switch the active profile.
 func (s *serviceClient) showProfilesUI() {
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		log.Errorf("get client: %v", err)
+		return
+	}
+
+	profiles, err := s.mProfiles.getProfiles(s.ctx, conn)
+	if err != nil {
+		log.Errorf("get profiles: %v", err)
+		return
+	}
 
 	var idx int
 	// List widget for profiles
 	list := widget.NewList(
-		func() int { return len(mockProfiles) },
+		func() int { return len(profiles) },
 		func() fyne.CanvasObject {
 			// Each item: Selected indicator, Name, spacer, Select & Remove buttons
 			return container.NewHBox(
@@ -49,30 +54,30 @@ func (s *serviceClient) showProfilesUI() {
 			selectBtn := row.Objects[3].(*widget.Button)
 			removeBtn := row.Objects[4].(*widget.Button)
 
-			profile := mockProfiles[i]
+			profile := profiles[i]
 			// Show a checkmark if selected
-			if profile.selected {
+			if profile.Selected {
 				indicator.SetText("✓")
 			} else {
 				indicator.SetText("")
 			}
-			nameLabel.SetText(profile.name)
+			nameLabel.SetText(profile.Name)
 
 			// Configure Select/Active button
 			selectBtn.SetText(func() string {
-				if profile.selected {
+				if profile.Selected {
 					return "Active"
 				}
 				return "Select"
 			}())
 			selectBtn.OnTapped = func() {
-				if profile.selected {
+				if profile.Selected {
 					return // already active
 				}
 				// confirm switch
 				dialog.ShowConfirm(
 					"Switch Profile",
-					fmt.Sprintf("Are you sure you want to switch to '%s'?", profile.name),
+					fmt.Sprintf("Are you sure you want to switch to '%s'?", profile.Name),
 					func(confirm bool) {
 						if !confirm {
 							return
@@ -86,7 +91,7 @@ func (s *serviceClient) showProfilesUI() {
 							if idx%2 == 1 {
 								dialog.ShowInformation(
 									"Profile Switched",
-									fmt.Sprintf("Profile '%s' switched successfully", profile.name),
+									fmt.Sprintf("Profile '%s' switched successfully", profile.Name),
 									s.wProfiles,
 								)
 							}
@@ -109,7 +114,7 @@ func (s *serviceClient) showProfilesUI() {
 			removeBtn.OnTapped = func() {
 				dialog.ShowConfirm(
 					"Delete Profile",
-					fmt.Sprintf("Are you sure you want to delete '%s'?", profile.name),
+					fmt.Sprintf("Are you sure you want to delete '%s'?", profile.Name),
 					func(confirm bool) {
 						if !confirm {
 							return
@@ -180,14 +185,9 @@ func (s *serviceClient) updateProfiles() {
 }
 
 type profileMenu struct {
-	mtx        sync.Mutex
-	menu       *systray.MenuItem
-	profiles   []profileMenuItem
-	manageItem *systray.MenuItem
-}
-
-type profileMenuItem struct {
-	menuItem *systray.MenuItem
+	mtx      sync.Mutex
+	menu     *systray.MenuItem
+	profiles []*proto.Profile
 }
 
 type profile struct {
@@ -197,7 +197,8 @@ type profile struct {
 
 func newProfileMenu(menu *systray.MenuItem) *profileMenu {
 	p := &profileMenu{
-		menu: menu,
+		menu:     menu,
+		profiles: make([]*proto.Profile, 0),
 	}
 	return p
 }
@@ -209,28 +210,15 @@ func (p *profileMenu) loadProfiles(profiles []*proto.Profile) {
 
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
-	for _, profile := range profiles {
-		menuItem := p.menu.AddSubMenuItem(profile.Name, "Switch to "+profile.Name)
-		if profile.Selected {
-			menuItem.Check()
-		}
-		p.profiles = append(p.profiles, profileMenuItem{menuItem: menuItem})
-	}
-
-	// add manage profiles item
-	p.menu.AddSeparator()
-	p.manageItem = p.menu.AddSubMenuItem("Manage Profiles", "Manage your profiles")
-
+	// Add new profiles
+	p.profiles = append(p.profiles, profiles...)
 }
 
 func (p *profileMenu) clearProfiles() {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
-	// Remove all existing profile menu items
-	for _, item := range p.profiles {
-		item.menuItem.Remove()
-	}
-	p.profiles = nil
+
+	p.profiles = make([]*proto.Profile, 0)
 }
 
 func (p *profileMenu) updateProfiles(ctx context.Context, conn proto.DaemonServiceClient) {
