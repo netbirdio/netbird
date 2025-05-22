@@ -113,11 +113,12 @@ type MockAccountManager struct {
 	DeleteSetupKeyFunc                  func(ctx context.Context, accountID, userID, keyID string) error
 	BuildUserInfosForAccountFunc        func(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	GetStoreFunc                        func() store.Store
-	CreateAccountByPrivateDomainFunc    func(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 	UpdateToPrimaryAccountFunc          func(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfoFunc                    func(ctx context.Context, accountID string) (*types.UserInfo, error)
 	GetCurrentUserInfoFunc              func(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
 	GetAccountMetaFunc                  func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
+
+	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -862,11 +863,11 @@ func (am *MockAccountManager) GetStore() store.Store {
 	return nil
 }
 
-func (am *MockAccountManager) CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error) {
-	if am.CreateAccountByPrivateDomainFunc != nil {
-		return am.CreateAccountByPrivateDomainFunc(ctx, initiatorId, domain)
+func (am *MockAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error) {
+	if am.GetOrCreateAccountByPrivateDomainFunc != nil {
+		return am.GetOrCreateAccountByPrivateDomainFunc(ctx, initiatorId, domain)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method CreateAccountByPrivateDomain is not implemented")
+	return nil, false, status.Errorf(codes.Unimplemented, "method GetOrCreateAccountByPrivateDomainFunc is not implemented")
 }
 
 func (am *MockAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
