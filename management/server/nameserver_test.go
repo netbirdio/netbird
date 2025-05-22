@@ -899,13 +899,33 @@ func TestValidateDomain(t *testing.T) {
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Invalid domain name with double hyphen",
-			domain:  "test--example.com",
+			name:    "Valid domain name with only one label",
+			domain:  "example",
+			errFunc: require.NoError,
+		},
+		{
+			name:    "Valid domain name with trailing dot",
+			domain:  "example.",
+			errFunc: require.NoError,
+		},
+		{
+			name:    "Invalid wildcard domain name",
+			domain:  "*.example",
 			errFunc: require.Error,
 		},
 		{
-			name:    "Invalid domain name with only one label",
-			domain:  "com",
+			name:    "Invalid domain name with leading dot",
+			domain:  ".com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain name with dot only",
+			domain:  ".",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain name with double hyphen",
+			domain:  "test--example.com",
 			errFunc: require.Error,
 		},
 		{
