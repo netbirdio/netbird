@@ -106,47 +106,6 @@ func (r *SysOps) cleanupRefCounter(stateManager *statemanager.Manager) error {
 	return nil
 }
 
-// TODO: fix: for default our wg address now appears as the default gw
-func (r *SysOps) addRouteForCurrentDefaultGateway(prefix netip.Prefix) error {
-	addr := netip.IPv4Unspecified()
-	if prefix.Addr().Is6() {
-		addr = netip.IPv6Unspecified()
-	}
-
-	nexthop, err := GetNextHop(addr)
-	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
-		return fmt.Errorf("get existing route gateway: %s", err)
-	}
-
-	if !prefix.Contains(nexthop.IP) {
-		log.Debugf("Skipping adding a new route for gateway %s because it is not in the network %s", nexthop.IP, prefix)
-		return nil
-	}
-
-	gatewayPrefix := netip.PrefixFrom(nexthop.IP, 32)
-	if nexthop.IP.Is6() {
-		gatewayPrefix = netip.PrefixFrom(nexthop.IP, 128)
-	}
-
-	ok, err := existsInRouteTable(gatewayPrefix)
-	if err != nil {
-		return fmt.Errorf("unable to check if there is an existing route for gateway %s. error: %s", gatewayPrefix, err)
-	}
-
-	if ok {
-		log.Debugf("Skipping adding a new route for gateway %s because it already exists", gatewayPrefix)
-		return nil
-	}
-
-	nexthop, err = GetNextHop(nexthop.IP)
-	if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
-		return fmt.Errorf("unable to get the next hop for the default gateway address. error: %s", err)
-	}
-
-	log.Debugf("Adding a new route for gateway %s with next hop %s", gatewayPrefix, nexthop.IP)
-	return r.addToRouteTable(gatewayPrefix, nexthop)
-}
-
 // addRouteToNonVPNIntf adds a new route to the routing table for the given prefix and returns the next hop and interface.
 // If the next hop or interface is pointing to the VPN interface, it will return the initial values.
 func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf iface.WGIface, initialNextHop Nexthop) (Nexthop, error) {
@@ -271,32 +230,7 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 		return nil
 	}
 
-	return r.addNonExistingRoute(prefix, intf)
-}
-
-// addNonExistingRoute adds a new route to the vpn interface if it doesn't exist in the current routing table
-func (r *SysOps) addNonExistingRoute(prefix netip.Prefix, intf *net.Interface) error {
-	ok, err := existsInRouteTable(prefix)
-	if err != nil {
-		return fmt.Errorf("exists in route table: %w", err)
-	}
-	if ok {
-		log.Warnf("Skipping adding a new route for network %s because it already exists", prefix)
-		return nil
-	}
-
-	ok, err = isSubRange(prefix)
-	if err != nil {
-		return fmt.Errorf("sub range: %w", err)
-	}
-
-	if ok {
-		if err := r.addRouteForCurrentDefaultGateway(prefix); err != nil {
-			log.Warnf("Unable to add route for current default gateway route. Will proceed without it. error: %s", err)
-		}
-	}
-
-	return r.addToRouteTable(prefix, Nexthop{netip.Addr{}, intf})
+	return r.addToRouteTable(prefix, nextHop)
 }
 
 // genericRemoveVPNRoute removes the route from the vpn interface. If a default prefix is given,
@@ -455,32 +389,6 @@ func ipToAddr(ip net.IP, intf *net.Interface) (netip.Addr, error) {
 	}
 
 	return addr.Unmap(), nil
-}
-
-func existsInRouteTable(prefix netip.Prefix) (bool, error) {
-	routes, err := GetRoutesFromTable()
-	if err != nil {
-		return false, fmt.Errorf("get routes from table: %w", err)
-	}
-	for _, tableRoute := range routes {
-		if tableRoute == prefix {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func isSubRange(prefix netip.Prefix) (bool, error) {
-	routes, err := GetRoutesFromTable()
-	if err != nil {
-		return false, fmt.Errorf("get routes from table: %w", err)
-	}
-	for _, tableRoute := range routes {
-		if tableRoute.Bits() > vars.MinRangeBits && tableRoute.Contains(prefix.Addr()) && tableRoute.Bits() < prefix.Bits() {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // IsAddrRouted checks if the candidate address would route to the vpn, in which case it returns true and the matched prefix.

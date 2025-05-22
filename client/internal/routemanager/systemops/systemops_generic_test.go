@@ -10,7 +10,6 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/pion/transport/v3/stdnet"
@@ -165,24 +164,19 @@ func TestGetNextHop(t *testing.T) {
 func TestAddExistAndRemoveRoute(t *testing.T) {
 	defaultNexthop, err := GetNextHop(netip.MustParseAddr("0.0.0.0"))
 	t.Log("defaultNexthop: ", defaultNexthop)
-	if err != nil {
-		t.Fatal("shouldn't return error when fetching the gateway: ", err)
-	}
+	require.NoError(t, err, "shouldn't return error when fetching the gateway")
+
 	testCases := []struct {
 		name              string
 		prefix            netip.Prefix
 		preExistingPrefix netip.Prefix
 		shouldAddRoute    bool
+		expectError       bool
 	}{
 		{
 			name:           "Should Add And Remove random Route",
 			prefix:         netip.MustParsePrefix("99.99.99.99/32"),
 			shouldAddRoute: true,
-		},
-		{
-			name:           "Should Not Add Route if overlaps with default gateway",
-			prefix:         netip.MustParsePrefix(defaultNexthop.IP.String() + "/31"),
-			shouldAddRoute: false,
 		},
 		{
 			name:              "Should Add Route if bigger network exists",
@@ -197,10 +191,10 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 			shouldAddRoute:    true,
 		},
 		{
-			name:              "Should Not Add Route if same network exists",
+			name:              "Should Error on duplicate route",
 			prefix:            netip.MustParsePrefix("100.100.0.0/16"),
 			preExistingPrefix: netip.MustParsePrefix("100.100.0.0/16"),
-			shouldAddRoute:    false,
+			expectError:       true,
 		},
 	}
 
@@ -217,9 +211,8 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 
 			peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 			newNet, err := stdnet.NewNet()
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err, "should create new net")
+
 			opts := iface.WGIFaceOpts{
 				IFaceName:    fmt.Sprintf("utun53%d", n),
 				Address:      "100.65.75.2/24",
@@ -249,6 +242,12 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 
 			// Add the route
 			err = r.AddVPNRoute(testCase.prefix, intf)
+
+			if testCase.expectError {
+				require.Error(t, err, "should return error")
+				return
+			}
+
 			require.NoError(t, err, "should not return err when adding route")
 
 			if testCase.shouldAddRoute {
@@ -260,94 +259,13 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 				// remove route again if added
 				err = r.RemoveVPNRoute(testCase.prefix, intf)
 				require.NoError(t, err, "should not return err")
-			}
 
-			// route should either not have been added or should have been removed
-			// In case of already existing route, it should not have been added (but still exist)
-			ok, err := existsInRouteTable(testCase.prefix)
-			t.Log("Buffer string: ", buf.String())
-			require.NoError(t, err, "should not return err")
-
-			if !strings.Contains(buf.String(), "because it already exists") {
-				require.False(t, ok, "route should not exist")
+				// route should be removed
+				ok, err = existsInRouteTable(testCase.prefix)
+				require.NoError(t, err, "should not return err")
+				require.False(t, ok, "route should not exist after removal")
 			}
 		})
-	}
-}
-
-func TestIsSubRange(t *testing.T) {
-	addresses, err := net.InterfaceAddrs()
-	if err != nil {
-		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
-	}
-
-	var subRangeAddressPrefixes []netip.Prefix
-	var nonSubRangeAddressPrefixes []netip.Prefix
-	for _, address := range addresses {
-		p := netip.MustParsePrefix(address.String())
-		if !p.Addr().IsLoopback() && p.Addr().Is4() && p.Bits() < 32 {
-			p2 := netip.PrefixFrom(p.Masked().Addr(), p.Bits()+1)
-			subRangeAddressPrefixes = append(subRangeAddressPrefixes, p2)
-			nonSubRangeAddressPrefixes = append(nonSubRangeAddressPrefixes, p.Masked())
-		}
-	}
-
-	for _, prefix := range subRangeAddressPrefixes {
-		isSubRangePrefix, err := isSubRange(prefix)
-		if err != nil {
-			t.Fatal("shouldn't return error when checking if address is sub-range: ", err)
-		}
-		if !isSubRangePrefix {
-			t.Fatalf("address %s should be sub-range of an existing route in the table", prefix)
-		}
-	}
-
-	for _, prefix := range nonSubRangeAddressPrefixes {
-		isSubRangePrefix, err := isSubRange(prefix)
-		if err != nil {
-			t.Fatal("shouldn't return error when checking if address is sub-range: ", err)
-		}
-		if isSubRangePrefix {
-			t.Fatalf("address %s should not be sub-range of an existing route in the table", prefix)
-		}
-	}
-}
-
-func TestExistsInRouteTable(t *testing.T) {
-	addresses, err := net.InterfaceAddrs()
-	if err != nil {
-		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
-	}
-
-	var addressPrefixes []netip.Prefix
-	for _, address := range addresses {
-		p := netip.MustParsePrefix(address.String())
-
-		switch {
-		case p.Addr().Is6():
-			continue
-		// Windows sometimes has hidden interface link local addrs that don't turn up on any interface
-		case runtime.GOOS == "windows" && p.Addr().IsLinkLocalUnicast():
-			continue
-		// Linux loopback 127/8 is in the local table, not in the main table and always takes precedence
-		case runtime.GOOS == "linux" && p.Addr().IsLoopback():
-			continue
-		// FreeBSD loopback 127/8 is not added to the routing table
-		case runtime.GOOS == "freebsd" && p.Addr().IsLoopback():
-			continue
-		default:
-			addressPrefixes = append(addressPrefixes, p.Masked())
-		}
-	}
-
-	for _, prefix := range addressPrefixes {
-		exists, err := existsInRouteTable(prefix)
-		if err != nil {
-			t.Fatal("shouldn't return error when checking if address exists in route table: ", err)
-		}
-		if !exists {
-			t.Fatalf("address %s should exist in route table", prefix)
-		}
 	}
 }
 
@@ -564,4 +482,17 @@ func TestIsVpnRoute(t *testing.T) {
 			assert.Equal(t, tt.expectedPrefix, matchedPrefix, "isVpnRoute should return expectedVpn prefix")
 		})
 	}
+}
+
+func existsInRouteTable(prefix netip.Prefix) (bool, error) {
+	routes, err := GetRoutesFromTable()
+	if err != nil {
+		return false, fmt.Errorf("get routes from table: %w", err)
+	}
+	for _, tableRoute := range routes {
+		if tableRoute == prefix {
+			return true, nil
+		}
+	}
+	return false, nil
 }

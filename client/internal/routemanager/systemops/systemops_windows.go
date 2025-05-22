@@ -492,7 +492,7 @@ func cancelMibChangeNotify2(handle windows.Handle) error {
 }
 
 // GetRoutesFromTable returns the current routing table from with prefixes only.
-// It ccaches the result for 2 seconds to avoid blocking the caller.
+// It caches the result for 2 seconds to avoid blocking the caller.
 func GetRoutesFromTable() ([]netip.Prefix, error) {
 	mux.Lock()
 	defer mux.Unlock()

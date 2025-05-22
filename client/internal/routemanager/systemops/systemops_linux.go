@@ -247,7 +247,7 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !isOpErr(err) {
+	if err := netlink.RouteAdd(route); err != nil && !isOpErr(err) {
 		return fmt.Errorf("netlink add route: %w", err)
 	}
 
@@ -270,7 +270,7 @@ func addUnreachableRoute(prefix netip.Prefix, tableID int) error {
 		Dst:    ipNet,
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !isOpErr(err) {
+	if err := netlink.RouteAdd(route); err != nil && !isOpErr(err) {
 		return fmt.Errorf("netlink add unreachable route: %w", err)
 	}
 
