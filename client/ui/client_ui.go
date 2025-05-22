@@ -205,7 +205,8 @@ type serviceClient struct {
 	mUp                *systray.MenuItem
 	mDown              *systray.MenuItem
 	mSettings          *systray.MenuItem
-	mProfiles          *profileMenu
+	profileMenu        *systray.MenuItem
+	mProfiles          *systray.MenuItem
 	mAbout             *systray.MenuItem
 	mGitHub            *systray.MenuItem
 	mVersionUI         *systray.MenuItem
@@ -677,8 +678,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()
 
-	s.mProfiles = newProfileMenu(systray.AddMenuItem("Profiles", profilesMenuDescr))
-	go s.updateProfiles()
+	s.mProfiles = systray.AddMenuItem("Profiles", profilesMenuDescr)
 
 	s.exitNodeMu.Lock()
 	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
@@ -828,10 +828,10 @@ func (s *serviceClient) listenEvents() {
 				defer s.mNetworks.Enable()
 				s.runSelfCommand("networks", "true")
 			}()
-		case <-s.mProfiles.menu.ClickedCh:
-			s.mProfiles.menu.Disable()
+		case <-s.mProfiles.ClickedCh:
+			s.mProfiles.Disable()
 			go func() {
-				defer s.mProfiles.menu.Enable()
+				defer s.mProfiles.Enable()
 				s.runSelfCommand("profiles", "true")
 			}()
 		case <-s.mNotifications.ClickedCh:

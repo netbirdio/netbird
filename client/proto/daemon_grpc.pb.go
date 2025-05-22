@@ -55,8 +55,10 @@ type DaemonServiceClient interface {
 	TracePacket(ctx context.Context, in *TracePacketRequest, opts ...grpc.CallOption) (*TracePacketResponse, error)
 	SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
-	// List available networks
+	// Profiles
 	GetProfiles(ctx context.Context, in *GetProfilesRequest, opts ...grpc.CallOption) (*GetProfilesResponse, error)
+	SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error)
+	RemoveProfile(ctx context.Context, in *RemoveProfileRequest, opts ...grpc.CallOption) (*RemoveProfileResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -279,6 +281,24 @@ func (c *daemonServiceClient) GetProfiles(ctx context.Context, in *GetProfilesRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error) {
+	out := new(SwitchProfileResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SwitchProfile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) RemoveProfile(ctx context.Context, in *RemoveProfileRequest, opts ...grpc.CallOption) (*RemoveProfileResponse, error) {
+	out := new(RemoveProfileResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/RemoveProfile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -320,8 +340,10 @@ type DaemonServiceServer interface {
 	TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error)
 	SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
-	// List available networks
+	// Profiles
 	GetProfiles(context.Context, *GetProfilesRequest) (*GetProfilesResponse, error)
+	SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error)
+	RemoveProfile(context.Context, *RemoveProfileRequest) (*RemoveProfileResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -391,6 +413,12 @@ func (UnimplementedDaemonServiceServer) GetEvents(context.Context, *GetEventsReq
 }
 func (UnimplementedDaemonServiceServer) GetProfiles(context.Context, *GetProfilesRequest) (*GetProfilesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetProfiles not implemented")
+}
+func (UnimplementedDaemonServiceServer) SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SwitchProfile not implemented")
+}
+func (UnimplementedDaemonServiceServer) RemoveProfile(context.Context, *RemoveProfileRequest) (*RemoveProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveProfile not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -786,6 +814,42 @@ func _DaemonService_GetProfiles_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_SwitchProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SwitchProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).SwitchProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/SwitchProfile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).SwitchProfile(ctx, req.(*SwitchProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_RemoveProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).RemoveProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/RemoveProfile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).RemoveProfile(ctx, req.(*RemoveProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -872,6 +936,14 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetProfiles",
 			Handler:    _DaemonService_GetProfiles_Handler,
+		},
+		{
+			MethodName: "SwitchProfile",
+			Handler:    _DaemonService_SwitchProfile_Handler,
+		},
+		{
+			MethodName: "RemoveProfile",
+			Handler:    _DaemonService_RemoveProfile_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

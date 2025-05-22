@@ -11,7 +11,6 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
-	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -20,19 +19,20 @@ import (
 // showProfilesUI creates and displays the Profiles window with a list of existing profiles,
 // a button to add new profiles, allows removal, and lets the user switch the active profile.
 func (s *serviceClient) showProfilesUI() {
+	mProfiles := newProfileMenu()
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return
 	}
 
-	profiles, err := s.mProfiles.getProfiles(s.ctx, conn)
+	profiles, err := mProfiles.getProfiles(s.ctx, conn)
 	if err != nil {
 		log.Errorf("get profiles: %v", err)
 		return
 	}
 
-	var idx int
+	var refresh func()
 	// List widget for profiles
 	list := widget.NewList(
 		func() int { return len(profiles) },
@@ -82,28 +82,26 @@ func (s *serviceClient) showProfilesUI() {
 						if !confirm {
 							return
 						}
-						// backend switch
-						//err := s.switchProfile(profile.name)
-						var err error
-						if idx%2 == 0 {
-							err = errors.New("failed to switch profile")
-						} else {
-							if idx%2 == 1 {
-								dialog.ShowInformation(
-									"Profile Switched",
-									fmt.Sprintf("Profile '%s' switched successfully", profile.Name),
-									s.wProfiles,
-								)
-							}
+
+						conn, err := s.getSrvClient(defaultFailTimeout)
+						if err != nil {
+							log.Errorf("get client: %v", err)
+							return
 						}
-						idx++
+						// switch
+						err = mProfiles.switchProfile(s.ctx, conn, profile.Name)
 						if err != nil {
 							dialog.ShowError(fmt.Errorf("failed to select profile: %w", err), s.wProfiles)
 							return
 						}
-						// update slice flags
 
-						//refresh()
+						dialog.ShowInformation(
+							"Profile Switched",
+							fmt.Sprintf("Profile '%s' switched successfully", profile.Name),
+							s.wProfiles,
+						)
+						// update slice flags
+						refresh()
 					},
 					s.wProfiles,
 				)
@@ -119,17 +117,45 @@ func (s *serviceClient) showProfilesUI() {
 						if !confirm {
 							return
 						}
-						// backend remove
-						//s.removeProfile(profile.name)
-						// update slice and refresh
-						//profiles = append(profiles[:i], profiles[i+1:]...)
-						//refresh()
+						conn, err := s.getSrvClient(defaultFailTimeout)
+						if err != nil {
+							log.Errorf("get client: %v", err)
+							return
+						}
+						// remove
+						err = mProfiles.removeProfile(s.ctx, conn, profile.Name)
+						if err != nil {
+							dialog.ShowError(fmt.Errorf("failed to remove profile: %w", err), s.wProfiles)
+							return
+						}
+						dialog.ShowInformation(
+							"Profile Removed",
+							fmt.Sprintf("Profile '%s' removed successfully", profile.Name),
+							s.wProfiles,
+						)
+						// update slice
+						refresh()
 					},
 					s.wProfiles,
 				)
 			}
 		},
 	)
+
+	refresh = func() {
+		conn, err := s.getSrvClient(defaultFailTimeout)
+		if err != nil {
+			dialog.ShowError(err, s.wProfiles)
+			return
+		}
+		newProfiles, err := mProfiles.getProfiles(s.ctx, conn)
+		if err != nil {
+			dialog.ShowError(err, s.wProfiles)
+			return
+		}
+		profiles = newProfiles // update the slice
+		list.Refresh()         // tell Fyne to re-call length/update on every visible row
+	}
 
 	// Button to add a new profile
 	newBtn := widget.NewButton("New Profile", func() {
@@ -174,19 +200,8 @@ func (s *serviceClient) showProfilesUI() {
 	s.wProfiles.Show()
 }
 
-func (s *serviceClient) updateProfiles() {
-	conn, err := s.getSrvClient(defaultFailTimeout)
-	if err != nil {
-		log.Errorf("get client: %v", err)
-		return
-	}
-
-	s.mProfiles.updateProfiles(s.ctx, conn)
-}
-
 type profileMenu struct {
 	mtx      sync.Mutex
-	menu     *systray.MenuItem
 	profiles []*proto.Profile
 }
 
@@ -195,23 +210,11 @@ type profile struct {
 	selected bool
 }
 
-func newProfileMenu(menu *systray.MenuItem) *profileMenu {
+func newProfileMenu() *profileMenu {
 	p := &profileMenu{
-		menu:     menu,
 		profiles: make([]*proto.Profile, 0),
 	}
 	return p
-}
-
-func (p *profileMenu) loadProfiles(profiles []*proto.Profile) {
-
-	// Clear existing profiles
-	p.clearProfiles()
-
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
-	// Add new profiles
-	p.profiles = append(p.profiles, profiles...)
 }
 
 func (p *profileMenu) clearProfiles() {
@@ -228,8 +231,41 @@ func (p *profileMenu) updateProfiles(ctx context.Context, conn proto.DaemonServi
 		return
 	}
 
-	p.loadProfiles(profiles)
+	// Clear existing profiles
+	p.clearProfiles()
 
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+	// Add new profiles
+	p.profiles = append(p.profiles, profiles...)
+
+}
+
+func (p *profileMenu) switchProfile(pCtx context.Context, conn proto.DaemonServiceClient, profileName string) error {
+	ctx, cancel := context.WithTimeout(pCtx, defaultFailTimeout)
+	defer cancel()
+
+	resp, err := conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{Profile: profileName})
+	if err != nil {
+		return fmt.Errorf("switch profile: %v", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("switch profile: %s", resp.Error)
+	}
+
+	return nil
+}
+
+func (p *profileMenu) removeProfile(pCtx context.Context, conn proto.DaemonServiceClient, profileName string) error {
+	ctx, cancel := context.WithTimeout(pCtx, defaultFailTimeout)
+	defer cancel()
+
+	_, err := conn.RemoveProfile(ctx, &proto.RemoveProfileRequest{Profile: profileName})
+	if err != nil {
+		return fmt.Errorf("remove profile: %v", err)
+	}
+
+	return nil
 }
 
 func (p *profileMenu) getProfiles(pCtx context.Context, conn proto.DaemonServiceClient) ([]*proto.Profile, error) {

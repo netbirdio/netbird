@@ -30,3 +30,14 @@ func (s *Server) GetProfiles(context.Context, *proto.GetProfilesRequest) (*proto
 		Profiles: mockProfiles,
 	}, nil
 }
+
+// SwitchProfile switches the current profile to the one specified in the request.
+func (s *Server) SwitchProfile(ctx context.Context, req *proto.SwitchProfileRequest) (*proto.SwitchProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	return &proto.SwitchProfileResponse{
+		Success: true,
+		Error:   "",
+	}, nil
+}
