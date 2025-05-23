@@ -241,6 +241,8 @@ func NewEngine(
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
+
+	path := statemanager.GetDefaultStatePath()
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
@@ -250,11 +252,9 @@ func NewEngine(
 			}
 		}
 
-		engine.stateManager = statemanager.New(mobileDep.StateFilePath)
+		path = mobileDep.StateFilePath
 	}
-	if path := statemanager.GetDefaultStatePath(); path != "" {
-		engine.stateManager = statemanager.New(path)
-	}
+	engine.stateManager = statemanager.New(path)
 
 	return engine
 }
