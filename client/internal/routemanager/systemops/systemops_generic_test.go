@@ -3,12 +3,10 @@
 package systemops
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net"
 	"net/netip"
-	"os"
 	"runtime"
 	"testing"
 
@@ -199,12 +197,7 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 	}
 
 	for n, testCase := range testCases {
-
-		var buf bytes.Buffer
-		log.SetOutput(&buf)
-		defer func() {
-			log.SetOutput(os.Stderr)
-		}()
+		log.SetLevel(log.TraceLevel)
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Setenv("NB_USE_LEGACY_ROUTING", "true")
 			t.Setenv("NB_DISABLE_ROUTE_CACHE", "true")
