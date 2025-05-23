@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -97,7 +96,7 @@ func init() {
 	formatter.SetTextFormatter(log.StandardLogger())
 }
 
-func generateDummyHandler(domain string, servers []nbdns.NameServer) *upstreamResolverBase {
+func generateDummyHandler(domain domain.Domain, servers []nbdns.NameServer) *upstreamResolverBase {
 	var srvs []string
 	for _, srv := range servers {
 		srvs = append(srvs, getNSHostPort(srv))
@@ -152,7 +151,7 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 				NameServerGroups: []*nbdns.NameServerGroup{
 					{
-						Domains:     []string{"netbird.io"},
+						Domains:     domain.List{"netbird.io"},
 						NameServers: nameServers,
 					},
 					{
@@ -184,7 +183,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			name:             "New Config Should Succeed",
 			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
 			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
+				generateDummyHandler(domain.Domain(zoneRecords[0].Name), nameServers).ID(): handlerWrapper{
 					domain:   "netbird.cloud",
 					handler:  dummyHandler,
 					priority: PriorityMatchDomain,
@@ -202,7 +201,7 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 				NameServerGroups: []*nbdns.NameServerGroup{
 					{
-						Domains:     []string{"netbird.io"},
+						Domains:     domain.List{"netbird.io"},
 						NameServers: nameServers,
 					},
 				},
@@ -303,8 +302,8 @@ func TestUpdateDNSServer(t *testing.T) {
 			name:             "Empty Config Should Succeed and Clean Maps",
 			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
 			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
-					domain:   zoneRecords[0].Name,
+				generateDummyHandler(domain.Domain(zoneRecords[0].Name), nameServers).ID(): handlerWrapper{
+					domain:   domain.Domain(zoneRecords[0].Name),
 					handler:  dummyHandler,
 					priority: PriorityMatchDomain,
 				},
@@ -319,8 +318,8 @@ func TestUpdateDNSServer(t *testing.T) {
 			name:             "Disabled Service Should clean map",
 			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
 			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
-					domain:   zoneRecords[0].Name,
+				generateDummyHandler(domain.Domain(zoneRecords[0].Name), nameServers).ID(): handlerWrapper{
+					domain:   domain.Domain(zoneRecords[0].Name),
 					handler:  dummyHandler,
 					priority: PriorityMatchDomain,
 				},
@@ -501,7 +500,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 
 	dnsServer.dnsMuxMap = registeredHandlerMap{
 		"id1": handlerWrapper{
-			domain:   zoneRecords[0].Name,
+			domain:   domain.Domain(zoneRecords[0].Name),
 			handler:  &local.Resolver{},
 			priority: PriorityMatchDomain,
 		},
@@ -533,7 +532,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		},
 		NameServerGroups: []*nbdns.NameServerGroup{
 			{
-				Domains:     []string{"netbird.io"},
+				Domains:     domain.List{"netbird.io"},
 				NameServers: nameServers,
 			},
 			{
@@ -599,7 +598,7 @@ func TestDNSServerStartStop(t *testing.T) {
 				t.Error(err)
 			}
 
-			dnsServer.registerHandler([]string{"netbird.cloud"}, dnsServer.localResolver, 1)
+			dnsServer.registerHandler(domain.List{"netbird.cloud"}, dnsServer.localResolver, 1)
 
 			resolver := &net.Resolver{
 				PreferGo: true,
@@ -659,19 +658,19 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 
 	var domainsUpdate string
 	hostManager.applyDNSConfigFunc = func(config HostDNSConfig, statemanager *statemanager.Manager) error {
-		domains := []string{}
+		domains := domain.List{}
 		for _, item := range config.Domains {
 			if item.Disabled {
 				continue
 			}
 			domains = append(domains, item.Domain)
 		}
-		domainsUpdate = strings.Join(domains, ",")
+		domainsUpdate = domains.PunycodeString()
 		return nil
 	}
 
 	deactivate, reactivate := server.upstreamCallbacks(&nbdns.NameServerGroup{
-		Domains: []string{"domain1"},
+		Domains: domain.List{"domain1"},
 		NameServers: []nbdns.NameServer{
 			{IP: netip.MustParseAddr("8.8.0.0"), NSType: nbdns.UDPNameServerType, Port: 53},
 		},
@@ -679,28 +678,28 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 
 	deactivate(nil)
 	expected := "domain0,domain2"
-	domains := []string{}
+	domains := domain.List{}
 	for _, item := range server.currentConfig.Domains {
 		if item.Disabled {
 			continue
 		}
 		domains = append(domains, item.Domain)
 	}
-	got := strings.Join(domains, ",")
+	got := domains.PunycodeString()
 	if expected != got {
 		t.Errorf("expected domains list: %q, got %q", expected, got)
 	}
 
 	reactivate()
 	expected = "domain0,domain1,domain2"
-	domains = []string{}
+	domains = domain.List{}
 	for _, item := range server.currentConfig.Domains {
 		if item.Disabled {
 			continue
 		}
 		domains = append(domains, item.Domain)
 	}
-	got = strings.Join(domains, ",")
+	got = domains.PunycodeString()
 	if expected != got {
 		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
 	}
@@ -868,7 +867,7 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 						Port:   53,
 					},
 				},
-				Domains: []string{"google.com"},
+				Domains: domain.List{"google.com"},
 				Primary: false,
 			},
 		},
@@ -1448,7 +1447,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 				for _, muxEntry := range server.dnsMuxMap {
 					if chainEntry.Handler == muxEntry.handler &&
 						chainEntry.Priority == muxEntry.priority &&
-						chainEntry.Pattern == dns.Fqdn(muxEntry.domain) {
+						chainEntry.Pattern.PunycodeString() == dns.Fqdn(muxEntry.domain.PunycodeString()) {
 						foundInMux = true
 						break
 					}
@@ -1467,8 +1466,8 @@ func TestExtraDomains(t *testing.T) {
 		registerDomains     []domain.List
 		deregisterDomains   []domain.List
 		finalConfig         nbdns.Config
-		expectedDomains     []string
-		expectedMatchOnly   []string
+		expectedDomains     domain.List
+		expectedMatchOnly   domain.List
 		applyHostConfigCall int
 	}{
 		{
@@ -1482,12 +1481,12 @@ func TestExtraDomains(t *testing.T) {
 					{Domain: "config.example.com"},
 				},
 			},
-			expectedDomains: []string{
+			expectedDomains: domain.List{
 				"config.example.com.",
 				"extra1.example.com.",
 				"extra2.example.com.",
 			},
-			expectedMatchOnly: []string{
+			expectedMatchOnly: domain.List{
 				"extra1.example.com.",
 				"extra2.example.com.",
 			},
@@ -1504,12 +1503,12 @@ func TestExtraDomains(t *testing.T) {
 			registerDomains: []domain.List{
 				{"extra1.example.com", "extra2.example.com"},
 			},
-			expectedDomains: []string{
+			expectedDomains: domain.List{
 				"config.example.com.",
 				"extra1.example.com.",
 				"extra2.example.com.",
 			},
-			expectedMatchOnly: []string{
+			expectedMatchOnly: domain.List{
 				"extra1.example.com.",
 				"extra2.example.com.",
 			},
@@ -1527,12 +1526,12 @@ func TestExtraDomains(t *testing.T) {
 			registerDomains: []domain.List{
 				{"extra.example.com", "overlap.example.com"},
 			},
-			expectedDomains: []string{
+			expectedDomains: domain.List{
 				"config.example.com.",
 				"overlap.example.com.",
 				"extra.example.com.",
 			},
-			expectedMatchOnly: []string{
+			expectedMatchOnly: domain.List{
 				"extra.example.com.",
 			},
 			applyHostConfigCall: 2,
@@ -1552,12 +1551,12 @@ func TestExtraDomains(t *testing.T) {
 			deregisterDomains: []domain.List{
 				{"extra1.example.com", "extra3.example.com"},
 			},
-			expectedDomains: []string{
+			expectedDomains: domain.List{
 				"config.example.com.",
 				"extra2.example.com.",
 				"extra4.example.com.",
 			},
-			expectedMatchOnly: []string{
+			expectedMatchOnly: domain.List{
 				"extra2.example.com.",
 				"extra4.example.com.",
 			},
@@ -1578,13 +1577,13 @@ func TestExtraDomains(t *testing.T) {
 			deregisterDomains: []domain.List{
 				{"duplicate.example.com"},
 			},
-			expectedDomains: []string{
+			expectedDomains: domain.List{
 				"config.example.com.",
 				"extra.example.com.",
 				"other.example.com.",
 				"duplicate.example.com.",
 			},
-			expectedMatchOnly: []string{
+			expectedMatchOnly: domain.List{
 				"extra.example.com.",
 				"other.example.com.",
 				"duplicate.example.com.",
@@ -1609,13 +1608,13 @@ func TestExtraDomains(t *testing.T) {
 					{Domain: "newconfig.example.com"},
 				},
 			},
-			expectedDomains: []string{
+			expectedDomains: domain.List{
 				"config.example.com.",
 				"newconfig.example.com.",
 				"extra.example.com.",
 				"duplicate.example.com.",
 			},
-			expectedMatchOnly: []string{
+			expectedMatchOnly: domain.List{
 				"extra.example.com.",
 				"duplicate.example.com.",
 			},
@@ -1636,12 +1635,12 @@ func TestExtraDomains(t *testing.T) {
 			deregisterDomains: []domain.List{
 				{"protected.example.com"},
 			},
-			expectedDomains: []string{
+			expectedDomains: domain.List{
 				"extra.example.com.",
 				"config.example.com.",
 				"protected.example.com.",
 			},
-			expectedMatchOnly: []string{
+			expectedMatchOnly: domain.List{
 				"extra.example.com.",
 			},
 			applyHostConfigCall: 3,
@@ -1652,7 +1651,7 @@ func TestExtraDomains(t *testing.T) {
 				ServiceEnable: true,
 				NameServerGroups: []*nbdns.NameServerGroup{
 					{
-						Domains: []string{"ns.example.com", "overlap.ns.example.com"},
+						Domains: domain.List{"ns.example.com", "overlap.ns.example.com"},
 						NameServers: []nbdns.NameServer{
 							{
 								IP:     netip.MustParseAddr("8.8.8.8"),
@@ -1666,12 +1665,12 @@ func TestExtraDomains(t *testing.T) {
 			registerDomains: []domain.List{
 				{"extra.example.com", "overlap.ns.example.com"},
 			},
-			expectedDomains: []string{
+			expectedDomains: domain.List{
 				"ns.example.com.",
 				"overlap.ns.example.com.",
 				"extra.example.com.",
 			},
-			expectedMatchOnly: []string{
+			expectedMatchOnly: domain.List{
 				"ns.example.com.",
 				"overlap.ns.example.com.",
 				"extra.example.com.",
@@ -1742,8 +1741,8 @@ func TestExtraDomains(t *testing.T) {
 			lastConfig := capturedConfigs[len(capturedConfigs)-1]
 
 			// Check all expected domains are present
-			domainMap := make(map[string]bool)
-			matchOnlyMap := make(map[string]bool)
+			domainMap := make(map[domain.Domain]bool)
+			matchOnlyMap := make(map[domain.Domain]bool)
 
 			for _, d := range lastConfig.Domains {
 				domainMap[d.Domain] = true
@@ -1860,7 +1859,7 @@ func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
 	err := server.applyConfiguration(initialConfig)
 	assert.NoError(t, err)
 
-	var domains []string
+	var domains domain.List
 	for _, d := range capturedConfig.Domains {
 		domains = append(domains, d.Domain)
 	}
@@ -1879,7 +1878,7 @@ func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify both domains are in config, but no duplicates
-	domains = []string{}
+	domains = domain.List{}
 	matchOnlyCount := 0
 	for _, d := range capturedConfig.Domains {
 		domains = append(domains, d.Domain)
@@ -1893,7 +1892,7 @@ func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
 	assert.Equal(t, 2, len(domains), "Should have exactly 2 domains with no duplicates")
 
 	// Extra domain should no longer be marked as match-only when in config
-	matchOnlyDomain := ""
+	var matchOnlyDomain domain.Domain
 	for _, d := range capturedConfig.Domains {
 		if d.Domain == "extra.example.com." && d.MatchOnly {
 			matchOnlyDomain = d.Domain
@@ -1946,7 +1945,7 @@ func TestDomainCaseHandling(t *testing.T) {
 	err := server.applyConfiguration(config)
 	assert.NoError(t, err)
 
-	var domains []string
+	var domains domain.List
 	for _, d := range capturedConfig.Domains {
 		domains = append(domains, d.Domain)
 	}

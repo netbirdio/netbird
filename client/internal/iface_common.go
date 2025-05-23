@@ -14,11 +14,12 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 type wgIfaceBase interface {
 	Create() error
-	CreateOnAndroid(routeRange []string, ip string, domains []string) error
+	CreateOnAndroid(routeRange []string, ip string, domains domain.List) error
 	IsUserspaceBind() bool
 	Name() string
 	Address() wgaddr.Address

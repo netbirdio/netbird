@@ -9,6 +9,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 // TestHandlerChain_ServeDNS_Priorities tests that handlers are executed in priority order
@@ -50,8 +51,8 @@ func TestHandlerChain_ServeDNS_Priorities(t *testing.T) {
 func TestHandlerChain_ServeDNS_DomainMatching(t *testing.T) {
 	tests := []struct {
 		name            string
-		handlerDomain   string
-		queryDomain     string
+		handlerDomain   domain.Domain
+		queryDomain     domain.Domain
 		isWildcard      bool
 		matchSubdomains bool
 		shouldMatch     bool
@@ -141,7 +142,7 @@ func TestHandlerChain_ServeDNS_DomainMatching(t *testing.T) {
 			chain.AddHandler(pattern, handler, nbdns.PriorityDefault)
 
 			r := new(dns.Msg)
-			r.SetQuestion(tt.queryDomain, dns.TypeA)
+			r.SetQuestion(tt.queryDomain.PunycodeString(), dns.TypeA)
 			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			chain.ServeDNS(w, r)
@@ -160,17 +161,17 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 	tests := []struct {
 		name     string
 		handlers []struct {
-			pattern  string
+			pattern  domain.Domain
 			priority int
 		}
-		queryDomain     string
+		queryDomain     domain.Domain
 		expectedCalls   int
 		expectedHandler int // index of the handler that should be called
 	}{
 		{
 			name: "wildcard and exact same priority - exact should win",
 			handlers: []struct {
-				pattern  string
+				pattern  domain.Domain
 				priority int
 			}{
 				{pattern: "*.example.com.", priority: nbdns.PriorityDefault},
@@ -183,7 +184,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 		{
 			name: "higher priority wildcard over lower priority exact",
 			handlers: []struct {
-				pattern  string
+				pattern  domain.Domain
 				priority int
 			}{
 				{pattern: "example.com.", priority: nbdns.PriorityDefault},
@@ -196,7 +197,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 		{
 			name: "multiple wildcards different priorities",
 			handlers: []struct {
-				pattern  string
+				pattern  domain.Domain
 				priority int
 			}{
 				{pattern: "*.example.com.", priority: nbdns.PriorityDefault},
@@ -210,7 +211,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 		{
 			name: "subdomain with mix of patterns",
 			handlers: []struct {
-				pattern  string
+				pattern  domain.Domain
 				priority int
 			}{
 				{pattern: "*.example.com.", priority: nbdns.PriorityDefault},
@@ -224,7 +225,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 		{
 			name: "root zone with specific domain",
 			handlers: []struct {
-				pattern  string
+				pattern  domain.Domain
 				priority int
 			}{
 				{pattern: ".", priority: nbdns.PriorityDefault},
@@ -258,7 +259,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 
 			// Create and execute request
 			r := new(dns.Msg)
-			r.SetQuestion(tt.queryDomain, dns.TypeA)
+			r.SetQuestion(tt.queryDomain.PunycodeString(), dns.TypeA)
 			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 			chain.ServeDNS(w, r)
 
@@ -330,7 +331,7 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 		name string
 		ops  []struct {
 			action   string // "add" or "remove"
-			pattern  string
+			pattern  domain.Domain
 			priority int
 		}
 		query         string
@@ -340,7 +341,7 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 			name: "remove high priority keeps lower priority handler",
 			ops: []struct {
 				action   string
-				pattern  string
+				pattern  domain.Domain
 				priority int
 			}{
 				{"add", "example.com.", nbdns.PriorityDNSRoute},
@@ -357,7 +358,7 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 			name: "remove lower priority keeps high priority handler",
 			ops: []struct {
 				action   string
-				pattern  string
+				pattern  domain.Domain
 				priority int
 			}{
 				{"add", "example.com.", nbdns.PriorityDNSRoute},
@@ -374,7 +375,7 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 			name: "remove all handlers in order",
 			ops: []struct {
 				action   string
-				pattern  string
+				pattern  domain.Domain
 				priority int
 			}{
 				{"add", "example.com.", nbdns.PriorityDNSRoute},
@@ -436,7 +437,7 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	chain := nbdns.NewHandlerChain()
 
-	testDomain := "example.com."
+	testDomain := domain.Domain("example.com.")
 	testQuery := "test.example.com."
 
 	// Create handlers with MatchSubdomains enabled
@@ -518,7 +519,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 		name        string
 		scenario    string
 		addHandlers []struct {
-			pattern     string
+			pattern     domain.Domain
 			priority    int
 			subdomains  bool
 			shouldMatch bool
@@ -530,7 +531,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 			name:     "case insensitive exact match",
 			scenario: "handler registered lowercase, query uppercase",
 			addHandlers: []struct {
-				pattern     string
+				pattern     domain.Domain
 				priority    int
 				subdomains  bool
 				shouldMatch bool
@@ -544,7 +545,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 			name:     "case insensitive wildcard match",
 			scenario: "handler registered mixed case wildcard, query different case",
 			addHandlers: []struct {
-				pattern     string
+				pattern     domain.Domain
 				priority    int
 				subdomains  bool
 				shouldMatch bool
@@ -558,7 +559,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 			name:     "multiple handlers different case same domain",
 			scenario: "second handler should replace first despite case difference",
 			addHandlers: []struct {
-				pattern     string
+				pattern     domain.Domain
 				priority    int
 				subdomains  bool
 				shouldMatch bool
@@ -573,7 +574,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 			name:     "subdomain matching case insensitive",
 			scenario: "handler with MatchSubdomains true should match regardless of case",
 			addHandlers: []struct {
-				pattern     string
+				pattern     domain.Domain
 				priority    int
 				subdomains  bool
 				shouldMatch bool
@@ -587,7 +588,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 			name:     "root zone case insensitive",
 			scenario: "root zone handler should match regardless of case",
 			addHandlers: []struct {
-				pattern     string
+				pattern     domain.Domain
 				priority    int
 				subdomains  bool
 				shouldMatch bool
@@ -601,7 +602,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 			name:     "multiple handlers different priority",
 			scenario: "should call higher priority handler despite case differences",
 			addHandlers: []struct {
-				pattern     string
+				pattern     domain.Domain
 				priority    int
 				subdomains  bool
 				shouldMatch bool
@@ -618,7 +619,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			chain := nbdns.NewHandlerChain()
-			handlerCalls := make(map[string]bool) // track which patterns were called
+			handlerCalls := make(map[domain.Domain]bool) // track which patterns were called
 
 			// Add handlers according to test case
 			for _, h := range tt.addHandlers {
@@ -686,19 +687,19 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 		scenario string
 		ops      []struct {
 			action    string
-			pattern   string
+			pattern   domain.Domain
 			priority  int
 			subdomain bool
 		}
-		query         string
-		expectedMatch string
+		query         domain.Domain
+		expectedMatch domain.Domain
 	}{
 		{
 			name:     "more specific domain matches first",
 			scenario: "sub.example.com should match before example.com",
 			ops: []struct {
 				action    string
-				pattern   string
+				pattern   domain.Domain
 				priority  int
 				subdomain bool
 			}{
@@ -713,7 +714,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 			scenario: "sub.example.com should match before example.com",
 			ops: []struct {
 				action    string
-				pattern   string
+				pattern   domain.Domain
 				priority  int
 				subdomain bool
 			}{
@@ -728,7 +729,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 			scenario: "after removing most specific, should fall back to less specific",
 			ops: []struct {
 				action    string
-				pattern   string
+				pattern   domain.Domain
 				priority  int
 				subdomain bool
 			}{
@@ -745,7 +746,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 			scenario: "less specific domain with higher priority should match first",
 			ops: []struct {
 				action    string
-				pattern   string
+				pattern   domain.Domain
 				priority  int
 				subdomain bool
 			}{
@@ -760,7 +761,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 			scenario: "with equal priority, more specific domain should match",
 			ops: []struct {
 				action    string
-				pattern   string
+				pattern   domain.Domain
 				priority  int
 				subdomain bool
 			}{
@@ -776,7 +777,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 			scenario: "specific domain should match before wildcard at same priority",
 			ops: []struct {
 				action    string
-				pattern   string
+				pattern   domain.Domain
 				priority  int
 				subdomain bool
 			}{
@@ -791,7 +792,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			chain := nbdns.NewHandlerChain()
-			handlers := make(map[string]*nbdns.MockSubdomainHandler)
+			handlers := make(map[domain.Domain]*nbdns.MockSubdomainHandler)
 
 			for _, op := range tt.ops {
 				if op.action == "add" {
@@ -804,7 +805,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 			}
 
 			r := new(dns.Msg)
-			r.SetQuestion(tt.query, dns.TypeA)
+			r.SetQuestion(tt.query.PunycodeString(), dns.TypeA)
 			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			// Setup handler expectations
@@ -836,9 +837,9 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 func TestHandlerChain_AddRemoveRoundtrip(t *testing.T) {
 	tests := []struct {
 		name            string
-		addPattern      string
-		removePattern   string
-		queryPattern    string
+		addPattern      domain.Domain
+		removePattern   domain.Domain
+		queryPattern    domain.Domain
 		shouldBeRemoved bool
 		description     string
 	}{
@@ -954,7 +955,7 @@ func TestHandlerChain_AddRemoveRoundtrip(t *testing.T) {
 
 			handler := &nbdns.MockHandler{}
 			r := new(dns.Msg)
-			r.SetQuestion(tt.queryPattern, dns.TypeA)
+			r.SetQuestion(tt.queryPattern.PunycodeString(), dns.TypeA)
 			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			// First verify no handler is called before adding any

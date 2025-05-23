@@ -107,7 +107,7 @@ func (m *MockWGIface) Create() error {
 	return m.CreateFunc()
 }
 
-func (m *MockWGIface) CreateOnAndroid(routeRange []string, ip string, domains []string) error {
+func (m *MockWGIface) CreateOnAndroid(routeRange []string, ip string, domains domain.List) error {
 	return m.CreateOnAndroidFunc(routeRange, ip, domains)
 }
 

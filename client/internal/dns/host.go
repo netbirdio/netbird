@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 var ErrRouteAllWithoutNameserverGroup = fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
@@ -39,9 +40,9 @@ type HostDNSConfig struct {
 }
 
 type DomainConfig struct {
-	Disabled  bool   `json:"disabled"`
-	Domain    string `json:"domain"`
-	MatchOnly bool   `json:"matchOnly"`
+	Disabled  bool          `json:"disabled"`
+	Domain    domain.Domain `json:"domain"`
+	MatchOnly bool          `json:"matchOnly"`
 }
 
 type mockHostConfigurator struct {
@@ -103,18 +104,20 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostD
 			config.RouteAll = true
 		}
 
-		for _, domain := range nsConfig.Domains {
+		for _, d := range nsConfig.Domains {
+			d := strings.ToLower(dns.Fqdn(d.PunycodeString()))
 			config.Domains = append(config.Domains, DomainConfig{
-				Domain:    strings.ToLower(dns.Fqdn(domain)),
+				Domain:    domain.Domain(d),
 				MatchOnly: !nsConfig.SearchDomainsEnabled,
 			})
 		}
 	}
 
 	for _, customZone := range dnsConfig.CustomZones {
-		matchOnly := strings.HasSuffix(customZone.Domain, ipv4ReverseZone) || strings.HasSuffix(customZone.Domain, ipv6ReverseZone)
+		d := strings.ToLower(dns.Fqdn(customZone.Domain))
+		matchOnly := strings.HasSuffix(d, ipv4ReverseZone) || strings.HasSuffix(d, ipv6ReverseZone)
 		config.Domains = append(config.Domains, DomainConfig{
-			Domain:    strings.ToLower(dns.Fqdn(customZone.Domain)),
+			Domain:    domain.Domain(d),
 			MatchOnly: matchOnly,
 		})
 	}

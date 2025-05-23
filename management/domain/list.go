@@ -1,7 +1,7 @@
 package domain
 
 import (
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -64,28 +64,22 @@ func (d List) PunycodeString() string {
 	return strings.Join(d.ToPunycodeList(), ", ")
 }
 
+// Equal checks if two domain lists are equal without considering the order.
 func (d List) Equal(domains List) bool {
 	if len(d) != len(domains) {
 		return false
 	}
 
-	sort.Slice(d, func(i, j int) bool {
-		return d[i] < d[j]
-	})
+	d1 := slices.Clone(d)
+	d2 := slices.Clone(domains)
 
-	sort.Slice(domains, func(i, j int) bool {
-		return domains[i] < domains[j]
-	})
+	slices.Sort(d1)
+	slices.Sort(d2)
 
-	for i, domain := range d {
-		if domain != domains[i] {
-			return false
-		}
-	}
-	return true
+	return slices.Equal(d1, d2)
 }
 
-// FromStringList creates a DomainList from a slice of string.
+// FromStringList creates a List from a slice of strings.
 func FromStringList(s []string) (List, error) {
 	var dl List
 	for _, domain := range s {
