@@ -58,6 +58,11 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				IP:     net.ParseIP("100.65.29.55"),
 				Status: &nbpeer.PeerStatus{},
 			},
+			"peerI": {
+				ID:     "peerI",
+				IP:     net.ParseIP("100.65.31.2"),
+				Status: &nbpeer.PeerStatus{},
+			},
 		},
 		Groups: map[string]*types.Group{
 			"GroupAll": {
@@ -97,6 +102,13 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 					"peerE",
 					"peerG",
 					"peerH",
+				},
+			},
+			"GroupDMZ": {
+				ID:   "GroupDMZ",
+				Name: "dmz",
+				Peers: []string{
+					"peerI",
 				},
 			},
 		},
@@ -148,6 +160,35 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 					},
 				},
 			},
+			{
+				ID:          "RuleDMZ",
+				Name:        "Dmz",
+				Description: "No description",
+				Enabled:     true,
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "RuleDMZ",
+						Name:          "Dmz",
+						Description:   "No description",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Action:        types.PolicyTrafficActionAccept,
+						PortRanges: []types.RulePortRange{
+							{
+								Start: 8080,
+								End:   8083,
+							},
+						},
+						Sources: []string{
+							"GroupWorkstations",
+						},
+						Destinations: []string{
+							"GroupDMZ",
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -166,7 +207,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 	t.Run("check first peer map details", func(t *testing.T) {
 		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerB", validatedPeers)
-		assert.Len(t, peers, 7)
+		assert.Len(t, peers, 8)
 		assert.Contains(t, peers, account.Peers["peerA"])
 		assert.Contains(t, peers, account.Peers["peerC"])
 		assert.Contains(t, peers, account.Peers["peerD"])
@@ -174,8 +215,9 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		assert.Contains(t, peers, account.Peers["peerF"])
 		assert.Contains(t, peers, account.Peers["peerG"])
 		assert.Contains(t, peers, account.Peers["peerH"])
+		assert.Contains(t, peers, account.Peers["peerI"])
 
-		epectedFirewallRules := []*types.FirewallRule{
+		expectedFirewallRules := []*types.FirewallRule{
 			{
 				PeerIP:    "0.0.0.0",
 				Direction: types.FirewallRuleDirectionIN,
@@ -291,13 +333,29 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Protocol:  "all",
 				Port:      "",
 				PolicyID:  "RuleSwarm",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "tcp",
+				PortRange: types.RulePortRange{Start: 8080, End: 8083},
+				PolicyID:  "RuleDMZ",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				PortRange: types.RulePortRange{Start: 8080, End: 8083},
+				PolicyID:  "RuleDMZ",
 			},
 		}
-		assert.Len(t, firewallRules, len(epectedFirewallRules))
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
 
 		for _, rule := range firewallRules {
 			contains := false
-			for _, expectedRule := range epectedFirewallRules {
+			for _, expectedRule := range expectedFirewallRules {
 				if rule.Equal(expectedRule) {
 					contains = true
 					break
