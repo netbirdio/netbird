@@ -44,6 +44,9 @@ type Settings struct {
 
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
+
+	// LazyConnectionEnabled indicates wether the experimental feature is enabled or disabled
+	LazyConnectionEnabled bool `gorm:"default:false"`
 }
 
 // Copy copies the Settings struct
@@ -61,6 +64,7 @@ func (s *Settings) Copy() *Settings {
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,
 
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
+		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
 	}
 	if s.Extra != nil {
