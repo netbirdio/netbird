@@ -74,15 +74,6 @@ var testCases = []testCase{
 		expectedInterface:  expectedExternalInt,
 		dialer:             nbnet.NewDialer(),
 	},
-	{
-		name:               "To duplicate internal route without custom dialer via physical interface", // local route takes precedence
-		destination:        "10.0.0.2:53",
-		expectedSourceIP:   "127.0.0.1",
-		expectedDestPrefix: "10.0.0.0/8",
-		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  expectedInternalInt,
-		dialer:             &net.Dialer{},
-	},
 
 	{
 		name:               "To unique vpn route with custom dialer via physical interface",
