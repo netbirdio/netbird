@@ -677,7 +677,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}, nil, 0)
 
 	deactivate(nil)
-	expected := "domain0,domain2"
+	expected := "domain0, domain2"
 	domains := domain.List{}
 	for _, item := range server.currentConfig.Domains {
 		if item.Disabled {
@@ -691,7 +691,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}
 
 	reactivate()
-	expected = "domain0,domain1,domain2"
+	expected = "domain0, domain1, domain2"
 	domains = domain.List{}
 	for _, item := range server.currentConfig.Domains {
 		if item.Disabled {
@@ -1122,7 +1122,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 		name             string
 		initialHandlers  registeredHandlerMap
 		updates          []handlerWrapper
-		expectedHandlers map[string]string // map[HandlerID]domain
+		expectedHandlers map[string]domain.Domain // map[HandlerID]domain
 		description      string
 	}{
 		{
@@ -1138,7 +1138,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityMatchDomain - 1,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-group2": "example.com",
 			},
 			description: "When group1 is not included in the update, it should be removed while group2 remains",
@@ -1156,7 +1156,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityMatchDomain,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-group1": "example.com",
 			},
 			description: "When group2 is not included in the update, it should be removed while group1 remains",
@@ -1189,7 +1189,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityMatchDomain - 1,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-group1": "example.com",
 				"upstream-group2": "example.com",
 				"upstream-group3": "example.com",
@@ -1224,7 +1224,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityMatchDomain - 2,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-group1": "example.com",
 				"upstream-group2": "example.com",
 				"upstream-group3": "example.com",
@@ -1244,7 +1244,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityDefault - 1,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-root2": ".",
 			},
 			description: "When root1 is not included in the update, it should be removed while root2 remains",
@@ -1261,7 +1261,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityDefault,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-root1": ".",
 			},
 			description: "When root2 is not included in the update, it should be removed while root1 remains",
@@ -1292,7 +1292,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityDefault - 1,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-root1": ".",
 				"upstream-root2": ".",
 				"upstream-root3": ".",
@@ -1325,7 +1325,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityDefault - 2,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-root1": ".",
 				"upstream-root2": ".",
 				"upstream-root3": ".",
@@ -1352,7 +1352,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityMatchDomain,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-group1": "example.com",
 				"upstream-other":  "other.com",
 			},
@@ -1391,7 +1391,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 					priority: PriorityMatchDomain,
 				},
 			},
-			expectedHandlers: map[string]string{
+			expectedHandlers: map[string]domain.Domain{
 				"upstream-group1": "example.com",
 				"upstream-group2": "example.com",
 				"upstream-other":  "other.com",
@@ -1863,8 +1863,8 @@ func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
 	for _, d := range capturedConfig.Domains {
 		domains = append(domains, d.Domain)
 	}
-	assert.Contains(t, domains, "config.example.com.")
-	assert.Contains(t, domains, "extra.example.com.")
+	assert.Contains(t, domains, domain.Domain("config.example.com."))
+	assert.Contains(t, domains, domain.Domain("extra.example.com."))
 
 	// Now apply a new configuration with overlapping domain
 	updatedConfig := nbdns.Config{
@@ -1887,8 +1887,8 @@ func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
 		}
 	}
 
-	assert.Contains(t, domains, "config.example.com.")
-	assert.Contains(t, domains, "extra.example.com.")
+	assert.Contains(t, domains, domain.Domain("config.example.com."))
+	assert.Contains(t, domains, domain.Domain("extra.example.com."))
 	assert.Equal(t, 2, len(domains), "Should have exactly 2 domains with no duplicates")
 
 	// Extra domain should no longer be marked as match-only when in config
@@ -1949,6 +1949,6 @@ func TestDomainCaseHandling(t *testing.T) {
 	for _, d := range capturedConfig.Domains {
 		domains = append(domains, d.Domain)
 	}
-	assert.Contains(t, domains, "config.example.com.", "Mixed case domain should be normalized and pre.sent")
-	assert.Contains(t, domains, "mixed.example.com.", "Mixed case domain should be normalized and present")
+	assert.Contains(t, domains, domain.Domain("config.example.com."), "Mixed case domain should be normalized and pre.sent")
+	assert.Contains(t, domains, domain.Domain("mixed.example.com."), "Mixed case domain should be normalized and present")
 }
