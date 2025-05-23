@@ -116,7 +116,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 			return err
 		}
 
-		return transaction.SaveGroups(ctx, store.LockingStrengthUpdate, groupsToSave)
+		return transaction.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, groupsToSave)
 	})
 	if err != nil {
 		return err
