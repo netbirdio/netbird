@@ -41,6 +41,7 @@ func (d List) ToSafeStringList() []string {
 }
 
 // String converts List to a comma-separated string.
+// This is useful for displaying domain names in a user-friendly format.
 func (d List) String() (string, error) {
 	list, err := d.ToStringList()
 	if err != nil {
@@ -50,7 +51,8 @@ func (d List) String() (string, error) {
 }
 
 // SafeString converts List to a comma-separated non-punycode string.
-// If a domain cannot be converted, the original string is used.
+// This is useful for displaying domain names in a user-friendly format.
+// If a domain cannot be converted, the original (punycode) string is used.
 func (d List) SafeString() string {
 	str, err := d.String()
 	if err != nil {
