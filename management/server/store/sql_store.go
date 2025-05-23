@@ -448,12 +448,20 @@ func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, u
 }
 
 // SaveGroups saves the given list of groups to the database.
-func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*types.Group) error {
+func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error {
 	if len(groups) == 0 {
 		return nil
 	}
 
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}, clause.OnConflict{UpdateAll: true}).Create(&groups)
+	result := s.db.
+		Clauses(
+			clause.Locking{Strength: string(lockStrength)},
+			clause.OnConflict{
+				Where:     clause.Where{Exprs: []clause.Expression{clause.Eq{Column: "groups.account_id", Value: accountID}}},
+				UpdateAll: true,
+			},
+		).
+		Create(&groups)
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "failed to save groups to store: %v", result.Error)
 	}

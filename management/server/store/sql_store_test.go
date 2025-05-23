@@ -1324,11 +1324,11 @@ func TestSqlStore_SaveGroups(t *testing.T) {
 			Peers:     []string{"peer3", "peer4"},
 		},
 	}
-	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, groups)
+	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
 	require.NoError(t, err)
 
 	groups[1].Peers = []string{}
-	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, groups)
+	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
 	require.NoError(t, err)
 
 	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groups[1].ID)
@@ -3240,7 +3240,7 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 		})
 	}
 
-	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, groupsToSave)
+	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, accountID, groupsToSave)
 	require.NoError(t, err)
 
 	accountGroups, err = store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)
