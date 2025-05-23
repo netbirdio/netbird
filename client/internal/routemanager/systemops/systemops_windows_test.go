@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"os/exec"
 	"strings"
 	"testing"
@@ -247,19 +248,23 @@ func setupDummyInterfacesAndRoutes(t *testing.T) {
 func addDummyRoute(t *testing.T, dstCIDR string) {
 	t.Helper()
 
-	script := fmt.Sprintf(`New-NetRoute -DestinationPrefix "%s" -InterfaceIndex 1 -PolicyStore ActiveStore`, dstCIDR)
-
-	output, err := exec.Command("powershell", "-Command", script).CombinedOutput()
+	prefix, err := netip.ParsePrefix(dstCIDR)
 	if err != nil {
-		t.Logf("Failed to add dummy route: %v\nOutput: %s", err, output)
-		t.FailNow()
+		t.Fatalf("Failed to parse destination CIDR %s: %v", dstCIDR, err)
+	}
+
+	nexthop := Nexthop{
+		Intf: &net.Interface{Index: 1},
+	}
+
+	if err = addRoute(prefix, nexthop); err != nil {
+		t.Fatalf("Failed to add dummy route: %v", err)
 	}
 
 	t.Cleanup(func() {
-		script = fmt.Sprintf(`Remove-NetRoute -DestinationPrefix  "%s" -InterfaceIndex 1 -Confirm:$false`, dstCIDR)
-		output, err := exec.Command("powershell", "-Command", script).CombinedOutput()
+		err := deleteRoute(prefix, nexthop)
 		if err != nil {
-			t.Logf("Failed to remove dummy route: %v\nOutput: %s", err, output)
+			t.Logf("Failed to remove dummy route: %v", err)
 		}
 	})
 }
