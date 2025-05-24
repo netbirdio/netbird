@@ -38,11 +38,8 @@ func TestTracePacket(t *testing.T) {
 			SetFilterFunc: func(device.PacketFilter) error { return nil },
 			AddressFunc: func() wgaddr.Address {
 				return wgaddr.Address{
-					IP: net.ParseIP("100.10.0.100"),
-					Network: &net.IPNet{
-						IP:   net.ParseIP("100.10.0.0"),
-						Mask: net.CIDRMask(16, 32),
-					},
+					IP:      netip.MustParseAddr("100.10.0.100"),
+					Network: netip.MustParsePrefix("100.10.0.0/16"),
 				}
 			},
 		}
