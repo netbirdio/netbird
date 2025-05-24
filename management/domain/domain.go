@@ -30,7 +30,7 @@ func (d Domain) SafeString() string {
 }
 
 // PunycodeString returns the punycode representation of the Domain.
-// This should only be used if a punycode domain is expected but only a string is supported.
+// This should only be used if a punycode domain is expected but only a string is supported (e.g. an external library).
 func (d Domain) PunycodeString() string {
 	return string(d)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 // WGTunDevice ignore the WGTunDevice interface on Android because the creation of the tun device is different on this platform
@@ -43,11 +44,11 @@ func NewTunDevice(address wgaddr.Address, port int, key string, mtu int, iceBind
 	}
 }
 
-func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string) (WGConfigurer, error) {
+func (t *WGTunDevice) Create(routes []string, dns string, searchDomains domain.List) (WGConfigurer, error) {
 	log.Info("create tun interface")
 
 	routesString := routesToString(routes)
-	searchDomainsToString := searchDomainsToString(searchDomains)
+	searchDomainsToString := searchDomainsToString(searchDomains.ToPunycodeList())
 
 	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, dns, searchDomainsToString, routesString)
 	if err != nil {
