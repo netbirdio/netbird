@@ -110,7 +110,11 @@ func (d *Resolver) Update(update []nbdns.SimpleRecord) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	log.Infof("updating %d records. Records: %v", len(update), update)
+
 	maps.Clear(d.records)
+
+	log.Infof("map size: %d", len(d.records))
 
 	for _, rec := range update {
 		if err := d.registerRecord(rec); err != nil {
