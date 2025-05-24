@@ -44,6 +44,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	mgmt "github.com/netbirdio/netbird/management/client"
+	"github.com/netbirdio/netbird/management/domain"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -77,7 +78,7 @@ var (
 
 type MockWGIface struct {
 	CreateFunc                 func() error
-	CreateOnAndroidFunc        func(routeRange []string, ip string, domains []string) error
+	CreateOnAndroidFunc        func(routeRange []string, ip string, domains domain.List) error
 	IsUserspaceBindFunc        func() bool
 	NameFunc                   func() string
 	AddressFunc                func() wgaddr.Address
@@ -107,7 +108,7 @@ func (m *MockWGIface) Create() error {
 	return m.CreateFunc()
 }
 
-func (m *MockWGIface) CreateOnAndroid(routeRange []string, ip string, domains []string) error {
+func (m *MockWGIface) CreateOnAndroid(routeRange []string, ip string, domains domain.List) error {
 	return m.CreateOnAndroidFunc(routeRange, ip, domains)
 }
 

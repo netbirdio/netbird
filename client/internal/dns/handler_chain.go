@@ -7,6 +7,8 @@ import (
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 const (
@@ -23,8 +25,8 @@ type SubdomainMatcher interface {
 type HandlerEntry struct {
 	Handler         dns.Handler
 	Priority        int
-	Pattern         string
-	OrigPattern     string
+	Pattern         domain.Domain
+	OrigPattern     domain.Domain
 	IsWildcard      bool
 	MatchSubdomains bool
 }
@@ -38,7 +40,7 @@ type HandlerChain struct {
 // ResponseWriterChain wraps a dns.ResponseWriter to track if handler wants to continue chain
 type ResponseWriterChain struct {
 	dns.ResponseWriter
-	origPattern    string
+	origPattern    domain.Domain
 	shouldContinue bool
 }
 
@@ -58,18 +60,18 @@ func NewHandlerChain() *HandlerChain {
 }
 
 // GetOrigPattern returns the original pattern of the handler that wrote the response
-func (w *ResponseWriterChain) GetOrigPattern() string {
+func (w *ResponseWriterChain) GetOrigPattern() domain.Domain {
 	return w.origPattern
 }
 
 // AddHandler adds a new handler to the chain, replacing any existing handler with the same pattern and priority
-func (c *HandlerChain) AddHandler(pattern string, handler dns.Handler, priority int) {
+func (c *HandlerChain) AddHandler(pattern domain.Domain, handler dns.Handler, priority int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	pattern = strings.ToLower(dns.Fqdn(pattern))
+	pattern = domain.Domain(strings.ToLower(dns.Fqdn(pattern.PunycodeString())))
 	origPattern := pattern
-	isWildcard := strings.HasPrefix(pattern, "*.")
+	isWildcard := strings.HasPrefix(pattern.PunycodeString(), "*.")
 	if isWildcard {
 		pattern = pattern[2:]
 	}
@@ -109,8 +111,8 @@ func (c *HandlerChain) findHandlerPosition(newEntry HandlerEntry) int {
 
 		// domain specificity next
 		if h.Priority == newEntry.Priority {
-			newDots := strings.Count(newEntry.Pattern, ".")
-			existingDots := strings.Count(h.Pattern, ".")
+			newDots := strings.Count(newEntry.Pattern.PunycodeString(), ".")
+			existingDots := strings.Count(h.Pattern.PunycodeString(), ".")
 			if newDots > existingDots {
 				return i
 			}
@@ -122,20 +124,20 @@ func (c *HandlerChain) findHandlerPosition(newEntry HandlerEntry) int {
 }
 
 // RemoveHandler removes a handler for the given pattern and priority
-func (c *HandlerChain) RemoveHandler(pattern string, priority int) {
+func (c *HandlerChain) RemoveHandler(pattern domain.Domain, priority int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	pattern = dns.Fqdn(pattern)
+	pattern = domain.Domain(dns.Fqdn(pattern.PunycodeString()))
 
 	c.removeEntry(pattern, priority)
 }
 
-func (c *HandlerChain) removeEntry(pattern string, priority int) {
+func (c *HandlerChain) removeEntry(pattern domain.Domain, priority int) {
 	// Find and remove handlers matching both original pattern (case-insensitive) and priority
 	for i := len(c.handlers) - 1; i >= 0; i-- {
 		entry := c.handlers[i]
-		if strings.EqualFold(entry.OrigPattern, pattern) && entry.Priority == priority {
+		if strings.EqualFold(entry.OrigPattern.PunycodeString(), pattern.PunycodeString()) && entry.Priority == priority {
 			c.handlers = append(c.handlers[:i], c.handlers[i+1:]...)
 			break
 		}
@@ -169,16 +171,16 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		case entry.Pattern == ".":
 			matched = true
 		case entry.IsWildcard:
-			parts := strings.Split(strings.TrimSuffix(qname, entry.Pattern), ".")
-			matched = len(parts) >= 2 && strings.HasSuffix(qname, entry.Pattern)
+			parts := strings.Split(strings.TrimSuffix(qname, entry.Pattern.PunycodeString()), ".")
+			matched = len(parts) >= 2 && strings.HasSuffix(qname, entry.Pattern.PunycodeString())
 		default:
 			// For non-wildcard patterns:
 			// If handler wants subdomain matching, allow suffix match
 			// Otherwise require exact match
 			if entry.MatchSubdomains {
-				matched = strings.EqualFold(qname, entry.Pattern) || strings.HasSuffix(qname, "."+entry.Pattern)
+				matched = strings.EqualFold(qname, entry.Pattern.PunycodeString()) || strings.HasSuffix(qname, "."+entry.Pattern.PunycodeString())
 			} else {
-				matched = strings.EqualFold(qname, entry.Pattern)
+				matched = strings.EqualFold(qname, entry.Pattern.PunycodeString())
 			}
 		}
 

@@ -117,15 +117,15 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 			continue
 		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
-			Domain:    dConf.Domain,
+			Domain:    dConf.Domain.PunycodeString(),
 			MatchOnly: dConf.MatchOnly,
 		})
 
 		if dConf.MatchOnly {
-			matchDomains = append(matchDomains, dConf.Domain)
+			matchDomains = append(matchDomains, dConf.Domain.PunycodeString())
 			continue
 		}
-		searchDomains = append(searchDomains, dConf.Domain)
+		searchDomains = append(searchDomains, dConf.Domain.PunycodeString())
 	}
 
 	if config.RouteAll {
