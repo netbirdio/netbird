@@ -5,7 +5,6 @@
 package mocks
 
 import (
-	net "net"
 	"net/netip"
 	reflect "reflect"
 
@@ -92,7 +91,7 @@ func (mr *MockPacketFilterMockRecorder) RemovePacketHook(arg0 interface{}) *gomo
 }
 
 // SetNetwork mocks base method.
-func (m *MockPacketFilter) SetNetwork(arg0 *net.IPNet) {
+func (m *MockPacketFilter) SetNetwork(arg0 netip.Prefix) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetNetwork", arg0)
 }

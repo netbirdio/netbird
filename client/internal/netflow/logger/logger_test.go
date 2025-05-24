@@ -1,7 +1,7 @@
 package logger_test
 
 import (
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -12,7 +12,7 @@ import (
 )
 
 func TestStore(t *testing.T) {
-	logger := logger.New(nil, net.IPNet{})
+	logger := logger.New(nil, netip.Prefix{})
 	logger.Enable()
 
 	event := types.EventFields{

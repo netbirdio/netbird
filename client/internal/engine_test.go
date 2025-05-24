@@ -371,11 +371,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("10.20.0.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("10.20.0.0"),
-					Mask: net.IPv4Mask(255, 255, 255, 0),
-				},
+				IP:      netip.MustParseAddr("10.20.0.1"),
+				Network: netip.MustParsePrefix("10.20.0.0/24"),
 			}
 		},
 	}

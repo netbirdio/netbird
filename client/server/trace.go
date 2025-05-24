@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
@@ -37,29 +36,23 @@ func (s *Server) TracePacket(_ context.Context, req *proto.TracePacketRequest) (
 		return nil, fmt.Errorf("firewall manager does not support packet tracing")
 	}
 
-	srcIP := net.ParseIP(req.GetSourceIp())
+	srcAddr, err := netip.ParseAddr(req.GetSourceIp())
+	if err != nil {
+		return nil, fmt.Errorf("invalid source IP address: %w", err)
+	}
 	if req.GetSourceIp() == "self" {
-		srcIP = engine.GetWgAddr()
+		srcAddr = engine.GetWgAddr()
 	}
+	srcAddr = srcAddr.Unmap()
 
-	srcAddr, ok := netip.AddrFromSlice(srcIP)
-	if !ok {
-		return nil, fmt.Errorf("invalid source IP address")
+	dstAddr, err := netip.ParseAddr(req.GetDestinationIp())
+	if err != nil {
+		return nil, fmt.Errorf("invalid destination IP address: %w", err)
 	}
-
-	dstIP := net.ParseIP(req.GetDestinationIp())
 	if req.GetDestinationIp() == "self" {
-		dstIP = engine.GetWgAddr()
+		dstAddr = engine.GetWgAddr()
 	}
-
-	dstAddr, ok := netip.AddrFromSlice(dstIP)
-	if !ok {
-		return nil, fmt.Errorf("invalid source IP address")
-	}
-
-	if srcIP == nil || dstIP == nil {
-		return nil, fmt.Errorf("invalid IP address")
-	}
+	dstAddr = dstAddr.Unmap()
 
 	var tcpState *uspfilter.TCPState
 	if flags := req.GetTcpFlags(); flags != nil {

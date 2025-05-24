@@ -164,7 +164,7 @@ func (u *udpConn) performFilterCheck(addr net.Addr) error {
 		return nil
 	}
 
-	if u.address.Network.Contains(a.AsSlice()) {
+	if u.address.Network.Contains(a) {
 		log.Warnf("Address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 		return fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 	}
