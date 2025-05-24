@@ -46,10 +46,9 @@ func (w *mocWGIface) Name() string {
 }
 
 func (w *mocWGIface) Address() wgaddr.Address {
-	ip, network, _ := net.ParseCIDR("100.66.100.0/24")
 	return wgaddr.Address{
-		IP:      ip,
-		Network: network,
+		IP:      netip.MustParseAddr("100.66.100.0/24"),
+		Network: netip.MustParsePrefix("100.66.100.0/24"),
 	}
 }
 

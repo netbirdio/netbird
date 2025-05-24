@@ -9,6 +9,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 )
 
 type Nexthop struct {
@@ -50,4 +51,21 @@ func NewSysOps(wgInterface iface.WGIface, notifier *notifier.Notifier) *SysOps {
 		wgInterface: wgInterface,
 		notifier:    notifier,
 	}
+}
+
+func (r *SysOps) validateRoute(prefix netip.Prefix) error {
+	addr := prefix.Addr()
+
+	switch {
+	case
+		!addr.IsValid(),
+		addr.IsLoopback(),
+		addr.IsLinkLocalUnicast(),
+		addr.IsLinkLocalMulticast(),
+		addr.IsInterfaceLocalMulticast(),
+		addr.IsMulticast(),
+		r.wgInterface.Address().Network.Contains(addr):
+		return vars.ErrRouteNotAllowed
+	}
+	return nil
 }

@@ -29,48 +29,65 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
 }
 
 func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	return r.routeSocket("add", prefix, nexthop)
+	return r.routeSocket(unix.RTM_ADD, prefix, nexthop)
 }
 
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	return r.routeSocket("delete", prefix, nexthop)
+	return r.routeSocket(unix.RTM_DELETE, prefix, nexthop)
 }
 
-func (r *SysOps) routeSocket(action string, prefix netip.Prefix, nexthop Nexthop) error {
+func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) error {
+	if !prefix.IsValid() {
+		return fmt.Errorf("invalid prefix: %s", prefix)
+	}
+
+	expBackOff := backoff.NewExponentialBackOff()
+	expBackOff.InitialInterval = 50 * time.Millisecond
+	expBackOff.MaxInterval = 500 * time.Millisecond
+	expBackOff.MaxElapsedTime = 1 * time.Second
+
+	if err := backoff.Retry(r.routeOp(action, prefix, nexthop), expBackOff); err != nil {
+		a := "add"
+		if action == unix.RTM_DELETE {
+			a = "remove"
+		}
+		return fmt.Errorf("%s route for %s: %w", a, prefix, err)
+	}
+	return nil
+}
+
+func (r *SysOps) routeOp(action int, prefix netip.Prefix, nexthop Nexthop) func() error {
 	operation := func() error {
 		fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
 		if err != nil {
 			return fmt.Errorf("open routing socket: %w", err)
 		}
 		defer func() {
-			if closeErr := unix.Close(fd); closeErr != nil && !errors.Is(closeErr, unix.EBADF) {
-				log.Warnf("failed to close routing socket: %v", closeErr)
+			if err := unix.Close(fd); err != nil && !errors.Is(err, unix.EBADF) {
+				log.Warnf("failed to close routing socket: %v", err)
 			}
 		}()
 
 		msg, err := r.buildRouteMessage(action, prefix, nexthop)
 		if err != nil {
-			return fmt.Errorf("build route message: %w", err)
+			return backoff.Permanent(fmt.Errorf("build route message: %w", err))
 		}
 
 		msgBytes, err := msg.Marshal()
 		if err != nil {
-			return fmt.Errorf("marshal route message: %w", err)
+			return backoff.Permanent(fmt.Errorf("marshal route message: %w", err))
 		}
 
-		_, err = unix.Write(fd, msgBytes)
-		if err != nil {
-			// Check for common transient errors that warrant retry
+		if _, err = unix.Write(fd, msgBytes); err != nil {
 			if errors.Is(err, unix.ENOBUFS) || errors.Is(err, unix.EAGAIN) {
-				return err
+				return fmt.Errorf("write: %w", err)
 			}
-			return backoff.Permanent(fmt.Errorf("write route message: %w", err))
+			return backoff.Permanent(fmt.Errorf("write: %w", err))
 		}
 
-		// Read response to check for errors
 		respBuf := make([]byte, 2048)
 		n, err := unix.Read(fd, respBuf)
-		if err != nil && !errors.Is(err, unix.EAGAIN) {
+		if err != nil {
 			return backoff.Permanent(fmt.Errorf("read route response: %w", err))
 		}
 
@@ -82,89 +99,88 @@ func (r *SysOps) routeSocket(action string, prefix netip.Prefix, nexthop Nexthop
 
 		return nil
 	}
-
-	expBackOff := backoff.NewExponentialBackOff()
-	expBackOff.InitialInterval = 50 * time.Millisecond
-	expBackOff.MaxInterval = 500 * time.Millisecond
-	expBackOff.MaxElapsedTime = 1 * time.Second
-
-	err := backoff.Retry(operation, expBackOff)
-	if err != nil {
-		return fmt.Errorf("failed to %s route for %s: %w", action, prefix, err)
-	}
-	return nil
+	return operation
 }
 
-func (r *SysOps) buildRouteMessage(action string, prefix netip.Prefix, nexthop Nexthop) (*route.RouteMessage, error) {
-	var rtmType int
-	switch action {
-	case "add":
-		rtmType = unix.RTM_ADD
-	case "delete":
-		rtmType = unix.RTM_DELETE
-	default:
-		return nil, fmt.Errorf("unsupported route action: %s", action)
-	}
-
-	msg := &route.RouteMessage{
-		Type:    rtmType,
+func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Nexthop) (msg *route.RouteMessage, err error) {
+	msg = &route.RouteMessage{
+		Type:    action,
 		Flags:   unix.RTF_UP,
 		Version: unix.RTM_VERSION,
 		Seq:     1,
 	}
 
-	// Set destination
+	const numAddrs = unix.RTAX_NETMASK + 1
+	addrs := make([]route.Addr, numAddrs)
+
+	addrs[unix.RTAX_DST], err = netipAddrToRouteAddr(prefix.Addr())
+	if err != nil {
+		return nil, fmt.Errorf("build destination address for %s: %w", prefix.Addr(), err)
+	}
+
 	if prefix.IsSingleIP() {
 		msg.Flags |= unix.RTF_HOST
-		if prefix.Addr().Is4() {
-			msg.Addrs = append(msg.Addrs, &route.Inet4Addr{IP: prefix.Addr().As4()})
-		} else {
-			msg.Addrs = append(msg.Addrs, &route.Inet6Addr{IP: prefix.Addr().As16()})
-		}
 	} else {
-		// Network route - need destination and netmask
-		if prefix.Addr().Is4() {
-			msg.Addrs = append(msg.Addrs, &route.Inet4Addr{IP: prefix.Addr().As4()})
-			// Calculate netmask for IPv4
-			mask := net.CIDRMask(prefix.Bits(), 32)
-			var maskAddr [4]byte
-			copy(maskAddr[:], mask)
-			msg.Addrs = append(msg.Addrs, &route.Inet4Addr{IP: maskAddr})
-		} else {
-			msg.Addrs = append(msg.Addrs, &route.Inet6Addr{IP: prefix.Addr().As16()})
-			// Calculate netmask for IPv6
-			mask := net.CIDRMask(prefix.Bits(), 128)
-			var maskAddr [16]byte
-			copy(maskAddr[:], mask)
-			msg.Addrs = append(msg.Addrs, &route.Inet6Addr{IP: maskAddr})
+		addrs[unix.RTAX_NETMASK], err = prefixToRouteNetmask(prefix)
+		if err != nil {
+			return nil, fmt.Errorf("build netmask for %s: %w", prefix, err)
 		}
 	}
 
-	// Set gateway/interface
 	if nexthop.IP.IsValid() {
 		msg.Flags |= unix.RTF_GATEWAY
-		if nexthop.IP.Is4() {
-			msg.Addrs = append(msg.Addrs, &route.Inet4Addr{IP: nexthop.IP.Unmap().As4()})
-		} else {
-			msg.Addrs = append(msg.Addrs, &route.Inet6Addr{IP: nexthop.IP.As16()})
+		addrs[unix.RTAX_GATEWAY], err = netipAddrToRouteAddr(nexthop.IP.Unmap())
+		if err != nil {
+			return nil, fmt.Errorf("build gateway IP address for %s: %w", nexthop.IP, err)
 		}
 	} else if nexthop.Intf != nil {
-		// Interface route
 		msg.Index = nexthop.Intf.Index
+		addrs[unix.RTAX_GATEWAY] = &route.LinkAddr{
+			Index: nexthop.Intf.Index,
+			Name:  nexthop.Intf.Name,
+		}
 	}
 
+	msg.Addrs = addrs
 	return msg, nil
 }
 
 func (r *SysOps) parseRouteResponse(buf []byte) error {
 	if len(buf) < int(unsafe.Sizeof(unix.RtMsghdr{})) {
-		return nil // No error to report for short messages
+		return nil
 	}
 
 	rtMsg := (*unix.RtMsghdr)(unsafe.Pointer(&buf[0]))
 	if rtMsg.Errno != 0 {
-		return fmt.Errorf("route operation failed with errno %d", rtMsg.Errno)
+		return fmt.Errorf("parse: %d", rtMsg.Errno)
 	}
 
 	return nil
+}
+
+// netipAddrToRouteAddr converts a netip.Addr to the appropriate route.Addr (*route.Inet4Addr or *route.Inet6Addr).
+func netipAddrToRouteAddr(addr netip.Addr) (route.Addr, error) {
+	if addr.Is4() {
+		return &route.Inet4Addr{IP: addr.As4()}, nil
+	}
+	return &route.Inet6Addr{IP: addr.As16()}, nil
+}
+
+func prefixToRouteNetmask(prefix netip.Prefix) (route.Addr, error) {
+	bits := prefix.Bits()
+	if prefix.Addr().Is4() {
+		m := net.CIDRMask(bits, 32)
+		var maskBytes [4]byte
+		copy(maskBytes[:], m)
+		return &route.Inet4Addr{IP: maskBytes}, nil
+	}
+
+	if prefix.Addr().Is6() {
+		m := net.CIDRMask(bits, 128)
+		var maskBytes [16]byte
+		copy(maskBytes[:], m)
+		return &route.Inet6Addr{IP: maskBytes}, nil
+	}
+
+	return nil, fmt.Errorf("unknown IP version in prefix: %s", prefix.Addr().String())
 }

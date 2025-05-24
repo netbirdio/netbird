@@ -149,6 +149,10 @@ func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) erro
 }
 
 func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+	if err := r.validateRoute(prefix); err != nil {
+		return err
+	}
+
 	if !nbnet.AdvancedRouting() {
 		return r.genericAddVPNRoute(prefix, intf)
 	}
@@ -172,6 +176,10 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 }
 
 func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+	if err := r.validateRoute(prefix); err != nil {
+		return err
+	}
+
 	if !nbnet.AdvancedRouting() {
 		return r.genericRemoveVPNRoute(prefix, intf)
 	}

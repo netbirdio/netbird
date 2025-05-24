@@ -138,10 +138,7 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf iface.WGIface
 		Intf: nexthop.Intf,
 	}
 
-	vpnAddr, ok := netip.AddrFromSlice(vpnIntf.Address().IP)
-	if !ok {
-		return Nexthop{}, fmt.Errorf("failed to convert vpn address to netip.Addr")
-	}
+	vpnAddr := vpnIntf.Address().IP
 
 	// if next hop is the VPN address or the interface is the VPN interface, we should use the initial values
 	if exitNextHop.IP == vpnAddr || exitNextHop.Intf != nil && exitNextHop.Intf.Name == vpnIntf.Name() {

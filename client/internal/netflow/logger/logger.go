@@ -2,7 +2,7 @@ package logger
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,17 +23,16 @@ type Logger struct {
 	rcvChan            atomic.Pointer[rcvChan]
 	cancel             context.CancelFunc
 	statusRecorder     *peer.Status
-	wgIfaceIPNet       net.IPNet
+	wgIfaceNet         netip.Prefix
 	dnsCollection      atomic.Bool
 	exitNodeCollection atomic.Bool
 	Store              types.Store
 }
 
-func New(statusRecorder *peer.Status, wgIfaceIPNet net.IPNet) *Logger {
-
+func New(statusRecorder *peer.Status, wgIfaceIPNet netip.Prefix) *Logger {
 	return &Logger{
 		statusRecorder: statusRecorder,
-		wgIfaceIPNet:   wgIfaceIPNet,
+		wgIfaceNet:     wgIfaceIPNet,
 		Store:          store.NewMemoryStore(),
 	}
 }
@@ -89,11 +88,11 @@ func (l *Logger) startReceiver() {
 			var isSrcExitNode bool
 			var isDestExitNode bool
 
-			if !l.wgIfaceIPNet.Contains(net.IP(event.SourceIP.AsSlice())) {
+			if !l.wgIfaceNet.Contains(event.SourceIP) {
 				event.SourceResourceID, isSrcExitNode = l.statusRecorder.CheckRoutes(event.SourceIP)
 			}
 
-			if !l.wgIfaceIPNet.Contains(net.IP(event.DestIP.AsSlice())) {
+			if !l.wgIfaceNet.Contains(event.DestIP) {
 				event.DestResourceID, isDestExitNode = l.statusRecorder.CheckRoutes(event.DestIP)
 			}
 

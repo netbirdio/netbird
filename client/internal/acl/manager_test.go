@@ -1,7 +1,7 @@
 package acl
 
 import (
-	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -42,14 +42,11 @@ func TestDefaultManager(t *testing.T) {
 	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
 	ifaceMock.EXPECT().IsUserspaceBind().Return(true).AnyTimes()
 	ifaceMock.EXPECT().SetFilter(gomock.Any())
-	ip, network, err := net.ParseCIDR("172.0.0.1/32")
-	if err != nil {
-		t.Fatalf("failed to parse IP address: %v", err)
-	}
+	network := netip.MustParsePrefix("172.0.0.1/32")
 
 	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
 	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
-		IP:      ip,
+		IP:      network.Addr(),
 		Network: network,
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
@@ -336,14 +333,11 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
 	ifaceMock.EXPECT().IsUserspaceBind().Return(true).AnyTimes()
 	ifaceMock.EXPECT().SetFilter(gomock.Any())
-	ip, network, err := net.ParseCIDR("172.0.0.1/32")
-	if err != nil {
-		t.Fatalf("failed to parse IP address: %v", err)
-	}
+	network := netip.MustParsePrefix("172.0.0.1/32")
 
 	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
 	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
-		IP:      ip,
+		IP:      network.Addr(),
 		Network: network,
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
