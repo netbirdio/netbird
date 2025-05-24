@@ -18,6 +18,8 @@ type notifier struct {
 	currentClientState bool
 	lastNotification   int
 	lastNumberOfPeers  int
+	lastFqdnAddress    string
+	lastIPAddress      string
 }
 
 func newNotifier() *notifier {
@@ -28,6 +30,8 @@ func (n *notifier) setListener(listener Listener) {
 	n.serverStateLock.Lock()
 	lastNotification := n.lastNotification
 	numOfPeers := n.lastNumberOfPeers
+	fqdnAddress := n.lastFqdnAddress
+	address := n.lastIPAddress
 	n.serverStateLock.Unlock()
 
 	n.listenersLock.Lock()
@@ -35,10 +39,9 @@ func (n *notifier) setListener(listener Listener) {
 
 	n.listener = listener
 
-	go func() {
-		notifyListener(listener, lastNotification)
-		listener.OnPeersListChanged(numOfPeers)
-	}()
+	listener.OnAddressChanged(fqdnAddress, address)
+	notifyListener(listener, lastNotification)
+	listener.OnPeersListChanged(numOfPeers)
 }
 
 func (n *notifier) removeListener() {
@@ -102,7 +105,7 @@ func (n *notifier) notify(state int) {
 		return
 	}
 
-	go notifyListener(listener, state)
+	notifyListener(listener, state)
 }
 
 func (n *notifier) calculateState(managementConn, signalConn bool) int {
@@ -134,10 +137,15 @@ func (n *notifier) peerListChanged(numOfPeers int) {
 		return
 	}
 
-	go listener.OnPeersListChanged(numOfPeers)
+	listener.OnPeersListChanged(numOfPeers)
 }
 
 func (n *notifier) localAddressChanged(fqdn, address string) {
+	n.serverStateLock.Lock()
+	n.lastFqdnAddress = fqdn
+	n.lastIPAddress = address
+	n.serverStateLock.Unlock()
+
 	n.listenersLock.Lock()
 	listener := n.listener
 	n.listenersLock.Unlock()
@@ -146,7 +154,7 @@ func (n *notifier) localAddressChanged(fqdn, address string) {
 		return
 	}
 
-	go listener.OnAddressChanged(fqdn, address)
+	listener.OnAddressChanged(fqdn, address)
 }
 
 func notifyListener(l Listener, state int) {
