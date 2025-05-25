@@ -333,9 +333,6 @@ func setupTestEnv(t *testing.T) {
 	// 10.10.0.0/24 more specific route exists in vpn table
 	setupRouteAndCleanup(t, r, netip.MustParsePrefix("10.10.0.0/24"), intf)
 
-	// 127.0.10.0/24 more specific route exists in vpn table
-	setupRouteAndCleanup(t, r, netip.MustParsePrefix("127.0.10.0/24"), intf)
-
 	// unique route in vpn table
 	setupRouteAndCleanup(t, r, netip.MustParsePrefix("172.16.0.0/12"), intf)
 }

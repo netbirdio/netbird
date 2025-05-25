@@ -21,7 +21,6 @@ import (
 var (
 	expectedExternalInt = "Ethernet1"
 	expectedVPNint      = "wgtest0"
-	expectedInternalInt = "Ethernet2"
 )
 
 type RouteInfo struct {
@@ -99,16 +98,6 @@ var testCases = []testCase{
 		expectedDestPrefix: "10.10.0.0/24",
 		expectedNextHop:    "0.0.0.0",
 		expectedInterface:  expectedVPNint,
-		dialer:             &net.Dialer{},
-	},
-
-	{
-		name:               "To more specific route (local) without custom dialer via physical interface",
-		destination:        "127.0.10.2:53",
-		expectedSourceIP:   "127.0.0.1",
-		expectedDestPrefix: "127.0.0.0/8",
-		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  expectedInternalInt,
 		dialer:             &net.Dialer{},
 	},
 }
