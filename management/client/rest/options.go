@@ -2,34 +2,50 @@ package rest
 
 import "net/http"
 
-type option func(*Client)
+// Option modifier for creation of Client
+type Option func(*Client)
 
-type HttpClient interface {
+// HTTPClient interface for HTTP client
+type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-func WithHttpClient(client HttpClient) option {
+// WithHTTPClient overrides HTTPClient used
+func WithHTTPClient(client HTTPClient) Option {
 	return func(c *Client) {
 		c.httpClient = client
 	}
 }
 
-func WithBearerToken(token string) option {
+// WithBearerToken uses provided bearer token acquired from SSO for authentication
+func WithBearerToken(token string) Option {
 	return WithAuthHeader("Bearer " + token)
 }
 
-func WithPAT(token string) option {
+// WithPAT uses provided Personal Access Token
+// (created from NetBird Management Dashboard) for authentication
+func WithPAT(token string) Option {
 	return WithAuthHeader("Token " + token)
 }
 
-func WithManagementURL(url string) option {
+// WithManagementURL overrides target NetBird Management server
+func WithManagementURL(url string) Option {
 	return func(c *Client) {
 		c.managementURL = url
 	}
 }
 
-func WithAuthHeader(value string) option {
+// WithAuthHeader overrides auth header completely, this should generally not be used
+// and WithBearerToken or WithPAT should be used instead
+func WithAuthHeader(value string) Option {
 	return func(c *Client) {
 		c.authHeader = value
+	}
+}
+
+// WithAccount uses impersonated account for Client
+func WithAccount(value string) Option {
+	return func(c *Client) {
+		c.impersonatedAccount = value
 	}
 }

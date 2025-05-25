@@ -13,9 +13,10 @@ import (
 
 // Client Management service HTTP REST API Client
 type Client struct {
-	managementURL string
-	authHeader    string
-	httpClient    HttpClient
+	managementURL       string
+	authHeader          string
+	impersonatedAccount string
+	httpClient          HTTPClient
 
 	// Accounts NetBird account APIs
 	// see more: https://docs.netbird.io/api/resources/accounts
@@ -86,7 +87,8 @@ func NewWithBearerToken(managementURL, token string) *Client {
 	)
 }
 
-func NewWithOptions(opts ...option) *Client {
+// NewWithOptions initialize new Client instance with options
+func NewWithOptions(opts ...Option) *Client {
 	client := &Client{
 		httpClient: http.DefaultClient,
 	}
@@ -115,6 +117,7 @@ func (c *Client) initialize() {
 	c.Events = &EventsAPI{c}
 }
 
+// NewRequest creates and executes new management API request
 func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.managementURL+path, body)
 	if err != nil {
@@ -125,6 +128,12 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	req.Header.Add("Accept", "application/json")
 	if body != nil {
 		req.Header.Add("Content-Type", "application/json")
+	}
+
+	if c.impersonatedAccount != "" {
+		query := req.URL.Query()
+		query.Add("account", c.impersonatedAccount)
+		req.URL.RawQuery = query.Encode()
 	}
 
 	resp, err := c.httpClient.Do(req)
