@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -158,8 +161,8 @@ func TestAddVPNRoute(t *testing.T) {
 
 			// validate it's pointing to the WireGuard interface
 			require.NoError(t, err)
-			nextHop, err := GetNextHop(testCase.prefix.Addr())
-			require.NoError(t, err)
+
+			nextHop := getNextHop(t, testCase.prefix.Addr())
 			assert.Equal(t, wgInterface.Name(), nextHop.Intf.Name, "next hop interface should be WireGuard interface")
 
 			// remove route again
@@ -174,6 +177,53 @@ func TestAddVPNRoute(t *testing.T) {
 		})
 	}
 }
+
+func getNextHop(t *testing.T, addr netip.Addr) Nexthop {
+	t.Helper()
+
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" || !addr.IsUnspecified() || addr.Is6() {
+		nextHop, err := GetNextHop(addr)
+		require.NoError(t, err)
+		require.NotNil(t, nextHop.Intf, "next hop interface should not be nil for %s", addr)
+
+		return nextHop
+	}
+
+	// GetNextHop for bsd is buggy and returns the wrong interface for the ipv4 default route.
+	cmd := exec.Command("route", "-n", "get", addr.String())
+	output, err := cmd.Output()
+	require.NoError(t, err, "route get failed")
+
+	lines := strings.Split(string(output), "\n")
+	var intf string
+	var gateway string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "interface:") {
+			intf = strings.TrimSpace(strings.TrimPrefix(line, "interface:"))
+		} else if strings.HasPrefix(line, "gateway:") {
+			gateway = strings.TrimSpace(strings.TrimPrefix(line, "gateway:"))
+		}
+	}
+
+	require.NotEmpty(t, intf, "interface should be found in route output")
+
+	iface, err := net.InterfaceByName(intf)
+	require.NoError(t, err, "interface %s should exist", intf)
+
+	nexthop := Nexthop{Intf: iface}
+
+	if gateway != "" && gateway != "link#"+strconv.Itoa(iface.Index) {
+		addr, err := netip.ParseAddr(gateway)
+		if err == nil {
+			nexthop.IP = addr
+		}
+	}
+
+	return nexthop
+}
+
 func TestAddRouteToNonVPNIntf(t *testing.T) {
 	testCases := []struct {
 		name        string
