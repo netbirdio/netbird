@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestAddVPNRoute(t *testing.T) {
 		},
 		{
 			name:   "IPv4 Single host",
-			prefix: netip.MustParsePrefix("8.8.8.8/32"),
+			prefix: netip.MustParsePrefix("10.111.111.111/32"),
 		},
 		{
 			name:   "IPv4 RFC3927 test range",
@@ -46,11 +47,11 @@ func TestAddVPNRoute(t *testing.T) {
 
 		{
 			name:   "IPv6 Subnet",
-			prefix: netip.MustParsePrefix("2001:db8:1000::/48"),
+			prefix: netip.MustParsePrefix("fdb1:848a:7e16::/48"),
 		},
 		{
 			name:   "IPv6 Single host",
-			prefix: netip.MustParsePrefix("2001:db8::1/128"),
+			prefix: netip.MustParsePrefix("fdb1:848a:7e16:a::b/128"),
 		},
 
 		// IPv4 addresses that should be rejected (matches validateRoute logic)
@@ -122,8 +123,6 @@ func TestAddVPNRoute(t *testing.T) {
 			prefix:      netip.MustParsePrefix("100.65.75.0/32"),
 			expectError: true,
 		},
-
-
 	}
 
 	for n, testCase := range testCases {
@@ -145,8 +144,7 @@ func TestAddVPNRoute(t *testing.T) {
 			// add the route
 			err = r.AddVPNRoute(testCase.prefix, intf)
 			if testCase.expectError {
-				assert.ErrorIs(t, err, vars.ErrRouteNotAllowed,
-					"Error should be ErrRouteNotAllowed, got: %v", err)
+				assert.ErrorIs(t, err, vars.ErrRouteNotAllowed)
 				return
 			}
 
@@ -158,13 +156,154 @@ func TestAddVPNRoute(t *testing.T) {
 
 			// remove route again
 			err = r.RemoveVPNRoute(testCase.prefix, intf)
-			require.NoError(t, err, "RemoveVPNRoute should not return err")
+			require.NoError(t, err)
 
 			// validate it's gone
 			nextHop, err = GetNextHop(testCase.prefix.Addr())
+			require.True(t,
+				errors.Is(err, vars.ErrRouteNotFound) || err == nil && nextHop.Intf != nil && nextHop.Intf.Name != wgInterface.Name(),
+				"err: %v, next hop: %v", err, nextHop)
+		})
+	}
+}
+func TestAddRouteToNonVPNIntf(t *testing.T) {
+	testCases := []struct {
+		name        string
+		prefix      netip.Prefix
+		expectError bool
+		errorType   error
+	}{
+		{
+			name:   "IPv4 RFC3927 test range",
+			prefix: netip.MustParsePrefix("198.51.100.0/24"),
+		},
+		{
+			name:   "IPv4 Single host",
+			prefix: netip.MustParsePrefix("8.8.8.8/32"),
+		},
+		{
+			name:   "IPv6 External network route",
+			prefix: netip.MustParsePrefix("2001:db8:1000::/48"),
+		},
+		{
+			name:   "IPv6 Single host",
+			prefix: netip.MustParsePrefix("2001:db8::1/128"),
+		},
+		{
+			name:   "IPv6 Subnet",
+			prefix: netip.MustParsePrefix("2a05:d014:1f8d::/48"),
+		},
+		{
+			name:   "IPv6 Single host",
+			prefix: netip.MustParsePrefix("2a05:d014:1f8d:7302:ebca:ec15:b24d:d07e/128"),
+		},
+
+		// Addresses that should be rejected
+		{
+			name:        "IPv4 Loopback",
+			prefix:      netip.MustParsePrefix("127.0.0.1/32"),
+			expectError: true,
+			errorType:   vars.ErrRouteNotAllowed,
+		},
+		{
+			name:        "IPv4 Link-local unicast",
+			prefix:      netip.MustParsePrefix("169.254.1.1/32"),
+			expectError: true,
+			errorType:   vars.ErrRouteNotAllowed,
+		},
+		{
+			name:        "IPv4 Multicast",
+			prefix:      netip.MustParsePrefix("239.255.255.250/32"),
+			expectError: true,
+			errorType:   vars.ErrRouteNotAllowed,
+		},
+		{
+			name:        "IPv4 Unspecified",
+			prefix:      netip.MustParsePrefix("0.0.0.0/32"),
+			expectError: true,
+			errorType:   vars.ErrRouteNotAllowed,
+		},
+		{
+			name:        "IPv6 Loopback",
+			prefix:      netip.MustParsePrefix("::1/128"),
+			expectError: true,
+			errorType:   vars.ErrRouteNotAllowed,
+		},
+		{
+			name:        "IPv6 Link-local unicast",
+			prefix:      netip.MustParsePrefix("fe80::1/128"),
+			expectError: true,
+			errorType:   vars.ErrRouteNotAllowed,
+		},
+		{
+			name:        "IPv6 Multicast",
+			prefix:      netip.MustParsePrefix("ff00::1/128"),
+			expectError: true,
+			errorType:   vars.ErrRouteNotAllowed,
+		},
+		{
+			name:        "IPv6 Unspecified",
+			prefix:      netip.MustParsePrefix("::/128"),
+			expectError: true,
+			errorType:   vars.ErrRouteNotAllowed,
+		},
+		{
+			name:        "IPv4 WireGuard interface network overlap",
+			prefix:      netip.MustParsePrefix("100.65.75.0/24"),
+			expectError: true,
+			errorType:   vars.ErrRouteNotAllowed,
+		},
+	}
+
+	for n, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("NB_DISABLE_ROUTE_CACHE", "true")
+
+			wgInterface := createWGInterface(t, fmt.Sprintf("utun54%d", n), "100.65.75.2/24", 33200+n)
+
+			r := NewSysOps(wgInterface, nil)
+			_, _, err := r.SetupRouting(nil, nil)
 			require.NoError(t, err)
-			assert.NotNil(t, nextHop.Intf)
-			assert.NotEqual(t, nextHop.Intf.Name, wgInterface.Name())
+			t.Cleanup(func() {
+				assert.NoError(t, r.CleanupRouting(nil))
+			})
+
+			initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
+			require.NoError(t, err, "Should be able to get IPv4 default route")
+			t.Logf("Initial IPv4 next hop: %s", initialNextHopV4)
+
+			initialNextHopV6, err := GetNextHop(netip.IPv6Unspecified())
+			if testCase.prefix.Addr().Is6() &&
+				(errors.Is(err, vars.ErrRouteNotFound) || initialNextHopV6.Intf != nil && strings.HasPrefix(initialNextHopV6.Intf.Name, "utun")) {
+				t.Skip("Skipping test as no ipv6 default route is available")
+			}
+			if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
+				t.Fatalf("Failed to get IPv6 default route: %v", err)
+			}
+
+			var initialNextHop Nexthop
+			if testCase.prefix.Addr().Is6() {
+				initialNextHop = initialNextHopV6
+			} else {
+				initialNextHop = initialNextHopV4
+			}
+
+			nexthop, err := r.addRouteToNonVPNIntf(testCase.prefix, wgInterface, initialNextHop)
+
+			if testCase.expectError {
+				require.ErrorIs(t, err, vars.ErrRouteNotAllowed)
+				return
+			}
+			require.NoError(t, err)
+			t.Logf("Next hop for %s: %s", testCase.prefix, nexthop)
+
+			// Verify the route was added and points to non-VPN interface
+			currentNextHop, err := GetNextHop(testCase.prefix.Addr())
+			require.NoError(t, err)
+			assert.NotEqual(t, wgInterface.Name(), currentNextHop.Intf.Name, "Route should not point to VPN interface")
+
+			err = r.removeFromRouteTable(testCase.prefix, nexthop)
+			assert.NoError(t, err)
 		})
 	}
 }
@@ -409,17 +548,4 @@ func TestIsVpnRoute(t *testing.T) {
 			assert.Equal(t, tt.expectedPrefix, matchedPrefix, "isVpnRoute should return expectedVpn prefix")
 		})
 	}
-}
-
-func existsInRouteTable(prefix netip.Prefix) (bool, error) {
-	routes, err := GetRoutesFromTable()
-	if err != nil {
-		return false, fmt.Errorf("get routes from table: %w", err)
-	}
-	for _, tableRoute := range routes {
-		if tableRoute == prefix {
-			return true, nil
-		}
-	}
-	return false, nil
 }
