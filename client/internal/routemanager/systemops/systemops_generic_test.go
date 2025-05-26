@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/pion/transport/v3/stdnet"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -135,9 +136,14 @@ func TestAddVPNRoute(t *testing.T) {
 			expectError: true,
 		},
 	}
+	ipv6disabled := isIPv6Disabled()
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			if ipv6disabled && testCase.prefix.Addr().Is6() {
+				t.Skip("Skipping test as IPv6 is disabled on this system")
+			}
+
 			t.Setenv("NB_DISABLE_ROUTE_CACHE", "true")
 
 			wgInterface := createWGInterface(t, fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100+n)
@@ -222,6 +228,41 @@ func getNextHop(t *testing.T, addr netip.Addr) Nexthop {
 	}
 
 	return nexthop
+}
+func isIPv6Disabled() bool {
+	// windows allows adding v6 routes without failing, but they don't show up
+	if runtime.GOOS != "windows" {
+		return false
+	}
+
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		log.Errorf("Failed to get network interfaces: %v", err)
+		return false
+	}
+
+	for _, intf := range interfaces {
+		addrs, err := intf.Addrs()
+		if err != nil {
+			log.Errorf("Failed to get addresses for interface %s: %v", intf.Name, err)
+			continue
+		}
+
+		for _, addr := range addrs {
+			switch addr := addr.(type) {
+			case *net.IPNet:
+				if addr.IP.To16() != nil {
+					return false
+				}
+			case *net.IPAddr:
+				if addr.IP.To16() != nil {
+					return false
+				}
+			}
+		}
+	}
+
+	return true
 }
 
 func TestAddRouteToNonVPNIntf(t *testing.T) {
