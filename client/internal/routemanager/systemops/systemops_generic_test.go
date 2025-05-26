@@ -187,7 +187,9 @@ func TestAddVPNRoute(t *testing.T) {
 func getNextHop(t *testing.T, addr netip.Addr) Nexthop {
 	t.Helper()
 
-	if runtime.GOOS == "windows" || runtime.GOOS == "linux" || !addr.IsUnspecified() || addr.Is6() {
+	// GetNextHop for bsd is buggy and returns the wrong interface for the default route.
+	// For freebsd olny for the ipv4 route
+	if runtime.GOOS != "darwin" && runtime.GOOS != "freebsd" {
 		nextHop, err := GetNextHop(addr)
 		require.NoError(t, err)
 		require.NotNil(t, nextHop.Intf, "next hop interface should not be nil for %s", addr)
@@ -195,10 +197,23 @@ func getNextHop(t *testing.T, addr netip.Addr) Nexthop {
 		return nextHop
 	}
 
-	// GetNextHop for bsd is buggy and returns the wrong interface for the ipv4 default route.
+	if addr.IsUnspecified() {
+		// On macOS, querying 0.0.0.0 returns the wrong interface
+		if addr.Is4() {
+			addr = netip.MustParseAddr("1.2.3.4")
+		} else {
+			addr = netip.MustParseAddr("2001:db8::1")
+		}
+	}
+
 	cmd := exec.Command("route", "-n", "get", addr.String())
-	output, err := cmd.Output()
-	require.NoError(t, err, "route get failed")
+	if addr.Is6() {
+		cmd = exec.Command("route", "-n", "get", "-inet6", addr.String())
+	}
+
+	output, err := cmd.CombinedOutput()
+	t.Logf("route output: %s", output)
+	require.NoError(t, err, "%s failed")
 
 	lines := strings.Split(string(output), "\n")
 	var intf string
