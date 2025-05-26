@@ -187,15 +187,20 @@ func TestAddVPNRoute(t *testing.T) {
 func getNextHop(t *testing.T, addr netip.Addr) Nexthop {
 	t.Helper()
 
-	// GetNextHop for bsd is buggy and returns the wrong interface for the default route.
-	// For freebsd olny for the ipv4 route
-	if runtime.GOOS != "darwin" && runtime.GOOS != "freebsd" {
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("route", "print").CombinedOutput()
+		t.Logf("route print output: %s", out)
+		require.NoError(t, err, "route print failed")
+	}
+
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
 		nextHop, err := GetNextHop(addr)
 		require.NoError(t, err)
 		require.NotNil(t, nextHop.Intf, "next hop interface should not be nil for %s", addr)
 
 		return nextHop
 	}
+	// GetNextHop for bsd is buggy and returns the wrong interface for the default route.
 
 	if addr.IsUnspecified() {
 		// On macOS, querying 0.0.0.0 returns the wrong interface
