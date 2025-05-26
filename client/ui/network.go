@@ -502,7 +502,12 @@ func (s *serviceClient) handleExitNodeMenuDeselectAll() ([]*proto.Network, error
 		return nil, err
 	}
 
-	return exitNodes, nil
+	updatedExitNodes, err := s.getExitNodes(conn)
+	if err != nil {
+		return nil, fmt.Errorf("re-fetch exit nodes: %v", err)
+	}
+
+	return updatedExitNodes, nil
 }
 
 // Add function to toggle exit node selection
