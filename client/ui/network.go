@@ -381,6 +381,7 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 
 	for _, node := range s.mExitNodeItems {
 		node.cancel()
+		node.Hide()
 		node.Remove()
 	}
 	s.mExitNodeItems = nil
