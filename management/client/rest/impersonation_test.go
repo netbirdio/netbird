@@ -50,3 +50,28 @@ func TestImpersonation_Peers_List_200(t *testing.T) {
 		assert.Equal(t, testPeer, ret[0])
 	})
 }
+
+func TestImpersonation_Change_Account(t *testing.T) {
+	withMockClient(func(c *rest.Client, mux *http.ServeMux) {
+		impersonatedClient := c.Impersonate(testImpersonatedAccount.Id)
+		mux.HandleFunc("/api/peers", func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, r.URL.Query().Get("account"), testImpersonatedAccount.Id)
+			retBytes, _ := json.Marshal([]api.Peer{testPeer})
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+		_, err := impersonatedClient.Peers.List(context.Background())
+		require.NoError(t, err)
+
+		impersonatedClient = impersonatedClient.Impersonate("another-test-account")
+		mux.HandleFunc("/api/peers/Test", func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, r.URL.Query().Get("account"), "another-test-account")
+			retBytes, _ := json.Marshal(testPeer)
+			_, err := w.Write(retBytes)
+			require.NoError(t, err)
+		})
+
+		_, err = impersonatedClient.Peers.Get(context.Background(), "Test")
+		require.NoError(t, err)
+	})
+}

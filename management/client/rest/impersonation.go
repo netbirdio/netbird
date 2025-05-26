@@ -10,19 +10,24 @@ func (c *Client) Impersonate(account string) *Client {
 	client := NewWithOptions(
 		WithManagementURL(c.managementURL),
 		WithAuthHeader(c.authHeader),
-		WithHttpClient(newImpersonatedHttpClient(account)),
+		WithHttpClient(newImpersonatedHttpClient(c, account)),
 	)
 	return client
 }
 
 type impersonatedHttpClient struct {
-	baseClient *http.Client
+	baseClient HttpClient
 	account    string
 }
 
-func newImpersonatedHttpClient(account string) *impersonatedHttpClient {
+func newImpersonatedHttpClient(c *Client, account string) *impersonatedHttpClient {
+	if hc, ok := c.httpClient.(*impersonatedHttpClient); ok {
+		hc.account = account
+		return hc
+	}
+
 	return &impersonatedHttpClient{
-		baseClient: http.DefaultClient,
+		baseClient: c.httpClient,
 		account:    account,
 	}
 }
