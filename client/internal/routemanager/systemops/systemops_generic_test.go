@@ -44,6 +44,10 @@ func TestAddVPNRoute(t *testing.T) {
 			name:   "IPv4 RFC3927 test range",
 			prefix: netip.MustParsePrefix("198.51.100.0/24"),
 		},
+		{
+			name:   "IPv4 Default route",
+			prefix: netip.MustParsePrefix("0.0.0.0/0"),
+		},
 
 		{
 			name:   "IPv6 Subnet",
@@ -52,6 +56,10 @@ func TestAddVPNRoute(t *testing.T) {
 		{
 			name:   "IPv6 Single host",
 			prefix: netip.MustParsePrefix("fdb1:848a:7e16:a::b/128"),
+		},
+		{
+			name:   "IPv6 Default route",
+			prefix: netip.MustParsePrefix("::/0"),
 		},
 
 		// IPv4 addresses that should be rejected (matches validateRoute logic)
@@ -219,7 +227,7 @@ func TestAddRouteToNonVPNIntf(t *testing.T) {
 		},
 		{
 			name:        "IPv4 Unspecified",
-			prefix:      netip.MustParsePrefix("0.0.0.0/32"),
+			prefix:      netip.MustParsePrefix("0.0.0.0/0"),
 			expectError: true,
 			errorType:   vars.ErrRouteNotAllowed,
 		},
@@ -243,7 +251,7 @@ func TestAddRouteToNonVPNIntf(t *testing.T) {
 		},
 		{
 			name:        "IPv6 Unspecified",
-			prefix:      netip.MustParsePrefix("::/128"),
+			prefix:      netip.MustParsePrefix("::/0"),
 			expectError: true,
 			errorType:   vars.ErrRouteNotAllowed,
 		},
