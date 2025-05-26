@@ -41,7 +41,8 @@ func (n *notifier) setListener(listener Listener) {
 
 	listener.OnAddressChanged(fqdnAddress, address)
 	notifyListener(listener, lastNotification)
-	listener.OnPeersListChanged(numOfPeers)
+	// run on go routine to avoid on Java layer to call go functions on same thread
+	go listener.OnPeersListChanged(numOfPeers)
 }
 
 func (n *notifier) removeListener() {
@@ -137,7 +138,8 @@ func (n *notifier) peerListChanged(numOfPeers int) {
 		return
 	}
 
-	listener.OnPeersListChanged(numOfPeers)
+	// run on go routine to avoid on Java layer to call go functions on same thread
+	go listener.OnPeersListChanged(numOfPeers)
 }
 
 func (n *notifier) localAddressChanged(fqdn, address string) {
