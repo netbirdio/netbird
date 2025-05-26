@@ -12,7 +12,6 @@ func (c *Client) Impersonate(account string) *Client {
 		WithAuthHeader(c.authHeader),
 		WithHttpClient(newImpersonatedHttpClient(account)),
 	)
-	client.initialize()
 	return client
 }
 
