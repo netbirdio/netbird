@@ -76,12 +76,6 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 
 	d.applyPeerACLs(networkMap)
 
-	// If we got empty rules list but management did not set the networkMap.FirewallRulesIsEmpty flag,
-	// then the mgmt server is older than the client, and we need to allow all traffic for routes
-	isLegacy := len(networkMap.RoutesFirewallRules) == 0 && !networkMap.RoutesFirewallRulesIsEmpty
-	if err := d.firewall.SetLegacyManagement(isLegacy); err != nil {
-		log.Errorf("failed to set legacy management flag: %v", err)
-	}
 
 	if err := d.applyRouteACLs(networkMap.RoutesFirewallRules, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("Failed to apply route ACLs: %v", err)

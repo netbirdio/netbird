@@ -62,6 +62,8 @@ func main() {
 			return
 		}
 		logFile = file
+	} else {
+		_ = util.InitLog("trace", "console")
 	}
 
 	// Create the Fyne application.
@@ -191,6 +193,7 @@ type serviceClient struct {
 	mAllowSSH          *systray.MenuItem
 	mAutoConnect       *systray.MenuItem
 	mEnableRosenpass   *systray.MenuItem
+	mLazyConnEnabled   *systray.MenuItem
 	mNotifications     *systray.MenuItem
 	mAdvancedSettings  *systray.MenuItem
 	mCreateDebugBundle *systray.MenuItem
@@ -630,6 +633,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
+	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable lazy connection", lazyConnMenuDescr, false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
@@ -689,104 +693,114 @@ func (s *serviceClient) onTrayReady() {
 
 	go s.eventManager.Start(s.ctx)
 
-	go func() {
-		for {
-			select {
-			case <-s.mUp.ClickedCh:
-				s.mUp.Disable()
-				go func() {
-					defer s.mUp.Enable()
-					err := s.menuUpClick()
-					if err != nil {
-						s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
-						return
-					}
-				}()
-			case <-s.mDown.ClickedCh:
-				s.mDown.Disable()
-				go func() {
-					defer s.mDown.Enable()
-					err := s.menuDownClick()
-					if err != nil {
-						s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
-						return
-					}
-				}()
-			case <-s.mAllowSSH.ClickedCh:
-				if s.mAllowSSH.Checked() {
-					s.mAllowSSH.Uncheck()
-				} else {
-					s.mAllowSSH.Check()
-				}
-				if err := s.updateConfig(); err != nil {
-					log.Errorf("failed to update config: %v", err)
-				}
-			case <-s.mAutoConnect.ClickedCh:
-				if s.mAutoConnect.Checked() {
-					s.mAutoConnect.Uncheck()
-				} else {
-					s.mAutoConnect.Check()
-				}
-				if err := s.updateConfig(); err != nil {
-					log.Errorf("failed to update config: %v", err)
-				}
-			case <-s.mEnableRosenpass.ClickedCh:
-				if s.mEnableRosenpass.Checked() {
-					s.mEnableRosenpass.Uncheck()
-				} else {
-					s.mEnableRosenpass.Check()
-				}
-				if err := s.updateConfig(); err != nil {
-					log.Errorf("failed to update config: %v", err)
-				}
-			case <-s.mAdvancedSettings.ClickedCh:
-				s.mAdvancedSettings.Disable()
-				go func() {
-					defer s.mAdvancedSettings.Enable()
-					defer s.getSrvConfig()
-					s.runSelfCommand("settings", "true")
-				}()
-			case <-s.mCreateDebugBundle.ClickedCh:
-				s.mCreateDebugBundle.Disable()
-				go func() {
-					defer s.mCreateDebugBundle.Enable()
-					s.runSelfCommand("debug", "true")
-				}()
-			case <-s.mQuit.ClickedCh:
-				systray.Quit()
-				return
-			case <-s.mGitHub.ClickedCh:
-				err := openURL("https://github.com/netbirdio/netbird")
-				if err != nil {
-					log.Errorf("%s", err)
-				}
-			case <-s.mUpdate.ClickedCh:
-				err := openURL(version.DownloadUrl())
-				if err != nil {
-					log.Errorf("%s", err)
-				}
-			case <-s.mNetworks.ClickedCh:
-				s.mNetworks.Disable()
-				go func() {
-					defer s.mNetworks.Enable()
-					s.runSelfCommand("networks", "true")
-				}()
-			case <-s.mNotifications.ClickedCh:
-				if s.mNotifications.Checked() {
-					s.mNotifications.Uncheck()
-				} else {
-					s.mNotifications.Check()
-				}
-				if s.eventManager != nil {
-					s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
-				}
-				if err := s.updateConfig(); err != nil {
-					log.Errorf("failed to update config: %v", err)
-				}
-			}
+	go s.listenEvents()
+}
 
+func (s *serviceClient) listenEvents() {
+	for {
+		select {
+		case <-s.mUp.ClickedCh:
+			s.mUp.Disable()
+			go func() {
+				defer s.mUp.Enable()
+				err := s.menuUpClick()
+				if err != nil {
+					s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
+					return
+				}
+			}()
+		case <-s.mDown.ClickedCh:
+			s.mDown.Disable()
+			go func() {
+				defer s.mDown.Enable()
+				err := s.menuDownClick()
+				if err != nil {
+					s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
+					return
+				}
+			}()
+		case <-s.mAllowSSH.ClickedCh:
+			if s.mAllowSSH.Checked() {
+				s.mAllowSSH.Uncheck()
+			} else {
+				s.mAllowSSH.Check()
+			}
+			if err := s.updateConfig(); err != nil {
+				log.Errorf("failed to update config: %v", err)
+			}
+		case <-s.mAutoConnect.ClickedCh:
+			if s.mAutoConnect.Checked() {
+				s.mAutoConnect.Uncheck()
+			} else {
+				s.mAutoConnect.Check()
+			}
+			if err := s.updateConfig(); err != nil {
+				log.Errorf("failed to update config: %v", err)
+			}
+		case <-s.mEnableRosenpass.ClickedCh:
+			if s.mEnableRosenpass.Checked() {
+				s.mEnableRosenpass.Uncheck()
+			} else {
+				s.mEnableRosenpass.Check()
+			}
+			if err := s.updateConfig(); err != nil {
+				log.Errorf("failed to update config: %v", err)
+			}
+		case <-s.mLazyConnEnabled.ClickedCh:
+			if s.mLazyConnEnabled.Checked() {
+				s.mLazyConnEnabled.Uncheck()
+			} else {
+				s.mLazyConnEnabled.Check()
+			}
+			if err := s.updateConfig(); err != nil {
+				log.Errorf("failed to update config: %v", err)
+			}
+		case <-s.mAdvancedSettings.ClickedCh:
+			s.mAdvancedSettings.Disable()
+			go func() {
+				defer s.mAdvancedSettings.Enable()
+				defer s.getSrvConfig()
+				s.runSelfCommand("settings", "true")
+			}()
+		case <-s.mCreateDebugBundle.ClickedCh:
+			s.mCreateDebugBundle.Disable()
+			go func() {
+				defer s.mCreateDebugBundle.Enable()
+				s.runSelfCommand("debug", "true")
+			}()
+		case <-s.mQuit.ClickedCh:
+			systray.Quit()
+			return
+		case <-s.mGitHub.ClickedCh:
+			err := openURL("https://github.com/netbirdio/netbird")
+			if err != nil {
+				log.Errorf("%s", err)
+			}
+		case <-s.mUpdate.ClickedCh:
+			err := openURL(version.DownloadUrl())
+			if err != nil {
+				log.Errorf("%s", err)
+			}
+		case <-s.mNetworks.ClickedCh:
+			s.mNetworks.Disable()
+			go func() {
+				defer s.mNetworks.Enable()
+				s.runSelfCommand("networks", "true")
+			}()
+		case <-s.mNotifications.ClickedCh:
+			if s.mNotifications.Checked() {
+				s.mNotifications.Uncheck()
+			} else {
+				s.mNotifications.Check()
+			}
+			if s.eventManager != nil {
+				s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+			}
+			if err := s.updateConfig(); err != nil {
+				log.Errorf("failed to update config: %v", err)
+			}
 		}
-	}()
+	}
 }
 
 func (s *serviceClient) runSelfCommand(command, arg string) {
@@ -1018,6 +1032,7 @@ func (s *serviceClient) updateConfig() error {
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
 	notificationsDisabled := !s.mNotifications.Checked()
+	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 
 	loginRequest := proto.LoginRequest{
 		IsUnixDesktopClient:  runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
@@ -1025,6 +1040,7 @@ func (s *serviceClient) updateConfig() error {
 		RosenpassEnabled:     &rosenpassEnabled,
 		DisableAutoConnect:   &disableAutoStart,
 		DisableNotifications: &notificationsDisabled,
+		LazyConnectionEnabled: &lazyConnectionEnabled,
 	}
 
 	if err := s.restartClient(&loginRequest); err != nil {

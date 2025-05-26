@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -376,6 +377,7 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("DisableFirewall: %v\n", g.internalConfig.DisableFirewall))
 
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", g.internalConfig.BlockLANAccess))
+	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", g.internalConfig.LazyConnectionEnabled))
 }
 
 func (g *BundleGenerator) addProf() (err error) {
@@ -533,6 +535,33 @@ func (g *BundleGenerator) addLogfile() error {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 
+	// add latest rotated log file
+	pattern := filepath.Join(logDir, "client-*.log.gz")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		log.Warnf("failed to glob rotated logs: %v", err)
+	} else if len(files) > 0 {
+		// pick the file with the latest ModTime
+		sort.Slice(files, func(i, j int) bool {
+			fi, err := os.Stat(files[i])
+			if err != nil {
+				log.Warnf("failed to stat rotated log %s: %v", files[i], err)
+				return false
+			}
+			fj, err := os.Stat(files[j])
+			if err != nil {
+				log.Warnf("failed to stat rotated log %s: %v", files[j], err)
+				return false
+			}
+			return fi.ModTime().Before(fj.ModTime())
+		})
+		latest := files[len(files)-1]
+		name := filepath.Base(latest)
+		if err := g.addSingleLogFileGz(latest, name); err != nil {
+			log.Warnf("failed to add rotated log %s: %v", name, err)
+		}
+	}
+
 	stdErrLogPath := filepath.Join(logDir, errorLogFile)
 	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
 	if runtime.GOOS == "darwin" {
@@ -563,18 +592,53 @@ func (g *BundleGenerator) addSingleLogfile(logPath, targetName string) error {
 		}
 	}()
 
-	var logReader io.Reader
+	var logReader io.Reader = logFile
 	if g.anonymize {
 		var writer *io.PipeWriter
 		logReader, writer = io.Pipe()
 
 		go anonymizeLog(logFile, writer, g.anonymizer)
-	} else {
-		logReader = logFile
 	}
-
 	if err := g.addFileToZip(logReader, targetName); err != nil {
 		return fmt.Errorf("add %s to zip: %w", targetName, err)
+	}
+
+	return nil
+}
+
+// addSingleLogFileGz adds a single gzipped log file to the archive
+func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
+	f, err := os.Open(logPath)
+	if err != nil {
+		return fmt.Errorf("open gz log file %s: %w", targetName, err)
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("create gzip reader: %w", err)
+	}
+	defer gzr.Close()
+
+	var logReader io.Reader = gzr
+	if g.anonymize {
+		var pw *io.PipeWriter
+		logReader, pw = io.Pipe()
+		go anonymizeLog(gzr, pw, g.anonymizer)
+	}
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := io.Copy(gw, logReader); err != nil {
+		return fmt.Errorf("re-gzip: %w", err)
+	}
+
+	if err := gw.Close(); err != nil {
+		return fmt.Errorf("close gzip writer: %w", err)
+	}
+
+	if err := g.addFileToZip(&buf, targetName); err != nil {
+		return fmt.Errorf("add anonymized gz: %w", err)
 	}
 
 	return nil

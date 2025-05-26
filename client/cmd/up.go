@@ -194,6 +194,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.BlockLANAccess = &blockLANAccess
 	}
 
+	if cmd.Flag(enableLazyConnectionFlag).Changed {
+		ic.LazyConnectionEnabled = &lazyConnEnabled
+	}
+
 	providedSetupKey, err := getSetupKey()
 	if err != nil {
 		return err
@@ -330,6 +334,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(blockLANAccessFlag).Changed {
 		loginRequest.BlockLanAccess = &blockLANAccess
+	}
+
+	if cmd.Flag(enableLazyConnectionFlag).Changed {
+		loginRequest.LazyConnectionEnabled = &lazyConnEnabled
 	}
 
 	var loginErr error

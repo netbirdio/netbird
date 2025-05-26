@@ -118,6 +118,11 @@ components:
           example: my-organization.org
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
+        lazy_connection_enabled:
+          x-experimental: true
+          description: Enables or disables experimental lazy connection
+          type: boolean
+          example: true
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
@@ -4315,6 +4320,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: reporter_id
+          in: query
+          description: Filter by reporter ID
+          required: false
+          schema:
+            type: string
         - name: protocol
           in: query
           description: Filter by protocol
@@ -4344,7 +4355,7 @@ paths:
             enum: [INGRESS, EGRESS, DIRECTION_UNKNOWN]
         - name: search
           in: query
-          description: Filters events with a partial match on user email, source and destination names and source and destination addresses
+          description: Case-insensitive partial match on user email, source/destination names, and source/destination addresses
           required: false
           schema:
             type: string
