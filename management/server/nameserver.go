@@ -18,7 +18,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
+const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
+
+var invalidDomainName = errors.New("invalid domain name")
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
@@ -319,13 +321,9 @@ func validateDomain(domain string) error {
 		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
 	}
 
-	labels, valid := dns.IsDomainName(domain)
+	_, valid := dns.IsDomainName(domain)
 	if !valid {
-		return errors.New("invalid domain name")
-	}
-
-	if labels < 2 {
-		return errors.New("domain should consists of a minimum of two labels")
+		return invalidDomainName
 	}
 
 	return nil

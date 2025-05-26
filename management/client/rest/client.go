@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -134,7 +135,8 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	if resp.StatusCode > 299 {
 		parsedErr, pErr := parseResponse[util.ErrorResponse](resp)
 		if pErr != nil {
-			return nil, err
+
+			return nil, pErr
 		}
 		return nil, errors.New(parsedErr.Message)
 	}
@@ -145,13 +147,16 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 func parseResponse[T any](resp *http.Response) (T, error) {
 	var ret T
 	if resp.Body == nil {
-		return ret, errors.New("No body")
+		return ret, fmt.Errorf("Body missing, HTTP Error code %d", resp.StatusCode)
 	}
 	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return ret, err
 	}
 	err = json.Unmarshal(bs, &ret)
+	if err != nil {
+		return ret, fmt.Errorf("Error code %d, error unmarshalling body: %w", resp.StatusCode, err)
+	}
 
-	return ret, err
+	return ret, nil
 }

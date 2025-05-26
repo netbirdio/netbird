@@ -241,6 +241,8 @@ func NewEngine(
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
+
+	path := statemanager.GetDefaultStatePath()
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
@@ -250,11 +252,9 @@ func NewEngine(
 			}
 		}
 
-		engine.stateManager = statemanager.New(mobileDep.StateFilePath)
+		path = mobileDep.StateFilePath
 	}
-	if path := statemanager.GetDefaultStatePath(); path != "" {
-		engine.stateManager = statemanager.New(path)
-	}
+	engine.stateManager = statemanager.New(path)
 
 	return engine
 }
@@ -977,6 +977,14 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			if err := localipfw.UpdateLocalIPs(); err != nil {
 				log.Errorf("failed to update local IPs: %v", err)
 			}
+		}
+
+		// If we got empty rules list but management did not set the networkMap.FirewallRulesIsEmpty flag,
+		// then the mgmt server is older than the client, and we need to allow all traffic for routes.
+		// This needs to be toggled before applying routes.
+		isLegacy := len(networkMap.RoutesFirewallRules) == 0 && !networkMap.RoutesFirewallRulesIsEmpty
+		if err := e.firewall.SetLegacyManagement(isLegacy); err != nil {
+			log.Errorf("failed to set legacy management flag: %v", err)
 		}
 	}
 
