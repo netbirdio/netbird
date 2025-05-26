@@ -17,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/geolocation"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 
@@ -1553,5 +1554,27 @@ func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, account
 		return status.Errorf(status.PreconditionFailed, "peer is linked to ingress ports: %s", peerId)
 	}
 
+	linked, router := isPeerLinkedToNetworkRouter(ctx, am.Store, accountId, peerId)
+	if linked {
+		return status.Errorf(status.PreconditionFailed, "peer is linked to a network router: %s", router.ID)
+	}
+
 	return nil
+}
+
+// isPeerLinkedToNetworkRouter checks if a peer is linked to any network router in the account.
+func isPeerLinkedToNetworkRouter(ctx context.Context, transaction store.Store, accountID string, peerID string) (bool, *routerTypes.NetworkRouter) {
+	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving network routers while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, router := range routers {
+		if router.Peer == peerID {
+			return true, router
+		}
+	}
+
+	return false, nil
 }
