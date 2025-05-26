@@ -1566,7 +1566,7 @@ func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, account
 func isPeerLinkedToNetworkRouter(ctx context.Context, transaction store.Store, accountID string, peerID string) (bool, *routerTypes.NetworkRouter) {
 	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("error retrieving network routers while checking group linkage: %v", err)
+		log.WithContext(ctx).Errorf("error retrieving network routers while checking peer linkage: %v", err)
 		return false, nil
 	}
 
