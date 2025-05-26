@@ -433,7 +433,9 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 				if err != nil {
 					log.Warnf("failed to handle deselect all exit nodes: %v", err)
 				} else {
+					s.exitNodeMu.Lock()
 					s.recreateExitNodeMenu(exitNodes)
+					s.exitNodeMu.Unlock()
 				}
 			}
 
