@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"syscall"
 	"time"
 	"unsafe"
@@ -113,7 +114,7 @@ func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Next
 	const numAddrs = unix.RTAX_NETMASK + 1
 	addrs := make([]route.Addr, numAddrs)
 
-	addrs[unix.RTAX_DST], err = netipAddrToRouteAddr(prefix.Addr())
+	addrs[unix.RTAX_DST], err = addrToRouteAddr(prefix.Addr())
 	if err != nil {
 		return nil, fmt.Errorf("build destination address for %s: %w", prefix.Addr(), err)
 	}
@@ -129,7 +130,7 @@ func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Next
 
 	if nexthop.IP.IsValid() {
 		msg.Flags |= unix.RTF_GATEWAY
-		addrs[unix.RTAX_GATEWAY], err = netipAddrToRouteAddr(nexthop.IP.Unmap())
+		addrs[unix.RTAX_GATEWAY], err = addrToRouteAddr(nexthop.IP.Unmap())
 		if err != nil {
 			return nil, fmt.Errorf("build gateway IP address for %s: %w", nexthop.IP, err)
 		}
@@ -158,12 +159,28 @@ func (r *SysOps) parseRouteResponse(buf []byte) error {
 	return nil
 }
 
-// netipAddrToRouteAddr converts a netip.Addr to the appropriate route.Addr (*route.Inet4Addr or *route.Inet6Addr).
-func netipAddrToRouteAddr(addr netip.Addr) (route.Addr, error) {
+// addrToRouteAddr converts a netip.Addr to the appropriate route.Addr (*route.Inet4Addr or *route.Inet6Addr).
+func addrToRouteAddr(addr netip.Addr) (route.Addr, error) {
 	if addr.Is4() {
 		return &route.Inet4Addr{IP: addr.As4()}, nil
 	}
-	return &route.Inet6Addr{IP: addr.As16()}, nil
+
+	if addr.Zone() == "" {
+		return &route.Inet6Addr{IP: addr.As16()}, nil
+	}
+
+	var zone int
+	// zone can be either a numeric zone ID or an interface name.
+	if z, err := strconv.Atoi(addr.Zone()); err == nil {
+		zone = z
+	} else {
+		iface, err := net.InterfaceByName(addr.Zone())
+		if err != nil {
+			return nil, fmt.Errorf("resolve zone '%s': %w", addr.Zone(), err)
+		}
+		zone = iface.Index
+	}
+	return &route.Inet6Addr{IP: addr.As16(), ZoneID: zone}, nil
 }
 
 func prefixToRouteNetmask(prefix netip.Prefix) (route.Addr, error) {
