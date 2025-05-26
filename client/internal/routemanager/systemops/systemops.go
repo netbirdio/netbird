@@ -69,6 +69,7 @@ func (r *SysOps) validateRoute(prefix netip.Prefix) error {
 		addr.IsLinkLocalMulticast(),
 		addr.IsInterfaceLocalMulticast(),
 		addr.IsMulticast(),
+		addr.IsUnspecified() && prefix.Bits() != 0,
 		r.wgInterface.Address().Network.Contains(addr):
 		return vars.ErrRouteNotAllowed
 	}

@@ -108,15 +108,12 @@ func (r *SysOps) cleanupRefCounter(stateManager *statemanager.Manager) error {
 // addRouteToNonVPNIntf adds a new route to the routing table for the given prefix and returns the next hop and interface.
 // If the next hop or interface is pointing to the VPN interface, it will return the initial values.
 func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, initialNextHop Nexthop) (Nexthop, error) {
-	addr := prefix.Addr()
-	switch {
-	case addr.IsLoopback(),
-		addr.IsLinkLocalUnicast(),
-		addr.IsLinkLocalMulticast(),
-		addr.IsInterfaceLocalMulticast(),
-		addr.IsUnspecified(),
-		addr.IsMulticast():
+	if err := r.validateRoute(prefix); err != nil {
+		return Nexthop{}, err
+	}
 
+	addr := prefix.Addr()
+	if addr.IsUnspecified() {
 		return Nexthop{}, vars.ErrRouteNotAllowed
 	}
 
