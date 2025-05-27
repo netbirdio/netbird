@@ -196,21 +196,7 @@ func BuildManager(
 		permissionsManager:       permissionsManager,
 	}
 
-	var initialInterval int64
-	intervalStr := os.Getenv("PEER_UPDATE_INTERVAL_MS")
-	interval, err := strconv.Atoi(intervalStr)
-	if err != nil {
-		initialInterval = 1
-	} else {
-		initialInterval = int64(interval) * 10
-		go func() {
-			time.Sleep(30 * time.Second)
-			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
-			log.WithContext(ctx).Infof("set peer update buffer interval to %dms", interval)
-		}()
-	}
-	am.updateAccountPeersBufferInterval.Store(initialInterval)
-	log.WithContext(ctx).Infof("set peer update buffer interval to %dms", initialInterval)
+	am.startWarmup(ctx)
 
 	accountsCounter, err := store.GetAccountsCounter(ctx)
 	if err != nil {
@@ -252,6 +238,32 @@ func BuildManager(
 	})
 
 	return am, nil
+}
+
+func (am *DefaultAccountManager) startWarmup(ctx context.Context) {
+	var initialInterval int64
+	intervalStr := os.Getenv("NB_PEER_UPDATE_INTERVAL_MS")
+	interval, err := strconv.Atoi(intervalStr)
+	if err != nil {
+		initialInterval = 1
+		log.WithContext(ctx).Warnf("failed to parse peer update interval, using default value %dms: %v", initialInterval, err)
+	} else {
+		initialInterval = int64(interval) * 10
+		go func() {
+			startupPeriodStr := os.Getenv("NB_PEER_UPDATE_STARTUP_PERIOD_S")
+			startupPeriod, err := strconv.Atoi(startupPeriodStr)
+			if err != nil {
+				startupPeriod = 1
+				log.WithContext(ctx).Warnf("failed to parse peer update startup period, using default value %ds: %v", startupPeriod, err)
+			}
+			time.Sleep(time.Duration(startupPeriod) * time.Second)
+			am.updateAccountPeersBufferInterval.Store(int64(time.Duration(interval) * time.Millisecond))
+			log.WithContext(ctx).Infof("set peer update buffer interval to %dms", interval)
+		}()
+	}
+	am.updateAccountPeersBufferInterval.Store(initialInterval)
+	log.WithContext(ctx).Infof("set peer update buffer interval to %dms", initialInterval)
+
 }
 
 func (am *DefaultAccountManager) GetExternalCacheManager() account.ExternalCacheManager {
@@ -327,13 +339,20 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
 		}
 		updateAccountPeers = true
-		account.Network.Serial++
+	}
+
+	if oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled {
+		if newSettings.LazyConnectionEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionDisabled, nil)
+		}
+		updateAccountPeers = true
 	}
 
 	if oldSettings.DNSDomain != newSettings.DNSDomain {
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, nil)
 		updateAccountPeers = true
-		account.Network.Serial++
 	}
 
 	err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
@@ -346,7 +365,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, fmt.Errorf("groups propagation failed: %w", err)
 	}
 
-	updatedAccount := account.UpdateSettings(newSettings)
+	account.UpdateSettings(newSettings)
+
+	if updateAccountPeers {
+		account.Network.Serial++
+	}
 
 	err = am.Store.SaveAccount(ctx, account)
 	if err != nil {
@@ -362,7 +385,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
-	return updatedAccount, nil
+	return account, nil
 }
 
 func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
@@ -1225,7 +1248,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			return nil
 		}
 
-		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, newGroupsToCreate); err != nil {
+		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, userAuth.AccountId, newGroupsToCreate); err != nil {
 			return fmt.Errorf("error saving groups: %w", err)
 		}
 
@@ -1259,7 +1282,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				return fmt.Errorf("error modifying user peers in groups: %w", err)
 			}
 
-			if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, updatedGroups); err != nil {
+			if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, userAuth.AccountId, updatedGroups); err != nil {
 				return fmt.Errorf("error saving groups: %w", err)
 			}
 

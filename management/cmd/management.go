@@ -165,7 +165,7 @@ var (
 				return err
 			}
 
-			store, err := store.NewStore(ctx, config.StoreConfig.Engine, config.Datadir, appMetrics)
+			store, err := store.NewStore(ctx, config.StoreConfig.Engine, config.Datadir, appMetrics, false)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}

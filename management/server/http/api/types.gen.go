@@ -186,6 +186,12 @@ const (
 	GetApiEventsNetworkTrafficParamsTypeTYPEUNKNOWN GetApiEventsNetworkTrafficParamsType = "TYPE_UNKNOWN"
 )
 
+// Defines values for GetApiEventsNetworkTrafficParamsConnectionType.
+const (
+	GetApiEventsNetworkTrafficParamsConnectionTypeP2P    GetApiEventsNetworkTrafficParamsConnectionType = "P2P"
+	GetApiEventsNetworkTrafficParamsConnectionTypeROUTED GetApiEventsNetworkTrafficParamsConnectionType = "ROUTED"
+)
+
 // Defines values for GetApiEventsNetworkTrafficParamsDirection.
 const (
 	GetApiEventsNetworkTrafficParamsDirectionDIRECTIONUNKNOWN GetApiEventsNetworkTrafficParamsDirection = "DIRECTION_UNKNOWN"
@@ -282,6 +288,9 @@ type AccountSettings struct {
 
 	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
 	JwtGroupsEnabled *bool `json:"jwt_groups_enabled,omitempty"`
+
+	// LazyConnectionEnabled Enables or disables experimental lazy connection
+	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
 
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
@@ -1778,16 +1787,22 @@ type GetApiEventsNetworkTrafficParams struct {
 	// UserId Filter by user ID
 	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
 
+	// ReporterId Filter by reporter ID
+	ReporterId *string `form:"reporter_id,omitempty" json:"reporter_id,omitempty"`
+
 	// Protocol Filter by protocol
 	Protocol *int `form:"protocol,omitempty" json:"protocol,omitempty"`
 
 	// Type Filter by event type
 	Type *GetApiEventsNetworkTrafficParamsType `form:"type,omitempty" json:"type,omitempty"`
 
+	// ConnectionType Filter by connection type
+	ConnectionType *GetApiEventsNetworkTrafficParamsConnectionType `form:"connection_type,omitempty" json:"connection_type,omitempty"`
+
 	// Direction Filter by direction
 	Direction *GetApiEventsNetworkTrafficParamsDirection `form:"direction,omitempty" json:"direction,omitempty"`
 
-	// Search Filters events with a partial match on user email, source and destination names and source and destination addresses
+	// Search Case-insensitive partial match on user email, source/destination names, and source/destination addresses
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 
 	// StartDate Start date for filtering events (ISO 8601 format, e.g., 2024-01-01T00:00:00Z).
@@ -1799,6 +1814,9 @@ type GetApiEventsNetworkTrafficParams struct {
 
 // GetApiEventsNetworkTrafficParamsType defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsType string
+
+// GetApiEventsNetworkTrafficParamsConnectionType defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParamsConnectionType string
 
 // GetApiEventsNetworkTrafficParamsDirection defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsDirection string

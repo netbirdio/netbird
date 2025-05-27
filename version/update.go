@@ -93,23 +93,25 @@ func (u *Update) SetOnUpdateListener(updateFn func()) {
 }
 
 func (u *Update) startFetcher() {
-	changed := u.fetchVersion()
-	if changed {
+	if changed := u.fetchVersion(); changed {
 		u.checkUpdate()
 	}
 
-	select {
-	case <-u.fetchDone:
-		return
-	case <-u.fetchTicker.C:
-		changed := u.fetchVersion()
-		if changed {
-			u.checkUpdate()
+	for {
+		select {
+		case <-u.fetchDone:
+			return
+		case <-u.fetchTicker.C:
+			if changed := u.fetchVersion(); changed {
+				u.checkUpdate()
+			}
 		}
 	}
 }
 
 func (u *Update) fetchVersion() bool {
+	log.Debugf("fetching version info from %s", versionURL)
+
 	resp, err := http.Get(versionURL)
 	if err != nil {
 		log.Errorf("failed to fetch version info: %s", err)
