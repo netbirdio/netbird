@@ -220,6 +220,10 @@ jobs:
           go-version: "1.23.x"
           cache: false
 
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo apt update && sudo apt install -y gcc-multilib g++-multilib libc6-dev-i386
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -268,6 +272,10 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo apt update && sudo apt install -y gcc-multilib g++-multilib libc6-dev-i386
 
       - name: Get Go environment
         run: |
