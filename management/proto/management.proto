@@ -254,6 +254,8 @@ message PeerConfig {
   string fqdn = 4;
 
   bool RoutingPeerDnsResolutionEnabled = 5;
+
+  bool LazyConnectionEnabled = 6;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
@@ -312,6 +314,7 @@ message RemotePeerConfig {
   // Peer fully qualified domain name
   string fqdn = 4;
 
+  string agentVersion = 5;
 }
 
 // SSHConfig represents SSH configurations of a peer.
@@ -374,6 +377,8 @@ message ProviderConfig {
   repeated string RedirectURLs = 10;
   // DisablePromptLogin makes the PKCE flow to not prompt the user for login
   bool DisablePromptLogin = 11;
+  // LoginFlags sets the PKCE flow login details 
+  uint32 LoginFlag = 12;
 }
 
 // Route represents a route.Route object

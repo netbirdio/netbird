@@ -139,6 +139,7 @@ func (s *Server) Start() error {
 
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
+	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
 
 	if s.sessionWatcher == nil {
 		s.sessionWatcher = internal.NewSessionWatcher(s.rootCtx, s.statusRecorder)
@@ -417,6 +418,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.DisableNotifications = msg.DisableNotifications
 	}
 
+	if msg.LazyConnectionEnabled != nil {
+		inputConfig.LazyConnectionEnabled = msg.LazyConnectionEnabled
+		s.latestConfigInput.LazyConnectionEnabled = msg.LazyConnectionEnabled
+	}
+
 	s.mutex.Unlock()
 
 	if msg.OptionalPreSharedKey != nil {
@@ -446,7 +452,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsLinuxDesktopClient)
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
@@ -804,6 +810,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
 	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
+	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{

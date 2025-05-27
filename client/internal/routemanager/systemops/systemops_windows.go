@@ -33,8 +33,7 @@ type RouteUpdateType int
 type RouteUpdate struct {
 	Type        RouteUpdateType
 	Destination netip.Prefix
-	NextHop     netip.Addr
-	Interface   *net.Interface
+	NextHop     Nexthop
 }
 
 // RouteMonitor provides a way to monitor changes in the routing table.
@@ -231,15 +230,15 @@ func (rm *RouteMonitor) parseUpdate(row *MIB_IPFORWARD_ROW2, notificationType MI
 		intf, err := net.InterfaceByIndex(idx)
 		if err != nil {
 			log.Warnf("failed to get interface name for index %d: %v", idx, err)
-			update.Interface = &net.Interface{
+			update.NextHop.Intf = &net.Interface{
 				Index: idx,
 			}
 		} else {
-			update.Interface = intf
+			update.NextHop.Intf = intf
 		}
 	}
 
-	log.Tracef("Received route update with destination %v, next hop %v, interface %v", row.DestinationPrefix, row.NextHop, update.Interface)
+	log.Tracef("Received route update with destination %v, next hop %v, interface %v", row.DestinationPrefix, row.NextHop, update.NextHop.Intf)
 	dest := parseIPPrefix(row.DestinationPrefix, idx)
 	if !dest.Addr().IsValid() {
 		return RouteUpdate{}, fmt.Errorf("invalid destination: %v", row)
@@ -262,7 +261,7 @@ func (rm *RouteMonitor) parseUpdate(row *MIB_IPFORWARD_ROW2, notificationType MI
 
 	update.Type = updateType
 	update.Destination = dest
-	update.NextHop = nexthop
+	update.NextHop.IP = nexthop
 
 	return update, nil
 }

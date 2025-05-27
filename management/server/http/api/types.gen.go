@@ -186,6 +186,12 @@ const (
 	GetApiEventsNetworkTrafficParamsTypeTYPEUNKNOWN GetApiEventsNetworkTrafficParamsType = "TYPE_UNKNOWN"
 )
 
+// Defines values for GetApiEventsNetworkTrafficParamsConnectionType.
+const (
+	GetApiEventsNetworkTrafficParamsConnectionTypeP2P    GetApiEventsNetworkTrafficParamsConnectionType = "P2P"
+	GetApiEventsNetworkTrafficParamsConnectionTypeROUTED GetApiEventsNetworkTrafficParamsConnectionType = "ROUTED"
+)
+
 // Defines values for GetApiEventsNetworkTrafficParamsDirection.
 const (
 	GetApiEventsNetworkTrafficParamsDirectionDIRECTIONUNKNOWN GetApiEventsNetworkTrafficParamsDirection = "DIRECTION_UNKNOWN"
@@ -282,6 +288,9 @@ type AccountSettings struct {
 
 	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
 	JwtGroupsEnabled *bool `json:"jwt_groups_enabled,omitempty"`
+
+	// LazyConnectionEnabled Enables or disables experimental lazy connection
+	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
 
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
@@ -874,29 +883,16 @@ type NetworkTrafficEvent struct {
 	// Direction Direction of the traffic (e.g. DIRECTION_UNKNOWN, INGRESS, EGRESS).
 	Direction string `json:"direction"`
 
+	// Events List of events that are correlated to this flow (e.g., start, end).
+	Events []NetworkTrafficSubEvent `json:"events"`
+
 	// FlowId FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection).
-	FlowId string `json:"flow_id"`
-
-	// IcmpCode ICMP code (if applicable).
-	IcmpCode int `json:"icmp_code"`
-
-	// IcmpType ICMP type (if applicable).
-	IcmpType int `json:"icmp_type"`
-
-	// Id ID of the event. Unique.
-	Id string `json:"id"`
-
-	// PolicyId ID of the policy that allowed this event.
-	PolicyId string `json:"policy_id"`
-
-	// PolicyName Name of the policy that allowed this event.
-	PolicyName string `json:"policy_name"`
+	FlowId string               `json:"flow_id"`
+	Icmp   NetworkTrafficICMP   `json:"icmp"`
+	Policy NetworkTrafficPolicy `json:"policy"`
 
 	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
 	Protocol int `json:"protocol"`
-
-	// ReceiveTimestamp Timestamp when the event was received by our API.
-	ReceiveTimestamp time.Time `json:"receive_timestamp"`
 
 	// ReporterId ID of the reporter of the event (e.g., the peer that reported the event).
 	ReporterId string `json:"reporter_id"`
@@ -908,26 +904,12 @@ type NetworkTrafficEvent struct {
 	RxPackets int                    `json:"rx_packets"`
 	Source    NetworkTrafficEndpoint `json:"source"`
 
-	// Timestamp Timestamp of the event. Send by the peer.
-	Timestamp time.Time `json:"timestamp"`
-
 	// TxBytes Number of bytes transmitted.
 	TxBytes int `json:"tx_bytes"`
 
 	// TxPackets Number of packets transmitted.
-	TxPackets int `json:"tx_packets"`
-
-	// Type Type of the event (e.g. TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
-	Type string `json:"type"`
-
-	// UserEmail Email of the user who initiated the event (if any).
-	UserEmail *string `json:"user_email"`
-
-	// UserId UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
-	UserId *string `json:"user_id"`
-
-	// UserName Name of the user who initiated the event (if any).
-	UserName *string `json:"user_name"`
+	TxPackets int                `json:"tx_packets"`
+	User      NetworkTrafficUser `json:"user"`
 }
 
 // NetworkTrafficEventsResponse defines model for NetworkTrafficEventsResponse.
@@ -948,6 +930,15 @@ type NetworkTrafficEventsResponse struct {
 	TotalRecords int `json:"total_records"`
 }
 
+// NetworkTrafficICMP defines model for NetworkTrafficICMP.
+type NetworkTrafficICMP struct {
+	// Code ICMP code (if applicable).
+	Code int `json:"code"`
+
+	// Type ICMP type (if applicable).
+	Type int `json:"type"`
+}
+
 // NetworkTrafficLocation defines model for NetworkTrafficLocation.
 type NetworkTrafficLocation struct {
 	// CityName Name of the city (if known).
@@ -955,6 +946,36 @@ type NetworkTrafficLocation struct {
 
 	// CountryCode ISO country code (if known).
 	CountryCode string `json:"country_code"`
+}
+
+// NetworkTrafficPolicy defines model for NetworkTrafficPolicy.
+type NetworkTrafficPolicy struct {
+	// Id ID of the policy that allowed this event.
+	Id string `json:"id"`
+
+	// Name Name of the policy that allowed this event.
+	Name string `json:"name"`
+}
+
+// NetworkTrafficSubEvent defines model for NetworkTrafficSubEvent.
+type NetworkTrafficSubEvent struct {
+	// Timestamp Timestamp of the event as sent by the peer.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Type Type of the event (e.g., TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
+	Type string `json:"type"`
+}
+
+// NetworkTrafficUser defines model for NetworkTrafficUser.
+type NetworkTrafficUser struct {
+	// Email Email of the user who initiated the event (if any).
+	Email string `json:"email"`
+
+	// Id UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
+	Id string `json:"id"`
+
+	// Name Name of the user who initiated the event (if any).
+	Name string `json:"name"`
 }
 
 // OSVersionCheck Posture check for the version of operating system
@@ -1778,16 +1799,22 @@ type GetApiEventsNetworkTrafficParams struct {
 	// UserId Filter by user ID
 	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
 
+	// ReporterId Filter by reporter ID
+	ReporterId *string `form:"reporter_id,omitempty" json:"reporter_id,omitempty"`
+
 	// Protocol Filter by protocol
 	Protocol *int `form:"protocol,omitempty" json:"protocol,omitempty"`
 
 	// Type Filter by event type
 	Type *GetApiEventsNetworkTrafficParamsType `form:"type,omitempty" json:"type,omitempty"`
 
+	// ConnectionType Filter by connection type
+	ConnectionType *GetApiEventsNetworkTrafficParamsConnectionType `form:"connection_type,omitempty" json:"connection_type,omitempty"`
+
 	// Direction Filter by direction
 	Direction *GetApiEventsNetworkTrafficParamsDirection `form:"direction,omitempty" json:"direction,omitempty"`
 
-	// Search Filters events with a partial match on user email, source and destination names and source and destination addresses
+	// Search Case-insensitive partial match on user email, source/destination names, and source/destination addresses
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
 
 	// StartDate Start date for filtering events (ISO 8601 format, e.g., 2024-01-01T00:00:00Z).
@@ -1799,6 +1826,9 @@ type GetApiEventsNetworkTrafficParams struct {
 
 // GetApiEventsNetworkTrafficParamsType defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsType string
+
+// GetApiEventsNetworkTrafficParamsConnectionType defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParamsConnectionType string
 
 // GetApiEventsNetworkTrafficParamsDirection defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsDirection string

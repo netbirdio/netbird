@@ -118,6 +118,11 @@ components:
           example: my-organization.org
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
+        lazy_connection_enabled:
+          x-experimental: true
+          description: Enables or disables experimental lazy connection
+          type: boolean
+          example: true
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
@@ -1920,13 +1925,71 @@ components:
         - os
         - address
         - dns_label
-    NetworkTrafficEvent:
+    NetworkTrafficUser:
       type: object
       properties:
         id:
           type: string
-          description: "ID of the event. Unique."
-          example: "18e204d6-f7c6-405d-8025-70becb216add"
+          description: "UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated)."
+          example: "google-oauth2|123456789012345678901"
+        email:
+          type: string
+          description: "Email of the user who initiated the event (if any)."
+          example: "alice@netbird.io"
+        name:
+            type: string
+            description: "Name of the user who initiated the event (if any)."
+            example: "Alice Smith"
+      required:
+        - id
+        - email
+        - name
+    NetworkTrafficPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "ID of the policy that allowed this event."
+          example: "ch8i4ug6lnn4g9hqv7m0"
+        name:
+          type: string
+          description: "Name of the policy that allowed this event."
+          example: "All to All"
+      required:
+        - id
+        - name
+    NetworkTrafficICMP:
+      type: object
+      properties:
+        type:
+          type: integer
+          description: "ICMP type (if applicable)."
+          example: 8
+        code:
+          type: integer
+          description: "ICMP code (if applicable)."
+          example: 0
+      required:
+        - type
+        - code
+    NetworkTrafficSubEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Type of the event (e.g., TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
+          example: TYPE_START
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp of the event as sent by the peer.
+          example: 2025-03-20T16:23:58.125397Z
+      required:
+        - type
+        - timestamp
+    NetworkTrafficEvent:
+      type: object
+      properties:
         flow_id:
           type: string
           description: "FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection)."
@@ -1935,43 +1998,20 @@ components:
           type: string
           description: "ID of the reporter of the event (e.g., the peer that reported the event)."
           example: "ch8i4ug6lnn4g9hqv7m0"
-        timestamp:
-          type: string
-          format: date-time
-          description: "Timestamp of the event. Send by the peer."
-          example: "2025-03-20T16:23:58.125397Z"
-        receive_timestamp:
-          type: string
-          format: date-time
-          description: "Timestamp when the event was received by our API."
-          example: "2025-03-20T16:23:58.125397Z"
         source:
           $ref: '#/components/schemas/NetworkTrafficEndpoint'
-        user_id:
-          type: string
-          nullable: true
-          description: "UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated)."
-          example: "google-oauth2|123456789012345678901"
-        user_email:
-          type: string
-          nullable: true
-          description: "Email of the user who initiated the event (if any)."
-          example: "alice@netbird.io"
-        user_name:
-          type: string
-          nullable: true
-          description: "Name of the user who initiated the event (if any)."
-          example: "Alice Smith"
         destination:
           $ref: '#/components/schemas/NetworkTrafficEndpoint'
+        user:
+          $ref: '#/components/schemas/NetworkTrafficUser'
+        policy:
+          $ref: '#/components/schemas/NetworkTrafficPolicy'
+        icmp:
+          $ref: '#/components/schemas/NetworkTrafficICMP'
         protocol:
           type: integer
           description: "Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.)."
           example: 6
-        type:
-          type: string
-          description: "Type of the event (e.g. TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP)."
-          example: "TYPE_START"
         direction:
           type: string
           description: "Direction of the traffic (e.g. DIRECTION_UNKNOWN, INGRESS, EGRESS)."
@@ -1992,43 +2032,28 @@ components:
           type: integer
           description: "Number of packets transmitted."
           example: 5
-        policy_id:
-          type: string
-          description: "ID of the policy that allowed this event."
-          example: "ch8i4ug6lnn4g9hqv7m0"
-        policy_name:
-          type: string
-          description: "Name of the policy that allowed this event."
-          example: "All to All"
-        icmp_type:
-          type: integer
-          description: "ICMP type (if applicable)."
-          example: 8
-        icmp_code:
-          type: integer
-          description: "ICMP code (if applicable)."
-          example: 0
+        events:
+          type: array
+          description: "List of events that are correlated to this flow (e.g., start, end)."
+          items:
+            $ref: '#/components/schemas/NetworkTrafficSubEvent'
       required:
         - id
         - flow_id
         - reporter_id
-        - timestamp
         - receive_timestamp
         - source
-        - user_id
-        - user_email
         - destination
+        - user
+        - policy
+        - icmp
         - protocol
-        - type
         - direction
         - rx_bytes
         - rx_packets
         - tx_bytes
         - tx_packets
-        - policy_id
-        - policy_name
-        - icmp_type
-        - icmp_code
+        - events
     NetworkTrafficEventsResponse:
       type: object
       properties:
@@ -4295,6 +4320,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: reporter_id
+          in: query
+          description: Filter by reporter ID
+          required: false
+          schema:
+            type: string
         - name: protocol
           in: query
           description: Filter by protocol
@@ -4308,6 +4339,13 @@ paths:
           schema:
             type: string
             enum: [TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP]
+        - name: connection_type
+          in: query
+          description: Filter by connection type
+          required: false
+          schema:
+            type: string
+            enum: [P2P, ROUTED]
         - name: direction
           in: query
           description: Filter by direction
@@ -4317,7 +4355,7 @@ paths:
             enum: [INGRESS, EGRESS, DIRECTION_UNKNOWN]
         - name: search
           in: query
-          description: Filters events with a partial match on user email, source and destination names and source and destination addresses
+          description: Case-insensitive partial match on user email, source/destination names, and source/destination addresses
           required: false
           schema:
             type: string

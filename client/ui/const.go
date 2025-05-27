@@ -5,6 +5,7 @@ const (
 	allowSSHMenuDescr          = "Allow SSH connections"
 	autoConnectMenuDescr       = "Connect automatically when the service starts"
 	quantumResistanceMenuDescr = "Enable post-quantum security via Rosenpass"
+	lazyConnMenuDescr          = "[Experimental] Enable lazy connect"
 	notificationsMenuDescr     = "Enable notifications"
 	advancedSettingsMenuDescr  = "Advanced settings of the application"
 	debugBundleMenuDescr       = "Create and open debug information bundle"

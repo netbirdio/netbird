@@ -194,6 +194,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.BlockLANAccess = &blockLANAccess
 	}
 
+	if cmd.Flag(enableLazyConnectionFlag).Changed {
+		ic.LazyConnectionEnabled = &lazyConnEnabled
+	}
+
 	providedSetupKey, err := getSetupKey()
 	if err != nil {
 		return err
@@ -262,17 +266,17 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	loginRequest := proto.LoginRequest{
-		SetupKey:             providedSetupKey,
-		ManagementUrl:        managementURL,
-		AdminURL:             adminURL,
-		NatExternalIPs:       natExternalIPs,
-		CleanNATExternalIPs:  natExternalIPs != nil && len(natExternalIPs) == 0,
-		CustomDNSAddress:     customDNSAddressConverted,
-		IsLinuxDesktopClient: isLinuxRunningDesktop(),
-		Hostname:             hostName,
-		ExtraIFaceBlacklist:  extraIFaceBlackList,
-		DnsLabels:            dnsLabels,
-		CleanDNSLabels:       dnsLabels != nil && len(dnsLabels) == 0,
+		SetupKey:            providedSetupKey,
+		ManagementUrl:       managementURL,
+		AdminURL:            adminURL,
+		NatExternalIPs:      natExternalIPs,
+		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
+		CustomDNSAddress:    customDNSAddressConverted,
+		IsUnixDesktopClient: isUnixRunningDesktop(),
+		Hostname:            hostName,
+		ExtraIFaceBlacklist: extraIFaceBlackList,
+		DnsLabels:           dnsLabels,
+		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -330,6 +334,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(blockLANAccessFlag).Changed {
 		loginRequest.BlockLanAccess = &blockLANAccess
+	}
+
+	if cmd.Flag(enableLazyConnectionFlag).Changed {
+		loginRequest.LazyConnectionEnabled = &lazyConnEnabled
 	}
 
 	var loginErr error
