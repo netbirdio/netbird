@@ -39,8 +39,6 @@ func TestPeerACLFiltering(t *testing.T) {
 		require.NoError(t, manager.Close(nil))
 	})
 
-	manager.wgNetwork = wgNet
-
 	err = manager.UpdateLocalIPs()
 	require.NoError(t, err)
 

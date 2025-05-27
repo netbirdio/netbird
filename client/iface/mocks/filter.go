@@ -89,15 +89,3 @@ func (mr *MockPacketFilterMockRecorder) RemovePacketHook(arg0 interface{}) *gomo
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemovePacketHook", reflect.TypeOf((*MockPacketFilter)(nil).RemovePacketHook), arg0)
 }
-
-// SetNetwork mocks base method.
-func (m *MockPacketFilter) SetNetwork(arg0 netip.Prefix) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetNetwork", arg0)
-}
-
-// SetNetwork indicates an expected call of SetNetwork.
-func (mr *MockPacketFilterMockRecorder) SetNetwork(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNetwork", reflect.TypeOf((*MockPacketFilter)(nil).SetNetwork), arg0)
-}

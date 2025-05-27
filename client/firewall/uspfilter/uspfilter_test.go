@@ -282,7 +282,6 @@ func TestNotMatchByIP(t *testing.T) {
 		t.Errorf("failed to create Manager: %v", err)
 		return
 	}
-	m.wgNetwork = netip.MustParsePrefix("100.10.0.0/16")
 
 	ip := net.ParseIP("0.0.0.0")
 	proto := fw.ProtocolUDP
@@ -390,7 +389,6 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	}, false, flowLogger)
 	require.NoError(t, err)
 
-	manager.wgNetwork = netip.MustParsePrefix("100.10.0.0/16")
 	manager.udpTracker.Close()
 	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger, flowLogger)
 	defer func() {
@@ -499,8 +497,6 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}, false, flowLogger)
 	require.NoError(t, err)
-
-	manager.wgNetwork = netip.MustParsePrefix("100.10.0.0/16")
 
 	manager.udpTracker.Close() // Close the existing tracker
 	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger, flowLogger)

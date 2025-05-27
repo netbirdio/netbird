@@ -23,9 +23,6 @@ type PacketFilter interface {
 
 	// RemovePacketHook removes hook by ID
 	RemovePacketHook(hookID string) error
-
-	// SetNetwork of the wireguard interface to which filtering applied
-	SetNetwork(netip.Prefix)
 }
 
 // FilteredDevice to override Read or Write of packets
