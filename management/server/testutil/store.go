@@ -53,6 +53,7 @@ func CreateMysqlTestContainer() (func(), string, error) {
 		if err = mysqlContainer.Terminate(timeoutCtx); err != nil {
 			log.WithContext(ctx).Warnf("failed to stop mysql container %s: %s", mysqlContainer.GetContainerID(), err)
 		}
+		mysqlContainer = nil // reset the container to allow recreation
 	}
 
 	talksConn, err := mysqlContainer.ConnectionString(ctx)
@@ -96,6 +97,7 @@ func CreatePostgresTestContainer() (func(), string, error) {
 		if err = pgContainer.Terminate(timeoutCtx); err != nil {
 			log.WithContext(ctx).Warnf("failed to stop postgres container %s: %s", pgContainer.GetContainerID(), err)
 		}
+		pgContainer = nil // reset the container to allow recreation
 	}
 
 	talksConn, err := pgContainer.ConnectionString(ctx)
