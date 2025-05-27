@@ -353,7 +353,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		if err = am.validatePeerDelete(ctx, accountID, peerID); err != nil {
+		if err = am.validatePeerDelete(ctx, transaction, accountID, peerID); err != nil {
 			return err
 		}
 
@@ -1544,7 +1544,7 @@ func ConvertSliceToMap(existingLabels []string) map[string]struct{} {
 }
 
 // validatePeerDelete checks if the peer can be deleted.
-func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, accountId, peerId string) error {
+func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, transaction store.Store, accountId, peerId string) error {
 	linkedInIngressPorts, err := am.proxyController.IsPeerInIngressPorts(ctx, accountId, peerId)
 	if err != nil {
 		return err
@@ -1554,7 +1554,7 @@ func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, account
 		return status.Errorf(status.PreconditionFailed, "peer is linked to ingress ports: %s", peerId)
 	}
 
-	linked, router := isPeerLinkedToNetworkRouter(ctx, am.Store, accountId, peerId)
+	linked, router := isPeerLinkedToNetworkRouter(ctx, transaction, accountId, peerId)
 	if linked {
 		return status.Errorf(status.PreconditionFailed, "peer is linked to a network router: %s", router.ID)
 	}
