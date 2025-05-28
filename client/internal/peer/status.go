@@ -289,10 +289,6 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		return errors.New("peer doesn't exist")
 	}
 
-	if receivedState.IP != "" {
-		peerState.IP = receivedState.IP
-	}
-
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
 
 	if receivedState.ConnStatus != peerState.ConnStatus {
@@ -378,10 +374,6 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		return errors.New("peer doesn't exist")
-	}
-
-	if receivedState.IP != "" {
-		peerState.IP = receivedState.IP
 	}
 
 	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
@@ -511,16 +503,10 @@ func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats configurer.WGSt
 }
 
 func shouldSkipNotify(receivedConnStatus ConnStatus, curr State) bool {
-	switch {
-	case receivedConnStatus == StatusConnecting:
+	if receivedConnStatus == curr.ConnStatus {
 		return true
-	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusConnecting:
-		return true
-	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusIdle:
-		return curr.IP != ""
-	default:
-		return false
 	}
+	return false
 }
 
 // UpdatePeerFQDN update peer's state fqdn only
