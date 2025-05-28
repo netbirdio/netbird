@@ -28,8 +28,6 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
-	"github.com/netbirdio/netbird/management/server/types"
-
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -38,6 +36,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -53,6 +52,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -93,7 +93,7 @@ type MockWGIface struct {
 	GetFilterFunc              func() device.PacketFilter
 	GetDeviceFunc              func() *device.FilteredDevice
 	GetWGDeviceFunc            func() *wgdevice.Device
-	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
+	GetStatsFunc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
@@ -171,8 +171,8 @@ func (m *MockWGIface) GetWGDevice() *wgdevice.Device {
 	return m.GetWGDeviceFunc()
 }
 
-func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
-	return m.GetStatsFunc(peerKey)
+func (m *MockWGIface) GetStats() (map[string]configurer.WGStats, error) {
+	return m.GetStatsFunc()
 }
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {
@@ -375,6 +375,9 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 				Network: netip.MustParsePrefix("10.20.0.0/24"),
 			}
 		},
+		UpdatePeerFunc: func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+			return nil
+		},
 	}
 	engine.wgInterface = wgIface
 	engine.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
@@ -397,6 +400,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
+	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface, dispatcher.NewConnectionDispatcher())
+	engine.connMgr.Start(ctx)
 
 	type testCase struct {
 		name       string
@@ -767,6 +772,8 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 
 			engine.routeManager = mockRouteManager
 			engine.dnsServer = &dns.MockServer{}
+			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface, dispatcher.NewConnectionDispatcher())
+			engine.connMgr.Start(ctx)
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -963,6 +970,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}
 
 			engine.dnsServer = mockDNSServer
+			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface, dispatcher.NewConnectionDispatcher())
+			engine.connMgr.Start(ctx)
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -1473,7 +1482,7 @@ func getConnectedPeers(e *Engine) int {
 	i := 0
 	for _, id := range e.peerStore.PeersPubKey() {
 		conn, _ := e.peerStore.PeerConn(id)
-		if conn.Status() == peer.StatusConnected {
+		if conn.IsConnected() {
 			i++
 		}
 	}

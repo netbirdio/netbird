@@ -211,9 +211,9 @@ func (w *WGIface) GetWGDevice() *wgdevice.Device {
 	return w.tun.Device()
 }
 
-// GetStats returns the last handshake time, rx and tx bytes for the given peer
-func (w *WGIface) GetStats(peerKey string) (configurer.WGStats, error) {
-	return w.configurer.GetStats(peerKey)
+// GetStats returns the last handshake time, rx and tx bytes
+func (w *WGIface) GetStats() (map[string]configurer.WGStats, error) {
+	return w.configurer.GetStats()
 }
 
 func (w *WGIface) waitUntilRemoved() error {

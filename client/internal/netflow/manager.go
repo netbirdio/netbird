@@ -123,8 +123,14 @@ func (m *Manager) disableFlow() error {
 
 	m.logger.Close()
 
-	if m.receiverClient != nil {
-		return m.receiverClient.Close()
+	if m.receiverClient == nil {
+		return nil
+	}
+
+	err := m.receiverClient.Close()
+	m.receiverClient = nil
+	if err != nil {
+		return fmt.Errorf("close: %w", err)
 	}
 
 	return nil

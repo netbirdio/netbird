@@ -1157,8 +1157,8 @@ func TestToSyncResponse(t *testing.T) {
 		},
 	}
 	dnsCache := &DNSConfigCache{}
-
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, true, nil)
+	accountSettings := &types.Settings{RoutingPeerDNSResolutionEnabled: true}
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil)
 
 	assert.NotNil(t, response)
 	// assert peer config
