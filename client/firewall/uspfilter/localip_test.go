@@ -20,11 +20,8 @@ func TestLocalIPManager(t *testing.T) {
 		{
 			name: "Localhost range",
 			setupAddr: wgaddr.Address{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
 			testIP:   netip.MustParseAddr("127.0.0.2"),
 			expected: true,
@@ -32,11 +29,8 @@ func TestLocalIPManager(t *testing.T) {
 		{
 			name: "Localhost standard address",
 			setupAddr: wgaddr.Address{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
 			testIP:   netip.MustParseAddr("127.0.0.1"),
 			expected: true,
@@ -44,11 +38,8 @@ func TestLocalIPManager(t *testing.T) {
 		{
 			name: "Localhost range edge",
 			setupAddr: wgaddr.Address{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
 			testIP:   netip.MustParseAddr("127.255.255.255"),
 			expected: true,
@@ -56,11 +47,8 @@ func TestLocalIPManager(t *testing.T) {
 		{
 			name: "Local IP matches",
 			setupAddr: wgaddr.Address{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
 			testIP:   netip.MustParseAddr("192.168.1.1"),
 			expected: true,
@@ -68,11 +56,8 @@ func TestLocalIPManager(t *testing.T) {
 		{
 			name: "Local IP doesn't match",
 			setupAddr: wgaddr.Address{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
 			testIP:   netip.MustParseAddr("192.168.1.2"),
 			expected: false,
@@ -80,11 +65,8 @@ func TestLocalIPManager(t *testing.T) {
 		{
 			name: "Local IP doesn't match - addresses 32 apart",
 			setupAddr: wgaddr.Address{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
 			testIP:   netip.MustParseAddr("192.168.1.33"),
 			expected: false,
@@ -92,11 +74,8 @@ func TestLocalIPManager(t *testing.T) {
 		{
 			name: "IPv6 address",
 			setupAddr: wgaddr.Address{
-				IP: net.ParseIP("fe80::1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("fe80::"),
-					Mask: net.CIDRMask(64, 128),
-				},
+				IP:      netip.MustParseAddr("fe80::1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
 			testIP:   netip.MustParseAddr("fe80::1"),
 			expected: false,

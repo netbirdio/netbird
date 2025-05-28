@@ -19,12 +19,8 @@ import (
 )
 
 func TestPeerACLFiltering(t *testing.T) {
-	localIP := net.ParseIP("100.10.0.100")
-	wgNet := &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
-	}
-
+	localIP := netip.MustParseAddr("100.10.0.100")
+	wgNet := netip.MustParsePrefix("100.10.0.0/16")
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 		AddressFunc: func() wgaddr.Address {
@@ -42,8 +38,6 @@ func TestPeerACLFiltering(t *testing.T) {
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
 	})
-
-	manager.wgNetwork = wgNet
 
 	err = manager.UpdateLocalIPs()
 	require.NoError(t, err)
@@ -581,14 +575,13 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().MTU().Return(1500, nil).AnyTimes()
 
-	localIP, wgNet, err := net.ParseCIDR(network)
-	require.NoError(tb, err)
+	wgNet := netip.MustParsePrefix(network)
 
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP:      localIP,
+				IP:      wgNet.Addr(),
 				Network: wgNet,
 			}
 		},
@@ -1440,11 +1433,8 @@ func TestRouteACLSet(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("100.10.0.100"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("100.10.0.0"),
-					Mask: net.CIDRMask(16, 32),
-				},
+				IP:      netip.MustParseAddr("100.10.0.100"),
+				Network: netip.MustParsePrefix("100.10.0.0/16"),
 			}
 		},
 	}

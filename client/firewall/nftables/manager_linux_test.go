@@ -3,7 +3,6 @@ package nftables
 import (
 	"bytes"
 	"fmt"
-	"net"
 	"net/netip"
 	"os/exec"
 	"testing"
@@ -25,11 +24,8 @@ var ifaceMock = &iFaceMock{
 	},
 	AddressFunc: func() wgaddr.Address {
 		return wgaddr.Address{
-			IP: net.ParseIP("100.96.0.1"),
-			Network: &net.IPNet{
-				IP:   net.ParseIP("100.96.0.0"),
-				Mask: net.IPv4Mask(255, 255, 255, 0),
-			},
+			IP:      netip.MustParseAddr("100.96.0.1"),
+			Network: netip.MustParsePrefix("100.96.0.0/16"),
 		}
 	},
 }
@@ -70,11 +66,11 @@ func TestNftablesManager(t *testing.T) {
 		time.Sleep(time.Second)
 	}()
 
-	ip := net.ParseIP("100.96.0.1")
+	ip := netip.MustParseAddr("100.96.0.1").Unmap()
 
 	testClient := &nftables.Conn{}
 
-	rule, err := manager.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{53}}, fw.ActionDrop, "")
+	rule, err := manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{53}}, fw.ActionDrop, "")
 	require.NoError(t, err, "failed to add rule")
 
 	err = manager.Flush()
@@ -109,8 +105,6 @@ func TestNftablesManager(t *testing.T) {
 	}
 	compareExprsIgnoringCounters(t, rules[0].Exprs, expectedExprs1)
 
-	ipToAdd, _ := netip.AddrFromSlice(ip)
-	add := ipToAdd.Unmap()
 	expectedExprs2 := []expr.Any{
 		&expr.Payload{
 			DestRegister: 1,
@@ -132,7 +126,7 @@ func TestNftablesManager(t *testing.T) {
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     add.AsSlice(),
+			Data:     ip.AsSlice(),
 		},
 		&expr.Payload{
 			DestRegister: 1,
@@ -173,11 +167,8 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 		},
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("100.96.0.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("100.96.0.0"),
-					Mask: net.IPv4Mask(255, 255, 255, 0),
-				},
+				IP:      netip.MustParseAddr("100.96.0.1"),
+				Network: netip.MustParsePrefix("100.96.0.0/16"),
 			}
 		},
 	}
@@ -197,11 +188,11 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 				time.Sleep(time.Second)
 			}()
 
-			ip := net.ParseIP("10.20.0.100")
+			ip := netip.MustParseAddr("10.20.0.100")
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
-				_, err = manager.AddPeerFiltering(nil, ip, "tcp", nil, port, fw.ActionAccept, "")
+				_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionAccept, "")
 				require.NoError(t, err, "failed to add rule")
 
 				if i%100 == 0 {
@@ -282,8 +273,8 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 		verifyIptablesOutput(t, stdout, stderr)
 	})
 
-	ip := net.ParseIP("100.96.0.1")
-	_, err = manager.AddPeerFiltering(nil, ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
+	ip := netip.MustParseAddr("100.96.0.1")
+	_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
 	require.NoError(t, err, "failed to add peer filtering rule")
 
 	_, err = manager.AddRouteFiltering(

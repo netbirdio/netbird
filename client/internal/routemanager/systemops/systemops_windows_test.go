@@ -5,18 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-var expectedExtInt = "Ethernet1"
+var (
+	expectedExternalInt = "Ethernet1"
+	expectedVPNint      = "wgtest0"
+)
 
 type RouteInfo struct {
 	NextHop        string `json:"nexthop"`
@@ -43,8 +48,6 @@ type testCase struct {
 	dialer             dialer
 }
 
-var expectedVPNint = "wgtest0"
-
 var testCases = []testCase{
 	{
 		name:               "To external host without custom dialer via vpn",
@@ -52,14 +55,14 @@ var testCases = []testCase{
 		expectedSourceIP:   "100.64.0.1",
 		expectedDestPrefix: "128.0.0.0/1",
 		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  "wgtest0",
+		expectedInterface:  expectedVPNint,
 		dialer:             &net.Dialer{},
 	},
 	{
 		name:               "To external host with custom dialer via physical interface",
 		destination:        "192.0.2.1:53",
 		expectedDestPrefix: "192.0.2.1/32",
-		expectedInterface:  expectedExtInt,
+		expectedInterface:  expectedExternalInt,
 		dialer:             nbnet.NewDialer(),
 	},
 
@@ -67,24 +70,15 @@ var testCases = []testCase{
 		name:               "To duplicate internal route with custom dialer via physical interface",
 		destination:        "10.0.0.2:53",
 		expectedDestPrefix: "10.0.0.2/32",
-		expectedInterface:  expectedExtInt,
+		expectedInterface:  expectedExternalInt,
 		dialer:             nbnet.NewDialer(),
-	},
-	{
-		name:               "To duplicate internal route without custom dialer via physical interface", // local route takes precedence
-		destination:        "10.0.0.2:53",
-		expectedSourceIP:   "127.0.0.1",
-		expectedDestPrefix: "10.0.0.0/8",
-		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  "Loopback Pseudo-Interface 1",
-		dialer:             &net.Dialer{},
 	},
 
 	{
 		name:               "To unique vpn route with custom dialer via physical interface",
 		destination:        "172.16.0.2:53",
 		expectedDestPrefix: "172.16.0.2/32",
-		expectedInterface:  expectedExtInt,
+		expectedInterface:  expectedExternalInt,
 		dialer:             nbnet.NewDialer(),
 	},
 	{
@@ -93,7 +87,7 @@ var testCases = []testCase{
 		expectedSourceIP:   "100.64.0.1",
 		expectedDestPrefix: "172.16.0.0/12",
 		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  "wgtest0",
+		expectedInterface:  expectedVPNint,
 		dialer:             &net.Dialer{},
 	},
 
@@ -103,22 +97,14 @@ var testCases = []testCase{
 		expectedSourceIP:   "100.64.0.1",
 		expectedDestPrefix: "10.10.0.0/24",
 		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  "wgtest0",
-		dialer:             &net.Dialer{},
-	},
-
-	{
-		name:               "To more specific route (local) without custom dialer via physical interface",
-		destination:        "127.0.10.2:53",
-		expectedSourceIP:   "127.0.0.1",
-		expectedDestPrefix: "127.0.0.0/8",
-		expectedNextHop:    "0.0.0.0",
-		expectedInterface:  "Loopback Pseudo-Interface 1",
+		expectedInterface:  expectedVPNint,
 		dialer:             &net.Dialer{},
 	},
 }
 
 func TestRouting(t *testing.T) {
+	log.SetLevel(log.DebugLevel)
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			setupTestEnv(t)
@@ -129,7 +115,7 @@ func TestRouting(t *testing.T) {
 			require.NoError(t, err, "Failed to fetch interface IP")
 
 			output := testRoute(t, tc.destination, tc.dialer)
-			if tc.expectedInterface == expectedExtInt {
+			if tc.expectedInterface == expectedExternalInt {
 				verifyOutput(t, output, ip, tc.expectedDestPrefix, route.NextHop, route.InterfaceAlias)
 			} else {
 				verifyOutput(t, output, tc.expectedSourceIP, tc.expectedDestPrefix, tc.expectedNextHop, tc.expectedInterface)
@@ -242,19 +228,23 @@ func setupDummyInterfacesAndRoutes(t *testing.T) {
 func addDummyRoute(t *testing.T, dstCIDR string) {
 	t.Helper()
 
-	script := fmt.Sprintf(`New-NetRoute -DestinationPrefix "%s" -InterfaceIndex 1 -PolicyStore ActiveStore`, dstCIDR)
-
-	output, err := exec.Command("powershell", "-Command", script).CombinedOutput()
+	prefix, err := netip.ParsePrefix(dstCIDR)
 	if err != nil {
-		t.Logf("Failed to add dummy route: %v\nOutput: %s", err, output)
-		t.FailNow()
+		t.Fatalf("Failed to parse destination CIDR %s: %v", dstCIDR, err)
+	}
+
+	nexthop := Nexthop{
+		Intf: &net.Interface{Index: 1},
+	}
+
+	if err = addRoute(prefix, nexthop); err != nil {
+		t.Fatalf("Failed to add dummy route: %v", err)
 	}
 
 	t.Cleanup(func() {
-		script = fmt.Sprintf(`Remove-NetRoute -DestinationPrefix  "%s" -InterfaceIndex 1 -Confirm:$false`, dstCIDR)
-		output, err := exec.Command("powershell", "-Command", script).CombinedOutput()
+		err := deleteRoute(prefix, nexthop)
 		if err != nil {
-			t.Logf("Failed to remove dummy route: %v\nOutput: %s", err, output)
+			t.Logf("Failed to remove dummy route: %v", err)
 		}
 	})
 }

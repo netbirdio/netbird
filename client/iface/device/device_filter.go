@@ -1,7 +1,6 @@
 package device
 
 import (
-	"net"
 	"net/netip"
 	"sync"
 
@@ -24,9 +23,6 @@ type PacketFilter interface {
 
 	// RemovePacketHook removes hook by ID
 	RemovePacketHook(hookID string) error
-
-	// SetNetwork of the wireguard interface to which filtering applied
-	SetNetwork(*net.IPNet)
 }
 
 // FilteredDevice to override Read or Write of packets

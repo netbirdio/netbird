@@ -64,7 +64,15 @@ func (l *wgLink) assignAddr(address wgaddr.Address) error {
 	}
 
 	ip := address.IP.String()
-	mask := "0x" + address.Network.Mask.String()
+
+	// Convert prefix length to hex netmask
+	prefixLen := address.Network.Bits()
+	if !address.IP.Is4() {
+		return fmt.Errorf("IPv6 not supported for interface assignment")
+	}
+
+	maskBits := uint32(0xffffffff) << (32 - prefixLen)
+	mask := fmt.Sprintf("0x%08x", maskBits)
 
 	log.Infof("assign addr %s mask %s to %s interface", ip, mask, l.name)
 
