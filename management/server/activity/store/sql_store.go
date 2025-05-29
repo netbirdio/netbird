@@ -1,4 +1,4 @@
-package sqlite
+package store
 
 import (
 	"context"
@@ -47,8 +47,8 @@ type Store struct {
 	fieldEncrypt *FieldEncrypt
 }
 
-// NewSQLiteStore creates a new Store with an event table if not exists.
-func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
+// NewSqlStore creates a new Store with an event table if not exists.
+func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
 	crypt, err := NewFieldEncrypt(encryptionKey)
 	if err != nil {
 
