@@ -786,6 +786,9 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		e.config.DisableServerRoutes,
 		e.config.DisableDNS,
 		e.config.DisableFirewall,
+		e.config.BlockLANAccess,
+		e.config.BlockInbound,
+		e.config.LazyConnectionEnabled,
 	)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
@@ -905,6 +908,9 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.DisableServerRoutes,
 			e.config.DisableDNS,
 			e.config.DisableFirewall,
+			e.config.BlockLANAccess,
+			e.config.BlockInbound,
+			e.config.LazyConnectionEnabled,
 		)
 
 		// err = e.mgmClient.Sync(info, e.handleSync)
@@ -1484,6 +1490,9 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 		e.config.DisableServerRoutes,
 		e.config.DisableDNS,
 		e.config.DisableFirewall,
+		e.config.BlockLANAccess,
+		e.config.BlockInbound,
+		e.config.LazyConnectionEnabled,
 	)
 
 	netMap, err := e.mgmClient.GetNetworkMap(info)
