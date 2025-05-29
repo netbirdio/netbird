@@ -198,7 +198,7 @@ func (m *Manager) AllowNetbird() error {
 	_, err := m.AddPeerFiltering(
 		nil,
 		net.IP{0, 0, 0, 0},
-		"all",
+		firewall.ProtocolALL,
 		nil,
 		nil,
 		firewall.ActionAccept,
@@ -219,10 +219,16 @@ func (m *Manager) SetLogLevel(log.Level) {
 }
 
 func (m *Manager) EnableRouting() error {
+	if err := m.router.ipFwdState.RequestForwarding(); err != nil {
+		return fmt.Errorf("enable IP forwarding: %w", err)
+	}
 	return nil
 }
 
 func (m *Manager) DisableRouting() error {
+	if err := m.router.ipFwdState.ReleaseForwarding(); err != nil {
+		return fmt.Errorf("disable IP forwarding: %w", err)
+	}
 	return nil
 }
 
