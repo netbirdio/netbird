@@ -147,6 +147,10 @@ func (m *Manager) IsServerRouteSupported() bool {
 	return true
 }
 
+func (m *Manager) IsStateful() bool {
+	return true
+}
+
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()

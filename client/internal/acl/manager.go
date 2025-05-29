@@ -285,8 +285,10 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	case mgmProto.RuleDirection_IN:
 		rules, err = d.addInRules(r.PolicyID, ip, protocol, port, action, ipsetName)
 	case mgmProto.RuleDirection_OUT:
-		// TODO: Remove this soon. Outbound rules are obsolete.
-		// We only maintain this for return traffic (inbound dir) which is now handled by the stateful firewall already
+		if d.firewall.IsStateful() {
+			return "", nil, nil
+		}
+		// return traffic for outbound connections if firewall is stateless
 		rules, err = d.addOutRules(r.PolicyID, ip, protocol, port, action, ipsetName)
 	default:
 		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")

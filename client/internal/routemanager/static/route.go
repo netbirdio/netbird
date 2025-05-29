@@ -24,7 +24,6 @@ func NewRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allo
 	}
 }
 
-// Route route methods
 func (r *Route) String() string {
 	return r.route.Network.String()
 }
