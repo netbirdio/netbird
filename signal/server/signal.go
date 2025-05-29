@@ -45,6 +45,8 @@ type Server struct {
 	proto.UnimplementedSignalExchangeServer
 	dispatcher *dispatcher.Dispatcher
 	metrics    *metrics.AppMetrics
+
+	successHeader metadata.MD
 }
 
 // NewServer creates a new Signal server
@@ -60,9 +62,10 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 	}
 
 	s := &Server{
-		dispatcher: d,
-		registry:   peer.NewRegistry(appMetrics),
-		metrics:    appMetrics,
+		dispatcher:    d,
+		registry:      peer.NewRegistry(appMetrics),
+		metrics:       appMetrics,
+		successHeader: metadata.Pairs(proto.HeaderRegistered, "1"),
 	}
 
 	return s, nil
@@ -90,8 +93,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	defer s.DeregisterPeer(p)
 
 	// needed to confirm that the peer has been registered so that the client can proceed
-	header := metadata.Pairs(proto.HeaderRegistered, "1")
-	err = stream.SendHeader(header)
+	err = stream.SendHeader(s.successHeader)
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedHeader)))
 		return err
@@ -106,20 +108,14 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer) (*peer.Peer, error) {
 	log.Debugf("registering new peer")
-	meta, hasMeta := metadata.FromIncomingContext(stream.Context())
-	if !hasMeta {
-		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorMissingMeta)))
-		return nil, status.Errorf(codes.FailedPrecondition, "missing connection stream meta")
-	}
-
-	id, found := meta[proto.HeaderId]
-	if !found {
+	id := metadata.ValueFromIncomingContext(stream.Context(), proto.HeaderId)
+	if id == nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorMissingId)))
 		return nil, status.Errorf(codes.FailedPrecondition, "missing connection header: %s", proto.HeaderId)
 	}
 
-	p := peer.NewPeer(id[0], stream)
-	s.registry.Register(p)
+	p := peer.NewPeerPool(id[0], stream)
+	s.registry.RegisterPool(p)
 	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedRegistration)))
@@ -131,8 +127,8 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer) (
 
 func (s *Server) DeregisterPeer(p *peer.Peer) {
 	log.Debugf("peer disconnected [%s] [streamID %d] ", p.Id, p.StreamID)
-	s.registry.Deregister(p)
 	s.metrics.PeerConnectionDuration.Record(p.Stream.Context(), int64(time.Since(p.RegisteredAt).Seconds()))
+	s.registry.DeregisterPool(p)
 }
 
 func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedMessage) {

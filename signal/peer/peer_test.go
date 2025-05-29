@@ -94,3 +94,17 @@ func TestRegistry_Deregister(t *testing.T) {
 	}
 
 }
+
+func BenchmarkPeerAllocation(b *testing.B) {
+	b.Run("no pool", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = NewPeer("peer", nil)
+		}
+	})
+	b.Run("with pool", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			p := NewPeerPool("peer", nil)
+			p.Reset()
+		}
+	})
+}
