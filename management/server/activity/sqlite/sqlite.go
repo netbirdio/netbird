@@ -257,11 +257,11 @@ func initDatabase(ctx context.Context, dataDir string) (*gorm.DB, error) {
 	default:
 		return nil, fmt.Errorf("unsupported store engine: %s", storeEngine)
 	}
-	log.WithContext(ctx).Debugf("using %s as activity event store engine", storeEngine)
+	log.WithContext(ctx).Infof("using %s as activity event store engine", storeEngine)
 
 	db, err := gorm.Open(dialector, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database connection: %w", err)
+		return nil, fmt.Errorf("open db connection: %w", err)
 	}
 
 	return configureConnectionPool(db, storeEngine)
