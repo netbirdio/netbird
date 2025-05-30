@@ -98,14 +98,14 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 }
 
 // SetExcludeList sets the list of peer IDs that should always have permanent connections.
-func (e *ConnMgr) SetExcludeList(peerIDs []string) {
+func (e *ConnMgr) SetExcludeList(peerIDs map[string]bool) {
 	if e.lazyConnMgr == nil {
 		return
 	}
 
 	excludedPeers := make([]lazyconn.PeerConfig, 0, len(peerIDs))
 
-	for _, peerID := range peerIDs {
+	for peerID := range peerIDs {
 		var peerConn *peer.Conn
 		var exists bool
 		if peerConn, exists = e.peerStore.PeerConn(peerID); !exists {

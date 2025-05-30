@@ -1927,14 +1927,16 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 	return forwardingRules, nberrors.FormatErrorOrNil(merr)
 }
 
-func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) []string {
-	excludedPeers := make([]string, 0)
+func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) map[string]bool {
+	excludedPeers := make(map[string]bool)
 	for _, r := range routes {
 		if r.Peer == "" {
 			continue
 		}
-		log.Infof("exclude router peer from lazy connection: %s", r.Peer)
-		excludedPeers = append(excludedPeers, r.Peer)
+		if !excludedPeers[r.Peer] {
+			log.Infof("exclude router peer from lazy connection: %s", r.Peer)
+			excludedPeers[r.Peer] = true
+		}
 	}
 
 	for _, r := range rules {
@@ -1945,7 +1947,7 @@ func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallMana
 					continue
 				}
 				log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
-				excludedPeers = append(excludedPeers, p.GetWgPubKey())
+				excludedPeers[p.GetWgPubKey()] = true
 			}
 		}
 	}
