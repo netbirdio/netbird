@@ -45,7 +45,7 @@ type Settings struct {
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 
-	// LazyConnectionEnabled indicates wether the experimental feature is enabled or disabled
+	// LazyConnectionEnabled indicates if the experimental feature is enabled or disabled
 	LazyConnectionEnabled bool `gorm:"default:false"`
 }
 
