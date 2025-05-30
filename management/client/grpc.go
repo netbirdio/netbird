@@ -544,10 +544,15 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			RosenpassEnabled:    info.RosenpassEnabled,
 			RosenpassPermissive: info.RosenpassPermissive,
 			ServerSSHAllowed:    info.ServerSSHAllowed,
+
 			DisableClientRoutes: info.DisableClientRoutes,
 			DisableServerRoutes: info.DisableServerRoutes,
 			DisableDNS:          info.DisableDNS,
 			DisableFirewall:     info.DisableFirewall,
+			BlockLANAccess:      info.BlockLANAccess,
+			BlockInbound:        info.BlockInbound,
+
+			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
 	}
 }
