@@ -436,11 +436,12 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		DNSRouteInterval:     config.DNSRouteInterval,
 
 		DisableClientRoutes: config.DisableClientRoutes,
-		DisableServerRoutes: config.DisableServerRoutes,
+		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
 		DisableDNS:          config.DisableDNS,
 		DisableFirewall:     config.DisableFirewall,
+		BlockLANAccess:      config.BlockLANAccess,
+		BlockInbound:        config.BlockInbound,
 
-		BlockLANAccess:        config.BlockLANAccess,
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 	}
 

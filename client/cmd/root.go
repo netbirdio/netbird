@@ -39,7 +39,6 @@ const (
 	extraIFaceBlackListFlag  = "extra-iface-blacklist"
 	dnsRouteIntervalFlag     = "dns-router-interval"
 	systemInfoFlag           = "system-info"
-	blockLANAccessFlag       = "block-lan-access"
 	enableLazyConnectionFlag = "enable-lazy-connection"
 	uploadBundle             = "upload-bundle"
 	uploadBundleURL          = "upload-bundle-url"
@@ -78,7 +77,6 @@ var (
 	anonymizeFlag           bool
 	debugSystemInfoFlag     bool
 	dnsRouteInterval        time.Duration
-	blockLANAccess          bool
 	debugUploadBundle       bool
 	debugUploadBundleURL    string
 	lazyConnEnabled         bool

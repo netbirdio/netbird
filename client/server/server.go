@@ -398,10 +398,13 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		inputConfig.DisableFirewall = msg.DisableFirewall
 		s.latestConfigInput.DisableFirewall = msg.DisableFirewall
 	}
-
 	if msg.BlockLanAccess != nil {
 		inputConfig.BlockLANAccess = msg.BlockLanAccess
 		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
+	}
+	if msg.BlockInbound != nil {
+		inputConfig.BlockInbound = msg.BlockInbound
+		s.latestConfigInput.BlockInbound = msg.BlockInbound
 	}
 
 	if msg.CleanDNSLabels {
@@ -756,18 +759,20 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	}
 
 	return &proto.GetConfigResponse{
-		ManagementUrl:        managementURL,
-		ConfigFile:           s.latestConfigInput.ConfigPath,
-		LogFile:              s.logFile,
-		PreSharedKey:         preSharedKey,
-		AdminURL:             adminURL,
-		InterfaceName:        s.config.WgIface,
-		WireguardPort:        int64(s.config.WgPort),
-		DisableAutoConnect:   s.config.DisableAutoConnect,
-		ServerSSHAllowed:     *s.config.ServerSSHAllowed,
-		RosenpassEnabled:     s.config.RosenpassEnabled,
-		RosenpassPermissive:  s.config.RosenpassPermissive,
-		DisableNotifications: disableNotifications,
+		ManagementUrl:         managementURL,
+		ConfigFile:            s.latestConfigInput.ConfigPath,
+		LogFile:               s.logFile,
+		PreSharedKey:          preSharedKey,
+		AdminURL:              adminURL,
+		InterfaceName:         s.config.WgIface,
+		WireguardPort:         int64(s.config.WgPort),
+		DisableAutoConnect:    s.config.DisableAutoConnect,
+		ServerSSHAllowed:      *s.config.ServerSSHAllowed,
+		RosenpassEnabled:      s.config.RosenpassEnabled,
+		RosenpassPermissive:   s.config.RosenpassPermissive,
+		LazyConnectionEnabled: s.config.LazyConnectionEnabled,
+		BlockInbound:          s.config.BlockInbound,
+		DisableNotifications:  disableNotifications,
 	}, nil
 }
 

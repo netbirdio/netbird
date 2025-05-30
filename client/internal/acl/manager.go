@@ -58,6 +58,11 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
+	if d.firewall == nil {
+		log.Debug("firewall manager is not supported, skipping firewall rules")
+		return
+	}
+
 	start := time.Now()
 	defer func() {
 		total := 0
@@ -69,13 +74,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 			time.Since(start), total)
 	}()
 
-	if d.firewall == nil {
-		log.Debug("firewall manager is not supported, skipping firewall rules")
-		return
-	}
-
 	d.applyPeerACLs(networkMap)
-
 
 	if err := d.applyRouteACLs(networkMap.RoutesFirewallRules, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("Failed to apply route ACLs: %v", err)
