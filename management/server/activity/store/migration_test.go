@@ -2,16 +2,20 @@ package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/migration"
+	"github.com/netbirdio/netbird/management/server/testutil"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -21,8 +25,20 @@ const (
 func setupDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	dbFile := filepath.Join(t.TempDir(), eventSinkDB)
-	db, err := gorm.Open(sqlite.Open(dbFile))
+	var dialector gorm.Dialector
+
+	storeEngine, ok := os.LookupEnv(storeEngineEnv)
+	if ok && storeEngine == string(types.PostgresStoreEngine) {
+		cleanup, dsn, err := testutil.CreatePostgresTestContainer()
+		require.NoError(t, err, "Failed to create Postgres test container")
+		t.Cleanup(cleanup)
+
+		dialector = postgres.Open(dsn)
+	} else {
+		dialector = sqlite.Open(filepath.Join(t.TempDir(), eventSinkDB))
+	}
+
+	db, err := gorm.Open(dialector)
 	require.NoError(t, err)
 
 	sql, err := db.DB()
