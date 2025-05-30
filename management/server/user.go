@@ -676,7 +676,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 			return false, nil, nil, nil, fmt.Errorf("error modifying user peers in groups: %w", err)
 		}
 
-		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, update.AccountID, updatedGroups); err != nil {
+		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, updatedGroups); err != nil {
 			return false, nil, nil, nil, fmt.Errorf("error saving groups: %w", err)
 		}
 	}
