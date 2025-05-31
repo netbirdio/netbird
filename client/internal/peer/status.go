@@ -309,6 +309,11 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		d.notifyPeerListChanged()
 	}
 
+	// when we close the connection we will not notify the router manager
+	if receivedState.ConnStatus == StatusIdle {
+		d.notifyPeerStateChangeListeners(receivedState.PubKey)
+
+	}
 	return nil
 }
 
