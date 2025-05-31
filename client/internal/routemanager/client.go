@@ -232,7 +232,7 @@ func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey stri
 			return
 		case <-c.statusRecorder.GetPeerStateChangeNotifier(peerKey):
 			state, err := c.statusRecorder.GetPeer(peerKey)
-			if err != nil || state.ConnStatus == peer.StatusConnecting {
+			if err != nil {
 				continue
 			}
 			peerStateUpdate <- struct{}{}
