@@ -627,7 +627,7 @@ func showUploadFailedDialog(w fyne.Window, localPath, failureReason string) {
 			"A local copy was saved at:\n%s", failureReason, localPath)),
 	)
 
-	customDialog := dialog.NewCustom("Upload Failed", "Cancel", content, w)
+	customDialog := dialog.NewCustom("Upload Failed", "cancel", content, w)
 
 	buttonBox := container.NewHBox(
 		createButtonWithAction("Open file", func() {
@@ -686,7 +686,7 @@ func showBundleCreatedDialog(w fyne.Window, localPath string) {
 			"Administrator privileges may be required to access the file.", localPath)),
 	)
 
-	customDialog := dialog.NewCustom("Debug Bundle Created", "Cancel", content, w)
+	customDialog := dialog.NewCustom("Debug Bundle Created", "cancel", content, w)
 
 	buttonBox := createButtonBox(localPath, w, nil)
 	content.Add(buttonBox)

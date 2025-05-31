@@ -1,4 +1,4 @@
-package routemanager
+package client
 
 import (
 	"context"
@@ -43,9 +43,9 @@ type routerPeerStatus struct {
 	latency   time.Duration
 }
 
-type routesUpdate struct {
-	updateSerial uint64
-	routes       []*route.Route
+type RoutesUpdate struct {
+	UpdateSerial uint64
+	Routes       []*route.Route
 }
 
 // RouteHandler defines the interface for handling routes
@@ -57,7 +57,7 @@ type RouteHandler interface {
 	RemoveAllowedIPs() error
 }
 
-type ClientNetworkConfig struct {
+type WatcherConfig struct {
 	Context          context.Context
 	DNSRouteInterval time.Duration
 	WGInterface      iface.WGIface
@@ -66,43 +66,45 @@ type ClientNetworkConfig struct {
 	Handler          RouteHandler
 }
 
-type clientNetwork struct {
+// Watcher watches route and peer changes and updates allowed IPs accordingly.
+// Once stopped, it cannot be reused.
+type Watcher struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	statusRecorder      *peer.Status
 	wgInterface         iface.WGIface
 	routes              map[route.ID]*route.Route
-	routeUpdate         chan routesUpdate
+	routeUpdate         chan RoutesUpdate
 	peerStateUpdate     chan struct{}
-	routePeersNotifiers map[string]chan struct{}
+	routePeersNotifiers map[string]chan struct{} // map of peer key to channel for peer state changes
 	currentChosen       *route.Route
 	handler             RouteHandler
 	updateSerial        uint64
 }
 
-func newClientNetworkWatcher(config ClientNetworkConfig) *clientNetwork {
+func NewWatcher(config WatcherConfig) *Watcher {
 	ctx, cancel := context.WithCancel(config.Context)
 
-	client := &clientNetwork{
+	client := &Watcher{
 		ctx:                 ctx,
 		cancel:              cancel,
 		statusRecorder:      config.StatusRecorder,
 		wgInterface:         config.WGInterface,
 		routes:              make(map[route.ID]*route.Route),
 		routePeersNotifiers: make(map[string]chan struct{}),
-		routeUpdate:         make(chan routesUpdate),
+		routeUpdate:         make(chan RoutesUpdate),
 		peerStateUpdate:     make(chan struct{}),
 		handler:             config.Handler,
 	}
 	return client
 }
 
-func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
+func (w *Watcher) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 	routePeerStatuses := make(map[route.ID]routerPeerStatus)
-	for _, r := range c.routes {
-		peerStatus, err := c.statusRecorder.GetPeer(r.Peer)
+	for _, r := range w.routes {
+		peerStatus, err := w.statusRecorder.GetPeer(r.Peer)
 		if err != nil {
-			log.Debugf("couldn't fetch peer state: %v", err)
+			log.Debugf("couldn't fetch peer state %v: %v", r.Peer, err)
 			continue
 		}
 		routePeerStatuses[r.ID] = routerPeerStatus{
@@ -115,7 +117,7 @@ func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 }
 
 // getBestRouteFromStatuses determines the most optimal route from the available routes
-// within a clientNetwork, taking into account peer connection status, route metrics, and
+// within a Watcher, taking into account peer connection status, route metrics, and
 // preference for non-relayed and direct connections.
 //
 // It follows these prioritization rules:
@@ -127,17 +129,17 @@ func (c *clientNetwork) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 // * Stability: In case of equal scores, the currently active route (if any) is maintained.
 //
 // It returns the ID of the selected optimal route.
-func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]routerPeerStatus) route.ID {
+func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]routerPeerStatus) route.ID {
 	var chosen route.ID
 	chosenScore := float64(0)
 	currScore := float64(0)
 
 	var currID route.ID
-	if c.currentChosen != nil {
-		currID = c.currentChosen.ID
+	if w.currentChosen != nil {
+		currID = w.currentChosen.ID
 	}
 
-	for _, r := range c.routes {
+	for _, r := range w.routes {
 		tempScore := float64(0)
 		peerStatus, found := routePeerStatuses[r.ID]
 		if !found || !peerStatus.connected {
@@ -154,7 +156,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 		if peerStatus.latency != 0 {
 			latency = peerStatus.latency
 		} else {
-			log.Tracef("peer %s has 0 latency, range %s", r.Peer, c.handler)
+			log.Tracef("peer %s has 0 latency, range %s", r.Peer, w.handler)
 		}
 
 		// avoid negative tempScore on the higher latency calculation
@@ -184,41 +186,51 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 		}
 	}
 
-	log.Debugf("chosen route: %s, chosen score: %f, current route: %s, current score: %f", chosen, chosenScore, currID, currScore)
+	chosenID := chosen
+	if chosen == "" {
+		chosenID = "<none>"
+	}
+	currentID := currID
+	if currID == "" {
+		currentID = "<none>"
+	}
+
+	log.Debugf("chosen route: %s, chosen score: %f, current route: %s, current score: %f", chosenID, chosenScore, currentID, currScore)
 
 	switch {
 	case chosen == "":
 		var peers []string
-		for _, r := range c.routes {
+		for _, r := range w.routes {
 			peers = append(peers, r.Peer)
 		}
 
-		log.Warnf("The network [%v] has not been assigned a routing peer as no peers from the list %s are currently connected", c.handler, peers)
+		log.Infof("network [%v] has not been assigned a routing peer as no peers from the list %s are currently connected", w.handler, peers)
 	case chosen != currID:
 		// we compare the current score + 10ms to the chosen score to avoid flapping between routes
 		if currScore != 0 && currScore+0.01 > chosenScore {
-			log.Debugf("Keeping current routing peer because the score difference with latency is less than 0.01(10ms), current: %f, new: %f", currScore, chosenScore)
+			log.Debugf("keeping current routing peer %s for [%v]: the score difference with latency is less than 0.01(10ms): current: %f, new: %f",
+				w.currentChosen.Peer, w.handler, currScore, chosenScore)
 			return currID
 		}
 		var p string
-		if rt := c.routes[chosen]; rt != nil {
+		if rt := w.routes[chosen]; rt != nil {
 			p = rt.Peer
 		}
-		log.Infof("New chosen route is %s with peer %s with score %f for network [%v]", chosen, p, chosenScore, c.handler)
+		log.Infof("New chosen route is %s with peer %s with score %f for network [%v]", chosen, p, chosenScore, w.handler)
 	}
 
 	return chosen
 }
 
-func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
+func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-closer:
 			return
-		case <-c.statusRecorder.GetPeerStateChangeNotifier(peerKey):
-			state, err := c.statusRecorder.GetPeer(peerKey)
+		case <-w.statusRecorder.GetPeerStateChangeNotifier(peerKey):
+			state, err := w.statusRecorder.GetPeer(peerKey)
 			if err != nil {
 				continue
 			}
@@ -228,93 +240,92 @@ func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey stri
 	}
 }
 
-func (c *clientNetwork) startPeersStatusChangeWatcher() {
-	for _, r := range c.routes {
-		_, found := c.routePeersNotifiers[r.Peer]
-		if found {
+func (w *Watcher) startNewPeerStatusWatchers() {
+	for _, r := range w.routes {
+		if _, found := w.routePeersNotifiers[r.Peer]; found {
 			continue
 		}
 
 		closerChan := make(chan struct{})
-		c.routePeersNotifiers[r.Peer] = closerChan
-		go c.watchPeerStatusChanges(c.ctx, r.Peer, c.peerStateUpdate, closerChan)
+		w.routePeersNotifiers[r.Peer] = closerChan
+		go w.watchPeerStatusChanges(w.ctx, r.Peer, w.peerStateUpdate, closerChan)
 	}
 }
 
 // addAllowedIPs adds the allowed IPs for the current chosen route to the handler.
-func (c *clientNetwork) addAllowedIPs(route *route.Route) error {
-	if err := c.handler.AddAllowedIPs(route.Peer); err != nil {
+func (w *Watcher) addAllowedIPs(route *route.Route) error {
+	if err := w.handler.AddAllowedIPs(route.Peer); err != nil {
 		return fmt.Errorf("add allowed IPs for peer %s: %w", route.Peer, err)
 	}
 
-	if err := c.statusRecorder.AddPeerStateRoute(route.Peer, c.handler.String(), route.GetResourceID()); err != nil {
+	if err := w.statusRecorder.AddPeerStateRoute(route.Peer, w.handler.String(), route.GetResourceID()); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
 
-	c.connectEvent(route)
+	w.connectEvent(route)
 	return nil
 }
 
-func (c *clientNetwork) removeAllowedIPs(route *route.Route, rsn reason) error {
-	if err := c.statusRecorder.RemovePeerStateRoute(route.Peer, c.handler.String()); err != nil {
+func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
+	if err := w.statusRecorder.RemovePeerStateRoute(route.Peer, w.handler.String()); err != nil {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
 
-	if err := c.handler.RemoveAllowedIPs(); err != nil {
+	if err := w.handler.RemoveAllowedIPs(); err != nil {
 		return fmt.Errorf("remove allowed IPs: %w", err)
 	}
 
-	c.disconnectEvent(route, rsn)
+	w.disconnectEvent(route, rsn)
 
 	return nil
 }
 
-func (c *clientNetwork) recalculateRoutes(rsn reason) error {
-	routerPeerStatuses := c.getRouterPeerStatuses()
+func (w *Watcher) recalculateRoutes(rsn reason) error {
+	routerPeerStatuses := w.getRouterPeerStatuses()
 
-	newChosenID := c.getBestRouteFromStatuses(routerPeerStatuses)
+	newChosenID := w.getBestRouteFromStatuses(routerPeerStatuses)
 
 	// If no route is chosen, remove the route from the peer
 	if newChosenID == "" {
-		if c.currentChosen == nil {
+		if w.currentChosen == nil {
 			return nil
 		}
 
-		if err := c.removeAllowedIPs(c.currentChosen, rsn); err != nil {
+		if err := w.removeAllowedIPs(w.currentChosen, rsn); err != nil {
 			return fmt.Errorf("remove obsolete: %w", err)
 		}
 
-		c.currentChosen = nil
+		w.currentChosen = nil
 
 		return nil
 	}
 
 	// If the chosen route is the same as the current route, do nothing
-	if c.currentChosen != nil && c.currentChosen.ID == newChosenID &&
-		c.currentChosen.Equal(c.routes[newChosenID]) {
+	if w.currentChosen != nil && w.currentChosen.ID == newChosenID &&
+		w.currentChosen.Equal(w.routes[newChosenID]) {
 		return nil
 	}
 
 	// If the chosen route was assigned to a different peer, remove the allowed IPs first
-	if isNew := c.currentChosen == nil; !isNew {
-		if err := c.removeAllowedIPs(c.currentChosen, reasonHA); err != nil {
+	if isNew := w.currentChosen == nil; !isNew {
+		if err := w.removeAllowedIPs(w.currentChosen, reasonHA); err != nil {
 			return fmt.Errorf("remove old: %w", err)
 		}
 	}
 
-	newChosenRoute := c.routes[newChosenID]
-	if err := c.addAllowedIPs(newChosenRoute); err != nil {
+	newChosenRoute := w.routes[newChosenID]
+	if err := w.addAllowedIPs(newChosenRoute); err != nil {
 		return fmt.Errorf("add new: %w", err)
 	}
 
-	c.currentChosen = newChosenRoute
+	w.currentChosen = newChosenRoute
 
 	return nil
 }
 
-func (c *clientNetwork) connectEvent(route *route.Route) {
+func (w *Watcher) connectEvent(route *route.Route) {
 	var defaultRoute bool
-	for _, r := range c.routes {
+	for _, r := range w.routes {
 		if r.Network.Bits() == 0 {
 			defaultRoute = true
 			break
@@ -326,13 +337,13 @@ func (c *clientNetwork) connectEvent(route *route.Route) {
 	}
 
 	meta := map[string]string{
-		"network": c.handler.String(),
+		"network": w.handler.String(),
 	}
 	if route != nil {
 		meta["id"] = string(route.NetID)
 		meta["peer"] = route.Peer
 	}
-	c.statusRecorder.PublishEvent(
+	w.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_NETWORK,
 		"Default route added",
@@ -341,9 +352,9 @@ func (c *clientNetwork) connectEvent(route *route.Route) {
 	)
 }
 
-func (c *clientNetwork) disconnectEvent(route *route.Route, rsn reason) {
+func (w *Watcher) disconnectEvent(route *route.Route, rsn reason) {
 	var defaultRoute bool
-	for _, r := range c.routes {
+	for _, r := range w.routes {
 		if r.Network.Bits() == 0 {
 			defaultRoute = true
 			break
@@ -363,7 +374,7 @@ func (c *clientNetwork) disconnectEvent(route *route.Route, rsn reason) {
 		meta["id"] = string(route.NetID)
 		meta["peer"] = route.Peer
 	}
-	meta["network"] = c.handler.String()
+	meta["network"] = w.handler.String()
 	switch rsn {
 	case reasonShutdown:
 		severity = proto.SystemEvent_INFO
@@ -386,7 +397,7 @@ func (c *clientNetwork) disconnectEvent(route *route.Route, rsn reason) {
 		userMessage = "Exit node disconnected for unknown reasons."
 	}
 
-	c.statusRecorder.PublishEvent(
+	w.statusRecorder.PublishEvent(
 		severity,
 		proto.SystemEvent_NETWORK,
 		message,
@@ -395,86 +406,95 @@ func (c *clientNetwork) disconnectEvent(route *route.Route, rsn reason) {
 	)
 }
 
-func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {
+func (w *Watcher) SendUpdate(update RoutesUpdate) {
 	go func() {
-		c.routeUpdate <- update
+		w.routeUpdate <- update
 	}()
 }
 
-func (c *clientNetwork) handleUpdate(update routesUpdate) bool {
+func (w *Watcher) classifyUpdate(update RoutesUpdate) bool {
 	isUpdateMapDifferent := false
 	updateMap := make(map[route.ID]*route.Route)
 
-	for _, r := range update.routes {
+	for _, r := range update.Routes {
 		updateMap[r.ID] = r
 	}
 
-	if len(c.routes) != len(updateMap) {
+	if len(w.routes) != len(updateMap) {
 		isUpdateMapDifferent = true
 	}
 
-	for id, r := range c.routes {
+	for id, r := range w.routes {
 		_, found := updateMap[id]
 		if !found {
-			close(c.routePeersNotifiers[r.Peer])
-			delete(c.routePeersNotifiers, r.Peer)
+			close(w.routePeersNotifiers[r.Peer])
+			delete(w.routePeersNotifiers, r.Peer)
 			isUpdateMapDifferent = true
 			continue
 		}
-		if !reflect.DeepEqual(c.routes[id], updateMap[id]) {
+		if !reflect.DeepEqual(w.routes[id], updateMap[id]) {
 			isUpdateMapDifferent = true
 		}
 	}
 
-	c.routes = updateMap
+	w.routes = updateMap
 	return isUpdateMapDifferent
 }
 
-// peersStateAndUpdateWatcher is the main point of reacting on client network routing events.
+// Start is the main point of reacting on client network routing events.
 // All the processing related to the client network should be done here. Thread-safe.
-func (c *clientNetwork) peersStateAndUpdateWatcher() {
+func (w *Watcher) Start() {
 	for {
 		select {
-		case <-c.ctx.Done():
-			log.Debugf("Stopping watcher for network [%v]", c.handler)
-			if err := c.removeAllowedIPs(c.currentChosen, reasonShutdown); err != nil {
-				log.Errorf("Failed to remove routes for [%v]: %v", c.handler, err)
-			}
+		case <-w.ctx.Done():
 			return
-		case <-c.peerStateUpdate:
-			err := c.recalculateRoutes(reasonPeerUpdate)
-			if err != nil {
-				log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
+		case <-w.peerStateUpdate:
+			if err := w.recalculateRoutes(reasonPeerUpdate); err != nil {
+				log.Errorf("Failed to recalculate routes for network [%v]: %v", w.handler, err)
 			}
-		case update := <-c.routeUpdate:
-			if update.updateSerial < c.updateSerial {
-				log.Warnf("Received a routes update with smaller serial number (%d -> %d), ignoring it", c.updateSerial, update.updateSerial)
+		case update := <-w.routeUpdate:
+			if update.UpdateSerial < w.updateSerial {
+				log.Warnf("Received a routes update with smaller serial number (%d -> %d), ignoring it", w.updateSerial, update.UpdateSerial)
 				continue
 			}
 
-			log.Debugf("Received a new client network route update for [%v]", c.handler)
-
-			// hash update somehow
-			isTrueRouteUpdate := c.handleUpdate(update)
-
-			c.updateSerial = update.updateSerial
-
-			if isTrueRouteUpdate {
-				log.Debug("Client network update contains different routes, recalculating routes")
-				err := c.recalculateRoutes(reasonRouteUpdate)
-				if err != nil {
-					log.Errorf("Failed to recalculate routes for network [%v]: %v", c.handler, err)
-				}
-			} else {
-				log.Debug("Route update is not different, skipping route recalculation")
-			}
-
-			c.startPeersStatusChangeWatcher()
+			w.handleRouteUpdate(update)
 		}
 	}
 }
 
-func handlerFromRoute(
+func (w *Watcher) handleRouteUpdate(update RoutesUpdate) {
+	log.Debugf("Received a new client network route update for [%v]", w.handler)
+
+	// hash update somehow
+	isTrueRouteUpdate := w.classifyUpdate(update)
+
+	w.updateSerial = update.UpdateSerial
+
+	if isTrueRouteUpdate {
+		log.Debugf("client network update %v for [%v] contains different routes, recalculating routes", update.UpdateSerial, w.handler)
+		if err := w.recalculateRoutes(reasonRouteUpdate); err != nil {
+			log.Errorf("failed to recalculate routes for network [%v]: %v", w.handler, err)
+		}
+	} else {
+		log.Debugf("route update %v for [%v] is not different, skipping route recalculation", update.UpdateSerial, w.handler)
+	}
+
+	w.startNewPeerStatusWatchers()
+}
+
+// Stop stops the watcher and cleans up resources.
+func (w *Watcher) Stop() {
+	log.Debugf("Stopping watcher for network [%v]", w.handler)
+
+	w.cancel()
+
+	if err := w.removeAllowedIPs(w.currentChosen, reasonShutdown); err != nil {
+		log.Errorf("Failed to remove routes for [%v]: %v", w.handler, err)
+	}
+}
+
+func HandlerFromRoute(
 	rt *route.Route,
 	routeRefCounter *refcounter.RouteRefCounter,
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,

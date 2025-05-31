@@ -23,9 +23,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/client/internal/routemanager/client"
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
+	"github.com/netbirdio/netbird/client/internal/routemanager/server"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
@@ -70,9 +72,9 @@ type DefaultManager struct {
 	ctx                  context.Context
 	stop                 context.CancelFunc
 	mux                  sync.Mutex
-	clientNetworks       map[route.HAUniqueID]*clientNetwork
+	clientNetworks       map[route.HAUniqueID]*client.Watcher
 	routeSelector        *routeselector.RouteSelector
-	serverRouter         *serverRouter
+	serverRouter         *server.Router
 	sysOps               *systemops.SysOps
 	statusRecorder       *peer.Status
 	relayMgr             *relayClient.Manager
@@ -90,7 +92,7 @@ type DefaultManager struct {
 	useNewDNSRoute      bool
 	disableClientRoutes bool
 	disableServerRoutes bool
-	activeRoutes        map[route.HAUniqueID]RouteHandler
+	activeRoutes        map[route.HAUniqueID]client.RouteHandler
 }
 
 func NewManager(config ManagerConfig) *DefaultManager {
@@ -102,7 +104,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		ctx:                 mCTX,
 		stop:                cancel,
 		dnsRouteInterval:    config.DNSRouteInterval,
-		clientNetworks:      make(map[route.HAUniqueID]*clientNetwork),
+		clientNetworks:      make(map[route.HAUniqueID]*client.Watcher),
 		relayMgr:            config.RelayManager,
 		sysOps:              sysOps,
 		statusRecorder:      config.StatusRecorder,
@@ -114,7 +116,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		peerStore:           config.PeerStore,
 		disableClientRoutes: config.DisableClientRoutes,
 		disableServerRoutes: config.DisableServerRoutes,
-		activeRoutes:        make(map[route.HAUniqueID]RouteHandler),
+		activeRoutes:        make(map[route.HAUniqueID]client.RouteHandler),
 	}
 
 	useNoop := netstack.IsEnabled() || config.DisableClientRoutes
@@ -230,7 +232,7 @@ func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 	}
 
 	var err error
-	m.serverRouter, err = newServerRouter(m.ctx, m.wgInterface, firewall, m.statusRecorder)
+	m.serverRouter, err = server.NewRouter(m.ctx, m.wgInterface, firewall, m.statusRecorder)
 	if err != nil {
 		return err
 	}
@@ -241,7 +243,7 @@ func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
 func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 	m.stop()
 	if m.serverRouter != nil {
-		m.serverRouter.cleanUp()
+		m.serverRouter.CleanUp()
 	}
 
 	if m.routeRefCounter != nil {
@@ -271,7 +273,7 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 // UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
 func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	toAdd := make(map[route.HAUniqueID]*route.Route)
-	toRemove := make(map[route.HAUniqueID]RouteHandler)
+	toRemove := make(map[route.HAUniqueID]client.RouteHandler)
 
 	for id, routes := range newRoutes {
 		if len(routes) > 0 {
@@ -296,7 +298,7 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	}
 
 	for id, route := range toAdd {
-		handler := handlerFromRoute(
+		handler := client.HandlerFromRoute(
 			route,
 			m.routeRefCounter,
 			m.allowedIPsRefCounter,
@@ -347,7 +349,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		return nil
 	}
 
-	if err := m.serverRouter.updateRoutes(newServerRoutesMap, useNewDNSRoute); err != nil {
+	if err := m.serverRouter.UpdateRoutes(newServerRoutesMap, useNewDNSRoute); err != nil {
 		return fmt.Errorf("update routes: %w", err)
 	}
 
@@ -416,7 +418,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			continue
 		}
 
-		config := ClientNetworkConfig{
+		config := client.WatcherConfig{
 			Context:          m.ctx,
 			DNSRouteInterval: m.dnsRouteInterval,
 			WGInterface:      m.wgInterface,
@@ -424,10 +426,10 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			Route:            routes[0],
 			Handler:          handler,
 		}
-		clientNetworkWatcher := newClientNetworkWatcher(config)
+		clientNetworkWatcher := client.NewWatcher(config)
 		m.clientNetworks[id] = clientNetworkWatcher
-		go clientNetworkWatcher.peersStateAndUpdateWatcher()
-		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(routesUpdate{routes: routes})
+		go clientNetworkWatcher.Start()
+		clientNetworkWatcher.SendUpdate(client.RoutesUpdate{Routes: routes})
 	}
 
 	if err := m.stateManager.UpdateState((*SelectorState)(m.routeSelector)); err != nil {
@@ -440,7 +442,7 @@ func (m *DefaultManager) stopObsoleteClients(networks route.HAMap) {
 	for id, client := range m.clientNetworks {
 		if _, ok := networks[id]; !ok {
 			log.Debugf("Stopping client network watcher, %s", id)
-			client.cancel()
+			client.Stop()
 			delete(m.clientNetworks, id)
 		}
 	}
@@ -459,7 +461,7 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 				continue
 			}
 
-			config := ClientNetworkConfig{
+			config := client.WatcherConfig{
 				Context:          m.ctx,
 				DNSRouteInterval: m.dnsRouteInterval,
 				WGInterface:      m.wgInterface,
@@ -467,15 +469,15 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 				Route:            routes[0],
 				Handler:          handler,
 			}
-			clientNetworkWatcher = newClientNetworkWatcher(config)
+			clientNetworkWatcher = client.NewWatcher(config)
 			m.clientNetworks[id] = clientNetworkWatcher
-			go clientNetworkWatcher.peersStateAndUpdateWatcher()
+			go clientNetworkWatcher.Start()
 		}
-		update := routesUpdate{
-			updateSerial: updateSerial,
-			routes:       routes,
+		update := client.RoutesUpdate{
+			UpdateSerial: updateSerial,
+			Routes:       routes,
 		}
-		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(update)
+		clientNetworkWatcher.SendUpdate(update)
 	}
 }
 
