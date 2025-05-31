@@ -1,4 +1,4 @@
-package sqlite
+package store
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 )
 
-func TestNewSQLiteStore(t *testing.T) {
+func TestNewSqlStore(t *testing.T) {
 	dataDir := t.TempDir()
 	key, _ := GenerateKey()
-	store, err := NewSQLiteStore(context.Background(), dataDir, key)
+	store, err := NewSqlStore(context.Background(), dataDir, key)
 	if err != nil {
 		t.Fatal(err)
 		return

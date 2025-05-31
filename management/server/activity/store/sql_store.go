@@ -1,17 +1,22 @@
-package sqlite
+package store
 
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -22,6 +27,10 @@ const (
 	fallbackEmail = "unknown@unknown.com"
 
 	gcmEncAlgo = "GCM"
+
+	storeEngineEnv     = "NB_ACTIVITY_EVENT_STORE_ENGINE"
+	postgresDsnEnv     = "NB_ACTIVITY_EVENT_POSTGRES_DSN"
+	sqlMaxOpenConnsEnv = "NB_SQL_MAX_OPEN_CONNS"
 )
 
 type eventWithNames struct {
@@ -38,27 +47,18 @@ type Store struct {
 	fieldEncrypt *FieldEncrypt
 }
 
-// NewSQLiteStore creates a new Store with an event table if not exists.
-func NewSQLiteStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
+// NewSqlStore creates a new Store with an event table if not exists.
+func NewSqlStore(ctx context.Context, dataDir string, encryptionKey string) (*Store, error) {
 	crypt, err := NewFieldEncrypt(encryptionKey)
 	if err != nil {
 
 		return nil, err
 	}
 
-	dbFile := filepath.Join(dataDir, eventSinkDB)
-	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
+	db, err := initDatabase(ctx, dataDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initialize database: %w", err)
 	}
-
-	sql, err := db.DB()
-	if err != nil {
-		return nil, err
-	}
-	sql.SetMaxOpenConns(1)
 
 	if err = migrate(ctx, crypt, db); err != nil {
 		return nil, fmt.Errorf("events database migration: %w", err)
@@ -235,4 +235,53 @@ func (store *Store) Close(_ context.Context) error {
 		return sql.Close()
 	}
 	return nil
+}
+
+func initDatabase(ctx context.Context, dataDir string) (*gorm.DB, error) {
+	var dialector gorm.Dialector
+	var storeEngine = types.SqliteStoreEngine
+
+	if engine, ok := os.LookupEnv(storeEngineEnv); ok {
+		storeEngine = types.Engine(engine)
+	}
+
+	switch storeEngine {
+	case types.SqliteStoreEngine:
+		dialector = sqlite.Open(filepath.Join(dataDir, eventSinkDB))
+	case types.PostgresStoreEngine:
+		dsn, ok := os.LookupEnv(postgresDsnEnv)
+		if !ok {
+			return nil, fmt.Errorf("%s environment variable not set", postgresDsnEnv)
+		}
+		dialector = postgres.Open(dsn)
+	default:
+		return nil, fmt.Errorf("unsupported store engine: %s", storeEngine)
+	}
+	log.WithContext(ctx).Infof("using %s as activity event store engine", storeEngine)
+
+	db, err := gorm.Open(dialector, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		return nil, fmt.Errorf("open db connection: %w", err)
+	}
+
+	return configureConnectionPool(db, storeEngine)
+}
+
+func configureConnectionPool(db *gorm.DB, storeEngine types.Engine) (*gorm.DB, error) {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+
+	if storeEngine == types.SqliteStoreEngine {
+		sqlDB.SetMaxOpenConns(1)
+	} else {
+		conns, err := strconv.Atoi(os.Getenv(sqlMaxOpenConnsEnv))
+		if err != nil {
+			conns = runtime.NumCPU()
+		}
+		sqlDB.SetMaxOpenConns(conns)
+	}
+
+	return db, nil
 }
