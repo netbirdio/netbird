@@ -441,7 +441,6 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 func (m *DefaultManager) stopObsoleteClients(networks route.HAMap) {
 	for id, client := range m.clientNetworks {
 		if _, ok := networks[id]; !ok {
-			log.Debugf("Stopping client network watcher, %s", id)
 			client.Stop()
 			delete(m.clientNetworks, id)
 		}
