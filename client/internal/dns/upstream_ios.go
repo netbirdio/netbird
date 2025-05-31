@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 type upstreamResolverIOS struct {
@@ -30,7 +31,7 @@ func newUpstreamResolver(
 	net *net.IPNet,
 	statusRecorder *peer.Status,
 	_ *hostsDNSHolder,
-	domain string,
+	domain domain.Domain,
 ) (*upstreamResolverIOS, error) {
 	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, domain)
 

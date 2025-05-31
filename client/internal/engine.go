@@ -1159,7 +1159,7 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network *net.IPNet) nbdns.C
 	for _, nsGroup := range protoDNSConfig.GetNameServerGroups() {
 		dnsNSGroup := &nbdns.NameServerGroup{
 			Primary:              nsGroup.GetPrimary(),
-			Domains:              nsGroup.GetDomains(),
+			Domains:              domain.FromPunycodeList(nsGroup.GetDomains()),
 			SearchDomainsEnabled: nsGroup.GetSearchDomainsEnabled(),
 		}
 		for _, ns := range nsGroup.GetNameServers() {

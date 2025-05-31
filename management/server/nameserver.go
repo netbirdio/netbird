@@ -10,6 +10,7 @@ import (
 	"github.com/rs/xid"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -18,7 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
+const domainPattern = `^(?i)[a-z0-9]+([\-]+[a-z0-9]+)*[*.a-z]{1,}$`
 
 var invalidDomainName = errors.New("invalid domain name")
 
@@ -36,7 +37,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, account
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
-func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainEnabled bool) (*nbdns.NameServerGroup, error) {
+func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains domain.List, enabled bool, userID string, searchDomainEnabled bool) (*nbdns.NameServerGroup, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -252,7 +253,7 @@ func areNameServerGroupChangesAffectPeers(ctx context.Context, transaction store
 	return anyGroupHasPeersOrResources(ctx, transaction, oldNSGroup.AccountID, oldNSGroup.Groups)
 }
 
-func validateDomainInput(primary bool, domains []string, searchDomainsEnabled bool) error {
+func validateDomainInput(primary bool, domains domain.List, searchDomainsEnabled bool) error {
 	if !primary && len(domains) == 0 {
 		return status.Errorf(status.InvalidArgument, "nameserver group primary status is false and domains are empty,"+
 			" it should be primary or have at least one domain")
@@ -268,7 +269,7 @@ func validateDomainInput(primary bool, domains []string, searchDomainsEnabled bo
 	}
 
 	for _, domain := range domains {
-		if err := validateDomain(domain); err != nil {
+		if err := validateDomain(domain.PunycodeString()); err != nil {
 			return status.Errorf(status.InvalidArgument, "nameserver group got an invalid domain: %s %q", domain, err)
 		}
 	}

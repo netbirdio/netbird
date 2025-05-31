@@ -14,11 +14,13 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/netbirdio/netbird/management/server/idp"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/management/server/idp"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
@@ -1688,7 +1690,7 @@ func TestAccount_Copy(t *testing.T) {
 		NameServerGroups: map[string]*nbdns.NameServerGroup{
 			"nsGroup1": {
 				ID:          "nsGroup1",
-				Domains:     []string{},
+				Domains:     domain.List{},
 				Groups:      []string{},
 				NameServers: []nbdns.NameServer{},
 			},

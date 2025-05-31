@@ -100,9 +100,9 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 			continue
 		}
 		if !dConf.MatchOnly {
-			searchDomains = append(searchDomains, strings.TrimSuffix(dConf.Domain, "."))
+			searchDomains = append(searchDomains, strings.TrimSuffix(dConf.Domain.PunycodeString(), "."))
 		}
-		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain, "."))
+		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain.PunycodeString(), "."))
 	}
 
 	if len(matchDomains) != 0 {
