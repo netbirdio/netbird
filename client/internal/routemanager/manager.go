@@ -11,9 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/netstack"
@@ -88,6 +90,7 @@ type DefaultManager struct {
 	useNewDNSRoute      bool
 	disableClientRoutes bool
 	disableServerRoutes bool
+	activeRoutes        map[route.HAUniqueID]RouteHandler
 }
 
 func NewManager(config ManagerConfig) *DefaultManager {
@@ -111,6 +114,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		peerStore:           config.PeerStore,
 		disableClientRoutes: config.DisableClientRoutes,
 		disableServerRoutes: config.DisableServerRoutes,
+		activeRoutes:        make(map[route.HAUniqueID]RouteHandler),
 	}
 
 	useNoop := netstack.IsEnabled() || config.DisableClientRoutes
@@ -265,6 +269,54 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 }
 
 // UpdateRoutes compares received routes with existing routes and removes, updates or adds them to the client and server maps
+func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
+	toAdd := make(map[route.HAUniqueID]*route.Route)
+	toRemove := make(map[route.HAUniqueID]RouteHandler)
+
+	for id, routes := range newRoutes {
+		if len(routes) > 0 {
+			toAdd[id] = routes[0]
+		}
+	}
+
+	for id, activeHandler := range m.activeRoutes {
+		if _, exists := toAdd[id]; exists {
+			delete(toAdd, id)
+		} else {
+			toRemove[id] = activeHandler
+		}
+	}
+
+	var merr *multierror.Error
+	for id, handler := range toRemove {
+		if err := handler.RemoveRoute(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
+		}
+		delete(m.activeRoutes, id)
+	}
+
+	for id, route := range toAdd {
+		handler := handlerFromRoute(
+			route,
+			m.routeRefCounter,
+			m.allowedIPsRefCounter,
+			m.dnsRouteInterval,
+			m.statusRecorder,
+			m.wgInterface,
+			m.dnsServer,
+			m.peerStore,
+			m.useNewDNSRoute,
+		)
+		if err := handler.AddRoute(m.ctx); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add route %s: %w", handler.String(), err))
+			continue
+		}
+		m.activeRoutes[id] = handler
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
 func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route, useNewDNSRoute bool) error {
 	select {
 	case <-m.ctx.Done():
@@ -281,6 +333,11 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 
 	if !m.disableClientRoutes {
 		filteredClientRoutes := m.routeSelector.FilterSelected(newClientRoutesIDMap)
+
+		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
+			log.Errorf("Failed to update system routes: %v", err)
+		}
+
 		m.updateClientNetworks(updateSerial, filteredClientRoutes)
 		m.notifier.OnNewRoutes(filteredClientRoutes)
 	}
@@ -341,6 +398,10 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 
 	m.notifier.OnNewRoutes(networks)
 
+	if err := m.updateSystemRoutes(networks); err != nil {
+		log.Errorf("failed to update system routes during selection: %v", err)
+	}
+
 	m.stopObsoleteClients(networks)
 
 	for id, routes := range networks {
@@ -349,18 +410,21 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 			continue
 		}
 
-		clientNetworkWatcher := newClientNetworkWatcher(
-			m.ctx,
-			m.dnsRouteInterval,
-			m.wgInterface,
-			m.statusRecorder,
-			routes[0],
-			m.routeRefCounter,
-			m.allowedIPsRefCounter,
-			m.dnsServer,
-			m.peerStore,
-			m.useNewDNSRoute,
-		)
+		handler := m.activeRoutes[id]
+		if handler == nil {
+			log.Warnf("no active handler found for route %s", id)
+			continue
+		}
+
+		config := ClientNetworkConfig{
+			Context:          m.ctx,
+			DNSRouteInterval: m.dnsRouteInterval,
+			WGInterface:      m.wgInterface,
+			StatusRecorder:   m.statusRecorder,
+			Route:            routes[0],
+			Handler:          handler,
+		}
+		clientNetworkWatcher := newClientNetworkWatcher(config)
 		m.clientNetworks[id] = clientNetworkWatcher
 		go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(routesUpdate{routes: routes})
@@ -389,18 +453,21 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 	for id, routes := range networks {
 		clientNetworkWatcher, found := m.clientNetworks[id]
 		if !found {
-			clientNetworkWatcher = newClientNetworkWatcher(
-				m.ctx,
-				m.dnsRouteInterval,
-				m.wgInterface,
-				m.statusRecorder,
-				routes[0],
-				m.routeRefCounter,
-				m.allowedIPsRefCounter,
-				m.dnsServer,
-				m.peerStore,
-				m.useNewDNSRoute,
-			)
+			handler := m.activeRoutes[id]
+			if handler == nil {
+				log.Errorf("No active handler found for route %s", id)
+				continue
+			}
+
+			config := ClientNetworkConfig{
+				Context:          m.ctx,
+				DNSRouteInterval: m.dnsRouteInterval,
+				WGInterface:      m.wgInterface,
+				StatusRecorder:   m.statusRecorder,
+				Route:            routes[0],
+				Handler:          handler,
+			}
+			clientNetworkWatcher = newClientNetworkWatcher(config)
 			m.clientNetworks[id] = clientNetworkWatcher
 			go clientNetworkWatcher.peersStateAndUpdateWatcher()
 		}

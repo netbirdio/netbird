@@ -57,6 +57,15 @@ type RouteHandler interface {
 	RemoveAllowedIPs() error
 }
 
+type ClientNetworkConfig struct {
+	Context          context.Context
+	DNSRouteInterval time.Duration
+	WGInterface      iface.WGIface
+	StatusRecorder   *peer.Status
+	Route            *route.Route
+	Handler          RouteHandler
+}
+
 type clientNetwork struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
@@ -71,40 +80,19 @@ type clientNetwork struct {
 	updateSerial        uint64
 }
 
-func newClientNetworkWatcher(
-	ctx context.Context,
-	dnsRouteInterval time.Duration,
-	wgInterface iface.WGIface,
-	statusRecorder *peer.Status,
-	rt *route.Route,
-	routeRefCounter *refcounter.RouteRefCounter,
-	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
-	dnsServer nbdns.Server,
-	peerStore *peerstore.Store,
-	useNewDNSRoute bool,
-) *clientNetwork {
-	ctx, cancel := context.WithCancel(ctx)
+func newClientNetworkWatcher(config ClientNetworkConfig) *clientNetwork {
+	ctx, cancel := context.WithCancel(config.Context)
 
 	client := &clientNetwork{
 		ctx:                 ctx,
 		cancel:              cancel,
-		statusRecorder:      statusRecorder,
-		wgInterface:         wgInterface,
+		statusRecorder:      config.StatusRecorder,
+		wgInterface:         config.WGInterface,
 		routes:              make(map[route.ID]*route.Route),
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan routesUpdate),
 		peerStateUpdate:     make(chan struct{}),
-		handler: handlerFromRoute(
-			rt,
-			routeRefCounter,
-			allowedIPsRefCounter,
-			dnsRouteInterval,
-			statusRecorder,
-			wgInterface,
-			dnsServer,
-			peerStore,
-			useNewDNSRoute,
-		),
+		handler:             config.Handler,
 	}
 	return client
 }
