@@ -84,17 +84,17 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
 	status := NewRecorder("https://mgm")
-	peerState := State{
-		PubKey: key,
-		Mux:    new(sync.RWMutex),
-	}
-
-	status.peers[key] = peerState
+	_ = status.AddPeer(key, "abc.netbird", ip)
 
 	ch := status.GetPeerStateChangeNotifier(key)
 	assert.NotNil(t, ch, "channel shouldn't be nil")
 
-	peerState.IP = ip
+	peerState := State{
+		PubKey:           key,
+		ConnStatus:       StatusConnecting,
+		Relayed:          false,
+		ConnStatusUpdate: time.Now(),
+	}
 
 	err := status.UpdatePeerRelayedStateToDisconnected(peerState)
 	assert.NoError(t, err, "shouldn't return error")
