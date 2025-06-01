@@ -289,11 +289,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		return errors.New("peer doesn't exist")
 	}
 
-	if receivedState.IP != "" {
-		peerState.IP = receivedState.IP
-	}
-
-	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	oldState := peerState.ConnStatus
 
 	if receivedState.ConnStatus != peerState.ConnStatus {
 		peerState.ConnStatus = receivedState.ConnStatus
@@ -309,11 +305,15 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if skipNotification {
-		return nil
+	if hasConnStatusChanged(oldState, receivedState.ConnStatus) {
+		d.notifyPeerListChanged()
 	}
 
-	d.notifyPeerListChanged()
+	// when we close the connection we will not notify the router manager
+	if receivedState.ConnStatus == StatusIdle {
+		d.notifyPeerStateChangeListeners(receivedState.PubKey)
+
+	}
 	return nil
 }
 
@@ -380,11 +380,8 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 		return errors.New("peer doesn't exist")
 	}
 
-	if receivedState.IP != "" {
-		peerState.IP = receivedState.IP
-	}
-
-	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	oldState := peerState.ConnStatus
+	oldIsRelayed := peerState.Relayed
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
@@ -397,12 +394,13 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if skipNotification {
-		return nil
+	if hasConnStatusChanged(oldState, receivedState.ConnStatus) {
+		d.notifyPeerListChanged()
 	}
 
-	d.notifyPeerStateChangeListeners(receivedState.PubKey)
-	d.notifyPeerListChanged()
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		d.notifyPeerStateChangeListeners(receivedState.PubKey)
+	}
 	return nil
 }
 
@@ -415,7 +413,8 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 		return errors.New("peer doesn't exist")
 	}
 
-	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	oldState := peerState.ConnStatus
+	oldIsRelayed := peerState.Relayed
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
@@ -425,12 +424,13 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if skipNotification {
-		return nil
+	if hasConnStatusChanged(oldState, receivedState.ConnStatus) {
+		d.notifyPeerListChanged()
 	}
 
-	d.notifyPeerStateChangeListeners(receivedState.PubKey)
-	d.notifyPeerListChanged()
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		d.notifyPeerStateChangeListeners(receivedState.PubKey)
+	}
 	return nil
 }
 
@@ -443,7 +443,8 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 		return errors.New("peer doesn't exist")
 	}
 
-	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	oldState := peerState.ConnStatus
+	oldIsRelayed := peerState.Relayed
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.Relayed = receivedState.Relayed
@@ -452,12 +453,13 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if skipNotification {
-		return nil
+	if hasConnStatusChanged(oldState, receivedState.ConnStatus) {
+		d.notifyPeerListChanged()
 	}
 
-	d.notifyPeerStateChangeListeners(receivedState.PubKey)
-	d.notifyPeerListChanged()
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		d.notifyPeerStateChangeListeners(receivedState.PubKey)
+	}
 	return nil
 }
 
@@ -470,7 +472,8 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 		return errors.New("peer doesn't exist")
 	}
 
-	skipNotification := shouldSkipNotify(receivedState.ConnStatus, peerState)
+	oldState := peerState.ConnStatus
+	oldIsRelayed := peerState.Relayed
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.Relayed = receivedState.Relayed
@@ -482,12 +485,13 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if skipNotification {
-		return nil
+	if hasConnStatusChanged(oldState, receivedState.ConnStatus) {
+		d.notifyPeerListChanged()
 	}
 
-	d.notifyPeerStateChangeListeners(receivedState.PubKey)
-	d.notifyPeerListChanged()
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		d.notifyPeerStateChangeListeners(receivedState.PubKey)
+	}
 	return nil
 }
 
@@ -510,17 +514,12 @@ func (d *Status) UpdateWireGuardPeerState(pubKey string, wgStats configurer.WGSt
 	return nil
 }
 
-func shouldSkipNotify(receivedConnStatus ConnStatus, curr State) bool {
-	switch {
-	case receivedConnStatus == StatusConnecting:
-		return true
-	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusConnecting:
-		return true
-	case receivedConnStatus == StatusIdle && curr.ConnStatus == StatusIdle:
-		return curr.IP != ""
-	default:
-		return false
-	}
+func hasStatusOrRelayedChange(oldConnStatus, newConnStatus ConnStatus, oldRelayed, newRelayed bool) bool {
+	return oldRelayed != newRelayed || hasConnStatusChanged(newConnStatus, oldConnStatus)
+}
+
+func hasConnStatusChanged(oldStatus, newStatus ConnStatus) bool {
+	return newStatus != oldStatus
 }
 
 // UpdatePeerFQDN update peer's state fqdn only
