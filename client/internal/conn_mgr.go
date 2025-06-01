@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/route"
 )
 
 // ConnMgr coordinates both lazy connections (established on-demand) and permanent peer connections.
@@ -95,6 +96,15 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 		e.statusRecorder.UpdateLazyConnection(false)
 		return nil
 	}
+}
+
+// UpdateRouteHAMap updates the route HA mappings in the lazy connection manager
+func (e *ConnMgr) UpdateRouteHAMap(haMap route.HAMap) {
+	if !e.isStartedWithLazyMgr() {
+		return
+	}
+
+	e.lazyConnMgr.UpdateRouteHAMap(haMap)
 }
 
 // SetExcludeList sets the list of peer IDs that should always have permanent connections.

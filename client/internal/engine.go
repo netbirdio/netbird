@@ -1001,7 +1001,15 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// apply routes first, route related actions might depend on routing being enabled
 	routes := toRoutes(networkMap.GetRoutes())
-	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
+	serverRoutes, clientRoutes := e.routeManager.ClassifyRoutes(routes)
+
+	// lazy mgr needs to be aware of which routes are available before they are applied
+	if e.connMgr != nil {
+		e.connMgr.UpdateRouteHAMap(clientRoutes)
+		log.Debugf("updated lazy connection manager with %d HA groups", len(clientRoutes))
+	}
+
+	if err := e.routeManager.UpdateRoutes(serial, serverRoutes, clientRoutes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update clientRoutes, err: %v", err)
 	}
 
