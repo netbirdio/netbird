@@ -686,7 +686,7 @@ func showBundleCreatedDialog(w fyne.Window, localPath string) {
 			"Administrator privileges may be required to access the file.", localPath)),
 	)
 
-	customDialog := dialog.NewCustom("Debug Bundle Created", "cancel", content, w)
+	customDialog := dialog.NewCustom("Debug Bundle Created", "Cancel", content, w)
 
 	buttonBox := createButtonBox(localPath, w, nil)
 	content.Add(buttonBox)
