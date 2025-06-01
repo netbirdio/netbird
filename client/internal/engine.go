@@ -1061,7 +1061,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
-	excludedLazyPeers := e.toExcludedLazyPeers(routes, forwardingRules, networkMap.GetRemotePeers())
+	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, networkMap.GetRemotePeers())
 	e.connMgr.SetExcludeList(excludedLazyPeers)
 
 	e.networkSerial = serial
@@ -1927,18 +1927,8 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 	return forwardingRules, nberrors.FormatErrorOrNil(merr)
 }
 
-func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) map[string]bool {
+func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) map[string]bool {
 	excludedPeers := make(map[string]bool)
-	for _, r := range routes {
-		if r.Peer == "" {
-			continue
-		}
-		if !excludedPeers[r.Peer] {
-			log.Infof("exclude router peer from lazy connection: %s", r.Peer)
-			excludedPeers[r.Peer] = true
-		}
-	}
-
 	for _, r := range rules {
 		ip := r.TranslatedAddress
 		for _, p := range peers {

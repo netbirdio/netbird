@@ -401,7 +401,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				currentChosen: currentRoute,
 			}
 
-			chosenRoute := client.getBestRouteFromStatuses(tc.statuses)
+			chosenRoute, _ := client.getBestRouteFromStatuses(tc.statuses)
 			if chosenRoute != tc.expectedRouteID {
 				t.Errorf("expected routeID %s, got %s", tc.expectedRouteID, chosenRoute)
 			}

@@ -550,6 +550,10 @@ func (d *Status) FinishPeerListModifications() {
 	d.mux.Unlock()
 
 	d.notifyPeerListChanged()
+
+	for key, _ := range d.peers {
+		d.notifyPeerStateChangeListeners(key)
+	}
 }
 
 // GetPeerStateChangeNotifier returns a change notifier channel for a peer

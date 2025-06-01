@@ -38,9 +38,9 @@ const (
 )
 
 type routerPeerStatus struct {
-	connected bool
-	relayed   bool
-	latency   time.Duration
+	status  peer.ConnStatus
+	relayed bool
+	latency time.Duration
 }
 
 type RoutesUpdate struct {
@@ -108,9 +108,9 @@ func (w *Watcher) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 			continue
 		}
 		routePeerStatuses[r.ID] = routerPeerStatus{
-			connected: peerStatus.ConnStatus == peer.StatusConnected,
-			relayed:   peerStatus.Relayed,
-			latency:   peerStatus.Latency,
+			status:  peerStatus.ConnStatus,
+			relayed: peerStatus.Relayed,
+			latency: peerStatus.Latency,
 		}
 	}
 	return routePeerStatuses
@@ -121,15 +121,17 @@ func (w *Watcher) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 // preference for non-relayed and direct connections.
 //
 // It follows these prioritization rules:
-// * Connected peers: Only routes with connected peers are considered.
+// * Connection status: Both connected and idle peers are considered, but connected peers always take precedence.
+// * Idle peer penalty: Idle peers receive a significant score penalty to ensure any connected peer is preferred.
 // * Metric: Routes with lower metrics (better) are prioritized.
 // * Non-relayed: Routes without relays are preferred.
 // * Latency: Routes with lower latency are prioritized.
+// * Allowed IPs: Idle peers can still receive allowed IPs to enable lazy connection triggering.
 // * we compare the current score + 10ms to the chosen score to avoid flapping between routes
 // * Stability: In case of equal scores, the currently active route (if any) is maintained.
 //
 // It returns the ID of the selected optimal route.
-func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]routerPeerStatus) route.ID {
+func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]routerPeerStatus) (route.ID, routerPeerStatus) {
 	var chosen route.ID
 	chosenScore := float64(0)
 	currScore := float64(0)
@@ -139,10 +141,12 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 		currID = w.currentChosen.ID
 	}
 
+	var chosenStatus routerPeerStatus
+
 	for _, r := range w.routes {
 		tempScore := float64(0)
 		peerStatus, found := routePeerStatuses[r.ID]
-		if !found || !peerStatus.connected {
+		if !found || peerStatus.status != peer.StatusConnected && peerStatus.status != peer.StatusIdle {
 			continue
 		}
 
@@ -155,8 +159,8 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 		latency := 999 * time.Millisecond
 		if peerStatus.latency != 0 {
 			latency = peerStatus.latency
-		} else {
-			log.Tracef("peer %s has 0 latency, range %s", r.Peer, w.handler)
+		} else if !peerStatus.relayed && peerStatus.status != peer.StatusIdle {
+			log.Tracef("peer %s has 0 latency: [%v]", r.Peer, w.handler)
 		}
 
 		// avoid negative tempScore on the higher latency calculation
@@ -167,17 +171,24 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 		// higher latency is worse score
 		tempScore += 1 - latency.Seconds()
 
+		// apply significant penalty for idle peers to ensure connected peers always take precedence
+		if peerStatus.status == peer.StatusConnected {
+			tempScore += 100_000
+		}
+
 		if !peerStatus.relayed {
 			tempScore++
 		}
 
 		if tempScore > chosenScore || (tempScore == chosenScore && chosen == "") {
 			chosen = r.ID
+			chosenStatus = peerStatus
 			chosenScore = tempScore
 		}
 
 		if chosen == "" && currID == "" {
 			chosen = r.ID
+			chosenStatus = peerStatus
 			chosenScore = tempScore
 		}
 
@@ -204,13 +215,13 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 			peers = append(peers, r.Peer)
 		}
 
-		log.Infof("network [%v] has not been assigned a routing peer as no peers from the list %s are currently connected", w.handler, peers)
+		log.Infof("network [%v] has not been assigned a routing peer as no peers from the list %s are currently available", w.handler, peers)
 	case chosen != currID:
 		// we compare the current score + 10ms to the chosen score to avoid flapping between routes
 		if currScore != 0 && currScore+0.01 > chosenScore {
 			log.Debugf("keeping current routing peer %s for [%v]: the score difference with latency is less than 0.01(10ms): current: %f, new: %f",
 				w.currentChosen.Peer, w.handler, currScore, chosenScore)
-			return currID
+			return currID, chosenStatus
 		}
 		var p string
 		if rt := w.routes[chosen]; rt != nil {
@@ -219,7 +230,7 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 		log.Infof("New chosen route is %s with peer %s with score %f for network [%v]", chosen, p, chosenScore, w.handler)
 	}
 
-	return chosen
+	return chosen, chosenStatus
 }
 
 func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
@@ -262,7 +273,6 @@ func (w *Watcher) addAllowedIPs(route *route.Route) error {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
 
-	w.connectEvent(route)
 	return nil
 }
 
@@ -283,7 +293,7 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 func (w *Watcher) recalculateRoutes(rsn reason) error {
 	routerPeerStatuses := w.getRouterPeerStatuses()
 
-	newChosenID := w.getBestRouteFromStatuses(routerPeerStatuses)
+	newChosenID, newStatus := w.getBestRouteFromStatuses(routerPeerStatuses)
 
 	// If no route is chosen, remove the route from the peer
 	if newChosenID == "" {
@@ -316,6 +326,9 @@ func (w *Watcher) recalculateRoutes(rsn reason) error {
 	newChosenRoute := w.routes[newChosenID]
 	if err := w.addAllowedIPs(newChosenRoute); err != nil {
 		return fmt.Errorf("add new: %w", err)
+	}
+	if newStatus.status != peer.StatusIdle {
+		w.connectEvent(newChosenRoute)
 	}
 
 	w.currentChosen = newChosenRoute
