@@ -40,19 +40,22 @@ ensure_required_directories() {
     fi
 }
 
-cleanInstall() {
-    printf "\033[32m Post Install of an clean install\033[0m\n"
-    # Ensure required directories exist before service installation
-    ensure_required_directories
-    
-    # Install systemd tmpfiles configuration if systemd is available
+# Install systemd tmpfiles configuration
+install_tmpfiles() {
     if [ "${use_systemctl}" = "True" ] && [ -d /usr/lib/tmpfiles.d ]; then
         if [ -f /usr/share/netbird/netbird.tmpfiles ]; then
             cp /usr/share/netbird/netbird.tmpfiles /usr/lib/tmpfiles.d/netbird.conf
             systemd-tmpfiles --create netbird.conf 2> /dev/null || true
         fi
     fi
-    
+}
+
+cleanInstall() {
+    printf "\033[32m Post Install of an clean install\033[0m\n"
+    # Ensure required directories exist before service installation
+    ensure_required_directories
+    # Install systemd tmpfiles configuration if systemd is available
+    install_tmpfiles
     # Step 3 (clean install), enable the service in the proper way for this platform
     /usr/bin/netbird service install
     /usr/bin/netbird service start
@@ -62,14 +65,8 @@ upgrade() {
     printf "\033[32m Post Install of an upgrade\033[0m\n"
     # Ensure required directories exist before service operations
     ensure_required_directories
-    
     # Install/update systemd tmpfiles configuration if systemd is available
-    if [ "${use_systemctl}" = "True" ] && [ -d /usr/lib/tmpfiles.d ]; then
-        if [ -f /usr/share/netbird/netbird.tmpfiles ]; then
-            cp /usr/share/netbird/netbird.tmpfiles /usr/lib/tmpfiles.d/netbird.conf
-            systemd-tmpfiles --create netbird.conf 2> /dev/null || true
-        fi
-    fi
+    install_tmpfiles
     
     if [ "${use_systemctl}" = "True" ]; then
       printf "\033[32m Stopping the service\033[0m\n"
