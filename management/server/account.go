@@ -360,7 +360,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	groupsUpdated, err := am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	groupsUpdated, groupChangesAffectPeers, err := am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("groups propagation failed: %w", err)
 	}
@@ -381,28 +381,28 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	if updateAccountPeers || extraSettingsChanged || groupsUpdated {
+	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
 		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return account, nil
 }
 
-func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) (bool, error) {
+func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) (bool, bool, error) {
 	if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled {
 		if newSettings.GroupsPropagationEnabled {
-			groupsUpdated, err := am.propagateUserGroupMemberships(ctx, accountID)
+			groupsUpdated, peersAffected, err := am.propagateUserGroupMemberships(ctx, accountID)
 			if err != nil {
-				return false, fmt.Errorf("failed to propagate users groups: %w", err)
+				return false, false, fmt.Errorf("failed to propagate users groups: %w", err)
 			}
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationEnabled, nil)
-			return groupsUpdated, nil
+			return groupsUpdated, peersAffected, nil
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationDisabled, nil)
 		}
 	}
 
-	return false, nil
+	return false, false, nil
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
@@ -1844,10 +1844,12 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 	return account, nil
 }
 
-func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Context, accountID string) (bool, error) {
+// propagateUserGroupMemberships propagates all account users' group memberships to their peers.
+// Returns true if any groups were modified, true if those updates affect peers and an error.
+func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Context, accountID string) (groupsUpdated bool, peersAffected bool, err error) {
 	groups, err := am.Store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	groupsMap := make(map[string]*types.Group, len(groups))
@@ -1857,7 +1859,7 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 
 	users, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	groupsToUpdate := make(map[string]*types.Group)
@@ -1865,12 +1867,12 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 	for _, user := range users {
 		userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthShare, accountID, user.Id)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 
 		updatedGroups, err := updateUserPeersInGroups(groupsMap, userPeers, user.AutoGroups, nil)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 
 		for _, group := range updatedGroups {
@@ -1879,19 +1881,19 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 		}
 	}
 
-	if len(groupsToUpdate) > 0 {
-		updateAccountPeers, err := areGroupChangesAffectPeers(ctx, am.Store, accountID, maps.Keys(groupsToUpdate))
-		if err != nil {
-			return false, err
-		}
-
-		err = am.Store.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, maps.Values(groupsToUpdate))
-		if err != nil {
-			return false, err
-		}
-
-		return updateAccountPeers, nil
+	if len(groupsToUpdate) == 0 {
+		return false, false, nil
 	}
 
-	return false, nil
+	peersAffected, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, maps.Keys(groupsToUpdate))
+	if err != nil {
+		return false, false, err
+	}
+
+	err = am.Store.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, maps.Values(groupsToUpdate))
+	if err != nil {
+		return false, false, err
+	}
+
+	return true, peersAffected, nil
 }
