@@ -224,7 +224,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 }
 
 func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
-	subscription := c.statusRecorder.SubscribeToPeerStateChanges(peerKey)
+	subscription := c.statusRecorder.SubscribeToPeerStateChanges(ctx, peerKey)
 	defer c.statusRecorder.UnsubscribePeerStateChanges(subscription)
 
 	for {

@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"context"
 	"errors"
 	"net/netip"
 	"slices"
@@ -150,10 +151,12 @@ type StatusChangeSubscription struct {
 	peerID     string
 	id         string
 	eventsChan chan struct{}
+	ctx        context.Context
 }
 
-func newStatusChangeSubscription(peerID string) *StatusChangeSubscription {
+func newStatusChangeSubscription(ctx context.Context, peerID string) *StatusChangeSubscription {
 	return &StatusChangeSubscription{
+		ctx:        ctx,
 		peerID:     peerID,
 		id:         uuid.New().String(),
 		eventsChan: make(chan struct{}, 1),
@@ -569,11 +572,11 @@ func (d *Status) FinishPeerListModifications() {
 	d.notifyPeerListChanged()
 }
 
-func (d *Status) SubscribeToPeerStateChanges(peerID string) *StatusChangeSubscription {
+func (d *Status) SubscribeToPeerStateChanges(ctx context.Context, peerID string) *StatusChangeSubscription {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	sub := newStatusChangeSubscription(peerID)
+	sub := newStatusChangeSubscription(ctx, peerID)
 	if _, ok := d.changeNotify[peerID]; !ok {
 		d.changeNotify[peerID] = make(map[string]*StatusChangeSubscription)
 	}
@@ -986,7 +989,10 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 		// block the write because we do not want to miss notification
 		// must have to be sure we will run the GetPeerState() on separated thread
 		go func() {
-			sub.eventsChan <- struct{}{}
+			select {
+			case sub.eventsChan <- struct{}{}:
+			case <-sub.ctx.Done():
+			}
 		}()
 	}
 }
