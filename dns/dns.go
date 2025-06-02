@@ -17,7 +17,7 @@ const (
 	DefaultDNSPort = 53
 	// RootZone is a string representation of the root zone
 	RootZone = "."
-	// DefaultClass is the class supported by the system or by wether
+	// DefaultClass is the class supported by the system
 	DefaultClass = "IN"
 )
 
