@@ -223,19 +223,17 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 }
 
 func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
+	subscription := w.statusRecorder.SubscribeToPeerStateChanges(ctx, peerKey)
+	defer w.statusRecorder.UnsubscribePeerStateChanges(subscription)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-closer:
 			return
-		case <-w.statusRecorder.GetPeerStateChangeNotifier(peerKey):
-			state, err := w.statusRecorder.GetPeer(peerKey)
-			if err != nil {
-				continue
-			}
+		case <-subscription.Events():
 			peerStateUpdate <- struct{}{}
-			log.Debugf("triggered route state update for Peer %s, state: %s", peerKey, state.ConnStatus)
+			log.Debugf("triggered route state update for Peer: %s", peerKey)
 		}
 	}
 }
