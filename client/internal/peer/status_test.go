@@ -86,8 +86,8 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	status := NewRecorder("https://mgm")
 	_ = status.AddPeer(key, "abc.netbird", ip)
 
-	ch := status.GetPeerStateChangeNotifier(key)
-	assert.NotNil(t, ch, "channel shouldn't be nil")
+	sub := status.SubscribeToPeerStateChanges(key)
+	assert.NotNil(t, sub, "channel shouldn't be nil")
 
 	peerState := State{
 		PubKey:           key,
@@ -100,7 +100,7 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	assert.NoError(t, err, "shouldn't return error")
 
 	select {
-	case <-ch:
+	case <-sub.eventsChan:
 	default:
 		t.Errorf("channel wasn't closed after update")
 	}
