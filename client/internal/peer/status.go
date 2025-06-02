@@ -571,7 +571,7 @@ func (d *Status) FinishPeerListModifications() {
 
 	d.notifyPeerListChanged()
 
-	for key, _ := range d.peers {
+	for key := range d.peers {
 		d.notifyPeerStateChangeListeners(key)
 	}
 }
