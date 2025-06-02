@@ -766,7 +766,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			}{}
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 					input.inputSerial = updateSerial
 					input.inputRoutes = newRoutes
 					return testCase.inputErr
@@ -950,7 +950,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 					return nil
 				},
 			}

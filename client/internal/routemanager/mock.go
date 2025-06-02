@@ -15,7 +15,7 @@ import (
 // MockManager is the mock instance of a route manager
 type MockManager struct {
 	ClassifyRoutesFunc           func(routes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
-	UpdateRoutesFunc             func(updateSerial uint64, newRoutes []*route.Route) error
+	UpdateRoutesFunc             func (updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
 	TriggerSelectionFunc         func(haMap route.HAMap)
 	GetRouteSelectorFunc         func() *routeselector.RouteSelector
 	GetClientRoutesFunc          func() route.HAMap
@@ -33,9 +33,9 @@ func (m *MockManager) InitialRouteRange() []string {
 }
 
 // UpdateRoutes mock implementation of UpdateRoutes from Manager interface
-func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route, b bool) error {
+func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 	if m.UpdateRoutesFunc != nil {
-		return m.UpdateRoutesFunc(updateSerial, newRoutes)
+		return m.UpdateRoutesFunc(updateSerial, newRoutes, clientRoutes, useNewDNSRoute)
 	}
 	return nil
 }
