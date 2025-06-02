@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -37,6 +38,10 @@ const (
 	labelRegistrationStatus   = "status"
 	labelRegistrationFound    = "found"
 	labelRegistrationNotFound = "not_found"
+)
+
+var (
+	ErrPeerRegisteredAgain = errors.New("peer registered again")
 )
 
 // Server an instance of a Signal server
@@ -85,7 +90,8 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 
 // ConnectStream connects to the exchange stream
 func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) error {
-	p, err := s.RegisterPeer(stream)
+	ctx, cancel := context.WithCancel(context.Background())
+	p, err := s.RegisterPeer(stream, cancel)
 	if err != nil {
 		return err
 	}
@@ -101,12 +107,16 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 
 	log.Debugf("peer connected [%s] [streamID %d] ", p.Id, p.StreamID)
 
-	<-stream.Context().Done()
-	log.Debugf("peer stream closing [%s] [streamID %d] ", p.Id, p.StreamID)
-	return nil
+	select {
+	case <-stream.Context().Done():
+		log.Debugf("peer stream closing [%s] [streamID %d] ", p.Id, p.StreamID)
+		return nil
+	case <-ctx.Done():
+		return ErrPeerRegisteredAgain
+	}
 }
 
-func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer) (*peer.Peer, error) {
+func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, cancel context.CancelFunc) (*peer.Peer, error) {
 	log.Debugf("registering new peer")
 	id := metadata.ValueFromIncomingContext(stream.Context(), proto.HeaderId)
 	if id == nil {
@@ -114,8 +124,10 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer) (
 		return nil, status.Errorf(codes.FailedPrecondition, "missing connection header: %s", proto.HeaderId)
 	}
 
-	p := peer.NewPeerPool(id[0], stream)
-	s.registry.RegisterPool(p)
+	p := peer.NewPeerPool(id[0], stream, cancel)
+	if err := s.registry.RegisterPool(p); err != nil {
+		return nil, err
+	}
 	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedRegistration)))

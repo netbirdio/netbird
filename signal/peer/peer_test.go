@@ -1,6 +1,8 @@
 package peer
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -103,8 +105,172 @@ func BenchmarkPeerAllocation(b *testing.B) {
 	})
 	b.Run("with pool", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			p := NewPeerPool("peer", nil)
+			p := NewPeerPool("peer", nil, nil)
 			p.Reset()
+		}
+	})
+}
+
+func TestRegistry_MultipleRegister_Concurrency(t *testing.T) {
+
+	metrics, err := metrics.NewAppMetrics(otel.Meter(""))
+	require.NoError(t, err)
+	registry := NewRegistry(metrics)
+
+	numGoroutines := 1000
+
+	ids := make(chan int64, numGoroutines)
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+	peerID := "peer-concurrent"
+	_, cancel := context.WithCancel(context.Background())
+	for i := range numGoroutines {
+		go func(routineIndex int) {
+			defer wg.Done()
+
+			peer := NewPeerPool(peerID, nil, cancel)
+			registry.RegisterPool(peer)
+			ids <- peer.StreamID
+		}(i)
+	}
+
+	wg.Wait()
+	close(ids)
+	maxId := int64(0)
+	for id := range ids {
+		maxId = max(maxId, id)
+	}
+
+	peer, ok := registry.Get(peerID)
+	require.True(t, ok, "expected peer to be registered")
+	require.Equal(t, maxId, peer.StreamID, "expected the highest StreamID to be registered")
+}
+
+func Benchmark_MultipleRegister_Concurrency(b *testing.B) {
+
+	metrics, err := metrics.NewAppMetrics(otel.Meter(""))
+	require.NoError(b, err)
+
+	numGoroutines := 1000
+
+	var wg sync.WaitGroup
+	peerID := "peer-concurrent"
+	b.Run("old", func(b *testing.B) {
+		registry := NewRegistry(metrics)
+		b.ResetTimer()
+		for j := 0; j < b.N; j++ {
+			wg.Add(numGoroutines)
+			for i := range numGoroutines {
+				go func(routineIndex int) {
+					defer wg.Done()
+
+					peer := NewPeer(peerID, nil)
+					registry.Register(peer)
+				}(i)
+			}
+			wg.Wait()
+		}
+	})
+	_, cancel := context.WithCancel(context.Background())
+	b.Run("new", func(b *testing.B) {
+		registry := NewRegistry(metrics)
+		b.ResetTimer()
+		for j := 0; j < b.N; j++ {
+			wg.Add(numGoroutines)
+			for i := range numGoroutines {
+				go func(routineIndex int) {
+					defer wg.Done()
+
+					peer := NewPeerPool(peerID, nil, cancel)
+					registry.RegisterPool(peer)
+				}(i)
+			}
+			wg.Wait()
+		}
+	})
+}
+
+func TestRegistry_MultipleDeregister_Concurrency(t *testing.T) {
+
+	metrics, err := metrics.NewAppMetrics(otel.Meter(""))
+	require.NoError(t, err)
+	registry := NewRegistry(metrics)
+
+	numGoroutines := 1000
+
+	ids := make(chan int64, numGoroutines)
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+	peerID := "peer-concurrent"
+	_, cancel := context.WithCancel(context.Background())
+	for i := range numGoroutines {
+		go func(routineIndex int) {
+			defer wg.Done()
+
+			peer := NewPeerPool(peerID, nil, cancel)
+			registry.RegisterPool(peer)
+			ids <- peer.StreamID
+			registry.DeregisterPool(peer)
+		}(i)
+	}
+
+	wg.Wait()
+	close(ids)
+	maxId := int64(0)
+	for id := range ids {
+		maxId = max(maxId, id)
+	}
+
+	_, ok := registry.Get(peerID)
+	require.False(t, ok, "expected peer to be deregistered")
+}
+
+func Benchmark_MultipleDeregister_Concurrency(b *testing.B) {
+
+	metrics, err := metrics.NewAppMetrics(otel.Meter(""))
+	require.NoError(b, err)
+
+	numGoroutines := 1000
+
+	var wg sync.WaitGroup
+	peerID := "peer-concurrent"
+	b.Run("old", func(b *testing.B) {
+		registry := NewRegistry(metrics)
+		b.ResetTimer()
+		for j := 0; j < b.N; j++ {
+			wg.Add(numGoroutines)
+			for i := range numGoroutines {
+				go func(routineIndex int) {
+					defer wg.Done()
+
+					peer := NewPeer(peerID, nil)
+					registry.Register(peer)
+					time.Sleep(time.Nanosecond)
+					registry.Deregister(peer)
+				}(i)
+			}
+			wg.Wait()
+		}
+	})
+	_, cancel := context.WithCancel(context.Background())
+	b.Run("new", func(b *testing.B) {
+		registry := NewRegistry(metrics)
+		b.ResetTimer()
+		for j := 0; j < b.N; j++ {
+			wg.Add(numGoroutines)
+			for i := range numGoroutines {
+				go func(routineIndex int) {
+					defer wg.Done()
+
+					peer := NewPeerPool(peerID, nil, cancel)
+					registry.RegisterPool(peer)
+					time.Sleep(time.Nanosecond)
+					registry.DeregisterPool(peer)
+				}(i)
+			}
+			wg.Wait()
 		}
 	})
 }
