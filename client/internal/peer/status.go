@@ -164,10 +164,6 @@ func (s *StatusChangeSubscription) Events() chan struct{} {
 	return s.eventsChan
 }
 
-func (s *StatusChangeSubscription) close() {
-	close(s.eventsChan)
-}
-
 // Status holds a state of peers, signal, management connections and relays
 type Status struct {
 	mux                   sync.Mutex
@@ -604,7 +600,6 @@ func (d *Status) UnsubscribePeerStateChanges(subscription *StatusChangeSubscript
 		return
 	}
 
-	sub.close()
 	delete(channels, subscription.id)
 	if len(channels) == 0 {
 		delete(d.changeNotify, sub.peerID)
@@ -990,7 +985,9 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 	for _, sub := range subs {
 		// block the write because we do not want to miss notification
 		// must have to be sure we will run the GetPeerState() on separated thread
-		sub.eventsChan <- struct{}{}
+		go func() {
+			sub.eventsChan <- struct{}{}
+		}()
 	}
 }
 
