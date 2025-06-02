@@ -65,6 +65,7 @@ func (p *Peer) Reset() {
 	p.StreamID = 0
 	p.Stream = nil
 	p.RegisteredAt = time.Time{}
+	p.Cancel = nil
 	peerPool.Put(p)
 }
 
