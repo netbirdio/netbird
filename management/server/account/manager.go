@@ -113,7 +113,7 @@ type Manager interface {
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
 	GetStore() store.Store
-	CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error)
+	GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 	UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
