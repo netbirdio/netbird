@@ -116,6 +116,8 @@ type Manager interface {
 	// IsServerRouteSupported returns true if the firewall supports server side routing operations
 	IsServerRouteSupported() bool
 
+	IsStateful() bool
+
 	AddRouteFiltering(
 		id []byte,
 		sources []netip.Prefix,

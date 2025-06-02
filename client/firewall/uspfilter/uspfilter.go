@@ -326,6 +326,10 @@ func (m *Manager) IsServerRouteSupported() bool {
 	return true
 }
 
+func (m *Manager) IsStateful() bool {
+	return m.stateful
+}
+
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
 		return m.nativeFirewall.AddNatRule(pair)
@@ -606,9 +610,8 @@ func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
 		return true
 	}
 
-	if m.stateful {
-		m.trackOutbound(d, srcIP, dstIP, size)
-	}
+	// for netflow we keep track even if the firewall is stateless
+	m.trackOutbound(d, srcIP, dstIP, size)
 
 	return false
 }
