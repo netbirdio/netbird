@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"context"
 	"errors"
 	"net/netip"
 	"slices"
@@ -146,11 +147,31 @@ type FullStatus struct {
 	LazyConnectionEnabled bool
 }
 
+type StatusChangeSubscription struct {
+	peerID     string
+	id         string
+	eventsChan chan struct{}
+	ctx        context.Context
+}
+
+func newStatusChangeSubscription(ctx context.Context, peerID string) *StatusChangeSubscription {
+	return &StatusChangeSubscription{
+		ctx:        ctx,
+		peerID:     peerID,
+		id:         uuid.New().String(),
+		eventsChan: make(chan struct{}, 1),
+	}
+}
+
+func (s *StatusChangeSubscription) Events() chan struct{} {
+	return s.eventsChan
+}
+
 // Status holds a state of peers, signal, management connections and relays
 type Status struct {
 	mux                   sync.Mutex
 	peers                 map[string]State
-	changeNotify          map[string]chan struct{}
+	changeNotify          map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
 	signalState           bool
 	signalError           error
 	managementState       bool
@@ -187,7 +208,7 @@ type Status struct {
 func NewRecorder(mgmAddress string) *Status {
 	return &Status{
 		peers:                 make(map[string]State),
-		changeNotify:          make(map[string]chan struct{}),
+		changeNotify:          make(map[string]map[string]*StatusChangeSubscription),
 		eventStreams:          make(map[string]chan *proto.SystemEvent),
 		eventQueue:            NewEventQueue(eventQueueSize),
 		offlinePeers:          make([]State, 0),
@@ -312,7 +333,6 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	// when we close the connection we will not notify the router manager
 	if receivedState.ConnStatus == StatusIdle {
 		d.notifyPeerStateChangeListeners(receivedState.PubKey)
-
 	}
 	return nil
 }
@@ -556,19 +576,41 @@ func (d *Status) FinishPeerListModifications() {
 	}
 }
 
-// GetPeerStateChangeNotifier returns a change notifier channel for a peer
-func (d *Status) GetPeerStateChangeNotifier(peer string) <-chan struct{} {
+func (d *Status) SubscribeToPeerStateChanges(ctx context.Context, peerID string) *StatusChangeSubscription {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	ch, found := d.changeNotify[peer]
-	if found {
-		return ch
+	sub := newStatusChangeSubscription(ctx, peerID)
+	if _, ok := d.changeNotify[peerID]; !ok {
+		d.changeNotify[peerID] = make(map[string]*StatusChangeSubscription)
+	}
+	d.changeNotify[peerID][sub.id] = sub
+
+	return sub
+}
+
+func (d *Status) UnsubscribePeerStateChanges(subscription *StatusChangeSubscription) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	if subscription == nil {
+		return
 	}
 
-	ch = make(chan struct{})
-	d.changeNotify[peer] = ch
-	return ch
+	channels, ok := d.changeNotify[subscription.peerID]
+	if !ok {
+		return
+	}
+
+	sub, exists := channels[subscription.id]
+	if !exists {
+		return
+	}
+
+	delete(channels, subscription.id)
+	if len(channels) == 0 {
+		delete(d.changeNotify, sub.peerID)
+	}
 }
 
 // GetLocalPeerState returns the local peer state
@@ -943,13 +985,20 @@ func (d *Status) onConnectionChanged() {
 
 // notifyPeerStateChangeListeners notifies route manager about the change in peer state
 func (d *Status) notifyPeerStateChangeListeners(peerID string) {
-	ch, found := d.changeNotify[peerID]
-	if !found {
+	subs, ok := d.changeNotify[peerID]
+	if !ok {
 		return
 	}
-
-	close(ch)
-	delete(d.changeNotify, peerID)
+	for _, sub := range subs {
+		// block the write because we do not want to miss notification
+		// must have to be sure we will run the GetPeerState() on separated thread
+		go func() {
+			select {
+			case sub.eventsChan <- struct{}{}:
+			case <-sub.ctx.Done():
+			}
+		}()
+	}
 }
 
 func (d *Status) notifyPeerListChanged() {

@@ -234,19 +234,17 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 }
 
 func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
+	subscription := w.statusRecorder.SubscribeToPeerStateChanges(ctx, peerKey)
+	defer w.statusRecorder.UnsubscribePeerStateChanges(subscription)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-closer:
 			return
-		case <-w.statusRecorder.GetPeerStateChangeNotifier(peerKey):
-			state, err := w.statusRecorder.GetPeer(peerKey)
-			if err != nil {
-				continue
-			}
+		case <-subscription.Events():
 			peerStateUpdate <- struct{}{}
-			log.Debugf("triggered route state update for Peer %s, state: %s", peerKey, state.ConnStatus)
+			log.Debugf("triggered route state update for Peer: %s", peerKey)
 		}
 	}
 }
@@ -421,7 +419,10 @@ func (w *Watcher) disconnectEvent(route *route.Route, rsn reason) {
 
 func (w *Watcher) SendUpdate(update RoutesUpdate) {
 	go func() {
-		w.routeUpdate <- update
+		select {
+		case w.routeUpdate <- update:
+		case <-w.ctx.Done():
+		}
 	}()
 }
 
@@ -502,6 +503,9 @@ func (w *Watcher) Stop() {
 
 	w.cancel()
 
+	if w.currentChosen == nil {
+		return
+	}
 	if err := w.removeAllowedIPs(w.currentChosen, reasonShutdown); err != nil {
 		log.Errorf("Failed to remove routes for [%v]: %v", w.handler, err)
 	}

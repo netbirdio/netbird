@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"runtime"
 	"testing"
 
 	"github.com/pion/transport/v3/stdnet"
@@ -456,8 +455,8 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			}
 			require.Len(t, routeManager.clientNetworks, expectedWatchers, "client networks size should match")
 
-			if runtime.GOOS == "linux" && routeManager.serverRouter != nil {
-				require.Len(t, routeManager.serverRouter.routes, testCase.serverRoutesExpected, "server networks size should match")
+			if routeManager.serverRouter != nil {
+				require.Equal(t, testCase.serverRoutesExpected, routeManager.serverRouter.RoutesCount(), "server networks size should match")
 			}
 		})
 	}

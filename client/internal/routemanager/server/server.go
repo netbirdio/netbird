@@ -133,6 +133,12 @@ func (r *Router) CleanUp() {
 	r.statusRecorder.CleanLocalPeerStateRoutes()
 }
 
+func (r *Router) RoutesCount() int {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+	return len(r.routes)
+}
+
 func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterPair {
 	source := getDefaultPrefix(route.Network)
 	destination := firewall.Network{}
