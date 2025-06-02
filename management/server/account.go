@@ -360,14 +360,14 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	err = am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	groupsUpdated, err := am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("groups propagation failed: %w", err)
 	}
 
 	account.UpdateSettings(newSettings)
 
-	if updateAccountPeers {
+	if updateAccountPeers || groupsUpdated {
 		account.Network.Serial++
 	}
 
@@ -381,24 +381,28 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 
-	if updateAccountPeers || extraSettingsChanged {
+	if updateAccountPeers || extraSettingsChanged || groupsUpdated {
 		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return account, nil
 }
 
-func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
+func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) (bool, error) {
 	if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled {
 		if newSettings.GroupsPropagationEnabled {
+			groupsUpdated, err := am.propagateUserGroupMemberships(ctx, accountID)
+			if err != nil {
+				return false, fmt.Errorf("failed to propagate users groups: %w", err)
+			}
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationEnabled, nil)
-			// Todo: retroactively add user groups to all peers
+			return groupsUpdated, nil
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationDisabled, nil)
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
@@ -1838,4 +1842,56 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 	}
 
 	return account, nil
+}
+
+func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Context, accountID string) (bool, error) {
+	groups, err := am.Store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return false, err
+	}
+
+	groupsMap := make(map[string]*types.Group, len(groups))
+	for _, group := range groups {
+		groupsMap[group.ID] = group
+	}
+
+	users, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return false, err
+	}
+
+	groupsToUpdate := make(map[string]*types.Group)
+
+	for _, user := range users {
+		userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthShare, accountID, user.Id)
+		if err != nil {
+			return false, err
+		}
+
+		updatedGroups, err := updateUserPeersInGroups(groupsMap, userPeers, user.AutoGroups, nil)
+		if err != nil {
+			return false, err
+		}
+
+		for _, group := range updatedGroups {
+			groupsToUpdate[group.ID] = group
+			groupsMap[group.ID] = group
+		}
+	}
+
+	if len(groupsToUpdate) > 0 {
+		updateAccountPeers, err := areGroupChangesAffectPeers(ctx, am.Store, accountID, maps.Keys(groupsToUpdate))
+		if err != nil {
+			return false, err
+		}
+
+		err = am.Store.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, maps.Values(groupsToUpdate))
+		if err != nil {
+			return false, err
+		}
+
+		return updateAccountPeers, nil
+	}
+
+	return false, nil
 }
