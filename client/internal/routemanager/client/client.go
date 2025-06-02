@@ -68,6 +68,7 @@ type WatcherConfig struct {
 
 // Watcher watches route and peer changes and updates allowed IPs accordingly.
 // Once stopped, it cannot be reused.
+// The methods are not thread-safe and should be synchronized externally.
 type Watcher struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
@@ -78,6 +79,7 @@ type Watcher struct {
 	peerStateUpdate     chan struct{}
 	routePeersNotifiers map[string]chan struct{} // map of peer key to channel for peer state changes
 	currentChosen       *route.Route
+	currentChosenStatus *routerPeerStatus
 	handler             RouteHandler
 	updateSerial        uint64
 }
@@ -95,6 +97,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 		routeUpdate:         make(chan RoutesUpdate),
 		peerStateUpdate:     make(chan struct{}),
 		handler:             config.Handler,
+		currentChosenStatus: nil,
 	}
 	return client
 }
@@ -146,7 +149,8 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 	for _, r := range w.routes {
 		tempScore := float64(0)
 		peerStatus, found := routePeerStatuses[r.ID]
-		if !found || peerStatus.status != peer.StatusConnected && peerStatus.status != peer.StatusIdle {
+		// connecting status equals disconnected: no wireguard endpoint to assign allowed IPs to
+		if !found || peerStatus.status == peer.StatusConnecting {
 			continue
 		}
 
@@ -288,6 +292,24 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 	return nil
 }
 
+// shouldSkipRecalculation checks if we can skip route recalculation for the same route without status changes
+func (w *Watcher) shouldSkipRecalculation(newChosenID route.ID, newStatus routerPeerStatus) bool {
+	if w.currentChosen == nil {
+		return false
+	}
+
+	isSameRoute := w.currentChosen.ID == newChosenID && w.currentChosen.Equal(w.routes[newChosenID])
+	if !isSameRoute {
+		return false
+	}
+
+	if w.currentChosenStatus != nil {
+		return w.currentChosenStatus.status == newStatus.status
+	}
+
+	return true
+}
+
 func (w *Watcher) recalculateRoutes(rsn reason) error {
 	routerPeerStatuses := w.getRouterPeerStatuses()
 
@@ -304,13 +326,13 @@ func (w *Watcher) recalculateRoutes(rsn reason) error {
 		}
 
 		w.currentChosen = nil
+		w.currentChosenStatus = nil
 
 		return nil
 	}
 
-	// If the chosen route is the same as the current route, do nothing
-	if w.currentChosen != nil && w.currentChosen.ID == newChosenID &&
-		w.currentChosen.Equal(w.routes[newChosenID]) {
+	// If we can skip recalculation for the same route without changes, do nothing
+	if w.shouldSkipRecalculation(newChosenID, newStatus) {
 		return nil
 	}
 
@@ -330,6 +352,7 @@ func (w *Watcher) recalculateRoutes(rsn reason) error {
 	}
 
 	w.currentChosen = newChosenRoute
+	w.currentChosenStatus = &newStatus
 
 	return nil
 }
@@ -509,6 +532,7 @@ func (w *Watcher) Stop() {
 	if err := w.removeAllowedIPs(w.currentChosen, reasonShutdown); err != nil {
 		log.Errorf("Failed to remove routes for [%v]: %v", w.handler, err)
 	}
+	w.currentChosenStatus = nil
 }
 
 func HandlerFromRoute(
