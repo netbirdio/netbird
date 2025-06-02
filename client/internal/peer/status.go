@@ -988,9 +988,9 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 		return
 	}
 	for _, sub := range subs {
-		select {
-		case sub.eventsChan <- struct{}{}:
-		}
+		// block the write because we do not want to miss notification
+		// must have to be sure we will run the GetPeerState() on separated thread
+		sub.eventsChan <- struct{}{}
 	}
 }
 
