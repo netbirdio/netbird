@@ -345,6 +345,209 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 			currentRoute:    "routeDoesntExistAnymore",
 			expectedRouteID: "route2",
 		},
+		{
+			name: "connected peer should be preferred over idle peer",
+			statuses: map[route.ID]routerPeerStatus{
+				"route1": {
+					status:  peer.StatusIdle,
+					relayed: false,
+					latency: 10 * time.Millisecond,
+				},
+				"route2": {
+					status:  peer.StatusConnected,
+					relayed: false,
+					latency: 100 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[route.ID]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    "",
+			expectedRouteID: "route2",
+		},
+		{
+			name: "idle peer should be selected when no connected peers",
+			statuses: map[route.ID]routerPeerStatus{
+				"route1": {
+					status:  peer.StatusIdle,
+					relayed: false,
+					latency: 10 * time.Millisecond,
+				},
+				"route2": {
+					status:  peer.StatusConnecting,
+					relayed: false,
+					latency: 5 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[route.ID]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    "",
+			expectedRouteID: "route1",
+		},
+		{
+			name: "best idle peer should be selected among multiple idle peers",
+			statuses: map[route.ID]routerPeerStatus{
+				"route1": {
+					status:  peer.StatusIdle,
+					relayed: false,
+					latency: 100 * time.Millisecond,
+				},
+				"route2": {
+					status:  peer.StatusIdle,
+					relayed: false,
+					latency: 10 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[route.ID]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    "",
+			expectedRouteID: "route2",
+		},
+		{
+			name: "connecting peers should not be considered for routing",
+			statuses: map[route.ID]routerPeerStatus{
+				"route1": {
+					status:  peer.StatusConnecting,
+					relayed: false,
+					latency: 10 * time.Millisecond,
+				},
+				"route2": {
+					status:  peer.StatusConnecting,
+					relayed: false,
+					latency: 5 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[route.ID]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    "",
+			expectedRouteID: "",
+		},
+		{
+			name: "connected peer should be preferred over idle peer",
+			statuses: map[route.ID]routerPeerStatus{
+				"route1": {
+					status:  peer.StatusIdle,
+					relayed: false,
+					latency: 10 * time.Millisecond,
+				},
+				"route2": {
+					status:  peer.StatusConnected,
+					relayed: false,
+					latency: 100 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[route.ID]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    "",
+			expectedRouteID: "route2",
+		},
+		{
+			name: "idle peer should be selected when no connected peers",
+			statuses: map[route.ID]routerPeerStatus{
+				"route1": {
+					status:  peer.StatusIdle,
+					relayed: false,
+					latency: 10 * time.Millisecond,
+				},
+				"route2": {
+					status:  peer.StatusConnecting,
+					relayed: false,
+					latency: 5 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[route.ID]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    "",
+			expectedRouteID: "route1",
+		},
+		{
+			name: "best idle peer should be selected among multiple idle peers",
+			statuses: map[route.ID]routerPeerStatus{
+				"route1": {
+					status:  peer.StatusIdle,
+					relayed: false,
+					latency: 100 * time.Millisecond,
+				},
+				"route2": {
+					status:  peer.StatusIdle,
+					relayed: false,
+					latency: 10 * time.Millisecond,
+				},
+			},
+			existingRoutes: map[route.ID]*route.Route{
+				"route1": {
+					ID:     "route1",
+					Metric: route.MaxMetric,
+					Peer:   "peer1",
+				},
+				"route2": {
+					ID:     "route2",
+					Metric: route.MaxMetric,
+					Peer:   "peer2",
+				},
+			},
+			currentRoute:    "",
+			expectedRouteID: "route2",
+		},
 	}
 
 	// fill the test data with random routes
