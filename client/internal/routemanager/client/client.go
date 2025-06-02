@@ -489,6 +489,9 @@ func (w *Watcher) Stop() {
 
 	w.cancel()
 
+        if w.currentChosen == nil {
+            return
+        }
 	if err := w.removeAllowedIPs(w.currentChosen, reasonShutdown); err != nil {
 		log.Errorf("Failed to remove routes for [%v]: %v", w.handler, err)
 	}
