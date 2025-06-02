@@ -406,7 +406,10 @@ func (w *Watcher) disconnectEvent(route *route.Route, rsn reason) {
 
 func (w *Watcher) SendUpdate(update RoutesUpdate) {
 	go func() {
-		w.routeUpdate <- update
+		select {
+		case w.routeUpdate <- update:
+		case <-w.ctx.Done():
+		}
 	}()
 }
 
@@ -487,9 +490,9 @@ func (w *Watcher) Stop() {
 
 	w.cancel()
 
-        if w.currentChosen == nil {
-            return
-        }
+	if w.currentChosen == nil {
+		return
+	}
 	if err := w.removeAllowedIPs(w.currentChosen, reasonShutdown); err != nil {
 		log.Errorf("Failed to remove routes for [%v]: %v", w.handler, err)
 	}
