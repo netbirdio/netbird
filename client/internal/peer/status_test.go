@@ -87,7 +87,7 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	status := NewRecorder("https://mgm")
 	_ = status.AddPeer(key, "abc.netbird", ip)
 
-	sub := status.SubscribeToPeerStateChanges(key)
+	sub := status.SubscribeToPeerStateChanges(context.Background(), key)
 	assert.NotNil(t, sub, "channel shouldn't be nil")
 
 	peerState := State{
