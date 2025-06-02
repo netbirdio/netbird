@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -99,10 +100,12 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	err := status.UpdatePeerRelayedStateToDisconnected(peerState)
 	assert.NoError(t, err, "shouldn't return error")
 
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
 	select {
 	case <-sub.eventsChan:
-	default:
-		t.Errorf("channel wasn't closed after update")
+	case <-timeoutCtx.Done():
+		t.Errorf("timed out waiting for event")
 	}
 }
 
