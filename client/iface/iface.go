@@ -117,7 +117,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 	defer w.mu.Unlock()
 
 	netIPNets := prefixesToIPNets(allowedIps)
-	log.Debugf("updating interface %s peer %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
+	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
 	return w.configurer.UpdatePeer(peerKey, netIPNets, keepAlive, endpoint, preSharedKey)
 }
 
@@ -131,7 +131,7 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 }
 
 // AddAllowedIP adds a prefix to the allowed IPs list of peer
-func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
+func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

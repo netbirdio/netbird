@@ -143,7 +143,7 @@ func (m *MockWGIface) RemovePeer(peerKey string) error {
 	return m.RemovePeerFunc(peerKey)
 }
 
-func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP string) error {
+func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	return m.AddAllowedIPFunc(peerKey, allowedIP)
 }
 
