@@ -3382,16 +3382,40 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 		assert.True(t, groupsUpdated)
 		assert.True(t, groupChangesAffectPeers)
 
-		group, err := manager.Store.GetGroupByID(ctx, store.LockingStrengthShare, account.Id, "group1")
+		groups, err := manager.Store.GetGroupsByIDs(ctx, store.LockingStrengthShare, account.Id, []string{"group1", "group2"})
 		require.NoError(t, err)
-		assert.Len(t, group.Peers, 2)
-		assert.Contains(t, group.Peers, "peer1")
-		assert.Contains(t, group.Peers, "peer2")
+		for _, group := range groups {
+			assert.Len(t, group.Peers, 2)
+			assert.Contains(t, group.Peers, "peer1")
+			assert.Contains(t, group.Peers, "peer2")
+		}
+	})
 
-		group, err = manager.Store.GetGroupByID(ctx, store.LockingStrengthShare, account.Id, "group2")
+	t.Run("should not update membership or account peers when no changes", func(t *testing.T) {
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)
-		assert.Len(t, group.Peers, 2)
-		assert.Contains(t, group.Peers, "peer1")
-		assert.Contains(t, group.Peers, "peer2")
+		assert.False(t, groupsUpdated)
+		assert.False(t, groupChangesAffectPeers)
+	})
+
+	t.Run("should not remove peers when groups are removed from user", func(t *testing.T) {
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
+		require.NoError(t, err)
+
+		user.AutoGroups = []string{"group1"}
+		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		require.NoError(t, err)
+		assert.False(t, groupsUpdated)
+		assert.False(t, groupChangesAffectPeers)
+
+		groups, err := manager.Store.GetGroupsByIDs(ctx, store.LockingStrengthShare, account.Id, []string{"group1", "group2"})
+		require.NoError(t, err)
+		for _, group := range groups {
+			assert.Len(t, group.Peers, 2)
+			assert.Contains(t, group.Peers, "peer1")
+			assert.Contains(t, group.Peers, "peer2")
+		}
 	})
 }
