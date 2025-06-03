@@ -768,15 +768,6 @@ func (s *serviceClient) listenEvents() {
 			if err := s.updateConfig(); err != nil {
 				log.Errorf("failed to update config: %v", err)
 			}
-		case <-s.mBlockInbound.ClickedCh:
-			if s.mBlockInbound.Checked() {
-				s.mBlockInbound.Uncheck()
-			} else {
-				s.mBlockInbound.Check()
-			}
-			if err := s.updateConfig(); err != nil {
-				log.Errorf("failed to update config: %v", err)
-			}
 		case <-s.mAdvancedSettings.ClickedCh:
 			s.mAdvancedSettings.Disable()
 			go func() {
