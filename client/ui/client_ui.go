@@ -89,13 +89,13 @@ func main() {
 	}
 
 	// Check for another running process.
-	running, err := process.IsAnotherProcessRunning()
+	pid, running, err := process.IsAnotherProcessRunning()
 	if err != nil {
 		log.Errorf("error while checking process: %v", err)
 		return
 	}
 	if running {
-		log.Warn("another process is running")
+		log.Warnf("another process is running with pid %d, exiting", pid)
 		return
 	}
 
