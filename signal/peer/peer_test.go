@@ -103,12 +103,12 @@ func BenchmarkPeerAllocation(b *testing.B) {
 			_ = NewPeer("peer", nil)
 		}
 	})
-	b.Run("with pool", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			p := NewPeerPool("peer", nil, nil)
-			p.Reset()
-		}
-	})
+	// b.Run("with pool", func(b *testing.B) {
+	// 	for i := 0; i < b.N; i++ {
+	// 		p := NewPeerPool("peer", nil, nil)
+	// 		p.Reset()
+	// 	}
+	// })
 }
 
 func TestRegistry_MultipleRegister_Concurrency(t *testing.T) {
@@ -124,11 +124,11 @@ func TestRegistry_MultipleRegister_Concurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
 	peerID := "peer-concurrent"
-	_, cancel := context.WithCancel(context.Background())
 	for i := range numGoroutines {
 		go func(routineIndex int) {
 			defer wg.Done()
 
+			_, cancel := context.WithCancel(context.Background())
 			peer := NewPeerPool(peerID, nil, cancel)
 			registry.RegisterPool(peer)
 			ids <- peer.StreamID
@@ -204,11 +204,11 @@ func TestRegistry_MultipleDeregister_Concurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
 	peerID := "peer-concurrent"
-	_, cancel := context.WithCancel(context.Background())
 	for i := range numGoroutines {
 		go func(routineIndex int) {
 			defer wg.Done()
 
+			_, cancel := context.WithCancel(context.Background())
 			peer := NewPeerPool(peerID, nil, cancel)
 			registry.RegisterPool(peer)
 			ids <- peer.StreamID

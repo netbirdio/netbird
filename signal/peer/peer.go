@@ -33,12 +33,6 @@ type Peer struct {
 	Cancel context.CancelFunc
 }
 
-var peerPool = sync.Pool{
-	New: func() interface{} {
-		return new(Peer)
-	},
-}
-
 // NewPeer creates a new instance of a connected Peer
 func NewPeer(id string, stream proto.SignalExchange_ConnectStreamServer) *Peer {
 	return &Peer{
@@ -51,22 +45,13 @@ func NewPeer(id string, stream proto.SignalExchange_ConnectStreamServer) *Peer {
 
 // NewPeer creates a new instance of a connected Peer
 func NewPeerPool(id string, stream proto.SignalExchange_ConnectStreamServer, cancel context.CancelFunc) *Peer {
-	p := peerPool.Get().(*Peer)
-	p.Id = id
-	p.Stream = stream
-	p.StreamID = time.Now().UnixNano()
-	p.RegisteredAt = time.Now()
-	p.Cancel = cancel
-	return p
-}
-
-func (p *Peer) Reset() {
-	p.Id = ""
-	p.StreamID = 0
-	p.Stream = nil
-	p.RegisteredAt = time.Time{}
-	p.Cancel = nil
-	peerPool.Put(p)
+	return &Peer{
+		Id:           id,
+		Stream:       stream,
+		StreamID:     time.Now().UnixNano(),
+		RegisteredAt: time.Now(),
+		Cancel:       cancel,
+	}
 }
 
 // Registry that holds all currently connected Peers
@@ -140,7 +125,7 @@ func (registry *Registry) RegisterPool(peer *Peer) error {
 			log.Tracef("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
 				peer.Id, peer.StreamID, pp.StreamID)
 			if swapped := registry.Peers.CompareAndSwap(peer.Id, pp, peer); !swapped {
-				registry.RegisterPool(peer)
+				return registry.RegisterPool(peer)
 			}
 			pp.Cancel()
 		}
@@ -185,5 +170,4 @@ func (registry *Registry) DeregisterPool(peer *Peer) {
 		log.Debugf("peer deregistered [%s]", peer.Id)
 		registry.metrics.Deregistrations.Add(context.Background(), 1)
 	}
-	peer.Reset()
 }
