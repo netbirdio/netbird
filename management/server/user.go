@@ -531,9 +531,13 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		groupsMap[group.ID] = group
 	}
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
-	if err != nil {
-		return nil, err
+	var initiatorUser *types.User
+	if initiatorUserID != activity.SystemInitiator {
+		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+		if err != nil {
+			return nil, err
+		}
+		initiatorUser = result
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -543,7 +547,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			}
 
 			userHadPeers, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
-				ctx, transaction, groupsMap, accountID, initiatorUser, update, addIfNotExists, settings,
+				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to process user update: %w", err)
@@ -629,7 +633,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 }
 
 func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transaction store.Store, groupsMap map[string]*types.Group,
-	accountID string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
+	accountID, initiatorUserId string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
 
 	if update == nil {
 		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
@@ -640,8 +644,10 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		return false, nil, nil, nil, err
 	}
 
-	if err := validateUserUpdate(groupsMap, initiatorUser, oldUser, update); err != nil {
-		return false, nil, nil, nil, err
+	if initiatorUserId != activity.SystemInitiator {
+		if err := validateUserUpdate(groupsMap, initiatorUser, oldUser, update); err != nil {
+			return false, nil, nil, nil, err
+		}
 	}
 
 	// only auto groups, revoked status, and integration reference can be updated for now
@@ -653,9 +659,13 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	updatedUser.Issued = update.Issued
 	updatedUser.IntegrationReference = update.IntegrationReference
 
-	transferredOwnerRole, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
-	if err != nil {
-		return false, nil, nil, nil, err
+	var transferredOwnerRole bool
+	if initiatorUserId != activity.SystemInitiator {
+		result, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
+		if err != nil {
+			return false, nil, nil, nil, err
+		}
+		transferredOwnerRole = result
 	}
 
 	userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthUpdate, updatedUser.AccountID, update.Id)
@@ -682,7 +692,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	}
 
 	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUser.Id, oldUser, updatedUser, transferredOwnerRole)
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole)
 
 	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
 }
@@ -818,9 +828,13 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		return nil, status.NewPermissionValidationError(err)
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+	var user *types.User
+	if initiatorUserID != activity.SystemInitiator {
+		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+		user = result
 	}
 
 	accountUsers := []*types.User{}
@@ -830,7 +844,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		if err != nil {
 			return nil, err
 		}
-	case user.AccountID == accountID:
+	case user != nil && user.AccountID == accountID:
 		accountUsers = append(accountUsers, user)
 	default:
 		return map[string]*types.UserInfo{}, nil
