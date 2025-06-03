@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -86,8 +87,8 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	status := NewRecorder("https://mgm")
 	_ = status.AddPeer(key, "abc.netbird", ip)
 
-	ch := status.GetPeerStateChangeNotifier(key)
-	assert.NotNil(t, ch, "channel shouldn't be nil")
+	sub := status.SubscribeToPeerStateChanges(context.Background(), key)
+	assert.NotNil(t, sub, "channel shouldn't be nil")
 
 	peerState := State{
 		PubKey:           key,
@@ -99,10 +100,12 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	err := status.UpdatePeerRelayedStateToDisconnected(peerState)
 	assert.NoError(t, err, "shouldn't return error")
 
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
 	select {
-	case <-ch:
-	default:
-		t.Errorf("channel wasn't closed after update")
+	case <-sub.eventsChan:
+	case <-timeoutCtx.Done():
+		t.Errorf("timed out waiting for event")
 	}
 }
 
