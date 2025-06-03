@@ -235,9 +235,11 @@ type serviceClient struct {
 
 	eventManager *event.Manager
 
-	exitNodeMu     sync.Mutex
-	mExitNodeItems []menuHandler
-	logFile        string
+	exitNodeMu           sync.Mutex
+	mExitNodeItems       []menuHandler
+	exitNodeStates       []exitNodeState
+	mExitNodeDeselectAll *systray.MenuItem
+	logFile              string
 }
 
 type menuHandler struct {
@@ -1035,11 +1037,11 @@ func (s *serviceClient) updateConfig() error {
 	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 
 	loginRequest := proto.LoginRequest{
-		IsUnixDesktopClient:  runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-		ServerSSHAllowed:     &sshAllowed,
-		RosenpassEnabled:     &rosenpassEnabled,
-		DisableAutoConnect:   &disableAutoStart,
-		DisableNotifications: &notificationsDisabled,
+		IsUnixDesktopClient:   runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+		ServerSSHAllowed:      &sshAllowed,
+		RosenpassEnabled:      &rosenpassEnabled,
+		DisableAutoConnect:    &disableAutoStart,
+		DisableNotifications:  &notificationsDisabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 	}
 
