@@ -644,10 +644,8 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		return false, nil, nil, nil, err
 	}
 
-	if initiatorUserId != activity.SystemInitiator {
-		if err := validateUserUpdate(groupsMap, initiatorUser, oldUser, update); err != nil {
-			return false, nil, nil, nil, err
-		}
+	if err := validateUserUpdate(groupsMap, initiatorUser, oldUser, update); err != nil {
+		return false, nil, nil, nil, err
 	}
 
 	// only auto groups, revoked status, and integration reference can be updated for now
@@ -660,13 +658,11 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	updatedUser.IntegrationReference = update.IntegrationReference
 
 	var transferredOwnerRole bool
-	if initiatorUserId != activity.SystemInitiator {
-		result, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
-		if err != nil {
-			return false, nil, nil, nil, err
-		}
-		transferredOwnerRole = result
+	result, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
+	if err != nil {
+		return false, nil, nil, nil, err
 	}
+	transferredOwnerRole = result
 
 	userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthUpdate, updatedUser.AccountID, update.Id)
 	if err != nil {
@@ -719,7 +715,7 @@ func getUserOrCreateIfNotExists(ctx context.Context, transaction store.Store, ac
 }
 
 func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initiatorUser, update *types.User) (bool, error) {
-	if initiatorUser.Role == types.UserRoleOwner && initiatorUser.Id != update.Id && update.Role == types.UserRoleOwner {
+	if initiatorUser != nil && initiatorUser.Role == types.UserRoleOwner && initiatorUser.Id != update.Id && update.Role == types.UserRoleOwner {
 		newInitiatorUser := initiatorUser.Copy()
 		newInitiatorUser.Role = types.UserRoleAdmin
 
@@ -747,6 +743,10 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.Us
 
 // validateUserUpdate validates the update operation for a user.
 func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUser, update *types.User) error {
+	if initiatorUser == nil {
+		return nil
+	}
+
 	// @todo double check these
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
