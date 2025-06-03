@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 const (
@@ -48,7 +49,7 @@ type upstreamResolverBase struct {
 	cancel           context.CancelFunc
 	upstreamClient   upstreamClient
 	upstreamServers  []string
-	domain           string
+	domain           domain.Domain
 	disabled         bool
 	failsCount       atomic.Int32
 	successCount     atomic.Int32
@@ -62,7 +63,7 @@ type upstreamResolverBase struct {
 	statusRecorder *peer.Status
 }
 
-func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, domain string) *upstreamResolverBase {
+func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, domain domain.Domain) *upstreamResolverBase {
 	ctx, cancel := context.WithCancel(ctx)
 
 	return &upstreamResolverBase{
