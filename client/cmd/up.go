@@ -55,12 +55,11 @@ func init() {
 	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
 	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", networkMonitor,
-		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux. `+
+		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux and FreeBSD. `+
 			`E.g. --network-monitor=false to disable or --network-monitor=true to enable.`,
 	)
 	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
 	upCmd.PersistentFlags().DurationVar(&dnsRouteInterval, dnsRouteIntervalFlag, time.Minute, "DNS route update interval")
-	upCmd.PersistentFlags().BoolVar(&blockLANAccess, blockLANAccessFlag, false, "Block access to local networks (LAN) when using this peer as a router or exit node")
 
 	upCmd.PersistentFlags().StringSliceVar(&dnsLabels, dnsLabelsFlag, nil,
 		`Sets DNS labels`+
@@ -119,83 +118,9 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	ic := internal.ConfigInput{
-		ManagementURL:       managementURL,
-		AdminURL:            adminURL,
-		ConfigPath:          configPath,
-		NATExternalIPs:      natExternalIPs,
-		CustomDNSAddress:    customDNSAddressConverted,
-		ExtraIFaceBlackList: extraIFaceBlackList,
-		DNSLabels:           dnsLabelsValidated,
-	}
-
-	if cmd.Flag(enableRosenpassFlag).Changed {
-		ic.RosenpassEnabled = &rosenpassEnabled
-	}
-
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
-		ic.RosenpassPermissive = &rosenpassPermissive
-	}
-
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
-		ic.ServerSSHAllowed = &serverSSHAllowed
-	}
-
-	if cmd.Flag(interfaceNameFlag).Changed {
-		if err := parseInterfaceName(interfaceName); err != nil {
-			return err
-		}
-		ic.InterfaceName = &interfaceName
-	}
-
-	if cmd.Flag(wireguardPortFlag).Changed {
-		p := int(wireguardPort)
-		ic.WireguardPort = &p
-	}
-
-	if cmd.Flag(networkMonitorFlag).Changed {
-		ic.NetworkMonitor = &networkMonitor
-	}
-
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
-		ic.PreSharedKey = &preSharedKey
-	}
-
-	if cmd.Flag(disableAutoConnectFlag).Changed {
-		ic.DisableAutoConnect = &autoConnectDisabled
-
-		if autoConnectDisabled {
-			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
-		}
-
-		if !autoConnectDisabled {
-			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
-		}
-	}
-
-	if cmd.Flag(dnsRouteIntervalFlag).Changed {
-		ic.DNSRouteInterval = &dnsRouteInterval
-	}
-
-	if cmd.Flag(disableClientRoutesFlag).Changed {
-		ic.DisableClientRoutes = &disableClientRoutes
-	}
-	if cmd.Flag(disableServerRoutesFlag).Changed {
-		ic.DisableServerRoutes = &disableServerRoutes
-	}
-	if cmd.Flag(disableDNSFlag).Changed {
-		ic.DisableDNS = &disableDNS
-	}
-	if cmd.Flag(disableFirewallFlag).Changed {
-		ic.DisableFirewall = &disableFirewall
-	}
-
-	if cmd.Flag(blockLANAccessFlag).Changed {
-		ic.BlockLANAccess = &blockLANAccess
-	}
-
-	if cmd.Flag(enableLazyConnectionFlag).Changed {
-		ic.LazyConnectionEnabled = &lazyConnEnabled
+	ic, err := setupConfig(customDNSAddressConverted, cmd)
+	if err != nil {
+		return fmt.Errorf("setup config: %v", err)
 	}
 
 	providedSetupKey, err := getSetupKey()
@@ -203,7 +128,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	config, err := internal.UpdateOrCreateConfig(ic)
+	config, err := internal.UpdateOrCreateConfig(*ic)
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
 	}
@@ -262,9 +187,141 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	providedSetupKey, err := getSetupKey()
 	if err != nil {
-		return err
+		return fmt.Errorf("get setup key: %v", err)
 	}
 
+	loginRequest, err := setupLoginRequest(providedSetupKey, customDNSAddressConverted, cmd)
+	if err != nil {
+		return fmt.Errorf("setup login request: %v", err)
+	}
+
+	var loginErr error
+	var loginResp *proto.LoginResponse
+
+	err = WithBackOff(func() error {
+		var backOffErr error
+		loginResp, backOffErr = client.Login(ctx, loginRequest)
+		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
+			s.Code() == codes.PermissionDenied ||
+			s.Code() == codes.NotFound ||
+			s.Code() == codes.Unimplemented) {
+			loginErr = backOffErr
+			return nil
+		}
+		return backOffErr
+	})
+	if err != nil {
+		return fmt.Errorf("login backoff cycle failed: %v", err)
+	}
+
+	if loginErr != nil {
+		return fmt.Errorf("login failed: %v", loginErr)
+	}
+
+	if loginResp.NeedsSSOLogin {
+
+		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
+
+		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
+		if err != nil {
+			return fmt.Errorf("waiting sso login failed with: %v", err)
+		}
+	}
+
+	if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
+		return fmt.Errorf("call service up method: %v", err)
+	}
+	cmd.Println("Connected")
+	return nil
+}
+
+func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*internal.ConfigInput, error) {
+	ic := internal.ConfigInput{
+		ManagementURL:       managementURL,
+		AdminURL:            adminURL,
+		ConfigPath:          configPath,
+		NATExternalIPs:      natExternalIPs,
+		CustomDNSAddress:    customDNSAddressConverted,
+		ExtraIFaceBlackList: extraIFaceBlackList,
+		DNSLabels:           dnsLabelsValidated,
+	}
+
+	if cmd.Flag(enableRosenpassFlag).Changed {
+		ic.RosenpassEnabled = &rosenpassEnabled
+	}
+
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		ic.RosenpassPermissive = &rosenpassPermissive
+	}
+
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		ic.ServerSSHAllowed = &serverSSHAllowed
+	}
+
+	if cmd.Flag(interfaceNameFlag).Changed {
+		if err := parseInterfaceName(interfaceName); err != nil {
+			return nil, err
+		}
+		ic.InterfaceName = &interfaceName
+	}
+
+	if cmd.Flag(wireguardPortFlag).Changed {
+		p := int(wireguardPort)
+		ic.WireguardPort = &p
+	}
+
+	if cmd.Flag(networkMonitorFlag).Changed {
+		ic.NetworkMonitor = &networkMonitor
+	}
+
+	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+		ic.PreSharedKey = &preSharedKey
+	}
+
+	if cmd.Flag(disableAutoConnectFlag).Changed {
+		ic.DisableAutoConnect = &autoConnectDisabled
+
+		if autoConnectDisabled {
+			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
+		}
+
+		if !autoConnectDisabled {
+			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
+		}
+	}
+
+	if cmd.Flag(dnsRouteIntervalFlag).Changed {
+		ic.DNSRouteInterval = &dnsRouteInterval
+	}
+
+	if cmd.Flag(disableClientRoutesFlag).Changed {
+		ic.DisableClientRoutes = &disableClientRoutes
+	}
+	if cmd.Flag(disableServerRoutesFlag).Changed {
+		ic.DisableServerRoutes = &disableServerRoutes
+	}
+	if cmd.Flag(disableDNSFlag).Changed {
+		ic.DisableDNS = &disableDNS
+	}
+	if cmd.Flag(disableFirewallFlag).Changed {
+		ic.DisableFirewall = &disableFirewall
+	}
+
+	if cmd.Flag(blockLANAccessFlag).Changed {
+		ic.BlockLANAccess = &blockLANAccess
+	}
+
+	if cmd.Flag(blockInboundFlag).Changed {
+		ic.BlockInbound = &blockInbound
+	}
+
+	if cmd.Flag(enableLazyConnectionFlag).Changed {
+		ic.LazyConnectionEnabled = &lazyConnEnabled
+	}
+	return &ic, nil
+}
+
+func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte, cmd *cobra.Command) (*proto.LoginRequest, error) {
 	loginRequest := proto.LoginRequest{
 		SetupKey:            providedSetupKey,
 		ManagementUrl:       managementURL,
@@ -301,7 +358,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
-			return err
+			return nil, err
 		}
 		loginRequest.InterfaceName = &interfaceName
 	}
@@ -336,49 +393,14 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		loginRequest.BlockLanAccess = &blockLANAccess
 	}
 
+	if cmd.Flag(blockInboundFlag).Changed {
+		loginRequest.BlockInbound = &blockInbound
+	}
+
 	if cmd.Flag(enableLazyConnectionFlag).Changed {
 		loginRequest.LazyConnectionEnabled = &lazyConnEnabled
 	}
-
-	var loginErr error
-
-	var loginResp *proto.LoginResponse
-
-	err = WithBackOff(func() error {
-		var backOffErr error
-		loginResp, backOffErr = client.Login(ctx, &loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
-			loginErr = backOffErr
-			return nil
-		}
-		return backOffErr
-	})
-	if err != nil {
-		return fmt.Errorf("login backoff cycle failed: %v", err)
-	}
-
-	if loginErr != nil {
-		return fmt.Errorf("login failed: %v", loginErr)
-	}
-
-	if loginResp.NeedsSSOLogin {
-
-		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
-
-		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
-		if err != nil {
-			return fmt.Errorf("waiting sso login failed with: %v", err)
-		}
-	}
-
-	if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
-		return fmt.Errorf("call service up method: %v", err)
-	}
-	cmd.Println("Connected")
-	return nil
+	return &loginRequest, nil
 }
 
 func validateNATExternalIPs(list []string) error {
