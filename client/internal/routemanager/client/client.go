@@ -240,6 +240,7 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
 	subscription := w.statusRecorder.SubscribeToPeerStateChanges(ctx, peerKey)
 	defer w.statusRecorder.UnsubscribePeerStateChanges(subscription)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -275,6 +276,7 @@ func (w *Watcher) addAllowedIPs(route *route.Route) error {
 		log.Warnf("Failed to update peer state: %v", err)
 	}
 
+	w.connectEvent(route)
 	return nil
 }
 

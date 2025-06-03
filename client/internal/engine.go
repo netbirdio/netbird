@@ -121,8 +121,8 @@ type EngineConfig struct {
 	DisableServerRoutes bool
 	DisableDNS          bool
 	DisableFirewall     bool
-
-	BlockLANAccess bool
+	BlockLANAccess      bool
+	BlockInbound        bool
 
 	LazyConnectionEnabled bool
 }
@@ -431,7 +431,8 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
-	if e.firewall != nil {
+	// if inbound conns are blocked there is no need to create the ACL manager
+	if e.firewall != nil && !e.config.BlockInbound {
 		e.acl = acl.NewDefaultManager(e.firewall)
 	}
 
@@ -487,11 +488,9 @@ func (e *Engine) createFirewall() error {
 }
 
 func (e *Engine) initFirewall() error {
-	if e.firewall.IsServerRouteSupported() {
-		if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
-			e.close()
-			return fmt.Errorf("enable server router: %w", err)
-		}
+	if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
+		e.close()
+		return fmt.Errorf("enable server router: %w", err)
 	}
 
 	if e.config.BlockLANAccess {
@@ -525,6 +524,11 @@ func (e *Engine) initFirewall() error {
 }
 
 func (e *Engine) blockLanAccess() {
+	if e.config.BlockInbound {
+		// no need to set up extra deny rules if inbound is already blocked in general
+		return
+	}
+
 	var merr *multierror.Error
 
 	// TODO: keep this updated
@@ -796,56 +800,58 @@ func isNil(server nbssh.Server) bool {
 }
 
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
+	if e.config.BlockInbound {
+		log.Infof("SSH server is disabled because inbound connections are blocked")
+		return nil
+	}
 
 	if !e.config.ServerSSHAllowed {
-		log.Warnf("running SSH server is not permitted")
+		log.Info("SSH server is not enabled")
 		return nil
-	} else {
-
-		if sshConf.GetSshEnabled() {
-			if runtime.GOOS == "windows" {
-				log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
-				return nil
-			}
-			// start SSH server if it wasn't running
-			if isNil(e.sshServer) {
-				listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
-				if nbnetstack.IsEnabled() {
-					listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
-				}
-				// nil sshServer means it has not yet been started
-				var err error
-				e.sshServer, err = e.sshServerFunc(e.config.SSHKey, listenAddr)
-
-				if err != nil {
-					return fmt.Errorf("create ssh server: %w", err)
-				}
-				go func() {
-					// blocking
-					err = e.sshServer.Start()
-					if err != nil {
-						// will throw error when we stop it even if it is a graceful stop
-						log.Debugf("stopped SSH server with error %v", err)
-					}
-					e.syncMsgMux.Lock()
-					defer e.syncMsgMux.Unlock()
-					e.sshServer = nil
-					log.Infof("stopped SSH server")
-				}()
-			} else {
-				log.Debugf("SSH server is already running")
-			}
-		} else if !isNil(e.sshServer) {
-			// Disable SSH server request, so stop it if it was running
-			err := e.sshServer.Stop()
-			if err != nil {
-				log.Warnf("failed to stop SSH server %v", err)
-			}
-			e.sshServer = nil
-		}
-		return nil
-
 	}
+
+	if sshConf.GetSshEnabled() {
+		if runtime.GOOS == "windows" {
+			log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
+			return nil
+		}
+		// start SSH server if it wasn't running
+		if isNil(e.sshServer) {
+			listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
+			if nbnetstack.IsEnabled() {
+				listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
+			}
+			// nil sshServer means it has not yet been started
+			var err error
+			e.sshServer, err = e.sshServerFunc(e.config.SSHKey, listenAddr)
+
+			if err != nil {
+				return fmt.Errorf("create ssh server: %w", err)
+			}
+			go func() {
+				// blocking
+				err = e.sshServer.Start()
+				if err != nil {
+					// will throw error when we stop it even if it is a graceful stop
+					log.Debugf("stopped SSH server with error %v", err)
+				}
+				e.syncMsgMux.Lock()
+				defer e.syncMsgMux.Unlock()
+				e.sshServer = nil
+				log.Infof("stopped SSH server")
+			}()
+		} else {
+			log.Debugf("SSH server is already running")
+		}
+	} else if !isNil(e.sshServer) {
+		// Disable SSH server request, so stop it if it was running
+		err := e.sshServer.Stop()
+		if err != nil {
+			log.Warnf("failed to stop SSH server %v", err)
+		}
+		e.sshServer = nil
+	}
+	return nil
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
@@ -1804,6 +1810,10 @@ func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
 ) {
+	if e.config.DisableServerRoutes {
+		return
+	}
+
 	if !enabled {
 		if e.dnsForwardMgr == nil {
 			return

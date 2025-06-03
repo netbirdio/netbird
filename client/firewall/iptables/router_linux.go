@@ -248,10 +248,6 @@ func (r *router) deleteIpSet(setName string) error {
 
 // AddNatRule inserts an iptables rule pair into the nat chain
 func (r *router) AddNatRule(pair firewall.RouterPair) error {
-	if err := r.ipFwdState.RequestForwarding(); err != nil {
-		return err
-	}
-
 	if r.legacyManagement {
 		log.Warnf("This peer is connected to a NetBird Management service with an older version. Allowing all traffic for %s", pair.Destination)
 		if err := r.addLegacyRouteRule(pair); err != nil {
@@ -278,10 +274,6 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 
 // RemoveNatRule removes an iptables rule pair from forwarding and nat chains
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
-	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
-		log.Errorf("%v", err)
-	}
-
 	if pair.Masquerade {
 		if err := r.removeNatRule(pair); err != nil {
 			return fmt.Errorf("remove nat rule: %w", err)
