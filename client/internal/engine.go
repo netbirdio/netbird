@@ -994,6 +994,15 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 	}
 
+	protoDNSConfig := networkMap.GetDNSConfig()
+	if protoDNSConfig == nil {
+		protoDNSConfig = &mgmProto.DNSConfig{}
+	}
+
+	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
+		log.Errorf("failed to update dns server, err: %v", err)
+	}
+
 	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
 
 	// apply routes first, route related actions might depend on routing being enabled
@@ -1060,15 +1069,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
 	excludedLazyPeers := e.toExcludedLazyPeers(routes, forwardingRules, networkMap.GetRemotePeers())
 	e.connMgr.SetExcludeList(excludedLazyPeers)
-
-	protoDNSConfig := networkMap.GetDNSConfig()
-	if protoDNSConfig == nil {
-		protoDNSConfig = &mgmProto.DNSConfig{}
-	}
-
-	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
-		log.Errorf("failed to update dns server, err: %v", err)
-	}
 
 	e.networkSerial = serial
 
