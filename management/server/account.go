@@ -277,28 +277,10 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 // UpdateAccountSettings updates Account settings.
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
-// Returns an updated Account
-func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error) {
-	halfYearLimit := 180 * 24 * time.Hour
-	if newSettings.PeerLoginExpiration > halfYearLimit {
-		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
-	}
-
-	if newSettings.PeerLoginExpiration < time.Hour {
-		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
-	}
-
-	if newSettings.DNSDomain != "" && !isDomainValid(newSettings.DNSDomain) {
-		return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
-	}
-
+// Returns an updated Settings
+func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
-
-	account, err := am.Store.GetAccount(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
 
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
 	if err != nil {
@@ -309,12 +291,118 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	err = am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, account.Settings.Extra, account.Peers, userID, accountID)
+	var oldSettings *types.Settings
+	var updateAccountPeers bool
+	var groupChangesAffectPeers bool
+
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var groupsUpdated bool
+
+		oldSettings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			return err
+		}
+
+		if err = am.validateSettingsUpdate(ctx, transaction, newSettings, oldSettings, userID, accountID); err != nil {
+			return err
+		}
+
+		if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled ||
+			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
+			oldSettings.DNSDomain != newSettings.DNSDomain {
+			updateAccountPeers = true
+		}
+
+		if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled && newSettings.GroupsPropagationEnabled {
+			groupsUpdated, groupChangesAffectPeers, err = propagateUserGroupMemberships(ctx, transaction, accountID)
+			if err != nil {
+				return err
+			}
+		}
+
+		if updateAccountPeers || groupsUpdated {
+			if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+				return err
+			}
+		}
+
+		return transaction.SaveAccountSettings(ctx, store.LockingStrengthUpdate, accountID, newSettings)
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	oldSettings := account.Settings
+	extraSettingsChanged, err := am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
+	if err != nil {
+		return nil, err
+	}
+
+	am.handleRoutingPeerDNSResolutionSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleLazyConnectionSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
+		return nil, err
+	}
+	if oldSettings.DNSDomain != newSettings.DNSDomain {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, nil)
+	}
+
+	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
+		go am.UpdateAccountPeers(ctx, accountID)
+	}
+
+	return newSettings, nil
+}
+
+func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, transaction store.Store, newSettings, oldSettings *types.Settings, userID, accountID string) error {
+	halfYearLimit := 180 * 24 * time.Hour
+	if newSettings.PeerLoginExpiration > halfYearLimit {
+		return status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
+	}
+
+	if newSettings.PeerLoginExpiration < time.Hour {
+		return status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
+	}
+
+	if newSettings.DNSDomain != "" && !isDomainValid(newSettings.DNSDomain) {
+		return status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
+	}
+
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+	if err != nil {
+		return err
+	}
+
+	peersMap := make(map[string]*nbpeer.Peer, len(peers))
+	for _, peer := range peers {
+		peersMap[peer.ID] = peer
+	}
+
+	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, peersMap, userID, accountID)
+}
+
+func (am *DefaultAccountManager) handleRoutingPeerDNSResolutionSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled {
+		if newSettings.RoutingPeerDNSResolutionEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
+		}
+	}
+}
+
+func (am *DefaultAccountManager) handleLazyConnectionSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled {
+		if newSettings.LazyConnectionEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionDisabled, nil)
+		}
+	}
+}
+
+func (am *DefaultAccountManager) handlePeerLoginExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
 	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
 		event := activity.AccountPeerLoginExpirationEnabled
 		if !newSettings.PeerLoginExpirationEnabled {
@@ -330,86 +418,21 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
 		am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
 	}
-
-	updateAccountPeers := false
-	if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled {
-		if newSettings.RoutingPeerDNSResolutionEnabled {
-			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionEnabled, nil)
-		} else {
-			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRoutingPeerDNSResolutionDisabled, nil)
-		}
-		updateAccountPeers = true
-	}
-
-	if oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled {
-		if newSettings.LazyConnectionEnabled {
-			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionEnabled, nil)
-		} else {
-			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionDisabled, nil)
-		}
-		updateAccountPeers = true
-	}
-
-	if oldSettings.DNSDomain != newSettings.DNSDomain {
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, nil)
-		updateAccountPeers = true
-	}
-
-	err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	groupsUpdated, groupChangesAffectPeers, err := am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("groups propagation failed: %w", err)
-	}
-
-	account.UpdateSettings(newSettings)
-
-	if updateAccountPeers || groupsUpdated {
-		account.Network.Serial++
-	}
-
-	err = am.Store.SaveAccount(ctx, account)
-	if err != nil {
-		return nil, err
-	}
-
-	extraSettingsChanged, err := am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
-	if err != nil {
-		return nil, err
-	}
-
-	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
-	}
-
-	return account, nil
 }
 
-func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) (bool, bool, error) {
+func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
 	if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled {
 		if newSettings.GroupsPropagationEnabled {
-			groupsUpdated, peersAffected, err := am.propagateUserGroupMemberships(ctx, accountID)
-			if err != nil {
-				return false, false, fmt.Errorf("failed to propagate users groups: %w", err)
-			}
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationEnabled, nil)
-			return groupsUpdated, peersAffected, nil
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationDisabled, nil)
 		}
 	}
-
-	return false, false, nil
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
 	if newSettings.PeerInactivityExpirationEnabled {
 		if oldSettings.PeerInactivityExpiration != newSettings.PeerInactivityExpiration {
-			oldSettings.PeerInactivityExpiration = newSettings.PeerInactivityExpiration
-
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerInactivityExpirationDurationUpdated, nil)
 			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
@@ -1846,8 +1869,8 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 
 // propagateUserGroupMemberships propagates all account users' group memberships to their peers.
 // Returns true if any groups were modified, true if those updates affect peers and an error.
-func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Context, accountID string) (groupsUpdated bool, peersAffected bool, err error) {
-	groups, err := am.Store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+func propagateUserGroupMemberships(ctx context.Context, transaction store.Store, accountID string) (groupsUpdated bool, peersAffected bool, err error) {
+	groups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return false, false, err
 	}
@@ -1857,7 +1880,7 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 		groupsMap[group.ID] = group
 	}
 
-	users, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
+	users, err := transaction.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return false, false, err
 	}
@@ -1865,7 +1888,7 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 	groupsToUpdate := make(map[string]*types.Group)
 
 	for _, user := range users {
-		userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthShare, accountID, user.Id)
+		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthShare, accountID, user.Id)
 		if err != nil {
 			return false, false, err
 		}
@@ -1885,12 +1908,12 @@ func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Conte
 		return false, false, nil
 	}
 
-	peersAffected, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, maps.Keys(groupsToUpdate))
+	peersAffected, err = areGroupChangesAffectPeers(ctx, transaction, accountID, maps.Keys(groupsToUpdate))
 	if err != nil {
 		return false, false, err
 	}
 
-	err = am.Store.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, maps.Values(groupsToUpdate))
+	err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, maps.Values(groupsToUpdate))
 	if err != nil {
 		return false, false, err
 	}
