@@ -224,19 +224,18 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[route.ID]
 }
 
 func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
+	subscription := c.statusRecorder.SubscribeToPeerStateChanges(ctx, peerKey)
+	defer c.statusRecorder.UnsubscribePeerStateChanges(subscription)
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-closer:
 			return
-		case <-c.statusRecorder.GetPeerStateChangeNotifier(peerKey):
-			state, err := c.statusRecorder.GetPeer(peerKey)
-			if err != nil {
-				continue
-			}
+		case <-subscription.Events():
 			peerStateUpdate <- struct{}{}
-			log.Debugf("triggered route state update for Peer %s, state: %s", peerKey, state.ConnStatus)
+			log.Debugf("triggered route state update for Peer: %s", peerKey)
 		}
 	}
 }
