@@ -269,7 +269,7 @@ func (m *Manager) determineRouting() error {
 
 		log.Info("userspace routing is forced")
 
-	case !m.netstack && m.nativeFirewall != nil && m.nativeFirewall.IsServerRouteSupported():
+	case !m.netstack && m.nativeFirewall != nil:
 		// if the OS supports routing natively, then we don't need to filter/route ourselves
 		// netstack mode won't support native routing as there is no interface
 
