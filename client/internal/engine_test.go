@@ -86,8 +86,8 @@ type MockWGIface struct {
 	UpdateAddrFunc             func(newAddr string) error
 	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
-	AddAllowedIPFunc           func(peerKey string, allowedIP string) error
-	RemoveAllowedIPFunc        func(peerKey string, allowedIP string) error
+	AddAllowedIPFunc           func(peerKey string, allowedIP netip.Prefix) error
+	RemoveAllowedIPFunc        func(peerKey string, allowedIP netip.Prefix) error
 	CloseFunc                  func() error
 	SetFilterFunc              func(filter device.PacketFilter) error
 	GetFilterFunc              func() device.PacketFilter
