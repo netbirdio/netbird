@@ -268,7 +268,7 @@ func (m *Manager) determineRouting() error {
 
 		log.Info("userspace routing is forced")
 
-	case !m.netstack && m.nativeFirewall != nil && m.nativeFirewall.IsServerRouteSupported():
+	case !m.netstack && m.nativeFirewall != nil:
 		// if the OS supports routing natively, then we don't need to filter/route ourselves
 		// netstack mode won't support native routing as there is no interface
 
@@ -323,6 +323,10 @@ func (m *Manager) Init(*statemanager.Manager) error {
 
 func (m *Manager) IsServerRouteSupported() bool {
 	return true
+}
+
+func (m *Manager) IsStateful() bool {
+	return m.stateful
 }
 
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
@@ -605,9 +609,8 @@ func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
 		return true
 	}
 
-	if m.stateful {
-		m.trackOutbound(d, srcIP, dstIP, size)
-	}
+	// for netflow we keep track even if the firewall is stateless
+	m.trackOutbound(d, srcIP, dstIP, size)
 
 	return false
 }

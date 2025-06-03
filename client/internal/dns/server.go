@@ -489,7 +489,7 @@ func (s *DefaultServer) applyHostConfig() {
 		}
 	}
 
-	log.Debugf("extra match domains: %v", s.extraDomains)
+	log.Debugf("extra match domains: %v", maps.Keys(s.extraDomains))
 
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)

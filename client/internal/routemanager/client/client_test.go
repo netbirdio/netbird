@@ -1,4 +1,4 @@
-package routemanager
+package client
 
 import (
 	"fmt"
@@ -395,7 +395,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 			}
 
 			// create new clientNetwork
-			client := &clientNetwork{
+			client := &Watcher{
 				handler:       static.NewRoute(&route.Route{Network: netip.MustParsePrefix("192.168.0.0/24")}, nil, nil),
 				routes:        tc.existingRoutes,
 				currentChosen: currentRoute,
