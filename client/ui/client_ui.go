@@ -1068,7 +1068,6 @@ func (s *serviceClient) updateConfig() error {
 		DisableNotifications:  &notificationsDisabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 		BlockInbound:          &blockInbound,
-		DisableNotifications:  &notificationsDisabled,
 	}
 
 	if err := s.restartClient(&loginRequest); err != nil {
