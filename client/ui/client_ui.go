@@ -89,13 +89,13 @@ func main() {
 	}
 
 	// Check for another running process.
-	running, err := process.IsAnotherProcessRunning()
+	pid, running, err := process.IsAnotherProcessRunning()
 	if err != nil {
 		log.Errorf("error while checking process: %v", err)
 		return
 	}
 	if running {
-		log.Warn("another process is running")
+		log.Warnf("another process is running with pid %d, exiting", pid)
 		return
 	}
 
@@ -236,9 +236,11 @@ type serviceClient struct {
 
 	eventManager *event.Manager
 
-	exitNodeMu     sync.Mutex
-	mExitNodeItems []menuHandler
-	logFile        string
+	exitNodeMu           sync.Mutex
+	mExitNodeItems       []menuHandler
+	exitNodeStates       []exitNodeState
+	mExitNodeDeselectAll *systray.MenuItem
+	logFile              string
 }
 
 type menuHandler struct {
@@ -753,6 +755,15 @@ func (s *serviceClient) listenEvents() {
 				s.mLazyConnEnabled.Uncheck()
 			} else {
 				s.mLazyConnEnabled.Check()
+			}
+			if err := s.updateConfig(); err != nil {
+				log.Errorf("failed to update config: %v", err)
+			}
+		case <-s.mBlockInbound.ClickedCh:
+			if s.mBlockInbound.Checked() {
+				s.mBlockInbound.Uncheck()
+			} else {
+				s.mBlockInbound.Check()
 			}
 			if err := s.updateConfig(); err != nil {
 				log.Errorf("failed to update config: %v", err)

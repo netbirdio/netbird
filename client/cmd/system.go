@@ -37,5 +37,6 @@ func init() {
 		"Block access to local networks (LAN) when using this peer as a router or exit node")
 
 	upCmd.PersistentFlags().BoolVar(&blockInbound, blockInboundFlag, false,
-		"Block inbound connections. If enabled, the client will not allow any inbound connections to the local machine nor routed networks.")
+		"Block inbound connections. If enabled, the client will not allow any inbound connections to the local machine nor routed networks.\n"+
+		"This overrides any policies received from the management service.")
 }

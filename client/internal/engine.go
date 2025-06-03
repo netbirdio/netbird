@@ -1000,6 +1000,15 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 	}
 
+	protoDNSConfig := networkMap.GetDNSConfig()
+	if protoDNSConfig == nil {
+		protoDNSConfig = &mgmProto.DNSConfig{}
+	}
+
+	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
+		log.Errorf("failed to update dns server, err: %v", err)
+	}
+
 	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
 
 	// apply routes first, route related actions might depend on routing being enabled
@@ -1066,15 +1075,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
 	excludedLazyPeers := e.toExcludedLazyPeers(routes, forwardingRules, networkMap.GetRemotePeers())
 	e.connMgr.SetExcludeList(excludedLazyPeers)
-
-	protoDNSConfig := networkMap.GetDNSConfig()
-	if protoDNSConfig == nil {
-		protoDNSConfig = &mgmProto.DNSConfig{}
-	}
-
-	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
-		log.Errorf("failed to update dns server, err: %v", err)
-	}
 
 	e.networkSerial = serial
 
@@ -1946,14 +1946,16 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 	return forwardingRules, nberrors.FormatErrorOrNil(merr)
 }
 
-func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) []string {
-	excludedPeers := make([]string, 0)
+func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) map[string]bool {
+	excludedPeers := make(map[string]bool)
 	for _, r := range routes {
 		if r.Peer == "" {
 			continue
 		}
-		log.Infof("exclude router peer from lazy connection: %s", r.Peer)
-		excludedPeers = append(excludedPeers, r.Peer)
+		if !excludedPeers[r.Peer] {
+			log.Infof("exclude router peer from lazy connection: %s", r.Peer)
+			excludedPeers[r.Peer] = true
+		}
 	}
 
 	for _, r := range rules {
@@ -1964,7 +1966,7 @@ func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallMana
 					continue
 				}
 				log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
-				excludedPeers = append(excludedPeers, p.GetWgPubKey())
+				excludedPeers[p.GetWgPubKey()] = true
 			}
 		}
 	}
