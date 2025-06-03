@@ -3302,3 +3302,96 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 		})
 	})
 }
+
+func TestPropagateUserGroupMemberships(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	initiatorId := "test-user"
+	domain := "example.com"
+
+	account, err := manager.GetOrCreateAccountByUser(ctx, initiatorId, domain)
+	require.NoError(t, err)
+
+	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId}
+	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer1)
+	require.NoError(t, err)
+
+	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, UserID: initiatorId}
+	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer2)
+	require.NoError(t, err)
+
+	t.Run("should skip propagation when the user has no groups", func(t *testing.T) {
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		require.NoError(t, err)
+		assert.False(t, groupsUpdated)
+		assert.False(t, groupChangesAffectPeers)
+	})
+
+	t.Run("should update membership but no account peers update for unused groups", func(t *testing.T) {
+		group1 := &types.Group{ID: "group1", Name: "Group 1", AccountID: account.Id}
+		require.NoError(t, manager.Store.SaveGroup(ctx, store.LockingStrengthUpdate, group1))
+
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
+		require.NoError(t, err)
+
+		user.AutoGroups = append(user.AutoGroups, group1.ID)
+		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		require.NoError(t, err)
+		assert.True(t, groupsUpdated)
+		assert.False(t, groupChangesAffectPeers)
+
+		group, err := manager.Store.GetGroupByID(ctx, store.LockingStrengthShare, account.Id, group1.ID)
+		require.NoError(t, err)
+		assert.Len(t, group.Peers, 2)
+		assert.Contains(t, group.Peers, "peer1")
+		assert.Contains(t, group.Peers, "peer2")
+	})
+
+	t.Run("should update membership and account peers for used groups", func(t *testing.T) {
+		group2 := &types.Group{ID: "group2", Name: "Group 2", AccountID: account.Id}
+		require.NoError(t, manager.Store.SaveGroup(ctx, store.LockingStrengthUpdate, group2))
+
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
+		require.NoError(t, err)
+
+		user.AutoGroups = append(user.AutoGroups, group2.ID)
+		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+
+		_, err = manager.SavePolicy(context.Background(), account.Id, initiatorId, &types.Policy{
+			Name:      "Group1 Policy",
+			AccountID: account.Id,
+			Enabled:   true,
+			Rules: []*types.PolicyRule{
+				{
+					Enabled:       true,
+					Sources:       []string{"group1"},
+					Destinations:  []string{"group2"},
+					Bidirectional: true,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
+		}, true)
+		require.NoError(t, err)
+
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		require.NoError(t, err)
+		assert.True(t, groupsUpdated)
+		assert.True(t, groupChangesAffectPeers)
+
+		group, err := manager.Store.GetGroupByID(ctx, store.LockingStrengthShare, account.Id, "group1")
+		require.NoError(t, err)
+		assert.Len(t, group.Peers, 2)
+		assert.Contains(t, group.Peers, "peer1")
+		assert.Contains(t, group.Peers, "peer2")
+
+		group, err = manager.Store.GetGroupByID(ctx, store.LockingStrengthShare, account.Id, "group2")
+		require.NoError(t, err)
+		assert.Len(t, group.Peers, 2)
+		assert.Contains(t, group.Peers, "peer1")
+		assert.Contains(t, group.Peers, "peer2")
+	})
+}
