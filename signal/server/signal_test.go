@@ -116,7 +116,7 @@ func BenchmarkConnectStream(b *testing.B) {
 		}()
 
 		b.StartTimer()
-		fn(mockStream)
+		_ = fn(mockStream)
 	}
 	b.Run("old", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {

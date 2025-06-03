@@ -130,7 +130,7 @@ func TestRegistry_MultipleRegister_Concurrency(t *testing.T) {
 
 			_, cancel := context.WithCancel(context.Background())
 			peer := NewPeerPool(peerID, nil, cancel)
-			registry.RegisterPool(peer)
+			_ = registry.RegisterPool(peer)
 			ids <- peer.StreamID
 		}(i)
 	}
@@ -183,7 +183,7 @@ func Benchmark_MultipleRegister_Concurrency(b *testing.B) {
 					defer wg.Done()
 
 					peer := NewPeerPool(peerID, nil, cancel)
-					registry.RegisterPool(peer)
+					_ = registry.RegisterPool(peer)
 				}(i)
 			}
 			wg.Wait()
@@ -210,7 +210,7 @@ func TestRegistry_MultipleDeregister_Concurrency(t *testing.T) {
 
 			_, cancel := context.WithCancel(context.Background())
 			peer := NewPeerPool(peerID, nil, cancel)
-			registry.RegisterPool(peer)
+			_ = registry.RegisterPool(peer)
 			ids <- peer.StreamID
 			registry.DeregisterPool(peer)
 		}(i)
@@ -265,7 +265,7 @@ func Benchmark_MultipleDeregister_Concurrency(b *testing.B) {
 					defer wg.Done()
 
 					peer := NewPeerPool(peerID, nil, cancel)
-					registry.RegisterPool(peer)
+					_ = registry.RegisterPool(peer)
 					time.Sleep(time.Nanosecond)
 					registry.DeregisterPool(peer)
 				}(i)
