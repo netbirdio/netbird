@@ -161,7 +161,7 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 			return peerKey, m.wgInterface.AddAllowedIP(peerKey, prefix)
 		},
 		func(prefix netip.Prefix, peerKey string) error {
-			if err := m.wgInterface.RemoveAllowedIP(peerKey, prefix.String()); err != nil {
+			if err := m.wgInterface.RemoveAllowedIP(peerKey, prefix); err != nil {
 				if !errors.Is(err, configurer.ErrPeerNotFound) && !errors.Is(err, configurer.ErrAllowedIPNotFound) {
 					return err
 				}

@@ -10,7 +10,7 @@ import (
 
 type wgIfaceBase interface {
 	AddAllowedIP(peerKey string, allowedIP netip.Prefix) error
-	RemoveAllowedIP(peerKey string, allowedIP string) error
+	RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error
 
 	Name() string
 	Address() wgaddr.Address

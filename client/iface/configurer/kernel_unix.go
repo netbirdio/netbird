@@ -5,6 +5,7 @@ package configurer
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -43,7 +44,7 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 	return nil
 }
 
-func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -52,7 +53,7 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, ke
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: false,
 		// don't replace allowed ips, wg will handle duplicated peer IP
-		AllowedIPs:                  allowedIps,
+		AllowedIPs:                  prefixesToIPNets(allowedIps),
 		PersistentKeepaliveInterval: &keepAlive,
 		Endpoint:                    endpoint,
 		PresharedKey:                preSharedKey,
@@ -89,10 +90,10 @@ func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	return nil
 }
 
-func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
-	_, ipNet, err := net.ParseCIDR(allowedIP)
-	if err != nil {
-		return err
+func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
+	ipNet := net.IPNet{
+		IP:   allowedIP.Addr().AsSlice(),
+		Mask: net.CIDRMask(allowedIP.Bits(), allowedIP.Addr().BitLen()),
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
@@ -103,7 +104,7 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error 
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: false,
-		AllowedIPs:        []net.IPNet{*ipNet},
+		AllowedIPs:        []net.IPNet{ipNet},
 	}
 
 	config := wgtypes.Config{
@@ -116,10 +117,10 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error 
 	return nil
 }
 
-func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP string) error {
-	_, ipNet, err := net.ParseCIDR(allowedIP)
-	if err != nil {
-		return fmt.Errorf("parse allowed IP: %w", err)
+func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
+	ipNet := net.IPNet{
+		IP:   allowedIP.Addr().AsSlice(),
+		Mask: net.CIDRMask(allowedIP.Bits(), allowedIP.Addr().BitLen()),
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
@@ -187,7 +188,11 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 	if err != nil {
 		return err
 	}
-	defer wg.Close()
+	defer func() {
+		if err := wg.Close(); err != nil {
+			log.Errorf("Failed to close wgctrl client: %v", err)
+		}
+	}()
 
 	// validate if device with name exists
 	_, err = wg.Device(c.deviceName)

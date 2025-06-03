@@ -111,14 +111,14 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
-// Endpoint is optional
+// Endpoint is optional.
+// If allowedIps is given it will be added to the existing ones.
 func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	netIPNets := prefixesToIPNets(allowedIps)
 	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
-	return w.configurer.UpdatePeer(peerKey, netIPNets, keepAlive, endpoint, preSharedKey)
+	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface
@@ -140,7 +140,7 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 }
 
 // RemoveAllowedIP removes a prefix from the allowed IPs list of peer
-func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
+func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -250,15 +250,4 @@ func (w *WGIface) GetNet() *netstack.Net {
 	defer w.mu.Unlock()
 
 	return w.tun.GetNet()
-}
-
-func prefixesToIPNets(prefixes []netip.Prefix) []net.IPNet {
-	ipNets := make([]net.IPNet, len(prefixes))
-	for i, prefix := range prefixes {
-		ipNets[i] = net.IPNet{
-			IP:   net.IP(prefix.Addr().AsSlice()),                     // Convert netip.Addr to net.IP
-			Mask: net.CIDRMask(prefix.Bits(), prefix.Addr().BitLen()), // Create subnet mask
-		}
-	}
-	return ipNets
 }
