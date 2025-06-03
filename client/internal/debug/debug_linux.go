@@ -4,16 +4,105 @@ package debug
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	log "github.com/sirupsen/logrus"
 )
+
+const (
+	maxLogEntries = 10000
+	maxLogAge     = 7 * 24 * time.Hour // Last 7 days
+)
+
+// trySystemdLogFallback attempts to get logs from systemd journal as fallback
+func (g *BundleGenerator) trySystemdLogFallback() error {
+	log.Debug("Attempting to collect systemd journal logs")
+
+	serviceName := getServiceName()
+	journalLogs, err := getSystemdLogs(serviceName)
+	if err != nil {
+		return fmt.Errorf("get systemd logs for %s: %w", serviceName, err)
+	}
+
+	if strings.Contains(journalLogs, "No recent log entries found") {
+		log.Debug("No recent log entries found in systemd journal")
+		return nil
+	}
+
+	if g.anonymize {
+		journalLogs = g.anonymizer.AnonymizeString(journalLogs)
+	}
+
+	logReader := strings.NewReader(journalLogs)
+	fileName := fmt.Sprintf("systemd-%s.log", serviceName)
+	if err := g.addFileToZip(logReader, fileName); err != nil {
+		return fmt.Errorf("add systemd logs to bundle: %w", err)
+	}
+
+	log.Infof("Added systemd journal logs for %s to debug bundle", serviceName)
+	return nil
+}
+
+// getServiceName gets the service name from environment or defaults to netbird
+func getServiceName() string {
+	if unitName := os.Getenv("SYSTEMD_UNIT"); unitName != "" {
+		if strings.HasSuffix(unitName, ".service") {
+			return strings.TrimSuffix(unitName, ".service")
+		}
+		return unitName
+	}
+
+	return "netbird"
+}
+
+// getSystemdLogs retrieves logs from systemd journal for a specific service using journalctl
+func getSystemdLogs(serviceName string) (string, error) {
+	args := []string{
+		"-u", fmt.Sprintf("%s.service", serviceName),
+		"--since", fmt.Sprintf("-%s", maxLogAge.String()),
+		"--lines", fmt.Sprintf("%d", maxLogEntries),
+		"--no-pager",
+		"--output", "short-iso",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "journalctl", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("journalctl command timed out after 30 seconds")
+		}
+		if strings.Contains(err.Error(), "executable file not found") {
+			return "", fmt.Errorf("journalctl command not found: %w", err)
+		}
+		return "", fmt.Errorf("execute journalctl: %w (stderr: %s)", err, stderr.String())
+	}
+
+	logs := stdout.String()
+	if strings.TrimSpace(logs) == "" {
+		return "No recent log entries found in systemd journal", nil
+	}
+
+	header := fmt.Sprintf("=== Systemd Journal Logs for %s.service (last %d entries, max %s) ===\n",
+		serviceName, maxLogEntries, maxLogAge.String())
+
+	return header + logs, nil
+}
 
 // addFirewallRules collects and adds firewall rules to the archive
 func (g *BundleGenerator) addFirewallRules() error {
@@ -481,7 +570,7 @@ func formatExpr(exp expr.Any) string {
 	case *expr.Fib:
 		return formatFib(e)
 	case *expr.Target:
-		return fmt.Sprintf("jump %s", e.Name) // Properly format jump targets
+		return fmt.Sprintf("jump %s", e.Name)
 	case *expr.Immediate:
 		if e.Register == 1 {
 			return formatImmediateData(e.Data)
