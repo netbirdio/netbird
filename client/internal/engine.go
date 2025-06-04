@@ -1104,7 +1104,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
-			Network:     prefix,
+			Network:     prefix.Masked(),
 			Domains:     domain.FromPunycodeList(protoRoute.Domains),
 			NetID:       route.NetID(protoRoute.NetID),
 			NetworkType: route.NetworkType(protoRoute.NetworkType),
