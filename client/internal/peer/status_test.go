@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -42,15 +43,15 @@ func TestGetPeer(t *testing.T) {
 func TestUpdatePeerState(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
+	fqdn := "peer-a.netbird.local"
 	status := NewRecorder("https://mgm")
+	_ = status.AddPeer(key, fqdn, ip)
+
 	peerState := State{
-		PubKey: key,
-		Mux:    new(sync.RWMutex),
+		PubKey:           key,
+		ConnStatusUpdate: time.Now(),
+		ConnStatus:       StatusConnecting,
 	}
-
-	status.peers[key] = peerState
-
-	peerState.IP = ip
 
 	err := status.UpdatePeerState(peerState)
 	assert.NoError(t, err, "shouldn't return error")
@@ -83,17 +84,17 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
 	status := NewRecorder("https://mgm")
-	peerState := State{
-		PubKey: key,
-		Mux:    new(sync.RWMutex),
-	}
-
-	status.peers[key] = peerState
+	_ = status.AddPeer(key, "abc.netbird", ip)
 
 	ch := status.GetPeerStateChangeNotifier(key)
 	assert.NotNil(t, ch, "channel shouldn't be nil")
 
-	peerState.IP = ip
+	peerState := State{
+		PubKey:           key,
+		ConnStatus:       StatusConnecting,
+		Relayed:          false,
+		ConnStatusUpdate: time.Now(),
+	}
 
 	err := status.UpdatePeerRelayedStateToDisconnected(peerState)
 	assert.NoError(t, err, "shouldn't return error")

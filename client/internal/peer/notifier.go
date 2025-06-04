@@ -18,6 +18,8 @@ type notifier struct {
 	currentClientState bool
 	lastNotification   int
 	lastNumberOfPeers  int
+	lastFqdnAddress    string
+	lastIPAddress      string
 }
 
 func newNotifier() *notifier {
@@ -25,15 +27,22 @@ func newNotifier() *notifier {
 }
 
 func (n *notifier) setListener(listener Listener) {
+	n.serverStateLock.Lock()
+	lastNotification := n.lastNotification
+	numOfPeers := n.lastNumberOfPeers
+	fqdnAddress := n.lastFqdnAddress
+	address := n.lastIPAddress
+	n.serverStateLock.Unlock()
+
 	n.listenersLock.Lock()
 	defer n.listenersLock.Unlock()
 
-	n.serverStateLock.Lock()
-	n.notifyListener(listener, n.lastNotification)
-	listener.OnPeersListChanged(n.lastNumberOfPeers)
-	n.serverStateLock.Unlock()
-
 	n.listener = listener
+
+	listener.OnAddressChanged(fqdnAddress, address)
+	notifyListener(listener, lastNotification)
+	// run on go routine to avoid on Java layer to call go functions on same thread
+	go listener.OnPeersListChanged(numOfPeers)
 }
 
 func (n *notifier) removeListener() {
@@ -44,41 +53,44 @@ func (n *notifier) removeListener() {
 
 func (n *notifier) updateServerStates(mgmState bool, signalState bool) {
 	n.serverStateLock.Lock()
-	defer n.serverStateLock.Unlock()
-
 	calculatedState := n.calculateState(mgmState, signalState)
 
 	if !n.isServerStateChanged(calculatedState) {
+		n.serverStateLock.Unlock()
 		return
 	}
 
 	n.lastNotification = calculatedState
+	n.serverStateLock.Unlock()
 
-	n.notify(n.lastNotification)
+	n.notify(calculatedState)
 }
 
 func (n *notifier) clientStart() {
 	n.serverStateLock.Lock()
-	defer n.serverStateLock.Unlock()
 	n.currentClientState = true
 	n.lastNotification = stateConnecting
-	n.notify(n.lastNotification)
+	n.serverStateLock.Unlock()
+
+	n.notify(stateConnecting)
 }
 
 func (n *notifier) clientStop() {
 	n.serverStateLock.Lock()
-	defer n.serverStateLock.Unlock()
 	n.currentClientState = false
 	n.lastNotification = stateDisconnected
-	n.notify(n.lastNotification)
+	n.serverStateLock.Unlock()
+
+	n.notify(stateDisconnected)
 }
 
 func (n *notifier) clientTearDown() {
 	n.serverStateLock.Lock()
-	defer n.serverStateLock.Unlock()
 	n.currentClientState = false
 	n.lastNotification = stateDisconnecting
-	n.notify(n.lastNotification)
+	n.serverStateLock.Unlock()
+
+	n.notify(stateDisconnecting)
 }
 
 func (n *notifier) isServerStateChanged(newState int) bool {
@@ -87,26 +99,14 @@ func (n *notifier) isServerStateChanged(newState int) bool {
 
 func (n *notifier) notify(state int) {
 	n.listenersLock.Lock()
-	defer n.listenersLock.Unlock()
-	if n.listener == nil {
+	listener := n.listener
+	n.listenersLock.Unlock()
+
+	if listener == nil {
 		return
 	}
-	n.notifyListener(n.listener, state)
-}
 
-func (n *notifier) notifyListener(l Listener, state int) {
-	go func() {
-		switch state {
-		case stateDisconnected:
-			l.OnDisconnected()
-		case stateConnected:
-			l.OnConnected()
-		case stateConnecting:
-			l.OnConnecting()
-		case stateDisconnecting:
-			l.OnDisconnecting()
-		}
-	}()
+	notifyListener(listener, state)
 }
 
 func (n *notifier) calculateState(managementConn, signalConn bool) int {
@@ -126,20 +126,48 @@ func (n *notifier) calculateState(managementConn, signalConn bool) int {
 }
 
 func (n *notifier) peerListChanged(numOfPeers int) {
+	n.serverStateLock.Lock()
 	n.lastNumberOfPeers = numOfPeers
+	n.serverStateLock.Unlock()
+
 	n.listenersLock.Lock()
-	defer n.listenersLock.Unlock()
-	if n.listener == nil {
+	listener := n.listener
+	n.listenersLock.Unlock()
+
+	if listener == nil {
 		return
 	}
-	n.listener.OnPeersListChanged(numOfPeers)
+
+	// run on go routine to avoid on Java layer to call go functions on same thread
+	go listener.OnPeersListChanged(numOfPeers)
 }
 
 func (n *notifier) localAddressChanged(fqdn, address string) {
+	n.serverStateLock.Lock()
+	n.lastFqdnAddress = fqdn
+	n.lastIPAddress = address
+	n.serverStateLock.Unlock()
+
 	n.listenersLock.Lock()
-	defer n.listenersLock.Unlock()
-	if n.listener == nil {
+	listener := n.listener
+	n.listenersLock.Unlock()
+
+	if listener == nil {
 		return
 	}
-	n.listener.OnAddressChanged(fqdn, address)
+
+	listener.OnAddressChanged(fqdn, address)
+}
+
+func notifyListener(l Listener, state int) {
+	switch state {
+	case stateDisconnected:
+		l.OnDisconnected()
+	case stateConnected:
+		l.OnConnected()
+	case stateConnecting:
+		l.OnConnecting()
+	case stateDisconnecting:
+		l.OnDisconnecting()
+	}
 }
