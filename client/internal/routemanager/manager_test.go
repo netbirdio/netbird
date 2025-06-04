@@ -440,11 +440,11 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			}
 
 			if len(testCase.inputInitRoutes) > 0 {
-				_ = routeManager.UpdateRoutes(testCase.inputSerial, testCase.inputRoutes, false)
+				err = routeManager.UpdateRoutes(testCase.inputSerial, testCase.inputRoutes, false)
 				require.NoError(t, err, "should update routes with init routes")
 			}
 
-			_ = routeManager.UpdateRoutes(testCase.inputSerial+uint64(len(testCase.inputInitRoutes)), testCase.inputRoutes, false)
+			err = routeManager.UpdateRoutes(testCase.inputSerial+uint64(len(testCase.inputInitRoutes)), testCase.inputRoutes, false)
 			require.NoError(t, err, "should update routes")
 
 			expectedWatchers := testCase.clientNetworkWatchersExpected
