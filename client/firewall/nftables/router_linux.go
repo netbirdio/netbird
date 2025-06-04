@@ -573,10 +573,6 @@ func (r *router) deleteNftRule(rule *nftables.Rule, ruleKey string) error {
 
 // AddNatRule appends a nftables rule pair to the nat chain
 func (r *router) AddNatRule(pair firewall.RouterPair) error {
-	if err := r.ipFwdState.RequestForwarding(); err != nil {
-		return err
-	}
-
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
@@ -1006,10 +1002,6 @@ func (r *router) removeAcceptForwardRulesIptables(ipt *iptables.IPTables) error 
 
 // RemoveNatRule removes the prerouting mark rule
 func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
-	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
-		log.Errorf("%v", err)
-	}
-
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}

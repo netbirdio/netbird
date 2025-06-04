@@ -86,6 +86,7 @@ func NewWithBearerToken(managementURL, token string) *Client {
 	)
 }
 
+// NewWithOptions initialize new Client instance with options
 func NewWithOptions(opts ...option) *Client {
 	client := &Client{
 		httpClient: http.DefaultClient,
@@ -115,6 +116,7 @@ func (c *Client) initialize() {
 	c.Events = &EventsAPI{c}
 }
 
+// NewRequest creates and executes new management API request
 func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.managementURL+path, body)
 	if err != nil {

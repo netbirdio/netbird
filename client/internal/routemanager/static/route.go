@@ -24,19 +24,22 @@ func NewRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allo
 	}
 }
 
-// Route route methods
 func (r *Route) String() string {
 	return r.route.Network.String()
 }
 
 func (r *Route) AddRoute(context.Context) error {
-	_, err := r.routeRefCounter.Increment(r.route.Network, struct{}{})
-	return err
+	if _, err := r.routeRefCounter.Increment(r.route.Network, struct{}{}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Route) RemoveRoute() error {
-	_, err := r.routeRefCounter.Decrement(r.route.Network)
-	return err
+	if _, err := r.routeRefCounter.Decrement(r.route.Network); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Route) AddAllowedIPs(peerKey string) error {
@@ -52,6 +55,8 @@ func (r *Route) AddAllowedIPs(peerKey string) error {
 }
 
 func (r *Route) RemoveAllowedIPs() error {
-	_, err := r.allowedIPsRefcounter.Decrement(r.route.Network)
-	return err
+	if _, err := r.allowedIPsRefcounter.Decrement(r.route.Network); err != nil {
+		return err
+	}
+	return nil
 }
