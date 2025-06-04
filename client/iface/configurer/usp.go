@@ -501,7 +501,6 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 			currentPeer.LastHandshake = ts
 		}
 	}
-
 	if currentPeer != nil {
 		stats.Peers = append(stats.Peers, *currentPeer)
 	}
