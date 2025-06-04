@@ -99,6 +99,10 @@ type MockWGIface struct {
 	GetNetFunc                 func() *netstack.Net
 }
 
+func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
 	return m.GetInterfaceGUIDStringFunc()
 }
