@@ -143,11 +143,10 @@ func (am *DefaultAccountManager) getEventsUserInfo(ctx context.Context, events [
 		return eventUserInfos, nil
 	}
 
-	return am.getEventsExternalUserInfo(ctx, externalUserIds, eventUserInfos, userId)
+	return am.getEventsExternalUserInfo(ctx, externalUserIds, eventUserInfos)
 }
 
-func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, externalUserIds []string, eventUserInfos map[string]eventUserInfo, userId string) (map[string]eventUserInfo, error) {
-	externalAccountId := ""
+func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, externalUserIds []string, eventUserInfos map[string]eventUserInfo) (map[string]eventUserInfo, error) {
 	fetched := make(map[string]struct{})
 	externalUsers := []*types.User{}
 	for _, id := range externalUserIds {
@@ -161,34 +160,30 @@ func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, 
 			continue
 		}
 
-		if externalAccountId != "" && externalAccountId != externalUser.AccountID {
-			return nil, fmt.Errorf("multiple external user accounts in events")
-		}
-
-		if externalAccountId == "" {
-			externalAccountId = externalUser.AccountID
-		}
-
 		fetched[id] = struct{}{}
 		externalUsers = append(externalUsers, externalUser)
 	}
 
-	// if we couldn't determine an account, return what we have
-	if externalAccountId == "" {
-		log.WithContext(ctx).Warnf("failed to determine external user account from users: %v", externalUserIds)
-		return eventUserInfos, nil
+	usersByExternalAccount := map[string][]*types.User{}
+	for _, u := range externalUsers {
+		if _, ok := usersByExternalAccount[u.AccountID]; !ok {
+			usersByExternalAccount[u.AccountID] = make([]*types.User, 0)
+		}
+		usersByExternalAccount[u.AccountID] = append(usersByExternalAccount[u.AccountID], u)
 	}
 
-	externalUserInfos, err := am.BuildUserInfosForAccount(ctx, externalAccountId, userId, externalUsers)
-	if err != nil {
-		return nil, err
-	}
+	for externalAccountId, externalUsers := range usersByExternalAccount {
+		externalUserInfos, err := am.BuildUserInfosForAccount(ctx, externalAccountId, "", externalUsers)
+		if err != nil {
+			return nil, err
+		}
 
-	for i, k := range externalUserInfos {
-		eventUserInfos[i] = eventUserInfo{
-			email:     k.Email,
-			name:      k.Name,
-			accountId: externalAccountId,
+		for i, k := range externalUserInfos {
+			eventUserInfos[i] = eventUserInfo{
+				email:     k.Email,
+				name:      k.Name,
+				accountId: externalAccountId,
+			}
 		}
 	}
 
