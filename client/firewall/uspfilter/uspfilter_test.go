@@ -271,11 +271,8 @@ func TestNotMatchByIP(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("100.10.0.100"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("100.10.0.0"),
-					Mask: net.CIDRMask(16, 32),
-				},
+				IP:      netip.MustParseAddr("100.10.0.100"),
+				Network: netip.MustParsePrefix("100.10.0.0/16"),
 			}
 		},
 	}
@@ -284,10 +281,6 @@ func TestNotMatchByIP(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
-	}
-	m.wgNetwork = &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
 	}
 
 	ip := net.ParseIP("0.0.0.0")
@@ -396,10 +389,6 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	}, false, flowLogger)
 	require.NoError(t, err)
 
-	manager.wgNetwork = &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
-	}
 	manager.udpTracker.Close()
 	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger, flowLogger)
 	defer func() {
@@ -508,11 +497,6 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}, false, flowLogger)
 	require.NoError(t, err)
-
-	manager.wgNetwork = &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
-	}
 
 	manager.udpTracker.Close() // Close the existing tracker
 	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger, flowLogger)
