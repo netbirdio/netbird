@@ -22,7 +22,7 @@ func (g *BundleGenerator) addWgShow() error {
 	output := g.toWGShowFormat(result)
 	reader := bytes.NewReader([]byte(output))
 
-	if err := g.addFileToZip(reader, "wgshow.json"); err != nil {
+	if err := g.addFileToZip(reader, "wgshow.txt"); err != nil {
 		return fmt.Errorf("add wg show to zip: %w", err)
 	}
 	return nil
