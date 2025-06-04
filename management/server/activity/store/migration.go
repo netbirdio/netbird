@@ -1,4 +1,4 @@
-package sqlite
+package store
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/migration"
@@ -132,11 +133,6 @@ func migrateDuplicateDeletedUsers(ctx context.Context, db *gorm.DB) error {
 	}
 
 	if err = db.Transaction(func(tx *gorm.DB) error {
-		groupById := tx.Model(model).Select("MAX(rowid)").Group("id")
-		if err = tx.Delete(model, "rowid NOT IN (?)", groupById).Error; err != nil {
-			return err
-		}
-
 		if err = tx.Migrator().RenameTable("deleted_users", "deleted_users_old"); err != nil {
 			return err
 		}
@@ -145,10 +141,18 @@ func migrateDuplicateDeletedUsers(ctx context.Context, db *gorm.DB) error {
 			return err
 		}
 
-		if err = tx.Exec(`
-            INSERT INTO deleted_users (id, email, name, enc_algo) SELECT id, email, name, enc_algo
-              FROM deleted_users_old;`).Error; err != nil {
+		var deletedUsers []activity.DeletedUser
+		if err = tx.Table("deleted_users_old").Find(&deletedUsers).Error; err != nil {
 			return err
+		}
+
+		for _, deletedUser := range deletedUsers {
+			if err = tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "id"}},
+				DoUpdates: clause.AssignmentColumns([]string{"email", "name", "enc_algo"}),
+			}).Create(&deletedUser).Error; err != nil {
+				return err
+			}
 		}
 
 		return tx.Migrator().DropTable("deleted_users_old")
