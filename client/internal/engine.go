@@ -1008,7 +1008,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	// apply routes first, route related actions might depend on routing being enabled
 	routes := toRoutes(networkMap.GetRoutes())
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
-		log.Errorf("failed to update clientRoutes, err: %v", err)
+		log.Errorf("failed to update routes: %v", err)
 	}
 
 	if e.acl != nil {
