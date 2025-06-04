@@ -5,7 +5,6 @@
 package mocks
 
 import (
-	net "net"
 	"net/netip"
 	reflect "reflect"
 
@@ -89,16 +88,4 @@ func (m *MockPacketFilter) RemovePacketHook(arg0 string) error {
 func (mr *MockPacketFilterMockRecorder) RemovePacketHook(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemovePacketHook", reflect.TypeOf((*MockPacketFilter)(nil).RemovePacketHook), arg0)
-}
-
-// SetNetwork mocks base method.
-func (m *MockPacketFilter) SetNetwork(arg0 *net.IPNet) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetNetwork", arg0)
-}
-
-// SetNetwork indicates an expected call of SetNetwork.
-func (mr *MockPacketFilterMockRecorder) SetNetwork(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNetwork", reflect.TypeOf((*MockPacketFilter)(nil).SetNetwork), arg0)
 }

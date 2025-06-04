@@ -71,7 +71,6 @@ type Manager struct {
 	// incomingRules is used for filtering and hooks
 	incomingRules  map[netip.Addr]RuleSet
 	routeRules     RouteRules
-	wgNetwork      *net.IPNet
 	decoders       sync.Pool
 	wgIface        common.IFaceMapper
 	nativeFirewall firewall.Manager
@@ -1089,11 +1088,6 @@ func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, prot
 	}
 
 	return true
-}
-
-// SetNetwork of the wireguard interface to which filtering applied
-func (m *Manager) SetNetwork(network *net.IPNet) {
-	m.wgNetwork = network
 }
 
 // AddUDPPacketHook calls hook when UDP packet from given direction matched

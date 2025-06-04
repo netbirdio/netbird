@@ -185,7 +185,6 @@ func (w *WGIface) SetFilter(filter device.PacketFilter) error {
 	}
 
 	w.filter = filter
-	w.filter.SetNetwork(w.tun.WgAddress().Network)
 
 	w.tun.FilteredDevice().SetFilter(filter)
 	return nil
