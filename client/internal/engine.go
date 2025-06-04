@@ -381,7 +381,6 @@ func (e *Engine) Start() error {
 			return fmt.Errorf("run rosenpass manager: %w", err)
 		}
 	}
-
 	e.stateManager.Start()
 
 	initialRoutes, dnsServer, err := e.newDnsServer()
