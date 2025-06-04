@@ -12,6 +12,7 @@ type Peer struct {
 	TxBytes       int64
 	RxBytes       int64
 	LastHandshake time.Time
+	PresharedKey  bool
 }
 
 type Stats struct {

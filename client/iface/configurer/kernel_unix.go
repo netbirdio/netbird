@@ -12,6 +12,8 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+var zeroKey wgtypes.Key
+
 type KernelConfigurer struct {
 	deviceName string
 }
@@ -232,6 +234,7 @@ func (c *KernelConfigurer) FullStats() (*Stats, error) {
 			TxBytes:       p.TransmitBytes,
 			RxBytes:       p.ReceiveBytes,
 			LastHandshake: p.LastHandshakeTime,
+			PresharedKey:  p.PresharedKey != zeroKey,
 		}
 		if p.Endpoint != nil {
 			peer.Endpoint = *p.Endpoint

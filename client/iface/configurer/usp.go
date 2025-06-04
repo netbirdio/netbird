@@ -29,6 +29,7 @@ const (
 	fwmark                      = "fwmark"
 	listenPort                  = "listen_port"
 	publicKey                   = "public_key"
+	presharedKey                = "preshared_key"
 )
 
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
@@ -499,6 +500,13 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				continue
 			}
 			currentPeer.LastHandshake = ts
+		case presharedKey:
+			if currentPeer == nil {
+				continue
+			}
+			if val != "" {
+				currentPeer.PresharedKey = true
+			}
 		}
 	}
 	if currentPeer != nil {
