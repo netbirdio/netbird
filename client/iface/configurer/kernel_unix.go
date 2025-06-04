@@ -201,6 +201,46 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 func (c *KernelConfigurer) Close() {
 }
 
+func (c *KernelConfigurer) FullStats() (*Stats, error) {
+	wg, err := wgctrl.New()
+	if err != nil {
+		return nil, fmt.Errorf("wgctl: %w", err)
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			log.Errorf("Got error while closing wgctl: %v", err)
+		}
+	}()
+
+	wgDevice, err := wg.Device(c.deviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
+	}
+	fullStats := &Stats{
+		DeviceName: wgDevice.Name,
+		PublicKey:  wgDevice.PublicKey.String(),
+		ListenPort: wgDevice.ListenPort,
+		FWMark:     wgDevice.FirewallMark,
+		Peers:      []Peer{},
+	}
+
+	for _, p := range wgDevice.Peers {
+		peer := Peer{
+			PublicKey:     p.PublicKey.String(),
+			AllowedIPs:    p.AllowedIPs,
+			TxBytes:       p.TransmitBytes,
+			RxBytes:       p.ReceiveBytes,
+			LastHandshake: p.LastHandshakeTime,
+		}
+		if p.Endpoint != nil {
+			peer.Endpoint = *p.Endpoint
+		}
+		fullStats.Peers = append(fullStats.Peers, peer)
+	}
+	return fullStats, nil
+}
+
 func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
 	stats := make(map[string]WGStats)
 	wg, err := wgctrl.New()

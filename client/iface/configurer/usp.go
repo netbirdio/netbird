@@ -186,6 +186,15 @@ func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
+func (c *WGUSPConfigurer) FullStats() (*Stats, error) {
+	ipcStr, err := c.device.IpcGet()
+	if err != nil {
+		return nil, fmt.Errorf("IpcGet failed: %w", err)
+	}
+
+	return parseStatus(c.deviceName, ipcStr)
+}
+
 // startUAPI starts the UAPI listener for managing the WireGuard interface via external tool
 func (t *WGUSPConfigurer) startUAPI() {
 	var err error
@@ -364,4 +373,102 @@ func getFwmark() int {
 		return nbnet.ControlPlaneMark
 	}
 	return 0
+}
+
+func parseStatus(deviceName, ipcStr string) (*Stats, error) {
+	lines := strings.Split(strings.TrimSpace(ipcStr), "\n")
+	stats := &Stats{
+		DeviceName: deviceName,
+	}
+	var currentPeer *Peer
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		val := parts[1]
+
+		switch key {
+		case "public_key":
+			if stats.PublicKey == "" {
+				stats.PublicKey = val
+			} else {
+				// Save previous peer
+				if currentPeer != nil {
+					stats.Peers = append(stats.Peers, *currentPeer)
+				}
+				currentPeer = &Peer{PublicKey: val}
+			}
+		case "listen_port":
+			if port, err := strconv.Atoi(val); err == nil {
+				stats.ListenPort = port
+			}
+		case "fwmark":
+			if fwmark, err := strconv.Atoi(val); err == nil {
+				stats.FWMark = fwmark
+			}
+		case "endpoint":
+			if currentPeer != nil {
+				continue
+			}
+
+			host, portStr, err := net.SplitHostPort(strings.Trim(val, "[]"))
+			if err == nil {
+				port, _ := strconv.Atoi(portStr)
+				currentPeer.Endpoint = net.UDPAddr{
+					IP:   net.ParseIP(host),
+					Port: port,
+				}
+			}
+		case "allowed_ip":
+			if currentPeer == nil {
+				continue
+			}
+			_, ipnet, err := net.ParseCIDR(val)
+			if err == nil {
+				currentPeer.AllowedIPs = append(currentPeer.AllowedIPs, *ipnet)
+			}
+		case "tx_bytes":
+			if currentPeer == nil {
+				continue
+			}
+			rxBytes, err := toBytes(val)
+			if err != nil {
+				continue
+			}
+			currentPeer.TxBytes = rxBytes
+		case "rx_bytes":
+			if currentPeer == nil {
+				continue
+			}
+			rxBytes, err := toBytes(val)
+			if err != nil {
+				continue
+			}
+			currentPeer.RxBytes = rxBytes
+
+		case "latest_handshake":
+			if currentPeer == nil {
+				continue
+			}
+
+			ts, err := toLastHandshake(val)
+			if err != nil {
+				continue
+			}
+			currentPeer.LastHandshake = ts
+		}
+	}
+
+	if currentPeer != nil {
+		stats.Peers = append(stats.Peers, *currentPeer)
+	}
+
+	return stats, nil
 }
