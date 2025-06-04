@@ -9,15 +9,12 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 )
 
-type iFace interface {
+type WGIface interface {
 	FullStats() (*configurer.Stats, error)
 }
 
 func (g *BundleGenerator) addWgShow() error {
-	// todo figure out how can I get iFace
-	var iface iFace
-
-	result, err := iface.FullStats()
+	result, err := g.statusRecorder.PeersStatus()
 	if err != nil {
 		return err
 	}

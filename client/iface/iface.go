@@ -217,6 +217,10 @@ func (w *WGIface) GetStats() (map[string]configurer.WGStats, error) {
 	return w.configurer.GetStats()
 }
 
+func (w *WGIface) FullStats() (*configurer.Stats, error) {
+	return w.configurer.FullStats()
+}
+
 func (w *WGIface) waitUntilRemoved() error {
 	maxWaitTime := 5 * time.Second
 	timeout := time.NewTimer(maxWaitTime)

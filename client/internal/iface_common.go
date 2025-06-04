@@ -37,4 +37,5 @@ type wgIfaceBase interface {
 	GetWGDevice() *wgdevice.Device
 	GetStats() (map[string]configurer.WGStats, error)
 	GetNet() *netstack.Net
+	FullStats() (*configurer.Stats, error)
 }

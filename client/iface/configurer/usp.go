@@ -19,10 +19,16 @@ import (
 )
 
 const (
+	privateKey                  = "private_key"
 	ipcKeyLastHandshakeTimeSec  = "last_handshake_time_sec"
 	ipcKeyLastHandshakeTimeNsec = "last_handshake_time_nsec"
 	ipcKeyTxBytes               = "tx_bytes"
 	ipcKeyRxBytes               = "rx_bytes"
+	allowedIP                   = "allowed_ip"
+	endpoint                    = "endpoint"
+	fwmark                      = "fwmark"
+	listenPort                  = "listen_port"
+	publicKey                   = "public_key"
 )
 
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
@@ -375,6 +381,25 @@ func getFwmark() int {
 	return 0
 }
 
+func hexToWireguardKey(hexKey string) (wgtypes.Key, error) {
+	// Decode hex string to bytes
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return wgtypes.Key{}, fmt.Errorf("failed to decode hex key: %w", err)
+	}
+
+	// Check if we have the right number of bytes (WireGuard keys are 32 bytes)
+	if len(keyBytes) != 32 {
+		return wgtypes.Key{}, fmt.Errorf("invalid key length: expected 32 bytes, got %d", len(keyBytes))
+	}
+
+	// Convert to wgtypes.Key
+	var key wgtypes.Key
+	copy(key[:], keyBytes)
+
+	return key, nil
+}
+
 func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 	lines := strings.Split(strings.TrimSpace(ipcStr), "\n")
 	stats := &Stats{
@@ -395,38 +420,54 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 		val := parts[1]
 
 		switch key {
-		case "public_key":
-			if stats.PublicKey == "" {
-				stats.PublicKey = val
-			} else {
-				// Save previous peer
-				if currentPeer != nil {
-					stats.Peers = append(stats.Peers, *currentPeer)
-				}
-				currentPeer = &Peer{PublicKey: val}
+		case privateKey:
+			key, err := hexToWireguardKey(val)
+			if err != nil {
+				log.Errorf("failed to parse private key: %v", err)
+				continue
 			}
-		case "listen_port":
+			stats.PublicKey = key.PublicKey().String()
+		case publicKey:
+			// Save previous peer
+			if currentPeer != nil {
+				stats.Peers = append(stats.Peers, *currentPeer)
+			}
+			key, err := hexToWireguardKey(val)
+			if err != nil {
+				log.Errorf("failed to parse public key: %v", err)
+				continue
+			}
+			currentPeer = &Peer{
+				PublicKey: key.String(),
+			}
+		case listenPort:
 			if port, err := strconv.Atoi(val); err == nil {
 				stats.ListenPort = port
 			}
-		case "fwmark":
+		case fwmark:
 			if fwmark, err := strconv.Atoi(val); err == nil {
 				stats.FWMark = fwmark
 			}
-		case "endpoint":
-			if currentPeer != nil {
+		case endpoint:
+			if currentPeer == nil {
 				continue
 			}
 
 			host, portStr, err := net.SplitHostPort(strings.Trim(val, "[]"))
-			if err == nil {
-				port, _ := strconv.Atoi(portStr)
-				currentPeer.Endpoint = net.UDPAddr{
-					IP:   net.ParseIP(host),
-					Port: port,
-				}
+			if err != nil {
+				log.Errorf("failed to parse endpoint: %v", err)
+				continue
 			}
-		case "allowed_ip":
+			port, err := strconv.Atoi(portStr)
+			if err != nil {
+				log.Errorf("failed to parse endpoint port: %v", err)
+				continue
+			}
+			currentPeer.Endpoint = net.UDPAddr{
+				IP:   net.ParseIP(host),
+				Port: port,
+			}
+		case allowedIP:
 			if currentPeer == nil {
 				continue
 			}
@@ -434,7 +475,7 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 			if err == nil {
 				currentPeer.AllowedIPs = append(currentPeer.AllowedIPs, *ipnet)
 			}
-		case "tx_bytes":
+		case ipcKeyTxBytes:
 			if currentPeer == nil {
 				continue
 			}
@@ -443,7 +484,7 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 				continue
 			}
 			currentPeer.TxBytes = rxBytes
-		case "rx_bytes":
+		case ipcKeyRxBytes:
 			if currentPeer == nil {
 				continue
 			}
@@ -453,7 +494,7 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 			}
 			currentPeer.RxBytes = rxBytes
 
-		case "latest_handshake":
+		case ipcKeyLastHandshakeTimeSec:
 			if currentPeer == nil {
 				continue
 			}

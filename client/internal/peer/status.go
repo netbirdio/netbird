@@ -2,6 +2,7 @@ package peer
 
 import (
 	"errors"
+	"fmt"
 	"net/netip"
 	"slices"
 	"sync"
@@ -29,6 +30,10 @@ const eventQueueSize = 10
 type ResolvedDomainInfo struct {
 	Prefixes     []netip.Prefix
 	ParentDomain domain.Domain
+}
+
+type WGIfaceStatus interface {
+	FullStats() (*configurer.Stats, error)
 }
 
 type EventListener interface {
@@ -181,6 +186,7 @@ type Status struct {
 	ingressGwMgr *ingressgw.Manager
 
 	routeIDLookup routeIDLookup
+	wgIface       WGIfaceStatus
 }
 
 // NewRecorder returns a new Status instance
@@ -1028,6 +1034,23 @@ func (d *Status) UnsubscribeFromEvents(sub *EventSubscription) {
 // GetEventHistory returns all events in the queue
 func (d *Status) GetEventHistory() []*proto.SystemEvent {
 	return d.eventQueue.GetAll()
+}
+
+func (d *Status) SetWgIface(wgInterface WGIfaceStatus) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	d.wgIface = wgInterface
+}
+
+func (d *Status) PeersStatus() (*configurer.Stats, error) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	if d.wgIface == nil {
+		return nil, fmt.Errorf("wgInterface is nil, cannot retrieve peers status")
+	}
+
+	return d.wgIface.FullStats()
 }
 
 type EventQueue struct {
