@@ -401,17 +401,12 @@ func hexToWireguardKey(hexKey string) (wgtypes.Key, error) {
 }
 
 func parseStatus(deviceName, ipcStr string) (*Stats, error) {
-	lines := strings.Split(strings.TrimSpace(ipcStr), "\n")
-	stats := &Stats{
-		DeviceName: deviceName,
-	}
+	stats := &Stats{DeviceName: deviceName}
 	var currentPeer *Peer
-
-	for _, line := range lines {
+	for _, line := range strings.Split(strings.TrimSpace(ipcStr), "\n") {
 		if line == "" {
 			continue
 		}
-
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -510,6 +505,5 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 	if currentPeer != nil {
 		stats.Peers = append(stats.Peers, *currentPeer)
 	}
-
 	return stats, nil
 }
