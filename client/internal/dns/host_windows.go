@@ -1,11 +1,14 @@
 package dns
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -119,9 +122,7 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		return fmt.Errorf("update search domains: %w", err)
 	}
 
-	if err := r.flushDNSCache(); err != nil {
-		log.Errorf("failed to flush DNS cache: %v", err)
-	}
+	go r.flushDNSCache()
 
 	return nil
 }
@@ -191,7 +192,24 @@ func (r *registryConfigurator) string() string {
 	return "registry"
 }
 
-func (r *registryConfigurator) flushDNSCache() error {
+func (r *registryConfigurator) registerDNS() {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ipconfig", "/registerdns")
+	out, err := cmd.CombinedOutput()
+
+	if err != nil {
+		log.Errorf("failed to register DNS: %v, output: %s", err, out)
+		return
+	}
+
+	log.Info("registered DNS names")
+}
+
+func (r *registryConfigurator) flushDNSCache() {
+	r.registerDNS()
+
 	// dnsFlushResolverCacheFn.Call() may panic if the func is not found
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -202,13 +220,14 @@ func (r *registryConfigurator) flushDNSCache() error {
 	ret, _, err := dnsFlushResolverCacheFn.Call()
 	if ret == 0 {
 		if err != nil && !errors.Is(err, syscall.Errno(0)) {
-			return fmt.Errorf("DnsFlushResolverCache failed: %w", err)
+			log.Errorf("DnsFlushResolverCache failed: %w", err)
+			return
 		}
-		return fmt.Errorf("DnsFlushResolverCache failed")
+		log.Errorf("DnsFlushResolverCache failed")
+		return
 	}
 
 	log.Info("flushed DNS cache")
-	return nil
 }
 
 func (r *registryConfigurator) updateSearchDomains(domains []string) error {
@@ -263,9 +282,7 @@ func (r *registryConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("remove interface registry key: %w", err)
 	}
 
-	if err := r.flushDNSCache(); err != nil {
-		log.Errorf("failed to flush DNS cache: %v", err)
-	}
+	go r.flushDNSCache()
 
 	return nil
 }
