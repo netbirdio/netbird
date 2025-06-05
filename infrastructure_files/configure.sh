@@ -170,7 +170,7 @@ fi
 if [[ "$NETBIRD_DISABLE_LETSENCRYPT" == "true" ]]; then
   export NETBIRD_DASHBOARD_ENDPOINT="https://$NETBIRD_DOMAIN:443"
   export NETBIRD_SIGNAL_ENDPOINT="https://$NETBIRD_DOMAIN:$NETBIRD_SIGNAL_PORT"
-  export NETBIRD_RELAY_ENDPOINT="rels://$NETBIRD_DOMAIN:$NETBIRD_SIGNAL_PORT/relay"
+  export NETBIRD_RELAY_ENDPOINT="rels://$NETBIRD_DOMAIN:$NETBIRD_RELAY_PORT/relay"
 
   echo "Letsencrypt was disabled, the Https-endpoints cannot be used anymore"
   echo " and a reverse-proxy with Https needs to be placed in front of netbird!"
