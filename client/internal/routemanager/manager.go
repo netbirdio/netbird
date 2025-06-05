@@ -337,11 +337,12 @@ func (m *DefaultManager) UpdateRoutes(
 	defer m.mux.Unlock()
 	m.useNewDNSRoute = useNewDNSRoute
 
+	var merr *multierror.Error
 	if !m.disableClientRoutes {
 		filteredClientRoutes := m.routeSelector.FilterSelected(clientRoutes)
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
-			log.Errorf("Failed to update system routes: %v", err)
+			merr = multierror.Append(merr, fmt.Errorf("update system routes: %w", err))
 		}
 
 		m.updateClientNetworks(updateSerial, filteredClientRoutes)
@@ -350,14 +351,14 @@ func (m *DefaultManager) UpdateRoutes(
 	m.clientRoutes = clientRoutes
 
 	if m.serverRouter == nil {
-		return nil
+		return nberrors.FormatErrorOrNil(merr)
 	}
 
 	if err := m.serverRouter.UpdateRoutes(serverRoutes, useNewDNSRoute); err != nil {
-		return fmt.Errorf("update routes: %w", err)
+		merr = multierror.Append(merr, fmt.Errorf("update server routes: %w", err))
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // SetRouteChangeListener set RouteListener for route change Notifier

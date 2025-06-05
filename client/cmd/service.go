@@ -30,7 +30,7 @@ func newSVCConfig() *service.Config {
 	return &service.Config{
 		Name:        serviceName,
 		DisplayName: "Netbird",
-		Description: "A WireGuard-based mesh network that connects your devices into a single private network.",
+		Description: "Netbird mesh network client",
 		Option:      make(service.KeyValue),
 	}
 }
