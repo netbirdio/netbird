@@ -1,7 +1,10 @@
+# Manually change network from `TRAEFIK_NET_PLACEHOLDER` to your traefik network
+---
 services:
   # UI dashboard
   dashboard:
     image: netbirdio/dashboard:$NETBIRD_DASHBOARD_TAG
+    container_name: netbird-dash
     restart: unless-stopped
     #ports:
     #  - 80:80
@@ -27,10 +30,12 @@ services:
       - LETSENCRYPT_EMAIL=$NETBIRD_LETSENCRYPT_EMAIL
     volumes:
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt/
+    networks:
+      - TRAEFIK_NET_PLACEHOLDER
     labels:
-    - traefik.enable=true
-    - traefik.http.routers.netbird-dashboard.rule=Host(`$NETBIRD_DOMAIN`)
-    - traefik.http.services.netbird-dashboard.loadbalancer.server.port=80
+      - traefik.enable=true
+      - traefik.http.routers.netbird-dashboard.rule=Host(`$NETBIRD_DOMAIN`)
+      - traefik.http.services.netbird-dashboard.loadbalancer.server.port=80
     logging:
       driver: "json-file"
       options:
@@ -40,6 +45,7 @@ services:
   # Signal
   signal:
     image: netbirdio/signal:$NETBIRD_SIGNAL_TAG
+    container_name: netbird-signal
     restart: unless-stopped
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
@@ -48,11 +54,13 @@ services:
   #      # port and command for Let's Encrypt validation
   #      - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
+    networks:
+      - TRAEFIK_NET_PLACEHOLDER
     labels:
-    - traefik.enable=true
-    - traefik.http.routers.netbird-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/signalexchange.SignalExchange/`)
-    - traefik.http.services.netbird-signal.loadbalancer.server.port=10000
-    - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
+      - traefik.enable=true
+      - traefik.http.routers.netbird-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/signalexchange.SignalExchange/`)
+      - traefik.http.services.netbird-signal.loadbalancer.server.port=10000
+      - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
     logging:
       driver: "json-file"
       options:
@@ -62,28 +70,32 @@ services:
   # Relay
   relay:
     image: netbirdio/relay:$NETBIRD_RELAY_TAG
+    container_name: netbird-relay
     restart: unless-stopped
     environment:
-    - NB_LOG_LEVEL=info
-    - NB_LISTEN_ADDRESS=:$NETBIRD_RELAY_PORT
-    - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_DOMAIN:$NETBIRD_RELAY_PORT
-    # todo: change to a secure secret
-    - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
+      - NB_LOG_LEVEL=info
+      - NB_LISTEN_ADDRESS=:$NETBIRD_RELAY_PORT
+      - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_DOMAIN:$NETBIRD_RELAY_PORT
+      # todo: change to a secure secret
+      - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
     # ports:
     #   - $NETBIRD_RELAY_PORT:$NETBIRD_RELAY_PORT
+    networks:
+      - TRAEFIK_NET_PLACEHOLDER
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbird-relay.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/relay`)
+      - traefik.http.services.netbird-relay.loadbalancer.server.port=$NETBIRD_RELAY_PORT
     logging:
       driver: "json-file"
       options:
         max-size: "500m"
         max-file: "2"
-    labels:
-    - traefik.enable=true
-    - traefik.http.routers.netbird-relay.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/relay`)
-    - traefik.http.services.netbird-relay.loadbalancer.server.port=$NETBIRD_RELAY_PORT
 
   # Management
   management:
     image: netbirdio/management:$NETBIRD_MANAGEMENT_TAG
+    container_name: netbird-mgmt
     restart: unless-stopped
     depends_on:
       - dashboard
@@ -103,16 +115,18 @@ services:
       "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN",
       "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"
       ]
+    networks:
+      - TRAEFIK_NET_PLACEHOLDER
     labels:
-    - traefik.enable=true
-    - traefik.http.routers.netbird-api.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/api`)
-    - traefik.http.routers.netbird-api.service=netbird-api
-    - traefik.http.services.netbird-api.loadbalancer.server.port=33073
+      - traefik.enable=true
+      - traefik.http.routers.netbird-api.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/api`)
+      - traefik.http.routers.netbird-api.service=netbird-api
+      - traefik.http.services.netbird-api.loadbalancer.server.port=33073
 
-    - traefik.http.routers.netbird-management.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/management.ManagementService/`)
-    - traefik.http.routers.netbird-management.service=netbird-management
-    - traefik.http.services.netbird-management.loadbalancer.server.port=33073
-    - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
+      - traefik.http.routers.netbird-management.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/management.ManagementService/`)
+      - traefik.http.routers.netbird-management.service=netbird-management
+      - traefik.http.services.netbird-management.loadbalancer.server.port=33073
+      - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
     logging:
       driver: "json-file"
       options:
@@ -121,10 +135,11 @@ services:
     environment:
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
       - NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN
-      
+
   # Coturn
   coturn:
     image: coturn/coturn:$COTURN_TAG
+    container_name: netbird-coturn
     restart: unless-stopped
     domainname: $TURN_DOMAIN
     volumes:
@@ -144,3 +159,7 @@ volumes:
   $MGMT_VOLUMENAME:
   $SIGNAL_VOLUMENAME:
   $LETSENCRYPT_VOLUMENAME:
+
+networks:
+  TRAEFIK_NET_PLACEHOLDER:
+    external: true
