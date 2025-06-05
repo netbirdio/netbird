@@ -101,6 +101,7 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 // UpdateRouteHAMap updates the route HA mappings in the lazy connection manager
 func (e *ConnMgr) UpdateRouteHAMap(haMap route.HAMap) {
 	if !e.isStartedWithLazyMgr() {
+		log.Debugf("lazy connection manager is not started, skipping UpdateRouteHAMap")
 		return
 	}
 
