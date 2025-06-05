@@ -45,9 +45,9 @@ const (
 	interfaceConfigSearchListKey = "SearchList"
 
 	// Network interface DNS registration settings
-	disableDynamicUpdateKey             = "DisableDynamicUpdate"
-	registrationEnabledKey              = "RegistrationEnabled"
-	maxNumberOfAddressesToRegisterKey   = "MaxNumberOfAddressesToRegister"
+	disableDynamicUpdateKey           = "DisableDynamicUpdate"
+	registrationEnabledKey            = "RegistrationEnabled"
+	maxNumberOfAddressesToRegisterKey = "MaxNumberOfAddressesToRegister"
 
 	// NetBIOS/WINS settings
 	netbtInterfacePath = `SYSTEM\CurrentControlSet\Services\NetBT\Parameters\Interfaces`
@@ -279,6 +279,7 @@ func (r *registryConfigurator) registerDNS() {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
+	// nolint:misspell
 	cmd := exec.CommandContext(ctx, "ipconfig", "/registerdns")
 	out, err := cmd.CombinedOutput()
 
@@ -303,7 +304,7 @@ func (r *registryConfigurator) flushDNSCache() {
 	ret, _, err := dnsFlushResolverCacheFn.Call()
 	if ret == 0 {
 		if err != nil && !errors.Is(err, syscall.Errno(0)) {
-			log.Errorf("DnsFlushResolverCache failed: %w", err)
+			log.Errorf("DnsFlushResolverCache failed: %v", err)
 			return
 		}
 		log.Errorf("DnsFlushResolverCache failed")
