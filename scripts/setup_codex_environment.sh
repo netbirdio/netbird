@@ -6,14 +6,15 @@
 set -e
 
 # Versions
-GO_VERSION="1.21.0"
+GO_VERSION="1.23.9"
 GORELEASER_VER="v2.3.2"
 
 # Update package lists and install system dependencies
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
     curl wget git build-essential gettext-base iptables \
-    libgl1-mesa-dev xorg-dev libayatana-appindicator3-dev docker.io docker-compose
+    libgl1-mesa-dev xorg-dev libayatana-appindicator3-dev \
+    libpcap-dev docker.io docker-compose
 
 # Install Go
 if ! go version | grep -q "$GO_VERSION"; then
@@ -31,7 +32,7 @@ go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # Install goreleaser
-curl -sL https://git.io/goreleaser | bash -s -- -b "$GO_BIN" "$GORELEASER_VER"
+go install github.com/goreleaser/goreleaser/v2@$GORELEASER_VER
 
 # Install golangci-lint
 curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$GO_BIN" latest

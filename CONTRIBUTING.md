@@ -86,6 +86,11 @@ You can follow the instructions from the quickstarter guide https://grpc.io/docs
 
 Follow the installation guide from https://docs.docker.com/get-docker/
 
+#### libpcap
+
+NetBird's tests rely on packet capture functionality. Install libpcap on your
+system, e.g. with `sudo apt install libpcap-dev` on Debian/Ubuntu.
+
 #### Goreleaser and golangci-lint
 
 We utilize two tools in our Github actions workflows:
