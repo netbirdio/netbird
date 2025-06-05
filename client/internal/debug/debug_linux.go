@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	maxLogEntries = 10000
+	maxLogEntries = 100000
 	maxLogAge     = 7 * 24 * time.Hour // Last 7 days
 )
 
