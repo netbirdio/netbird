@@ -126,7 +126,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		settings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
 	}
 
-	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
+	updatedSettings, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -138,7 +138,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(updatedAccount.Id, updatedAccount.Settings, meta)
+	resp := toAccountResponse(accountID, updatedSettings, meta)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
