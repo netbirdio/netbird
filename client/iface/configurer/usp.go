@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"runtime"
 	"strconv"
@@ -67,7 +68,7 @@ func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -76,7 +77,7 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, kee
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: false,
 		// don't replace allowed ips, wg will handle duplicated peer IP
-		AllowedIPs:                  allowedIps,
+		AllowedIPs:                  prefixesToIPNets(allowedIps),
 		PersistentKeepaliveInterval: &keepAlive,
 		PresharedKey:                preSharedKey,
 		Endpoint:                    endpoint,
@@ -106,10 +107,10 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
-	_, ipNet, err := net.ParseCIDR(allowedIP)
-	if err != nil {
-		return err
+func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
+	ipNet := net.IPNet{
+		IP:   allowedIP.Addr().AsSlice(),
+		Mask: net.CIDRMask(allowedIP.Bits(), allowedIP.Addr().BitLen()),
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
@@ -120,7 +121,7 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: false,
-		AllowedIPs:        []net.IPNet{*ipNet},
+		AllowedIPs:        []net.IPNet{ipNet},
 	}
 
 	config := wgtypes.Config{
@@ -130,7 +131,7 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
+func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	ipc, err := c.device.IpcGet()
 	if err != nil {
 		return err
@@ -153,6 +154,8 @@ func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
 
 	foundPeer := false
 	removedAllowedIP := false
+	ip := allowedIP.String()
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
@@ -175,8 +178,8 @@ func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
 
 		// Append the line to the output string
 		if foundPeer && strings.HasPrefix(line, "allowed_ip=") {
-			allowedIP := strings.TrimPrefix(line, "allowed_ip=")
-			_, ipNet, err := net.ParseCIDR(allowedIP)
+			allowedIPStr := strings.TrimPrefix(line, "allowed_ip=")
+			_, ipNet, err := net.ParseCIDR(allowedIPStr)
 			if err != nil {
 				return err
 			}

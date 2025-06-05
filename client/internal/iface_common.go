@@ -28,8 +28,8 @@ type wgIfaceBase interface {
 	GetProxy() wgproxy.Proxy
 	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeer(peerKey string) error
-	AddAllowedIP(peerKey string, allowedIP string) error
-	RemoveAllowedIP(peerKey string, allowedIP string) error
+	AddAllowedIP(peerKey string, allowedIP netip.Prefix) error
+	RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error
 	Close() error
 	SetFilter(filter device.PacketFilter) error
 	GetFilter() device.PacketFilter
