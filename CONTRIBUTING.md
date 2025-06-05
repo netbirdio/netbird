@@ -103,6 +103,15 @@ goreleaser build --snapshot --clean
 golangci-lint run
 ```
 
+### Codex environment setup script
+
+To install all dependencies in one step you can run the provided script. Execute
+it from the repository root:
+
+```bash
+./scripts/setup_codex_environment.sh
+```
+
 ### Local NetBird setup
 
 > **IMPORTANT**: All the steps below have to get executed at least once to get the development setup up and running!
