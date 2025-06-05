@@ -56,9 +56,7 @@ func (g *BundleGenerator) trySystemdLogFallback() error {
 // getServiceName gets the service name from environment or defaults to netbird
 func getServiceName() string {
 	if unitName := os.Getenv("SYSTEMD_UNIT"); unitName != "" {
-		if strings.HasSuffix(unitName, ".service") {
-			return strings.TrimSuffix(unitName, ".service")
-		}
+		log.Debugf("Detected SYSTEMD_UNIT environment variable: %s", unitName)
 		return unitName
 	}
 
