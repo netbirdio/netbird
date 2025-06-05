@@ -274,10 +274,15 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("Failed to add wg show output: %v", err)
 	}
 
-	if g.logFile != "console" {
+	if g.logFile != "console" && g.logFile != "" {
 		if err := g.addLogfile(); err != nil {
-			return fmt.Errorf("add log file: %w", err)
+			log.Errorf("Failed to add log file to debug bundle: %v", err)
+			if err := g.trySystemdLogFallback(); err != nil {
+				log.Errorf("Failed to add systemd logs as fallback: %v", err)
+			}
 		}
+	} else if err := g.trySystemdLogFallback(); err != nil {
+		log.Errorf("Failed to add systemd logs: %v", err)
 	}
 
 	return nil
