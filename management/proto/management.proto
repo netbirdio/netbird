@@ -134,10 +134,15 @@ message Flags {
   bool rosenpassEnabled = 1;
   bool rosenpassPermissive = 2;
   bool serverSSHAllowed = 3;
+
   bool disableClientRoutes = 4;
   bool disableServerRoutes = 5;
   bool disableDNS = 6;
   bool disableFirewall = 7;
+  bool blockLANAccess = 8;
+  bool blockInbound = 9;
+
+  bool lazyConnectionEnabled = 10;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
