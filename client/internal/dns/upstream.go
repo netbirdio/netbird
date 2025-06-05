@@ -104,7 +104,9 @@ func (u *upstreamResolverBase) Stop() {
 // ServeDNS handles a DNS request
 func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	var err error
-	defer u.checkUpstreamFails(err)
+	defer func() {
+		u.checkUpstreamFails(err)
+	}()
 
 	log.Tracef("received upstream question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
 	if r.Extra == nil {
