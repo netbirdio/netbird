@@ -36,7 +36,6 @@ func newSVCConfig() *service.Config {
 		EnvVars:     make(map[string]string),
 	}
 
-	// Set SYSTEMD_UNIT environment variable for Linux systems
 	if runtime.GOOS == "linux" {
 		config.EnvVars["SYSTEMD_UNIT"] = serviceName
 	}
