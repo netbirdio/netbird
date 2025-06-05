@@ -41,7 +41,12 @@ func (g *BundleGenerator) toWGShowFormat(s *configurer.Stats) string {
 	for _, peer := range s.Peers {
 		sb.WriteString(fmt.Sprintf("\npeer: %s\n", peer.PublicKey))
 		if peer.Endpoint.IP != nil {
-			sb.WriteString(fmt.Sprintf("  endpoint: %s\n", peer.Endpoint.String()))
+			if g.anonymize {
+				anonEndpoint := g.anonymizer.AnonymizeUDPAddr(peer.Endpoint)
+				sb.WriteString(fmt.Sprintf("  endpoint: %s\n", anonEndpoint.String()))
+			} else {
+				sb.WriteString(fmt.Sprintf("  endpoint: %s\n", peer.Endpoint.IP.String()))
+			}
 		}
 		if len(peer.AllowedIPs) > 0 {
 			var ipStrings []string
@@ -53,7 +58,7 @@ func (g *BundleGenerator) toWGShowFormat(s *configurer.Stats) string {
 		sb.WriteString(fmt.Sprintf("  latest handshake: %s\n", peer.LastHandshake.Format(time.RFC1123)))
 		sb.WriteString(fmt.Sprintf("  transfer: %d B received, %d B sent\n", peer.RxBytes, peer.TxBytes))
 		if peer.PresharedKey {
-			sb.WriteString(fmt.Sprintf("  preshared key: (hidden)\n"))
+			sb.WriteString("  preshared key: (hidden)\n")
 		}
 	}
 
