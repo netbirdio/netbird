@@ -41,6 +41,13 @@ type EventListener interface {
 	OnEvent(event *proto.SystemEvent)
 }
 
+// RouterState status for router peers. This contains relevant fields for route manager
+type RouterState struct {
+	Connected bool
+	Relayed   bool
+	Latency   time.Duration
+}
+
 // State contains the latest state of a peer
 type State struct {
 	Mux                        *sync.RWMutex
@@ -155,7 +162,7 @@ type FullStatus struct {
 type StatusChangeSubscription struct {
 	peerID     string
 	id         string
-	eventsChan chan struct{}
+	eventsChan chan map[string]RouterState
 	ctx        context.Context
 }
 
@@ -164,11 +171,11 @@ func newStatusChangeSubscription(ctx context.Context, peerID string) *StatusChan
 		ctx:        ctx,
 		peerID:     peerID,
 		id:         uuid.New().String(),
-		eventsChan: make(chan struct{}, 1),
+		eventsChan: make(chan map[string]RouterState, 1),
 	}
 }
 
-func (s *StatusChangeSubscription) Events() chan struct{} {
+func (s *StatusChangeSubscription) Events() chan map[string]RouterState {
 	return s.eventsChan
 }
 
@@ -991,12 +998,27 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 	if !ok {
 		return
 	}
+
+	changedPeers := make(map[string]RouterState, len(d.changeNotify))
+	for pid := range d.changeNotify {
+		s, ok := d.peers[pid]
+		if !ok {
+			log.Warnf("router peer not found in peers list: %s", pid)
+			continue
+		}
+
+		changedPeers[pid] = RouterState{
+			Connected: s.ConnStatus == StatusConnected,
+			Relayed:   s.Relayed,
+			Latency:   s.Latency,
+		}
+	}
+
 	for _, sub := range subs {
 		// block the write because we do not want to miss notification
-		// must have to be sure we will run the GetPeerState() on separated thread
 		go func() {
 			select {
-			case sub.eventsChan <- struct{}{}:
+			case sub.eventsChan <- changedPeers:
 			case <-sub.ctx.Done():
 			}
 		}()
