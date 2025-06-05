@@ -999,6 +999,7 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 		return
 	}
 
+	// collect the relevant data for router peers
 	changedPeers := make(map[string]RouterState, len(d.changeNotify))
 	for pid := range d.changeNotify {
 		s, ok := d.peers[pid]
