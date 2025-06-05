@@ -39,8 +39,12 @@ const (
 	// EnvForceUserspaceRouter forces userspace routing even if native routing is available.
 	EnvForceUserspaceRouter = "NB_FORCE_USERSPACE_ROUTER"
 
-	// EnvEnableNetstackLocalForwarding enables forwarding of local traffic to the native stack when running netstack
-	// Leaving this on by default introduces a security risk as sockets on listening on localhost only will be accessible
+	// EnvEnableLocalForwarding enables forwarding of local traffic to the native stack for internal (non-NetBird) interfaces.
+	// Default off as it might be security risk because sockets listening on localhost only will become accessible.
+	EnvEnableLocalForwarding = "NB_ENABLE_LOCAL_FORWARDING"
+
+	// EnvEnableNetstackLocalForwarding is an alias for EnvEnableLocalForwarding.
+	// In netstack mode, it enables forwarding of local traffic to the native stack for all interfaces.
 	EnvEnableNetstackLocalForwarding = "NB_ENABLE_NETSTACK_LOCAL_FORWARDING"
 )
 
@@ -71,7 +75,6 @@ type Manager struct {
 	// incomingRules is used for filtering and hooks
 	incomingRules  map[netip.Addr]RuleSet
 	routeRules     RouteRules
-	wgNetwork      *net.IPNet
 	decoders       sync.Pool
 	wgIface        common.IFaceMapper
 	nativeFirewall firewall.Manager
@@ -147,6 +150,11 @@ func parseCreateEnv() (bool, bool) {
 		enableLocalForwarding, err = strconv.ParseBool(val)
 		if err != nil {
 			log.Warnf("failed to parse %s: %v", EnvEnableNetstackLocalForwarding, err)
+		}
+	} else if val := os.Getenv(EnvEnableLocalForwarding); val != "" {
+		enableLocalForwarding, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", EnvEnableLocalForwarding, err)
 		}
 	}
 
@@ -269,7 +277,7 @@ func (m *Manager) determineRouting() error {
 
 		log.Info("userspace routing is forced")
 
-	case !m.netstack && m.nativeFirewall != nil && m.nativeFirewall.IsServerRouteSupported():
+	case !m.netstack && m.nativeFirewall != nil:
 		// if the OS supports routing natively, then we don't need to filter/route ourselves
 		// netstack mode won't support native routing as there is no interface
 
@@ -780,9 +788,10 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 		return true
 	}
 
-	// if running in netstack mode we need to pass this to the forwarder
-	if m.netstack && m.localForwarding {
-		return m.handleNetstackLocalTraffic(packetData)
+	// If requested we pass local traffic to internal interfaces to the forwarder.
+	// netstack doesn't have an interface to forward packets to the native stack so we always need to use the forwarder.
+	if m.localForwarding && (m.netstack || dstIP != m.wgIface.Address().IP) {
+		return m.handleForwardedLocalTraffic(packetData)
 	}
 
 	// track inbound packets to get the correct direction and session id for flows
@@ -792,8 +801,7 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 	return false
 }
 
-func (m *Manager) handleNetstackLocalTraffic(packetData []byte) bool {
-
+func (m *Manager) handleForwardedLocalTraffic(packetData []byte) bool {
 	fwd := m.forwarder.Load()
 	if fwd == nil {
 		m.logger.Trace("Dropping local packet (forwarder not initialized)")
@@ -1089,11 +1097,6 @@ func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, prot
 	}
 
 	return true
-}
-
-// SetNetwork of the wireguard interface to which filtering applied
-func (m *Manager) SetNetwork(network *net.IPNet) {
-	m.wgNetwork = network
 }
 
 // AddUDPPacketHook calls hook when UDP packet from given direction matched

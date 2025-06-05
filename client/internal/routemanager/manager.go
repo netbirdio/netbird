@@ -333,11 +333,12 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 
 	newServerRoutesMap, newClientRoutesIDMap := m.classifyRoutes(newRoutes)
 
+	var merr *multierror.Error
 	if !m.disableClientRoutes {
 		filteredClientRoutes := m.routeSelector.FilterSelected(newClientRoutesIDMap)
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
-			log.Errorf("Failed to update system routes: %v", err)
+			merr = multierror.Append(merr, fmt.Errorf("update system routes: %w", err))
 		}
 
 		m.updateClientNetworks(updateSerial, filteredClientRoutes)
@@ -346,14 +347,14 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 	m.clientRoutes = newClientRoutesIDMap
 
 	if m.serverRouter == nil {
-		return nil
+		return nberrors.FormatErrorOrNil(merr)
 	}
 
 	if err := m.serverRouter.UpdateRoutes(newServerRoutesMap, useNewDNSRoute); err != nil {
-		return fmt.Errorf("update routes: %w", err)
+		merr = multierror.Append(merr, fmt.Errorf("update server routes: %w", err))
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // SetRouteChangeListener set RouteListener for route change Notifier

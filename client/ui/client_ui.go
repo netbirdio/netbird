@@ -89,13 +89,13 @@ func main() {
 	}
 
 	// Check for another running process.
-	running, err := process.IsAnotherProcessRunning()
+	pid, running, err := process.IsAnotherProcessRunning()
 	if err != nil {
 		log.Errorf("error while checking process: %v", err)
 		return
 	}
 	if running {
-		log.Warn("another process is running")
+		log.Warnf("another process is running with pid %d, exiting", pid)
 		return
 	}
 
@@ -194,6 +194,7 @@ type serviceClient struct {
 	mAutoConnect       *systray.MenuItem
 	mEnableRosenpass   *systray.MenuItem
 	mLazyConnEnabled   *systray.MenuItem
+	mBlockInbound      *systray.MenuItem
 	mNotifications     *systray.MenuItem
 	mAdvancedSettings  *systray.MenuItem
 	mCreateDebugBundle *systray.MenuItem
@@ -635,7 +636,8 @@ func (s *serviceClient) onTrayReady() {
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
-	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable lazy connection", lazyConnMenuDescr, false)
+	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
+	s.mBlockInbound = s.mSettings.AddSubMenuItemCheckbox("Block Inbound Connections", blockInboundMenuDescr, false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
@@ -753,6 +755,15 @@ func (s *serviceClient) listenEvents() {
 				s.mLazyConnEnabled.Uncheck()
 			} else {
 				s.mLazyConnEnabled.Check()
+			}
+			if err := s.updateConfig(); err != nil {
+				log.Errorf("failed to update config: %v", err)
+			}
+		case <-s.mBlockInbound.ClickedCh:
+			if s.mBlockInbound.Checked() {
+				s.mBlockInbound.Uncheck()
+			} else {
+				s.mBlockInbound.Check()
 			}
 			if err := s.updateConfig(); err != nil {
 				log.Errorf("failed to update config: %v", err)
@@ -1017,6 +1028,18 @@ func (s *serviceClient) loadSettings() {
 		s.mEnableRosenpass.Uncheck()
 	}
 
+	if cfg.LazyConnectionEnabled {
+		s.mLazyConnEnabled.Check()
+	} else {
+		s.mLazyConnEnabled.Uncheck()
+	}
+
+	if cfg.BlockInbound {
+		s.mBlockInbound.Check()
+	} else {
+		s.mBlockInbound.Uncheck()
+	}
+
 	if cfg.DisableNotifications {
 		s.mNotifications.Uncheck()
 	} else {
@@ -1033,8 +1056,9 @@ func (s *serviceClient) updateConfig() error {
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
-	notificationsDisabled := !s.mNotifications.Checked()
 	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
+	blockInbound := s.mBlockInbound.Checked()
+	notificationsDisabled := !s.mNotifications.Checked()
 
 	loginRequest := proto.LoginRequest{
 		IsUnixDesktopClient:   runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
@@ -1043,6 +1067,7 @@ func (s *serviceClient) updateConfig() error {
 		DisableAutoConnect:    &disableAutoStart,
 		DisableNotifications:  &notificationsDisabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
+		BlockInbound:          &blockInbound,
 	}
 
 	if err := s.restartClient(&loginRequest); err != nil {
