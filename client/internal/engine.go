@@ -1678,7 +1678,7 @@ func (e *Engine) RunHealthProbes() bool {
 func (e *Engine) probeICE(stuns, turns []*stun.URI) []relay.ProbeResult {
 	return append(
 		relay.ProbeAll(e.ctx, relay.ProbeSTUN, stuns),
-		relay.ProbeAll(e.ctx, relay.ProbeSTUN, turns)...,
+		relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)...,
 	)
 }
 
