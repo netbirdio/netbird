@@ -35,7 +35,7 @@ func (g *BundleGenerator) toWGShowFormat(s *configurer.Stats) string {
 	sb.WriteString(fmt.Sprintf("  public key: %s\n", s.PublicKey))
 	sb.WriteString(fmt.Sprintf("  listen port: %d\n", s.ListenPort))
 	if s.FWMark != 0 {
-		sb.WriteString(fmt.Sprintf("  fwmark: %d\n", s.FWMark))
+		sb.WriteString(fmt.Sprintf("  fwmark: %#x\n", s.FWMark))
 	}
 
 	for _, peer := range s.Peers {
