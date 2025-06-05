@@ -359,6 +359,7 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
+	e.statusRecorder.SetWgIface(wgIface)
 
 	// start flow manager right after interface creation
 	publicKey := e.config.WgPrivateKey.PublicKey()
@@ -380,7 +381,6 @@ func (e *Engine) Start() error {
 			return fmt.Errorf("run rosenpass manager: %w", err)
 		}
 	}
-
 	e.stateManager.Start()
 
 	initialRoutes, dnsServer, err := e.newDnsServer()
@@ -1008,7 +1008,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	// apply routes first, route related actions might depend on routing being enabled
 	routes := toRoutes(networkMap.GetRoutes())
 	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
-		log.Errorf("failed to update clientRoutes, err: %v", err)
+		log.Errorf("failed to update routes: %v", err)
 	}
 
 	if e.acl != nil {
@@ -1104,7 +1104,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
-			Network:     prefix,
+			Network:     prefix.Masked(),
 			Domains:     domain.FromPunycodeList(protoRoute.Domains),
 			NetID:       route.NetID(protoRoute.NetID),
 			NetworkType: route.NetworkType(protoRoute.NetworkType),
@@ -1138,7 +1138,7 @@ func toRouteDomains(myPubKey string, routes []*route.Route) []*dnsfwd.ForwarderE
 	return entries
 }
 
-func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network *net.IPNet) nbdns.Config {
+func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns.Config {
 	dnsUpdate := nbdns.Config{
 		ServiceEnable:    protoDNSConfig.GetServiceEnable(),
 		CustomZones:      make([]nbdns.CustomZone, 0),
@@ -1453,6 +1453,7 @@ func (e *Engine) close() {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
 		e.wgInterface = nil
+		e.statusRecorder.SetWgIface(nil)
 	}
 
 	if !isNil(e.sshServer) {
@@ -1790,9 +1791,9 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 }
 
 // GetWgAddr returns the wireguard address
-func (e *Engine) GetWgAddr() net.IP {
+func (e *Engine) GetWgAddr() netip.Addr {
 	if e.wgInterface == nil {
-		return nil
+		return netip.Addr{}
 	}
 	return e.wgInterface.Address().IP
 }
@@ -1861,12 +1862,7 @@ func (e *Engine) Address() (netip.Addr, error) {
 		return netip.Addr{}, errors.New("wireguard interface not initialized")
 	}
 
-	addr := e.wgInterface.Address()
-	ip, ok := netip.AddrFromSlice(addr.IP)
-	if !ok {
-		return netip.Addr{}, errors.New("failed to convert address to netip.Addr")
-	}
-	return ip.Unmap(), nil
+	return e.wgInterface.Address().IP, nil
 }
 
 func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewallManager.ForwardRule, error) {

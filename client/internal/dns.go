@@ -2,7 +2,7 @@ package internal
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -12,13 +12,14 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
-func createPTRRecord(aRecord nbdns.SimpleRecord, ipNet *net.IPNet) (nbdns.SimpleRecord, bool) {
-	ip := net.ParseIP(aRecord.RData)
-	if ip == nil || ip.To4() == nil {
+func createPTRRecord(aRecord nbdns.SimpleRecord, prefix netip.Prefix) (nbdns.SimpleRecord, bool) {
+	ip, err := netip.ParseAddr(aRecord.RData)
+	if err != nil {
+		log.Warnf("failed to parse IP address %s: %v", aRecord.RData, err)
 		return nbdns.SimpleRecord{}, false
 	}
 
-	if !ipNet.Contains(ip) {
+	if !prefix.Contains(ip) {
 		return nbdns.SimpleRecord{}, false
 	}
 
@@ -36,16 +37,19 @@ func createPTRRecord(aRecord nbdns.SimpleRecord, ipNet *net.IPNet) (nbdns.Simple
 }
 
 // generateReverseZoneName creates the reverse DNS zone name for a given network
-func generateReverseZoneName(ipNet *net.IPNet) (string, error) {
-	networkIP := ipNet.IP.Mask(ipNet.Mask)
-	maskOnes, _ := ipNet.Mask.Size()
+func generateReverseZoneName(network netip.Prefix) (string, error) {
+	networkIP := network.Masked().Addr()
+
+	if !networkIP.Is4() {
+		return "", fmt.Errorf("reverse DNS is only supported for IPv4 networks, got: %s", networkIP)
+	}
 
 	// round up to nearest byte
-	octetsToUse := (maskOnes + 7) / 8
+	octetsToUse := (network.Bits() + 7) / 8
 
 	octets := strings.Split(networkIP.String(), ".")
 	if octetsToUse > len(octets) {
-		return "", fmt.Errorf("invalid network mask size for reverse DNS: %d", maskOnes)
+		return "", fmt.Errorf("invalid network mask size for reverse DNS: %d", network.Bits())
 	}
 
 	reverseOctets := make([]string, octetsToUse)
@@ -68,7 +72,7 @@ func zoneExists(config *nbdns.Config, zoneName string) bool {
 }
 
 // collectPTRRecords gathers all PTR records for the given network from A records
-func collectPTRRecords(config *nbdns.Config, ipNet *net.IPNet) []nbdns.SimpleRecord {
+func collectPTRRecords(config *nbdns.Config, prefix netip.Prefix) []nbdns.SimpleRecord {
 	var records []nbdns.SimpleRecord
 
 	for _, zone := range config.CustomZones {
@@ -77,7 +81,7 @@ func collectPTRRecords(config *nbdns.Config, ipNet *net.IPNet) []nbdns.SimpleRec
 				continue
 			}
 
-			if ptrRecord, ok := createPTRRecord(record, ipNet); ok {
+			if ptrRecord, ok := createPTRRecord(record, prefix); ok {
 				records = append(records, ptrRecord)
 			}
 		}
@@ -87,8 +91,8 @@ func collectPTRRecords(config *nbdns.Config, ipNet *net.IPNet) []nbdns.SimpleRec
 }
 
 // addReverseZone adds a reverse DNS zone to the configuration for the given network
-func addReverseZone(config *nbdns.Config, ipNet *net.IPNet) {
-	zoneName, err := generateReverseZoneName(ipNet)
+func addReverseZone(config *nbdns.Config, network netip.Prefix) {
+	zoneName, err := generateReverseZoneName(network)
 	if err != nil {
 		log.Warn(err)
 		return
@@ -99,7 +103,7 @@ func addReverseZone(config *nbdns.Config, ipNet *net.IPNet) {
 		return
 	}
 
-	records := collectPTRRecords(config, ipNet)
+	records := collectPTRRecords(config, network)
 
 	reverseZone := nbdns.CustomZone{
 		Domain:  zoneName,

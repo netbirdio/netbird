@@ -17,4 +17,5 @@ type WGConfigurer interface {
 	RemoveAllowedIP(peerKey string, allowedIP string) error
 	Close()
 	GetStats() (map[string]configurer.WGStats, error)
+	FullStats() (*configurer.Stats, error)
 }

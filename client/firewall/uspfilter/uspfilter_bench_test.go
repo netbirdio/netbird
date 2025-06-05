@@ -174,11 +174,6 @@ func BenchmarkCoreFiltering(b *testing.B) {
 					require.NoError(b, manager.Close(nil))
 				})
 
-				manager.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("100.64.0.0"),
-					Mask: net.CIDRMask(10, 32),
-				}
-
 				// Apply scenario-specific setup
 				sc.setupFunc(manager)
 
@@ -218,11 +213,6 @@ func BenchmarkStateScaling(b *testing.B) {
 			b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
 			})
-
-			manager.wgNetwork = &net.IPNet{
-				IP:   net.ParseIP("100.64.0.0"),
-				Mask: net.CIDRMask(10, 32),
-			}
 
 			// Pre-populate connection table
 			srcIPs := generateRandomIPs(count)
@@ -267,11 +257,6 @@ func BenchmarkEstablishmentOverhead(b *testing.B) {
 				require.NoError(b, manager.Close(nil))
 			})
 
-			manager.wgNetwork = &net.IPNet{
-				IP:   net.ParseIP("100.64.0.0"),
-				Mask: net.CIDRMask(10, 32),
-			}
-
 			srcIP := generateRandomIPs(1)[0]
 			dstIP := generateRandomIPs(1)[0]
 			outbound := generatePacket(b, srcIP, dstIP, 1024, 80, layers.IPProtocolTCP)
@@ -304,10 +289,6 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			proto: layers.IPProtocolTCP,
 			state: "new",
 			setupFunc: func(m *Manager) {
-				m.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("100.64.0.0"),
-					Mask: net.CIDRMask(10, 32),
-				}
 				b.Setenv("NB_DISABLE_CONNTRACK", "1")
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
@@ -321,10 +302,6 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			proto: layers.IPProtocolTCP,
 			state: "established",
 			setupFunc: func(m *Manager) {
-				m.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("100.64.0.0"),
-					Mask: net.CIDRMask(10, 32),
-				}
 				b.Setenv("NB_DISABLE_CONNTRACK", "1")
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
@@ -339,10 +316,6 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			proto: layers.IPProtocolUDP,
 			state: "new",
 			setupFunc: func(m *Manager) {
-				m.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("100.64.0.0"),
-					Mask: net.CIDRMask(10, 32),
-				}
 				b.Setenv("NB_DISABLE_CONNTRACK", "1")
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
@@ -356,10 +329,6 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			proto: layers.IPProtocolUDP,
 			state: "established",
 			setupFunc: func(m *Manager) {
-				m.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("100.64.0.0"),
-					Mask: net.CIDRMask(10, 32),
-				}
 				b.Setenv("NB_DISABLE_CONNTRACK", "1")
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
@@ -373,10 +342,6 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			proto: layers.IPProtocolTCP,
 			state: "new",
 			setupFunc: func(m *Manager) {
-				m.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("0.0.0.0"),
-					Mask: net.CIDRMask(0, 32),
-				}
 				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
@@ -390,10 +355,6 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			proto: layers.IPProtocolTCP,
 			state: "established",
 			setupFunc: func(m *Manager) {
-				m.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("0.0.0.0"),
-					Mask: net.CIDRMask(0, 32),
-				}
 				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
@@ -408,10 +369,6 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			proto: layers.IPProtocolTCP,
 			state: "post_handshake",
 			setupFunc: func(m *Manager) {
-				m.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("0.0.0.0"),
-					Mask: net.CIDRMask(0, 32),
-				}
 				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
@@ -426,10 +383,6 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			proto: layers.IPProtocolUDP,
 			state: "new",
 			setupFunc: func(m *Manager) {
-				m.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("0.0.0.0"),
-					Mask: net.CIDRMask(0, 32),
-				}
 				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
@@ -443,10 +396,6 @@ func BenchmarkRoutedNetworkReturn(b *testing.B) {
 			proto: layers.IPProtocolUDP,
 			state: "established",
 			setupFunc: func(m *Manager) {
-				m.wgNetwork = &net.IPNet{
-					IP:   net.ParseIP("0.0.0.0"),
-					Mask: net.CIDRMask(0, 32),
-				}
 				require.NoError(b, os.Unsetenv("NB_DISABLE_CONNTRACK"))
 			},
 			genPackets: func(srcIP, dstIP net.IP) ([]byte, []byte) {
@@ -593,11 +542,6 @@ func BenchmarkLongLivedConnections(b *testing.B) {
 				require.NoError(b, manager.Close(nil))
 			})
 
-			manager.SetNetwork(&net.IPNet{
-				IP:   net.ParseIP("100.64.0.0"),
-				Mask: net.CIDRMask(10, 32),
-			})
-
 			// Setup initial state based on scenario
 			if sc.rules {
 				// Single rule to allow all return traffic from port 80
@@ -679,11 +623,6 @@ func BenchmarkShortLivedConnections(b *testing.B) {
 			}, false, flowLogger)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
-			})
-
-			manager.SetNetwork(&net.IPNet{
-				IP:   net.ParseIP("100.64.0.0"),
-				Mask: net.CIDRMask(10, 32),
 			})
 
 			// Setup initial state based on scenario
@@ -797,11 +736,6 @@ func BenchmarkParallelLongLivedConnections(b *testing.B) {
 				require.NoError(b, manager.Close(nil))
 			})
 
-			manager.SetNetwork(&net.IPNet{
-				IP:   net.ParseIP("100.64.0.0"),
-				Mask: net.CIDRMask(10, 32),
-			})
-
 			// Setup initial state based on scenario
 			if sc.rules {
 				_, err := manager.AddPeerFiltering(nil, net.ParseIP("0.0.0.0"), fw.ProtocolTCP, &fw.Port{Values: []uint16{80}}, nil, fw.ActionAccept, "")
@@ -880,11 +814,6 @@ func BenchmarkParallelShortLivedConnections(b *testing.B) {
 			}, false, flowLogger)
 			defer b.Cleanup(func() {
 				require.NoError(b, manager.Close(nil))
-			})
-
-			manager.SetNetwork(&net.IPNet{
-				IP:   net.ParseIP("100.64.0.0"),
-				Mask: net.CIDRMask(10, 32),
 			})
 
 			if sc.rules {
@@ -1032,7 +961,8 @@ func BenchmarkRouteACLs(b *testing.B) {
 	}
 
 	for _, r := range rules {
-		_, err := manager.AddRouteFiltering(nil, r.sources, r.dest, r.proto, nil, r.port, fw.ActionAccept)
+		dst := fw.Network{Prefix: r.dest}
+		_, err := manager.AddRouteFiltering(nil, r.sources, dst, r.proto, nil, r.port, fw.ActionAccept)
 		if err != nil {
 			b.Fatal(err)
 		}

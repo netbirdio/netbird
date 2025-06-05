@@ -270,6 +270,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("Failed to add corrupted state files to debug bundle: %v", err)
 	}
 
+	if err := g.addWgShow(); err != nil {
+		log.Errorf("Failed to add wg show output: %v", err)
+	}
+
 	if g.logFile != "console" && g.logFile != "" {
 		if err := g.addLogfile(); err != nil {
 			log.Errorf("Failed to add log file to debug bundle: %v", err)
