@@ -99,12 +99,30 @@ func NewWatcher(config WatcherConfig) *Watcher {
 	return client
 }
 
-func (w *Watcher) getRouterPeerStatuses(states map[string]peer.RouterState) map[route.ID]routerPeerStatus {
+func (w *Watcher) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
+	routePeerStatuses := make(map[route.ID]routerPeerStatus)
+	for _, r := range w.routes {
+		peerStatus, err := w.statusRecorder.GetPeer(r.Peer)
+		if err != nil {
+			log.Debugf("couldn't fetch peer state %v: %v", r.Peer, err)
+			continue
+		}
+		routePeerStatuses[r.ID] = routerPeerStatus{
+			connected: peerStatus.ConnStatus == peer.StatusConnected,
+			relayed:   peerStatus.Relayed,
+			latency:   peerStatus.Latency,
+		}
+	}
+	return routePeerStatuses
+}
+
+func (w *Watcher) convertRouterPeerStatuses(states map[string]peer.RouterState) map[route.ID]routerPeerStatus {
 	routePeerStatuses := make(map[route.ID]routerPeerStatus)
 	for _, r := range w.routes {
 		peerStatus, ok := states[r.Peer]
 		if !ok {
-			log.Debugf("couldn't fetch peer state: %v", r.Peer)
+			log.Warnf("couldn't fetch peer state: %v", r.Peer)
+			continue
 		}
 		routePeerStatuses[r.ID] = routerPeerStatus{
 			connected: peerStatus.Connected,
@@ -278,10 +296,8 @@ func (w *Watcher) removeAllowedIPs(route *route.Route, rsn reason) error {
 	return nil
 }
 
-func (w *Watcher) recalculateRoutes(rsn reason, routersStates map[string]peer.RouterState) error {
-	routerPeerStatuses := w.getRouterPeerStatuses(routersStates)
-
-	newChosenID := w.getBestRouteFromStatuses(routerPeerStatuses)
+func (w *Watcher) recalculateRoutes(rsn reason, routersStates map[route.ID]routerPeerStatus) error {
+	newChosenID := w.getBestRouteFromStatuses(routersStates)
 
 	// If no route is chosen, remove the route from the peer
 	if newChosenID == "" {
@@ -450,7 +466,8 @@ func (w *Watcher) Start() {
 		case <-w.ctx.Done():
 			return
 		case routersStates := <-w.peerStateUpdate:
-			if err := w.recalculateRoutes(reasonPeerUpdate, routersStates); err != nil {
+			routerPeerStatuses := w.convertRouterPeerStatuses(routersStates)
+			if err := w.recalculateRoutes(reasonPeerUpdate, routerPeerStatuses); err != nil {
 				log.Errorf("Failed to recalculate routes for network [%v]: %v", w.handler, err)
 			}
 		case update := <-w.routeUpdate:
@@ -474,7 +491,8 @@ func (w *Watcher) handleRouteUpdate(update RoutesUpdate) {
 
 	if isTrueRouteUpdate {
 		log.Debugf("client network update %v for [%v] contains different routes, recalculating routes", update.UpdateSerial, w.handler)
-		if err := w.recalculateRoutes(reasonRouteUpdate, nil); err != nil {
+		routePeerStatuses := w.getRouterPeerStatuses()
+		if err := w.recalculateRoutes(reasonRouteUpdate, routePeerStatuses); err != nil {
 			log.Errorf("failed to recalculate routes for network [%v]: %v", w.handler, err)
 		}
 	} else {
