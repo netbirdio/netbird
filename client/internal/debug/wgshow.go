@@ -45,7 +45,7 @@ func (g *BundleGenerator) toWGShowFormat(s *configurer.Stats) string {
 				anonEndpoint := g.anonymizer.AnonymizeUDPAddr(peer.Endpoint)
 				sb.WriteString(fmt.Sprintf("  endpoint: %s\n", anonEndpoint.String()))
 			} else {
-				sb.WriteString(fmt.Sprintf("  endpoint: %s\n", peer.Endpoint.IP.String()))
+				sb.WriteString(fmt.Sprintf("  endpoint: %s\n", peer.Endpoint.String()))
 			}
 		}
 		if len(peer.AllowedIPs) > 0 {
