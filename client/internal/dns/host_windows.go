@@ -44,6 +44,20 @@ const (
 	interfaceConfigNameServerKey = "NameServer"
 	interfaceConfigSearchListKey = "SearchList"
 
+	// Network interface DNS registration settings
+	disableDynamicUpdateKey             = "DisableDynamicUpdate"
+	registrationEnabledKey              = "RegistrationEnabled"
+	maxNumberOfAddressesToRegisterKey   = "MaxNumberOfAddressesToRegister"
+
+	// NetBIOS/WINS settings
+	netbtInterfacePath = `SYSTEM\CurrentControlSet\Services\NetBT\Parameters\Interfaces`
+	netbiosOptionsKey  = "NetbiosOptions"
+
+	// NetBIOS option values: 0 = from DHCP, 1 = enabled, 2 = disabled
+	netbiosFromDHCP = 0
+	netbiosEnabled  = 1
+	netbiosDisabled = 2
+
 	// RP_FORCE: Reapply all policies even if no policy change was detected
 	rpForce = 0x1
 )
@@ -70,14 +84,83 @@ func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 		log.Infof("detected GPO DNS policy configuration, using policy store")
 	}
 
-	return &registryConfigurator{
+	configurator := &registryConfigurator{
 		guid: guid,
 		gpo:  useGPO,
-	}, nil
+	}
+
+	if err := configurator.configureInterface(); err != nil {
+		log.Errorf("failed to configure interface settings: %v", err)
+	}
+
+	return configurator, nil
 }
 
 func (r *registryConfigurator) supportCustomPort() bool {
 	return false
+}
+
+func (r *registryConfigurator) configureInterface() error {
+	var merr *multierror.Error
+
+	if err := r.disableDNSRegistrationForInterface(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("disable DNS registration: %w", err))
+	}
+
+	if err := r.disableWINSForInterface(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("disable WINS: %w", err))
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *registryConfigurator) disableDNSRegistrationForInterface() error {
+	regKey, err := r.getInterfaceRegistryKey()
+	if err != nil {
+		return fmt.Errorf("get interface registry key: %w", err)
+	}
+	defer closer(regKey)
+
+	var merr *multierror.Error
+
+	if err := regKey.SetDWordValue(disableDynamicUpdateKey, 1); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("set %s: %w", disableDynamicUpdateKey, err))
+	}
+
+	if err := regKey.SetDWordValue(registrationEnabledKey, 0); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("set %s: %w", registrationEnabledKey, err))
+	}
+
+	if err := regKey.SetDWordValue(maxNumberOfAddressesToRegisterKey, 0); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("set %s: %w", maxNumberOfAddressesToRegisterKey, err))
+	}
+
+	if merr == nil || len(merr.Errors) == 0 {
+		log.Infof("disabled DNS registration for interface %s", r.guid)
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *registryConfigurator) disableWINSForInterface() error {
+	netbtKeyPath := fmt.Sprintf(`%s\Tcpip_%s`, netbtInterfacePath, r.guid)
+
+	regKey, err := registry.OpenKey(registry.LOCAL_MACHINE, netbtKeyPath, registry.SET_VALUE)
+	if err != nil {
+		regKey, _, err = registry.CreateKey(registry.LOCAL_MACHINE, netbtKeyPath, registry.SET_VALUE)
+		if err != nil {
+			return fmt.Errorf("create NetBT interface key %s: %w", netbtKeyPath, err)
+		}
+	}
+	defer closer(regKey)
+
+	// NetbiosOptions: 2 = disabled
+	if err := regKey.SetDWordValue(netbiosOptionsKey, netbiosDisabled); err != nil {
+		return fmt.Errorf("set %s: %w", netbiosOptionsKey, err)
+	}
+
+	log.Infof("disabled WINS/NetBIOS for interface %s", r.guid)
+	return nil
 }
 
 func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
