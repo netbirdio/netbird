@@ -1,4 +1,4 @@
-//go:build linux && !android
+//go:build privileged && linux && !android
 
 package wgproxy
 

@@ -1,3 +1,5 @@
+//go:build privileged
+
 package dns_test
 
 import (

@@ -1,4 +1,4 @@
-//go:build (linux && !android) || (darwin && !ios) || freebsd || openbsd || netbsd || dragonfly
+//go:build privileged && ((linux && !android) || (darwin && !ios) || freebsd || openbsd || netbsd || dragonfly)
 
 package systemops
 
