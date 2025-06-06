@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   test-docker-compose:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     strategy:
       matrix:
         store: [ 'sqlite', 'postgres', 'mysql' ]
@@ -236,7 +236,7 @@ jobs:
           docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames_[0-9]*.db
 
   test-getting-started-script:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Install jq
         run: sudo apt-get install -y jq

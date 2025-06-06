@@ -12,7 +12,7 @@ concurrency:
 jobs:
   codespell:
     name: codespell
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
           - os: ubuntu-latest
             display_name: Linux
     name: ${{ matrix.display_name }}
-    runs-on: ${{ matrix.os }}
+    runs-on: [self-hosted, ${{ matrix.os }}]
     timeout-minutes: 15
     steps:
       - name: Checkout code
