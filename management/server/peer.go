@@ -598,6 +598,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			return fmt.Errorf("failed to get account settings: %w", err)
 		}
 
+		if settings.Extra != nil && settings.Extra.PeerApprovalEnabled {
+			newPeer.Status.RequiresApproval = true
+		} else {
+			newPeer.Status.RequiresApproval = false
+		}
+
 		opEvent.TargetID = newPeer.ID
 		opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain(settings))
 		if !addedByUser {
