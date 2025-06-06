@@ -78,8 +78,8 @@ func (l *local) getUploadURL(objectKey string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to parse upload URL: %w", err)
 	}
-	newURL := parsedUploadURL.JoinPath(parsedUploadURL.Path, putURLPath, objectKey)
-	return newURL.String(), nil
+        newURL := parsedUploadURL.JoinPath(putURLPath, objectKey)
+        return newURL.String(), nil
 }
 
 func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
