@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build-cache:
     name: "Build Cache"
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux]
     outputs:
       management: ${{ steps.filter.outputs.management }}
     steps:        
@@ -104,7 +104,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [ '386','amd64' ]
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux]
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
@@ -149,7 +149,7 @@ jobs:
   test_client_on_docker:
     name: "Client (Docker) / Unit"
     needs: [build-cache]
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux]
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
@@ -212,7 +212,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [ '386','amd64' ]
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux]
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
@@ -262,7 +262,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [ '386','amd64' ]
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux]
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
@@ -313,7 +313,7 @@ jobs:
       matrix:
         arch: [ 'amd64' ]
         store: [ 'sqlite', 'postgres', 'mysql' ]
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux]
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
@@ -374,7 +374,7 @@ jobs:
       matrix:
         arch: [ 'amd64' ]
         store: [ 'sqlite', 'postgres' ]
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux]
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
@@ -435,7 +435,7 @@ jobs:
       matrix:
         arch: [ 'amd64' ]
         store: [ 'sqlite', 'postgres' ]
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux]
     steps:
       - name: Create Docker network
         run: docker network create promnet
@@ -526,7 +526,7 @@ jobs:
       matrix:
         arch: [ 'amd64' ]
         store: [ 'sqlite', 'postgres']
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, linux]
     steps:
       - name: Install Go
         uses: actions/setup-go@v5

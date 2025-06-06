@@ -13,7 +13,7 @@ concurrency:
 jobs:
   android_build:
     name: "Android / Build"
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,7 +49,7 @@ jobs:
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/23.1.7779620
   ios_build:
     name: "iOS / Build"
-    runs-on: macos-latest
+    runs-on: [self-hosted, macos]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

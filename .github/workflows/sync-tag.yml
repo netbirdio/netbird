@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   trigger_sync_tag:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Trigger release tag sync
         uses: benc-uk/workflow-dispatch@v1

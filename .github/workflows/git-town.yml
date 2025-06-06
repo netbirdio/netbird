@@ -8,7 +8,7 @@ on:
 jobs:
   git-town:
     name: Display the branch stack
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
 
     permissions:
       contents: read
