@@ -33,7 +33,8 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 
-	"github.com/netbirdio/management-integrations/integrations"
+	extintegrations "github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 
 	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -176,7 +177,7 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			eventStore, key, err := integrations.InitEventStore(ctx, config.Datadir, config.DataStoreEncryptionKey)
+			eventStore, key, err := extintegrations.InitEventStore(ctx, config.Datadir, config.DataStoreEncryptionKey)
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %s", err)
 			}
@@ -197,17 +198,14 @@ var (
 				log.WithContext(ctx).Infof("geolocation service has been initialized from %s", config.Datadir)
 			}
 
-			integratedPeerValidator, err := integrations.NewIntegratedValidator(ctx, eventStore)
-			if err != nil {
-				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
-			}
+			integratedPeerValidator := integrated_validator.NewBasicValidator()
 
-			permissionsManager := integrations.InitPermissionsManager(store)
+			permissionsManager := extintegrations.InitPermissionsManager(store)
 			userManager := users.NewManager(store)
-			extraSettingsManager := integrations.NewManager(eventStore)
+			extraSettingsManager := extintegrations.NewManager(eventStore)
 			settingsManager := settings.NewManager(store, userManager, extraSettingsManager, permissionsManager)
 			peersManager := peers.NewManager(store, permissionsManager)
-			proxyController := integrations.NewController(store)
+			proxyController := extintegrations.NewController(store)
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
 				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager)
 			if err != nil {
