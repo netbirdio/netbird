@@ -270,6 +270,16 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			inactivityExpirationChanged = true
 		}
 
+		if update.Status != nil {
+			if peer.Status == nil {
+				peer.Status = &nbpeer.PeerStatus{RequiresApproval: update.Status.RequiresApproval}
+				requiresPeerUpdates = true
+			} else if peer.Status.RequiresApproval != update.Status.RequiresApproval {
+				peer.Status.RequiresApproval = update.Status.RequiresApproval
+				requiresPeerUpdates = true
+			}
+		}
+
 		return transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer)
 	})
 	if err != nil {
