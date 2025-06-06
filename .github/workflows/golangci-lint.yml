@@ -34,7 +34,7 @@ jobs:
           - os: ubuntu-latest
             display_name: Linux
     name: ${{ matrix.display_name }}
-    runs-on: [self-hosted, ${{ matrix.os }}]
+    runs-on: [self-hosted, '${{ matrix.os }}']
     timeout-minutes: 15
     steps:
       - name: Checkout code
