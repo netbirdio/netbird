@@ -19,7 +19,9 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         skip_ui_mode: [true, false]
         install_binary: [true, false]
-    runs-on: [self-hosted, ${{ matrix.os }}]
+    runs-on:
+      - self-hosted
+      - ${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
