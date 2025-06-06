@@ -40,6 +40,30 @@ func Test_LocalHandlerGetUploadURL(t *testing.T) {
 
 }
 
+func Test_LocalHandlerGetUploadURL_WithPath(t *testing.T) {
+       mockURL := "http://localhost:8080/api"
+       t.Setenv("SERVER_URL", mockURL)
+       t.Setenv("STORE_DIR", t.TempDir())
+
+       mux := http.NewServeMux()
+       err := configureLocalHandlers(mux)
+       require.NoError(t, err)
+
+       req := httptest.NewRequest(http.MethodGet, types.GetURLPath+"?id=testfile", nil)
+       req.Header.Set(types.ClientHeader, types.ClientHeaderValue)
+
+       rec := httptest.NewRecorder()
+       mux.ServeHTTP(rec, req)
+
+       require.Equal(t, http.StatusOK, rec.Code)
+
+       var response types.GetURLResponse
+       err = json.Unmarshal(rec.Body.Bytes(), &response)
+       require.NoError(t, err)
+       expected := "/api" + putURLPath + "/testfile/"
+       require.Contains(t, response.URL, expected)
+}
+
 func Test_LocalHandlePutRequest(t *testing.T) {
 	mockDir := t.TempDir()
 	mockURL := "http://localhost:8080"
