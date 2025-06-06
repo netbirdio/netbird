@@ -1,4 +1,4 @@
-//go:build darwin || dragonfly || freebsd || netbsd || openbsd
+//go:build privileged && (darwin || dragonfly || freebsd || netbsd || openbsd)
 
 package systemops
 

@@ -1,4 +1,4 @@
-//go:build (linux && !android) || freebsd
+//go:build privileged && ((linux && !android) || freebsd)
 
 package dns
 
