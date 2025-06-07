@@ -25,7 +25,7 @@ jobs:
             cache: true
 
         - name: Run benchmarks
-          run: sudo go test --tags=process_benchmarks  -bench=. ./client/system
+          run: sudo go test -bench=. ./client/system
     run-benchmarks-windows:
       runs-on: windows-latest
       steps:
@@ -38,8 +38,10 @@ jobs:
             go-version: 1.23.x
             cache: true
 
+        - run: go list -f '{{.GoFiles}}' ./client/system
+
         - name: Run benchmarks
-          run: go test --tags=process_benchmarks -bench=. ./client/system
+          run: go test -bench=. ./client/system
     run-benchmarks-freebsd:
       runs-on: ubuntu-22.04
       steps:
@@ -61,4 +63,4 @@ jobs:
             run: |
               set -e -x
               export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
-              go test --tags=process_benchmarks -bench=. ./client/system
+              go test -bench=. ./client/system

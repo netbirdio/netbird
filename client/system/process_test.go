@@ -1,6 +1,3 @@
-//go:build process_benchmarks
-// +build process_benchmarks
-
 package system
 
 import (
