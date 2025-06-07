@@ -41,7 +41,7 @@ jobs:
         - run: go list -f '{{.GoFiles}}' ./client/system
 
         - name: Run benchmarks
-          run: go test -bench=. ./client/system
+          run: go test -bench . ./client/system
     run-benchmarks-freebsd:
       runs-on: ubuntu-22.04
       steps:
