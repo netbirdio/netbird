@@ -25,7 +25,7 @@ jobs:
             cache: true
 
         - name: Run benchmarks
-          run: go test --tags=process_benchmarks  -bench=. ./...
+          run: go test --tags=process_benchmarks  -bench=. ./client/system
     run-benchmarks-freebsd:
       runs-on: ubuntu-22.04
       steps:
@@ -47,4 +47,4 @@ jobs:
             run: |
               set -e -x
               export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
-              go test --tags=process_benchmarks -bench=. ./...
+              go test --tags=process_benchmarks -bench=. ./client/system
