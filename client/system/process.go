@@ -11,16 +11,18 @@ import (
 
 // getRunningProcesses returns a list of running process paths.
 func getRunningProcesses() ([]string, error) {
-	processes, err := process.Processes()
+	processes, err := process.Pids()
 	if err != nil {
 		return nil, err
 	}
 
 	processMap := make(map[string]bool)
 	for _, p := range processes {
-		path, _ := p.Exe()
+		proces := &process.Process{Pid: p}
+
+		path, _ := proces.Exe()
 		if path != "" {
-			processMap[path] = true
+			processMap[path] = false
 		}
 	}
 
