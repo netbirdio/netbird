@@ -12,7 +12,7 @@ jobs:
         strategy:
           fail-fast: false
           matrix:
-              os: [ubuntu-latest, macos-latest, windows-latest]
+              os: [ubuntu-latest, macos-latest]
               go-version: [1.23.x]
         steps:
         - name: Checkout code
@@ -25,7 +25,21 @@ jobs:
             cache: true
 
         - name: Run benchmarks
-          run: go test --tags=process_benchmarks  -bench=. ./client/system
+          run: sudo go test --tags=process_benchmarks  -bench=. ./client/system
+    run-benchmarks-windows:
+      runs-on: windows-latest
+      steps:
+        - name: Checkout code
+          uses: actions/checkout@v4
+
+        - name: Install Go
+          uses: actions/setup-go@v5
+          with:
+            go-version: 1.23.x
+            cache: true
+
+        - name: Run benchmarks
+          run: go test --tags=process_benchmarks  -bench=. .\client\system
     run-benchmarks-freebsd:
       runs-on: ubuntu-22.04
       steps:
