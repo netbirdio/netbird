@@ -75,7 +75,7 @@ func (h *eventHandler) handleDisconnectClick() {
 	go func() {
 		defer h.client.mDown.Enable()
 		if err := h.client.menuDownClick(); err != nil {
-			h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
+			h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird daemon"))
 		}
 	}()
 }
