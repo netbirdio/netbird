@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -118,7 +117,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Infof("updating interface %s peer %s, endpoint %s, allowedIPs %v, stack %s", w.tun.DeviceName(), peerKey, endpoint, allowedIps, string(debug.Stack()))
+	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
 	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
@@ -127,7 +126,7 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Infof("Removing peer %s from interface %s ", peerKey, w.tun.DeviceName())
+	log.Debugf("Removing peer %s from interface %s ", peerKey, w.tun.DeviceName())
 	return w.configurer.RemovePeer(peerKey)
 }
 
@@ -136,7 +135,7 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Infof("Adding allowed IP to interface %s and peer %s: allowedIPs %s, stack %s", w.tun.DeviceName(), peerKey, allowedIP, string(debug.Stack()))
+	log.Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.AddAllowedIP(peerKey, allowedIP)
 }
 
@@ -145,7 +144,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("Removing allowed IP from interface %s and peer %s: allowedIPs %s, stack %s", w.tun.DeviceName(), peerKey, allowedIP, string(debug.Stack()))
+	log.Debugf("Removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.RemoveAllowedIP(peerKey, allowedIP)
 }
 
