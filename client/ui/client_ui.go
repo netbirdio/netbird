@@ -209,13 +209,18 @@ type serviceClient struct {
 	sendNotification     bool
 
 	// input elements for settings form
-	iMngURL        *widget.Entry
-	iAdminURL      *widget.Entry
-	iConfigFile    *widget.Entry
-	iLogFile       *widget.Entry
-	iPreSharedKey  *widget.Entry
-	iInterfaceName *widget.Entry
-	iInterfacePort *widget.Entry
+	iMngURL              *widget.Entry
+	iAdminURL            *widget.Entry
+	iConfigFile          *widget.Entry
+	iLogFile             *widget.Entry
+	iPreSharedKey        *widget.Entry
+	iInterfaceName       *widget.Entry
+	iInterfacePort       *widget.Entry
+	sNetworkMonitor      *widget.Check
+	sDisableDNS          *widget.Check
+	sDisableClientRoutes *widget.Check
+	sDisableServerRoutes *widget.Check
+	sBlockLANAccess      *widget.Check
 
 	// switch elements for settings form
 	sRosenpassPermissive *widget.Check
@@ -227,6 +232,11 @@ type serviceClient struct {
 	RosenpassPermissive bool
 	interfaceName       string
 	interfacePort       int
+	networkMonitor      bool
+	disableDNS          bool
+	disableClientRoutes bool
+	disableServerRoutes bool
+	blockLANAccess      bool
 
 	connected            bool
 	update               *version.Update
@@ -335,14 +345,20 @@ func (s *serviceClient) showSettingsUI() {
 	s.iPreSharedKey = widget.NewPasswordEntry()
 	s.iInterfaceName = widget.NewEntry()
 	s.iInterfacePort = widget.NewEntry()
+
 	s.sRosenpassPermissive = widget.NewCheck("Enable Rosenpass permissive mode", nil)
 
+	s.sNetworkMonitor = widget.NewCheck("Restarts NetBird when the network changes", nil)
+	s.sDisableDNS = widget.NewCheck("Keeps system DNS settings unchanged", nil)
+	s.sDisableClientRoutes = widget.NewCheck("This peer won't route traffic to other peers", nil)
+	s.sDisableServerRoutes = widget.NewCheck("This peer won't act as router for others", nil)
+	s.sBlockLANAccess = widget.NewCheck("Blocks local network access when used as exit node", nil)
+
 	s.wSettings.SetContent(s.getSettingsForm())
-	s.wSettings.Resize(fyne.NewSize(600, 400))
+	s.wSettings.Resize(fyne.NewSize(600, 500))
 	s.wSettings.SetFixedSize(true)
 
 	s.getSrvConfig()
-
 	s.wSettings.Show()
 }
 
@@ -358,6 +374,11 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Config File", Widget: s.iConfigFile},
 			{Text: "Log File", Widget: s.iLogFile},
+			{Text: "Network Monitor", Widget: s.sNetworkMonitor},
+			{Text: "Disable DNS", Widget: s.sDisableDNS},
+			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
+			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
+			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
 		},
 		SubmitText: "Save",
 		OnSubmit: func() {
@@ -380,11 +401,15 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 
 			defer s.wSettings.Close()
 
-			// If the management URL, pre-shared key, admin URL, Rosenpass permissive mode,
-			// interface name, or interface port have changed, we attempt to re-login with the new settings.
+			// Check if any settings have changed
 			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
 				s.adminURL != iAdminURL || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
-				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) {
+				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
+				s.networkMonitor != s.sNetworkMonitor.Checked ||
+				s.disableDNS != s.sDisableDNS.Checked ||
+				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
+				s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
+				s.blockLANAccess != s.sBlockLANAccess.Checked {
 
 				s.managementURL = iMngURL
 				s.preSharedKey = s.iPreSharedKey.Text
@@ -397,6 +422,11 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					RosenpassPermissive: &s.sRosenpassPermissive.Checked,
 					InterfaceName:       &s.iInterfaceName.Text,
 					WireguardPort:       &port,
+					NetworkMonitor:      &s.sNetworkMonitor.Checked,
+					DisableDns:          &s.sDisableDNS.Checked,
+					DisableClientRoutes: &s.sDisableClientRoutes.Checked,
+					DisableServerRoutes: &s.sDisableServerRoutes.Checked,
+					BlockLanAccess:      &s.sBlockLANAccess.Checked,
 				}
 
 				if s.iPreSharedKey.Text != censoredPreSharedKey {
@@ -823,6 +853,12 @@ func (s *serviceClient) getSrvConfig() {
 	s.interfaceName = cfg.InterfaceName
 	s.interfacePort = int(cfg.WireguardPort)
 
+	s.networkMonitor = cfg.NetworkMonitor
+	s.disableDNS = cfg.DisableDns
+	s.disableClientRoutes = cfg.DisableClientRoutes
+	s.disableServerRoutes = cfg.DisableServerRoutes
+	s.blockLANAccess = cfg.BlockLanAccess
+
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iAdminURL.SetText(s.adminURL)
@@ -835,6 +871,11 @@ func (s *serviceClient) getSrvConfig() {
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()
 		}
+		s.sNetworkMonitor.SetChecked(cfg.NetworkMonitor)
+		s.sDisableDNS.SetChecked(cfg.DisableDns)
+		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
+		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
+		s.sBlockLANAccess.SetChecked(cfg.BlockLanAccess)
 	}
 
 	if s.mNotifications == nil {
@@ -848,7 +889,6 @@ func (s *serviceClient) getSrvConfig() {
 	if s.eventManager != nil {
 		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 	}
-
 }
 
 func (s *serviceClient) onUpdateAvailable() {

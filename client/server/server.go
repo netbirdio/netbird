@@ -750,13 +750,22 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		if preSharedKey != "" {
 			preSharedKey = "**********"
 		}
-
 	}
 
 	disableNotifications := true
 	if s.config.DisableNotifications != nil {
 		disableNotifications = *s.config.DisableNotifications
 	}
+
+	networkMonitor := false
+	if s.config.NetworkMonitor != nil {
+		networkMonitor = *s.config.NetworkMonitor
+	}
+
+	disableDNS := s.config.DisableDNS
+	disableClientRoutes := s.config.DisableClientRoutes
+	disableServerRoutes := s.config.DisableServerRoutes
+	blockLANAccess := s.config.BlockLANAccess
 
 	return &proto.GetConfigResponse{
 		ManagementUrl:         managementURL,
@@ -773,6 +782,11 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		LazyConnectionEnabled: s.config.LazyConnectionEnabled,
 		BlockInbound:          s.config.BlockInbound,
 		DisableNotifications:  disableNotifications,
+		NetworkMonitor:        networkMonitor,
+		DisableDns:            disableDNS,
+		DisableClientRoutes:   disableClientRoutes,
+		DisableServerRoutes:   disableServerRoutes,
+		BlockLanAccess:        blockLANAccess,
 	}, nil
 }
 
