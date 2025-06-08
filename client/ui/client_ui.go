@@ -209,21 +209,21 @@ type serviceClient struct {
 	sendNotification     bool
 
 	// input elements for settings form
-	iMngURL              *widget.Entry
-	iAdminURL            *widget.Entry
-	iConfigFile          *widget.Entry
-	iLogFile             *widget.Entry
-	iPreSharedKey        *widget.Entry
-	iInterfaceName       *widget.Entry
-	iInterfacePort       *widget.Entry
+	iMngURL        *widget.Entry
+	iAdminURL      *widget.Entry
+	iConfigFile    *widget.Entry
+	iLogFile       *widget.Entry
+	iPreSharedKey  *widget.Entry
+	iInterfaceName *widget.Entry
+	iInterfacePort *widget.Entry
+
+	// switch elements for settings form
+	sRosenpassPermissive *widget.Check
 	sNetworkMonitor      *widget.Check
 	sDisableDNS          *widget.Check
 	sDisableClientRoutes *widget.Check
 	sDisableServerRoutes *widget.Check
 	sBlockLANAccess      *widget.Check
-
-	// switch elements for settings form
-	sRosenpassPermissive *widget.Check
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL       string
