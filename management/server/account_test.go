@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -3200,7 +3201,7 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 	}
 }
 
-func Test_CreateAccountByPrivateDomain(t *testing.T) {
+func Test_GetCreateAccountByPrivateDomain(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -3211,9 +3212,10 @@ func Test_CreateAccountByPrivateDomain(t *testing.T) {
 	initiatorId := "test-user"
 	domain := "example.com"
 
-	account, err := manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	account, created, err := manager.GetOrCreateAccountByPrivateDomain(ctx, initiatorId, domain)
 	assert.NoError(t, err)
 
+	assert.True(t, created)
 	assert.False(t, account.IsDomainPrimaryAccount)
 	assert.Equal(t, domain, account.Domain)
 	assert.Equal(t, types.PrivateCategory, account.DomainCategory)
@@ -3222,9 +3224,25 @@ func Test_CreateAccountByPrivateDomain(t *testing.T) {
 	assert.Equal(t, 0, len(account.Users))
 	assert.Equal(t, 0, len(account.SetupKeys))
 
-	// retry should fail
-	_, err = manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
-	assert.Error(t, err)
+	// should return a new account because the previous one is not primary
+	account2, created2, err := manager.GetOrCreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.NoError(t, err)
+
+	assert.True(t, created2)
+	assert.False(t, account2.IsDomainPrimaryAccount)
+	assert.Equal(t, domain, account2.Domain)
+	assert.Equal(t, types.PrivateCategory, account2.DomainCategory)
+	assert.Equal(t, initiatorId, account2.CreatedBy)
+	assert.Equal(t, 1, len(account2.Groups))
+	assert.Equal(t, 0, len(account2.Users))
+	assert.Equal(t, 0, len(account2.SetupKeys))
+
+	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	assert.NoError(t, err)
+	assert.True(t, account.IsDomainPrimaryAccount)
+
+	_, err = manager.UpdateToPrimaryAccount(ctx, account2.Id)
+	assert.Error(t, err, "should not be able to update a second account to primary")
 }
 
 func Test_UpdateToPrimaryAccount(t *testing.T) {
@@ -3238,14 +3256,21 @@ func Test_UpdateToPrimaryAccount(t *testing.T) {
 	initiatorId := "test-user"
 	domain := "example.com"
 
-	account, err := manager.CreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	account, created, err := manager.GetOrCreateAccountByPrivateDomain(ctx, initiatorId, domain)
 	assert.NoError(t, err)
+	assert.True(t, created)
 	assert.False(t, account.IsDomainPrimaryAccount)
+	assert.Equal(t, domain, account.Domain)
 
-	// retry should fail
 	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
 	assert.NoError(t, err)
 	assert.True(t, account.IsDomainPrimaryAccount)
+
+	account2, created2, err := manager.GetOrCreateAccountByPrivateDomain(ctx, initiatorId, domain)
+	assert.NoError(t, err)
+	assert.False(t, created2)
+	assert.True(t, account.IsDomainPrimaryAccount)
+	assert.Equal(t, account.Id, account2.Id)
 }
 
 func TestDefaultAccountManager_IsCacheCold(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"syscall"
 	"time"
 
@@ -19,16 +20,16 @@ import (
 
 type upstreamResolverIOS struct {
 	*upstreamResolverBase
-	lIP           net.IP
-	lNet          *net.IPNet
+	lIP           netip.Addr
+	lNet          netip.Prefix
 	interfaceName string
 }
 
 func newUpstreamResolver(
 	ctx context.Context,
 	interfaceName string,
-	ip net.IP,
-	net *net.IPNet,
+	ip netip.Addr,
+	net netip.Prefix,
 	statusRecorder *peer.Status,
 	_ *hostsDNSHolder,
 	domain domain.Domain,
@@ -59,8 +60,11 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	}
 	client.DialTimeout = timeout
 
-	upstreamIP := net.ParseIP(upstreamHost)
-	if u.lNet.Contains(upstreamIP) || net.IP.IsPrivate(upstreamIP) {
+	upstreamIP, err := netip.ParseAddr(upstreamHost)
+	if err != nil {
+		log.Warnf("failed to parse upstream host %s: %s", upstreamHost, err)
+	}
+	if u.lNet.Contains(upstreamIP) || upstreamIP.IsPrivate() {
 		log.Debugf("using private client to query upstream: %s", upstream)
 		client, err = GetClientPrivate(u.lIP, u.interfaceName, timeout)
 		if err != nil {
@@ -74,7 +78,7 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 
 // GetClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface
 // This method is needed for iOS
-func GetClientPrivate(ip net.IP, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {
+func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {
 	index, err := getInterfaceIndex(interfaceName)
 	if err != nil {
 		log.Debugf("unable to get interface index for %s: %s", interfaceName, err)
@@ -83,7 +87,7 @@ func GetClientPrivate(ip net.IP, interfaceName string, dialTimeout time.Duration
 
 	dialer := &net.Dialer{
 		LocalAddr: &net.UDPAddr{
-			IP:   ip,
+			IP:   ip.AsSlice(),
 			Port: 0, // Let the OS pick a free port
 		},
 		Timeout: dialTimeout,

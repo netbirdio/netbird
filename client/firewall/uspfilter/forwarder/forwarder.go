@@ -41,7 +41,7 @@ type Forwarder struct {
 	udpForwarder *udpForwarder
 	ctx          context.Context
 	cancel       context.CancelFunc
-	ip           net.IP
+	ip           tcpip.Address
 	netstack     bool
 }
 
@@ -71,12 +71,11 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 		return nil, fmt.Errorf("failed to create NIC: %v", err)
 	}
 
-	ones, _ := iface.Address().Network.Mask.Size()
 	protoAddr := tcpip.ProtocolAddress{
 		Protocol: ipv4.ProtocolNumber,
 		AddressWithPrefix: tcpip.AddressWithPrefix{
-			Address:   tcpip.AddrFromSlice(iface.Address().IP.To4()),
-			PrefixLen: ones,
+			Address:   tcpip.AddrFromSlice(iface.Address().IP.AsSlice()),
+			PrefixLen: iface.Address().Network.Bits(),
 		},
 	}
 
@@ -116,7 +115,7 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 		ctx:          ctx,
 		cancel:       cancel,
 		netstack:     netstack,
-		ip:           iface.Address().IP,
+		ip:           tcpip.AddrFromSlice(iface.Address().IP.AsSlice()),
 	}
 
 	receiveWindow := defaultReceiveWindow
@@ -167,7 +166,7 @@ func (f *Forwarder) Stop() {
 }
 
 func (f *Forwarder) determineDialAddr(addr tcpip.Address) net.IP {
-	if f.netstack && f.ip.Equal(addr.AsSlice()) {
+	if f.netstack && f.ip.Equal(addr) {
 		return net.IPv4(127, 0, 0, 1)
 	}
 	return addr.AsSlice()
@@ -179,7 +178,6 @@ func (f *Forwarder) RegisterRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uin
 }
 
 func (f *Forwarder) getRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) ([]byte, bool) {
-
 	if value, ok := f.ruleIdMap.Load(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
 		return value.([]byte), true
 	} else if value, ok := f.ruleIdMap.Load(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {

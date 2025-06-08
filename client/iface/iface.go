@@ -185,7 +185,6 @@ func (w *WGIface) SetFilter(filter device.PacketFilter) error {
 	}
 
 	w.filter = filter
-	w.filter.SetNetwork(w.tun.WgAddress().Network)
 
 	w.tun.FilteredDevice().SetFilter(filter)
 	return nil
@@ -215,6 +214,10 @@ func (w *WGIface) GetWGDevice() *wgdevice.Device {
 // GetStats returns the last handshake time, rx and tx bytes
 func (w *WGIface) GetStats() (map[string]configurer.WGStats, error) {
 	return w.configurer.GetStats()
+}
+
+func (w *WGIface) FullStats() (*configurer.Stats, error) {
+	return w.configurer.FullStats()
 }
 
 func (w *WGIface) waitUntilRemoved() error {

@@ -100,6 +100,10 @@ type MockWGIface struct {
 	GetNetFunc                 func() *netstack.Net
 }
 
+func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
 	return m.GetInterfaceGUIDStringFunc()
 }
@@ -372,11 +376,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("10.20.0.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("10.20.0.0"),
-					Mask: net.IPv4Mask(255, 255, 255, 0),
-				},
+				IP:      netip.MustParseAddr("10.20.0.1"),
+				Network: netip.MustParsePrefix("10.20.0.0/24"),
 			}
 		},
 		UpdatePeerFunc: func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {

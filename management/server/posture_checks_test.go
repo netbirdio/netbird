@@ -455,7 +455,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		AccountID: account.Id,
 		Peers:     []string{},
 	}
-	err = manager.Store.SaveGroups(context.Background(), store.LockingStrengthUpdate, []*types.Group{groupA, groupB})
+	err = manager.Store.SaveGroups(context.Background(), store.LockingStrengthUpdate, account.Id, []*types.Group{groupA, groupB})
 	require.NoError(t, err, "failed to save groups")
 
 	postureCheckA := &posture.Checks{

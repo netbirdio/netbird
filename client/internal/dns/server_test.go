@@ -45,10 +45,9 @@ func (w *mocWGIface) Name() string {
 }
 
 func (w *mocWGIface) Address() wgaddr.Address {
-	ip, network, _ := net.ParseCIDR("100.66.100.0/24")
 	return wgaddr.Address{
-		IP:      ip,
-		Network: network,
+		IP:      netip.MustParseAddr("100.66.100.1"),
+		Network: netip.MustParsePrefix("100.66.100.0/24"),
 	}
 }
 
@@ -463,17 +462,10 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	_, ipNet, err := net.ParseCIDR("100.66.100.1/32")
-	if err != nil {
-		t.Errorf("parse CIDR: %v", err)
-		return
-	}
-
 	packetfilter := pfmock.NewMockPacketFilter(ctrl)
 	packetfilter.EXPECT().DropOutgoing(gomock.Any(), gomock.Any()).AnyTimes()
 	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 	packetfilter.EXPECT().RemovePacketHook(gomock.Any())
-	packetfilter.EXPECT().SetNetwork(ipNet)
 
 	if err := wgIface.SetFilter(packetfilter); err != nil {
 		t.Errorf("set packet filter: %v", err)

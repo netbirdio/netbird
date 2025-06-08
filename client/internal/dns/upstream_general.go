@@ -4,7 +4,7 @@ package dns
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"time"
 
 	"github.com/miekg/dns"
@@ -20,8 +20,8 @@ type upstreamResolver struct {
 func newUpstreamResolver(
 	ctx context.Context,
 	_ string,
-	_ net.IP,
-	_ *net.IPNet,
+	_ netip.Addr,
+	_ netip.Prefix,
 	statusRecorder *peer.Status,
 	_ *hostsDNSHolder,
 	domain domain.Domain,

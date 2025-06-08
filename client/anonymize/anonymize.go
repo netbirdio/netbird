@@ -69,6 +69,22 @@ func (a *Anonymizer) AnonymizeIP(ip netip.Addr) netip.Addr {
 	return a.ipAnonymizer[ip]
 }
 
+func (a *Anonymizer) AnonymizeUDPAddr(addr net.UDPAddr) net.UDPAddr {
+	// Convert IP to netip.Addr
+	ip, ok := netip.AddrFromSlice(addr.IP)
+	if !ok {
+		return addr
+	}
+
+	anonIP := a.AnonymizeIP(ip)
+
+	return net.UDPAddr{
+		IP:   anonIP.AsSlice(),
+		Port: addr.Port,
+		Zone: addr.Zone,
+	}
+}
+
 // isInAnonymizedRange checks if an IP is within the range of already assigned anonymized IPs
 func (a *Anonymizer) isInAnonymizedRange(ip netip.Addr) bool {
 	if ip.Is4() && ip.Compare(a.startAnonIPv4) >= 0 && ip.Compare(a.currentAnonIPv4) <= 0 {
