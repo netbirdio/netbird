@@ -732,42 +732,6 @@ func (s *serviceClient) onTrayReady() {
 	go s.eventHandler.listen(s.ctx)
 }
 
-func (s *serviceClient) runSelfCommand(command, arg string) {
-	proc, err := os.Executable()
-	if err != nil {
-		log.Errorf("Error getting executable path: %v", err)
-		return
-	}
-
-	cmd := exec.Command(proc,
-		fmt.Sprintf("--%s=%s", command, arg),
-		fmt.Sprintf("--daemon-addr=%s", s.addr),
-	)
-
-	if out := s.attachOutput(cmd); out != nil {
-		defer func() {
-			if err := out.Close(); err != nil {
-				log.Errorf("Error closing log file %s: %v", s.logFile, err)
-			}
-		}()
-	}
-
-	log.Printf("Running command: %s --%s=%s --daemon-addr=%s", proc, command, arg, s.addr)
-
-	err = cmd.Run()
-
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			log.Printf("Command '%s %s' failed with exit code %d", command, arg, exitErr.ExitCode())
-		} else {
-			log.Printf("Failed to start/run command '%s %s': %v", command, arg, err)
-		}
-		return
-	}
-
-	log.Printf("Command '%s %s' completed successfully.", command, arg)
-}
 
 func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
 	if s.logFile == "" {
