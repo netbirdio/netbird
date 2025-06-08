@@ -175,7 +175,7 @@ func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Co
 		PeerConnID: conn.ConnID(),
 		Log:        conn.Log,
 	}
-	excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
+	excluded, err := e.lazyConnMgr.AddPeer(ctx, lazyPeerCfg)
 	if err != nil {
 		conn.Log.Errorf("failed to add peer to lazyconn manager: %v", err)
 		if err := conn.Open(ctx); err != nil {
