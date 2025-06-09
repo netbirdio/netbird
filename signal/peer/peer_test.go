@@ -9,8 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/signal/metrics"
+	"github.com/netbirdio/netbird/signal/proto"
 )
 
 func TestRegistry_ShouldNotDeregisterWhenHasNewerStreamRegistered(t *testing.T) {
@@ -273,4 +276,84 @@ func Benchmark_MultipleDeregister_Concurrency(b *testing.B) {
 			wg.Wait()
 		}
 	})
+}
+
+type mockConnectStreamServer struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (m *mockConnectStreamServer) Context() context.Context {
+	return m.ctx
+}
+
+func (m *mockConnectStreamServer) SendHeader(md metadata.MD) error {
+	return nil
+}
+
+func (m *mockConnectStreamServer) Send(msg *proto.EncryptedMessage) error {
+	return nil
+}
+
+func (m *mockConnectStreamServer) Recv() (*proto.EncryptedMessage, error) {
+	<-m.ctx.Done()
+	return nil, m.ctx.Err()
+}
+
+func TestReconnectHandling(t *testing.T) {
+	metrics, err := metrics.NewAppMetrics(otel.Meter(""))
+	require.NoError(t, err)
+	registry := NewRegistry(metrics)
+	peerID := "test-peer-reconnect"
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	stream1 := &mockConnectStreamServer{ctx: ctx1}
+	peer1 := NewPeerPool(peerID, stream1, cancel1)
+
+	err = registry.RegisterPool(peer1)
+	require.NoError(t, err, "first registration should succeed")
+
+	p, found := registry.Get(peerID)
+	require.True(t, found, "peer should be found in the registry")
+	require.Equal(t, peer1.StreamID, p.StreamID, "StreamID of registered peer should match")
+
+	time.Sleep(time.Nanosecond)
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+	stream2 := &mockConnectStreamServer{ctx: ctx2}
+	peer2 := NewPeerPool(peerID, stream2, cancel2)
+
+	err = registry.RegisterPool(peer2)
+	require.NoError(t, err, "reconnect registration should succeed")
+
+	select {
+	case <-ctx1.Done():
+		require.ErrorIs(t, ctx1.Err(), context.Canceled, "context of old stream should be canceled after successful reconnection")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("context of old stream was not canceled after reconnection")
+	}
+
+	p, found = registry.Get(peerID)
+	require.True(t, found)
+	require.Equal(t, peer2.StreamID, p.StreamID, "registered peer should have the new StreamID after reconnection")
+
+	ctx3, cancel3 := context.WithCancel(context.Background())
+	defer cancel3()
+	stream3 := &mockConnectStreamServer{ctx: ctx3}
+	stalePeer := NewPeerPool(peerID, stream3, cancel3)
+	stalePeer.StreamID = peer1.StreamID
+
+	err = registry.RegisterPool(stalePeer)
+	require.ErrorIs(t, err, ErrPeerAlreadyRegistered, "reconnecting with an old StreamID should return an error")
+
+	p, found = registry.Get(peerID)
+	require.True(t, found)
+	require.Equal(t, peer2.StreamID, p.StreamID, "active peer should still be the one with the latest StreamID")
+
+	select {
+	case <-ctx2.Done():
+		t.Fatal("context of the new stream should not be canceled after trying to register with an old StreamID")
+	default:
+	}
 }

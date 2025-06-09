@@ -128,6 +128,7 @@ func (registry *Registry) RegisterPool(peer *Peer) error {
 				return registry.RegisterPool(peer)
 			}
 			pp.Cancel()
+			return nil
 		}
 		return ErrPeerAlreadyRegistered
 	}
