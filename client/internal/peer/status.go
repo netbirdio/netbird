@@ -583,6 +583,10 @@ func (d *Status) FinishPeerListModifications() {
 	d.mux.Unlock()
 
 	d.notifyPeerListChanged()
+
+	for key := range d.peers {
+		d.notifyPeerStateChangeListeners(key)
+	}
 }
 
 func (d *Status) SubscribeToPeerStateChanges(ctx context.Context, peerID string) *StatusChangeSubscription {
