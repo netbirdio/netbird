@@ -40,6 +40,9 @@ func getMigrations(ctx context.Context, crypt *FieldEncrypt) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migrateDuplicateDeletedUsers(ctx, db)
 		},
+		func(db *gorm.DB) error {
+			return migration.AddIndex[activity.Event](ctx, db, "idx_events_account_id")
+		},
 	}
 }
 
