@@ -3,6 +3,7 @@ package posture
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -60,8 +61,27 @@ func (p *ProcessCheck) Validate() error {
 // It returns true if all processes are running, otherwise false.
 func (p *ProcessCheck) areAllProcessesRunning(activeProcesses []string, pathSelector func(Process) string) bool {
 	for _, process := range p.Processes {
-		path := pathSelector(process)
-		if path == "" || !slices.Contains(activeProcesses, path) {
+		pattern := pathSelector(process)
+		if pattern == "" {
+			return false
+		}
+
+		matched := false
+
+		if re, err := regexp.Compile(pattern); err == nil {
+			for _, ap := range activeProcesses {
+				if loc := re.FindStringIndex(ap); loc != nil && loc[0] == 0 && loc[1] == len(ap) {
+					matched = true
+					break
+				}
+			}
+		} else {
+			if slices.Contains(activeProcesses, pattern) {
+				matched = true
+			}
+		}
+
+		if !matched {
 			return false
 		}
 	}
