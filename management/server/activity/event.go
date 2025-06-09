@@ -31,7 +31,7 @@ type Event struct {
 	// TargetID is the ID of an object that was effected by the event (e.g., a peer)
 	TargetID string
 	// AccountID is the ID of an account where the event happened
-	AccountID string
+	AccountID string `gorm:"index"`
 
 	// Meta of the event, e.g. deleted peer information like name, IP, etc
 	Meta map[string]any `gorm:"serializer:json"`
