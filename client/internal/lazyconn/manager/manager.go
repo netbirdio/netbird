@@ -57,8 +57,9 @@ type Manager struct {
 	// Route HA group management
 	peerToHAGroups map[string][]route.HAUniqueID // peer ID -> HA groups they belong to
 	haGroupToPeers map[route.HAUniqueID][]string // HA group -> peer IDs in the group
-	routesMu       sync.RWMutex                  // protects route mappings
+	routesMu       sync.RWMutex
 
+	ctx        context.Context
 	cancel     context.CancelFunc
 	onInactive chan peerid.ConnID
 }
@@ -136,13 +137,13 @@ func (m *Manager) UpdateRouteHAMap(haMap route.HAMap) {
 func (m *Manager) Start(ctx context.Context) {
 	defer m.close()
 
-	ctx, m.cancel = context.WithCancel(ctx)
+	m.ctx, m.cancel = context.WithCancel(ctx)
 	for {
 		select {
-		case <-ctx.Done():
+		case <-m.ctx.Done():
 			return
 		case peerConnID := <-m.activityManager.OnActivityChan:
-			m.onPeerActivity(ctx, peerConnID)
+			m.onPeerActivity(m.ctx, peerConnID)
 		case peerConnID := <-m.onInactive:
 			m.onPeerInactivityTimedOut(peerConnID)
 		}
@@ -470,6 +471,50 @@ func (m *Manager) close() {
 	log.Infof("lazy connection manager closed")
 }
 
+// shouldDeferIdleForHA checks if peer should stay connected due to HA group requirements
+func (m *Manager) shouldDeferIdleForHA(peerID string) bool {
+	m.routesMu.RLock()
+	haGroups := m.peerToHAGroups[peerID]
+	m.routesMu.RUnlock()
+
+	if len(haGroups) == 0 {
+		return false
+	}
+
+	for _, haGroup := range haGroups {
+		m.routesMu.RLock()
+		groupPeers := m.haGroupToPeers[haGroup]
+		m.routesMu.RUnlock()
+
+		for _, groupPeerID := range groupPeers {
+			if groupPeerID == peerID {
+				continue
+			}
+
+			cfg, ok := m.managedPeers[groupPeerID]
+			if !ok {
+				continue
+			}
+
+			groupMp, ok := m.managedPeersByConnID[cfg.PeerConnID]
+			if !ok {
+				continue
+			}
+
+			if groupMp.expectedWatcher != watcherInactivity {
+				continue
+			}
+
+			// Other member is still connected, defer idle
+			if peer, ok := m.peerStore.PeerConn(groupPeerID); ok && peer.IsConnected() {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (m *Manager) onPeerActivity(ctx context.Context, peerConnID peerid.ConnID) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
@@ -513,6 +558,17 @@ func (m *Manager) onPeerInactivityTimedOut(peerConnID peerid.ConnID) {
 
 	mp.peerCfg.Log.Infof("connection timed out")
 
+	if m.shouldDeferIdleForHA(mp.peerCfg.PublicKey) {
+		iw, ok := m.inactivityMonitors[peerConnID]
+		if ok {
+			mp.peerCfg.Log.Debugf("resetting inactivity timer due to HA group requirements")
+			iw.ResetMonitor(m.ctx, m.onInactive)
+		} else {
+			mp.peerCfg.Log.Errorf("inactivity monitor not found for HA defer reset")
+		}
+		return
+	}
+
 	// this is blocking operation, potentially can be optimized
 	m.peerStore.PeerConnClose(mp.peerCfg.PublicKey)
 
@@ -544,7 +600,7 @@ func (m *Manager) onPeerConnected(peerConnID peerid.ConnID) {
 
 	iw, ok := m.inactivityMonitors[mp.peerCfg.PeerConnID]
 	if !ok {
-		mp.peerCfg.Log.Errorf("inactivity monitor not found for peer")
+		mp.peerCfg.Log.Warnf("inactivity monitor not found for peer")
 		return
 	}
 
