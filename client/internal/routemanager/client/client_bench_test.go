@@ -136,7 +136,7 @@ func BenchmarkRecalculateRoutes(b *testing.B) {
 				routes:              routes,
 				routePeersNotifiers: make(map[string]chan struct{}),
 				routeUpdate:         make(chan RoutesUpdate),
-				peerStateUpdate:     make(chan struct{}),
+				peerStateUpdate:     make(chan map[string]peer.RouterState),
 				handler:             &mockRouteHandler{network: "benchmark"},
 				currentChosenStatus: nil,
 			}
@@ -144,8 +144,9 @@ func BenchmarkRecalculateRoutes(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 
+			routePeerStatuses := watcher.getRouterPeerStatuses()
 			for i := 0; i < b.N; i++ {
-				err := watcher.recalculateRoutes(reasonPeerUpdate, nil)
+				err := watcher.recalculateRoutes(reasonPeerUpdate, routePeerStatuses)
 				if err != nil {
 					b.Fatalf("recalculateRoutes failed: %v", err)
 				}
