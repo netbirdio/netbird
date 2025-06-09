@@ -1020,7 +1020,6 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 	}
 
 	for _, sub := range subs {
-		// block the write because we do not want to miss notification
 		select {
 		case sub.eventsChan <- changedPeers:
 		case <-sub.ctx.Done():
