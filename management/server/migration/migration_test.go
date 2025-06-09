@@ -249,3 +249,15 @@ func TestDropIndex(t *testing.T) {
 	exist = db.Migrator().HasIndex(&types.SetupKey{}, "idx_setup_keys_account_id")
 	assert.False(t, exist, "Should not have the index")
 }
+
+func TestAddIndex(t *testing.T) {
+	db := setupDatabase(t)
+	require.NoError(t, db.AutoMigrate(&types.SetupKey{}))
+
+	assert.True(t, db.Migrator().HasIndex(&types.SetupKey{}, "idx_setup_keys_account_id"))
+	require.NoError(t, migration.DropIndex[types.SetupKey](context.Background(), db, "idx_setup_keys_account_id"))
+	assert.False(t, db.Migrator().HasIndex(&types.SetupKey{}, "idx_setup_keys_account_id"))
+
+	require.NoError(t, migration.AddIndex[types.SetupKey](context.Background(), db, "idx_setup_keys_account_id"))
+	assert.True(t, db.Migrator().HasIndex(&types.SetupKey{}, "idx_setup_keys_account_id"))
+}
