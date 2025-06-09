@@ -145,7 +145,7 @@ func BenchmarkRecalculateRoutes(b *testing.B) {
 			b.ReportAllocs()
 
 			for i := 0; i < b.N; i++ {
-				err := watcher.recalculateRoutes(reasonPeerUpdate)
+				err := watcher.recalculateRoutes(reasonPeerUpdate, nil)
 				if err != nil {
 					b.Fatalf("recalculateRoutes failed: %v", err)
 				}

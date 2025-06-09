@@ -128,9 +128,9 @@ func (w *Watcher) convertRouterPeerStatuses(states map[string]peer.RouterState) 
 			continue
 		}
 		routePeerStatuses[r.ID] = routerPeerStatus{
-			connected: peerStatus.Connected,
-			relayed:   peerStatus.Relayed,
-			latency:   peerStatus.Latency,
+			status:  peerStatus.Status,
+			relayed: peerStatus.Relayed,
+			latency: peerStatus.Latency,
 		}
 	}
 	return routePeerStatuses
@@ -264,8 +264,8 @@ func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, pe
 			return
 		case <-closer:
 			return
-		case routersStates := <-subscription.Events():
-			peerStateUpdate <- routersStates
+		case routerStates := <-subscription.Events():
+			peerStateUpdate <- routerStates
 			log.Debugf("triggered route state update for Peer: %s", peerKey)
 		}
 	}
@@ -329,9 +329,7 @@ func (w *Watcher) shouldSkipRecalculation(newChosenID route.ID, newStatus router
 	return true
 }
 
-func (w *Watcher) recalculateRoutes(rsn reason) error {
-	routerPeerStatuses := w.getRouterPeerStatuses()
-
+func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]routerPeerStatus) error {
 	newChosenID, newStatus := w.getBestRouteFromStatuses(routerPeerStatuses)
 
 	// If no route is chosen, remove the route from the peer

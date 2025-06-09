@@ -43,9 +43,9 @@ type EventListener interface {
 
 // RouterState status for router peers. This contains relevant fields for route manager
 type RouterState struct {
-	Connected bool
-	Relayed   bool
-	Latency   time.Duration
+	Status  ConnStatus
+	Relayed bool
+	Latency time.Duration
 }
 
 // State contains the latest state of a peer
@@ -1013,9 +1013,9 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 		}
 
 		changedPeers[pid] = RouterState{
-			Connected: s.ConnStatus == StatusConnected,
-			Relayed:   s.Relayed,
-			Latency:   s.Latency,
+			Status:  s.ConnStatus,
+			Relayed: s.Relayed,
+			Latency: s.Latency,
 		}
 	}
 
