@@ -373,24 +373,3 @@ func DropIndex[T any](ctx context.Context, db *gorm.DB, indexName string) error 
 	log.WithContext(ctx).Infof("dropped index %s from table %T", indexName, model)
 	return nil
 }
-
-func AddIndex[T any](ctx context.Context, db *gorm.DB, name string) error {
-	var model T
-
-	if !db.Migrator().HasTable(&model) {
-		log.WithContext(ctx).Debugf("table for %T does not exist, no migration needed", model)
-		return nil
-	}
-
-	if db.Migrator().HasIndex(&model, name) {
-		log.WithContext(ctx).Debugf("index %s already exists in table %T, no migration needed", name, model)
-		return nil
-	}
-
-	if err := db.Migrator().CreateIndex(&model, name); err != nil {
-		return fmt.Errorf("failed to create index %s: %w", name, err)
-	}
-
-	log.WithContext(ctx).Infof("created index %s on table %T", name, model)
-	return nil
-}
