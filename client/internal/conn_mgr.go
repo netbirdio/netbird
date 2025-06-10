@@ -34,9 +34,9 @@ type ConnMgr struct {
 
 	lazyConnMgr *manager.Manager
 
-	wg        sync.WaitGroup
-	ctx       context.Context
-	ctxCancel context.CancelFunc
+	wg            sync.WaitGroup
+	lazyCtx       context.Context
+	lazyCtxCancel context.CancelFunc
 }
 
 func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *dispatcher.ConnectionDispatcher) *ConnMgr {
@@ -86,7 +86,7 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 		log.Infof("lazy connection manager is enabled by management feature flag")
 		e.initLazyManager(ctx)
 		e.statusRecorder.UpdateLazyConnection(true)
-		return e.addPeersToLazyConnManager(ctx)
+		return e.addPeersToLazyConnManager()
 	} else {
 		if e.lazyConnMgr == nil {
 			return nil
@@ -109,7 +109,7 @@ func (e *ConnMgr) UpdateRouteHAMap(haMap route.HAMap) {
 }
 
 // SetExcludeList sets the list of peer IDs that should always have permanent connections.
-func (e *ConnMgr) SetExcludeList(peerIDs map[string]bool) {
+func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 	if e.lazyConnMgr == nil {
 		return
 	}
@@ -133,7 +133,7 @@ func (e *ConnMgr) SetExcludeList(peerIDs map[string]bool) {
 		excludedPeers = append(excludedPeers, lazyPeerCfg)
 	}
 
-	added := e.lazyConnMgr.ExcludePeer(e.ctx, excludedPeers)
+	added := e.lazyConnMgr.ExcludePeer(e.lazyCtx, excludedPeers)
 	for _, peerID := range added {
 		var peerConn *peer.Conn
 		var exists bool
@@ -143,7 +143,7 @@ func (e *ConnMgr) SetExcludeList(peerIDs map[string]bool) {
 		}
 
 		peerConn.Log.Infof("peer has been added to lazy connection exclude list, opening permanent connection")
-		if err := peerConn.Open(e.ctx); err != nil {
+		if err := peerConn.Open(ctx); err != nil {
 			peerConn.Log.Errorf("failed to open connection: %v", err)
 		}
 	}
@@ -223,7 +223,7 @@ func (e *ConnMgr) OnSignalMsg(ctx context.Context, peerKey string) (*peer.Conn, 
 
 	if found := e.lazyConnMgr.ActivatePeer(ctx, peerKey); found {
 		conn.Log.Infof("activated peer from inactive state")
-		if err := conn.Open(e.ctx); err != nil {
+		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
 	}
@@ -235,7 +235,7 @@ func (e *ConnMgr) Close() {
 		return
 	}
 
-	e.ctxCancel()
+	e.lazyCtxCancel()
 	e.wg.Wait()
 	e.lazyConnMgr = nil
 }
@@ -246,18 +246,16 @@ func (e *ConnMgr) initLazyManager(parentCtx context.Context) {
 	}
 	e.lazyConnMgr = manager.NewManager(cfg, e.peerStore, e.iface, e.dispatcher)
 
-	ctx, cancel := context.WithCancel(parentCtx)
-	e.ctx = ctx
-	e.ctxCancel = cancel
+	e.lazyCtx, e.lazyCtxCancel = context.WithCancel(parentCtx)
 
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		e.lazyConnMgr.Start(ctx)
+		e.lazyConnMgr.Start(e.lazyCtx)
 	}()
 }
 
-func (e *ConnMgr) addPeersToLazyConnManager(ctx context.Context) error {
+func (e *ConnMgr) addPeersToLazyConnManager() error {
 	peers := e.peerStore.PeersPubKey()
 	lazyPeerCfgs := make([]lazyconn.PeerConfig, 0, len(peers))
 	for _, peerID := range peers {
@@ -277,7 +275,7 @@ func (e *ConnMgr) addPeersToLazyConnManager(ctx context.Context) error {
 		lazyPeerCfgs = append(lazyPeerCfgs, lazyPeerCfg)
 	}
 
-	return e.lazyConnMgr.AddActivePeers(ctx, lazyPeerCfgs)
+	return e.lazyConnMgr.AddActivePeers(e.lazyCtx, lazyPeerCfgs)
 }
 
 func (e *ConnMgr) closeManager(ctx context.Context) {
@@ -285,7 +283,7 @@ func (e *ConnMgr) closeManager(ctx context.Context) {
 		return
 	}
 
-	e.ctxCancel()
+	e.lazyCtxCancel()
 	e.wg.Wait()
 	e.lazyConnMgr = nil
 
@@ -295,7 +293,7 @@ func (e *ConnMgr) closeManager(ctx context.Context) {
 }
 
 func (e *ConnMgr) isStartedWithLazyMgr() bool {
-	return e.lazyConnMgr != nil && e.ctxCancel != nil
+	return e.lazyConnMgr != nil && e.lazyCtxCancel != nil
 }
 
 func inactivityThresholdEnv() *time.Duration {
