@@ -955,9 +955,9 @@ func (s *serviceClient) updateConfig() error {
 		ServerSSHAllowed:      &sshAllowed,
 		RosenpassEnabled:      &rosenpassEnabled,
 		DisableAutoConnect:    &disableAutoStart,
-		DisableNotifications:  &notificationsDisabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 		BlockInbound:          &blockInbound,
+		DisableNotifications:  &notificationsDisabled,
 	}
 
 	if err := s.restartClient(&loginRequest); err != nil {
