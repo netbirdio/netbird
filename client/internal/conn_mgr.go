@@ -221,7 +221,7 @@ func (e *ConnMgr) OnSignalMsg(ctx context.Context, peerKey string) (*peer.Conn, 
 		return conn, true
 	}
 
-	if found := e.lazyConnMgr.ActivatePeer(ctx, peerKey); found {
+	if found := e.lazyConnMgr.ActivatePeer(e.lazyCtx, peerKey); found {
 		conn.Log.Infof("activated peer from inactive state")
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
@@ -240,13 +240,13 @@ func (e *ConnMgr) Close() {
 	e.lazyConnMgr = nil
 }
 
-func (e *ConnMgr) initLazyManager(parentCtx context.Context) {
+func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	cfg := manager.Config{
 		InactivityThreshold: inactivityThresholdEnv(),
 	}
-	e.lazyConnMgr = manager.NewManager(cfg, e.peerStore, e.iface, e.dispatcher)
+	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface, e.dispatcher)
 
-	e.lazyCtx, e.lazyCtxCancel = context.WithCancel(parentCtx)
+	e.lazyCtx, e.lazyCtxCancel = context.WithCancel(engineCtx)
 
 	e.wg.Add(1)
 	go func() {
