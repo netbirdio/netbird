@@ -207,6 +207,16 @@ message GetConfigResponse {
   bool lazyConnectionEnabled = 14;
 
   bool blockInbound = 15;
+
+  bool networkMonitor = 16;
+
+  bool disable_dns = 17;
+
+  bool disable_client_routes = 18;
+
+  bool disable_server_routes = 19;
+
+  bool block_lan_access = 20;
 }
 
 // PeerState contains the latest state of a peer
