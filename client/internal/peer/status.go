@@ -1004,7 +1004,7 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 	}
 
 	// collect the relevant data for router peers
-	changedPeers := make(map[string]RouterState, len(d.changeNotify))
+	routerPeers := make(map[string]RouterState, len(d.changeNotify))
 	for pid := range d.changeNotify {
 		s, ok := d.peers[pid]
 		if !ok {
@@ -1012,7 +1012,7 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 			continue
 		}
 
-		changedPeers[pid] = RouterState{
+		routerPeers[pid] = RouterState{
 			Status:  s.ConnStatus,
 			Relayed: s.Relayed,
 			Latency: s.Latency,
@@ -1021,7 +1021,7 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 
 	for _, sub := range subs {
 		select {
-		case sub.eventsChan <- changedPeers:
+		case sub.eventsChan <- routerPeers:
 		case <-sub.ctx.Done():
 		}
 	}
