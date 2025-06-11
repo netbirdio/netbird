@@ -1757,23 +1757,26 @@ func (am *DefaultAccountManager) GetStore() store.Store {
 	return am.Store
 }
 
-// Creates account by private domain.
-// Expects domain value to be a valid and a private dns domain.
-func (am *DefaultAccountManager) CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error) {
+func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error) {
 	cancel := am.Store.AcquireGlobalLock(ctx)
 	defer cancel()
 
-	domain = strings.ToLower(domain)
-
-	count, err := am.Store.CountAccountsByPrivateDomain(ctx, domain)
-	if err != nil {
-		return nil, err
+	existingPrimaryAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, domain)
+	if handleNotFound(err) != nil {
+		return nil, false, err
 	}
 
-	if count > 0 {
-		return nil, status.Errorf(status.InvalidArgument, "account with private domain already exists")
+	// a primary account already exists for this private domain
+	if err == nil {
+		existingAccount, err := am.Store.GetAccount(ctx, existingPrimaryAccountID)
+		if err != nil {
+			return nil, false, err
+		}
+
+		return existingAccount, false, nil
 	}
 
+	// create a new account for this private domain
 	// retry twice for new ID clashes
 	for range 2 {
 		accountId := xid.New().String()
@@ -1803,7 +1806,7 @@ func (am *DefaultAccountManager) CreateAccountByPrivateDomain(ctx context.Contex
 			Users:     users,
 			// @todo check if using the MSP owner id here is ok
 			CreatedBy:              initiatorId,
-			Domain:                 domain,
+			Domain:                 strings.ToLower(domain),
 			DomainCategory:         types.PrivateCategory,
 			IsDomainPrimaryAccount: false,
 			Routes:                 routes,
@@ -1822,19 +1825,22 @@ func (am *DefaultAccountManager) CreateAccountByPrivateDomain(ctx context.Contex
 		}
 
 		if err := newAccount.AddAllGroup(); err != nil {
-			return nil, status.Errorf(status.Internal, "failed to add all group to new account by private domain")
+			return nil, false, status.Errorf(status.Internal, "failed to add all group to new account by private domain")
 		}
 
 		if err := am.Store.SaveAccount(ctx, newAccount); err != nil {
-			log.WithContext(ctx).Errorf("failed to save new account %s by private domain: %v", newAccount.Id, err)
-			return nil, err
+			log.WithContext(ctx).WithFields(log.Fields{
+				"accountId": newAccount.Id,
+				"domain":    domain,
+			}).Errorf("failed to create new account: %v", err)
+			return nil, false, err
 		}
 
 		am.StoreEvent(ctx, initiatorId, newAccount.Id, accountId, activity.AccountCreated, nil)
-		return newAccount, nil
+		return newAccount, true, nil
 	}
 
-	return nil, status.Errorf(status.Internal, "failed to create new account by private domain")
+	return nil, false, status.Errorf(status.Internal, "failed to get or create new account by private domain")
 }
 
 func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
@@ -1847,21 +1853,29 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 		return account, nil
 	}
 
-	// additional check to ensure there is only one account for this domain at the time of update
-	count, err := am.Store.CountAccountsByPrivateDomain(ctx, account.Domain)
-	if err != nil {
+	existingPrimaryAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, account.Domain)
+
+	// error is not a not found error
+	if handleNotFound(err) != nil {
 		return nil, err
 	}
 
-	if count > 1 {
-		return nil, status.Errorf(status.Internal, "more than one account exists with the same private domain")
+	// a primary account already exists for this private domain
+	if err == nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"accountId":         accountId,
+			"existingAccountId": existingPrimaryAccountID,
+		}).Errorf("cannot update account to primary, another account already exists as primary for the same domain")
+		return nil, status.Errorf(status.Internal, "cannot update account to primary")
 	}
 
 	account.IsDomainPrimaryAccount = true
 
 	if err := am.Store.SaveAccount(ctx, account); err != nil {
-		log.WithContext(ctx).Errorf("failed to update primary account %s by private domain: %v", account.Id, err)
-		return nil, status.Errorf(status.Internal, "failed to update primary account %s by private domain", account.Id)
+		log.WithContext(ctx).WithFields(log.Fields{
+			"accountId": accountId,
+		}).Errorf("failed to update account to primary: %v", err)
+		return nil, status.Errorf(status.Internal, "failed to update account to primary")
 	}
 
 	return account, nil

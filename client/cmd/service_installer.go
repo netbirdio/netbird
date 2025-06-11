@@ -39,7 +39,7 @@ var installCmd = &cobra.Command{
 			svcConfig.Arguments = append(svcConfig.Arguments, "--management-url", managementURL)
 		}
 
-		if logFile != "console" {
+		if logFile != "" {
 			svcConfig.Arguments = append(svcConfig.Arguments, "--log-file", logFile)
 		}
 

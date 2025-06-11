@@ -86,8 +86,8 @@ type MockWGIface struct {
 	UpdateAddrFunc             func(newAddr string) error
 	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
-	AddAllowedIPFunc           func(peerKey string, allowedIP string) error
-	RemoveAllowedIPFunc        func(peerKey string, allowedIP string) error
+	AddAllowedIPFunc           func(peerKey string, allowedIP netip.Prefix) error
+	RemoveAllowedIPFunc        func(peerKey string, allowedIP netip.Prefix) error
 	CloseFunc                  func() error
 	SetFilterFunc              func(filter device.PacketFilter) error
 	GetFilterFunc              func() device.PacketFilter
@@ -97,6 +97,10 @@ type MockWGIface struct {
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
+}
+
+func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
@@ -143,11 +147,11 @@ func (m *MockWGIface) RemovePeer(peerKey string) error {
 	return m.RemovePeerFunc(peerKey)
 }
 
-func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP string) error {
+func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	return m.AddAllowedIPFunc(peerKey, allowedIP)
 }
 
-func (m *MockWGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
+func (m *MockWGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	return m.RemoveAllowedIPFunc(peerKey, allowedIP)
 }
 
@@ -371,11 +375,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("10.20.0.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("10.20.0.0"),
-					Mask: net.IPv4Mask(255, 255, 255, 0),
-				},
+				IP:      netip.MustParseAddr("10.20.0.1"),
+				Network: netip.MustParsePrefix("10.20.0.0/24"),
 			}
 		},
 		UpdatePeerFunc: func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
@@ -642,12 +643,12 @@ func TestEngine_Sync(t *testing.T) {
 
 func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 	testCases := []struct {
-		name           string
-		inputErr       error
-		networkMap     *mgmtProto.NetworkMap
-		expectedLen    int
-		expectedRoutes []*route.Route
-		expectedSerial uint64
+		name                 string
+		inputErr             error
+		networkMap           *mgmtProto.NetworkMap
+		expectedLen          int
+		expectedClientRoutes route.HAMap
+		expectedSerial       uint64
 	}{
 		{
 			name: "Routes Config Should Be Passed To Manager",
@@ -675,22 +676,26 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				},
 			},
 			expectedLen: 2,
-			expectedRoutes: []*route.Route{
-				{
-					ID:          "a",
-					Network:     netip.MustParsePrefix("192.168.0.0/24"),
-					NetID:       "n1",
-					Peer:        "p1",
-					NetworkType: 1,
-					Masquerade:  false,
+			expectedClientRoutes: route.HAMap{
+				"n1|192.168.0.0/24": []*route.Route{
+					{
+						ID:          "a",
+						Network:     netip.MustParsePrefix("192.168.0.0/24"),
+						NetID:       "n1",
+						Peer:        "p1",
+						NetworkType: 1,
+						Masquerade:  false,
+					},
 				},
-				{
-					ID:          "b",
-					Network:     netip.MustParsePrefix("192.168.1.0/24"),
-					NetID:       "n2",
-					Peer:        "p1",
-					NetworkType: 1,
-					Masquerade:  false,
+				"n2|192.168.1.0/24": []*route.Route{
+					{
+						ID:          "b",
+						Network:     netip.MustParsePrefix("192.168.1.0/24"),
+						NetID:       "n2",
+						Peer:        "p1",
+						NetworkType: 1,
+						Masquerade:  false,
+					},
 				},
 			},
 			expectedSerial: 1,
@@ -703,9 +708,9 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				RemotePeersIsEmpty: false,
 				Routes:             nil,
 			},
-			expectedLen:    0,
-			expectedRoutes: []*route.Route{},
-			expectedSerial: 1,
+			expectedLen:          0,
+			expectedClientRoutes: nil,
+			expectedSerial:       1,
 		},
 		{
 			name:     "Error Shouldn't Break Engine",
@@ -716,9 +721,9 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				RemotePeersIsEmpty: false,
 				Routes:             nil,
 			},
-			expectedLen:    0,
-			expectedRoutes: []*route.Route{},
-			expectedSerial: 1,
+			expectedLen:          0,
+			expectedClientRoutes: nil,
+			expectedSerial:       1,
 		},
 	}
 
@@ -761,15 +766,28 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			engine.wgInterface, err = iface.NewWGIFace(opts)
 			assert.NoError(t, err, "shouldn't return error")
 			input := struct {
-				inputSerial uint64
-				inputRoutes []*route.Route
+				inputSerial  uint64
+				clientRoutes route.HAMap
 			}{}
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 					input.inputSerial = updateSerial
-					input.inputRoutes = newRoutes
+					input.clientRoutes = clientRoutes
 					return testCase.inputErr
+				},
+				ClassifyRoutesFunc: func(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap) {
+					if len(newRoutes) == 0 {
+						return nil, nil
+					}
+
+					// Classify all routes as client routes (not matching our public key)
+					clientRoutes := make(route.HAMap)
+					for _, r := range newRoutes {
+						haID := r.GetHAUniqueID()
+						clientRoutes[haID] = append(clientRoutes[haID], r)
+					}
+					return nil, clientRoutes
 				},
 			}
 
@@ -788,8 +806,8 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			err = engine.updateNetworkMap(testCase.networkMap)
 			assert.NoError(t, err, "shouldn't return error")
 			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
-			assert.Len(t, input.inputRoutes, testCase.expectedLen, "clientRoutes len should match")
-			assert.Equal(t, testCase.expectedRoutes, input.inputRoutes, "clientRoutes should match")
+			assert.Len(t, input.clientRoutes, testCase.expectedLen, "clientRoutes len should match")
+			assert.Equal(t, testCase.expectedClientRoutes, input.clientRoutes, "clientRoutes should match")
 		})
 	}
 }
@@ -950,7 +968,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 					return nil
 				},
 			}

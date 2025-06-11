@@ -436,11 +436,12 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		DNSRouteInterval:     config.DNSRouteInterval,
 
 		DisableClientRoutes: config.DisableClientRoutes,
-		DisableServerRoutes: config.DisableServerRoutes,
+		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
 		DisableDNS:          config.DisableDNS,
 		DisableFirewall:     config.DisableFirewall,
+		BlockLANAccess:      config.BlockLANAccess,
+		BlockInbound:        config.BlockInbound,
 
-		BlockLANAccess:        config.BlockLANAccess,
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 	}
 
@@ -499,6 +500,9 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.DisableServerRoutes,
 		config.DisableDNS,
 		config.DisableFirewall,
+		config.BlockLANAccess,
+		config.BlockInbound,
+		config.LazyConnectionEnabled,
 	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {
