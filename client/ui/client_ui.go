@@ -20,7 +20,10 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"fyne.io/systray"
@@ -51,7 +54,7 @@ const (
 )
 
 func main() {
-	daemonAddr, showSettings, showNetworks, showDebug, errorMsg, saveLogsInFile := parseFlags()
+	daemonAddr, showSettings, showNetworks, showLoginURL, showDebug, errorMsg, saveLogsInFile := parseFlags()
 
 	// Initialize file logging if needed.
 	var logFile string
@@ -77,13 +80,13 @@ func main() {
 	}
 
 	// Create the service client (this also builds the settings or networks UI if requested).
-	client := newServiceClient(daemonAddr, logFile, a, showSettings, showNetworks, showDebug)
+	client := newServiceClient(daemonAddr, logFile, a, showSettings, showNetworks, showLoginURL, showDebug)
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if showSettings || showNetworks || showDebug {
+	if showSettings || showNetworks || showDebug || showLoginURL {
 		a.Run()
 		return
 	}
@@ -104,7 +107,7 @@ func main() {
 }
 
 // parseFlags reads and returns all needed command-line flags.
-func parseFlags() (daemonAddr string, showSettings, showNetworks, showDebug bool, errorMsg string, saveLogsInFile bool) {
+func parseFlags() (daemonAddr string, showSettings, showNetworks, showLoginURL, showDebug bool, errorMsg string, saveLogsInFile bool) {
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
@@ -112,6 +115,7 @@ func parseFlags() (daemonAddr string, showSettings, showNetworks, showDebug bool
 	flag.StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	flag.BoolVar(&showSettings, "settings", false, "run settings window")
 	flag.BoolVar(&showNetworks, "networks", false, "run networks window")
+	flag.BoolVar(&showLoginURL, "login-url", false, "show login URL in a popup window")
 	flag.BoolVar(&showDebug, "debug", false, "run debug window")
 	flag.StringVar(&errorMsg, "error-msg", "", "displays an error message window")
 	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
@@ -238,6 +242,7 @@ type serviceClient struct {
 	exitNodeMu     sync.Mutex
 	mExitNodeItems []menuHandler
 	logFile        string
+	wLoginURL      fyne.Window
 }
 
 type menuHandler struct {
@@ -248,7 +253,7 @@ type menuHandler struct {
 // newServiceClient instance constructor
 //
 // This constructor also builds the UI elements for the settings window.
-func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool, showNetworks bool, showDebug bool) *serviceClient {
+func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool, showNetworks bool, showLoginURL bool, showDebug bool) *serviceClient {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &serviceClient{
 		ctx:              ctx,
@@ -270,6 +275,8 @@ func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool
 		s.showSettingsUI()
 	case showNetworks:
 		s.showNetworksUI()
+	case showLoginURL:
+		s.showLoginURL()
 	case showDebug:
 		s.showDebugUI()
 	}
@@ -409,11 +416,11 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 	}
 }
 
-func (s *serviceClient) login() error {
+func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
-		return err
+		return nil, err
 	}
 
 	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{
@@ -421,24 +428,24 @@ func (s *serviceClient) login() error {
 	})
 	if err != nil {
 		log.Errorf("login to management URL with: %v", err)
-		return err
+		return nil, err
 	}
 
-	if loginResp.NeedsSSOLogin {
+	if loginResp.NeedsSSOLogin && openURL {
 		err = open.Run(loginResp.VerificationURIComplete)
 		if err != nil {
 			log.Errorf("opening the verification uri in the browser failed: %v", err)
-			return err
+			return nil, err
 		}
 
 		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 		if err != nil {
 			log.Errorf("waiting sso login failed with: %v", err)
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return loginResp, nil
 }
 
 func (s *serviceClient) menuUpClick() error {
@@ -450,7 +457,7 @@ func (s *serviceClient) menuUpClick() error {
 		return err
 	}
 
-	err = s.login()
+	_, err = s.login(true)
 	if err != nil {
 		log.Errorf("login failed with: %v", err)
 		return err
@@ -969,16 +976,7 @@ func (s *serviceClient) onUpdateAvailable() {
 // onSessionExpire sends a notification to the user when the session expires.
 func (s *serviceClient) onSessionExpire() {
 	if s.sendNotification {
-		title := "Connection session expired"
-		if runtime.GOOS == "darwin" {
-			title = "NetBird connection session expired"
-		}
-		s.app.SendNotification(
-			fyne.NewNotification(
-				title,
-				"Please re-authenticate to connect to the network",
-			),
-		)
+		s.runSelfCommand("login-url", "true")
 		s.sendNotification = false
 	}
 }
@@ -1035,11 +1033,11 @@ func (s *serviceClient) updateConfig() error {
 	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 
 	loginRequest := proto.LoginRequest{
-		IsUnixDesktopClient:  runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-		ServerSSHAllowed:     &sshAllowed,
-		RosenpassEnabled:     &rosenpassEnabled,
-		DisableAutoConnect:   &disableAutoStart,
-		DisableNotifications: &notificationsDisabled,
+		IsUnixDesktopClient:   runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+		ServerSSHAllowed:      &sshAllowed,
+		RosenpassEnabled:      &rosenpassEnabled,
+		DisableAutoConnect:    &disableAutoStart,
+		DisableNotifications:  &notificationsDisabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 	}
 
@@ -1072,6 +1070,51 @@ func (s *serviceClient) restartClient(loginRequest *proto.LoginRequest) error {
 	}
 
 	return nil
+}
+
+// showLoginURL creates a borderless window styled like a pop-up in the top-right corner using s.wLoginURL.
+func (s *serviceClient) showLoginURL() {
+
+	resp, err := s.login(false)
+	if err != nil {
+		log.Errorf("failed to fetch login URL: %v", err)
+		return
+	}
+	if resp.VerificationURIComplete == "" {
+		log.Error("missing login URL")
+		return
+	}
+
+	resIcon := fyne.NewStaticResource("netbird.png", iconAbout)
+
+	if s.wLoginURL == nil {
+		s.wLoginURL = s.app.NewWindow("NetBird Session Expired")
+		s.wLoginURL.Resize(fyne.NewSize(400, 200))
+		s.wLoginURL.SetIcon(resIcon)
+	}
+	// add a description label
+	label := widget.NewLabel("Your NetBird session has expired.\nPlease re-authenticate to continue using NetBird.")
+
+	btn := widget.NewButtonWithIcon("Re-authenticate", theme.ViewRefreshIcon(), func() {
+		openURL(resp.VerificationURIComplete)
+	})
+
+	img := canvas.NewImageFromResource(resIcon)
+	img.FillMode = canvas.ImageFillContain
+	img.SetMinSize(fyne.NewSize(64, 64))
+	img.Resize(fyne.NewSize(64, 64))
+
+	// center the content vertically
+	content := container.NewVBox(
+		layout.NewSpacer(),
+		img,
+		label,
+		btn,
+		layout.NewSpacer(),
+	)
+	s.wLoginURL.SetContent(container.NewCenter(content))
+
+	s.wLoginURL.Show()
 }
 
 func openURL(url string) error {
