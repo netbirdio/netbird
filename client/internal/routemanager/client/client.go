@@ -76,7 +76,7 @@ type Watcher struct {
 	wgInterface         iface.WGIface
 	routes              map[route.ID]*route.Route
 	routeUpdate         chan RoutesUpdate
-	peerStateUpdate     chan struct{}
+	peerStateUpdate     chan map[string]peer.RouterState
 	routePeersNotifiers map[string]chan struct{} // map of peer key to channel for peer state changes
 	currentChosen       *route.Route
 	currentChosenStatus *routerPeerStatus
@@ -95,7 +95,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 		routes:              make(map[route.ID]*route.Route),
 		routePeersNotifiers: make(map[string]chan struct{}),
 		routeUpdate:         make(chan RoutesUpdate),
-		peerStateUpdate:     make(chan struct{}),
+		peerStateUpdate:     make(chan map[string]peer.RouterState),
 		handler:             config.Handler,
 		currentChosenStatus: nil,
 	}
@@ -112,6 +112,23 @@ func (w *Watcher) getRouterPeerStatuses() map[route.ID]routerPeerStatus {
 		}
 		routePeerStatuses[r.ID] = routerPeerStatus{
 			status:  peerStatus.ConnStatus,
+			relayed: peerStatus.Relayed,
+			latency: peerStatus.Latency,
+		}
+	}
+	return routePeerStatuses
+}
+
+func (w *Watcher) convertRouterPeerStatuses(states map[string]peer.RouterState) map[route.ID]routerPeerStatus {
+	routePeerStatuses := make(map[route.ID]routerPeerStatus)
+	for _, r := range w.routes {
+		peerStatus, ok := states[r.Peer]
+		if !ok {
+			log.Warnf("couldn't fetch peer state: %v", r.Peer)
+			continue
+		}
+		routePeerStatuses[r.ID] = routerPeerStatus{
+			status:  peerStatus.Status,
 			relayed: peerStatus.Relayed,
 			latency: peerStatus.Latency,
 		}
@@ -237,7 +254,7 @@ func (w *Watcher) getBestRouteFromStatuses(routePeerStatuses map[route.ID]router
 	return chosen, chosenStatus
 }
 
-func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
+func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan map[string]peer.RouterState, closer chan struct{}) {
 	subscription := w.statusRecorder.SubscribeToPeerStateChanges(ctx, peerKey)
 	defer w.statusRecorder.UnsubscribePeerStateChanges(subscription)
 
@@ -247,8 +264,8 @@ func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, pe
 			return
 		case <-closer:
 			return
-		case <-subscription.Events():
-			peerStateUpdate <- struct{}{}
+		case routerStates := <-subscription.Events():
+			peerStateUpdate <- routerStates
 			log.Debugf("triggered route state update for Peer: %s", peerKey)
 		}
 	}
@@ -312,9 +329,7 @@ func (w *Watcher) shouldSkipRecalculation(newChosenID route.ID, newStatus router
 	return true
 }
 
-func (w *Watcher) recalculateRoutes(rsn reason) error {
-	routerPeerStatuses := w.getRouterPeerStatuses()
-
+func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]routerPeerStatus) error {
 	newChosenID, newStatus := w.getBestRouteFromStatuses(routerPeerStatuses)
 
 	// If no route is chosen, remove the route from the peer
@@ -487,8 +502,9 @@ func (w *Watcher) Start() {
 		select {
 		case <-w.ctx.Done():
 			return
-		case <-w.peerStateUpdate:
-			if err := w.recalculateRoutes(reasonPeerUpdate); err != nil {
+		case routersStates := <-w.peerStateUpdate:
+			routerPeerStatuses := w.convertRouterPeerStatuses(routersStates)
+			if err := w.recalculateRoutes(reasonPeerUpdate, routerPeerStatuses); err != nil {
 				log.Errorf("Failed to recalculate routes for network [%v]: %v", w.handler, err)
 			}
 		case update := <-w.routeUpdate:
@@ -512,7 +528,8 @@ func (w *Watcher) handleRouteUpdate(update RoutesUpdate) {
 
 	if isTrueRouteUpdate {
 		log.Debugf("client network update %v for [%v] contains different routes, recalculating routes", update.UpdateSerial, w.handler)
-		if err := w.recalculateRoutes(reasonRouteUpdate); err != nil {
+		routePeerStatuses := w.getRouterPeerStatuses()
+		if err := w.recalculateRoutes(reasonRouteUpdate, routePeerStatuses); err != nil {
 			log.Errorf("failed to recalculate routes for network [%v]: %v", w.handler, err)
 		}
 	} else {
