@@ -2163,6 +2163,22 @@ func (s *SqlStore) SaveDNSSettings(ctx context.Context, lockStrength LockingStre
 	return nil
 }
 
+// SaveAccountSettings stores the account settings in DB.
+func (s *SqlStore) SaveAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.Settings) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&types.Account{}).
+		Select("*").Where(idQueryCondition, accountID).Updates(&types.AccountSettings{Settings: settings})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save account settings to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save account settings to store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+
+	return nil
+}
+
 func (s *SqlStore) GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networkTypes.Network, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
