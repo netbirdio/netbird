@@ -565,6 +565,7 @@ func (s *serviceClient) updateStatus() error {
 		defer s.updateIndicationLock.Unlock()
 
 		// notify the user when the session has expired
+		status.Status = string(internal.StatusNeedsLogin)
 		if status.Status == string(internal.StatusNeedsLogin) {
 			s.onSessionExpire()
 		}
@@ -877,8 +878,9 @@ func (s *serviceClient) onUpdateAvailable() {
 
 // onSessionExpire sends a notification to the user when the session expires.
 func (s *serviceClient) onSessionExpire() {
+	s.sendNotification = true
 	if s.sendNotification {
-		s.runSelfCommand("login-url", "true")
+		s.eventHandler.runSelfCommand("login-url", "true")
 		s.sendNotification = false
 	}
 }
@@ -955,7 +957,6 @@ func (s *serviceClient) updateConfig() error {
 		DisableNotifications:  &notificationsDisabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 		BlockInbound:          &blockInbound,
-		DisableNotifications:  &notificationsDisabled,
 	}
 
 	if err := s.restartClient(&loginRequest); err != nil {
