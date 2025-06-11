@@ -998,8 +998,13 @@ func (s *serviceClient) showLoginURL() {
 		log.Errorf("failed to fetch login URL: %v", err)
 		return
 	}
-	if resp.VerificationURIComplete == "" {
-		log.Error("missing login URL")
+	verificationURL := resp.VerificationURIComplete
+	if verificationURL == "" {
+		verificationURL = resp.VerificationURI
+	}
+
+	if verificationURL == "" {
+		log.Error("no verification URL provided in the login response")
 		return
 	}
 
@@ -1014,7 +1019,7 @@ func (s *serviceClient) showLoginURL() {
 	label := widget.NewLabel("Your NetBird session has expired.\nPlease re-authenticate to continue using NetBird.")
 
 	btn := widget.NewButtonWithIcon("Re-authenticate", theme.ViewRefreshIcon(), func() {
-		if err := openURL(resp.VerificationURIComplete); err != nil {
+		if err := openURL(verificationURL); err != nil {
 			log.Errorf("failed to open login URL: %v", err)
 			return
 		}
