@@ -568,6 +568,84 @@ docker_manifests:
       - netbirdio/upload:{{ .Version }}-arm64v8
       - netbirdio/upload:{{ .Version }}-arm
       - netbirdio/upload:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/netbird:{{ .Version }}
+    image_templates:
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/netbird:latest
+    image_templates:
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/netbird:{{ .Version }}-rootless
+    image_templates:
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm64v8
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-amd64
+
+  - name_template: ghcr.io/netbirdio/netbird:rootless-latest
+    image_templates:
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm64v8
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-arm
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-rootless-amd64
+
+  - name_template: ghcr.io/netbirdio/relay:{{ .Version }}
+    image_templates:
+      - ghcr.io/netbirdio/relay:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/relay:{{ .Version }}-arm
+      - ghcr.io/netbirdio/relay:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/relay:latest
+    image_templates:
+      - ghcr.io/netbirdio/relay:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/relay:{{ .Version }}-arm
+      - ghcr.io/netbirdio/relay:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/signal:{{ .Version }}
+    image_templates:
+      - ghcr.io/netbirdio/signal:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/signal:{{ .Version }}-arm
+      - ghcr.io/netbirdio/signal:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/signal:latest
+    image_templates:
+      - ghcr.io/netbirdio/signal:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/signal:{{ .Version }}-arm
+      - ghcr.io/netbirdio/signal:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/management:{{ .Version }}
+    image_templates:
+      - ghcr.io/netbirdio/management:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/management:{{ .Version }}-arm
+      - ghcr.io/netbirdio/management:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/management:latest
+    image_templates:
+      - ghcr.io/netbirdio/management:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/management:{{ .Version }}-arm
+      - ghcr.io/netbirdio/management:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/management:debug-latest
+    image_templates:
+      - ghcr.io/netbirdio/management:{{ .Version }}-debug-arm64v8
+      - ghcr.io/netbirdio/management:{{ .Version }}-debug-arm
+      - ghcr.io/netbirdio/management:{{ .Version }}-debug-amd64
+
+  - name_template: ghcr.io/netbirdio/upload:{{ .Version }}
+    image_templates:
+      - ghcr.io/netbirdio/upload:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/upload:{{ .Version }}-arm
+      - ghcr.io/netbirdio/upload:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/upload:latest
+    image_templates:
+      - ghcr.io/netbirdio/upload:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/upload:{{ .Version }}-arm
+      - ghcr.io/netbirdio/upload:{{ .Version }}-amd64
 brews:
   - ids:
       - default
