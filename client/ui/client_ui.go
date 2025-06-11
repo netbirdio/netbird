@@ -1014,7 +1014,10 @@ func (s *serviceClient) showLoginURL() {
 	label := widget.NewLabel("Your NetBird session has expired.\nPlease re-authenticate to continue using NetBird.")
 
 	btn := widget.NewButtonWithIcon("Re-authenticate", theme.ViewRefreshIcon(), func() {
-		openURL(resp.VerificationURIComplete)
+		if err := openURL(resp.VerificationURIComplete); err != nil {
+			log.Errorf("failed to open login URL: %v", err)
+			return
+		}
 	})
 
 	img := canvas.NewImageFromResource(resIcon)
