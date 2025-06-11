@@ -170,6 +170,10 @@ func (m *Manager) IsServerRouteSupported() bool {
 	return true
 }
 
+func (m *Manager) IsStateful() bool {
+	return true
+}
+
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -324,10 +328,16 @@ func (m *Manager) SetLogLevel(log.Level) {
 }
 
 func (m *Manager) EnableRouting() error {
+	if err := m.router.ipFwdState.RequestForwarding(); err != nil {
+		return fmt.Errorf("enable IP forwarding: %w", err)
+	}
 	return nil
 }
 
 func (m *Manager) DisableRouting() error {
+	if err := m.router.ipFwdState.ReleaseForwarding(); err != nil {
+		return fmt.Errorf("disable IP forwarding: %w", err)
+	}
 	return nil
 }
 

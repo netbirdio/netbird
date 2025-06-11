@@ -264,7 +264,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 				continue
 			}
 
-			prefix := netip.PrefixFrom(ip, ip.BitLen())
+			prefix := netip.PrefixFrom(ip.Unmap(), ip.BitLen())
 			newPrefixes = append(newPrefixes, prefix)
 		}
 

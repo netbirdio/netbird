@@ -691,8 +691,7 @@ func (conn *Conn) evalStatus() ConnStatus {
 }
 
 func (conn *Conn) isConnectedOnAllWay() (connected bool) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
+	// would be better to protect this with a mutex, but it could cause deadlock with Close function
 
 	defer func() {
 		if !connected {

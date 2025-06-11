@@ -122,7 +122,6 @@ message LoginRequest {
   optional bool disable_server_routes = 21;
   optional bool disable_dns = 22;
   optional bool disable_firewall = 23;
-
   optional bool block_lan_access = 24;
 
   optional bool disable_notifications = 25;
@@ -135,6 +134,8 @@ message LoginRequest {
   bool cleanDNSLabels = 27;
 
   optional bool lazyConnectionEnabled = 28;
+
+  optional bool block_inbound = 29;
 }
 
 message LoginResponse {
@@ -202,6 +203,20 @@ message GetConfigResponse {
   bool rosenpassPermissive = 12;
 
   bool disable_notifications = 13;
+
+  bool lazyConnectionEnabled = 14;
+
+  bool blockInbound = 15;
+
+  bool networkMonitor = 16;
+
+  bool disable_dns = 17;
+
+  bool disable_client_routes = 18;
+
+  bool disable_server_routes = 19;
+
+  bool block_lan_access = 20;
 }
 
 // PeerState contains the latest state of a peer
