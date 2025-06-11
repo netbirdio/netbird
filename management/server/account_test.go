@@ -1805,9 +1805,10 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	err = manager.MarkPeerConnected(context.Background(), key.PublicKey().String(), true, nil, accountID)
 	require.NoError(t, err, "unable to mark peer connected")
 
-	account, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
+		Extra:                      &types.ExtraSettings{},
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 
@@ -1825,11 +1826,11 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 	// disable expiration first
 	update := peer.Copy()
 	update.LoginExpirationEnabled = false
-	_, err = manager.UpdatePeer(context.Background(), account.Id, userID, update)
+	_, err = manager.UpdatePeer(context.Background(), accountID, userID, update)
 	require.NoError(t, err, "unable to update peer")
 	// enabling expiration should trigger the routine
 	update.LoginExpirationEnabled = true
-	_, err = manager.UpdatePeer(context.Background(), account.Id, userID, update)
+	_, err = manager.UpdatePeer(context.Background(), accountID, userID, update)
 	require.NoError(t, err, "unable to update peer")
 
 	failed := waitTimeout(wg, time.Second)
@@ -1856,6 +1857,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
+		Extra:                      &types.ExtraSettings{},
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 
@@ -1919,9 +1921,10 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		},
 	}
 	// enabling PeerLoginExpirationEnabled should trigger the expiration job
-	account, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &types.Settings{
+	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: true,
+		Extra:                      &types.ExtraSettings{},
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 
@@ -1935,6 +1938,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 	_, err = manager.UpdateAccountSettings(context.Background(), account.Id, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
+		Extra:                      &types.ExtraSettings{},
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 	failed = waitTimeout(wg, time.Second)
@@ -1950,13 +1954,14 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
-	updated, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
+	updatedSettings, err := manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
 		PeerLoginExpirationEnabled: false,
+		Extra:                      &types.ExtraSettings{},
 	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
-	assert.False(t, updated.Settings.PeerLoginExpirationEnabled)
-	assert.Equal(t, updated.Settings.PeerLoginExpiration, time.Hour)
+	assert.False(t, updatedSettings.PeerLoginExpirationEnabled)
+	assert.Equal(t, updatedSettings.PeerLoginExpiration, time.Hour)
 
 	settings, err := manager.Store.GetAccountSettings(context.Background(), store.LockingStrengthShare, accountID)
 	require.NoError(t, err, "unable to get account settings")
@@ -1967,12 +1972,14 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Second,
 		PeerLoginExpirationEnabled: false,
+		Extra:                      &types.ExtraSettings{},
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration less than one hour")
 
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour * 24 * 181,
 		PeerLoginExpirationEnabled: false,
+		Extra:                      &types.ExtraSettings{},
 	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
 }
@@ -3317,5 +3324,122 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 			assert.NoError(t, err)
 			assert.False(t, cold)
 		})
+	})
+}
+
+func TestPropagateUserGroupMemberships(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	initiatorId := "test-user"
+	domain := "example.com"
+
+	account, err := manager.GetOrCreateAccountByUser(ctx, initiatorId, domain)
+	require.NoError(t, err)
+
+	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId}
+	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer1)
+	require.NoError(t, err)
+
+	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, UserID: initiatorId}
+	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer2)
+	require.NoError(t, err)
+
+	t.Run("should skip propagation when the user has no groups", func(t *testing.T) {
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		require.NoError(t, err)
+		assert.False(t, groupsUpdated)
+		assert.False(t, groupChangesAffectPeers)
+	})
+
+	t.Run("should update membership but no account peers update for unused groups", func(t *testing.T) {
+		group1 := &types.Group{ID: "group1", Name: "Group 1", AccountID: account.Id}
+		require.NoError(t, manager.Store.SaveGroup(ctx, store.LockingStrengthUpdate, group1))
+
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
+		require.NoError(t, err)
+
+		user.AutoGroups = append(user.AutoGroups, group1.ID)
+		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		require.NoError(t, err)
+		assert.True(t, groupsUpdated)
+		assert.False(t, groupChangesAffectPeers)
+
+		group, err := manager.Store.GetGroupByID(ctx, store.LockingStrengthShare, account.Id, group1.ID)
+		require.NoError(t, err)
+		assert.Len(t, group.Peers, 2)
+		assert.Contains(t, group.Peers, "peer1")
+		assert.Contains(t, group.Peers, "peer2")
+	})
+
+	t.Run("should update membership and account peers for used groups", func(t *testing.T) {
+		group2 := &types.Group{ID: "group2", Name: "Group 2", AccountID: account.Id}
+		require.NoError(t, manager.Store.SaveGroup(ctx, store.LockingStrengthUpdate, group2))
+
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
+		require.NoError(t, err)
+
+		user.AutoGroups = append(user.AutoGroups, group2.ID)
+		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+
+		_, err = manager.SavePolicy(context.Background(), account.Id, initiatorId, &types.Policy{
+			Name:      "Group1 Policy",
+			AccountID: account.Id,
+			Enabled:   true,
+			Rules: []*types.PolicyRule{
+				{
+					Enabled:       true,
+					Sources:       []string{"group1"},
+					Destinations:  []string{"group2"},
+					Bidirectional: true,
+					Action:        types.PolicyTrafficActionAccept,
+				},
+			},
+		}, true)
+		require.NoError(t, err)
+
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		require.NoError(t, err)
+		assert.True(t, groupsUpdated)
+		assert.True(t, groupChangesAffectPeers)
+
+		groups, err := manager.Store.GetGroupsByIDs(ctx, store.LockingStrengthShare, account.Id, []string{"group1", "group2"})
+		require.NoError(t, err)
+		for _, group := range groups {
+			assert.Len(t, group.Peers, 2)
+			assert.Contains(t, group.Peers, "peer1")
+			assert.Contains(t, group.Peers, "peer2")
+		}
+	})
+
+	t.Run("should not update membership or account peers when no changes", func(t *testing.T) {
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		require.NoError(t, err)
+		assert.False(t, groupsUpdated)
+		assert.False(t, groupChangesAffectPeers)
+	})
+
+	t.Run("should not remove peers when groups are removed from user", func(t *testing.T) {
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
+		require.NoError(t, err)
+
+		user.AutoGroups = []string{"group1"}
+		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+
+		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
+		require.NoError(t, err)
+		assert.False(t, groupsUpdated)
+		assert.False(t, groupChangesAffectPeers)
+
+		groups, err := manager.Store.GetGroupsByIDs(ctx, store.LockingStrengthShare, account.Id, []string{"group1", "group2"})
+		require.NoError(t, err)
+		for _, group := range groups {
+			assert.Len(t, group.Peers, 2)
+			assert.Contains(t, group.Peers, "peer1")
+			assert.Contains(t, group.Peers, "peer2")
+		}
 	})
 }
