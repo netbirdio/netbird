@@ -168,10 +168,11 @@ type StatusChangeSubscription struct {
 
 func newStatusChangeSubscription(ctx context.Context, peerID string) *StatusChangeSubscription {
 	return &StatusChangeSubscription{
-		ctx:        ctx,
-		peerID:     peerID,
-		id:         uuid.New().String(),
-		eventsChan: make(chan map[string]RouterState, 1),
+		ctx:    ctx,
+		peerID: peerID,
+		id:     uuid.New().String(),
+		// it is a buffer for notifications to block less the status recorded
+		eventsChan: make(chan map[string]RouterState, 8),
 	}
 }
 
