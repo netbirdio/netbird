@@ -107,22 +107,6 @@ func (p *Preferences) GetRosenpassPermissive() (bool, error) {
 	return cfg.RosenpassPermissive, err
 }
 
-func (p *Preferences) SetExperimentalLazy(enabled bool) {
-	p.configInput.LazyConnectionEnabled = &enabled
-}
-
-func (p *Preferences) GetExperimentalLazy() (bool, error) {
-	if p.configInput.LazyConnectionEnabled != nil {
-		return *p.configInput.LazyConnectionEnabled, nil
-	}
-
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
-	if err != nil {
-		return false, err
-	}
-	return cfg.LazyConnectionEnabled, err
-}
-
 // Commit write out the changes into config file
 func (p *Preferences) Commit() error {
 	_, err := internal.UpdateOrCreateConfig(p.configInput)
