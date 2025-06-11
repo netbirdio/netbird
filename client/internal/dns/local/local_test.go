@@ -517,6 +517,13 @@ func TestLocalResolver_NoErrorWithDifferentRecordType(t *testing.T) {
 			shouldHaveData: false,
 		},
 		{
+			name:           "Query other record with different case and non-fqdn",
+			queryName:      "EXAMPLE.netbird.cloud",
+			queryType:      dns.TypeAAAA,
+			expectedRcode:  dns.RcodeSuccess,
+			shouldHaveData: false,
+		},
+		{
 			name:           "Query TXT for domain with only A record",
 			queryName:      "example.netbird.cloud.",
 			queryType:      dns.TypeTXT,
