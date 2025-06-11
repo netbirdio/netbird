@@ -129,9 +129,6 @@ func (registry *Registry) RegisterPool(peer *Peer) error {
 			}
 			pp.Cancel()
 			log.Debugf("peer re-registered [%s]", peer.Id)
-			registry.metrics.ActivePeers.Add(context.Background(), 1)
-			registry.metrics.RegistrationDelay.Record(context.Background(), float64(time.Since(start).Nanoseconds())/1e6)
-			registry.metrics.Registrations.Add(context.Background(), 1)
 			return nil
 		}
 		return ErrPeerAlreadyRegistered
