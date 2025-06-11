@@ -233,7 +233,7 @@ func (p *Peer) Copy() *Peer {
 // UpdateMetaIfNew updates peer's system metadata if new information is provided
 // returns true if meta was updated, false otherwise
 func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
-	if meta.isEmpty() && p.Meta.Flags.isEqual(meta.Flags) {
+	if meta.isEmpty() {
 		return false
 	}
 
