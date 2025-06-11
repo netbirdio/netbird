@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/netip"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // FQDNOld is the original implementation for benchmarking purposes
@@ -81,5 +83,61 @@ func TestIsEqual(t *testing.T) {
 	}
 	if !meta1.isEqual(meta2) {
 		t.Error("meta1 should be equal to meta2")
+	}
+}
+
+func TestFlags_IsEqual(t *testing.T) {
+	tests := []struct {
+		name   string
+		f1     Flags
+		f2     Flags
+		expect bool
+	}{
+		{
+			name: "should be equal when all fields are identical",
+			f1: Flags{
+				RosenpassEnabled: true, RosenpassPermissive: false, ServerSSHAllowed: true,
+				DisableClientRoutes: false, DisableServerRoutes: true, DisableDNS: false,
+				DisableFirewall: true, BlockLANAccess: false, BlockInbound: true, LazyConnectionEnabled: true,
+			},
+			f2: Flags{
+				RosenpassEnabled: true, RosenpassPermissive: false, ServerSSHAllowed: true,
+				DisableClientRoutes: false, DisableServerRoutes: true, DisableDNS: false,
+				DisableFirewall: true, BlockLANAccess: false, BlockInbound: true, LazyConnectionEnabled: true,
+			},
+			expect: true,
+		},
+		{
+			name: "shouldn't be equal when fields are different",
+			f1: Flags{
+				RosenpassEnabled: true, RosenpassPermissive: false, ServerSSHAllowed: true,
+				DisableClientRoutes: false, DisableServerRoutes: true, DisableDNS: false,
+				DisableFirewall: true, BlockLANAccess: false, BlockInbound: true, LazyConnectionEnabled: true,
+			},
+			f2: Flags{
+				RosenpassEnabled: false, RosenpassPermissive: true, ServerSSHAllowed: false,
+				DisableClientRoutes: true, DisableServerRoutes: false, DisableDNS: true,
+				DisableFirewall: false, BlockLANAccess: true, BlockInbound: false, LazyConnectionEnabled: false,
+			},
+			expect: false,
+		},
+		{
+			name:   "should be equal when both are empty",
+			f1:     Flags{},
+			f2:     Flags{},
+			expect: true,
+		},
+		{
+			name:   "shouldn't be equal when at least one field differs",
+			f1:     Flags{RosenpassEnabled: true},
+			f2:     Flags{RosenpassEnabled: false},
+			expect: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expect, tt.f1.isEqual(tt.f2))
+		})
 	}
 }
