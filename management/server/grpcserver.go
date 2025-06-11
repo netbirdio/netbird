@@ -392,6 +392,18 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			Cloud:    meta.GetEnvironment().GetCloud(),
 			Platform: meta.GetEnvironment().GetPlatform(),
 		},
+		Flags: nbpeer.Flags{
+			RosenpassEnabled:      meta.Flags.GetRosenpassEnabled(),
+			RosenpassPermissive:   meta.Flags.GetRosenpassPermissive(),
+			ServerSSHAllowed:      meta.Flags.GetServerSSHAllowed(),
+			DisableClientRoutes:   meta.Flags.GetDisableClientRoutes(),
+			DisableServerRoutes:   meta.Flags.GetDisableServerRoutes(),
+			DisableDNS:            meta.Flags.GetDisableDNS(),
+			DisableFirewall:       meta.Flags.GetDisableFirewall(),
+			BlockLANAccess:        meta.Flags.GetBlockLANAccess(),
+			BlockInbound:          meta.Flags.GetBlockInbound(),
+			LazyConnectionEnabled: meta.Flags.GetLazyConnectionEnabled(),
+		},
 		Files: files,
 	}
 }
