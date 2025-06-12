@@ -302,15 +302,16 @@ func (s *DefaultServer) Stop() {
 	s.ctxCancel()
 
 	if s.hostManager != nil {
+		if srvs, ok := s.hostManager.(hostManagerWithOriginalNS); ok && len(srvs.getOriginalNameservers()) > 0 {
+			log.Debugf("deregistering original nameservers as fallback handlers")
+			s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+		}
+
 		if err := s.hostManager.restoreHostDNS(); err != nil {
 			log.Error("failed to restore host DNS settings: ", err)
 		} else if err := s.stateManager.DeleteState(&ShutdownState{}); err != nil {
 			log.Errorf("failed to delete shutdown dns state: %v", err)
 		}
-	}
-
-	if srvs, ok := s.hostManager.(hostManagerWithOriginalNS); ok && len(srvs.getOriginalNameservers()) > 0 {
-		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
 	}
 
 	s.service.Stop()
