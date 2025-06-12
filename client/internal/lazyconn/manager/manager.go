@@ -60,7 +60,6 @@ type Manager struct {
 	haGroupToPeers map[route.HAUniqueID][]string // HA group -> peer IDs in the group
 	routesMu       sync.RWMutex
 
-	cancel     context.CancelFunc
 	onInactive chan peerid.ConnID
 }
 
