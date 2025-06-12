@@ -549,7 +549,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 		}
 
 		ns = fmt.Sprintf("%s:%d", ns, DefaultPort)
-		if ip, err := netip.ParseAddr(ns); err != nil && ip.Is6() {
+		if ip, err := netip.ParseAddr(ns); err == nil && ip.Is6() {
 			ns = fmt.Sprintf("[%s]:%d", ns, DefaultPort)
 		}
 
