@@ -26,6 +26,64 @@ const (
 	MaxICMPPayloadLength = 28
 )
 
+var (
+	icmpTypeDescriptions map[uint8]string
+	icmpCodeDescriptions map[uint8]map[uint8]string
+	icmpTypeNames        map[uint8]string
+	icmpMapsOnce         sync.Once
+)
+
+func initICMPMaps() {
+	icmpTypeDescriptions = map[uint8]string{
+		0:  "Echo Reply",
+		8:  "Echo Request",
+		13: "Timestamp Request",
+		14: "Timestamp Reply",
+		15: "Information Request",
+		16: "Information Reply",
+	}
+
+	icmpCodeDescriptions = map[uint8]map[uint8]string{
+		3: { // Destination Unreachable
+			0:  "Network",
+			1:  "Host",
+			2:  "Protocol",
+			3:  "Port",
+			4:  "Fragmentation needed",
+			5:  "Source route failed",
+			6:  "Network unknown",
+			7:  "Host unknown",
+			9:  "Network administratively prohibited",
+			10: "Host administratively prohibited",
+			11: "Network unreachable for ToS",
+			12: "Host unreachable for ToS",
+			13: "Communication administratively prohibited",
+		},
+		5: { // Redirect
+			0: "Network",
+			1: "Host",
+			2: "Network for ToS",
+			3: "Host for ToS",
+		},
+		11: { // Time Exceeded
+			0: "TTL exceeded in transit",
+			1: "Fragment reassembly time exceeded",
+		},
+		12: { // Parameter Problem
+			0: "Pointer indicates error",
+			1: "Missing required option",
+			2: "Bad length",
+		},
+	}
+
+	icmpTypeNames = map[uint8]string{
+		3:  "Destination Unreachable",
+		5:  "Redirect",
+		11: "Time Exceeded",
+		12: "Parameter Problem",
+	}
+}
+
 // ICMPConnKey uniquely identifies an ICMP connection
 type ICMPConnKey struct {
 	SrcIP netip.Addr
@@ -68,7 +126,7 @@ type ICMPInfo struct {
 func (info ICMPInfo) String() string {
 	baseMsg := formatICMPTypeCode(info.Type, info.Code)
 
-	if info.isErrorMessage() && info.PayloadLen >= MaxICMPPayloadLength	 {
+	if info.isErrorMessage() && info.PayloadLen >= MaxICMPPayloadLength {
 		if origInfo := info.parseOriginalPacket(); origInfo != "" {
 			return fmt.Sprintf("%s (original: %s)", baseMsg, origInfo)
 		}
@@ -124,86 +182,23 @@ func (info ICMPInfo) parseOriginalPacket() string {
 }
 
 func formatICMPTypeCode(icmpType, icmpCode uint8) string {
-	switch icmpType {
-	case 0:
-		return "Echo Reply"
-	case 3:
-		switch icmpCode {
-		case 0:
-			return "Destination Unreachable (Network)"
-		case 1:
-			return "Destination Unreachable (Host)"
-		case 2:
-			return "Destination Unreachable (Protocol)"
-		case 3:
-			return "Destination Unreachable (Port)"
-		case 4:
-			return "Destination Unreachable (Fragmentation needed)"
-		case 5:
-			return "Destination Unreachable (Source route failed)"
-		case 6:
-			return "Destination Unreachable (Network unknown)"
-		case 7:
-			return "Destination Unreachable (Host unknown)"
-		case 9:
-			return "Destination Unreachable (Network administratively prohibited)"
-		case 10:
-			return "Destination Unreachable (Host administratively prohibited)"
-		case 11:
-			return "Destination Unreachable (Network unreachable for ToS)"
-		case 12:
-			return "Destination Unreachable (Host unreachable for ToS)"
-		case 13:
-			return "Destination Unreachable (Communication administratively prohibited)"
-		default:
-			return fmt.Sprintf("Destination Unreachable (code %d)", icmpCode)
-		}
-	case 5:
-		switch icmpCode {
-		case 0:
-			return "Redirect (Network)"
-		case 1:
-			return "Redirect (Host)"
-		case 2:
-			return "Redirect (Network for ToS)"
-		case 3:
-			return "Redirect (Host for ToS)"
-		default:
-			return fmt.Sprintf("Redirect (code %d)", icmpCode)
-		}
-	case 8:
-		return "Echo Request"
-	case 11:
-		switch icmpCode {
-		case 0:
-			return "Time Exceeded (TTL exceeded in transit)"
-		case 1:
-			return "Time Exceeded (Fragment reassembly time exceeded)"
-		default:
-			return fmt.Sprintf("Time Exceeded (code %d)", icmpCode)
-		}
-	case 12:
-		switch icmpCode {
-		case 0:
-			return "Parameter Problem (Pointer indicates error)"
-		case 1:
-			return "Parameter Problem (Missing required option)"
-		case 2:
-			return "Parameter Problem (Bad length)"
-		default:
-			return fmt.Sprintf("Parameter Problem (code %d)", icmpCode)
-		}
-	case 13:
-		return "Timestamp Request"
-	case 14:
-		return "Timestamp Reply"
-	case 15:
-		return "Information Request"
-	case 16:
-		return "Information Reply"
-	default:
-		return fmt.Sprintf("Type %d Code %d", icmpType, icmpCode)
+	icmpMapsOnce.Do(initICMPMaps)
+
+	if desc, exists := icmpTypeDescriptions[icmpType]; exists {
+		return desc
 	}
+
+	// Check for types with specific code descriptions
+	if typeName, hasTypeName := icmpTypeNames[icmpType]; hasTypeName {
+		if codeDescs, hasCodeDescs := icmpCodeDescriptions[icmpType]; hasCodeDescs {
+			if codeDesc, hasCodeDesc := codeDescs[icmpCode]; hasCodeDesc {
+				return fmt.Sprintf("%s (%s)", typeName, codeDesc)
+			}
+		}
+		return fmt.Sprintf("%s (code %d)", typeName, icmpCode)
+	}
+
+	return fmt.Sprintf("Type %d Code %d", icmpType, icmpCode)
 }
 
 // NewICMPTracker creates a new ICMP connection tracker
