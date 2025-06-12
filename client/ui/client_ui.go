@@ -1018,8 +1018,21 @@ func (s *serviceClient) showLoginURL() {
 	label := widget.NewLabel("Your NetBird session has expired.\nPlease re-authenticate to continue using NetBird.")
 
 	btn := widget.NewButtonWithIcon("Re-authenticate", theme.ViewRefreshIcon(), func() {
+
+		conn, err := s.getSrvClient(defaultFailTimeout)
+		if err != nil {
+			log.Errorf("get client: %v", err)
+			return
+		}
+
 		if err := openURL(verificationURL); err != nil {
 			log.Errorf("failed to open login URL: %v", err)
+			return
+		}
+
+		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: resp.UserCode})
+		if err != nil {
+			log.Errorf("waiting sso login failed with: %v", err)
 			return
 		}
 	})
