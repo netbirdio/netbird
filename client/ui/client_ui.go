@@ -565,8 +565,7 @@ func (s *serviceClient) updateStatus() error {
 		defer s.updateIndicationLock.Unlock()
 
 		// notify the user when the session has expired
-		status.Status = string(internal.StatusNeedsLogin)
-		if status.Status == string(internal.StatusNeedsLogin) {
+		if status.Status == string(internal.StatusSessionExpired) {
 			s.onSessionExpire()
 		}
 
