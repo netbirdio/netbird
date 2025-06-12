@@ -32,10 +32,10 @@ const (
 )
 
 type fileConfigurator struct {
-	repair *repair
-
-	originalPerms  os.FileMode
-	nbNameserverIP string
+	repair              *repair
+	originalPerms       os.FileMode
+	nbNameserverIP      string
+	originalNameservers []string
 }
 
 func newFileConfigurator() (*fileConfigurator, error) {
@@ -76,6 +76,8 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *st
 		log.Errorf("could not read original search domains from %s: %s", fileDefaultResolvConfBackupLocation, err)
 	}
 
+	f.originalNameservers = resolvConf.nameServers
+
 	f.repair.stopWatchFileChanges()
 
 	err = f.updateConfig(nbSearchDomains, f.nbNameserverIP, resolvConf, stateManager)
@@ -86,14 +88,18 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *st
 	return nil
 }
 
+// getOriginalNameservers returns the nameservers that were found in the original resolv.conf
+func (f *fileConfigurator) getOriginalNameservers() []string {
+	return f.originalNameservers
+}
+
 func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf, stateManager *statemanager.Manager) error {
 	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
-	nameServers := generateNsList(nbNameserverIP, cfg)
 
 	options := prepareOptionsWithTimeout(cfg.others, int(dnsFailoverTimeout.Seconds()), dnsFailoverAttempts)
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		nameServers,
+		[]string{nbNameserverIP},
 		options)
 
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
@@ -197,38 +203,28 @@ func restoreResolvConfFile() error {
 	return nil
 }
 
-// generateNsList generates a list of nameservers from the config and adds the primary nameserver to the beginning of the list
-func generateNsList(nbNameserverIP string, cfg *resolvConf) []string {
-	ns := make([]string, 1, len(cfg.nameServers)+1)
-	ns[0] = nbNameserverIP
-	for _, cfgNs := range cfg.nameServers {
-		if nbNameserverIP != cfgNs {
-			ns = append(ns, cfgNs)
-		}
-	}
-	return ns
-}
-
 func prepareResolvConfContent(searchDomains, nameServers, others []string) bytes.Buffer {
 	var buf bytes.Buffer
+
 	buf.WriteString(fileGeneratedResolvConfContentHeaderNextLine)
 
 	for _, cfgLine := range others {
 		buf.WriteString(cfgLine)
-		buf.WriteString("\n")
+		buf.WriteByte('\n')
 	}
 
 	if len(searchDomains) > 0 {
 		buf.WriteString("search ")
 		buf.WriteString(strings.Join(searchDomains, " "))
-		buf.WriteString("\n")
+		buf.WriteByte('\n')
 	}
 
 	for _, ns := range nameServers {
 		buf.WriteString("nameserver ")
 		buf.WriteString(ns)
-		buf.WriteString("\n")
+		buf.WriteByte('\n')
 	}
+
 	return buf
 }
 
