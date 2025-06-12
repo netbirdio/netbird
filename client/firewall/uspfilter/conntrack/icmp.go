@@ -26,64 +26,6 @@ const (
 	MaxICMPPayloadLength = 28
 )
 
-var (
-	icmpTypeDescriptions map[uint8]string
-	icmpCodeDescriptions map[uint8]map[uint8]string
-	icmpTypeNames        map[uint8]string
-	icmpMapsOnce         sync.Once
-)
-
-func initICMPMaps() {
-	icmpTypeDescriptions = map[uint8]string{
-		0:  "Echo Reply",
-		8:  "Echo Request",
-		13: "Timestamp Request",
-		14: "Timestamp Reply",
-		15: "Information Request",
-		16: "Information Reply",
-	}
-
-	icmpCodeDescriptions = map[uint8]map[uint8]string{
-		3: { // Destination Unreachable
-			0:  "Network",
-			1:  "Host",
-			2:  "Protocol",
-			3:  "Port",
-			4:  "Fragmentation needed",
-			5:  "Source route failed",
-			6:  "Network unknown",
-			7:  "Host unknown",
-			9:  "Network administratively prohibited",
-			10: "Host administratively prohibited",
-			11: "Network unreachable for ToS",
-			12: "Host unreachable for ToS",
-			13: "Communication administratively prohibited",
-		},
-		5: { // Redirect
-			0: "Network",
-			1: "Host",
-			2: "Network for ToS",
-			3: "Host for ToS",
-		},
-		11: { // Time Exceeded
-			0: "TTL exceeded in transit",
-			1: "Fragment reassembly time exceeded",
-		},
-		12: { // Parameter Problem
-			0: "Pointer indicates error",
-			1: "Missing required option",
-			2: "Bad length",
-		},
-	}
-
-	icmpTypeNames = map[uint8]string{
-		3:  "Destination Unreachable",
-		5:  "Redirect",
-		11: "Time Exceeded",
-		12: "Parameter Problem",
-	}
-}
-
 // ICMPConnKey uniquely identifies an ICMP connection
 type ICMPConnKey struct {
 	SrcIP netip.Addr
@@ -115,8 +57,7 @@ type ICMPTracker struct {
 
 // ICMPInfo holds ICMP type, code, and payload for lazy string formatting in logs
 type ICMPInfo struct {
-	Type        uint8
-	Code        uint8
+	TypeCode    layers.ICMPv4TypeCode
 	PayloadData [MaxICMPPayloadLength]byte
 	// actual length of valid data
 	PayloadLen int
@@ -124,23 +65,22 @@ type ICMPInfo struct {
 
 // String implements fmt.Stringer for lazy evaluation in log messages
 func (info ICMPInfo) String() string {
-	baseMsg := formatICMPTypeCode(info.Type, info.Code)
-
 	if info.isErrorMessage() && info.PayloadLen >= MaxICMPPayloadLength {
 		if origInfo := info.parseOriginalPacket(); origInfo != "" {
-			return fmt.Sprintf("%s (original: %s)", baseMsg, origInfo)
+			return fmt.Sprintf("%s (original: %s)", info.TypeCode, origInfo)
 		}
 	}
 
-	return baseMsg
+	return info.TypeCode.String()
 }
 
 // isErrorMessage returns true if this ICMP type carries original packet info
 func (info ICMPInfo) isErrorMessage() bool {
-	return info.Type == 3 || // Destination Unreachable
-		info.Type == 5 || // Redirect
-		info.Type == 11 || // Time Exceeded
-		info.Type == 12 // Parameter Problem
+	typ := info.TypeCode.Type()
+	return typ == 3 || // Destination Unreachable
+		typ == 5 || // Redirect
+		typ == 11 || // Time Exceeded
+		typ == 12 // Parameter Problem
 }
 
 // parseOriginalPacket extracts info about the original packet from ICMP payload
@@ -179,26 +119,6 @@ func (info ICMPInfo) parseOriginalPacket() string {
 	default:
 		return fmt.Sprintf("Proto %d %s → %s", protocol, srcIP, dstIP)
 	}
-}
-
-func formatICMPTypeCode(icmpType, icmpCode uint8) string {
-	icmpMapsOnce.Do(initICMPMaps)
-
-	if desc, exists := icmpTypeDescriptions[icmpType]; exists {
-		return desc
-	}
-
-	// Check for types with specific code descriptions
-	if typeName, hasTypeName := icmpTypeNames[icmpType]; hasTypeName {
-		if codeDescs, hasCodeDescs := icmpCodeDescriptions[icmpType]; hasCodeDescs {
-			if codeDesc, hasCodeDesc := codeDescs[icmpCode]; hasCodeDesc {
-				return fmt.Sprintf("%s (%s)", typeName, codeDesc)
-			}
-		}
-		return fmt.Sprintf("%s (code %d)", typeName, icmpCode)
-	}
-
-	return fmt.Sprintf("Type %d Code %d", icmpType, icmpCode)
 }
 
 // NewICMPTracker creates a new ICMP connection tracker
@@ -289,8 +209,7 @@ func (t *ICMPTracker) track(
 
 	typ, code := typecode.Type(), typecode.Code()
 	icmpInfo := ICMPInfo{
-		Type: typ,
-		Code: code,
+		TypeCode: typecode,
 	}
 	if len(payload) > 0 {
 		icmpInfo.PayloadLen = len(payload)
