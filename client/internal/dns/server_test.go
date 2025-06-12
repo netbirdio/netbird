@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -725,6 +726,10 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 }
 
 func TestDNSPermanent_updateUpstream(t *testing.T) {
+	if runtime.GOOS != "android" {
+		t.Skip("This test is only for Android")
+	}
+
 	wgIFace, err := createWgInterfaceWithBind(t)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
