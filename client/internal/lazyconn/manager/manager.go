@@ -553,8 +553,6 @@ func (m *Manager) onPeerInactivityTimedOut(ctx context.Context, peerConnID peeri
 		return
 	}
 
-	mp.peerCfg.Log.Infof("connection timed out")
-
 	if m.shouldDeferIdleForHA(mp.peerCfg.PublicKey) {
 		iw, ok := m.inactivityMonitors[peerConnID]
 		if ok {
@@ -565,6 +563,8 @@ func (m *Manager) onPeerInactivityTimedOut(ctx context.Context, peerConnID peeri
 		}
 		return
 	}
+
+	mp.peerCfg.Log.Infof("connection timed out")
 
 	// this is blocking operation, potentially can be optimized
 	m.peerStore.PeerConnClose(mp.peerCfg.PublicKey)
