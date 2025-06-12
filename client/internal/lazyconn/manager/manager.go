@@ -405,7 +405,7 @@ func (m *Manager) activateNewPeerInActiveGroup(ctx context.Context, peerCfg lazy
 	}
 
 	peerCfg.Log.Infof("activated newly added peer due to active HA group peers")
-	m.peerStore.PeerConnOpen(ctx, peerCfg.PublicKey)
+	m.peerStore.PeerConnOpen(m.engineCtx, peerCfg.PublicKey)
 }
 
 func (m *Manager) addActivePeer(ctx context.Context, peerCfg lazyconn.PeerConfig) error {
