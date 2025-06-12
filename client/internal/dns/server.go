@@ -716,7 +716,7 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	}
 
 	// If there's no root update and we had a root handler, restore it
-	if !containsRootUpdate {
+	if !containsRootUpdate && runtime.GOOS == "android" {
 		for _, existing := range s.dnsMuxMap {
 			if existing.domain == nbdns.RootZone {
 				s.addHostRootZone()
