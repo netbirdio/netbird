@@ -101,6 +101,8 @@ type DefaultAccountManager struct {
 
 	accountUpdateLocks               sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
+
+	loginFilter *loginFilter
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -194,6 +196,7 @@ func BuildManager(
 		proxyController:          proxyController,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
+		loginFilter:              newLoginFilter(),
 	}
 
 	am.startWarmup(ctx)
@@ -1561,7 +1564,7 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
-
+	am.loginFilter.removeLogin(peerPubKey)
 	return nil
 
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -337,6 +338,9 @@ func mapError(ctx context.Context, err error) error {
 			return status.Error(codes.NotFound, e.Message)
 		default:
 		}
+	}
+	if errors.Is(err, internalStatus.ErrPeerAlreadyLoggedIn) {
+		return status.Error(codes.AlreadyExists, internalStatus.ErrPeerAlreadyLoggedIn.Error())
 	}
 	log.WithContext(ctx).Errorf("got an unhandled error: %s", err)
 	return status.Errorf(codes.Internal, "failed handling request")
