@@ -209,7 +209,7 @@ var (
 			peersManager := peers.NewManager(store, permissionsManager)
 			proxyController := integrations.NewController(store)
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager, config.DisableDefaultPolicy)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}

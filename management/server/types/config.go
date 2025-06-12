@@ -53,6 +53,9 @@ type Config struct {
 	StoreConfig StoreConfig
 
 	ReverseProxy ReverseProxy
+	
+	// disable default all-to-all policy
+	DisableDefaultPolicy bool
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config

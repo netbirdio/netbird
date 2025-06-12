@@ -606,10 +606,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 
 		newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
-
-		err = transaction.AddPeerToAllGroup(ctx, store.LockingStrengthUpdate, accountID, newPeer.ID)
-		if err != nil {
-			return fmt.Errorf("failed adding peer to All group: %w", err)
+	
+		if !am.disableDefaultPolicy {
+			err = transaction.AddPeerToAllGroup(ctx, store.LockingStrengthUpdate, accountID, newPeer.ID)
+			if err != nil {
+				return fmt.Errorf("failed adding peer to All group: %w", err)
+			}
 		}
 
 		if len(groupsToAdd) > 0 {
