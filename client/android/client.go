@@ -216,6 +216,7 @@ func (c *Client) Networks() *NetworkArray {
 			Name:    string(id),
 			Network: routes[0].Network.String(),
 			Peer:    peer.FQDN,
+			Status:  peer.ConnStatus.String(),
 		}
 		networkArray.Add(network)
 	}

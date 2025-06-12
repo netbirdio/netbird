@@ -6,6 +6,7 @@ type Network struct {
 	Name    string
 	Network string
 	Peer    string
+	Status  string
 }
 
 type NetworkArray struct {
