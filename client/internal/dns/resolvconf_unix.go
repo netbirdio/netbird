@@ -97,12 +97,11 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *stateman
 	searchDomainList := searchDomains(config)
 	searchDomainList = mergeSearchDomains(searchDomainList, r.originalSearchDomains)
 
-	options := prepareOptionsWithTimeout(r.othersConfigs, int(dnsFailoverTimeout.Seconds()), dnsFailoverAttempts)
-
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		append([]string{config.ServerIP}, r.originalNameServers...),
-		options)
+		[]string{config.ServerIP},
+		r.othersConfigs,
+	)
 
 	state := &ShutdownState{
 		ManagerType: resolvConfManager,
@@ -119,6 +118,10 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *stateman
 
 	log.Infof("added %d search domains. Search list: %s", len(searchDomainList), searchDomainList)
 	return nil
+}
+
+func (r *resolvconf) getOriginalNameservers() []string {
+	return r.originalNameServers
 }
 
 func (r *resolvconf) restoreHostDNS() error {

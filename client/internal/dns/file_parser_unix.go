@@ -108,37 +108,6 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 	return rconf, nil
 }
 
-// prepareOptionsWithTimeout appends timeout to existing options if it doesn't exist,
-// otherwise it adds a new option with timeout and attempts.
-func prepareOptionsWithTimeout(input []string, timeout int, attempts int) []string {
-	configs := make([]string, len(input))
-	copy(configs, input)
-
-	for i, config := range configs {
-		if strings.HasPrefix(config, "options") {
-			config = strings.ReplaceAll(config, "rotate", "")
-			config = strings.Join(strings.Fields(config), " ")
-
-			if strings.Contains(config, "timeout:") {
-				config = timeoutRegex.ReplaceAllString(config, fmt.Sprintf("timeout:%d", timeout))
-			} else {
-				config = strings.Replace(config, "options ", fmt.Sprintf("options timeout:%d ", timeout), 1)
-			}
-
-			if strings.Contains(config, "attempts:") {
-				config = attemptsRegex.ReplaceAllString(config, fmt.Sprintf("attempts:%d", attempts))
-			} else {
-				config = strings.Replace(config, "options ", fmt.Sprintf("options attempts:%d ", attempts), 1)
-			}
-
-			configs[i] = config
-			return configs
-		}
-	}
-
-	return append(configs, fmt.Sprintf("options timeout:%d attempts:%d", timeout, attempts))
-}
-
 // removeFirstNbNameserver removes the given nameserver from the given file if it is in the first position
 // and writes the file back to the original location
 func removeFirstNbNameserver(filename, nameserverIP string) error {

@@ -8,7 +8,6 @@ import (
 	"net/netip"
 	"os"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -24,11 +23,6 @@ const (
 
 	fileMaxLineCharsLimit        = 256
 	fileMaxNumberOfSearchDomains = 6
-)
-
-const (
-	dnsFailoverTimeout  = 4 * time.Second
-	dnsFailoverAttempts = 1
 )
 
 type fileConfigurator struct {
@@ -96,11 +90,11 @@ func (f *fileConfigurator) getOriginalNameservers() []string {
 func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf, stateManager *statemanager.Manager) error {
 	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
 
-	options := prepareOptionsWithTimeout(cfg.others, int(dnsFailoverTimeout.Seconds()), dnsFailoverAttempts)
 	buf := prepareResolvConfContent(
 		searchDomainList,
 		[]string{nbNameserverIP},
-		options)
+		cfg.others,
+	)
 
 	log.Debugf("creating managed file %s", defaultResolvConfPath)
 	err := os.WriteFile(defaultResolvConfPath, buf.Bytes(), f.originalPerms)
