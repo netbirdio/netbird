@@ -3,6 +3,7 @@ package dns
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"runtime"
 	"strings"
@@ -502,11 +503,11 @@ func (s *DefaultServer) applyHostConfig() {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
 	}
 
-	s.registerFallback()
+	s.registerFallback(config)
 }
 
 // registerFallback registers original nameservers as low-priority fallback handlers
-func (s *DefaultServer) registerFallback() {
+func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	hostMgrWithNS, ok := s.hostManager.(hostManagerWithOriginalNS)
 	if !ok {
 		return
@@ -517,7 +518,7 @@ func (s *DefaultServer) registerFallback() {
 		return
 	}
 
-	log.Infof("registering original nameservers [%v] as upstream handlers with priority %d", originalNameservers, PriorityFallback)
+	log.Infof("registering original nameservers %v as upstream handlers with priority %d", originalNameservers, PriorityFallback)
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
@@ -533,13 +534,26 @@ func (s *DefaultServer) registerFallback() {
 		return
 	}
 
+	serverIP := config.ServerIP
+	host, _, err := net.SplitHostPort(config.ServerIP)
+	if err != nil {
+		log.Errorf("failed to split host and port from nameserver %s: %v", serverIP, err)
+	} else {
+		serverIP = host
+	}
+
 	for _, ns := range originalNameservers {
+		if ns == serverIP {
+			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, serverIP)
+			continue
+		}
+
 		ns = fmt.Sprintf("%s:%d", ns, DefaultPort)
 		if ip, err := netip.ParseAddr(ns); err != nil && ip.Is6() {
 			ns = fmt.Sprintf("[%s]:%d", ns, DefaultPort)
 		}
 
-		handler.upstreamServers = append(handler.upstreamServers, fmt.Sprintf("%s:%d", ns, DefaultPort))
+		handler.upstreamServers = append(handler.upstreamServers, ns)
 	}
 	handler.deactivate = func(error) { /* always active */ }
 	handler.reactivate = func() { /* always active */ }
