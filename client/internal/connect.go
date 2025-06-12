@@ -500,6 +500,9 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.DisableServerRoutes,
 		config.DisableDNS,
 		config.DisableFirewall,
+		config.BlockLANAccess,
+		config.BlockInbound,
+		config.LazyConnectionEnabled,
 	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {

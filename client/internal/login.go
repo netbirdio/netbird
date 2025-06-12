@@ -116,6 +116,9 @@ func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte
 		config.DisableServerRoutes,
 		config.DisableDNS,
 		config.DisableFirewall,
+		config.BlockLANAccess,
+		config.BlockInbound,
+		config.LazyConnectionEnabled,
 	)
 	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey, config.DNSLabels)
 	return serverKey, err
@@ -139,6 +142,9 @@ func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.
 		config.DisableServerRoutes,
 		config.DisableDNS,
 		config.DisableFirewall,
+		config.BlockLANAccess,
+		config.BlockInbound,
+		config.LazyConnectionEnabled,
 	)
 	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey, config.DNSLabels)
 	if err != nil {
