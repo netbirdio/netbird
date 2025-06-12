@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	PriorityDNSRoute    = 100
-	PriorityLocal    = 75
+	PriorityLocal    = 100
+	PriorityDNSRoute = 75
 	PriorityUpstream = 50
 	PriorityDefault  = 1
 )

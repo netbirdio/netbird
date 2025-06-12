@@ -2021,7 +2021,7 @@ func TestLocalResolverPriorityInServer(t *testing.T) {
 
 func TestLocalResolverPriorityConstants(t *testing.T) {
 	// Test that priority constants are ordered correctly
-	assert.Greater(t, PriorityDNSRoute, PriorityLocal, "DNS route priority should be higher than local")
+	assert.Greater(t, PriorityLocal, PriorityDNSRoute, "Local priority should be higher than DNS route")
 	assert.Greater(t, PriorityLocal, PriorityUpstream, "Local priority should be higher than upstream")
 	assert.Greater(t, PriorityUpstream, PriorityDefault, "Upstream priority should be higher than default")
 
