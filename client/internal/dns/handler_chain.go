@@ -12,8 +12,9 @@ import (
 
 const (
 	PriorityDNSRoute    = 100
-	PriorityMatchDomain = 50
-	PriorityDefault     = 1
+	PriorityLocal    = 75
+	PriorityUpstream = 50
+	PriorityDefault  = 1
 )
 
 type SubdomainMatcher interface {

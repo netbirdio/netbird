@@ -527,7 +527,7 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 		muxUpdates = append(muxUpdates, handlerWrapper{
 			domain:   customZone.Domain,
 			handler:  s.localResolver,
-			priority: PriorityMatchDomain,
+			priority: PriorityLocal,
 		})
 
 		for _, record := range customZone.Records {
@@ -566,7 +566,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	groupedNS := groupNSGroupsByDomain(nameServerGroups)
 
 	for _, domainGroup := range groupedNS {
-		basePriority := PriorityMatchDomain
+		basePriority := PriorityUpstream
 		if domainGroup.domain == nbdns.RootZone {
 			basePriority = PriorityDefault
 		}
@@ -589,9 +589,9 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		priority := basePriority - i
 
 		// Check if we're about to overlap with the next priority tier
-		if basePriority == PriorityMatchDomain && priority <= PriorityDefault {
+		if basePriority == PriorityUpstream && priority <= PriorityDefault {
 			log.Warnf("too many handlers for domain=%s, would overlap with default priority tier (diff=%d). Skipping remaining handlers",
-				domainGroup.domain, PriorityMatchDomain-PriorityDefault)
+				domainGroup.domain, PriorityUpstream-PriorityDefault)
 			break
 		}
 
