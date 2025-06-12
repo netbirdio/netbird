@@ -43,22 +43,9 @@ func (f *fileConfigurator) supportCustomPort() bool {
 }
 
 func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
-	backupFileExist := f.isBackupFileExist()
-	if !config.RouteAll {
-		if backupFileExist {
-			f.repair.stopWatchFileChanges()
-			err := f.restore()
-			if err != nil {
-				return fmt.Errorf("restoring the original resolv.conf file return err: %w", err)
-			}
-		}
-		return ErrRouteAllWithoutNameserverGroup
-	}
-
-	if !backupFileExist {
-		err := f.backup()
-		if err != nil {
-			return fmt.Errorf("unable to backup the resolv.conf file: %w", err)
+	if !f.isBackupFileExist() {
+		if err := f.backup(); err != nil {
+			return fmt.Errorf("backup resolv.conf: %w", err)
 		}
 	}
 

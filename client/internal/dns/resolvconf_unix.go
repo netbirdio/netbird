@@ -85,15 +85,6 @@ func (r *resolvconf) supportCustomPort() bool {
 }
 
 func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
-	var err error
-	if !config.RouteAll {
-		err = r.restoreHostDNS()
-		if err != nil {
-			log.Errorf("restore host dns: %s", err)
-		}
-		return ErrRouteAllWithoutNameserverGroup
-	}
-
 	searchDomainList := searchDomains(config)
 	searchDomainList = mergeSearchDomains(searchDomainList, r.originalSearchDomains)
 
@@ -111,8 +102,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *stateman
 		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
-	err = r.applyConfig(buf)
-	if err != nil {
+	if err := r.applyConfig(buf); err != nil {
 		return fmt.Errorf("apply config: %w", err)
 	}
 

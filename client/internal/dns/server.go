@@ -2,7 +2,6 @@ package dns
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/netip"
 	"runtime"
@@ -20,7 +19,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	cProto "github.com/netbirdio/netbird/client/proto"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 )
@@ -502,7 +500,6 @@ func (s *DefaultServer) applyHostConfig() {
 
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
-		s.handleErrNoGroupaAll(err)
 	}
 
 	s.registerFallback()
@@ -548,23 +545,6 @@ func (s *DefaultServer) registerFallback() {
 	handler.reactivate = func() { /* always active */ }
 
 	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityFallback)
-}
-
-func (s *DefaultServer) handleErrNoGroupaAll(err error) {
-	if !errors.Is(ErrRouteAllWithoutNameserverGroup, err) {
-		return
-	}
-
-	if s.statusRecorder == nil {
-		return
-	}
-
-	s.statusRecorder.PublishEvent(
-		cProto.SystemEvent_WARNING, cProto.SystemEvent_DNS,
-		"The host dns manager does not support match domains",
-		"The host dns manager does not support match domains without a catch-all nameserver group.",
-		map[string]string{"manager": s.hostManager.string()},
-	)
 }
 
 func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.SimpleRecord, error) {
