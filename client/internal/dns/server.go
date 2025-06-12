@@ -588,7 +588,11 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		// Decrement priority by handler index (0, 1, 2, ...) to avoid conflicts
 		priority := basePriority - i
 
-		// Check if we're about to overlap with the next priority tier
+		// Check if we're about to overlap with the next priority tier.
+		// This boundary check ensures that the priority of upstream handlers does not conflict
+		// with the default priority tier. By decrementing the priority for each handler, we avoid
+		// overlaps, but if the calculated priority falls into the default tier, we skip the remaining
+		// handlers to maintain the integrity of the priority system.
 		if basePriority == PriorityUpstream && priority <= PriorityDefault {
 			log.Warnf("too many handlers for domain=%s, would overlap with default priority tier (diff=%d). Skipping remaining handlers",
 				domainGroup.domain, PriorityUpstream-PriorityDefault)
