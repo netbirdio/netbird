@@ -3,6 +3,7 @@ package conntrack
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"sync"
 	"time"
@@ -29,7 +30,7 @@ type ICMPConnKey struct {
 }
 
 func (i ICMPConnKey) String() string {
-	return fmt.Sprintf("%s -> %s (id %d)", i.SrcIP, i.DstIP, i.ID)
+	return fmt.Sprintf("%s → %s (id %d)", i.SrcIP, i.DstIP, i.ID)
 }
 
 // ICMPConnTrack represents an ICMP connection state
@@ -48,6 +49,156 @@ type ICMPTracker struct {
 	tickerCancel  context.CancelFunc
 	mutex         sync.RWMutex
 	flowLogger    nftypes.FlowLogger
+}
+
+// ICMPInfo holds ICMP type, code, and payload for lazy string formatting in logs
+type ICMPInfo struct {
+	Type        uint8
+	Code        uint8
+	PayloadData [28]byte // IP header (20) + transport (8)
+	PayloadLen  int      // actual length of valid data
+}
+
+// String implements fmt.Stringer for lazy evaluation in log messages
+func (info ICMPInfo) String() string {
+	baseMsg := formatICMPTypeCode(info.Type, info.Code)
+
+	if info.isErrorMessage() && info.PayloadLen >= 28 {
+		if origInfo := info.parseOriginalPacket(); origInfo != "" {
+			return fmt.Sprintf("%s (original: %s)", baseMsg, origInfo)
+		}
+	}
+
+	return baseMsg
+}
+
+// isErrorMessage returns true if this ICMP type carries original packet info
+func (info ICMPInfo) isErrorMessage() bool {
+	return info.Type == 3 || // Destination Unreachable
+		info.Type == 5 || // Redirect
+		info.Type == 11 || // Time Exceeded
+		info.Type == 12 // Parameter Problem
+}
+
+// parseOriginalPacket extracts info about the original packet from ICMP payload
+func (info ICMPInfo) parseOriginalPacket() string {
+	if info.PayloadLen < 28 {
+		return ""
+	}
+
+	// TODO: handle IPv6
+	if version := (info.PayloadData[0] >> 4) & 0xF; version != 4 {
+		return ""
+	}
+
+	protocol := info.PayloadData[9]
+	srcIP := net.IP(info.PayloadData[12:16])
+	dstIP := net.IP(info.PayloadData[16:20])
+
+	transportData := info.PayloadData[20:]
+
+	switch nftypes.Protocol(protocol) {
+	case nftypes.TCP:
+		srcPort := uint16(transportData[0])<<8 | uint16(transportData[1])
+		dstPort := uint16(transportData[2])<<8 | uint16(transportData[3])
+		return fmt.Sprintf("TCP %s:%d → %s:%d", srcIP, srcPort, dstIP, dstPort)
+
+	case nftypes.UDP:
+		srcPort := uint16(transportData[0])<<8 | uint16(transportData[1])
+		dstPort := uint16(transportData[2])<<8 | uint16(transportData[3])
+		return fmt.Sprintf("UDP %s:%d → %s:%d", srcIP, srcPort, dstIP, dstPort)
+
+	case nftypes.ICMP:
+		icmpType := transportData[0]
+		icmpCode := transportData[1]
+		return fmt.Sprintf("ICMP %s → %s (type %d code %d)", srcIP, dstIP, icmpType, icmpCode)
+
+	default:
+		return fmt.Sprintf("Proto %d %s → %s", protocol, srcIP, dstIP)
+	}
+}
+
+func formatICMPTypeCode(icmpType, icmpCode uint8) string {
+	switch icmpType {
+	case 0:
+		return "Echo Reply"
+	case 3:
+		switch icmpCode {
+		case 0:
+			return "Destination Unreachable (Network)"
+		case 1:
+			return "Destination Unreachable (Host)"
+		case 2:
+			return "Destination Unreachable (Protocol)"
+		case 3:
+			return "Destination Unreachable (Port)"
+		case 4:
+			return "Destination Unreachable (Fragmentation needed)"
+		case 5:
+			return "Destination Unreachable (Source route failed)"
+		case 6:
+			return "Destination Unreachable (Network unknown)"
+		case 7:
+			return "Destination Unreachable (Host unknown)"
+		case 9:
+			return "Destination Unreachable (Network administratively prohibited)"
+		case 10:
+			return "Destination Unreachable (Host administratively prohibited)"
+		case 11:
+			return "Destination Unreachable (Network unreachable for ToS)"
+		case 12:
+			return "Destination Unreachable (Host unreachable for ToS)"
+		case 13:
+			return "Destination Unreachable (Communication administratively prohibited)"
+		default:
+			return fmt.Sprintf("Destination Unreachable (code %d)", icmpCode)
+		}
+	case 5:
+		switch icmpCode {
+		case 0:
+			return "Redirect (Network)"
+		case 1:
+			return "Redirect (Host)"
+		case 2:
+			return "Redirect (Network for ToS)"
+		case 3:
+			return "Redirect (Host for ToS)"
+		default:
+			return fmt.Sprintf("Redirect (code %d)", icmpCode)
+		}
+	case 8:
+		return "Echo Request"
+	case 11:
+		switch icmpCode {
+		case 0:
+			return "Time Exceeded (TTL exceeded in transit)"
+		case 1:
+			return "Time Exceeded (Fragment reassembly time exceeded)"
+		default:
+			return fmt.Sprintf("Time Exceeded (code %d)", icmpCode)
+		}
+	case 12:
+		switch icmpCode {
+		case 0:
+			return "Parameter Problem (Pointer indicates error)"
+		case 1:
+			return "Parameter Problem (Missing required option)"
+		case 2:
+			return "Parameter Problem (Bad length)"
+		default:
+			return fmt.Sprintf("Parameter Problem (code %d)", icmpCode)
+		}
+	case 13:
+		return "Timestamp Request"
+	case 14:
+		return "Timestamp Reply"
+	case 15:
+		return "Information Request"
+	case 16:
+		return "Information Reply"
+	default:
+		return fmt.Sprintf("Type %d Code %d", icmpType, icmpCode)
+	}
 }
 
 // NewICMPTracker creates a new ICMP connection tracker
@@ -93,30 +244,65 @@ func (t *ICMPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, id uint
 }
 
 // TrackOutbound records an outbound ICMP connection
-func (t *ICMPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, typecode layers.ICMPv4TypeCode, size int) {
+func (t *ICMPTracker) TrackOutbound(
+	srcIP netip.Addr,
+	dstIP netip.Addr,
+	id uint16,
+	typecode layers.ICMPv4TypeCode,
+	payload []byte,
+	size int,
+) {
 	if _, exists := t.updateIfExists(dstIP, srcIP, id, nftypes.Egress, size); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
-		t.track(srcIP, dstIP, id, typecode, nftypes.Egress, nil, size)
+		t.track(srcIP, dstIP, id, typecode, nftypes.Egress, nil, payload, size)
 	}
 }
 
 // TrackInbound records an inbound ICMP Echo Request
-func (t *ICMPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, typecode layers.ICMPv4TypeCode, ruleId []byte, size int) {
-	t.track(srcIP, dstIP, id, typecode, nftypes.Ingress, ruleId, size)
+func (t *ICMPTracker) TrackInbound(
+	srcIP netip.Addr,
+	dstIP netip.Addr,
+	id uint16,
+	typecode layers.ICMPv4TypeCode,
+	ruleId []byte,
+	payload []byte,
+	size int,
+) {
+	t.track(srcIP, dstIP, id, typecode, nftypes.Ingress, ruleId, payload, size)
 }
 
 // track is the common implementation for tracking both inbound and outbound ICMP connections
-func (t *ICMPTracker) track(srcIP netip.Addr, dstIP netip.Addr, id uint16, typecode layers.ICMPv4TypeCode, direction nftypes.Direction, ruleId []byte, size int) {
+func (t *ICMPTracker) track(
+	srcIP netip.Addr,
+	dstIP netip.Addr,
+	id uint16,
+	typecode layers.ICMPv4TypeCode,
+	direction nftypes.Direction,
+	ruleId []byte,
+	payload []byte,
+	size int,
+) {
 	key, exists := t.updateIfExists(srcIP, dstIP, id, direction, size)
 	if exists {
 		return
 	}
 
 	typ, code := typecode.Type(), typecode.Code()
+	icmpInfo := ICMPInfo{
+		Type: typ,
+		Code: code,
+	}
+	if len(payload) > 0 {
+		icmpInfo.PayloadLen = len(payload)
+		if icmpInfo.PayloadLen > 28 {
+			icmpInfo.PayloadLen = 28
+		}
+		copy(icmpInfo.PayloadData[:], payload[:icmpInfo.PayloadLen])
+	}
 
 	// non echo requests don't need tracking
 	if typ != uint8(layers.ICMPv4TypeEchoRequest) {
-		t.logger.Trace("New %s ICMP connection %s type %d code %d", direction, key, typ, code)
+		t.logger.Trace("New %s ICMP connection %s - %s", direction, key, icmpInfo)
 		t.sendStartEvent(direction, srcIP, dstIP, typ, code, ruleId, size)
 		return
 	}
@@ -138,7 +324,7 @@ func (t *ICMPTracker) track(srcIP netip.Addr, dstIP netip.Addr, id uint16, typec
 	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	t.logger.Trace("New %s ICMP connection %s type %d code %d", direction, key, typ, code)
+	t.logger.Trace("New %s ICMP connection %s - %s", direction, key, icmpInfo)
 	t.sendEvent(nftypes.TypeStart, conn, ruleId)
 }
 
