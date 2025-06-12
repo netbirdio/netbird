@@ -127,7 +127,7 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 }
 
 func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) {
-	store.account = newAccountWithId(context.Background(), "my account", "", "")
+	store.account = newAccountWithId(context.Background(), "my account", "", "", false)
 
 	for i := 0; i < numberOfPeers; i++ {
 		peerId := fmt.Sprintf("peer_%d", i)

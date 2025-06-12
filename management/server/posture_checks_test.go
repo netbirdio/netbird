@@ -106,7 +106,7 @@ func initTestPostureChecksAccount(am *DefaultAccountManager) (*types.Account, er
 		Role: types.UserRoleUser,
 	}
 
-	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain)
+	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, false)
 	account.Users[admin.Id] = admin
 	account.Users[user.Id] = user
 

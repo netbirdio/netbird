@@ -101,6 +101,8 @@ type DefaultAccountManager struct {
 
 	accountUpdateLocks               sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
+
+	disableDefaultPolicy bool
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -169,6 +171,7 @@ func BuildManager(
 	proxyController port_forwarding.Controller,
 	settingsManager settings.Manager,
 	permissionsManager permissions.Manager,
+	disableDefaultPolicy bool,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -194,6 +197,7 @@ func BuildManager(
 		proxyController:          proxyController,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
+		disableDefaultPolicy:     disableDefaultPolicy,
 	}
 
 	am.startWarmup(ctx)
@@ -507,7 +511,7 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
 			continue
 		case statusErr.Type() == status.NotFound:
-			newAccount := newAccountWithId(ctx, accountId, userID, domain)
+			newAccount := newAccountWithId(ctx, accountId, userID, domain, am.disableDefaultPolicy)
 			am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 			return newAccount, nil
 		default:
@@ -1652,7 +1656,7 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(ctx context.Context, accountID, userID, domain string) *types.Account {
+func newAccountWithId(ctx context.Context, accountID, userID, domain string, disableDefaultPolicy bool) *types.Account {
 	log.WithContext(ctx).Debugf("creating new account")
 
 	network := types.NewNetwork()
@@ -1695,7 +1699,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 		},
 	}
 
-	if err := acc.AddAllGroup(); err != nil {
+	if err := acc.AddAllGroup(disableDefaultPolicy); err != nil {
 		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
@@ -1797,7 +1801,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 			},
 		}
 
-		if err := newAccount.AddAllGroup(); err != nil {
+		if err := newAccount.AddAllGroup(am.disableDefaultPolicy); err != nil {
 			return nil, false, status.Errorf(status.Internal, "failed to add all group to new account by private domain")
 		}
 

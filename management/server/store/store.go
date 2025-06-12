@@ -388,7 +388,7 @@ func addAllGroupToAccount(ctx context.Context, store Store) error {
 
 		_, err := account.GetGroupAll()
 		if err != nil {
-			if err := account.AddAllGroup(); err != nil {
+			if err := account.AddAllGroup(false); err != nil {
 				return err
 			}
 			shouldSave = true
