@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
-	"regexp"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -15,9 +14,6 @@ import (
 const (
 	defaultResolvConfPath = "/etc/resolv.conf"
 )
-
-var timeoutRegex = regexp.MustCompile(`timeout:\d+`)
-var attemptsRegex = regexp.MustCompile(`attempts:\d+`)
 
 type resolvConf struct {
 	nameServers   []string
