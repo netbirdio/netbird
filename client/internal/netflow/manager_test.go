@@ -1,7 +1,7 @@
 package netflow
 
 import (
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -33,10 +33,7 @@ func (m *mockIFaceMapper) IsUserspaceBind() bool {
 func TestManager_Update(t *testing.T) {
 	mockIFace := &mockIFaceMapper{
 		address: wgaddr.Address{
-			Network: &net.IPNet{
-				IP:   net.ParseIP("192.168.1.1"),
-				Mask: net.CIDRMask(24, 32),
-			},
+			Network: netip.MustParsePrefix("192.168.1.1/32"),
 		},
 		isUserspaceBind: true,
 	}
@@ -102,10 +99,7 @@ func TestManager_Update(t *testing.T) {
 func TestManager_Update_TokenPreservation(t *testing.T) {
 	mockIFace := &mockIFaceMapper{
 		address: wgaddr.Address{
-			Network: &net.IPNet{
-				IP:   net.ParseIP("192.168.1.1"),
-				Mask: net.CIDRMask(24, 32),
-			},
+			Network: netip.MustParsePrefix("192.168.1.1/32"),
 		},
 		isUserspaceBind: true,
 	}

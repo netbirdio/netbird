@@ -41,7 +41,8 @@ import (
 // Manager is a route manager interface
 type Manager interface {
 	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
-	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route, useNewDNSRoute bool) error
+	UpdateRoutes(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
+	ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
 	GetClientRoutes() route.HAMap
@@ -158,10 +159,10 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 	m.allowedIPsRefCounter = refcounter.New(
 		func(prefix netip.Prefix, peerKey string) (string, error) {
 			// save peerKey to use it in the remove function
-			return peerKey, m.wgInterface.AddAllowedIP(peerKey, prefix.String())
+			return peerKey, m.wgInterface.AddAllowedIP(peerKey, prefix)
 		},
 		func(prefix netip.Prefix, peerKey string) error {
-			if err := m.wgInterface.RemoveAllowedIP(peerKey, prefix.String()); err != nil {
+			if err := m.wgInterface.RemoveAllowedIP(peerKey, prefix); err != nil {
 				if !errors.Is(err, configurer.ErrPeerNotFound) && !errors.Is(err, configurer.ErrAllowedIPNotFound) {
 					return err
 				}
@@ -319,7 +320,12 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route, useNewDNSRoute bool) error {
+func (m *DefaultManager) UpdateRoutes(
+	updateSerial uint64,
+	serverRoutes map[route.ID]*route.Route,
+	clientRoutes route.HAMap,
+	useNewDNSRoute bool,
+) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not updating routes as context is closed")
@@ -331,29 +337,28 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 	defer m.mux.Unlock()
 	m.useNewDNSRoute = useNewDNSRoute
 
-	newServerRoutesMap, newClientRoutesIDMap := m.classifyRoutes(newRoutes)
-
+	var merr *multierror.Error
 	if !m.disableClientRoutes {
-		filteredClientRoutes := m.routeSelector.FilterSelected(newClientRoutesIDMap)
+		filteredClientRoutes := m.routeSelector.FilterSelected(clientRoutes)
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
-			log.Errorf("Failed to update system routes: %v", err)
+			merr = multierror.Append(merr, fmt.Errorf("update system routes: %w", err))
 		}
 
 		m.updateClientNetworks(updateSerial, filteredClientRoutes)
 		m.notifier.OnNewRoutes(filteredClientRoutes)
 	}
-	m.clientRoutes = newClientRoutesIDMap
+	m.clientRoutes = clientRoutes
 
 	if m.serverRouter == nil {
-		return nil
+		return nberrors.FormatErrorOrNil(merr)
 	}
 
-	if err := m.serverRouter.UpdateRoutes(newServerRoutesMap, useNewDNSRoute); err != nil {
-		return fmt.Errorf("update routes: %w", err)
+	if err := m.serverRouter.UpdateRoutes(serverRoutes, useNewDNSRoute); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("update server routes: %w", err))
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // SetRouteChangeListener set RouteListener for route change Notifier
@@ -480,7 +485,7 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 	}
 }
 
-func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap) {
+func (m *DefaultManager) ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap) {
 	newClientRoutesIDMap := make(route.HAMap)
 	newServerRoutesMap := make(map[route.ID]*route.Route)
 	ownNetworkIDs := make(map[route.HAUniqueID]bool)
@@ -507,7 +512,7 @@ func (m *DefaultManager) classifyRoutes(newRoutes []*route.Route) (map[route.ID]
 }
 
 func (m *DefaultManager) initialClientRoutes(initialRoutes []*route.Route) []*route.Route {
-	_, crMap := m.classifyRoutes(initialRoutes)
+	_, crMap := m.ClassifyRoutes(initialRoutes)
 	rs := make([]*route.Route, 0, len(crMap))
 	for _, routes := range crMap {
 		rs = append(rs, routes...)

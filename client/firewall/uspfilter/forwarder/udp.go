@@ -250,10 +250,10 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	wg.Wait()
 
 	if outboundErr != nil && !isClosedError(outboundErr) {
-		f.logger.Error("proxyUDP: copy error (outbound->inbound): %v", outboundErr)
+		f.logger.Error("proxyUDP: copy error (outbound->inbound) for %s: %v", epID(id), outboundErr)
 	}
 	if inboundErr != nil && !isClosedError(inboundErr) {
-		f.logger.Error("proxyUDP: copy error (inbound->outbound): %v", inboundErr)
+		f.logger.Error("proxyUDP: copy error (inbound->outbound) for %s: %v", epID(id), inboundErr)
 	}
 
 	var rxPackets, txPackets uint64

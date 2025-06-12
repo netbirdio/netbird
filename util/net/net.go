@@ -1,8 +1,10 @@
 package net
 
 import (
+	"fmt"
 	"math/big"
 	"net"
+	"net/netip"
 
 	"github.com/google/uuid"
 )
@@ -54,11 +56,13 @@ func GenerateConnID() ConnectionID {
 	return ConnectionID(uuid.NewString())
 }
 
-func GetLastIPFromNetwork(network *net.IPNet, fromEnd int) net.IP {
-	// Calculate the last IP in the CIDR range
+func GetLastIPFromNetwork(network netip.Prefix, fromEnd int) (netip.Addr, error) {
 	var endIP net.IP
-	for i := 0; i < len(network.IP); i++ {
-		endIP = append(endIP, network.IP[i]|^network.Mask[i])
+	addr := network.Addr().AsSlice()
+	mask := net.CIDRMask(network.Bits(), len(addr)*8)
+
+	for i := 0; i < len(addr); i++ {
+		endIP = append(endIP, addr[i]|^mask[i])
 	}
 
 	// convert to big.Int
@@ -70,5 +74,10 @@ func GetLastIPFromNetwork(network *net.IPNet, fromEnd int) net.IP {
 	resultInt := big.NewInt(0)
 	resultInt.Sub(endInt, fromEndBig)
 
-	return resultInt.Bytes()
+	ip, ok := netip.AddrFromSlice(resultInt.Bytes())
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("invalid IP address from network %s", network)
+	}
+
+	return ip.Unmap(), nil
 }

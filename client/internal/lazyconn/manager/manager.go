@@ -6,6 +6,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/activity"
@@ -13,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/route"
 )
 
 const (
@@ -37,7 +39,9 @@ type Config struct {
 // - Managing inactivity monitors for lazy connections (based on peer disconnection events)
 // - Maintaining a list of excluded peers that should always have permanent connections
 // - Handling connection establishment based on peer signaling
+// - Managing route HA groups and activating all peers in a group when one peer is activated
 type Manager struct {
+	engineCtx           context.Context
 	peerStore           *peerstore.Store
 	connStateDispatcher *dispatcher.ConnectionDispatcher
 	inactivityThreshold time.Duration
@@ -51,13 +55,20 @@ type Manager struct {
 	activityManager    *activity.Manager
 	inactivityMonitors map[peerid.ConnID]*inactivity.Monitor
 
-	cancel     context.CancelFunc
+	// Route HA group management
+	peerToHAGroups map[string][]route.HAUniqueID // peer ID -> HA groups they belong to
+	haGroupToPeers map[route.HAUniqueID][]string // HA group -> peer IDs in the group
+	routesMu       sync.RWMutex                  // protects route mappings
+
 	onInactive chan peerid.ConnID
 }
 
-func NewManager(config Config, peerStore *peerstore.Store, wgIface lazyconn.WGIface, connStateDispatcher *dispatcher.ConnectionDispatcher) *Manager {
+// NewManager creates a new lazy connection manager
+// engineCtx is the context for creating peer Connection
+func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.Store, wgIface lazyconn.WGIface, connStateDispatcher *dispatcher.ConnectionDispatcher) *Manager {
 	log.Infof("setup lazy connection service")
 	m := &Manager{
+		engineCtx:            engineCtx,
 		peerStore:            peerStore,
 		connStateDispatcher:  connStateDispatcher,
 		inactivityThreshold:  inactivity.DefaultInactivityThreshold,
@@ -66,6 +77,8 @@ func NewManager(config Config, peerStore *peerstore.Store, wgIface lazyconn.WGIf
 		excludes:             make(map[string]lazyconn.PeerConfig),
 		activityManager:      activity.NewManager(wgIface),
 		inactivityMonitors:   make(map[peerid.ConnID]*inactivity.Monitor),
+		peerToHAGroups:       make(map[string][]route.HAUniqueID),
+		haGroupToPeers:       make(map[route.HAUniqueID][]string),
 		onInactive:           make(chan peerid.ConnID),
 	}
 
@@ -87,11 +100,45 @@ func NewManager(config Config, peerStore *peerstore.Store, wgIface lazyconn.WGIf
 	return m
 }
 
+// UpdateRouteHAMap updates the HA group mappings for routes
+// This should be called when route configuration changes
+func (m *Manager) UpdateRouteHAMap(haMap route.HAMap) {
+	m.routesMu.Lock()
+	defer m.routesMu.Unlock()
+
+	maps.Clear(m.peerToHAGroups)
+	maps.Clear(m.haGroupToPeers)
+
+	for haUniqueID, routes := range haMap {
+		var peers []string
+
+		peerSet := make(map[string]bool)
+		for _, r := range routes {
+			if !peerSet[r.Peer] {
+				peerSet[r.Peer] = true
+				peers = append(peers, r.Peer)
+			}
+		}
+
+		if len(peers) <= 1 {
+			continue
+		}
+
+		m.haGroupToPeers[haUniqueID] = peers
+
+		for _, peerID := range peers {
+			m.peerToHAGroups[peerID] = append(m.peerToHAGroups[peerID], haUniqueID)
+		}
+	}
+
+	log.Debugf("updated route HA mappings: %d HA groups, %d peers with routes",
+		len(m.haGroupToPeers), len(m.peerToHAGroups))
+}
+
 // Start starts the manager and listens for peer activity and inactivity events
 func (m *Manager) Start(ctx context.Context) {
 	defer m.close()
 
-	ctx, m.cancel = context.WithCancel(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -209,25 +256,47 @@ func (m *Manager) RemovePeer(peerID string) {
 }
 
 // ActivatePeer activates a peer connection when a signal message is received
+// Also activates all peers in the same HA groups as this peer
 func (m *Manager) ActivatePeer(ctx context.Context, peerID string) (found bool) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
+	cfg, mp := m.getPeerForActivation(peerID)
+	if cfg == nil {
+		return false
+	}
 
+	if !m.activateSinglePeer(ctx, cfg, mp) {
+		return false
+	}
+
+	m.activateHAGroupPeers(ctx, peerID)
+
+	return true
+}
+
+// getPeerForActivation checks if a peer can be activated and returns the necessary structs
+// Returns nil values if the peer should be skipped
+func (m *Manager) getPeerForActivation(peerID string) (*lazyconn.PeerConfig, *managedPeer) {
 	cfg, ok := m.managedPeers[peerID]
 	if !ok {
-		return false
+		return nil, nil
 	}
 
 	mp, ok := m.managedPeersByConnID[cfg.PeerConnID]
 	if !ok {
-		return false
+		return nil, nil
 	}
 
 	// signal messages coming continuously after success activation, with this avoid the multiple activation
 	if mp.expectedWatcher == watcherInactivity {
-		return false
+		return nil, nil
 	}
 
+	return cfg, mp
+}
+
+// activateSinglePeer activates a single peer (internal method)
+func (m *Manager) activateSinglePeer(ctx context.Context, cfg *lazyconn.PeerConfig, mp *managedPeer) bool {
 	mp.expectedWatcher = watcherInactivity
 
 	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
@@ -238,10 +307,51 @@ func (m *Manager) ActivatePeer(ctx context.Context, peerID string) (found bool) 
 		return false
 	}
 
-	mp.peerCfg.Log.Infof("starting inactivity monitor")
+	cfg.Log.Infof("starting inactivity monitor")
 	go im.Start(ctx, m.onInactive)
 
 	return true
+}
+
+// activateHAGroupPeers activates all peers in HA groups that the given peer belongs to
+func (m *Manager) activateHAGroupPeers(ctx context.Context, triggerPeerID string) {
+	m.routesMu.RLock()
+	haGroups := m.peerToHAGroups[triggerPeerID]
+	m.routesMu.RUnlock()
+
+	if len(haGroups) == 0 {
+		log.Debugf("peer %s is not part of any HA groups", triggerPeerID)
+		return
+	}
+
+	activatedCount := 0
+	for _, haGroup := range haGroups {
+		m.routesMu.RLock()
+		peers := m.haGroupToPeers[haGroup]
+		m.routesMu.RUnlock()
+
+		for _, peerID := range peers {
+			if peerID == triggerPeerID {
+				continue
+			}
+
+			cfg, mp := m.getPeerForActivation(peerID)
+			if cfg == nil {
+				continue
+			}
+
+			if m.activateSinglePeer(ctx, cfg, mp) {
+				activatedCount++
+				cfg.Log.Infof("activated peer as part of HA group %s (triggered by %s)", haGroup, triggerPeerID)
+				m.peerStore.PeerConnOpen(m.engineCtx, cfg.PublicKey)
+			}
+		}
+	}
+
+	if activatedCount > 0 {
+		log.Infof("activated %d additional peers in HA groups for peer %s (groups: %v)",
+			activatedCount, triggerPeerID, haGroups)
+	}
 }
 
 func (m *Manager) addActivePeer(ctx context.Context, peerCfg lazyconn.PeerConfig) error {
@@ -287,8 +397,6 @@ func (m *Manager) close() {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	m.cancel()
-
 	m.connStateDispatcher.RemoveListener(m.connStateListener)
 	m.activityManager.Close()
 	for _, iw := range m.inactivityMonitors {
@@ -297,6 +405,13 @@ func (m *Manager) close() {
 	m.inactivityMonitors = make(map[peerid.ConnID]*inactivity.Monitor)
 	m.managedPeers = make(map[string]*lazyconn.PeerConfig)
 	m.managedPeersByConnID = make(map[peerid.ConnID]*managedPeer)
+
+	// Clear route mappings
+	m.routesMu.Lock()
+	m.peerToHAGroups = make(map[string][]route.HAUniqueID)
+	m.haGroupToPeers = make(map[route.HAUniqueID][]string)
+	m.routesMu.Unlock()
+
 	log.Infof("lazy connection manager closed")
 }
 
@@ -317,12 +432,13 @@ func (m *Manager) onPeerActivity(ctx context.Context, peerConnID peerid.ConnID) 
 
 	mp.peerCfg.Log.Infof("detected peer activity")
 
-	mp.expectedWatcher = watcherInactivity
+	if !m.activateSinglePeer(ctx, mp.peerCfg, mp) {
+		return
+	}
 
-	mp.peerCfg.Log.Infof("starting inactivity monitor")
-	go m.inactivityMonitors[peerConnID].Start(ctx, m.onInactive)
+	m.activateHAGroupPeers(ctx, mp.peerCfg.PublicKey)
 
-	m.peerStore.PeerConnOpen(ctx, mp.peerCfg.PublicKey)
+	m.peerStore.PeerConnOpen(m.engineCtx, mp.peerCfg.PublicKey)
 }
 
 func (m *Manager) onPeerInactivityTimedOut(peerConnID peerid.ConnID) {
