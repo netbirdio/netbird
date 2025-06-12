@@ -1153,8 +1153,9 @@ func updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbp
 		if !ok {
 			return nil, errors.New("group not found")
 		}
-		addUserPeersToGroup(userPeerIDMap, group)
-		groupsToUpdate = append(groupsToUpdate, group)
+		if changed := addUserPeersToGroup(userPeerIDMap, group); changed {
+			groupsToUpdate = append(groupsToUpdate, group)
+		}
 	}
 
 	for _, gid := range groupsToRemove {
@@ -1162,45 +1163,65 @@ func updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbp
 		if !ok {
 			return nil, errors.New("group not found")
 		}
-		removeUserPeersFromGroup(userPeerIDMap, group)
-		groupsToUpdate = append(groupsToUpdate, group)
+		if changed := removeUserPeersFromGroup(userPeerIDMap, group); changed {
+			groupsToUpdate = append(groupsToUpdate, group)
+		}
 	}
 
 	return groupsToUpdate, nil
 }
 
 // addUserPeersToGroup adds the user's peers to the group.
-func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *types.Group) {
+func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *types.Group) bool {
 	groupPeers := make(map[string]struct{}, len(group.Peers))
 	for _, pid := range group.Peers {
 		groupPeers[pid] = struct{}{}
 	}
 
+	changed := false
 	for pid := range userPeerIDs {
-		groupPeers[pid] = struct{}{}
+		if _, exists := groupPeers[pid]; !exists {
+			groupPeers[pid] = struct{}{}
+			changed = true
+		}
 	}
 
 	group.Peers = make([]string, 0, len(groupPeers))
 	for pid := range groupPeers {
 		group.Peers = append(group.Peers, pid)
 	}
+
+	if changed {
+		group.Peers = make([]string, 0, len(groupPeers))
+		for pid := range groupPeers {
+			group.Peers = append(group.Peers, pid)
+		}
+	}
+	return changed
 }
 
 // removeUserPeersFromGroup removes user's peers from the group.
-func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *types.Group) {
+func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *types.Group) bool {
 	// skip removing peers from group All
 	if group.Name == "All" {
-		return
+		return false
 	}
 
 	updatedPeers := make([]string, 0, len(group.Peers))
+	changed := false
+
 	for _, pid := range group.Peers {
-		if _, found := userPeerIDs[pid]; !found {
-			updatedPeers = append(updatedPeers, pid)
+		if _, owned := userPeerIDs[pid]; owned {
+			changed = true
+			continue
 		}
+		updatedPeers = append(updatedPeers, pid)
 	}
 
-	group.Peers = updatedPeers
+	if changed {
+		group.Peers = updatedPeers
+	}
+	return changed
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {

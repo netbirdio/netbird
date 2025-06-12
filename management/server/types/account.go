@@ -1046,7 +1046,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 				}
 				rulesExists[ruleID] = struct{}{}
 
-				if len(rule.Ports) == 0 {
+				if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 					rules = append(rules, &fr)
 					continue
 				}
@@ -1054,6 +1054,12 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 				for _, port := range rule.Ports {
 					pr := fr // clone rule and add set new port
 					pr.Port = port
+					rules = append(rules, &pr)
+				}
+
+				for _, portRange := range rule.PortRanges {
+					pr := fr
+					pr.PortRange = portRange
 					rules = append(rules, &pr)
 				}
 			}

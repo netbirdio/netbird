@@ -12,16 +12,19 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 type Resolver struct {
 	mu      sync.RWMutex
 	records map[dns.Question][]dns.RR
+	domains map[domain.Domain]struct{}
 }
 
 func NewResolver() *Resolver {
 	return &Resolver{
 		records: make(map[dns.Question][]dns.RR),
+		domains: make(map[domain.Domain]struct{}),
 	}
 }
 
@@ -64,13 +67,26 @@ func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		replyMessage.Rcode = dns.RcodeSuccess
 		replyMessage.Answer = append(replyMessage.Answer, records...)
 	} else {
-		// TODO: return success if we have a different record type for the same name, relevant for search domains
-		replyMessage.Rcode = dns.RcodeNameError
+		// Check if we have any records for this domain name with different types
+		if d.hasRecordsForDomain(domain.Domain(question.Name)) {
+			replyMessage.Rcode = dns.RcodeSuccess // NOERROR with 0 records
+		} else {
+			replyMessage.Rcode = dns.RcodeNameError // NXDOMAIN
+		}
 	}
 
 	if err := w.WriteMsg(replyMessage); err != nil {
 		log.Warnf("failed to write the local resolver response: %v", err)
 	}
+}
+
+// hasRecordsForDomain checks if any records exist for the given domain name regardless of type
+func (d *Resolver) hasRecordsForDomain(domainName domain.Domain) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	_, exists := d.domains[domainName]
+	return exists
 }
 
 // lookupRecords fetches *all* DNS records matching the first question in r.
@@ -111,6 +127,7 @@ func (d *Resolver) Update(update []nbdns.SimpleRecord) {
 	defer d.mu.Unlock()
 
 	maps.Clear(d.records)
+	maps.Clear(d.domains)
 
 	for _, rec := range update {
 		if err := d.registerRecord(rec); err != nil {
@@ -144,6 +161,7 @@ func (d *Resolver) registerRecord(record nbdns.SimpleRecord) error {
 	}
 
 	d.records[q] = append(d.records[q], rr)
+	d.domains[domain.Domain(q.Name)] = struct{}{}
 
 	return nil
 }

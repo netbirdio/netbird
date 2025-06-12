@@ -786,6 +786,9 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		e.config.DisableServerRoutes,
 		e.config.DisableDNS,
 		e.config.DisableFirewall,
+		e.config.BlockLANAccess,
+		e.config.BlockInbound,
+		e.config.LazyConnectionEnabled,
 	)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
@@ -905,6 +908,9 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.DisableServerRoutes,
 			e.config.DisableDNS,
 			e.config.DisableFirewall,
+			e.config.BlockLANAccess,
+			e.config.BlockInbound,
+			e.config.LazyConnectionEnabled,
 		)
 
 		// err = e.mgmClient.Sync(info, e.handleSync)
@@ -1076,7 +1082,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
 	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, networkMap.GetRemotePeers())
-	e.connMgr.SetExcludeList(excludedLazyPeers)
+	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
 
 	e.networkSerial = serial
 
@@ -1493,6 +1499,9 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 		e.config.DisableServerRoutes,
 		e.config.DisableDNS,
 		e.config.DisableFirewall,
+		e.config.BlockLANAccess,
+		e.config.BlockInbound,
+		e.config.LazyConnectionEnabled,
 	)
 
 	netMap, err := e.mgmClient.GetNetworkMap(info)
