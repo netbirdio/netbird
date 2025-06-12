@@ -48,7 +48,7 @@ func detectResolvconfType() (resolvconfType, error) {
 	cmd := exec.Command(resolvconfCommand, "--version")
 	out, err := cmd.Output()
 	if err != nil {
-		return typeOpenresolv, fmt.Errorf("failed to determine resolvconf type: %w", err)
+		return typeOpenresolv, fmt.Errorf("determine resolvconf type: %w", err)
 	}
 
 	if strings.Contains(string(out), "openresolv") {
@@ -150,7 +150,7 @@ func (r *resolvconf) applyConfig(content bytes.Buffer) error {
 	}
 
 	cmd.Stdin = &content
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	log.Tracef("resolvconf output: %s", out)
 	if err != nil {
 		return fmt.Errorf("applying resolvconf configuration for %s interface: %w", r.ifaceName, err)
