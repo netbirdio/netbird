@@ -20,6 +20,10 @@ const (
 	DefaultICMPTimeout = 30 * time.Second
 	// ICMPCleanupInterval is how often we check for stale ICMP connections
 	ICMPCleanupInterval = 15 * time.Second
+
+	// MaxICMPPayloadLength is the maximum length of ICMP payload we consider for original packet info,
+	// which includes the IP header (20 bytes) and transport header (8 bytes)
+	MaxICMPPayloadLength = 28
 )
 
 // ICMPConnKey uniquely identifies an ICMP connection
@@ -55,15 +59,16 @@ type ICMPTracker struct {
 type ICMPInfo struct {
 	Type        uint8
 	Code        uint8
-	PayloadData [28]byte // IP header (20) + transport (8)
-	PayloadLen  int      // actual length of valid data
+	PayloadData [MaxICMPPayloadLength]byte
+	// actual length of valid data
+	PayloadLen int
 }
 
 // String implements fmt.Stringer for lazy evaluation in log messages
 func (info ICMPInfo) String() string {
 	baseMsg := formatICMPTypeCode(info.Type, info.Code)
 
-	if info.isErrorMessage() && info.PayloadLen >= 28 {
+	if info.isErrorMessage() && info.PayloadLen >= MaxICMPPayloadLength	 {
 		if origInfo := info.parseOriginalPacket(); origInfo != "" {
 			return fmt.Sprintf("%s (original: %s)", baseMsg, origInfo)
 		}
@@ -82,7 +87,7 @@ func (info ICMPInfo) isErrorMessage() bool {
 
 // parseOriginalPacket extracts info about the original packet from ICMP payload
 func (info ICMPInfo) parseOriginalPacket() string {
-	if info.PayloadLen < 28 {
+	if info.PayloadLen < MaxICMPPayloadLength {
 		return ""
 	}
 
@@ -294,8 +299,8 @@ func (t *ICMPTracker) track(
 	}
 	if len(payload) > 0 {
 		icmpInfo.PayloadLen = len(payload)
-		if icmpInfo.PayloadLen > 28 {
-			icmpInfo.PayloadLen = 28
+		if icmpInfo.PayloadLen > MaxICMPPayloadLength {
+			icmpInfo.PayloadLen = MaxICMPPayloadLength
 		}
 		copy(icmpInfo.PayloadData[:], payload[:icmpInfo.PayloadLen])
 	}
