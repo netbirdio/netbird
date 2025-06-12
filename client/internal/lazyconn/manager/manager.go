@@ -320,36 +320,38 @@ func (m *Manager) activateSinglePeer(ctx context.Context, cfg *lazyconn.PeerConf
 
 // activateHAGroupPeers activates all peers in HA groups that the given peer belongs to
 func (m *Manager) activateHAGroupPeers(ctx context.Context, triggerPeerID string) {
+	var peersToActivate []string
+
 	m.routesMu.RLock()
 	haGroups := m.peerToHAGroups[triggerPeerID]
-	m.routesMu.RUnlock()
 
 	if len(haGroups) == 0 {
+		m.routesMu.RUnlock()
 		log.Debugf("peer %s is not part of any HA groups", triggerPeerID)
 		return
 	}
 
-	activatedCount := 0
 	for _, haGroup := range haGroups {
-		m.routesMu.RLock()
 		peers := m.haGroupToPeers[haGroup]
-		m.routesMu.RUnlock()
-
 		for _, peerID := range peers {
-			if peerID == triggerPeerID {
-				continue
+			if peerID != triggerPeerID {
+				peersToActivate = append(peersToActivate, peerID)
 			}
+		}
+	}
+	m.routesMu.RUnlock()
 
-			cfg, mp := m.getPeerForActivation(peerID)
-			if cfg == nil {
-				continue
-			}
+	activatedCount := 0
+	for _, peerID := range peersToActivate {
+		cfg, mp := m.getPeerForActivation(peerID)
+		if cfg == nil {
+			continue
+		}
 
-			if m.activateSinglePeer(ctx, cfg, mp) {
-				activatedCount++
-				cfg.Log.Infof("activated peer as part of HA group %s (triggered by %s)", haGroup, triggerPeerID)
-				m.peerStore.PeerConnOpen(ctx, cfg.PublicKey)
-			}
+		if m.activateSinglePeer(ctx, cfg, mp) {
+			activatedCount++
+			cfg.Log.Infof("activated peer as part of HA group (triggered by %s)", triggerPeerID)
+			m.peerStore.PeerConnOpen(ctx, cfg.PublicKey)
 		}
 	}
 
@@ -363,18 +365,15 @@ func (m *Manager) activateHAGroupPeers(ctx context.Context, triggerPeerID string
 // because other peers in its HA groups are already active
 func (m *Manager) shouldActivateNewPeer(peerID string) (route.HAUniqueID, bool) {
 	m.routesMu.RLock()
-	haGroups := m.peerToHAGroups[peerID]
-	m.routesMu.RUnlock()
+	defer m.routesMu.RUnlock()
 
+	haGroups := m.peerToHAGroups[peerID]
 	if len(haGroups) == 0 {
 		return "", false
 	}
 
 	for _, haGroup := range haGroups {
-		m.routesMu.RLock()
 		peers := m.haGroupToPeers[haGroup]
-		m.routesMu.RUnlock()
-
 		for _, groupPeerID := range peers {
 			if groupPeerID == peerID {
 				continue
