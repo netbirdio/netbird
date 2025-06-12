@@ -3,7 +3,6 @@ package dns
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"runtime"
 	"strings"
@@ -24,8 +23,6 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 )
 
-const DefaultPort = 53
-
 // ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
 type ReadyListener interface {
 	OnReady()
@@ -42,7 +39,7 @@ type Server interface {
 	DeregisterHandler(domains domain.List, priority int)
 	Initialize() error
 	Stop()
-	DnsIP() string
+	DnsIP() netip.Addr
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
 	OnUpdatedHostDNSServer(strings []string)
 	SearchDomains() []string
@@ -294,7 +291,7 @@ func (s *DefaultServer) Initialize() (err error) {
 //
 // When kernel space interface used it return real DNS server listener IP address
 // For bind interface, fake DNS resolver address returned (second last IP address from Nebird network)
-func (s *DefaultServer) DnsIP() string {
+func (s *DefaultServer) DnsIP() netip.Addr {
 	return s.service.RuntimeIP()
 }
 
@@ -534,23 +531,15 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 		return
 	}
 
-	serverIP := config.ServerIP
-	host, _, err := net.SplitHostPort(config.ServerIP)
-	if err != nil {
-		log.Errorf("failed to split host and port from nameserver %s: %v", serverIP, err)
-	} else {
-		serverIP = host
-	}
-
 	for _, ns := range originalNameservers {
-		if ns == serverIP {
-			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, serverIP)
+		if ns == config.ServerIP.String() {
+			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, config.ServerIP)
 			continue
 		}
 
-		ns = fmt.Sprintf("%s:%d", ns, DefaultPort)
+		ns = fmt.Sprintf("%s:%d", ns, defaultPort)
 		if ip, err := netip.ParseAddr(ns); err == nil && ip.Is6() {
-			ns = fmt.Sprintf("[%s]:%d", ns, DefaultPort)
+			ns = fmt.Sprintf("[%s]:%d", ns, defaultPort)
 		}
 
 		handler.upstreamServers = append(handler.upstreamServers, ns)

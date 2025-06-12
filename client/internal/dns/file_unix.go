@@ -28,7 +28,7 @@ const (
 type fileConfigurator struct {
 	repair              *repair
 	originalPerms       os.FileMode
-	nbNameserverIP      string
+	nbNameserverIP      netip.Addr
 	originalNameservers []string
 }
 
@@ -74,12 +74,12 @@ func (f *fileConfigurator) getOriginalNameservers() []string {
 	return f.originalNameservers
 }
 
-func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP string, cfg *resolvConf, stateManager *statemanager.Manager) error {
+func (f *fileConfigurator) updateConfig(nbSearchDomains []string, nbNameserverIP netip.Addr, cfg *resolvConf, stateManager *statemanager.Manager) error {
 	searchDomainList := mergeSearchDomains(nbSearchDomains, cfg.searchDomains)
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		[]string{nbNameserverIP},
+		[]string{nbNameserverIP.String()},
 		cfg.others,
 	)
 

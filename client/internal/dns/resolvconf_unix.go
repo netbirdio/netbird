@@ -90,7 +90,7 @@ func (r *resolvconf) applyDNSConfig(config HostDNSConfig, stateManager *stateman
 
 	buf := prepareResolvConfContent(
 		searchDomainList,
-		[]string{config.ServerIP},
+		[]string{config.ServerIP.String()},
 		r.othersConfigs,
 	)
 

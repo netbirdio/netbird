@@ -4,6 +4,7 @@ package dns
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"regexp"
 	"strings"
@@ -110,7 +111,7 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 
 // removeFirstNbNameserver removes the given nameserver from the given file if it is in the first position
 // and writes the file back to the original location
-func removeFirstNbNameserver(filename, nameserverIP string) error {
+func removeFirstNbNameserver(filename string, nameserverIP netip.Addr) error {
 	resolvConf, err := parseResolvConfFile(filename)
 	if err != nil {
 		return fmt.Errorf("parse backup resolv.conf: %w", err)
@@ -120,7 +121,7 @@ func removeFirstNbNameserver(filename, nameserverIP string) error {
 		return fmt.Errorf("read %s: %w", filename, err)
 	}
 
-	if len(resolvConf.nameServers) > 1 && resolvConf.nameServers[0] == nameserverIP {
+	if len(resolvConf.nameServers) > 1 && resolvConf.nameServers[0] == nameserverIP.String() {
 		newContent := strings.Replace(string(content), fmt.Sprintf("nameserver %s\n", nameserverIP), "", 1)
 
 		stat, err := os.Stat(filename)
