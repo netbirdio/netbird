@@ -309,6 +309,10 @@ func (s *DefaultServer) Stop() {
 		}
 	}
 
+	if srvs, ok := s.hostManager.(hostManagerWithOriginalNS); ok && len(srvs.getOriginalNameservers()) > 0 {
+		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+	}
+
 	s.service.Stop()
 
 	maps.Clear(s.extraDomains)
@@ -316,7 +320,6 @@ func (s *DefaultServer) Stop() {
 
 // OnUpdatedHostDNSServer update the DNS servers addresses for root zones
 // It will be applied if the mgm server do not enforce DNS settings for root zone
-
 func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
 	s.hostsDNSHolder.set(hostsDnsList)
 
