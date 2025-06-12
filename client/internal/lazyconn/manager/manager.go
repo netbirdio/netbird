@@ -474,17 +474,15 @@ func (m *Manager) close() {
 // shouldDeferIdleForHA checks if peer should stay connected due to HA group requirements
 func (m *Manager) shouldDeferIdleForHA(peerID string) bool {
 	m.routesMu.RLock()
-	haGroups := m.peerToHAGroups[peerID]
-	m.routesMu.RUnlock()
+	defer m.routesMu.RUnlock()
 
+	haGroups := m.peerToHAGroups[peerID]
 	if len(haGroups) == 0 {
 		return false
 	}
 
 	for _, haGroup := range haGroups {
-		m.routesMu.RLock()
 		groupPeers := m.haGroupToPeers[haGroup]
-		m.routesMu.RUnlock()
 
 		for _, groupPeerID := range groupPeers {
 			if groupPeerID == peerID {
