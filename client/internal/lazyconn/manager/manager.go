@@ -60,7 +60,6 @@ type Manager struct {
 	haGroupToPeers map[route.HAUniqueID][]string // HA group -> peer IDs in the group
 	routesMu       sync.RWMutex
 
-	ctx        context.Context
 	cancel     context.CancelFunc
 	onInactive chan peerid.ConnID
 }
@@ -148,7 +147,7 @@ func (m *Manager) Start(ctx context.Context) {
 		case peerConnID := <-m.activityManager.OnActivityChan:
 			m.onPeerActivity(ctx, peerConnID)
 		case peerConnID := <-m.onInactive:
-			m.onPeerInactivityTimedOut(peerConnID)
+			m.onPeerInactivityTimedOut(ctx, peerConnID)
 		}
 	}
 }
@@ -539,7 +538,7 @@ func (m *Manager) onPeerActivity(ctx context.Context, peerConnID peerid.ConnID) 
 	m.peerStore.PeerConnOpen(m.engineCtx, mp.peerCfg.PublicKey)
 }
 
-func (m *Manager) onPeerInactivityTimedOut(peerConnID peerid.ConnID) {
+func (m *Manager) onPeerInactivityTimedOut(ctx context.Context, peerConnID peerid.ConnID) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
@@ -560,7 +559,7 @@ func (m *Manager) onPeerInactivityTimedOut(peerConnID peerid.ConnID) {
 		iw, ok := m.inactivityMonitors[peerConnID]
 		if ok {
 			mp.peerCfg.Log.Debugf("resetting inactivity timer due to HA group requirements")
-			iw.ResetMonitor(m.ctx, m.onInactive)
+			iw.ResetMonitor(ctx, m.onInactive)
 		} else {
 			mp.peerCfg.Log.Errorf("inactivity monitor not found for HA defer reset")
 		}
