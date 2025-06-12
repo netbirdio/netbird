@@ -716,7 +716,7 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	}
 
 	// If there's no root update and we had a root handler, restore it
-	if !containsRootUpdate && runtime.GOOS == "android" {
+	if !containsRootUpdate {
 		for _, existing := range s.dnsMuxMap {
 			if existing.domain == nbdns.RootZone {
 				s.addHostRootZone()
@@ -809,6 +809,12 @@ func (s *DefaultServer) upstreamCallbacks(
 }
 
 func (s *DefaultServer) addHostRootZone() {
+	hostDNSServers := s.hostsDNSHolder.get()
+	if len(hostDNSServers) == 0 {
+		log.Debug("no host DNS servers available, skipping root zone handler creation")
+		return
+	}
+
 	handler, err := newUpstreamResolver(
 		s.ctx,
 		s.wgInterface.Name(),
@@ -824,7 +830,7 @@ func (s *DefaultServer) addHostRootZone() {
 	}
 
 	handler.upstreamServers = make([]string, 0)
-	for k := range s.hostsDNSHolder.get() {
+	for k := range hostDNSServers {
 		handler.upstreamServers = append(handler.upstreamServers, k)
 	}
 	handler.deactivate = func(error) {}
