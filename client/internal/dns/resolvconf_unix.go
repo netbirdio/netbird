@@ -46,7 +46,7 @@ type resolvconf struct {
 
 func detectResolvconfType() (resolvconfType, error) {
 	cmd := exec.Command(resolvconfCommand, "--version")
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return typeOpenresolv, fmt.Errorf("determine resolvconf type: %w", err)
 	}
@@ -66,7 +66,7 @@ func newResolvConfConfigurator(wgInterface string) (*resolvconf, error) {
 	implType, err := detectResolvconfType()
 	if err != nil {
 		log.Warnf("failed to detect resolvconf type, defaulting to openresolv: %v", err)
-		implType = typeOpenresolv
+		implType = typeResolvconf
 	} else {
 		log.Infof("detected resolvconf type: %v", implType)
 	}
