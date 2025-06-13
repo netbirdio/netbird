@@ -71,7 +71,6 @@ var (
 	interfaceName           string
 	wireguardPort           uint16
 	networkMonitor          bool
-	serviceName             string
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
@@ -153,9 +152,6 @@ func init() {
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
 
-	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
-	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
-
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
 
@@ -196,14 +192,13 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 	termCh := make(chan os.Signal, 1)
 	signal.Notify(termCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		done := ctx.Done()
+		defer cancel()
 		select {
-		case <-done:
+		case <-ctx.Done():
 		case <-termCh:
 		}
 
 		log.Info("shutdown signal received")
-		cancel()
 	}()
 }
 
