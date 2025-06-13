@@ -1,8 +1,10 @@
 //go:build !ios && !android
+
 package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +13,8 @@ import (
 	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
 )
+
+var ErrGetServiceStatus = fmt.Errorf("failed to get service status")
 
 // Common service command setup
 func setupServiceCommand(cmd *cobra.Command) error {
@@ -160,7 +164,7 @@ This command will temporarily stop the service, update its configuration, and re
 		}
 
 		wasRunning, err := isServiceRunning()
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrGetServiceStatus) {
 			return fmt.Errorf("check service status: %w", err)
 		}
 
@@ -224,7 +228,7 @@ func isServiceRunning() (bool, error) {
 
 	status, err := s.Status()
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("%w: %w", ErrGetServiceStatus, err)
 	}
 
 	return status == service.StatusRunning, nil
