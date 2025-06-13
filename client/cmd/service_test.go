@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -19,6 +20,10 @@ const (
 
 // TestServiceLifecycle tests the complete service lifecycle
 func TestServiceLifecycle(t *testing.T) {
+	if os.Getenv("CONTAINER") == "true" {
+		t.Skip("Skipping service lifecycle test in container environment")
+	}
+
 	originalServiceName := serviceName
 	serviceName = "netbird-test-" + fmt.Sprintf("%d", time.Now().Unix())
 	defer func() {

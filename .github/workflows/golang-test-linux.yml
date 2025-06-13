@@ -150,6 +150,8 @@ jobs:
     name: "Client (Docker) / Unit"
     needs: [build-cache]
     runs-on: ubuntu-22.04
+    env:
+      CONTAINER: "true"
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
