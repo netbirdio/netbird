@@ -59,6 +59,11 @@ func waitForServiceStatus(expectedStatus service.Status, timeout time.Duration) 
 
 // TestServiceLifecycle tests the complete service lifecycle
 func TestServiceLifecycle(t *testing.T) {
+	// TODO: Add support for Windows and macOS
+	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
+		t.Skipf("Skipping service lifecycle test on unsupported OS: %s", runtime.GOOS)
+	}
+
 	if os.Getenv("CONTAINER") == "true" {
 		t.Skip("Skipping service lifecycle test in container environment")
 	}
