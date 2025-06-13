@@ -1047,7 +1047,7 @@ func (s *serviceClient) showLoginURL() {
 		}
 
 		label.SetText("Connection successful.\nClosing this window.")
-		time.Sleep(1)
+		time.Sleep(time.Second)
 
 		s.wLoginURL.Close()
 	})
