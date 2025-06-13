@@ -1,4 +1,5 @@
 //go:build !ios && !android
+
 package cmd
 
 import (
@@ -35,14 +36,22 @@ type program struct {
 }
 
 func init() {
+	defaultServiceName := "netbird"
+	if runtime.GOOS == "windows" {
+		defaultServiceName = "Netbird"
+	}
+
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd, installCmd, uninstallCmd, reconfigureCmd)
 
+	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +
 		`You can specify a comma-separated list of KEY=VALUE pairs. ` +
 		`E.g. --service-env LOG_LEVEL=debug,CUSTOM_VAR=value`
 
 	installCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 	reconfigureCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
+
+	rootCmd.AddCommand(serviceCmd)
 }
 
 func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
