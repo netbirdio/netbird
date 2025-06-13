@@ -199,6 +199,7 @@ jobs:
             -e GOARCH=${GOARCH_TARGET} \
             -e GOCACHE=${CONTAINER_GOCACHE} \
             -e GOMODCACHE=${CONTAINER_GOMODCACHE} \
+            -e CONTAINER=${CONTAINER} \
             golang:1.23-alpine \
             sh -c ' \
               apk update; apk add --no-cache \
