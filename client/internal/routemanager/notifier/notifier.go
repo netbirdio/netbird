@@ -32,7 +32,6 @@ func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
 func (n *Notifier) SetInitialClientRoutes(clientRoutes []*route.Route) {
 	nets := make([]string, 0)
 	for _, r := range clientRoutes {
-		// filter out domain routes
 		if r.IsDynamic() {
 			continue
 		}
@@ -46,30 +45,27 @@ func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
 	if runtime.GOOS != "android" {
 		return
 	}
-	newNets := make([]string, 0)
+
+	var newNets []string
 	for _, routes := range idMap {
 		for _, r := range routes {
+			if r.IsDynamic() {
+				continue
+			}
 			newNets = append(newNets, r.Network.String())
 		}
 	}
 
 	sort.Strings(newNets)
-	switch runtime.GOOS {
-	case "android":
-		if !n.hasDiff(n.initialRouteRanges, newNets) {
-			return
-		}
-	default:
-		if !n.hasDiff(n.routeRanges, newNets) {
-			return
-		}
+	if !n.hasDiff(n.initialRouteRanges, newNets) {
+		return
 	}
 
 	n.routeRanges = newNets
-
 	n.notify()
 }
 
+// OnNewPrefixes is called from iOS only
 func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 	newNets := make([]string, 0)
 	for _, prefix := range prefixes {
@@ -77,19 +73,11 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 	}
 
 	sort.Strings(newNets)
-	switch runtime.GOOS {
-	case "android":
-		if !n.hasDiff(n.initialRouteRanges, newNets) {
-			return
-		}
-	default:
-		if !n.hasDiff(n.routeRanges, newNets) {
-			return
-		}
+	if !n.hasDiff(n.routeRanges, newNets) {
+		return
 	}
 
 	n.routeRanges = newNets
-
 	n.notify()
 }
 
