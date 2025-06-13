@@ -1,4 +1,5 @@
 //go:build !ios && !android
+
 package cmd
 
 import (
@@ -196,6 +197,38 @@ var restartCmd = &cobra.Command{
 			return fmt.Errorf("restart service: %w", err)
 		}
 		cmd.Println("Netbird service has been restarted")
+		return nil
+	},
+}
+
+var svcStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "shows Netbird service status",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := context.WithCancel(cmd.Context())
+		s, err := setupServiceControlCommand(cmd, ctx, cancel)
+		if err != nil {
+			return err
+		}
+
+		status, err := s.Status()
+		if err != nil {
+			return fmt.Errorf("get service status: %w", err)
+		}
+
+		var statusText string
+		switch status {
+		case service.StatusRunning:
+			statusText = "Running"
+		case service.StatusStopped:
+			statusText = "Stopped"
+		case service.StatusUnknown:
+			statusText = "Unknown"
+		default:
+			statusText = fmt.Sprintf("Unknown (%d)", status)
+		}
+
+		cmd.Printf("Netbird service status: %s\n", statusText)
 		return nil
 	},
 }

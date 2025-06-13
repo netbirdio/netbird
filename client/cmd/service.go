@@ -41,7 +41,7 @@ func init() {
 		defaultServiceName = "Netbird"
 	}
 
-	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd, installCmd, uninstallCmd, reconfigureCmd)
+	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd, svcStatusCmd, installCmd, uninstallCmd, reconfigureCmd)
 
 	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +
