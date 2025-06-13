@@ -569,9 +569,6 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
-		if err == context.Canceled {
-			return nil, nil //nolint:nilnil
-		}
 		s.mutex.Lock()
 		s.oauthAuthFlow.expiresAt = time.Now()
 		s.mutex.Unlock()
