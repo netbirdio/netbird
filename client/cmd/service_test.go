@@ -14,9 +14,48 @@ import (
 )
 
 const (
-	serviceStartTimeout = 5 * time.Second
+	serviceStartTimeout = 10 * time.Second
 	serviceStopTimeout  = 5 * time.Second
+	statusPollInterval  = 500 * time.Millisecond
 )
+
+// waitForServiceStatus waits for service to reach expected status with timeout
+func waitForServiceStatus(expectedStatus service.Status, timeout time.Duration) (bool, error) {
+	cfg, err := newSVCConfig()
+	if err != nil {
+		return false, err
+	}
+
+	ctxSvc, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := newSVC(newProgram(ctxSvc, cancel), cfg)
+	if err != nil {
+		return false, err
+	}
+
+	ctx, timeoutCancel := context.WithTimeout(context.Background(), timeout)
+	defer timeoutCancel()
+
+	ticker := time.NewTicker(statusPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false, fmt.Errorf("timeout waiting for service status %v", expectedStatus)
+		case <-ticker.C:
+			status, err := s.Status()
+			if err != nil {
+				// Continue polling on transient errors
+				continue
+			}
+			if status == expectedStatus {
+				return true, nil
+			}
+		}
+	}
+}
 
 // TestServiceLifecycle tests the complete service lifecycle
 func TestServiceLifecycle(t *testing.T) {
@@ -25,7 +64,7 @@ func TestServiceLifecycle(t *testing.T) {
 	}
 
 	originalServiceName := serviceName
-	serviceName = "netbird-test-" + fmt.Sprintf("%d", time.Now().Unix())
+	serviceName = "netbirdtest" + fmt.Sprintf("%d", time.Now().Unix())
 	defer func() {
 		serviceName = originalServiceName
 	}()
@@ -60,9 +99,7 @@ func TestServiceLifecycle(t *testing.T) {
 		err := startCmd.RunE(startCmd, []string{})
 		require.NoError(t, err)
 
-		time.Sleep(serviceStartTimeout)
-
-		running, err := isServiceRunning()
+		running, err := waitForServiceStatus(service.StatusRunning, serviceStartTimeout)
 		require.NoError(t, err)
 		assert.True(t, running)
 	})
@@ -72,9 +109,7 @@ func TestServiceLifecycle(t *testing.T) {
 		err := restartCmd.RunE(restartCmd, []string{})
 		require.NoError(t, err)
 
-		time.Sleep(serviceStartTimeout)
-
-		running, err := isServiceRunning()
+		running, err := waitForServiceStatus(service.StatusRunning, serviceStartTimeout)
 		require.NoError(t, err)
 		assert.True(t, running)
 	})
@@ -90,9 +125,7 @@ func TestServiceLifecycle(t *testing.T) {
 		err := reconfigureCmd.RunE(reconfigureCmd, []string{})
 		require.NoError(t, err)
 
-		time.Sleep(serviceStartTimeout)
-
-		running, err := isServiceRunning()
+		running, err := waitForServiceStatus(service.StatusRunning, serviceStartTimeout)
 		require.NoError(t, err)
 		assert.True(t, running)
 	})
@@ -102,11 +135,9 @@ func TestServiceLifecycle(t *testing.T) {
 		err := stopCmd.RunE(stopCmd, []string{})
 		require.NoError(t, err)
 
-		time.Sleep(serviceStopTimeout)
-
-		running, err := isServiceRunning()
+		stopped, err := waitForServiceStatus(service.StatusStopped, serviceStopTimeout)
 		require.NoError(t, err)
-		assert.False(t, running)
+		assert.True(t, stopped)
 	})
 
 	t.Run("Uninstall", func(t *testing.T) {
