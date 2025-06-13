@@ -1033,7 +1033,7 @@ func (s *serviceClient) showLoginURL() {
 		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: resp.UserCode})
 		if err != nil {
 			log.Errorf("Waiting sso login failed with: %v", err)
-			label.SetText("Waiting login failed failed, please create \na debug bundle in the settings and contact support.")
+			label.SetText("Waiting login failed, please create \na debug bundle in the settings and contact support.")
 			return
 		}
 
