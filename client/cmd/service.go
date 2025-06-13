@@ -36,11 +36,12 @@ type program struct {
 func init() {
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd, installCmd, uninstallCmd, reconfigureCmd)
 
-	serviceCmd.PersistentFlags().StringSliceVar(&serviceEnvVars, "service-env", nil,
-		`Sets extra environment variables for the service. `+
-			`You can specify a comma-separated list of KEY=VALUE pairs. `+
-			`E.g. --service-env LOG_LEVEL=debug,CUSTOM_VAR=value`,
-	)
+	serviceEnvDesc := `Sets extra environment variables for the service. ` +
+		`You can specify a comma-separated list of KEY=VALUE pairs. ` +
+		`E.g. --service-env LOG_LEVEL=debug,CUSTOM_VAR=value`
+
+	installCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
+	reconfigureCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 }
 
 func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
