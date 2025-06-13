@@ -358,8 +358,6 @@ func (s *serviceClient) updateExitNodes() {
 	} else {
 		s.mExitNode.Disable()
 	}
-
-	log.Debugf("Exit nodes updated: %d", len(s.mExitNodeItems))
 }
 
 func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
