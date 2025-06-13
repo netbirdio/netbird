@@ -74,9 +74,10 @@ func TestServiceLifecycle(t *testing.T) {
 		serviceName = originalServiceName
 	}()
 
-	configPath = "/tmp/netbird-test-config.json"
+	tempDir := t.TempDir()
+	configPath = fmt.Sprintf("%s/netbird-test-config.json", tempDir)
 	logLevel = "info"
-	daemonAddr = "unix:///tmp/netbird-test.sock"
+	daemonAddr = fmt.Sprintf("unix://%s/netbird-test.sock", tempDir)
 
 	ctx := context.Background()
 
