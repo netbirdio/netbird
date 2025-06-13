@@ -1,3 +1,4 @@
+//go:build !ios && !android
 package cmd
 
 import (
