@@ -1032,9 +1032,24 @@ func (s *serviceClient) showLoginURL() {
 
 		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: resp.UserCode})
 		if err != nil {
-			log.Errorf("waiting sso login failed with: %v", err)
+			log.Errorf("Waiting sso login failed with: %v", err)
+			label.SetText("Waiting login failed failed, please create \na debug bundle in the settings and contact support.")
 			return
 		}
+
+		label.SetText("Re-authentication successful.\nReconnecting")
+		time.Sleep(300 * time.Millisecond)
+		_, err = conn.Up(s.ctx, &proto.UpRequest{})
+		if err != nil {
+			label.SetText("Reconnecting failed, please create \na debug bundle in the settings and contact support.")
+			log.Errorf("Reconnecting failed with: %v", err)
+			return
+		}
+
+		label.SetText("Connection successful.\nClosing this window.")
+		time.Sleep(1)
+
+		s.wLoginURL.Close()
 	})
 
 	img := canvas.NewImageFromResource(resIcon)
