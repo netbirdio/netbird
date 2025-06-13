@@ -1,7 +1,6 @@
 package uspfilter
 
 import (
-	"net"
 	"net/netip"
 
 	"github.com/google/gopacket"
@@ -12,14 +11,14 @@ import (
 // PeerRule to handle management of rules
 type PeerRule struct {
 	id         string
-	ip         net.IP
+	mgmtId     []byte
+	ip         netip.Addr
 	ipLayer    gopacket.LayerType
 	matchByIP  bool
 	protoLayer gopacket.LayerType
 	sPort      *firewall.Port
 	dPort      *firewall.Port
 	drop       bool
-	comment    string
 
 	udpHook func([]byte) bool
 }
@@ -30,13 +29,15 @@ func (r *PeerRule) ID() string {
 }
 
 type RouteRule struct {
-	id          string
-	sources     []netip.Prefix
-	destination netip.Prefix
-	proto       firewall.Protocol
-	srcPort     *firewall.Port
-	dstPort     *firewall.Port
-	action      firewall.Action
+	id           string
+	mgmtId       []byte
+	sources      []netip.Prefix
+	dstSet       firewall.Set
+	destinations []netip.Prefix
+	proto        firewall.Protocol
+	srcPort      *firewall.Port
+	dstPort      *firewall.Port
+	action       firewall.Action
 }
 
 // ID returns the rule id

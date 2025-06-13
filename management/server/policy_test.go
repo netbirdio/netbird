@@ -58,6 +58,11 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				IP:     net.ParseIP("100.65.29.55"),
 				Status: &nbpeer.PeerStatus{},
 			},
+			"peerI": {
+				ID:     "peerI",
+				IP:     net.ParseIP("100.65.31.2"),
+				Status: &nbpeer.PeerStatus{},
+			},
 		},
 		Groups: map[string]*types.Group{
 			"GroupAll": {
@@ -97,6 +102,13 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 					"peerE",
 					"peerG",
 					"peerH",
+				},
+			},
+			"GroupDMZ": {
+				ID:   "GroupDMZ",
+				Name: "dmz",
+				Peers: []string{
+					"peerI",
 				},
 			},
 		},
@@ -148,6 +160,35 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 					},
 				},
 			},
+			{
+				ID:          "RuleDMZ",
+				Name:        "Dmz",
+				Description: "No description",
+				Enabled:     true,
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "RuleDMZ",
+						Name:          "Dmz",
+						Description:   "No description",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Action:        types.PolicyTrafficActionAccept,
+						PortRanges: []types.RulePortRange{
+							{
+								Start: 8080,
+								End:   8083,
+							},
+						},
+						Sources: []string{
+							"GroupWorkstations",
+						},
+						Destinations: []string{
+							"GroupDMZ",
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -166,7 +207,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 	t.Run("check first peer map details", func(t *testing.T) {
 		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerB", validatedPeers)
-		assert.Len(t, peers, 7)
+		assert.Len(t, peers, 8)
 		assert.Contains(t, peers, account.Peers["peerA"])
 		assert.Contains(t, peers, account.Peers["peerC"])
 		assert.Contains(t, peers, account.Peers["peerD"])
@@ -174,14 +215,16 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		assert.Contains(t, peers, account.Peers["peerF"])
 		assert.Contains(t, peers, account.Peers["peerG"])
 		assert.Contains(t, peers, account.Peers["peerH"])
+		assert.Contains(t, peers, account.Peers["peerI"])
 
-		epectedFirewallRules := []*types.FirewallRule{
+		expectedFirewallRules := []*types.FirewallRule{
 			{
 				PeerIP:    "0.0.0.0",
 				Direction: types.FirewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleDefault",
 			},
 			{
 				PeerIP:    "0.0.0.0",
@@ -189,6 +232,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleDefault",
 			},
 			{
 				PeerIP:    "100.65.14.88",
@@ -196,6 +240,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.14.88",
@@ -203,6 +248,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.62.5",
@@ -210,6 +256,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.62.5",
@@ -217,6 +264,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 
 			{
@@ -225,6 +273,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.32.206",
@@ -232,6 +281,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 
 			{
@@ -240,6 +290,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.250.202",
@@ -247,6 +298,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 
 			{
@@ -255,6 +307,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.13.186",
@@ -262,6 +315,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 
 			{
@@ -270,6 +324,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.29.55",
@@ -277,13 +332,30 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "tcp",
+				PortRange: types.RulePortRange{Start: 8080, End: 8083},
+				PolicyID:  "RuleDMZ",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				PortRange: types.RulePortRange{Start: 8080, End: 8083},
+				PolicyID:  "RuleDMZ",
 			},
 		}
-		assert.Len(t, firewallRules, len(epectedFirewallRules))
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
 
 		for _, rule := range firewallRules {
 			contains := false
-			for _, expectedRule := range epectedFirewallRules {
+			for _, expectedRule := range expectedFirewallRules {
 				if rule.Equal(expectedRule) {
 					contains = true
 					break
@@ -404,6 +476,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.254.139",
@@ -411,6 +484,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
@@ -432,6 +506,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.80.39",
@@ -439,6 +514,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
@@ -462,6 +538,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
@@ -483,6 +560,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
@@ -690,6 +768,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.ElementsMatch(t, firewallRules, expectedFirewallRules)
@@ -773,6 +852,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.32.206",
@@ -780,6 +860,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.13.186",
@@ -787,6 +868,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.29.55",
@@ -794,6 +876,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.254.139",
@@ -801,6 +884,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 			{
 				PeerIP:    "100.65.62.5",
@@ -808,6 +892,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "tcp",
 				Port:      "80",
+				PolicyID:  "RuleSwarm",
 			},
 		}
 		assert.Len(t, firewallRules, len(expectedFirewallRules))
@@ -856,7 +941,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupD",
 			Peers: []string{peer1.ID, peer2.ID},
 		},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -888,7 +973,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -920,7 +1005,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -952,7 +1037,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -983,7 +1068,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 					Action:        types.PolicyTrafficActionAccept,
 				},
 			},
-		})
+		}, true)
 		assert.NoError(t, err)
 
 		select {
@@ -1003,7 +1088,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		}()
 
 		policyWithSourceAndDestinationPeers.Enabled = false
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers)
+		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
 		assert.NoError(t, err)
 
 		select {
@@ -1024,7 +1109,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 
 		policyWithSourceAndDestinationPeers.Description = "updated description"
 		policyWithSourceAndDestinationPeers.Rules[0].Destinations = []string{"groupA"}
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers)
+		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
 		assert.NoError(t, err)
 
 		select {
@@ -1044,7 +1129,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		}()
 
 		policyWithSourceAndDestinationPeers.Enabled = true
-		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers)
+		policyWithSourceAndDestinationPeers, err = manager.SavePolicy(context.Background(), account.Id, userID, policyWithSourceAndDestinationPeers, true)
 		assert.NoError(t, err)
 
 		select {

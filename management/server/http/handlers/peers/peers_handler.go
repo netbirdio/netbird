@@ -9,7 +9,8 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -21,10 +22,10 @@ import (
 
 // Handler is a handler that returns peers of the account
 type Handler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	peersHandler := NewHandler(accountManager)
 	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
@@ -33,7 +34,7 @@ func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
 }
 
 // NewHandler creates a new peers Handler
-func NewHandler(accountManager server.AccountManager) *Handler {
+func NewHandler(accountManager account.Manager) *Handler {
 	return &Handler{
 		accountManager: accountManager,
 	}
@@ -64,7 +65,13 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 		util.WriteError(ctx, err, w)
 		return
 	}
-	dnsDomain := h.accountManager.GetDNSDomain()
+	settings, err := h.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	dnsDomain := h.accountManager.GetDNSDomain(settings)
 
 	grps, _ := h.accountManager.GetPeerGroups(ctx, accountID, peerID)
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
@@ -109,7 +116,13 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		util.WriteError(ctx, err, w)
 		return
 	}
-	dnsDomain := h.accountManager.GetDNSDomain()
+
+	settings, err := h.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+	dnsDomain := h.accountManager.GetDNSDomain(settings)
 
 	peerGroups, err := h.accountManager.GetPeerGroups(ctx, accountID, peer.ID)
 	if err != nil {
@@ -191,7 +204,12 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain()
+	settings, err := h.accountManager.GetAccountSettings(r.Context(), accountID, activity.SystemInitiator)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	dnsDomain := h.accountManager.GetDNSDomain(settings)
 
 	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 
@@ -244,13 +262,13 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, userID)
+	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 
-	user, err := account.FindUser(userID)
+	user, err := h.accountManager.GetUserByID(r.Context(), userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -258,7 +276,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 
 	// If the user is regular user and does not own the peer
 	// with the given peerID return an empty list
-	if !user.HasAdminPower() && !user.IsServiceUser {
+	if !user.HasAdminPower() && !user.IsServiceUser && !userAuth.IsChild {
 		peer, ok := account.Peers[peerID]
 		if !ok {
 			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
@@ -278,7 +296,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain()
+	dnsDomain := h.accountManager.GetDNSDomain(account.Settings)
 
 	customZone := account.GetPeersCustomZone(r.Context(), dnsDomain)
 	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)

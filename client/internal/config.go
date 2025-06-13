@@ -68,12 +68,14 @@ type ConfigInput struct {
 	DisableServerRoutes *bool
 	DisableDNS          *bool
 	DisableFirewall     *bool
-
-	BlockLANAccess *bool
+	BlockLANAccess      *bool
+	BlockInbound        *bool
 
 	DisableNotifications *bool
 
 	DNSLabels domain.List
+
+	LazyConnectionEnabled *bool
 }
 
 // Config Configuration type
@@ -96,8 +98,8 @@ type Config struct {
 	DisableServerRoutes bool
 	DisableDNS          bool
 	DisableFirewall     bool
-
-	BlockLANAccess bool
+	BlockLANAccess      bool
+	BlockInbound        bool
 
 	DisableNotifications *bool
 
@@ -138,6 +140,8 @@ type Config struct {
 	ClientCertKeyPath string
 
 	ClientCertKeyPair *tls.Certificate `json:"-"`
+
+	LazyConnectionEnabled bool
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -479,6 +483,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	if input.BlockInbound != nil && *input.BlockInbound != config.BlockInbound {
+		if *input.BlockInbound {
+			log.Infof("blocking inbound connections")
+		} else {
+			log.Infof("allowing inbound connections")
+		}
+		config.BlockInbound = *input.BlockInbound
+		updated = true
+	}
+
 	if input.DisableNotifications != nil && input.DisableNotifications != config.DisableNotifications {
 		if *input.DisableNotifications {
 			log.Infof("disabling notifications")
@@ -521,6 +535,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			input.DNSLabels.SafeString(),
 			config.DNSLabels.SafeString())
 		config.DNSLabels = input.DNSLabels
+		updated = true
+	}
+
+	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
+		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
+		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
 		updated = true
 	}
 

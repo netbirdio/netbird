@@ -18,14 +18,17 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
 const (
+	UpstreamTimeout = 15 * time.Second
+
 	failsTillDeact   = int32(5)
 	reactivatePeriod = 30 * time.Second
-	upstreamTimeout  = 15 * time.Second
 	probeTimeout     = 2 * time.Second
 )
 
@@ -66,7 +69,7 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, d
 		ctx:              ctx,
 		cancel:           cancel,
 		domain:           domain,
-		upstreamTimeout:  upstreamTimeout,
+		upstreamTimeout:  UpstreamTimeout,
 		reactivatePeriod: reactivatePeriod,
 		failsTillDeact:   failsTillDeact,
 		statusRecorder:   statusRecorder,
@@ -79,21 +82,21 @@ func (u *upstreamResolverBase) String() string {
 }
 
 // ID returns the unique handler ID
-func (u *upstreamResolverBase) id() handlerID {
+func (u *upstreamResolverBase) ID() types.HandlerID {
 	servers := slices.Clone(u.upstreamServers)
 	slices.Sort(servers)
 
 	hash := sha256.New()
 	hash.Write([]byte(u.domain + ":"))
 	hash.Write([]byte(strings.Join(servers, ",")))
-	return handlerID("upstream-" + hex.EncodeToString(hash.Sum(nil)[:8]))
+	return types.HandlerID("upstream-" + hex.EncodeToString(hash.Sum(nil)[:8]))
 }
 
 func (u *upstreamResolverBase) MatchSubdomains() bool {
 	return true
 }
 
-func (u *upstreamResolverBase) stop() {
+func (u *upstreamResolverBase) Stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
 }
@@ -106,9 +109,7 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}()
 
 	log.Tracef("received upstream question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
-	// set the AuthenticatedData flag and the EDNS0 buffer size to 4096 bytes to support larger dns records
 	if r.Extra == nil {
-		r.SetEdns0(4096, false)
 		r.MsgHdr.AuthenticatedData = true
 	}
 
@@ -198,9 +199,9 @@ func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 	)
 }
 
-// probeAvailability tests all upstream servers simultaneously and
+// ProbeAvailability tests all upstream servers simultaneously and
 // disables the resolver if none work
-func (u *upstreamResolverBase) probeAvailability() {
+func (u *upstreamResolverBase) ProbeAvailability() {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
@@ -335,4 +336,52 @@ func (u *upstreamResolverBase) testNameserver(server string, timeout time.Durati
 
 	_, _, err := u.upstreamClient.exchange(ctx, server, r)
 	return err
+}
+
+// ExchangeWithFallback exchanges a DNS message with the upstream server.
+// It first tries to use UDP, and if it is truncated, it falls back to TCP.
+// If the passed context is nil, this will use Exchange instead of ExchangeContext.
+func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, upstream string) (*dns.Msg, time.Duration, error) {
+	// MTU - ip + udp headers
+	// Note: this could be sent out on an interface that is not ours, but our MTU should always be lower.
+	client.UDPSize = iface.DefaultMTU - (60 + 8)
+
+	var (
+		rm  *dns.Msg
+		t   time.Duration
+		err error
+	)
+
+	if ctx == nil {
+		rm, t, err = client.Exchange(r, upstream)
+	} else {
+		rm, t, err = client.ExchangeContext(ctx, r, upstream)
+	}
+
+	if err != nil {
+		return nil, t, fmt.Errorf("with udp: %w", err)
+	}
+
+	if rm == nil || !rm.MsgHdr.Truncated {
+		return rm, t, nil
+	}
+
+	log.Tracef("udp response for domain=%s type=%v class=%v is truncated, trying TCP.",
+		r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+
+	client.Net = "tcp"
+
+	if ctx == nil {
+		rm, t, err = client.Exchange(r, upstream)
+	} else {
+		rm, t, err = client.ExchangeContext(ctx, r, upstream)
+	}
+
+	if err != nil {
+		return nil, t, fmt.Errorf("with tcp: %w", err)
+	}
+
+	// TODO: once TCP is implemented, rm.Truncate() if the request came in over UDP
+
+	return rm, t, nil
 }

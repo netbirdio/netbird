@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
 
 option go_package = "/proto";
 
@@ -97,7 +98,7 @@ message LoginRequest {
   string jwtToken = 3;
   // Can be absent for now.
   PeerKeys peerKeys = 4;
-  
+
   repeated string dnsLabels = 5;
 }
 
@@ -133,10 +134,15 @@ message Flags {
   bool rosenpassEnabled = 1;
   bool rosenpassPermissive = 2;
   bool serverSSHAllowed = 3;
+
   bool disableClientRoutes = 4;
   bool disableServerRoutes = 5;
   bool disableDNS = 6;
   bool disableFirewall = 7;
+  bool blockLANAccess = 8;
+  bool blockInbound = 9;
+
+  bool lazyConnectionEnabled = 10;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -191,6 +197,8 @@ message NetbirdConfig {
   HostConfig signal = 3;
 
   RelayConfig relay = 4;
+
+  FlowConfig flow = 5;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
@@ -212,6 +220,21 @@ message RelayConfig {
   repeated string urls = 1;
   string tokenPayload = 2;
   string tokenSignature = 3;
+}
+
+message FlowConfig {
+  string url = 1;
+  string tokenPayload = 2;
+  string tokenSignature = 3;
+  google.protobuf.Duration interval = 4;
+  bool enabled = 5;
+
+  // counters determines if flow packets and bytes counters should be sent
+  bool counters = 6;
+  // exitNodeCollection determines if event collection on exit nodes should be enabled
+  bool exitNodeCollection = 7;
+  // dnsCollection determines if DNS event collection should be enabled
+  bool dnsCollection = 8;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password
@@ -236,6 +259,8 @@ message PeerConfig {
   string fqdn = 4;
 
   bool RoutingPeerDnsResolutionEnabled = 5;
+
+  bool LazyConnectionEnabled = 6;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
@@ -294,6 +319,7 @@ message RemotePeerConfig {
   // Peer fully qualified domain name
   string fqdn = 4;
 
+  string agentVersion = 5;
 }
 
 // SSHConfig represents SSH configurations of a peer.
@@ -354,6 +380,10 @@ message ProviderConfig {
   string AuthorizationEndpoint = 9;
   // RedirectURLs handles authorization code from IDP manager
   repeated string RedirectURLs = 10;
+  // DisablePromptLogin makes the PKCE flow to not prompt the user for login
+  bool DisablePromptLogin = 11;
+  // LoginFlags sets the PKCE flow login details 
+  uint32 LoginFlag = 12;
 }
 
 // Route represents a route.Route object
@@ -434,6 +464,9 @@ message FirewallRule {
   RuleProtocol Protocol = 4;
   string Port = 5;
   PortInfo PortInfo = 6;
+
+  // PolicyID is the ID of the policy that this rule belongs to
+  bytes PolicyID = 7;
 }
 
 message NetworkAddress {
@@ -483,6 +516,12 @@ message RouteFirewallRule {
 
   // CustomProtocol is a custom protocol ID.
   uint32 customProtocol = 8;
+
+  // PolicyID is the ID of the policy that this rule belongs to
+  bytes PolicyID = 9;
+
+  // RouteID is the ID of the route that this rule belongs to
+  string RouteID = 10;
 }
 
 message ForwardingRule {
@@ -493,7 +532,6 @@ message ForwardingRule {
   PortInfo destinationPort = 2;
 
   // IP address of the translated address (remote peer) to send traffic to
-  // todo type pending
   bytes translatedAddress = 3;
 
   // Translated port information, where the traffic should be forwarded to

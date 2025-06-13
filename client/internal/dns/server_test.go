@@ -23,26 +23,32 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	pfmock "github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/internal/dns/local"
+	"github.com/netbirdio/netbird/client/internal/dns/test"
+	"github.com/netbirdio/netbird/client/internal/dns/types"
+	"github.com/netbirdio/netbird/client/internal/netflow"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
+	"github.com/netbirdio/netbird/management/domain"
 )
+
+var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 type mocWGIface struct {
 	filter device.PacketFilter
 }
 
 func (w *mocWGIface) Name() string {
-	panic("implement me")
+	return "utun2301"
 }
 
 func (w *mocWGIface) Address() wgaddr.Address {
-	ip, network, _ := net.ParseCIDR("100.66.100.0/24")
 	return wgaddr.Address{
-		IP:      ip,
-		Network: network,
+		IP:      netip.MustParseAddr("100.66.100.1"),
+		Network: netip.MustParsePrefix("100.66.100.0/24"),
 	}
 }
 
@@ -103,6 +109,7 @@ func generateDummyHandler(domain string, servers []nbdns.NameServer) *upstreamRe
 }
 
 func TestUpdateDNSServer(t *testing.T) {
+
 	nameServers := []nbdns.NameServer{
 		{
 			IP:     netip.MustParseAddr("8.8.8.8"),
@@ -116,22 +123,21 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 	}
 
-	dummyHandler := &localResolver{}
+	dummyHandler := local.NewResolver()
 
 	testCases := []struct {
 		name                string
 		initUpstreamMap     registeredHandlerMap
-		initLocalMap        registrationMap
+		initLocalRecords    []nbdns.SimpleRecord
 		initSerial          uint64
 		inputSerial         uint64
 		inputUpdate         nbdns.Config
 		shouldFail          bool
 		expectedUpstreamMap registeredHandlerMap
-		expectedLocalMap    registrationMap
+		expectedLocalQs     []dns.Question
 	}{
 		{
 			name:            "Initial Config Should Succeed",
-			initLocalMap:    make(registrationMap),
 			initUpstreamMap: make(registeredHandlerMap),
 			initSerial:      0,
 			inputSerial:     1,
@@ -155,30 +161,30 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 			},
 			expectedUpstreamMap: registeredHandlerMap{
-				generateDummyHandler("netbird.io", nameServers).id(): handlerWrapper{
+				generateDummyHandler("netbird.io", nameServers).ID(): handlerWrapper{
 					domain:   "netbird.io",
 					handler:  dummyHandler,
 					priority: PriorityMatchDomain,
 				},
-				dummyHandler.id(): handlerWrapper{
+				dummyHandler.ID(): handlerWrapper{
 					domain:   "netbird.cloud",
 					handler:  dummyHandler,
 					priority: PriorityMatchDomain,
 				},
-				generateDummyHandler(".", nameServers).id(): handlerWrapper{
+				generateDummyHandler(".", nameServers).ID(): handlerWrapper{
 					domain:   nbdns.RootZone,
 					handler:  dummyHandler,
 					priority: PriorityDefault,
 				},
 			},
-			expectedLocalMap: registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
+			expectedLocalQs: []dns.Question{{Name: "peera.netbird.cloud.", Qtype: dns.TypeA, Qclass: dns.ClassINET}},
 		},
 		{
-			name:         "New Config Should Succeed",
-			initLocalMap: registrationMap{"netbird.cloud": struct{}{}},
+			name:             "New Config Should Succeed",
+			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: 1, Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
 			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).id(): handlerWrapper{
-					domain:   buildRecordKey(zoneRecords[0].Name, 1, 1),
+				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
+					domain:   "netbird.cloud",
 					handler:  dummyHandler,
 					priority: PriorityMatchDomain,
 				},
@@ -201,7 +207,7 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 			},
 			expectedUpstreamMap: registeredHandlerMap{
-				generateDummyHandler("netbird.io", nameServers).id(): handlerWrapper{
+				generateDummyHandler("netbird.io", nameServers).ID(): handlerWrapper{
 					domain:   "netbird.io",
 					handler:  dummyHandler,
 					priority: PriorityMatchDomain,
@@ -212,22 +218,22 @@ func TestUpdateDNSServer(t *testing.T) {
 					priority: PriorityMatchDomain,
 				},
 			},
-			expectedLocalMap: registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
+			expectedLocalQs: []dns.Question{{Name: zoneRecords[0].Name, Qtype: 1, Qclass: 1}},
 		},
 		{
-			name:            "Smaller Config Serial Should Be Skipped",
-			initLocalMap:    make(registrationMap),
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      2,
-			inputSerial:     1,
-			shouldFail:      true,
+			name:             "Smaller Config Serial Should Be Skipped",
+			initLocalRecords: []nbdns.SimpleRecord{},
+			initUpstreamMap:  make(registeredHandlerMap),
+			initSerial:       2,
+			inputSerial:      1,
+			shouldFail:       true,
 		},
 		{
-			name:            "Empty NS Group Domain Or Not Primary Element Should Fail",
-			initLocalMap:    make(registrationMap),
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
+			name:             "Empty NS Group Domain Or Not Primary Element Should Fail",
+			initLocalRecords: []nbdns.SimpleRecord{},
+			initUpstreamMap:  make(registeredHandlerMap),
+			initSerial:       0,
+			inputSerial:      1,
 			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
@@ -245,11 +251,11 @@ func TestUpdateDNSServer(t *testing.T) {
 			shouldFail: true,
 		},
 		{
-			name:            "Invalid NS Group Nameservers list Should Fail",
-			initLocalMap:    make(registrationMap),
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
+			name:             "Invalid NS Group Nameservers list Should Fail",
+			initLocalRecords: []nbdns.SimpleRecord{},
+			initUpstreamMap:  make(registeredHandlerMap),
+			initSerial:       0,
+			inputSerial:      1,
 			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
@@ -267,11 +273,11 @@ func TestUpdateDNSServer(t *testing.T) {
 			shouldFail: true,
 		},
 		{
-			name:            "Invalid Custom Zone Records list Should Skip",
-			initLocalMap:    make(registrationMap),
-			initUpstreamMap: make(registeredHandlerMap),
-			initSerial:      0,
-			inputSerial:     1,
+			name:             "Invalid Custom Zone Records list Should Skip",
+			initLocalRecords: []nbdns.SimpleRecord{},
+			initUpstreamMap:  make(registeredHandlerMap),
+			initSerial:       0,
+			inputSerial:      1,
 			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
@@ -286,17 +292,17 @@ func TestUpdateDNSServer(t *testing.T) {
 					},
 				},
 			},
-			expectedUpstreamMap: registeredHandlerMap{generateDummyHandler(".", nameServers).id(): handlerWrapper{
+			expectedUpstreamMap: registeredHandlerMap{generateDummyHandler(".", nameServers).ID(): handlerWrapper{
 				domain:   ".",
 				handler:  dummyHandler,
 				priority: PriorityDefault,
 			}},
 		},
 		{
-			name:         "Empty Config Should Succeed and Clean Maps",
-			initLocalMap: registrationMap{"netbird.cloud": struct{}{}},
+			name:             "Empty Config Should Succeed and Clean Maps",
+			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
 			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).id(): handlerWrapper{
+				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
 					handler:  dummyHandler,
 					priority: PriorityMatchDomain,
@@ -306,13 +312,13 @@ func TestUpdateDNSServer(t *testing.T) {
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: true},
 			expectedUpstreamMap: make(registeredHandlerMap),
-			expectedLocalMap:    make(registrationMap),
+			expectedLocalQs:     []dns.Question{},
 		},
 		{
-			name:         "Disabled Service Should clean map",
-			initLocalMap: registrationMap{"netbird.cloud": struct{}{}},
+			name:             "Disabled Service Should clean map",
+			initLocalRecords: []nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}},
 			initUpstreamMap: registeredHandlerMap{
-				generateDummyHandler(zoneRecords[0].Name, nameServers).id(): handlerWrapper{
+				generateDummyHandler(zoneRecords[0].Name, nameServers).ID(): handlerWrapper{
 					domain:   zoneRecords[0].Name,
 					handler:  dummyHandler,
 					priority: PriorityMatchDomain,
@@ -322,7 +328,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: false},
 			expectedUpstreamMap: make(registeredHandlerMap),
-			expectedLocalMap:    make(registrationMap),
+			expectedLocalQs:     []dns.Question{},
 		},
 	}
 
@@ -373,7 +379,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			}()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
-			dnsServer.localResolver.registeredMap = testCase.initLocalMap
+			dnsServer.localResolver.Update(testCase.initLocalRecords)
 			dnsServer.updateSerial = testCase.initSerial
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
@@ -395,15 +401,23 @@ func TestUpdateDNSServer(t *testing.T) {
 				}
 			}
 
-			if len(dnsServer.localResolver.registeredMap) != len(testCase.expectedLocalMap) {
-				t.Fatalf("update local failed, registered map size is different than expected, want %d, got %d", len(testCase.expectedLocalMap), len(dnsServer.localResolver.registeredMap))
+			var responseMSG *dns.Msg
+			responseWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					responseMSG = m
+					return nil
+				},
+			}
+			for _, q := range testCase.expectedLocalQs {
+				dnsServer.localResolver.ServeDNS(responseWriter, &dns.Msg{
+					Question: []dns.Question{q},
+				})
 			}
 
-			for key := range testCase.expectedLocalMap {
-				_, found := dnsServer.localResolver.registeredMap[key]
-				if !found {
-					t.Fatalf("update local failed, key %s was not found in the localResolver.registeredMap: %#v", key, dnsServer.localResolver.registeredMap)
-				}
+			if len(testCase.expectedLocalQs) > 0 {
+				assert.NotNil(t, responseMSG, "response message should not be nil")
+				assert.Equal(t, dns.RcodeSuccess, responseMSG.Rcode, "response code should be success")
+				assert.NotEmpty(t, responseMSG.Answer, "response message should have answers")
 			}
 		})
 	}
@@ -449,17 +463,10 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	_, ipNet, err := net.ParseCIDR("100.66.100.1/32")
-	if err != nil {
-		t.Errorf("parse CIDR: %v", err)
-		return
-	}
-
 	packetfilter := pfmock.NewMockPacketFilter(ctrl)
-	packetfilter.EXPECT().DropOutgoing(gomock.Any()).AnyTimes()
+	packetfilter.EXPECT().DropOutgoing(gomock.Any(), gomock.Any()).AnyTimes()
 	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 	packetfilter.EXPECT().RemovePacketHook(gomock.Any())
-	packetfilter.EXPECT().SetNetwork(ipNet)
 
 	if err := wgIface.SetFilter(packetfilter); err != nil {
 		t.Errorf("set packet filter: %v", err)
@@ -487,11 +494,12 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	dnsServer.dnsMuxMap = registeredHandlerMap{
 		"id1": handlerWrapper{
 			domain:   zoneRecords[0].Name,
-			handler:  &localResolver{},
+			handler:  &local.Resolver{},
 			priority: PriorityMatchDomain,
 		},
 	}
-	dnsServer.localResolver.registeredMap = registrationMap{"netbird.cloud": struct{}{}}
+	//dnsServer.localResolver.RegisteredMap = local.RegistrationMap{local.BuildRecordKey("netbird.cloud", dns.ClassINET, dns.TypeA): struct{}{}}
+	dnsServer.localResolver.Update([]nbdns.SimpleRecord{{Name: "netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"}})
 	dnsServer.updateSerial = 0
 
 	nameServers := []nbdns.NameServer{
@@ -578,7 +586,7 @@ func TestDNSServerStartStop(t *testing.T) {
 			}
 			time.Sleep(100 * time.Millisecond)
 			defer dnsServer.Stop()
-			_, err = dnsServer.localResolver.registerRecord(zoneRecords[0])
+			err = dnsServer.localResolver.RegisterRecord(zoneRecords[0])
 			if err != nil {
 				t.Error(err)
 			}
@@ -626,13 +634,11 @@ func TestDNSServerStartStop(t *testing.T) {
 func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	hostManager := &mockHostConfigurator{}
 	server := DefaultServer{
-		ctx:     context.Background(),
-		service: NewServiceViaMemory(&mocWGIface{}),
-		localResolver: &localResolver{
-			registeredMap: make(registrationMap),
-		},
-		handlerChain: NewHandlerChain(),
-		hostManager:  hostManager,
+		ctx:           context.Background(),
+		service:       NewServiceViaMemory(&mocWGIface{}),
+		localResolver: local.NewResolver(),
+		handlerChain:  NewHandlerChain(),
+		hostManager:   hostManager,
 		currentConfig: HostDNSConfig{
 			Domains: []DomainConfig{
 				{false, "domain0", false},
@@ -917,7 +923,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 		return nil, err
 	}
 
-	pf, err := uspfilter.Create(wgIface, false)
+	pf, err := uspfilter.Create(wgIface, false, flowLogger)
 	if err != nil {
 		t.Fatalf("failed to create uspfilter: %v", err)
 		return nil, err
@@ -1000,7 +1006,7 @@ func TestHandlerChain_DomainPriorities(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := new(dns.Msg)
 			r.SetQuestion(tc.query, dns.TypeA)
-			w := &ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			if mh, ok := tc.expectedHandler.(*MockHandler); ok {
 				mh.On("ServeDNS", mock.Anything, r).Once()
@@ -1033,9 +1039,9 @@ type mockHandler struct {
 }
 
 func (m *mockHandler) ServeDNS(dns.ResponseWriter, *dns.Msg) {}
-func (m *mockHandler) stop()                                 {}
-func (m *mockHandler) probeAvailability()                    {}
-func (m *mockHandler) id() handlerID                         { return handlerID(m.Id) }
+func (m *mockHandler) Stop()                                 {}
+func (m *mockHandler) ProbeAvailability()                    {}
+func (m *mockHandler) ID() types.HandlerID                   { return types.HandlerID(m.Id) }
 
 type mockService struct{}
 
@@ -1109,7 +1115,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 		name             string
 		initialHandlers  registeredHandlerMap
 		updates          []handlerWrapper
-		expectedHandlers map[string]string // map[handlerID]domain
+		expectedHandlers map[string]string // map[HandlerID]domain
 		description      string
 	}{
 		{
@@ -1405,7 +1411,7 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 
 			// Check each expected handler
 			for id, expectedDomain := range tt.expectedHandlers {
-				handler, exists := server.dnsMuxMap[handlerID(id)]
+				handler, exists := server.dnsMuxMap[types.HandlerID(id)]
 				assert.True(t, exists, "Expected handler %s not found", id)
 				if exists {
 					assert.Equal(t, expectedDomain, handler.domain,
@@ -1414,9 +1420,9 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 			}
 
 			// Verify no unexpected handlers exist
-			for handlerID := range server.dnsMuxMap {
-				_, expected := tt.expectedHandlers[string(handlerID)]
-				assert.True(t, expected, "Unexpected handler found: %s", handlerID)
+			for HandlerID := range server.dnsMuxMap {
+				_, expected := tt.expectedHandlers[string(HandlerID)]
+				assert.True(t, expected, "Unexpected handler found: %s", HandlerID)
 			}
 
 			// Verify the handlerChain state and order
@@ -1444,4 +1450,498 @@ func TestDefaultServer_UpdateMux(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtraDomains(t *testing.T) {
+	tests := []struct {
+		name                string
+		initialConfig       nbdns.Config
+		registerDomains     []domain.List
+		deregisterDomains   []domain.List
+		finalConfig         nbdns.Config
+		expectedDomains     []string
+		expectedMatchOnly   []string
+		applyHostConfigCall int
+	}{
+		{
+			name: "Register domains before config update",
+			registerDomains: []domain.List{
+				{"extra1.example.com", "extra2.example.com"},
+			},
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"extra1.example.com.",
+				"extra2.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra1.example.com.",
+				"extra2.example.com.",
+			},
+			applyHostConfigCall: 2,
+		},
+		{
+			name: "Register domains after config update",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra1.example.com", "extra2.example.com"},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"extra1.example.com.",
+				"extra2.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra1.example.com.",
+				"extra2.example.com.",
+			},
+			applyHostConfigCall: 2,
+		},
+		{
+			name: "Register overlapping domains",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+					{Domain: "overlap.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "overlap.example.com"},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"overlap.example.com.",
+				"extra.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra.example.com.",
+			},
+			applyHostConfigCall: 2,
+		},
+		{
+			name: "Register and deregister domains",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra1.example.com", "extra2.example.com"},
+				{"extra3.example.com", "extra4.example.com"},
+			},
+			deregisterDomains: []domain.List{
+				{"extra1.example.com", "extra3.example.com"},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"extra2.example.com.",
+				"extra4.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra2.example.com.",
+				"extra4.example.com.",
+			},
+			applyHostConfigCall: 4,
+		},
+		{
+			name: "Register domains with ref counter",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "duplicate.example.com"},
+				{"other.example.com", "duplicate.example.com"},
+			},
+			deregisterDomains: []domain.List{
+				{"duplicate.example.com"},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"extra.example.com.",
+				"other.example.com.",
+				"duplicate.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra.example.com.",
+				"other.example.com.",
+				"duplicate.example.com.",
+			},
+			applyHostConfigCall: 4,
+		},
+		{
+			name: "Config update with new domains after registration",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "duplicate.example.com"},
+			},
+			finalConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+					{Domain: "newconfig.example.com"},
+				},
+			},
+			expectedDomains: []string{
+				"config.example.com.",
+				"newconfig.example.com.",
+				"extra.example.com.",
+				"duplicate.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra.example.com.",
+				"duplicate.example.com.",
+			},
+			applyHostConfigCall: 3,
+		},
+		{
+			name: "Deregister domain that is part of customZones",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "config.example.com"},
+					{Domain: "protected.example.com"},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "protected.example.com"},
+			},
+			deregisterDomains: []domain.List{
+				{"protected.example.com"},
+			},
+			expectedDomains: []string{
+				"extra.example.com.",
+				"config.example.com.",
+				"protected.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"extra.example.com.",
+			},
+			applyHostConfigCall: 3,
+		},
+		{
+			name: "Register domain that is part of nameserver group",
+			initialConfig: nbdns.Config{
+				ServiceEnable: true,
+				NameServerGroups: []*nbdns.NameServerGroup{
+					{
+						Domains: []string{"ns.example.com", "overlap.ns.example.com"},
+						NameServers: []nbdns.NameServer{
+							{
+								IP:     netip.MustParseAddr("8.8.8.8"),
+								NSType: nbdns.UDPNameServerType,
+								Port:   53,
+							},
+						},
+					},
+				},
+			},
+			registerDomains: []domain.List{
+				{"extra.example.com", "overlap.ns.example.com"},
+			},
+			expectedDomains: []string{
+				"ns.example.com.",
+				"overlap.ns.example.com.",
+				"extra.example.com.",
+			},
+			expectedMatchOnly: []string{
+				"ns.example.com.",
+				"overlap.ns.example.com.",
+				"extra.example.com.",
+			},
+			applyHostConfigCall: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedConfigs []HostDNSConfig
+			mockHostConfig := &mockHostConfigurator{
+				applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+					capturedConfigs = append(capturedConfigs, config)
+					return nil
+				},
+				restoreHostDNSFunc: func() error {
+					return nil
+				},
+				supportCustomPortFunc: func() bool {
+					return true
+				},
+				stringFunc: func() string {
+					return "mock"
+				},
+			}
+
+			mockSvc := &mockService{}
+
+			server := &DefaultServer{
+				ctx:            context.Background(),
+				handlerChain:   NewHandlerChain(),
+				wgInterface:    &mocWGIface{},
+				hostManager:    mockHostConfig,
+				localResolver:  &local.Resolver{},
+				service:        mockSvc,
+				statusRecorder: peer.NewRecorder("test"),
+				extraDomains:   make(map[domain.Domain]int),
+			}
+
+			// Apply initial configuration
+			if tt.initialConfig.ServiceEnable {
+				err := server.applyConfiguration(tt.initialConfig)
+				assert.NoError(t, err)
+			}
+
+			// Register domains
+			for _, domains := range tt.registerDomains {
+				server.RegisterHandler(domains, &MockHandler{}, PriorityDefault)
+			}
+
+			// Deregister domains if specified
+			for _, domains := range tt.deregisterDomains {
+				server.DeregisterHandler(domains, PriorityDefault)
+			}
+
+			// Apply final configuration if specified
+			if tt.finalConfig.ServiceEnable {
+				err := server.applyConfiguration(tt.finalConfig)
+				assert.NoError(t, err)
+			}
+
+			// Verify number of calls
+			assert.Equal(t, tt.applyHostConfigCall, len(capturedConfigs),
+				"Expected %d calls to applyDNSConfig, got %d", tt.applyHostConfigCall, len(capturedConfigs))
+
+			// Get the last applied config
+			lastConfig := capturedConfigs[len(capturedConfigs)-1]
+
+			// Check all expected domains are present
+			domainMap := make(map[string]bool)
+			matchOnlyMap := make(map[string]bool)
+
+			for _, d := range lastConfig.Domains {
+				domainMap[d.Domain] = true
+				if d.MatchOnly {
+					matchOnlyMap[d.Domain] = true
+				}
+			}
+
+			// Verify expected domains
+			for _, d := range tt.expectedDomains {
+				assert.True(t, domainMap[d], "Expected domain %s not found in final config", d)
+			}
+
+			// Verify match-only domains
+			for _, d := range tt.expectedMatchOnly {
+				assert.True(t, matchOnlyMap[d], "Expected match-only domain %s not found in final config", d)
+			}
+
+			// Verify no unexpected domains
+			assert.Equal(t, len(tt.expectedDomains), len(domainMap), "Unexpected number of domains in final config")
+			assert.Equal(t, len(tt.expectedMatchOnly), len(matchOnlyMap), "Unexpected number of match-only domains in final config")
+		})
+	}
+}
+
+func TestExtraDomainsRefCounting(t *testing.T) {
+	mockHostConfig := &mockHostConfigurator{
+		applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+			return nil
+		},
+		restoreHostDNSFunc: func() error {
+			return nil
+		},
+		supportCustomPortFunc: func() bool {
+			return true
+		},
+		stringFunc: func() string {
+			return "mock"
+		},
+	}
+
+	mockSvc := &mockService{}
+
+	server := &DefaultServer{
+		ctx:            context.Background(),
+		handlerChain:   NewHandlerChain(),
+		hostManager:    mockHostConfig,
+		localResolver:  &local.Resolver{},
+		service:        mockSvc,
+		statusRecorder: peer.NewRecorder("test"),
+		extraDomains:   make(map[domain.Domain]int),
+	}
+
+	// Register domains from different handlers with same domain
+	server.RegisterHandler(domain.List{"*.shared.example.com"}, &MockHandler{}, PriorityDNSRoute)
+	server.RegisterHandler(domain.List{"shared.example.com."}, &MockHandler{}, PriorityMatchDomain)
+
+	// Verify refcount is 2
+	zoneKey := toZone("shared.example.com")
+	assert.Equal(t, 2, server.extraDomains[zoneKey], "Refcount should be 2 after registering same domain twice")
+
+	// Deregister one handler
+	server.DeregisterHandler(domain.List{"shared.example.com"}, PriorityMatchDomain)
+
+	// Verify refcount is 1
+	assert.Equal(t, 1, server.extraDomains[zoneKey], "Refcount should be 1 after deregistering one handler")
+
+	// Deregister the other handler
+	server.DeregisterHandler(domain.List{"shared.example.com"}, PriorityDNSRoute)
+
+	// Verify domain is removed
+	_, exists := server.extraDomains[zoneKey]
+	assert.False(t, exists, "Domain should be removed after deregistering all handlers")
+}
+
+func TestUpdateConfigWithExistingExtraDomains(t *testing.T) {
+	var capturedConfig HostDNSConfig
+	mockHostConfig := &mockHostConfigurator{
+		applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+			capturedConfig = config
+			return nil
+		},
+		restoreHostDNSFunc: func() error {
+			return nil
+		},
+		supportCustomPortFunc: func() bool {
+			return true
+		},
+		stringFunc: func() string {
+			return "mock"
+		},
+	}
+
+	mockSvc := &mockService{}
+
+	server := &DefaultServer{
+		ctx:            context.Background(),
+		handlerChain:   NewHandlerChain(),
+		hostManager:    mockHostConfig,
+		localResolver:  &local.Resolver{},
+		service:        mockSvc,
+		statusRecorder: peer.NewRecorder("test"),
+		extraDomains:   make(map[domain.Domain]int),
+	}
+
+	server.RegisterHandler(domain.List{"extra.example.com"}, &MockHandler{}, PriorityDefault)
+
+	initialConfig := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{Domain: "config.example.com"},
+		},
+	}
+	err := server.applyConfiguration(initialConfig)
+	assert.NoError(t, err)
+
+	var domains []string
+	for _, d := range capturedConfig.Domains {
+		domains = append(domains, d.Domain)
+	}
+	assert.Contains(t, domains, "config.example.com.")
+	assert.Contains(t, domains, "extra.example.com.")
+
+	// Now apply a new configuration with overlapping domain
+	updatedConfig := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{Domain: "config.example.com"},
+			{Domain: "extra.example.com"},
+		},
+	}
+	err = server.applyConfiguration(updatedConfig)
+	assert.NoError(t, err)
+
+	// Verify both domains are in config, but no duplicates
+	domains = []string{}
+	matchOnlyCount := 0
+	for _, d := range capturedConfig.Domains {
+		domains = append(domains, d.Domain)
+		if d.MatchOnly {
+			matchOnlyCount++
+		}
+	}
+
+	assert.Contains(t, domains, "config.example.com.")
+	assert.Contains(t, domains, "extra.example.com.")
+	assert.Equal(t, 2, len(domains), "Should have exactly 2 domains with no duplicates")
+
+	// Extra domain should no longer be marked as match-only when in config
+	matchOnlyDomain := ""
+	for _, d := range capturedConfig.Domains {
+		if d.Domain == "extra.example.com." && d.MatchOnly {
+			matchOnlyDomain = d.Domain
+			break
+		}
+	}
+	assert.Empty(t, matchOnlyDomain, "Domain should not be match-only when included in config")
+}
+
+func TestDomainCaseHandling(t *testing.T) {
+	var capturedConfig HostDNSConfig
+	mockHostConfig := &mockHostConfigurator{
+		applyDNSConfigFunc: func(config HostDNSConfig, _ *statemanager.Manager) error {
+			capturedConfig = config
+			return nil
+		},
+		restoreHostDNSFunc: func() error {
+			return nil
+		},
+		supportCustomPortFunc: func() bool {
+			return true
+		},
+		stringFunc: func() string {
+			return "mock"
+		},
+	}
+
+	mockSvc := &mockService{}
+	server := &DefaultServer{
+		ctx:            context.Background(),
+		handlerChain:   NewHandlerChain(),
+		hostManager:    mockHostConfig,
+		localResolver:  &local.Resolver{},
+		service:        mockSvc,
+		statusRecorder: peer.NewRecorder("test"),
+		extraDomains:   make(map[domain.Domain]int),
+	}
+
+	server.RegisterHandler(domain.List{"MIXED.example.com"}, &MockHandler{}, PriorityDefault)
+	server.RegisterHandler(domain.List{"mixed.EXAMPLE.com"}, &MockHandler{}, PriorityMatchDomain)
+
+	assert.Equal(t, 1, len(server.extraDomains), "Case differences should be normalized")
+
+	config := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{Domain: "config.example.com"},
+		},
+	}
+	err := server.applyConfiguration(config)
+	assert.NoError(t, err)
+
+	var domains []string
+	for _, d := range capturedConfig.Domains {
+		domains = append(domains, d.Domain)
+	}
+	assert.Contains(t, domains, "config.example.com.", "Mixed case domain should be normalized and pre.sent")
+	assert.Contains(t, domains, "mixed.example.com.", "Mixed case domain should be normalized and present")
 }

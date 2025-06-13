@@ -19,7 +19,7 @@ import (
 func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 	fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
 	if err != nil {
-		return fmt.Errorf("failed to open routing socket: %v", err)
+		return fmt.Errorf("open routing socket: %v", err)
 	}
 	defer func() {
 		err := unix.Close(fd)

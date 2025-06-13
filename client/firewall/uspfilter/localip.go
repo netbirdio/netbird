@@ -3,6 +3,7 @@ package uspfilter
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -13,8 +14,13 @@ import (
 type localIPManager struct {
 	mu sync.RWMutex
 
-	// Use bitmap for IPv4 (32 bits * 2^16 = 256KB memory)
-	ipv4Bitmap [1 << 16]uint32
+	// fixed-size high array for upper byte of a IPv4 address
+	ipv4Bitmap [256]*ipv4LowBitmap
+}
+
+// ipv4LowBitmap is a map for the low 16 bits of a IPv4 address
+type ipv4LowBitmap struct {
+	bitmap [8192]uint32
 }
 
 func newLocalIPManager() *localIPManager {
@@ -26,39 +32,61 @@ func (m *localIPManager) setBitmapBit(ip net.IP) {
 	if ipv4 == nil {
 		return
 	}
-	high := (uint16(ipv4[0]) << 8) | uint16(ipv4[1])
-	low := (uint16(ipv4[2]) << 8) | uint16(ipv4[3])
-	m.ipv4Bitmap[high] |= 1 << (low % 32)
+	high := uint16(ipv4[0])
+	low := (uint16(ipv4[1]) << 8) | (uint16(ipv4[2]) << 4) | uint16(ipv4[3])
+
+	index := low / 32
+	bit := low % 32
+
+	if m.ipv4Bitmap[high] == nil {
+		m.ipv4Bitmap[high] = &ipv4LowBitmap{}
+	}
+
+	m.ipv4Bitmap[high].bitmap[index] |= 1 << bit
 }
 
-func (m *localIPManager) checkBitmapBit(ip net.IP) bool {
-	ipv4 := ip.To4()
-	if ipv4 == nil {
+func (m *localIPManager) setBitInBitmap(ip netip.Addr, bitmap *[256]*ipv4LowBitmap, ipv4Set map[netip.Addr]struct{}, ipv4Addresses *[]netip.Addr) {
+	if !ip.Is4() {
+		return
+	}
+	ipv4 := ip.AsSlice()
+
+	high := uint16(ipv4[0])
+	low := (uint16(ipv4[1]) << 8) | (uint16(ipv4[2]) << 4) | uint16(ipv4[3])
+
+	if bitmap[high] == nil {
+		bitmap[high] = &ipv4LowBitmap{}
+	}
+
+	index := low / 32
+	bit := low % 32
+	bitmap[high].bitmap[index] |= 1 << bit
+
+	if _, exists := ipv4Set[ip]; !exists {
+		ipv4Set[ip] = struct{}{}
+		*ipv4Addresses = append(*ipv4Addresses, ip)
+	}
+}
+
+func (m *localIPManager) checkBitmapBit(ip []byte) bool {
+	high := uint16(ip[0])
+	low := (uint16(ip[1]) << 8) | (uint16(ip[2]) << 4) | uint16(ip[3])
+
+	if m.ipv4Bitmap[high] == nil {
 		return false
 	}
-	high := (uint16(ipv4[0]) << 8) | uint16(ipv4[1])
-	low := (uint16(ipv4[2]) << 8) | uint16(ipv4[3])
-	return (m.ipv4Bitmap[high] & (1 << (low % 32))) != 0
+
+	index := low / 32
+	bit := low % 32
+	return (m.ipv4Bitmap[high].bitmap[index] & (1 << bit)) != 0
 }
 
-func (m *localIPManager) processIP(ip net.IP, newIPv4Bitmap *[1 << 16]uint32, ipv4Set map[string]struct{}, ipv4Addresses *[]string) error {
-	if ipv4 := ip.To4(); ipv4 != nil {
-		high := (uint16(ipv4[0]) << 8) | uint16(ipv4[1])
-		low := (uint16(ipv4[2]) << 8) | uint16(ipv4[3])
-		if int(high) >= len(*newIPv4Bitmap) {
-			return fmt.Errorf("invalid IPv4 address: %s", ip)
-		}
-		ipStr := ip.String()
-		if _, exists := ipv4Set[ipStr]; !exists {
-			ipv4Set[ipStr] = struct{}{}
-			*ipv4Addresses = append(*ipv4Addresses, ipStr)
-			newIPv4Bitmap[high] |= 1 << (low % 32)
-		}
-	}
+func (m *localIPManager) processIP(ip netip.Addr, bitmap *[256]*ipv4LowBitmap, ipv4Set map[netip.Addr]struct{}, ipv4Addresses *[]netip.Addr) error {
+	m.setBitInBitmap(ip, bitmap, ipv4Set, ipv4Addresses)
 	return nil
 }
 
-func (m *localIPManager) processInterface(iface net.Interface, newIPv4Bitmap *[1 << 16]uint32, ipv4Set map[string]struct{}, ipv4Addresses *[]string) {
+func (m *localIPManager) processInterface(iface net.Interface, bitmap *[256]*ipv4LowBitmap, ipv4Set map[netip.Addr]struct{}, ipv4Addresses *[]netip.Addr) {
 	addrs, err := iface.Addrs()
 	if err != nil {
 		log.Debugf("get addresses for interface %s failed: %v", iface.Name, err)
@@ -76,7 +104,13 @@ func (m *localIPManager) processInterface(iface net.Interface, newIPv4Bitmap *[1
 			continue
 		}
 
-		if err := m.processIP(ip, newIPv4Bitmap, ipv4Set, ipv4Addresses); err != nil {
+		addr, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			log.Warnf("invalid IP address %s in interface %s", ip.String(), iface.Name)
+			continue
+		}
+
+		if err := m.processIP(addr.Unmap(), bitmap, ipv4Set, ipv4Addresses); err != nil {
 			log.Debugf("process IP failed: %v", err)
 		}
 	}
@@ -89,14 +123,14 @@ func (m *localIPManager) UpdateLocalIPs(iface common.IFaceMapper) (err error) {
 		}
 	}()
 
-	var newIPv4Bitmap [1 << 16]uint32
-	ipv4Set := make(map[string]struct{})
-	var ipv4Addresses []string
+	var newIPv4Bitmap [256]*ipv4LowBitmap
+	ipv4Set := make(map[netip.Addr]struct{})
+	var ipv4Addresses []netip.Addr
 
 	// 127.0.0.0/8
-	high := uint16(127) << 8
-	for i := uint16(0); i < 256; i++ {
-		newIPv4Bitmap[high|i] = 0xffffffff
+	newIPv4Bitmap[127] = &ipv4LowBitmap{}
+	for i := 0; i < 8192; i++ {
+		newIPv4Bitmap[127].bitmap[i] = 0xFFFFFFFF
 	}
 
 	if iface != nil {
@@ -122,13 +156,13 @@ func (m *localIPManager) UpdateLocalIPs(iface common.IFaceMapper) (err error) {
 	return nil
 }
 
-func (m *localIPManager) IsLocalIP(ip net.IP) bool {
+func (m *localIPManager) IsLocalIP(ip netip.Addr) bool {
+	if !ip.Is4() {
+		return false
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if ipv4 := ip.To4(); ipv4 != nil {
-		return m.checkBitmapBit(ipv4)
-	}
-
-	return false
+	return m.checkBitmapBit(ip.AsSlice())
 }

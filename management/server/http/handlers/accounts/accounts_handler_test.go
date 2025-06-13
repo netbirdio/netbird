@@ -10,23 +10,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-func initAccountsTestData(account *types.Account) *handler {
+func initAccountsTestData(t *testing.T, account *types.Account) *handler {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().
+		GetSettings(gomock.Any(), account.Id, "test_user").
+		Return(account.Settings, nil).
+		AnyTimes()
+
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 				return account.Settings, nil
 			},
-			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error) {
+			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error) {
 				halfYearLimit := 180 * 24 * time.Hour
 				if newSettings.PeerLoginExpiration > halfYearLimit {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -36,11 +46,16 @@ func initAccountsTestData(account *types.Account) *handler {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 				}
 
-				accCopy := account.Copy()
-				accCopy.UpdateSettings(newSettings)
-				return accCopy, nil
+				return newSettings, nil
+			},
+			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+				return account.Copy(), nil
+			},
+			GetAccountMetaFunc: func(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+				return account.GetMeta(), nil
 			},
 		},
+		settingsManager: settingsMockManager,
 	}
 }
 
@@ -51,7 +66,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }
 
-	handler := initAccountsTestData(&types.Account{
+	handler := initAccountsTestData(t, &types.Account{
 		Id:      accountID,
 		Domain:  "hotmail.com",
 		Network: types.NewNetwork(),
@@ -91,6 +106,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{},
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -111,6 +128,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{},
 				RegularUsersViewBlocked:         false,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -131,6 +150,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{"test"},
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -151,6 +172,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{},
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: false,
 			expectedID:    accountID,

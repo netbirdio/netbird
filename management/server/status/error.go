@@ -3,6 +3,8 @@ package status
 import (
 	"errors"
 	"fmt"
+
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 )
 
 const (
@@ -39,6 +41,8 @@ const (
 
 // Type is a type of the Error
 type Type int32
+
+var ErrExtraSettingsNotFound = fmt.Errorf("extra settings not found")
 
 // Error is an internal error
 type Error struct {
@@ -94,6 +98,11 @@ func NewPeerNotPartOfAccountError() error {
 // NewUserNotFoundError creates a new Error with NotFound type for a missing user
 func NewUserNotFoundError(userKey string) error {
 	return Errorf(NotFound, "user: %s not found", userKey)
+}
+
+// NewUserBlockedError creates a new Error with PermissionDenied type for a blocked user
+func NewUserBlockedError() error {
+	return Errorf(PermissionDenied, "user is blocked")
 }
 
 // NewPeerNotRegisteredError creates a new Error with NotFound type for a missing peer
@@ -181,7 +190,7 @@ func NewPermissionDeniedError() error {
 }
 
 func NewPermissionValidationError(err error) error {
-	return Errorf(PermissionDenied, "failed to vlidate user permissions: %s", err)
+	return Errorf(PermissionDenied, "failed to validate user permissions: %s", err)
 }
 
 func NewResourceNotPartOfNetworkError(resourceID, networkID string) error {
@@ -205,6 +214,18 @@ func NewOwnerDeletePermissionError() error {
 
 func NewPATNotFoundError(patID string) error {
 	return Errorf(NotFound, "PAT: %s not found", patID)
+}
+
+func NewExtraSettingsNotFoundError() error {
+	return ErrExtraSettingsNotFound
+}
+
+func NewUserRoleNotFoundError(role string) error {
+	return Errorf(NotFound, "user role: %s not found", role)
+}
+
+func NewOperationNotFoundError(operation operations.Operation) error {
+	return Errorf(NotFound, "operation: %s not found", operation)
 }
 
 func NewRouteNotFoundError(routeID string) error {

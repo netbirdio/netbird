@@ -11,26 +11,25 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
+const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
+
+var invalidDomainName = errors.New("invalid domain name")
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetNameServerGroupByID(ctx, store.LockingStrengthShare, accountID, nsGroupID)
@@ -41,13 +40,12 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Create)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	newNSGroup := &nbdns.NameServerGroup{
@@ -103,13 +101,12 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return status.Errorf(status.InvalidArgument, "nameserver group provided is nil")
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Update)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var updateAccountPeers bool
@@ -154,13 +151,12 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Delete)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var nsGroup *nbdns.NameServerGroup
@@ -198,17 +194,12 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 // ListNameServerGroups returns a list of nameserver groups from account
 func (am *DefaultAccountManager) ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetAccountNameServerGroups(ctx, store.LockingStrengthShare, accountID)
@@ -330,13 +321,9 @@ func validateDomain(domain string) error {
 		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
 	}
 
-	labels, valid := dns.IsDomainName(domain)
+	_, valid := dns.IsDomainName(domain)
 	if !valid {
-		return errors.New("invalid domain name")
-	}
-
-	if labels < 2 {
-		return errors.New("domain should consists of a minimum of two labels")
+		return invalidDomainName
 	}
 
 	return nil

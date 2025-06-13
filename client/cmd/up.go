@@ -32,12 +32,16 @@ const (
 
 const (
 	dnsLabelsFlag = "extra-dns-labels"
+
+	noBrowserFlag = "no-browser"
+	noBrowserDesc = "do not open the browser for SSO login"
 )
 
 var (
 	foregroundMode     bool
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
+	noBrowser          bool
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -51,12 +55,11 @@ func init() {
 	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
 	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
 	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", networkMonitor,
-		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux. `+
+		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux and FreeBSD. `+
 			`E.g. --network-monitor=false to disable or --network-monitor=true to enable.`,
 	)
 	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
 	upCmd.PersistentFlags().DurationVar(&dnsRouteInterval, dnsRouteIntervalFlag, time.Minute, "DNS route update interval")
-	upCmd.PersistentFlags().BoolVar(&blockLANAccess, blockLANAccessFlag, false, "Block access to local networks (LAN) when using this peer as a router or exit node")
 
 	upCmd.PersistentFlags().StringSliceVar(&dnsLabels, dnsLabelsFlag, nil,
 		`Sets DNS labels`+
@@ -65,6 +68,9 @@ func init() {
 			`E.g. --extra-dns-labels vpc1 or --extra-dns-labels vpc1,mgmt1 `+
 			`or --extra-dns-labels ""`,
 	)
+
+	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -112,6 +118,124 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
+	ic, err := setupConfig(customDNSAddressConverted, cmd)
+	if err != nil {
+		return fmt.Errorf("setup config: %v", err)
+	}
+
+	providedSetupKey, err := getSetupKey()
+	if err != nil {
+		return err
+	}
+
+	config, err := internal.UpdateOrCreateConfig(*ic)
+	if err != nil {
+		return fmt.Errorf("get config file: %v", err)
+	}
+
+	config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
+
+	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
+	if err != nil {
+		return fmt.Errorf("foreground login failed: %v", err)
+	}
+
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+	SetupCloseHandler(ctx, cancel)
+
+	r := peer.NewRecorder(config.ManagementURL.String())
+	r.GetFullStatus()
+
+	connectClient := internal.NewConnectClient(ctx, config, r)
+	SetupDebugHandler(ctx, config, r, connectClient, "")
+
+	return connectClient.Run(nil)
+}
+
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
+	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	if err != nil {
+		return err
+	}
+
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			log.Warnf("failed closing daemon gRPC client connection %v", err)
+			return
+		}
+	}()
+
+	client := proto.NewDaemonServiceClient(conn)
+
+	status, err := client.Status(ctx, &proto.StatusRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to get daemon status: %v", err)
+	}
+
+	if status.Status == string(internal.StatusConnected) {
+		cmd.Println("Already connected")
+		return nil
+	}
+
+	providedSetupKey, err := getSetupKey()
+	if err != nil {
+		return fmt.Errorf("get setup key: %v", err)
+	}
+
+	loginRequest, err := setupLoginRequest(providedSetupKey, customDNSAddressConverted, cmd)
+	if err != nil {
+		return fmt.Errorf("setup login request: %v", err)
+	}
+
+	var loginErr error
+	var loginResp *proto.LoginResponse
+
+	err = WithBackOff(func() error {
+		var backOffErr error
+		loginResp, backOffErr = client.Login(ctx, loginRequest)
+		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
+			s.Code() == codes.PermissionDenied ||
+			s.Code() == codes.NotFound ||
+			s.Code() == codes.Unimplemented) {
+			loginErr = backOffErr
+			return nil
+		}
+		return backOffErr
+	})
+	if err != nil {
+		return fmt.Errorf("login backoff cycle failed: %v", err)
+	}
+
+	if loginErr != nil {
+		return fmt.Errorf("login failed: %v", loginErr)
+	}
+
+	if loginResp.NeedsSSOLogin {
+
+		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
+
+		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
+		if err != nil {
+			return fmt.Errorf("waiting sso login failed with: %v", err)
+		}
+	}
+
+	if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
+		return fmt.Errorf("call service up method: %v", err)
+	}
+	cmd.Println("Connected")
+	return nil
+}
+
+func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*internal.ConfigInput, error) {
 	ic := internal.ConfigInput{
 		ManagementURL:       managementURL,
 		AdminURL:            adminURL,
@@ -136,7 +260,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
-			return err
+			return nil, err
 		}
 		ic.InterfaceName = &interfaceName
 	}
@@ -187,83 +311,29 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ic.BlockLANAccess = &blockLANAccess
 	}
 
-	providedSetupKey, err := getSetupKey()
-	if err != nil {
-		return err
+	if cmd.Flag(blockInboundFlag).Changed {
+		ic.BlockInbound = &blockInbound
 	}
 
-	config, err := internal.UpdateOrCreateConfig(ic)
-	if err != nil {
-		return fmt.Errorf("get config file: %v", err)
+	if cmd.Flag(enableLazyConnectionFlag).Changed {
+		ic.LazyConnectionEnabled = &lazyConnEnabled
 	}
-
-	config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
-
-	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
-	if err != nil {
-		return fmt.Errorf("foreground login failed: %v", err)
-	}
-
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-	SetupCloseHandler(ctx, cancel)
-
-	r := peer.NewRecorder(config.ManagementURL.String())
-	r.GetFullStatus()
-
-	connectClient := internal.NewConnectClient(ctx, config, r)
-	return connectClient.Run(nil)
+	return &ic, nil
 }
 
-func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
-	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
-	if err != nil {
-		return err
-	}
-
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
-	}
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Warnf("failed closing daemon gRPC client connection %v", err)
-			return
-		}
-	}()
-
-	client := proto.NewDaemonServiceClient(conn)
-
-	status, err := client.Status(ctx, &proto.StatusRequest{})
-	if err != nil {
-		return fmt.Errorf("unable to get daemon status: %v", err)
-	}
-
-	if status.Status == string(internal.StatusConnected) {
-		cmd.Println("Already connected")
-		return nil
-	}
-
-	providedSetupKey, err := getSetupKey()
-	if err != nil {
-		return err
-	}
-
+func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte, cmd *cobra.Command) (*proto.LoginRequest, error) {
 	loginRequest := proto.LoginRequest{
-		SetupKey:             providedSetupKey,
-		ManagementUrl:        managementURL,
-		AdminURL:             adminURL,
-		NatExternalIPs:       natExternalIPs,
-		CleanNATExternalIPs:  natExternalIPs != nil && len(natExternalIPs) == 0,
-		CustomDNSAddress:     customDNSAddressConverted,
-		IsLinuxDesktopClient: isLinuxRunningDesktop(),
-		Hostname:             hostName,
-		ExtraIFaceBlacklist:  extraIFaceBlackList,
-		DnsLabels:            dnsLabels,
-		CleanDNSLabels:       dnsLabels != nil && len(dnsLabels) == 0,
+		SetupKey:            providedSetupKey,
+		ManagementUrl:       managementURL,
+		AdminURL:            adminURL,
+		NatExternalIPs:      natExternalIPs,
+		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
+		CustomDNSAddress:    customDNSAddressConverted,
+		IsUnixDesktopClient: isUnixRunningDesktop(),
+		Hostname:            hostName,
+		ExtraIFaceBlacklist: extraIFaceBlackList,
+		DnsLabels:           dnsLabels,
+		CleanDNSLabels:      dnsLabels != nil && len(dnsLabels) == 0,
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -288,7 +358,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
-			return err
+			return nil, err
 		}
 		loginRequest.InterfaceName = &interfaceName
 	}
@@ -323,45 +393,14 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		loginRequest.BlockLanAccess = &blockLANAccess
 	}
 
-	var loginErr error
-
-	var loginResp *proto.LoginResponse
-
-	err = WithBackOff(func() error {
-		var backOffErr error
-		loginResp, backOffErr = client.Login(ctx, &loginRequest)
-		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-			s.Code() == codes.PermissionDenied ||
-			s.Code() == codes.NotFound ||
-			s.Code() == codes.Unimplemented) {
-			loginErr = backOffErr
-			return nil
-		}
-		return backOffErr
-	})
-	if err != nil {
-		return fmt.Errorf("login backoff cycle failed: %v", err)
+	if cmd.Flag(blockInboundFlag).Changed {
+		loginRequest.BlockInbound = &blockInbound
 	}
 
-	if loginErr != nil {
-		return fmt.Errorf("login failed: %v", loginErr)
+	if cmd.Flag(enableLazyConnectionFlag).Changed {
+		loginRequest.LazyConnectionEnabled = &lazyConnEnabled
 	}
-
-	if loginResp.NeedsSSOLogin {
-
-		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
-
-		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
-		if err != nil {
-			return fmt.Errorf("waiting sso login failed with: %v", err)
-		}
-	}
-
-	if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
-		return fmt.Errorf("call service up method: %v", err)
-	}
-	cmd.Println("Connected")
-	return nil
+	return &loginRequest, nil
 }
 
 func validateNATExternalIPs(list []string) error {

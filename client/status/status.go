@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -96,6 +97,7 @@ type OutputOverview struct {
 	NumberOfForwardingRules int                        `json:"forwardingRules" yaml:"forwardingRules"`
 	NSServerGroups          []NsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
 	Events                  []SystemEventOutput        `json:"events" yaml:"events"`
+	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 }
 
 func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}) OutputOverview {
@@ -135,6 +137,7 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 		NumberOfForwardingRules: int(pbFullStatus.GetNumberOfForwardingRules()),
 		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
 		Events:                  mapEvents(pbFullStatus.GetEvents()),
+		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
 	}
 
 	if anon {
@@ -205,7 +208,7 @@ func mapPeers(
 		transferSent := int64(0)
 
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
-		if skipDetailByFilters(pbPeerState, isPeerConnected, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter) {
+		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter) {
 			continue
 		}
 		if isPeerConnected {
@@ -383,6 +386,11 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		}
 	}
 
+	lazyConnectionEnabledStatus := "false"
+	if overview.LazyConnectionEnabled {
+		lazyConnectionEnabledStatus = "true"
+	}
+
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
 	goos := runtime.GOOS
@@ -404,6 +412,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
+			"Lazy connection: %s\n"+
 			"Networks: %s\n"+
 			"Forwarding rules: %d\n"+
 			"Peers count: %s\n",
@@ -414,10 +423,11 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		signalConnString,
 		relaysString,
 		dnsServersString,
-		overview.FQDN,
+		domain.Domain(overview.FQDN).SafeString(),
 		interfaceIP,
 		interfaceTypeString,
 		rosenpassEnabledStatus,
+		lazyConnectionEnabledStatus,
 		networks,
 		overview.NumberOfForwardingRules,
 		peersCountString,
@@ -508,7 +518,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Quantum resistance: %s\n"+
 				"  Networks: %s\n"+
 				"  Latency: %s\n",
-			peerState.FQDN,
+			domain.Domain(peerState.FQDN).SafeString(),
 			peerState.IP,
 			peerState.PubKey,
 			peerState.Status,
@@ -532,23 +542,13 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 	return peersString
 }
 
-func skipDetailByFilters(
-	peerState *proto.PeerState,
-	isConnected bool,
-	statusFilter string,
-	prefixNamesFilter []string,
-	prefixNamesFilterMap map[string]struct{},
-	ipsFilter map[string]struct{},
-) bool {
+func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}) bool {
 	statusEval := false
 	ipEval := false
 	nameEval := true
 
 	if statusFilter != "" {
-		lowerStatusFilter := strings.ToLower(statusFilter)
-		if lowerStatusFilter == "disconnected" && isConnected {
-			statusEval = true
-		} else if lowerStatusFilter == "connected" && !isConnected {
+		if !strings.EqualFold(peerStatus, statusFilter) {
 			statusEval = true
 		}
 	}

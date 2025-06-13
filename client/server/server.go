@@ -84,6 +84,7 @@ func New(ctx context.Context, configPath, logFile string) *Server {
 		},
 		logFile:           logFile,
 		persistNetworkMap: true,
+		statusRecorder:    peer.NewRecorder(""),
 	}
 }
 
@@ -136,11 +137,9 @@ func (s *Server) Start() error {
 
 	s.config = config
 
-	if s.statusRecorder == nil {
-		s.statusRecorder = peer.NewRecorder(config.ManagementURL.String())
-	}
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
+	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
 
 	if s.sessionWatcher == nil {
 		s.sessionWatcher = internal.NewSessionWatcher(s.rootCtx, s.statusRecorder)
@@ -399,10 +398,13 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		inputConfig.DisableFirewall = msg.DisableFirewall
 		s.latestConfigInput.DisableFirewall = msg.DisableFirewall
 	}
-
 	if msg.BlockLanAccess != nil {
 		inputConfig.BlockLANAccess = msg.BlockLanAccess
 		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
+	}
+	if msg.BlockInbound != nil {
+		inputConfig.BlockInbound = msg.BlockInbound
+		s.latestConfigInput.BlockInbound = msg.BlockInbound
 	}
 
 	if msg.CleanDNSLabels {
@@ -417,6 +419,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	if msg.DisableNotifications != nil {
 		inputConfig.DisableNotifications = msg.DisableNotifications
 		s.latestConfigInput.DisableNotifications = msg.DisableNotifications
+	}
+
+	if msg.LazyConnectionEnabled != nil {
+		inputConfig.LazyConnectionEnabled = msg.LazyConnectionEnabled
+		s.latestConfigInput.LazyConnectionEnabled = msg.LazyConnectionEnabled
 	}
 
 	s.mutex.Unlock()
@@ -448,7 +455,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsLinuxDesktopClient)
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
@@ -622,9 +629,6 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
 
-	if s.statusRecorder == nil {
-		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
-	}
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
@@ -692,9 +696,6 @@ func (s *Server) Status(
 
 	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion()}
 
-	if s.statusRecorder == nil {
-		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
-	}
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
@@ -749,7 +750,6 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		if preSharedKey != "" {
 			preSharedKey = "**********"
 		}
-
 	}
 
 	disableNotifications := true
@@ -757,19 +757,36 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		disableNotifications = *s.config.DisableNotifications
 	}
 
+	networkMonitor := false
+	if s.config.NetworkMonitor != nil {
+		networkMonitor = *s.config.NetworkMonitor
+	}
+
+	disableDNS := s.config.DisableDNS
+	disableClientRoutes := s.config.DisableClientRoutes
+	disableServerRoutes := s.config.DisableServerRoutes
+	blockLANAccess := s.config.BlockLANAccess
+
 	return &proto.GetConfigResponse{
-		ManagementUrl:        managementURL,
-		ConfigFile:           s.latestConfigInput.ConfigPath,
-		LogFile:              s.logFile,
-		PreSharedKey:         preSharedKey,
-		AdminURL:             adminURL,
-		InterfaceName:        s.config.WgIface,
-		WireguardPort:        int64(s.config.WgPort),
-		DisableAutoConnect:   s.config.DisableAutoConnect,
-		ServerSSHAllowed:     *s.config.ServerSSHAllowed,
-		RosenpassEnabled:     s.config.RosenpassEnabled,
-		RosenpassPermissive:  s.config.RosenpassPermissive,
-		DisableNotifications: disableNotifications,
+		ManagementUrl:         managementURL,
+		ConfigFile:            s.latestConfigInput.ConfigPath,
+		LogFile:               s.logFile,
+		PreSharedKey:          preSharedKey,
+		AdminURL:              adminURL,
+		InterfaceName:         s.config.WgIface,
+		WireguardPort:         int64(s.config.WgPort),
+		DisableAutoConnect:    s.config.DisableAutoConnect,
+		ServerSSHAllowed:      *s.config.ServerSSHAllowed,
+		RosenpassEnabled:      s.config.RosenpassEnabled,
+		RosenpassPermissive:   s.config.RosenpassPermissive,
+		LazyConnectionEnabled: s.config.LazyConnectionEnabled,
+		BlockInbound:          s.config.BlockInbound,
+		DisableNotifications:  disableNotifications,
+		NetworkMonitor:        networkMonitor,
+		DisableDns:            disableDNS,
+		DisableClientRoutes:   disableClientRoutes,
+		DisableServerRoutes:   disableServerRoutes,
+		BlockLanAccess:        blockLANAccess,
 	}, nil
 }
 
@@ -812,6 +829,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
 	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
+	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{

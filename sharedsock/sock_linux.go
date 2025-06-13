@@ -234,7 +234,7 @@ func (s *SharedSocket) read(receiver receiver) {
 }
 
 // ReadFrom reads packets received in the packetDemux channel
-func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+func (s *SharedSocket) ReadFrom(b []byte) (int, net.Addr, error) {
 	var pkt rcvdPacket
 	select {
 	case <-s.ctx.Done():
@@ -263,8 +263,7 @@ func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 
 	decodedLayers := make([]gopacket.LayerType, 0, 3)
 
-	err = parser.DecodeLayers(pkt.buf, &decodedLayers)
-	if err != nil {
+	if err := parser.DecodeLayers(pkt.buf, &decodedLayers); err != nil {
 		return 0, nil, err
 	}
 
@@ -273,8 +272,8 @@ func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 		Port: int(udp.SrcPort),
 	}
 
-	copy(b, payload)
-	return int(udp.Length), remoteAddr, nil
+	n := copy(b, payload)
+	return n, remoteAddr, nil
 }
 
 // WriteTo builds a UDP packet and writes it using the specific IP version writer

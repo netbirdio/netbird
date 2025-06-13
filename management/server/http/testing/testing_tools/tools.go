@@ -15,14 +15,18 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/users"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -62,6 +66,20 @@ const (
 	ExpiredKeyId = "expiredKeyId"
 
 	ExistingKeyName = "existingKey"
+
+	OperationCreate = "create"
+	OperationUpdate = "update"
+	OperationDelete = "delete"
+	OperationGetOne = "get_one"
+	OperationGetAll = "get_all"
+)
+
+var BenchmarkDuration = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "benchmark_duration_ms",
+		Help: "Benchmark duration per op in ms",
+	},
+	[]string{"module", "operation", "test_case", "branch"},
 )
 
 type TB interface {
@@ -88,7 +106,7 @@ type PerformanceMetrics struct {
 	MaxMsPerOpCICD  float64
 }
 
-func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage, validateUpdate bool) (http.Handler, server.AccountManager, chan struct{}) {
+func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage, validateUpdate bool) (http.Handler, account.Manager, chan struct{}) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to create test store: %v", err)
@@ -117,7 +135,10 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	geoMock := &geolocation.Mock{}
 	validatorMock := server.MocIntegratedValidator{}
 	proxyController := integrations.NewController(store)
-	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController)
+	userManager := users.NewManager(store)
+	permissionsManager := permissions.NewManager(store)
+	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager)
+	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
@@ -135,10 +156,9 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	resourcesManagerMock := resources.NewManagerMock()
 	routersManagerMock := routers.NewManagerMock()
 	groupsManagerMock := groups.NewManagerMock()
-	permissionsManagerMock := permissions.NewManagerMock()
-	peersManager := peers.NewManager(store, permissionsManagerMock)
+	peersManager := peers.NewManager(store, permissionsManager)
 
-	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManagerMock, peersManager)
+	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, validatorMock, proxyController, permissionsManager, peersManager, settingsManager)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
@@ -303,30 +323,25 @@ func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 
 }
 
-func EvaluateBenchmarkResults(b *testing.B, name string, duration time.Duration, perfMetrics PerformanceMetrics, recorder *httptest.ResponseRecorder) {
+func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Duration, recorder *httptest.ResponseRecorder, module string, operation string) {
 	b.Helper()
 
+	branch := os.Getenv("GIT_BRANCH")
+	if branch == "" {
+		b.Fatalf("environment variable GIT_BRANCH is not set")
+	}
+
 	if recorder.Code != http.StatusOK {
-		b.Fatalf("Benchmark %s failed: unexpected status code %d", name, recorder.Code)
+		b.Fatalf("Benchmark %s failed: unexpected status code %d", testCase, recorder.Code)
 	}
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+
+	gauge := BenchmarkDuration.WithLabelValues(module, operation, testCase, branch)
+	gauge.Set(msPerOp)
+
 	b.ReportMetric(msPerOp, "ms/op")
 
-	minExpected := perfMetrics.MinMsPerOpLocal
-	maxExpected := perfMetrics.MaxMsPerOpLocal
-	if os.Getenv("CI") == "true" {
-		minExpected = perfMetrics.MinMsPerOpCICD
-		maxExpected = perfMetrics.MaxMsPerOpCICD
-	}
-
-	if msPerOp < minExpected {
-		b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", name, msPerOp, minExpected)
-	}
-
-	if msPerOp > maxExpected {
-		b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", name, msPerOp, maxExpected)
-	}
 }
 
 func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserAuth, *jwt.Token, error) {

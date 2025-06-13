@@ -239,7 +239,7 @@ func searchDomains(config HostDNSConfig) []string {
 			continue
 		}
 
-		listOfDomains = append(listOfDomains, dConf.Domain)
+		listOfDomains = append(listOfDomains, strings.TrimSuffix(dConf.Domain, "."))
 	}
 	return listOfDomains
 }

@@ -16,11 +16,13 @@ type GroupsAPI struct {
 // List list all groups
 // See more: https://docs.netbird.io/api/resources/groups#list-all-groups
 func (a *GroupsAPI) List(ctx context.Context) ([]api.Group, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/groups", nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/groups", nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Group](resp)
 	return ret, err
 }
@@ -28,11 +30,13 @@ func (a *GroupsAPI) List(ctx context.Context) ([]api.Group, error) {
 // Get get group info
 // See more: https://docs.netbird.io/api/resources/groups#retrieve-a-group
 func (a *GroupsAPI) Get(ctx context.Context, groupID string) (*api.Group, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/groups/"+groupID, nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/groups/"+groupID, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Group](resp)
 	return &ret, err
 }
@@ -44,11 +48,13 @@ func (a *GroupsAPI) Create(ctx context.Context, request api.PostApiGroupsJSONReq
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "POST", "/api/groups", bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "POST", "/api/groups", bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Group](resp)
 	return &ret, err
 }
@@ -60,11 +66,13 @@ func (a *GroupsAPI) Update(ctx context.Context, groupID string, request api.PutA
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "PUT", "/api/groups/"+groupID, bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/groups/"+groupID, bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Group](resp)
 	return &ret, err
 }
@@ -72,11 +80,13 @@ func (a *GroupsAPI) Update(ctx context.Context, groupID string, request api.PutA
 // Delete delete group
 // See more: https://docs.netbird.io/api/resources/groups#delete-a-group
 func (a *GroupsAPI) Delete(ctx context.Context, groupID string) error {
-	resp, err := a.c.newRequest(ctx, "DELETE", "/api/groups/"+groupID, nil)
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/groups/"+groupID, nil)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

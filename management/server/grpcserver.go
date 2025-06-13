@@ -18,8 +18,12 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
+	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -32,12 +36,12 @@ import (
 
 // GRPCServer an instance of a Management gRPC API server
 type GRPCServer struct {
-	accountManager  AccountManager
+	accountManager  account.Manager
 	settingsManager settings.Manager
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peersUpdateManager *PeersUpdateManager
-	config             *Config
+	config             *types.Config
 	secretsManager     SecretsManager
 	appMetrics         telemetry.AppMetrics
 	ephemeralManager   *EphemeralManager
@@ -48,8 +52,8 @@ type GRPCServer struct {
 // NewServer creates a new Management server
 func NewServer(
 	ctx context.Context,
-	config *Config,
-	accountManager AccountManager,
+	config *types.Config,
+	accountManager account.Manager,
 	settingsManager settings.Manager,
 	peersUpdateManager *PeersUpdateManager,
 	secretsManager SecretsManager,
@@ -184,7 +188,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	s.ephemeralManager.OnPeerConnected(ctx, peer)
 
-	s.secretsManager.SetupRefresh(ctx, peer.ID)
+	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
 
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))
@@ -388,6 +392,18 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			Cloud:    meta.GetEnvironment().GetCloud(),
 			Platform: meta.GetEnvironment().GetPlatform(),
 		},
+		Flags: nbpeer.Flags{
+			RosenpassEnabled:      meta.GetFlags().GetRosenpassEnabled(),
+			RosenpassPermissive:   meta.GetFlags().GetRosenpassPermissive(),
+			ServerSSHAllowed:      meta.GetFlags().GetServerSSHAllowed(),
+			DisableClientRoutes:   meta.GetFlags().GetDisableClientRoutes(),
+			DisableServerRoutes:   meta.GetFlags().GetDisableServerRoutes(),
+			DisableDNS:            meta.GetFlags().GetDisableDNS(),
+			DisableFirewall:       meta.GetFlags().GetDisableFirewall(),
+			BlockLANAccess:        meta.GetFlags().GetBlockLANAccess(),
+			BlockInbound:          meta.GetFlags().GetBlockInbound(),
+			LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
+		},
 		Files: files,
 	}
 }
@@ -457,7 +473,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, PeerLogin{
+	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
 		Meta:            extractPeerMeta(ctx, loginReq.GetMeta()),
@@ -476,20 +492,12 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 	}
 
-	var relayToken *Token
-	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
-		relayToken, err = s.secretsManager.GenerateRelayToken()
-		if err != nil {
-			log.Errorf("failed generating Relay token: %v", err)
-		}
+	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed preparing login response for peer %s: %s", peerKey, err)
+		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
-	// if peer has reached this point then it has logged in
-	loginResp := &proto.LoginResponse{
-		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken),
-		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(), false),
-		Checks:        toProtocolChecks(ctx, postureChecks),
-	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
@@ -500,6 +508,32 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
+}
+
+func (s *GRPCServer) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
+	var relayToken *Token
+	var err error
+	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
+		relayToken, err = s.secretsManager.GenerateRelayToken()
+		if err != nil {
+			log.Errorf("failed generating Relay token: %v", err)
+		}
+	}
+
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed getting settings for peer %s: %s", peer.Key, err)
+		return nil, status.Errorf(codes.Internal, "failed getting settings")
+	}
+
+	// if peer has reached this point then it has logged in
+	loginResp := &proto.LoginResponse{
+		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
+		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(settings), settings),
+		Checks:        toProtocolChecks(ctx, postureChecks),
+	}
+
+	return loginResp, nil
 }
 
 // processJwtToken validates the existence of a JWT token in the login request, and returns the corresponding user ID if
@@ -527,24 +561,24 @@ func (s *GRPCServer) processJwtToken(ctx context.Context, loginReq *proto.LoginR
 	return userID, nil
 }
 
-func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
+func ToResponseProto(configProto types.Protocol) proto.HostConfig_Protocol {
 	switch configProto {
-	case UDP:
+	case types.UDP:
 		return proto.HostConfig_UDP
-	case DTLS:
+	case types.DTLS:
 		return proto.HostConfig_DTLS
-	case HTTP:
+	case types.HTTP:
 		return proto.HostConfig_HTTP
-	case HTTPS:
+	case types.HTTPS:
 		return proto.HostConfig_HTTPS
-	case TCP:
+	case types.TCP:
 		return proto.HostConfig_TCP
 	default:
 		panic(fmt.Errorf("unexpected config protocol type %v", configProto))
 	}
 }
 
-func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token) *proto.NetbirdConfig {
+func toNetbirdConfig(config *types.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
 	}
@@ -592,32 +626,39 @@ func toNetbirdConfig(config *Config, turnCredentials *Token, relayToken *Token) 
 		}
 	}
 
-	return &proto.NetbirdConfig{
-		Stuns: stuns,
-		Turns: turns,
-		Signal: &proto.HostConfig{
+	var signalCfg *proto.HostConfig
+	if config.Signal != nil {
+		signalCfg = &proto.HostConfig{
 			Uri:      config.Signal.URI,
 			Protocol: ToResponseProto(config.Signal.Proto),
-		},
-		Relay: relayCfg,
+		}
 	}
+
+	nbConfig := &proto.NetbirdConfig{
+		Stuns:  stuns,
+		Turns:  turns,
+		Signal: signalCfg,
+		Relay:  relayCfg,
+	}
+
+	return nbConfig
 }
 
-func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, dnsResolutionOnRoutingPeerEnabled bool) *proto.PeerConfig {
+func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
 	return &proto.PeerConfig{
 		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
 		SshConfig:                       &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
 		Fqdn:                            fqdn,
-		RoutingPeerDnsResolutionEnabled: dnsResolutionOnRoutingPeerEnabled,
+		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
+		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, dnsResolutionOnRoutingPeerEnbled bool) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *types.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		NetbirdConfig: toNetbirdConfig(config, turnCredentials, relayCredentials),
-		PeerConfig:    toPeerConfig(peer, networkMap.Network, dnsName, dnsResolutionOnRoutingPeerEnbled),
+		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
@@ -625,6 +666,10 @@ func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turn
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
+
+	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
+	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, nbConfig, extraSettings)
+	response.NetbirdConfig = extendedConfig
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
@@ -659,10 +704,11 @@ func toSyncResponse(ctx context.Context, config *Config, peer *nbpeer.Peer, turn
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		dst = append(dst, &proto.RemotePeerConfig{
-			WgPubKey:   rPeer.Key,
-			AllowedIps: []string{rPeer.IP.String() + "/32"},
-			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
-			Fqdn:       rPeer.FQDN(dnsName),
+			WgPubKey:     rPeer.Key,
+			AllowedIps:   []string{rPeer.IP.String() + "/32"},
+			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
+			Fqdn:         rPeer.FQDN(dnsName),
+			AgentVersion: rPeer.Meta.WtVersion,
 		})
 	}
 	return dst
@@ -693,12 +739,12 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		}
 	}
 
-	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, peer.UserID)
+	settings, err := s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
-	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(), postureChecks, nil, settings.RoutingPeerDNSResolutionEnabled)
+	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
@@ -742,7 +788,7 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(NONE) {
+	if s.config.DeviceAuthorizationFlow == nil || s.config.DeviceAuthorizationFlow.Provider == string(types.NONE) {
 		return nil, status.Error(codes.NotFound, "no device authorization flow information available")
 	}
 
@@ -814,6 +860,8 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.En
 			Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
 			RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
 			UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
+			DisablePromptLogin:    s.config.PKCEAuthorizationFlow.ProviderConfig.DisablePromptLogin,
+			LoginFlag:             uint32(s.config.PKCEAuthorizationFlow.ProviderConfig.LoginFlag),
 		},
 	}
 

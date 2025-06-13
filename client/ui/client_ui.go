@@ -51,14 +51,19 @@ const (
 )
 
 func main() {
-	daemonAddr, showSettings, showNetworks, errorMsg, saveLogsInFile := parseFlags()
+	daemonAddr, showSettings, showNetworks, showDebug, errorMsg, saveLogsInFile := parseFlags()
 
 	// Initialize file logging if needed.
+	var logFile string
 	if saveLogsInFile {
-		if err := initLogFile(); err != nil {
+		file, err := initLogFile()
+		if err != nil {
 			log.Errorf("error while initializing log: %v", err)
 			return
 		}
+		logFile = file
+	} else {
+		_ = util.InitLog("trace", "console")
 	}
 
 	// Create the Fyne application.
@@ -72,25 +77,25 @@ func main() {
 	}
 
 	// Create the service client (this also builds the settings or networks UI if requested).
-	client := newServiceClient(daemonAddr, a, showSettings, showNetworks)
+	client := newServiceClient(daemonAddr, logFile, a, showSettings, showNetworks, showDebug)
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if showSettings || showNetworks {
+	if showSettings || showNetworks || showDebug {
 		a.Run()
 		return
 	}
 
 	// Check for another running process.
-	running, err := process.IsAnotherProcessRunning()
+	pid, running, err := process.IsAnotherProcessRunning()
 	if err != nil {
 		log.Errorf("error while checking process: %v", err)
 		return
 	}
 	if running {
-		log.Warn("another process is running")
+		log.Warnf("another process is running with pid %d, exiting", pid)
 		return
 	}
 
@@ -99,7 +104,7 @@ func main() {
 }
 
 // parseFlags reads and returns all needed command-line flags.
-func parseFlags() (daemonAddr string, showSettings, showNetworks bool, errorMsg string, saveLogsInFile bool) {
+func parseFlags() (daemonAddr string, showSettings, showNetworks, showDebug bool, errorMsg string, saveLogsInFile bool) {
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
@@ -107,25 +112,17 @@ func parseFlags() (daemonAddr string, showSettings, showNetworks bool, errorMsg 
 	flag.StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	flag.BoolVar(&showSettings, "settings", false, "run settings window")
 	flag.BoolVar(&showNetworks, "networks", false, "run networks window")
+	flag.BoolVar(&showDebug, "debug", false, "run debug window")
 	flag.StringVar(&errorMsg, "error-msg", "", "displays an error message window")
-
-	tmpDir := "/tmp"
-	if runtime.GOOS == "windows" {
-		tmpDir = os.TempDir()
-	}
-	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", tmpDir))
+	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.Parse()
 	return
 }
 
 // initLogFile initializes logging into a file.
-func initLogFile() error {
-	tmpDir := "/tmp"
-	if runtime.GOOS == "windows" {
-		tmpDir = os.TempDir()
-	}
-	logFile := path.Join(tmpDir, fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
-	return util.InitLog("trace", logFile)
+func initLogFile() (string, error) {
+	logFile := path.Join(os.TempDir(), fmt.Sprintf("netbird-ui-%d.log", os.Getpid()))
+	return logFile, util.InitLog("trace", logFile)
 }
 
 // watchSettingsChanges listens for Fyne theme/settings changes and updates the client icon.
@@ -168,9 +165,12 @@ var iconConnectingMacOS []byte
 var iconErrorMacOS []byte
 
 type serviceClient struct {
-	ctx  context.Context
-	addr string
-	conn proto.DaemonServiceClient
+	ctx    context.Context
+	cancel context.CancelFunc
+	addr   string
+	conn   proto.DaemonServiceClient
+
+	eventHandler *eventHandler
 
 	icAbout              []byte
 	icConnected          []byte
@@ -184,7 +184,6 @@ type serviceClient struct {
 	mStatus            *systray.MenuItem
 	mUp                *systray.MenuItem
 	mDown              *systray.MenuItem
-	mAdminPanel        *systray.MenuItem
 	mSettings          *systray.MenuItem
 	mAbout             *systray.MenuItem
 	mGitHub            *systray.MenuItem
@@ -196,6 +195,8 @@ type serviceClient struct {
 	mAllowSSH          *systray.MenuItem
 	mAutoConnect       *systray.MenuItem
 	mEnableRosenpass   *systray.MenuItem
+	mLazyConnEnabled   *systray.MenuItem
+	mBlockInbound      *systray.MenuItem
 	mNotifications     *systray.MenuItem
 	mAdvancedSettings  *systray.MenuItem
 	mCreateDebugBundle *systray.MenuItem
@@ -218,6 +219,11 @@ type serviceClient struct {
 
 	// switch elements for settings form
 	sRosenpassPermissive *widget.Check
+	sNetworkMonitor      *widget.Check
+	sDisableDNS          *widget.Check
+	sDisableClientRoutes *widget.Check
+	sDisableServerRoutes *widget.Check
+	sBlockLANAccess      *widget.Check
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL       string
@@ -226,19 +232,27 @@ type serviceClient struct {
 	RosenpassPermissive bool
 	interfaceName       string
 	interfacePort       int
+	networkMonitor      bool
+	disableDNS          bool
+	disableClientRoutes bool
+	disableServerRoutes bool
+	blockLANAccess      bool
 
 	connected            bool
 	update               *version.Update
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
-	showRoutes           bool
-	wRoutes              fyne.Window
+	showNetworks         bool
+	wNetworks            fyne.Window
 
 	eventManager *event.Manager
 
-	exitNodeMu     sync.Mutex
-	mExitNodeItems []menuHandler
+	exitNodeMu           sync.Mutex
+	mExitNodeItems       []menuHandler
+	exitNodeStates       []exitNodeState
+	mExitNodeDeselectAll *systray.MenuItem
+	logFile              string
 }
 
 type menuHandler struct {
@@ -249,25 +263,31 @@ type menuHandler struct {
 // newServiceClient instance constructor
 //
 // This constructor also builds the UI elements for the settings window.
-func newServiceClient(addr string, a fyne.App, showSettings bool, showRoutes bool) *serviceClient {
+func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool, showNetworks bool, showDebug bool) *serviceClient {
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &serviceClient{
-		ctx:              context.Background(),
+		ctx:              ctx,
+		cancel:           cancel,
 		addr:             addr,
 		app:              a,
+		logFile:          logFile,
 		sendNotification: false,
 
 		showAdvancedSettings: showSettings,
-		showRoutes:           showRoutes,
+		showNetworks:         showNetworks,
 		update:               version.NewUpdate(),
 	}
 
+	s.eventHandler = newEventHandler(s)
 	s.setNewIcons()
 
-	if showSettings {
+	switch {
+	case showSettings:
 		s.showSettingsUI()
-		return s
-	} else if showRoutes {
+	case showNetworks:
 		s.showNetworksUI()
+	case showDebug:
+		s.showDebugUI()
 	}
 
 	return s
@@ -314,6 +334,8 @@ func (s *serviceClient) updateIcon() {
 func (s *serviceClient) showSettingsUI() {
 	// add settings window UI elements.
 	s.wSettings = s.app.NewWindow("NetBird Settings")
+	s.wSettings.SetOnClosed(s.cancel)
+
 	s.iMngURL = widget.NewEntry()
 	s.iAdminURL = widget.NewEntry()
 	s.iConfigFile = widget.NewEntry()
@@ -323,14 +345,20 @@ func (s *serviceClient) showSettingsUI() {
 	s.iPreSharedKey = widget.NewPasswordEntry()
 	s.iInterfaceName = widget.NewEntry()
 	s.iInterfacePort = widget.NewEntry()
+
 	s.sRosenpassPermissive = widget.NewCheck("Enable Rosenpass permissive mode", nil)
 
+	s.sNetworkMonitor = widget.NewCheck("Restarts NetBird when the network changes", nil)
+	s.sDisableDNS = widget.NewCheck("Keeps system DNS settings unchanged", nil)
+	s.sDisableClientRoutes = widget.NewCheck("This peer won't route traffic to other peers", nil)
+	s.sDisableServerRoutes = widget.NewCheck("This peer won't act as router for others", nil)
+	s.sBlockLANAccess = widget.NewCheck("Blocks local network access when used as exit node", nil)
+
 	s.wSettings.SetContent(s.getSettingsForm())
-	s.wSettings.Resize(fyne.NewSize(600, 400))
+	s.wSettings.Resize(fyne.NewSize(600, 500))
 	s.wSettings.SetFixedSize(true)
 
 	s.getSrvConfig()
-
 	s.wSettings.Show()
 }
 
@@ -346,6 +374,11 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Config File", Widget: s.iConfigFile},
 			{Text: "Log File", Widget: s.iLogFile},
+			{Text: "Network Monitor", Widget: s.sNetworkMonitor},
+			{Text: "Disable DNS", Widget: s.sDisableDNS},
+			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
+			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
+			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
 		},
 		SubmitText: "Save",
 		OnSubmit: func() {
@@ -368,23 +401,32 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 
 			defer s.wSettings.Close()
 
-			// If the management URL, pre-shared key, admin URL, Rosenpass permissive mode,
-			// interface name, or interface port have changed, we attempt to re-login with the new settings.
+			// Check if any settings have changed
 			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
 				s.adminURL != iAdminURL || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
-				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) {
+				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
+				s.networkMonitor != s.sNetworkMonitor.Checked ||
+				s.disableDNS != s.sDisableDNS.Checked ||
+				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
+				s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
+				s.blockLANAccess != s.sBlockLANAccess.Checked {
 
 				s.managementURL = iMngURL
 				s.preSharedKey = s.iPreSharedKey.Text
 				s.adminURL = iAdminURL
 
 				loginRequest := proto.LoginRequest{
-					ManagementUrl:        iMngURL,
-					AdminURL:             iAdminURL,
-					IsLinuxDesktopClient: runtime.GOOS == "linux",
-					RosenpassPermissive:  &s.sRosenpassPermissive.Checked,
-					InterfaceName:        &s.iInterfaceName.Text,
-					WireguardPort:        &port,
+					ManagementUrl:       iMngURL,
+					AdminURL:            iAdminURL,
+					IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+					RosenpassPermissive: &s.sRosenpassPermissive.Checked,
+					InterfaceName:       &s.iInterfaceName.Text,
+					WireguardPort:       &port,
+					NetworkMonitor:      &s.sNetworkMonitor.Checked,
+					DisableDns:          &s.sDisableDNS.Checked,
+					DisableClientRoutes: &s.sDisableClientRoutes.Checked,
+					DisableServerRoutes: &s.sDisableServerRoutes.Checked,
+					BlockLanAccess:      &s.sBlockLANAccess.Checked,
 				}
 
 				if s.iPreSharedKey.Text != censoredPreSharedKey {
@@ -411,7 +453,7 @@ func (s *serviceClient) login() error {
 	}
 
 	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{
-		IsLinuxDesktopClient: runtime.GOOS == "linux",
+		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
 	})
 	if err != nil {
 		log.Errorf("login to management URL with: %v", err)
@@ -458,7 +500,7 @@ func (s *serviceClient) menuUpClick() error {
 
 	if status.Status == string(internal.StatusConnected) {
 		log.Warnf("already connected")
-		return err
+		return nil
 	}
 
 	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
@@ -483,7 +525,7 @@ func (s *serviceClient) menuDownClick() error {
 		return err
 	}
 
-	if status.Status != string(internal.StatusConnected) {
+	if status.Status != string(internal.StatusConnected) && status.Status != string(internal.StatusConnecting) {
 		log.Warnf("already down")
 		return nil
 	}
@@ -521,7 +563,9 @@ func (s *serviceClient) updateStatus() error {
 		}
 
 		var systrayIconState bool
-		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
+
+		switch {
+		case status.Status == string(internal.StatusConnected):
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -536,7 +580,9 @@ func (s *serviceClient) updateStatus() error {
 			s.mNetworks.Enable()
 			go s.updateExitNodes()
 			systrayIconState = true
-		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
+		case status.Status == string(internal.StatusConnecting):
+			s.setConnectingStatus()
+		case status.Status != string(internal.StatusConnected) && s.mUp.Disabled():
 			s.setDisconnectedStatus()
 			systrayIconState = false
 		}
@@ -595,6 +641,17 @@ func (s *serviceClient) setDisconnectedStatus() {
 	go s.updateExitNodes()
 }
 
+func (s *serviceClient) setConnectingStatus() {
+	s.connected = false
+	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
+	systray.SetTooltip("NetBird (Connecting)")
+	s.mStatus.SetTitle("Connecting")
+	s.mUp.Disable()
+	s.mDown.Enable()
+	s.mNetworks.Disable()
+	s.mExitNode.Disable()
+}
+
 func (s *serviceClient) onTrayReady() {
 	systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 	systray.SetTooltip("NetBird")
@@ -606,13 +663,14 @@ func (s *serviceClient) onTrayReady() {
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
 	s.mDown.Disable()
-	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Netbird Admin Panel")
 	systray.AddSeparator()
 
 	s.mSettings = systray.AddMenuItem("Settings", settingsMenuDescr)
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
+	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
+	s.mBlockInbound = s.mSettings.AddSubMenuItemCheckbox("Block Inbound Connections", blockInboundMenuDescr, false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
@@ -629,7 +687,7 @@ func (s *serviceClient) onTrayReady() {
 
 	s.mAbout = systray.AddMenuItem("About", "About")
 	s.mAbout.SetIcon(s.icAbout)
-	
+
 	s.mGitHub = s.mAbout.AddSubMenuItem("GitHub", "GitHub")
 
 	versionString := normalizedVersion(version.NetbirdVersion())
@@ -671,134 +729,26 @@ func (s *serviceClient) onTrayReady() {
 	})
 
 	go s.eventManager.Start(s.ctx)
-
-	go func() {
-		var err error
-		for {
-			select {
-			case <-s.mAdminPanel.ClickedCh:
-				err = open.Run(s.adminURL)
-			case <-s.mUp.ClickedCh:
-				s.mUp.Disable()
-				go func() {
-					defer s.mUp.Enable()
-					err := s.menuUpClick()
-					if err != nil {
-						s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
-						return
-					}
-				}()
-			case <-s.mDown.ClickedCh:
-				s.mDown.Disable()
-				go func() {
-					defer s.mDown.Enable()
-					err := s.menuDownClick()
-					if err != nil {
-						s.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
-						return
-					}
-				}()
-			case <-s.mAllowSSH.ClickedCh:
-				if s.mAllowSSH.Checked() {
-					s.mAllowSSH.Uncheck()
-				} else {
-					s.mAllowSSH.Check()
-				}
-				if err := s.updateConfig(); err != nil {
-					log.Errorf("failed to update config: %v", err)
-				}
-			case <-s.mAutoConnect.ClickedCh:
-				if s.mAutoConnect.Checked() {
-					s.mAutoConnect.Uncheck()
-				} else {
-					s.mAutoConnect.Check()
-				}
-				if err := s.updateConfig(); err != nil {
-					log.Errorf("failed to update config: %v", err)
-				}
-			case <-s.mEnableRosenpass.ClickedCh:
-				if s.mEnableRosenpass.Checked() {
-					s.mEnableRosenpass.Uncheck()
-				} else {
-					s.mEnableRosenpass.Check()
-				}
-				if err := s.updateConfig(); err != nil {
-					log.Errorf("failed to update config: %v", err)
-				}
-			case <-s.mAdvancedSettings.ClickedCh:
-				s.mAdvancedSettings.Disable()
-				go func() {
-					defer s.mAdvancedSettings.Enable()
-					defer s.getSrvConfig()
-					s.runSelfCommand("settings", "true")
-				}()
-			case <-s.mCreateDebugBundle.ClickedCh:
-				go func() {
-					if err := s.createAndOpenDebugBundle(); err != nil {
-						log.Errorf("Failed to create debug bundle: %v", err)
-						s.app.SendNotification(fyne.NewNotification("Error", "Failed to create debug bundle"))
-					}
-				}()
-			case <-s.mQuit.ClickedCh:
-				systray.Quit()
-				return
-			case <-s.mGitHub.ClickedCh:
-				err := openURL("https://github.com/netbirdio/netbird")
-				if err != nil {
-					log.Errorf("%s", err)
-				}
-			case <-s.mUpdate.ClickedCh:
-				err := openURL(version.DownloadUrl())
-				if err != nil {
-					log.Errorf("%s", err)
-				}
-			case <-s.mNetworks.ClickedCh:
-				s.mNetworks.Disable()
-				go func() {
-					defer s.mNetworks.Enable()
-					s.runSelfCommand("networks", "true")
-				}()
-			case <-s.mNotifications.ClickedCh:
-				if s.mNotifications.Checked() {
-					s.mNotifications.Uncheck()
-				} else {
-					s.mNotifications.Check()
-				}
-				if s.eventManager != nil {
-					s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
-				}
-				if err := s.updateConfig(); err != nil {
-					log.Errorf("failed to update config: %v", err)
-				}
-			}
-
-			if err != nil {
-				log.Errorf("process connection: %v", err)
-			}
-		}
-	}()
+	go s.eventHandler.listen(s.ctx)
 }
 
-func (s *serviceClient) runSelfCommand(command, arg string) {
-	proc, err := os.Executable()
+func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
+	if s.logFile == "" {
+		// attach child's streams to parent's streams
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		return nil
+	}
+
+	out, err := os.OpenFile(s.logFile, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
-		log.Errorf("show %s failed with error: %v", command, err)
-		return
+		log.Errorf("Failed to open log file %s: %v", s.logFile, err)
+		return nil
 	}
-
-	cmd := exec.Command(proc,
-		fmt.Sprintf("--%s=%s", command, arg),
-		fmt.Sprintf("--daemon-addr=%s", s.addr),
-	)
-
-	out, err := cmd.CombinedOutput()
-	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-		log.Errorf("start %s UI: %v, %s", command, err, string(out))
-		return
-	}
-	if len(out) != 0 {
-		log.Infof("command %s executed: %s", command, string(out))
-	}
+	cmd.Stdout = out
+	cmd.Stderr = out
+	return out
 }
 
 func normalizedVersion(version string) string {
@@ -811,9 +761,7 @@ func normalizedVersion(version string) string {
 
 // onTrayExit is called when the tray icon is closed.
 func (s *serviceClient) onTrayExit() {
-	for _, item := range s.mExitNodeItems {
-		item.cancel()
-	}
+	s.cancel()
 }
 
 // getSrvClient connection to the service.
@@ -822,7 +770,7 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		return s.conn, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(s.ctx, timeout)
 	defer cancel()
 
 	conn, err := grpc.DialContext(
@@ -868,6 +816,12 @@ func (s *serviceClient) getSrvConfig() {
 	s.interfaceName = cfg.InterfaceName
 	s.interfacePort = int(cfg.WireguardPort)
 
+	s.networkMonitor = cfg.NetworkMonitor
+	s.disableDNS = cfg.DisableDns
+	s.disableClientRoutes = cfg.DisableClientRoutes
+	s.disableServerRoutes = cfg.DisableServerRoutes
+	s.blockLANAccess = cfg.BlockLanAccess
+
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iAdminURL.SetText(s.adminURL)
@@ -880,6 +834,11 @@ func (s *serviceClient) getSrvConfig() {
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()
 		}
+		s.sNetworkMonitor.SetChecked(cfg.NetworkMonitor)
+		s.sDisableDNS.SetChecked(cfg.DisableDns)
+		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
+		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
+		s.sBlockLANAccess.SetChecked(cfg.BlockLanAccess)
 	}
 
 	if s.mNotifications == nil {
@@ -893,7 +852,6 @@ func (s *serviceClient) getSrvConfig() {
 	if s.eventManager != nil {
 		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 	}
-
 }
 
 func (s *serviceClient) onUpdateAvailable() {
@@ -959,6 +917,18 @@ func (s *serviceClient) loadSettings() {
 		s.mEnableRosenpass.Uncheck()
 	}
 
+	if cfg.LazyConnectionEnabled {
+		s.mLazyConnEnabled.Check()
+	} else {
+		s.mLazyConnEnabled.Uncheck()
+	}
+
+	if cfg.BlockInbound {
+		s.mBlockInbound.Check()
+	} else {
+		s.mBlockInbound.Uncheck()
+	}
+
 	if cfg.DisableNotifications {
 		s.mNotifications.Uncheck()
 	} else {
@@ -975,14 +945,18 @@ func (s *serviceClient) updateConfig() error {
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
+	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
+	blockInbound := s.mBlockInbound.Checked()
 	notificationsDisabled := !s.mNotifications.Checked()
 
 	loginRequest := proto.LoginRequest{
-		IsLinuxDesktopClient: runtime.GOOS == "linux",
-		ServerSSHAllowed:     &sshAllowed,
-		RosenpassEnabled:     &rosenpassEnabled,
-		DisableAutoConnect:   &disableAutoStart,
-		DisableNotifications: &notificationsDisabled,
+		IsUnixDesktopClient:   runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+		ServerSSHAllowed:      &sshAllowed,
+		RosenpassEnabled:      &rosenpassEnabled,
+		DisableAutoConnect:    &disableAutoStart,
+		LazyConnectionEnabled: &lazyConnectionEnabled,
+		BlockInbound:          &blockInbound,
+		DisableNotifications:  &notificationsDisabled,
 	}
 
 	if err := s.restartClient(&loginRequest); err != nil {

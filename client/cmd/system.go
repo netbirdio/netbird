@@ -6,6 +6,8 @@ const (
 	disableServerRoutesFlag = "disable-server-routes"
 	disableDNSFlag          = "disable-dns"
 	disableFirewallFlag     = "disable-firewall"
+	blockLANAccessFlag      = "block-lan-access"
+	blockInboundFlag        = "block-inbound"
 )
 
 var (
@@ -13,6 +15,8 @@ var (
 	disableServerRoutes bool
 	disableDNS          bool
 	disableFirewall     bool
+	blockLANAccess      bool
+	blockInbound        bool
 )
 
 func init() {
@@ -28,4 +32,11 @@ func init() {
 
 	upCmd.PersistentFlags().BoolVar(&disableFirewall, disableFirewallFlag, false,
 		"Disable firewall configuration. If enabled, the client won't modify firewall rules.")
+
+	upCmd.PersistentFlags().BoolVar(&blockLANAccess, blockLANAccessFlag, false,
+		"Block access to local networks (LAN) when using this peer as a router or exit node")
+
+	upCmd.PersistentFlags().BoolVar(&blockInbound, blockInboundFlag, false,
+		"Block inbound connections. If enabled, the client will not allow any inbound connections to the local machine nor routed networks.\n"+
+			"This overrides any policies received from the management service.")
 }

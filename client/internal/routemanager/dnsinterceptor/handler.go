@@ -6,7 +6,6 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
@@ -60,7 +59,7 @@ func (d *DnsInterceptor) String() string {
 }
 
 func (d *DnsInterceptor) AddRoute(context.Context) error {
-	d.dnsServer.RegisterHandler(d.route.Domains.ToPunycodeList(), d, nbdns.PriorityDNSRoute)
+	d.dnsServer.RegisterHandler(d.route.Domains, d, nbdns.PriorityDNSRoute)
 	return nil
 }
 
@@ -89,7 +88,7 @@ func (d *DnsInterceptor) RemoveRoute() error {
 	clear(d.interceptedDomains)
 	d.mu.Unlock()
 
-	d.dnsServer.DeregisterHandler(d.route.Domains.ToPunycodeList(), nbdns.PriorityDNSRoute)
+	d.dnsServer.DeregisterHandler(d.route.Domains, nbdns.PriorityDNSRoute)
 
 	return nberrors.FormatErrorOrNil(merr)
 }
@@ -142,54 +141,64 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Tracef("received DNS request for domain=%s type=%v class=%v",
 		r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
 
+	// pass if non A/AAAA query
+	if r.Question[0].Qtype != dns.TypeA && r.Question[0].Qtype != dns.TypeAAAA {
+		d.continueToNextHandler(w, r, "non A/AAAA query")
+		return
+	}
+
 	d.mu.RLock()
 	peerKey := d.currentPeerKey
 	d.mu.RUnlock()
 
 	if peerKey == "" {
-		log.Tracef("no current peer key set, letting next handler try for domain=%s", r.Question[0].Name)
-
-		d.continueToNextHandler(w, r, "no current peer key")
+		d.writeDNSError(w, r, "no current peer key")
 		return
 	}
 
 	upstreamIP, err := d.getUpstreamIP(peerKey)
 	if err != nil {
-		log.Errorf("failed to get upstream IP: %v", err)
-		d.continueToNextHandler(w, r, fmt.Sprintf("failed to get upstream IP: %v", err))
+		d.writeDNSError(w, r, fmt.Sprintf("get upstream IP: %v", err))
 		return
 	}
 
-	// set the AuthenticatedData flag and the EDNS0 buffer size to 4096 bytes to support larger dns records
 	if r.Extra == nil {
-		r.SetEdns0(4096, false)
 		r.MsgHdr.AuthenticatedData = true
 	}
-
 	client := &dns.Client{
-		Timeout: 5 * time.Second,
+		Timeout: nbdns.UpstreamTimeout,
 		Net:     "udp",
 	}
 	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
-	reply, _, err := client.ExchangeContext(context.Background(), r, upstream)
-
-	var answer []dns.RR
-	if reply != nil {
-		answer = reply.Answer
-	}
-	log.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, answer)
-
+	reply, _, err := nbdns.ExchangeWithFallback(context.TODO(), client, r, upstream)
 	if err != nil {
-		log.Errorf("failed to exchange DNS request with %s: %v", upstream, err)
+		log.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
 		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
 			log.Errorf("failed writing DNS response: %v", err)
 		}
 		return
 	}
 
+	var answer []dns.RR
+	if reply != nil {
+		answer = reply.Answer
+	}
+
+	log.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, answer)
+
 	reply.Id = r.Id
 	if err := d.writeMsg(w, reply); err != nil {
 		log.Errorf("failed writing DNS response: %v", err)
+	}
+}
+
+func (d *DnsInterceptor) writeDNSError(w dns.ResponseWriter, r *dns.Msg, reason string) {
+	log.Warnf("failed to query upstream for domain=%s: %s", r.Question[0].Name, reason)
+
+	resp := new(dns.Msg)
+	resp.SetRcode(r, dns.RcodeServerFailure)
+	if err := w.WriteMsg(resp); err != nil {
+		log.Errorf("failed to write DNS error response: %v", err)
 	}
 }
 
@@ -225,7 +234,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 			origPattern = writer.GetOrigPattern()
 		}
 
-		resolvedDomain := domain.Domain(r.Question[0].Name)
+		resolvedDomain := domain.Domain(strings.ToLower(r.Question[0].Name))
 
 		// already punycode via RegisterHandler()
 		originalDomain := domain.Domain(origPattern)
@@ -255,7 +264,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 				continue
 			}
 
-			prefix := netip.PrefixFrom(ip, ip.BitLen())
+			prefix := netip.PrefixFrom(ip.Unmap(), ip.BitLen())
 			newPrefixes = append(newPrefixes, prefix)
 		}
 
@@ -319,9 +328,14 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 
 	// Update domain prefixes using resolved domain as key
 	if len(toAdd) > 0 || len(toRemove) > 0 {
+		if d.route.KeepRoute {
+			// replace stored prefixes with old + added
+			// nolint:gocritic
+			newPrefixes = append(oldPrefixes, toAdd...)
+		}
 		d.interceptedDomains[resolvedDomain] = newPrefixes
 		originalDomain = domain.Domain(strings.TrimSuffix(string(originalDomain), "."))
-		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes)
+		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes, d.route.GetResourceID())
 
 		if len(toAdd) > 0 {
 			log.Debugf("added dynamic route(s) for domain=%s (pattern: domain=%s): %s",
@@ -329,7 +343,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 				originalDomain.SafeString(),
 				toAdd)
 		}
-		if len(toRemove) > 0 {
+		if len(toRemove) > 0 && !d.route.KeepRoute {
 			log.Debugf("removed dynamic route(s) for domain=%s (pattern: domain=%s): %s",
 				resolvedDomain.SafeString(),
 				originalDomain.SafeString(),

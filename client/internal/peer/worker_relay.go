@@ -33,14 +33,14 @@ type WorkerRelay struct {
 	wgWatcher *WGWatcher
 }
 
-func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager relayClient.ManagerService) *WorkerRelay {
+func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager relayClient.ManagerService, stateDump *stateDump) *WorkerRelay {
 	r := &WorkerRelay{
 		log:          log,
 		isController: ctrl,
 		config:       config,
 		conn:         conn,
 		relayManager: relayManager,
-		wgWatcher:    NewWGWatcher(log, config.WgConfig.WgInterface, config.Key),
+		wgWatcher:    NewWGWatcher(log, config.WgConfig.WgInterface, config.Key, stateDump),
 	}
 	return r
 }

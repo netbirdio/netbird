@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"runtime"
 	"sync"
 
 	"github.com/kardianos/service"
@@ -27,12 +28,19 @@ func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
 }
 
 func newSVCConfig() *service.Config {
-	return &service.Config{
+	config := &service.Config{
 		Name:        serviceName,
 		DisplayName: "Netbird",
-		Description: "A WireGuard-based mesh network that connects your devices into a single private network.",
+		Description: "Netbird mesh network client",
 		Option:      make(service.KeyValue),
+		EnvVars:     make(map[string]string),
 	}
+
+	if runtime.GOOS == "linux" {
+		config.EnvVars["SYSTEMD_UNIT"] = serviceName
+	}
+
+	return config
 }
 
 func newSVC(prg *program, conf *service.Config) (service.Service, error) {

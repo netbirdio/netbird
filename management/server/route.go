@@ -9,51 +9,28 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/types"
-
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
 
 // GetRoute gets a route object from account and route IDs
 func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetRouteByID(ctx, store.LockingStrengthShare, accountID, string(routeID))
-}
-
-// GetRoutesByPrefixOrDomains return list of routes by account and route prefix
-func getRoutesByPrefixOrDomains(ctx context.Context, transaction store.Store, accountID string, prefix netip.Prefix, domains domain.List) ([]*route.Route, error) {
-	accountRoutes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	routes := make([]*route.Route, 0)
-	for _, r := range accountRoutes {
-		dynamic := r.IsDynamic()
-		if dynamic && r.Domains.PunycodeString() == domains.PunycodeString() ||
-			!dynamic && r.Network.String() == prefix.String() {
-			routes = append(routes, r)
-		}
-	}
-
-	return routes, nil
 }
 
 // checkRoutePrefixOrDomainsExistForPeers checks if a route with a given prefix exists for a single peer or multiple peer groups.
@@ -161,13 +138,16 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Create)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
+	if len(domains) > 0 && prefix.IsValid() {
+		return nil, status.Errorf(status.InvalidArgument, "domains and network should not be provided at the same time")
 	}
 
 	var newRoute *route.Route
@@ -225,13 +205,12 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Update)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var oldRoute *route.Route
@@ -283,13 +262,12 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Delete)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var route *route.Route
@@ -324,17 +302,12 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 // ListRoutes returns a list of routes from account
 func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, userID string) ([]*route.Route, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	return am.Store.GetAccountRoutes(ctx, store.LockingStrengthShare, accountID)
@@ -345,31 +318,6 @@ func validateRoute(ctx context.Context, transaction store.Store, accountID strin
 		return status.Errorf(status.InvalidArgument, "route provided is nil")
 	}
 
-	if err := validateRouteProperties(routeToSave); err != nil {
-		return err
-	}
-
-	if routeToSave.Peer != "" {
-		peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthShare, accountID, routeToSave.Peer)
-		if err != nil {
-			return err
-		}
-
-		if peer.Meta.GoOS != "linux" {
-			return status.Errorf(status.InvalidArgument, "non-linux peers are not supported as network routes")
-		}
-	}
-
-	groupsMap, err := validateRouteGroups(ctx, transaction, accountID, routeToSave)
-	if err != nil {
-		return err
-	}
-
-	return checkRoutePrefixOrDomainsExistForPeers(ctx, transaction, accountID, routeToSave, groupsMap)
-}
-
-// Helper to validate route properties.
-func validateRouteProperties(routeToSave *route.Route) error {
 	if routeToSave.Metric < route.MinMetric || routeToSave.Metric > route.MaxMetric {
 		return status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
 	}
@@ -394,7 +342,12 @@ func validateRouteProperties(routeToSave *route.Route) error {
 		return status.Errorf(status.InvalidArgument, "peer with ID and peer groups should not be provided at the same time")
 	}
 
-	return nil
+	groupsMap, err := validateRouteGroups(ctx, transaction, accountID, routeToSave)
+	if err != nil {
+		return err
+	}
+
+	return checkRoutePrefixOrDomainsExistForPeers(ctx, transaction, accountID, routeToSave, groupsMap)
 }
 
 // validateRouteGroups validates the route groups and returns the validated groups map.
@@ -463,6 +416,9 @@ func toProtocolRoutesFirewallRules(rules []*types.RouteFirewallRule) []*proto.Ro
 			Protocol:     getProtoProtocol(rule.Protocol),
 			PortInfo:     getProtoPortInfo(rule),
 			IsDynamic:    rule.IsDynamic,
+			Domains:      rule.Domains.ToPunycodeList(),
+			PolicyID:     []byte(rule.PolicyID),
+			RouteID:      string(rule.RouteID),
 		}
 	}
 
@@ -534,4 +490,23 @@ func areRouteChangesAffectPeers(ctx context.Context, transaction store.Store, ro
 	}
 
 	return anyGroupHasPeersOrResources(ctx, transaction, route.AccountID, route.PeerGroups)
+}
+
+// GetRoutesByPrefixOrDomains return list of routes by account and route prefix
+func getRoutesByPrefixOrDomains(ctx context.Context, transaction store.Store, accountID string, prefix netip.Prefix, domains domain.List) ([]*route.Route, error) {
+	accountRoutes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	routes := make([]*route.Route, 0)
+	for _, r := range accountRoutes {
+		dynamic := r.IsDynamic()
+		if dynamic && r.Domains.PunycodeString() == domains.PunycodeString() ||
+			!dynamic && r.Network.String() == prefix.String() {
+			routes = append(routes, r)
+		}
+	}
+
+	return routes, nil
 }

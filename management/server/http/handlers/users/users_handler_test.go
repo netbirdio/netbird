@@ -9,15 +9,20 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 )
 
 const (
@@ -106,7 +111,7 @@ func initUsersTestData() *handler {
 					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", userID)
 				}
 
-				info, err := update.Copy().ToUserInfo(nil, &types.Settings{RegularUsersViewBlocked: false})
+				info, err := update.Copy().ToUserInfo(nil)
 				if err != nil {
 					return nil, err
 				}
@@ -122,6 +127,80 @@ func initUsersTestData() *handler {
 				}
 
 				return nil
+			},
+			GetCurrentUserInfoFunc: func(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
+				switch userAuth.UserId {
+				case "not-found":
+					return nil, status.NewUserNotFoundError("not-found")
+				case "not-of-account":
+					return nil, status.NewUserNotPartOfAccountError()
+				case "blocked-user":
+					return nil, status.NewUserBlockedError()
+				case "service-user":
+					return nil, status.NewPermissionDeniedError()
+				case "owner":
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "owner",
+							Name:          "",
+							Role:          "owner",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							Issued:        "api",
+						},
+						Permissions: mergeRolePermissions(roles.Owner),
+					}, nil
+				case "regular-user":
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "regular-user",
+							Name:          "",
+							Role:          "user",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							Issued:        "api",
+						},
+						Permissions: mergeRolePermissions(roles.User),
+					}, nil
+
+				case "admin-user":
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "admin-user",
+							Name:          "",
+							Role:          "admin",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							LastLogin:     time.Time{},
+							Issued:        "api",
+						},
+						Permissions: mergeRolePermissions(roles.Admin),
+					}, nil
+				case "restricted-user":
+					return &users.UserInfoWithPermissions{
+						UserInfo: &types.UserInfo{
+							ID:            "restricted-user",
+							Name:          "",
+							Role:          "user",
+							Status:        "active",
+							IsServiceUser: false,
+							IsBlocked:     false,
+							NonDeletable:  false,
+							LastLogin:     time.Time{},
+							Issued:        "api",
+						},
+						Permissions: mergeRolePermissions(roles.User),
+						Restricted:  true,
+					}, nil
+				}
+
+				return nil, fmt.Errorf("user id %s not handled", userAuth.UserId)
 			},
 		},
 	}
@@ -480,4 +559,169 @@ func TestDeleteUser(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCurrentUser(t *testing.T) {
+	tt := []struct {
+		name           string
+		expectedStatus int
+		requestAuth    nbcontext.UserAuth
+		expectedResult *api.User
+	}{
+		{
+			name:           "without auth",
+			expectedStatus: http.StatusInternalServerError,
+		},
+		{
+			name:           "user not found",
+			requestAuth:    nbcontext.UserAuth{UserId: "not-found"},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "not of account",
+			requestAuth:    nbcontext.UserAuth{UserId: "not-of-account"},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "blocked user",
+			requestAuth:    nbcontext.UserAuth{UserId: "blocked-user"},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "service user",
+			requestAuth:    nbcontext.UserAuth{UserId: "service-user"},
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "owner",
+			requestAuth:    nbcontext.UserAuth{UserId: "owner"},
+			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "owner",
+				Role:          "owner",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: &api.UserPermissions{
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.Owner)),
+				},
+			},
+		},
+		{
+			name:           "regular user",
+			requestAuth:    nbcontext.UserAuth{UserId: "regular-user"},
+			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "regular-user",
+				Role:          "user",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: &api.UserPermissions{
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.User)),
+				},
+			},
+		},
+		{
+			name:           "admin user",
+			requestAuth:    nbcontext.UserAuth{UserId: "admin-user"},
+			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "admin-user",
+				Role:          "admin",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: &api.UserPermissions{
+					Modules: stringifyPermissionsKeys(mergeRolePermissions(roles.Admin)),
+				},
+			},
+		},
+		{
+			name:           "restricted user",
+			requestAuth:    nbcontext.UserAuth{UserId: "restricted-user"},
+			expectedStatus: http.StatusOK,
+			expectedResult: &api.User{
+				Id:            "restricted-user",
+				Role:          "user",
+				Status:        "active",
+				IsBlocked:     false,
+				IsCurrent:     ptr(true),
+				IsServiceUser: ptr(false),
+				AutoGroups:    []string{},
+				Issued:        ptr("api"),
+				LastLogin:     ptr(time.Time{}),
+				Permissions: &api.UserPermissions{
+					IsRestricted: true,
+					Modules:      stringifyPermissionsKeys(mergeRolePermissions(roles.User)),
+				},
+			},
+		},
+	}
+
+	userHandler := initUsersTestData()
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/users/current", nil)
+			if tc.requestAuth.UserId != "" {
+				req = nbcontext.SetUserAuthInRequest(req, tc.requestAuth)
+			}
+
+			rr := httptest.NewRecorder()
+
+			userHandler.getCurrentUser(rr, req)
+
+			res := rr.Result()
+			defer res.Body.Close()
+
+			assert.Equal(t, tc.expectedStatus, rr.Code, "handler returned wrong status code")
+
+			if tc.expectedResult != nil {
+				var result api.User
+				require.NoError(t, json.NewDecoder(res.Body).Decode(&result))
+				assert.EqualValues(t, *tc.expectedResult, result)
+			}
+		})
+	}
+}
+
+func ptr[T any, PT *T](x T) PT {
+	return &x
+}
+
+func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
+	permissions := roles.Permissions{}
+
+	for k := range modules.All {
+		if rolePermissions, ok := role.Permissions[k]; ok {
+			permissions[k] = rolePermissions
+			continue
+		}
+		permissions[k] = role.AutoAllowNew
+	}
+
+	return permissions
+}
+
+func stringifyPermissionsKeys(permissions roles.Permissions) map[string]map[string]bool {
+	modules := make(map[string]map[string]bool)
+	for module, operations := range permissions {
+		modules[string(module)] = make(map[string]bool)
+		for op, val := range operations {
+			modules[string(module)][string(op)] = val
+		}
+	}
+	return modules
 }
