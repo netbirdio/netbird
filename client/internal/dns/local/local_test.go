@@ -470,3 +470,115 @@ func TestLocalResolver_CNAMEFallback(t *testing.T) {
 		})
 	}
 }
+
+// TestLocalResolver_NoErrorWithDifferentRecordType verifies that querying for a record type
+// that doesn't exist but where other record types exist for the same domain returns NOERROR
+// with 0 records instead of NXDOMAIN
+func TestLocalResolver_NoErrorWithDifferentRecordType(t *testing.T) {
+	resolver := NewResolver()
+
+	recordA := nbdns.SimpleRecord{
+		Name:  "example.netbird.cloud.",
+		Type:  int(dns.TypeA),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "192.168.1.100",
+	}
+
+	recordCNAME := nbdns.SimpleRecord{
+		Name:  "alias.netbird.cloud.",
+		Type:  int(dns.TypeCNAME),
+		Class: nbdns.DefaultClass,
+		TTL:   300,
+		RData: "target.example.com.",
+	}
+
+	resolver.Update([]nbdns.SimpleRecord{recordA, recordCNAME})
+
+	testCases := []struct {
+		name           string
+		queryName      string
+		queryType      uint16
+		expectedRcode  int
+		shouldHaveData bool
+	}{
+		{
+			name:           "Query A record that exists",
+			queryName:      "example.netbird.cloud.",
+			queryType:      dns.TypeA,
+			expectedRcode:  dns.RcodeSuccess,
+			shouldHaveData: true,
+		},
+		{
+			name:           "Query AAAA for domain with only A record",
+			queryName:      "example.netbird.cloud.",
+			queryType:      dns.TypeAAAA,
+			expectedRcode:  dns.RcodeSuccess,
+			shouldHaveData: false,
+		},
+		{
+			name:           "Query other record with different case and non-fqdn",
+			queryName:      "EXAMPLE.netbird.cloud",
+			queryType:      dns.TypeAAAA,
+			expectedRcode:  dns.RcodeSuccess,
+			shouldHaveData: false,
+		},
+		{
+			name:           "Query TXT for domain with only A record",
+			queryName:      "example.netbird.cloud.",
+			queryType:      dns.TypeTXT,
+			expectedRcode:  dns.RcodeSuccess,
+			shouldHaveData: false,
+		},
+		{
+			name:           "Query A for domain with only CNAME record",
+			queryName:      "alias.netbird.cloud.",
+			queryType:      dns.TypeA,
+			expectedRcode:  dns.RcodeSuccess,
+			shouldHaveData: true,
+		},
+		{
+			name:           "Query AAAA for domain with only CNAME record",
+			queryName:      "alias.netbird.cloud.",
+			queryType:      dns.TypeAAAA,
+			expectedRcode:  dns.RcodeSuccess,
+			shouldHaveData: true,
+		},
+		{
+			name:           "Query for completely non-existent domain",
+			queryName:      "nonexistent.netbird.cloud.",
+			queryType:      dns.TypeA,
+			expectedRcode:  dns.RcodeNameError,
+			shouldHaveData: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var responseMSG *dns.Msg
+
+			msg := new(dns.Msg).SetQuestion(tc.queryName, tc.queryType)
+
+			responseWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					responseMSG = m
+					return nil
+				},
+			}
+
+			resolver.ServeDNS(responseWriter, msg)
+
+			require.NotNil(t, responseMSG, "Should have received a response message")
+
+			assert.Equal(t, tc.expectedRcode, responseMSG.Rcode,
+				"Response code should be %d (%s)",
+				tc.expectedRcode, dns.RcodeToString[tc.expectedRcode])
+
+			if tc.shouldHaveData {
+				assert.Greater(t, len(responseMSG.Answer), 0, "Response should contain answers")
+			} else {
+				assert.Equal(t, 0, len(responseMSG.Answer), "Response should contain no answers")
+			}
+		})
+	}
+}
