@@ -134,6 +134,7 @@ jobs:
           NETBIRD_STORE_ENGINE_MYSQL_DSN: '${{ env.NETBIRD_STORE_ENGINE_MYSQL_DSN }}$'
           CI_NETBIRD_MGMT_IDP_SIGNKEY_REFRESH: false
           CI_NETBIRD_TURN_EXTERNAL_IP: "1.2.3.4"
+          CI_NETBIRD_MGMT_DISABLE_DEFAULT_POLICY: false
 
         run: |
           set -x
@@ -180,6 +181,7 @@ jobs:
           grep -A 7 Relay management.json | egrep '"Secret": ".+"'
           grep DisablePromptLogin management.json | grep 'true'
           grep LoginFlag management.json | grep 0
+          grep DisableDefaultPolicy management.json | grep "$CI_NETBIRD_MGMT_DISABLE_DEFAULT_POLICY"
 
       - name: Install modules
         run: go mod tidy
