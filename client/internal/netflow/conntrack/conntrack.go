@@ -204,7 +204,7 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 		eventStr = "Ended"
 	}
 
-	log.Tracef("%s %s %s connection: %s:%d -> %s:%d", eventStr, direction, proto, srcIP, srcPort, dstIP, dstPort)
+	log.Tracef("%s %s %s connection: %s:%d → %s:%d", eventStr, direction, proto, srcIP, srcPort, dstIP, dstPort)
 
 	c.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:     flowID,

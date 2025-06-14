@@ -118,7 +118,7 @@ func tracePacket(cmd *cobra.Command, args []string) error {
 }
 
 func printTrace(cmd *cobra.Command, src, dst, proto string, sport, dport uint16, resp *proto.TracePacketResponse) {
-	cmd.Printf("Packet trace %s:%d -> %s:%d (%s)\n\n", src, sport, dst, dport, strings.ToUpper(proto))
+	cmd.Printf("Packet trace %s:%d → %s:%d (%s)\n\n", src, sport, dst, dport, strings.ToUpper(proto))
 
 	for _, stage := range resp.Stages {
 		if stage.ForwardingDetails != nil {
