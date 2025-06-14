@@ -11,8 +11,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
-var ErrRouteAllWithoutNameserverGroup = fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
-
 const (
 	ipv4ReverseZone = ".in-addr.arpa."
 	ipv6ReverseZone = ".ip6.arpa."
@@ -27,14 +25,14 @@ type hostManager interface {
 
 type SystemDNSSettings struct {
 	Domains    []string
-	ServerIP   string
+	ServerIP   netip.Addr
 	ServerPort int
 }
 
 type HostDNSConfig struct {
 	Domains    []DomainConfig `json:"domains"`
 	RouteAll   bool           `json:"routeAll"`
-	ServerIP   string         `json:"serverIP"`
+	ServerIP   netip.Addr     `json:"serverIP"`
 	ServerPort int            `json:"serverPort"`
 }
 
@@ -89,7 +87,7 @@ func newNoopHostMocker() hostManager {
 	}
 }
 
-func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) HostDNSConfig {
+func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip netip.Addr, port int) HostDNSConfig {
 	config := HostDNSConfig{
 		RouteAll:   false,
 		ServerIP:   ip,
