@@ -22,7 +22,7 @@ func TestHandlerChain_ServeDNS_Priorities(t *testing.T) {
 
 	// Setup handlers with different priorities
 	chain.AddHandler("example.com.", defaultHandler, nbdns.PriorityDefault)
-	chain.AddHandler("example.com.", matchDomainHandler, nbdns.PriorityMatchDomain)
+	chain.AddHandler("example.com.", matchDomainHandler, nbdns.PriorityUpstream)
 	chain.AddHandler("example.com.", dnsRouteHandler, nbdns.PriorityDNSRoute)
 
 	// Create test request
@@ -200,7 +200,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 				priority int
 			}{
 				{pattern: "*.example.com.", priority: nbdns.PriorityDefault},
-				{pattern: "*.example.com.", priority: nbdns.PriorityMatchDomain},
+				{pattern: "*.example.com.", priority: nbdns.PriorityUpstream},
 				{pattern: "*.example.com.", priority: nbdns.PriorityDNSRoute},
 			},
 			queryDomain:     "test.example.com.",
@@ -214,7 +214,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 				priority int
 			}{
 				{pattern: "*.example.com.", priority: nbdns.PriorityDefault},
-				{pattern: "test.example.com.", priority: nbdns.PriorityMatchDomain},
+				{pattern: "test.example.com.", priority: nbdns.PriorityUpstream},
 				{pattern: "*.test.example.com.", priority: nbdns.PriorityDNSRoute},
 			},
 			queryDomain:     "sub.test.example.com.",
@@ -281,7 +281,7 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 
 	// Add handlers in priority order
 	chain.AddHandler("example.com.", handler1, nbdns.PriorityDNSRoute)
-	chain.AddHandler("example.com.", handler2, nbdns.PriorityMatchDomain)
+	chain.AddHandler("example.com.", handler2, nbdns.PriorityUpstream)
 	chain.AddHandler("example.com.", handler3, nbdns.PriorityDefault)
 
 	// Create test request
@@ -344,13 +344,13 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 				priority int
 			}{
 				{"add", "example.com.", nbdns.PriorityDNSRoute},
-				{"add", "example.com.", nbdns.PriorityMatchDomain},
+				{"add", "example.com.", nbdns.PriorityUpstream},
 				{"remove", "example.com.", nbdns.PriorityDNSRoute},
 			},
 			query: "example.com.",
 			expectedCalls: map[int]bool{
-				nbdns.PriorityDNSRoute:    false,
-				nbdns.PriorityMatchDomain: true,
+				nbdns.PriorityDNSRoute: false,
+				nbdns.PriorityUpstream: true,
 			},
 		},
 		{
@@ -361,13 +361,13 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 				priority int
 			}{
 				{"add", "example.com.", nbdns.PriorityDNSRoute},
-				{"add", "example.com.", nbdns.PriorityMatchDomain},
-				{"remove", "example.com.", nbdns.PriorityMatchDomain},
+				{"add", "example.com.", nbdns.PriorityUpstream},
+				{"remove", "example.com.", nbdns.PriorityUpstream},
 			},
 			query: "example.com.",
 			expectedCalls: map[int]bool{
-				nbdns.PriorityDNSRoute:    true,
-				nbdns.PriorityMatchDomain: false,
+				nbdns.PriorityDNSRoute: true,
+				nbdns.PriorityUpstream: false,
 			},
 		},
 		{
@@ -378,16 +378,16 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 				priority int
 			}{
 				{"add", "example.com.", nbdns.PriorityDNSRoute},
-				{"add", "example.com.", nbdns.PriorityMatchDomain},
+				{"add", "example.com.", nbdns.PriorityUpstream},
 				{"add", "example.com.", nbdns.PriorityDefault},
 				{"remove", "example.com.", nbdns.PriorityDNSRoute},
-				{"remove", "example.com.", nbdns.PriorityMatchDomain},
+				{"remove", "example.com.", nbdns.PriorityUpstream},
 			},
 			query: "example.com.",
 			expectedCalls: map[int]bool{
-				nbdns.PriorityDNSRoute:    false,
-				nbdns.PriorityMatchDomain: false,
-				nbdns.PriorityDefault:     true,
+				nbdns.PriorityDNSRoute: false,
+				nbdns.PriorityUpstream: false,
+				nbdns.PriorityDefault:  true,
 			},
 		},
 	}
@@ -454,7 +454,7 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	// Add handlers in mixed order
 	chain.AddHandler(testDomain, defaultHandler, nbdns.PriorityDefault)
 	chain.AddHandler(testDomain, routeHandler, nbdns.PriorityDNSRoute)
-	chain.AddHandler(testDomain, matchHandler, nbdns.PriorityMatchDomain)
+	chain.AddHandler(testDomain, matchHandler, nbdns.PriorityUpstream)
 
 	// Test 1: Initial state
 	w1 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
@@ -490,7 +490,7 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	defaultHandler.Calls = nil
 
 	// Test 3: Remove middle priority handler
-	chain.RemoveHandler(testDomain, nbdns.PriorityMatchDomain)
+	chain.RemoveHandler(testDomain, nbdns.PriorityUpstream)
 
 	w3 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	// Now lowest priority handler (defaultHandler) should be called
@@ -607,7 +607,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 				shouldMatch bool
 			}{
 				{"EXAMPLE.COM.", nbdns.PriorityDefault, false, false},
-				{"example.com.", nbdns.PriorityMatchDomain, false, false},
+				{"example.com.", nbdns.PriorityUpstream, false, false},
 				{"Example.Com.", nbdns.PriorityDNSRoute, false, true},
 			},
 			query:         "example.com.",
@@ -702,8 +702,8 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, false},
+				{"add", "example.com.", nbdns.PriorityUpstream, true},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, false},
 			},
 			query:         "sub.example.com.",
 			expectedMatch: "sub.example.com.",
@@ -717,8 +717,8 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, true},
+				{"add", "example.com.", nbdns.PriorityUpstream, true},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, true},
 			},
 			query:         "sub.example.com.",
 			expectedMatch: "sub.example.com.",
@@ -732,10 +732,10 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "test.sub.example.com.", nbdns.PriorityMatchDomain, false},
-				{"remove", "test.sub.example.com.", nbdns.PriorityMatchDomain, false},
+				{"add", "example.com.", nbdns.PriorityUpstream, true},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, true},
+				{"add", "test.sub.example.com.", nbdns.PriorityUpstream, false},
+				{"remove", "test.sub.example.com.", nbdns.PriorityUpstream, false},
 			},
 			query:         "test.sub.example.com.",
 			expectedMatch: "sub.example.com.",
@@ -749,7 +749,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, false},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, false},
 				{"add", "example.com.", nbdns.PriorityDNSRoute, true},
 			},
 			query:         "sub.example.com.",
@@ -764,9 +764,9 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "other.example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, false},
+				{"add", "example.com.", nbdns.PriorityUpstream, true},
+				{"add", "other.example.com.", nbdns.PriorityUpstream, true},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, false},
 			},
 			query:         "sub.example.com.",
 			expectedMatch: "sub.example.com.",
