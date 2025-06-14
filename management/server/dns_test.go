@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -367,7 +368,7 @@ func generateTestData(size int) nbdns.Config {
 		config.NameServerGroups[i] = &nbdns.NameServerGroup{
 			ID:                   fmt.Sprintf("group%d", i),
 			Primary:              i == 0,
-			Domains:              []string{fmt.Sprintf("domain%d.com", i)},
+			Domains:              domain.List{domain.Domain(fmt.Sprintf("domain%d.com", i))},
 			SearchDomainsEnabled: true,
 			NameServers: []nbdns.NameServer{
 				{
@@ -547,7 +548,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 				Port:   dns.DefaultDNSPort,
 			}},
 			[]string{"groupB"},
-			true, []string{}, true, userID, false,
+			true, domain.List{}, true, userID, false,
 		)
 		assert.NoError(t, err)
 
@@ -580,7 +581,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 				Port:   dns.DefaultDNSPort,
 			}},
 			[]string{"groupA"},
-			true, []string{}, true, userID, false,
+			true, domain.List{}, true, userID, false,
 		)
 		assert.NoError(t, err)
 

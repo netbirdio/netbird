@@ -10,17 +10,15 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/status"
-
-	"github.com/gorilla/mux"
-
+	"github.com/netbirdio/netbird/management/domain"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 const (
@@ -47,7 +45,7 @@ var baseExistingNSGroup = &nbdns.NameServerGroup{
 		},
 	},
 	Groups:  []string{"testing"},
-	Domains: []string{"domain"},
+	Domains: domain.List{"domain"},
 	Enabled: true,
 }
 
@@ -60,7 +58,7 @@ func initNameserversTestData() *nameserversHandler {
 				}
 				return nil, status.Errorf(status.NotFound, "nameserver group with ID %s not found", nsGroupID)
 			},
-			CreateNameServerGroupFunc: func(_ context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, _ string, searchDomains bool) (*nbdns.NameServerGroup, error) {
+			CreateNameServerGroupFunc: func(_ context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains domain.List, enabled bool, _ string, searchDomains bool) (*nbdns.NameServerGroup, error) {
 				return &nbdns.NameServerGroup{
 					ID:                   existingNSGroupID,
 					Name:                 name,

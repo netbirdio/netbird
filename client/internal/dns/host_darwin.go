@@ -79,10 +79,10 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 			continue
 		}
 		if dConf.MatchOnly {
-			matchDomains = append(matchDomains, strings.TrimSuffix(dConf.Domain, "."))
+			matchDomains = append(matchDomains, strings.TrimSuffix(dConf.Domain.PunycodeString(), "."))
 			continue
 		}
-		searchDomains = append(searchDomains, strings.TrimSuffix(""+dConf.Domain, "."))
+		searchDomains = append(searchDomains, strings.TrimSuffix(""+dConf.Domain.PunycodeString(), "."))
 	}
 
 	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)

@@ -1108,7 +1108,7 @@ func TestToSyncResponse(t *testing.T) {
 						Port:   nbdns.DefaultDNSPort,
 					}},
 					Primary:              true,
-					Domains:              []string{"example.com"},
+					Domains:              domain.List{"example.com"},
 					Enabled:              true,
 					SearchDomainsEnabled: true,
 				},
@@ -1121,7 +1121,7 @@ func TestToSyncResponse(t *testing.T) {
 					}},
 					Groups:               []string{"group1"},
 					Primary:              true,
-					Domains:              []string{"example.com"},
+					Domains:              domain.List{"example.com"},
 					Enabled:              true,
 					SearchDomainsEnabled: true,
 				},
@@ -1995,7 +1995,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 				Port:   nbdns.DefaultDNSPort,
 			}},
 			[]string{"groupC"},
-			true, []string{}, true, userID, false,
+			true, domain.List{}, true, userID, false,
 		)
 		require.NoError(t, err)
 

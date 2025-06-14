@@ -77,7 +77,7 @@ type MockAccountManager struct {
 	GetPATFunc                          func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string, tokenID string) (*types.PersonalAccessToken, error)
 	GetAllPATsFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserId string) ([]*types.PersonalAccessToken, error)
 	GetNameServerGroupFunc              func(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error)
-	CreateNameServerGroupFunc           func(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroupFunc           func(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains domain.List, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroupFunc             func(ctx context.Context, accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroupFunc           func(ctx context.Context, accountID, nsGroupID, userID string) error
 	ListNameServerGroupsFunc            func(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
@@ -567,7 +567,7 @@ func (am *MockAccountManager) GetNameServerGroup(ctx context.Context, accountID,
 }
 
 // CreateNameServerGroup mocks CreateNameServerGroup of the AccountManager interface
-func (am *MockAccountManager) CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error) {
+func (am *MockAccountManager) CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains domain.List, enabled bool, userID string, searchDomainsEnabled bool) (*nbdns.NameServerGroup, error) {
 	if am.CreateNameServerGroupFunc != nil {
 		return am.CreateNameServerGroupFunc(ctx, accountID, name, description, nameServerList, groups, primary, domains, enabled, userID, searchDomainsEnabled)
 	}
