@@ -1284,7 +1284,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 
 	permissionsManager := permissions.NewManager(store)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 }
 
 func createRouterStore(t *testing.T) (store.Store, error) {
@@ -1305,7 +1305,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 	accountID := "testingAcc"
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), accountID, userID, domain)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, false)
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
