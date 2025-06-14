@@ -2,6 +2,7 @@ package dns
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -103,19 +104,21 @@ func (u *upstreamResolverBase) Stop() {
 
 // ServeDNS handles a DNS request
 func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	requestID := GenerateRequestID()
+	logger := log.WithField("request_id", requestID)
 	var err error
 	defer func() {
 		u.checkUpstreamFails(err)
 	}()
 
-	log.Tracef("received upstream question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+	logger.Tracef("received upstream question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
 	if r.Extra == nil {
 		r.MsgHdr.AuthenticatedData = true
 	}
 
 	select {
 	case <-u.ctx.Done():
-		log.Tracef("%s has been stopped", u)
+		logger.Tracef("%s has been stopped", u)
 		return
 	default:
 	}
@@ -132,35 +135,35 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || isTimeout(err) {
-				log.Warnf("upstream %s timed out for question domain=%s", upstream, r.Question[0].Name)
+				logger.Warnf("upstream %s timed out for question domain=%s", upstream, r.Question[0].Name)
 				continue
 			}
-			log.Warnf("failed to query upstream %s for question domain=%s: %s", upstream, r.Question[0].Name, err)
+			logger.Warnf("failed to query upstream %s for question domain=%s: %s", upstream, r.Question[0].Name, err)
 			continue
 		}
 
 		if rm == nil || !rm.Response {
-			log.Warnf("no response from upstream %s for question domain=%s", upstream, r.Question[0].Name)
+			logger.Warnf("no response from upstream %s for question domain=%s", upstream, r.Question[0].Name)
 			continue
 		}
 
 		u.successCount.Add(1)
-		log.Tracef("took %s to query the upstream %s for question domain=%s", t, upstream, r.Question[0].Name)
+		logger.Tracef("took %s to query the upstream %s for question domain=%s", t, upstream, r.Question[0].Name)
 
 		if err = w.WriteMsg(rm); err != nil {
-			log.Errorf("failed to write DNS response for question domain=%s: %s", r.Question[0].Name, err)
+			logger.Errorf("failed to write DNS response for question domain=%s: %s", r.Question[0].Name, err)
 		}
 		// count the fails only if they happen sequentially
 		u.failsCount.Store(0)
 		return
 	}
 	u.failsCount.Add(1)
-	log.Errorf("all queries to the %s failed for question domain=%s", u, r.Question[0].Name)
+	logger.Errorf("all queries to the %s failed for question domain=%s", u, r.Question[0].Name)
 
 	m := new(dns.Msg)
 	m.SetRcode(r, dns.RcodeServerFailure)
 	if err := w.WriteMsg(m); err != nil {
-		log.Errorf("failed to write error response for %s for question domain=%s: %s", u, r.Question[0].Name, err)
+		logger.Errorf("failed to write error response for %s for question domain=%s: %s", u, r.Question[0].Name, err)
 	}
 }
 
@@ -384,4 +387,14 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 	// TODO: once TCP is implemented, rm.Truncate() if the request came in over UDP
 
 	return rm, t, nil
+}
+
+func GenerateRequestID() string {
+	bytes := make([]byte, 4)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		log.Errorf("failed to generate request ID: %v", err)
+		return ""
+	}
+	return hex.EncodeToString(bytes)
 }
