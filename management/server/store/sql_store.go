@@ -23,8 +23,6 @@ import (
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
-	"github.com/netbirdio/netbird/management/server/util"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -34,6 +32,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -1968,12 +1967,58 @@ func (s *SqlStore) DeletePostureChecks(ctx context.Context, lockStrength Locking
 
 // GetAccountRoutes retrieves network routes for an account.
 func (s *SqlStore) GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error) {
-	return getRecords[*route.Route](s.db, lockStrength, accountID)
+	var routes []*route.Route
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Find(&routes, accountIDCondition, accountID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to get routes from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get routes from store")
+	}
+
+	return routes, nil
 }
 
 // GetRouteByID retrieves a route by its ID and account ID.
-func (s *SqlStore) GetRouteByID(ctx context.Context, lockStrength LockingStrength, routeID string, accountID string) (*route.Route, error) {
-	return getRecordByID[route.Route](s.db, lockStrength, routeID, accountID)
+func (s *SqlStore) GetRouteByID(ctx context.Context, lockStrength LockingStrength, accountID string, routeID string) (*route.Route, error) {
+	var route *route.Route
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		First(&route, accountAndIDQueryCondition, accountID, routeID)
+	if err := result.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.NewRouteNotFoundError(routeID)
+		}
+		log.WithContext(ctx).Errorf("failed to get route from the store: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get route from store")
+	}
+
+	return route, nil
+}
+
+// SaveRoute saves a route to the database.
+func (s *SqlStore) SaveRoute(ctx context.Context, lockStrength LockingStrength, route *route.Route) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Save(route)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save route to the store: %s", err)
+		return status.Errorf(status.Internal, "failed to save route to store")
+	}
+
+	return nil
+}
+
+// DeleteRoute deletes a route from the database.
+func (s *SqlStore) DeleteRoute(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).
+		Delete(&route.Route{}, accountAndIDQueryCondition, accountID, routeID)
+	if err := result.Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete route from the store: %s", err)
+		return status.Errorf(status.Internal, "failed to delete route from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewRouteNotFoundError(routeID)
+	}
+
+	return nil
 }
 
 // GetAccountSetupKeys retrieves setup keys for an account.
@@ -2102,49 +2147,6 @@ func (s *SqlStore) DeleteNameServerGroup(ctx context.Context, lockStrength Locki
 	}
 
 	return nil
-}
-
-// getRecords retrieves records from the database based on the account ID.
-func getRecords[T any](db *gorm.DB, lockStrength LockingStrength, accountID string) ([]T, error) {
-	tx := db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
-
-	var record []T
-
-	result := tx.Find(&record, accountIDCondition, accountID)
-	if err := result.Error; err != nil {
-		parts := strings.Split(fmt.Sprintf("%T", record), ".")
-		recordType := parts[len(parts)-1]
-
-		return nil, status.Errorf(status.Internal, "failed to get account %ss from store: %v", recordType, err)
-	}
-
-	return record, nil
-}
-
-// getRecordByID retrieves a record by its ID and account ID from the database.
-func getRecordByID[T any](db *gorm.DB, lockStrength LockingStrength, recordID, accountID string) (*T, error) {
-	tx := db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
-
-	var record T
-
-	result := tx.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		First(&record, accountAndIDQueryCondition, accountID, recordID)
-	if err := result.Error; err != nil {
-		parts := strings.Split(fmt.Sprintf("%T", record), ".")
-		recordType := parts[len(parts)-1]
-
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(status.NotFound, "%s not found", recordType)
-		}
-		return nil, status.Errorf(status.Internal, "failed to get %s from store: %v", recordType, err)
-	}
-	return &record, nil
 }
 
 // SaveDNSSettings saves the DNS settings to the store.

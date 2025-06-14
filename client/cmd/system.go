@@ -38,5 +38,5 @@ func init() {
 
 	upCmd.PersistentFlags().BoolVar(&blockInbound, blockInboundFlag, false,
 		"Block inbound connections. If enabled, the client will not allow any inbound connections to the local machine nor routed networks.\n"+
-		"This overrides any policies received from the management service.")
+			"This overrides any policies received from the management service.")
 }
