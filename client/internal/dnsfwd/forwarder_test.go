@@ -471,11 +471,9 @@ func TestDNSForwarder_FirewallSetUpdates(t *testing.T) {
 				require.NotNil(t, resp, "Expected response for authorized domain")
 				require.Equal(t, dns.RcodeSuccess, resp.Rcode)
 				require.NotEmpty(t, resp.Answer)
-			} else {
-				if resp != nil {
-					assert.True(t, resp.Rcode == dns.RcodeRefused || len(resp.Answer) == 0,
-						"Unauthorized domain should be refused or have no answers")
-				}
+			} else if resp != nil {
+				assert.True(t, resp.Rcode == dns.RcodeRefused || len(resp.Answer) == 0,
+					"Unauthorized domain should be refused or have no answers")
 			}
 
 			// Verify all mock expectations were met
@@ -539,7 +537,6 @@ func TestDNSForwarder_MultipleIPsInSingleUpdate(t *testing.T) {
 	mockFirewall.AssertExpectations(t)
 	mockResolver.AssertExpectations(t)
 }
-
 
 func TestDNSForwarder_ResponseCodes(t *testing.T) {
 	tests := []struct {
@@ -660,10 +657,10 @@ func TestDNSForwarder_MultipleOverlappingPatterns(t *testing.T) {
 
 	// Set up complex overlapping patterns
 	patterns := []string{
-		"*.example.com",           // Matches all subdomains
-		"*.mail.example.com",      // More specific wildcard
-		"smtp.mail.example.com",   // Exact match
-		"example.com",             // Base domain
+		"*.example.com",         // Matches all subdomains
+		"*.mail.example.com",    // More specific wildcard
+		"smtp.mail.example.com", // Exact match
+		"example.com",           // Base domain
 	}
 
 	var entries []*ForwarderEntry
