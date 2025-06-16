@@ -104,6 +104,11 @@ type Manager struct {
 	flowLogger  nftypes.FlowLogger
 
 	blockRule firewall.Rule
+
+	// Internal 1:1 DNAT
+	dnatEnabled  atomic.Bool
+	dnatMappings map[netip.Addr]netip.Addr
+	dnatMutex    sync.RWMutex
 }
 
 // decoder for packages
@@ -189,6 +194,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		flowLogger:          flowLogger,
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
+		dnatMappings:        make(map[netip.Addr]netip.Addr),
 	}
 	m.routingEnabled.Store(false)
 
@@ -519,22 +525,6 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 
-// AddDNATRule adds a DNAT rule
-func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	if m.nativeFirewall == nil {
-		return nil, errNatNotSupported
-	}
-	return m.nativeFirewall.AddDNATRule(rule)
-}
-
-// DeleteDNATRule deletes a DNAT rule
-func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
-	if m.nativeFirewall == nil {
-		return errNatNotSupported
-	}
-	return m.nativeFirewall.DeleteDNATRule(rule)
-}
-
 // UpdateSet updates the rule destinations associated with the given set
 // by merging the existing prefixes with the new ones, then deduplicating.
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
@@ -608,6 +598,14 @@ func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
 		return false
 	}
 
+	translated := m.translateOutboundDNAT(packetData, d)
+	if translated {
+		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+			m.logger.Error("Failed to re-decode packet after DNAT: %v", err)
+			return false
+		}
+	}
+
 	srcIP, dstIP := m.extractIPs(d)
 	if !srcIP.IsValid() {
 		m.logger.Error("Unknown network layer: %v", d.decoded[0])
@@ -618,7 +616,6 @@ func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
 		return true
 	}
 
-	// for netflow we keep track even if the firewall is stateless
 	m.trackOutbound(d, srcIP, dstIP, size)
 
 	return false
@@ -747,9 +744,17 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 		return false
 	}
 
-	// For all inbound traffic, first check if it matches a tracked connection.
-	// This must happen before any other filtering because the packets are statefully tracked.
+	// Step 1: Check connection tracking FIRST (with original addresses)
 	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, size) {
+		// Step 2: Apply reverse DNAT for established connections
+		translated := m.translateInboundReverse(packetData, d)
+		if translated {
+			// Re-decode after translation
+			if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+				m.logger.Error("Failed to re-decode packet after reverse DNAT: %v", err)
+				return true
+			}
+		}
 		return false
 	}
 

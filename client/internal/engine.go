@@ -488,9 +488,9 @@ func (e *Engine) createFirewall() error {
 }
 
 func (e *Engine) initFirewall() error {
-	if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
+	if err := e.routeManager.SetFirewall(e.firewall); err != nil {
 		e.close()
-		return fmt.Errorf("enable server router: %w", err)
+		return fmt.Errorf("set firewall: %w", err)
 	}
 
 	if e.config.BlockLANAccess {

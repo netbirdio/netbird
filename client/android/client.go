@@ -203,10 +203,6 @@ func (c *Client) Networks() *NetworkArray {
 			continue
 		}
 
-		if routes[0].IsDynamic() {
-			continue
-		}
-
 		peer, err := c.recorder.GetPeer(routes[0].Peer)
 		if err != nil {
 			log.Errorf("could not get peer info for %s: %v", routes[0].Peer, err)

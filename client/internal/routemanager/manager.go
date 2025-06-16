@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
@@ -24,6 +25,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/client"
+	"github.com/netbirdio/netbird/client/internal/routemanager/common"
+	"github.com/netbirdio/netbird/client/internal/routemanager/fakeip"
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
@@ -38,6 +41,10 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+type internalDNATer interface {
+	AddInternalDNATMapping(netip.Addr, netip.Addr) error
+}
+
 // Manager is a route manager interface
 type Manager interface {
 	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
@@ -49,7 +56,7 @@ type Manager interface {
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
-	EnableServerRouter(firewall firewall.Manager) error
+	SetFirewall(firewall.Manager) error
 	Stop(stateManager *statemanager.Manager)
 }
 
@@ -89,11 +96,13 @@ type DefaultManager struct {
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
 	clientRoutes        route.HAMap
 	dnsServer           dns.Server
+	firewall            firewall.Manager
 	peerStore           *peerstore.Store
 	useNewDNSRoute      bool
 	disableClientRoutes bool
 	disableServerRoutes bool
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
+	fakeIPManager       *fakeip.FakeIPManager
 }
 
 func NewManager(config ManagerConfig) *DefaultManager {
@@ -129,6 +138,8 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	}
 
 	if runtime.GOOS == "android" {
+		dm.fakeIPManager = fakeip.NewManager()
+
 		cr := dm.initialClientRoutes(config.InitialRoutes)
 		dm.notifier.SetInitialClientRoutes(cr)
 	}
@@ -222,14 +233,14 @@ func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
 	return routeselector.NewRouteSelector()
 }
 
-func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
-	if m.disableServerRoutes {
+// SetFirewall sets the firewall manager for the DefaultManager
+// Not thread-safe, should be called before starting the manager
+func (m *DefaultManager) SetFirewall(firewall firewall.Manager) error {
+	m.firewall = firewall
+
+	if m.disableServerRoutes || firewall == nil {
 		log.Info("server routes are disabled")
 		return nil
-	}
-
-	if firewall == nil {
-		return errors.New("firewall manager is not set")
 	}
 
 	var err error
@@ -299,17 +310,20 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	}
 
 	for id, route := range toAdd {
-		handler := client.HandlerFromRoute(
-			route,
-			m.routeRefCounter,
-			m.allowedIPsRefCounter,
-			m.dnsRouteInterval,
-			m.statusRecorder,
-			m.wgInterface,
-			m.dnsServer,
-			m.peerStore,
-			m.useNewDNSRoute,
-		)
+		params := common.HandlerParams{
+			Route:                route,
+			RouteRefCounter:      m.routeRefCounter,
+			AllowedIPsRefCounter: m.allowedIPsRefCounter,
+			DnsRouterInteval:     m.dnsRouteInterval,
+			StatusRecorder:       m.statusRecorder,
+			WgInterface:          m.wgInterface,
+			DnsServer:            m.dnsServer,
+			PeerStore:            m.peerStore,
+			UseNewDNSRoute:       m.useNewDNSRoute,
+			Firewall:             m.firewall,
+			FakeIPManager:        m.fakeIPManager,
+		}
+		handler := client.HandlerFromRoute(params)
 		if err := handler.AddRoute(m.ctx); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("add route %s: %w", handler.String(), err))
 			continue
@@ -517,7 +531,25 @@ func (m *DefaultManager) initialClientRoutes(initialRoutes []*route.Route) []*ro
 	for _, routes := range crMap {
 		rs = append(rs, routes...)
 	}
+
+	fakeIPBlock := m.fakeIPManager.GetFakeIPBlock()
+	id := uuid.NewString()
+	fakeIPRoute := &route.Route{
+		ID:          route.ID(id),
+		Network:     fakeIPBlock,
+		NetID:       route.NetID(id),
+		Peer:        m.pubKey,
+		NetworkType: route.IPv4Network,
+	}
+	rs = append(rs, fakeIPRoute)
+
 	return rs
+}
+
+// supportsInternalDNAT checks if the firewall supports internal DNAT
+func (m *DefaultManager) supportsInternalDNAT(fw firewall.Manager) bool {
+	_, ok := fw.(internalDNATer)
+	return ok
 }
 
 func isRouteSupported(route *route.Route) bool {
