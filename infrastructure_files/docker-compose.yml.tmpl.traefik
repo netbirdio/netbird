@@ -81,14 +81,6 @@ services:
       - $MGMT_VOLUMENAME:/var/lib/netbird
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt:ro
       - ./management.json:/etc/netbird/management.json
-    command: [
-      "--port", "33073",
-      "--log-file", "console",
-      "--log-level", "info",
-      "--disable-anonymous-metrics=$NETBIRD_DISABLE_ANONYMOUS_METRICS",
-      "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN",
-      "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"
-      ]
     labels:
     - traefik.enable=true
     - traefik.http.routers.netbird-api.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/api`)
@@ -107,6 +99,12 @@ services:
     environment:
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
       - NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN
+      - NB_PORT=33073
+      - NB_LOG_FILE=console
+      - NB_LOG_LEVEL=info
+      - NB_DISABLE_ANONYMOUS_METRICS=$NETBIRD_DISABLE_ANONYMOUS_METRICS
+      - NB_SINGLE_ACCOUNT_MODE_DOMAIN=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN
+      - NB_DNS_DOMAIN=$NETBIRD_MGMT_DNS_DOMAIN
       
   # Coturn
   coturn:
