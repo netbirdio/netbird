@@ -3,13 +3,12 @@ package types
 import (
 	"crypto/sha256"
 	b64 "encoding/base64"
-	"hash/fnv"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/rs/xid"
 
 	"github.com/netbirdio/netbird/management/server/util"
 )
@@ -170,7 +169,7 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
 
 	return &SetupKey{
-		Id:                  strconv.Itoa(int(Hash(key))),
+		Id:                  xid.New().String(),
 		Key:                 encodedHashedKey,
 		KeySecret:           HiddenKey(key, 4),
 		Name:                name,
@@ -191,13 +190,4 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 func GenerateDefaultSetupKey() (*SetupKey, string) {
 	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{},
 		SetupKeyUnlimitedUsage, false, false)
-}
-
-func Hash(s string) uint32 {
-	h := fnv.New32a()
-	_, err := h.Write([]byte(s))
-	if err != nil {
-		panic(err)
-	}
-	return h.Sum32()
 }
