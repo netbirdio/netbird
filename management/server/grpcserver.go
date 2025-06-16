@@ -458,7 +458,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
 	metahashed := metaHash(peerMeta)
 	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
-		return nil, internalStatus.ErrPeerAlreadyLoggedIn
+		return nil, mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
 	}
 
 	//nolint
