@@ -328,7 +328,6 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		s.showSettingsUI()
 	case args.showNetworks:
 		s.showNetworksUI()
-	case args.showDebug:
 	case args.showLoginURL:
 		s.showLoginURL()
 	case args.showDebug:
