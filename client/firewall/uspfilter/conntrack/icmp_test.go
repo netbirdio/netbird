@@ -15,7 +15,7 @@ func BenchmarkICMPTracker(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 0, 0)
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i%65535), 0, []byte{}, 0)
 		}
 	})
 
@@ -28,7 +28,7 @@ func BenchmarkICMPTracker(b *testing.B) {
 
 		// Pre-populate some connections
 		for i := 0; i < 1000; i++ {
-			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 0, 0)
+			tracker.TrackOutbound(srcIP, dstIP, uint16(i), 0, []byte{}, 0)
 		}
 
 		b.ResetTimer()
