@@ -139,7 +139,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	syncReq := &proto.SyncRequest{}
 	peerKey, err := s.parseRequest(ctx, req, syncReq)
 	if err != nil {
-		return err
+		return mapError(ctx, err)
 	}
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
 	metahashed := metaHash(peerMeta)
