@@ -139,12 +139,12 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	syncReq := &proto.SyncRequest{}
 	peerKey, err := s.parseRequest(ctx, req, syncReq)
 	if err != nil {
-		return mapError(ctx, err)
+		return err
 	}
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
 	metahashed := metaHash(peerMeta)
 	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
-		return internalStatus.ErrPeerAlreadyLoggedIn
+		return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
 	}
 
 	// nolint:staticcheck
