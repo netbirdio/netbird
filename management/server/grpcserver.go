@@ -455,6 +455,12 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, err
 	}
 
+	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
+	metahashed := metaHash(peerMeta)
+	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
+		return nil, internalStatus.ErrPeerAlreadyLoggedIn
+	}
+
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
@@ -485,7 +491,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
-		Meta:            extractPeerMeta(ctx, loginReq.GetMeta()),
+		Meta:            peerMeta,
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
 		ConnectionIP:    realIP,
