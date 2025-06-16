@@ -171,6 +171,9 @@ const (
 	ResourceRemovedFromGroup Activity = 83
 
 	AccountDNSDomainUpdated Activity = 84
+
+	AccountLazyConnectionEnabled  Activity = 85
+	AccountLazyConnectionDisabled Activity = 86
 )
 
 var activityMap = map[Activity]Code{
@@ -268,6 +271,9 @@ var activityMap = map[Activity]Code{
 	ResourceRemovedFromGroup: {"Resource removed from group", "resource.group.delete"},
 
 	AccountDNSDomainUpdated: {"Account DNS domain updated", "account.dns.domain.update"},
+
+	AccountLazyConnectionEnabled:  {"Account lazy connection enabled", "account.setting.lazy.connection.enable"},
+	AccountLazyConnectionDisabled: {"Account lazy connection disabled", "account.setting.lazy.connection.disable"},
 }
 
 // StringCode returns a string code of the activity

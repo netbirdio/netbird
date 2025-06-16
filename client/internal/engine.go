@@ -121,8 +121,8 @@ type EngineConfig struct {
 	DisableServerRoutes bool
 	DisableDNS          bool
 	DisableFirewall     bool
-
-	BlockLANAccess bool
+	BlockLANAccess      bool
+	BlockInbound        bool
 
 	LazyConnectionEnabled bool
 }
@@ -241,6 +241,8 @@ func NewEngine(
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
+
+	path := statemanager.GetDefaultStatePath()
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
@@ -250,11 +252,9 @@ func NewEngine(
 			}
 		}
 
-		engine.stateManager = statemanager.New(mobileDep.StateFilePath)
+		path = mobileDep.StateFilePath
 	}
-	if path := statemanager.GetDefaultStatePath(); path != "" {
-		engine.stateManager = statemanager.New(path)
-	}
+	engine.stateManager = statemanager.New(path)
 
 	return engine
 }
@@ -359,6 +359,7 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("new wg interface: %w", err)
 	}
 	e.wgInterface = wgIface
+	e.statusRecorder.SetWgIface(wgIface)
 
 	// start flow manager right after interface creation
 	publicKey := e.config.WgPrivateKey.PublicKey()
@@ -380,7 +381,6 @@ func (e *Engine) Start() error {
 			return fmt.Errorf("run rosenpass manager: %w", err)
 		}
 	}
-
 	e.stateManager.Start()
 
 	initialRoutes, dnsServer, err := e.newDnsServer()
@@ -431,7 +431,8 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
-	if e.firewall != nil {
+	// if inbound conns are blocked there is no need to create the ACL manager
+	if e.firewall != nil && !e.config.BlockInbound {
 		e.acl = acl.NewDefaultManager(e.firewall)
 	}
 
@@ -487,11 +488,9 @@ func (e *Engine) createFirewall() error {
 }
 
 func (e *Engine) initFirewall() error {
-	if e.firewall.IsServerRouteSupported() {
-		if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
-			e.close()
-			return fmt.Errorf("enable server router: %w", err)
-		}
+	if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
+		e.close()
+		return fmt.Errorf("enable server router: %w", err)
 	}
 
 	if e.config.BlockLANAccess {
@@ -525,6 +524,11 @@ func (e *Engine) initFirewall() error {
 }
 
 func (e *Engine) blockLanAccess() {
+	if e.config.BlockInbound {
+		// no need to set up extra deny rules if inbound is already blocked in general
+		return
+	}
+
 	var merr *multierror.Error
 
 	// TODO: keep this updated
@@ -782,6 +786,9 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		e.config.DisableServerRoutes,
 		e.config.DisableDNS,
 		e.config.DisableFirewall,
+		e.config.BlockLANAccess,
+		e.config.BlockInbound,
+		e.config.LazyConnectionEnabled,
 	)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
@@ -796,56 +803,58 @@ func isNil(server nbssh.Server) bool {
 }
 
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
+	if e.config.BlockInbound {
+		log.Infof("SSH server is disabled because inbound connections are blocked")
+		return nil
+	}
 
 	if !e.config.ServerSSHAllowed {
-		log.Warnf("running SSH server is not permitted")
+		log.Info("SSH server is not enabled")
 		return nil
-	} else {
-
-		if sshConf.GetSshEnabled() {
-			if runtime.GOOS == "windows" {
-				log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
-				return nil
-			}
-			// start SSH server if it wasn't running
-			if isNil(e.sshServer) {
-				listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
-				if nbnetstack.IsEnabled() {
-					listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
-				}
-				// nil sshServer means it has not yet been started
-				var err error
-				e.sshServer, err = e.sshServerFunc(e.config.SSHKey, listenAddr)
-
-				if err != nil {
-					return fmt.Errorf("create ssh server: %w", err)
-				}
-				go func() {
-					// blocking
-					err = e.sshServer.Start()
-					if err != nil {
-						// will throw error when we stop it even if it is a graceful stop
-						log.Debugf("stopped SSH server with error %v", err)
-					}
-					e.syncMsgMux.Lock()
-					defer e.syncMsgMux.Unlock()
-					e.sshServer = nil
-					log.Infof("stopped SSH server")
-				}()
-			} else {
-				log.Debugf("SSH server is already running")
-			}
-		} else if !isNil(e.sshServer) {
-			// Disable SSH server request, so stop it if it was running
-			err := e.sshServer.Stop()
-			if err != nil {
-				log.Warnf("failed to stop SSH server %v", err)
-			}
-			e.sshServer = nil
-		}
-		return nil
-
 	}
+
+	if sshConf.GetSshEnabled() {
+		if runtime.GOOS == "windows" {
+			log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
+			return nil
+		}
+		// start SSH server if it wasn't running
+		if isNil(e.sshServer) {
+			listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
+			if nbnetstack.IsEnabled() {
+				listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
+			}
+			// nil sshServer means it has not yet been started
+			var err error
+			e.sshServer, err = e.sshServerFunc(e.config.SSHKey, listenAddr)
+
+			if err != nil {
+				return fmt.Errorf("create ssh server: %w", err)
+			}
+			go func() {
+				// blocking
+				err = e.sshServer.Start()
+				if err != nil {
+					// will throw error when we stop it even if it is a graceful stop
+					log.Debugf("stopped SSH server with error %v", err)
+				}
+				e.syncMsgMux.Lock()
+				defer e.syncMsgMux.Unlock()
+				e.sshServer = nil
+				log.Infof("stopped SSH server")
+			}()
+		} else {
+			log.Debugf("SSH server is already running")
+		}
+	} else if !isNil(e.sshServer) {
+		// Disable SSH server request, so stop it if it was running
+		err := e.sshServer.Stop()
+		if err != nil {
+			log.Warnf("failed to stop SSH server %v", err)
+		}
+		e.sshServer = nil
+	}
+	return nil
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
@@ -899,6 +908,9 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.DisableServerRoutes,
 			e.config.DisableDNS,
 			e.config.DisableFirewall,
+			e.config.BlockLANAccess,
+			e.config.BlockInbound,
+			e.config.LazyConnectionEnabled,
 		)
 
 		// err = e.mgmClient.Sync(info, e.handleSync)
@@ -988,12 +1000,29 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 	}
 
+	protoDNSConfig := networkMap.GetDNSConfig()
+	if protoDNSConfig == nil {
+		protoDNSConfig = &mgmProto.DNSConfig{}
+	}
+
+	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
+		log.Errorf("failed to update dns server, err: %v", err)
+	}
+
 	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
 
 	// apply routes first, route related actions might depend on routing being enabled
 	routes := toRoutes(networkMap.GetRoutes())
-	if err := e.routeManager.UpdateRoutes(serial, routes, dnsRouteFeatureFlag); err != nil {
-		log.Errorf("failed to update clientRoutes, err: %v", err)
+	serverRoutes, clientRoutes := e.routeManager.ClassifyRoutes(routes)
+
+	// lazy mgr needs to be aware of which routes are available before they are applied
+	if e.connMgr != nil {
+		e.connMgr.UpdateRouteHAMap(clientRoutes)
+		log.Debugf("updated lazy connection manager with %d HA groups", len(clientRoutes))
+	}
+
+	if err := e.routeManager.UpdateRoutes(serial, serverRoutes, clientRoutes, dnsRouteFeatureFlag); err != nil {
+		log.Errorf("failed to update routes: %v", err)
 	}
 
 	if e.acl != nil {
@@ -1052,17 +1081,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
-	excludedLazyPeers := e.toExcludedLazyPeers(routes, forwardingRules, networkMap.GetRemotePeers())
-	e.connMgr.SetExcludeList(excludedLazyPeers)
-
-	protoDNSConfig := networkMap.GetDNSConfig()
-	if protoDNSConfig == nil {
-		protoDNSConfig = &mgmProto.DNSConfig{}
-	}
-
-	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
-		log.Errorf("failed to update dns server, err: %v", err)
-	}
+	excludedLazyPeers := e.toExcludedLazyPeers(forwardingRules, networkMap.GetRemotePeers())
+	e.connMgr.SetExcludeList(e.ctx, excludedLazyPeers)
 
 	e.networkSerial = serial
 
@@ -1098,7 +1118,7 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 
 		convertedRoute := &route.Route{
 			ID:          route.ID(protoRoute.ID),
-			Network:     prefix,
+			Network:     prefix.Masked(),
 			Domains:     domain.FromPunycodeList(protoRoute.Domains),
 			NetID:       route.NetID(protoRoute.NetID),
 			NetworkType: route.NetworkType(protoRoute.NetworkType),
@@ -1132,7 +1152,7 @@ func toRouteDomains(myPubKey string, routes []*route.Route) []*dnsfwd.ForwarderE
 	return entries
 }
 
-func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network *net.IPNet) nbdns.Config {
+func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns.Config {
 	dnsUpdate := nbdns.Config{
 		ServiceEnable:    protoDNSConfig.GetServiceEnable(),
 		CustomZones:      make([]nbdns.CustomZone, 0),
@@ -1447,6 +1467,7 @@ func (e *Engine) close() {
 			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 		}
 		e.wgInterface = nil
+		e.statusRecorder.SetWgIface(nil)
 	}
 
 	if !isNil(e.sshServer) {
@@ -1478,6 +1499,9 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 		e.config.DisableServerRoutes,
 		e.config.DisableDNS,
 		e.config.DisableFirewall,
+		e.config.BlockLANAccess,
+		e.config.BlockInbound,
+		e.config.LazyConnectionEnabled,
 	)
 
 	netMap, err := e.mgmClient.GetNetworkMap(info)
@@ -1671,7 +1695,7 @@ func (e *Engine) RunHealthProbes() bool {
 func (e *Engine) probeICE(stuns, turns []*stun.URI) []relay.ProbeResult {
 	return append(
 		relay.ProbeAll(e.ctx, relay.ProbeSTUN, stuns),
-		relay.ProbeAll(e.ctx, relay.ProbeSTUN, turns)...,
+		relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)...,
 	)
 }
 
@@ -1784,9 +1808,9 @@ func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
 }
 
 // GetWgAddr returns the wireguard address
-func (e *Engine) GetWgAddr() net.IP {
+func (e *Engine) GetWgAddr() netip.Addr {
 	if e.wgInterface == nil {
-		return nil
+		return netip.Addr{}
 	}
 	return e.wgInterface.Address().IP
 }
@@ -1796,6 +1820,10 @@ func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
 ) {
+	if e.config.DisableServerRoutes {
+		return
+	}
+
 	if !enabled {
 		if e.dnsForwardMgr == nil {
 			return
@@ -1851,12 +1879,7 @@ func (e *Engine) Address() (netip.Addr, error) {
 		return netip.Addr{}, errors.New("wireguard interface not initialized")
 	}
 
-	addr := e.wgInterface.Address()
-	ip, ok := netip.AddrFromSlice(addr.IP)
-	if !ok {
-		return netip.Addr{}, errors.New("failed to convert address to netip.Addr")
-	}
-	return ip.Unmap(), nil
+	return e.wgInterface.Address().IP, nil
 }
 
 func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewallManager.ForwardRule, error) {
@@ -1927,16 +1950,8 @@ func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewal
 	return forwardingRules, nberrors.FormatErrorOrNil(merr)
 }
 
-func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) []string {
-	excludedPeers := make([]string, 0)
-	for _, r := range routes {
-		if r.Peer == "" {
-			continue
-		}
-		log.Infof("exclude router peer from lazy connection: %s", r.Peer)
-		excludedPeers = append(excludedPeers, r.Peer)
-	}
-
+func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers []*mgmProto.RemotePeerConfig) map[string]bool {
+	excludedPeers := make(map[string]bool)
 	for _, r := range rules {
 		ip := r.TranslatedAddress
 		for _, p := range peers {
@@ -1945,7 +1960,7 @@ func (e *Engine) toExcludedLazyPeers(routes []*route.Route, rules []firewallMana
 					continue
 				}
 				log.Infof("exclude forwarder peer from lazy connection: %s", p.GetWgPubKey())
-				excludedPeers = append(excludedPeers, p.GetWgPubKey())
+				excludedPeers[p.GetWgPubKey()] = true
 			}
 		}
 	}

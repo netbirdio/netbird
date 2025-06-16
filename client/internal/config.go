@@ -68,8 +68,8 @@ type ConfigInput struct {
 	DisableServerRoutes *bool
 	DisableDNS          *bool
 	DisableFirewall     *bool
-
-	BlockLANAccess *bool
+	BlockLANAccess      *bool
+	BlockInbound        *bool
 
 	DisableNotifications *bool
 
@@ -98,8 +98,8 @@ type Config struct {
 	DisableServerRoutes bool
 	DisableDNS          bool
 	DisableFirewall     bool
-
-	BlockLANAccess bool
+	BlockLANAccess      bool
+	BlockInbound        bool
 
 	DisableNotifications *bool
 
@@ -480,6 +480,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("allowing LAN access")
 		}
 		config.BlockLANAccess = *input.BlockLANAccess
+		updated = true
+	}
+
+	if input.BlockInbound != nil && *input.BlockInbound != config.BlockInbound {
+		if *input.BlockInbound {
+			log.Infof("blocking inbound connections")
+		} else {
+			log.Infof("allowing inbound connections")
+		}
+		config.BlockInbound = *input.BlockInbound
 		updated = true
 	}
 

@@ -122,8 +122,11 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Settings.DnsDomain != nil {
 		settings.DNSDomain = *req.Settings.DnsDomain
 	}
+	if req.Settings.LazyConnectionEnabled != nil {
+		settings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
+	}
 
-	updatedAccount, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
+	updatedSettings, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -135,7 +138,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(updatedAccount.Id, updatedAccount.Settings, meta)
+	resp := toAccountResponse(accountID, updatedSettings, meta)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
@@ -181,6 +184,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		JwtAllowGroups:                  &jwtAllowGroups,
 		RegularUsersViewBlocked:         settings.RegularUsersViewBlocked,
 		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
+		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
 		DnsDomain:                       &settings.DNSDomain,
 	}
 

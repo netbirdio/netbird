@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -85,6 +86,7 @@ func NewWithBearerToken(managementURL, token string) *Client {
 	)
 }
 
+// NewWithOptions initialize new Client instance with options
 func NewWithOptions(opts ...option) *Client {
 	client := &Client{
 		httpClient: http.DefaultClient,
@@ -114,6 +116,7 @@ func (c *Client) initialize() {
 	c.Events = &EventsAPI{c}
 }
 
+// NewRequest creates and executes new management API request
 func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.managementURL+path, body)
 	if err != nil {
@@ -134,7 +137,8 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	if resp.StatusCode > 299 {
 		parsedErr, pErr := parseResponse[util.ErrorResponse](resp)
 		if pErr != nil {
-			return nil, err
+
+			return nil, pErr
 		}
 		return nil, errors.New(parsedErr.Message)
 	}
@@ -145,13 +149,16 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 func parseResponse[T any](resp *http.Response) (T, error) {
 	var ret T
 	if resp.Body == nil {
-		return ret, errors.New("No body")
+		return ret, fmt.Errorf("Body missing, HTTP Error code %d", resp.StatusCode)
 	}
 	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return ret, err
 	}
 	err = json.Unmarshal(bs, &ret)
+	if err != nil {
+		return ret, fmt.Errorf("Error code %d, error unmarshalling body: %w", resp.StatusCode, err)
+	}
 
-	return ret, err
+	return ret, nil
 }

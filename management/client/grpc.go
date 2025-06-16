@@ -260,8 +260,6 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 
 		if err := msgHandler(decryptedResp); err != nil {
 			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
-			// hide any grpc error code that is not relevant for management
-			return fmt.Errorf("msg handler error: %v", err.Error())
 		}
 	}
 }
@@ -546,10 +544,15 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			RosenpassEnabled:    info.RosenpassEnabled,
 			RosenpassPermissive: info.RosenpassPermissive,
 			ServerSSHAllowed:    info.ServerSSHAllowed,
+
 			DisableClientRoutes: info.DisableClientRoutes,
 			DisableServerRoutes: info.DisableServerRoutes,
 			DisableDNS:          info.DisableDNS,
 			DisableFirewall:     info.DisableFirewall,
+			BlockLANAccess:      info.BlockLANAccess,
+			BlockInbound:        info.BlockInbound,
+
+			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -66,6 +67,7 @@ type Server struct {
 
 	lastProbe         time.Time
 	persistNetworkMap bool
+	isSessionActive   atomic.Bool
 }
 
 type oauthAuthFlow struct {
@@ -398,10 +400,13 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		inputConfig.DisableFirewall = msg.DisableFirewall
 		s.latestConfigInput.DisableFirewall = msg.DisableFirewall
 	}
-
 	if msg.BlockLanAccess != nil {
 		inputConfig.BlockLANAccess = msg.BlockLanAccess
 		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
+	}
+	if msg.BlockInbound != nil {
+		inputConfig.BlockInbound = msg.BlockInbound
+		s.latestConfigInput.BlockInbound = msg.BlockInbound
 	}
 
 	if msg.CleanDNSLabels {
@@ -564,9 +569,6 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
-		if err == context.Canceled {
-			return nil, nil //nolint:nilnil
-		}
 		s.mutex.Lock()
 		s.oauthAuthFlow.expiresAt = time.Now()
 		s.mutex.Unlock()
@@ -637,6 +639,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	for {
 		select {
 		case <-runningChan:
+			s.isSessionActive.Store(true)
 			return &proto.UpResponse{}, nil
 		case <-callerCtx.Done():
 			log.Debug("context done, stopping the wait for engine to become ready")
@@ -665,6 +668,7 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
+	s.isSessionActive.Store(false)
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
@@ -689,6 +693,12 @@ func (s *Server) Status(
 	status, err := internal.CtxGetState(s.rootCtx).Status()
 	if err != nil {
 		return nil, err
+	}
+
+	if status == internal.StatusNeedsLogin && s.isSessionActive.Load() {
+		log.Debug("status requested while session is active, returning SessionExpired")
+		status = internal.StatusSessionExpired
+		s.isSessionActive.Store(false)
 	}
 
 	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion()}
@@ -747,7 +757,6 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		if preSharedKey != "" {
 			preSharedKey = "**********"
 		}
-
 	}
 
 	disableNotifications := true
@@ -755,19 +764,36 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		disableNotifications = *s.config.DisableNotifications
 	}
 
+	networkMonitor := false
+	if s.config.NetworkMonitor != nil {
+		networkMonitor = *s.config.NetworkMonitor
+	}
+
+	disableDNS := s.config.DisableDNS
+	disableClientRoutes := s.config.DisableClientRoutes
+	disableServerRoutes := s.config.DisableServerRoutes
+	blockLANAccess := s.config.BlockLANAccess
+
 	return &proto.GetConfigResponse{
-		ManagementUrl:        managementURL,
-		ConfigFile:           s.latestConfigInput.ConfigPath,
-		LogFile:              s.logFile,
-		PreSharedKey:         preSharedKey,
-		AdminURL:             adminURL,
-		InterfaceName:        s.config.WgIface,
-		WireguardPort:        int64(s.config.WgPort),
-		DisableAutoConnect:   s.config.DisableAutoConnect,
-		ServerSSHAllowed:     *s.config.ServerSSHAllowed,
-		RosenpassEnabled:     s.config.RosenpassEnabled,
-		RosenpassPermissive:  s.config.RosenpassPermissive,
-		DisableNotifications: disableNotifications,
+		ManagementUrl:         managementURL,
+		ConfigFile:            s.latestConfigInput.ConfigPath,
+		LogFile:               s.logFile,
+		PreSharedKey:          preSharedKey,
+		AdminURL:              adminURL,
+		InterfaceName:         s.config.WgIface,
+		WireguardPort:         int64(s.config.WgPort),
+		DisableAutoConnect:    s.config.DisableAutoConnect,
+		ServerSSHAllowed:      *s.config.ServerSSHAllowed,
+		RosenpassEnabled:      s.config.RosenpassEnabled,
+		RosenpassPermissive:   s.config.RosenpassPermissive,
+		LazyConnectionEnabled: s.config.LazyConnectionEnabled,
+		BlockInbound:          s.config.BlockInbound,
+		DisableNotifications:  disableNotifications,
+		NetworkMonitor:        networkMonitor,
+		DisableDns:            disableDNS,
+		DisableClientRoutes:   disableClientRoutes,
+		DisableServerRoutes:   disableServerRoutes,
+		BlockLanAccess:        blockLANAccess,
 	}, nil
 }
 

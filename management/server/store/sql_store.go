@@ -448,12 +448,20 @@ func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, u
 }
 
 // SaveGroups saves the given list of groups to the database.
-func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*types.Group) error {
+func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error {
 	if len(groups) == 0 {
 		return nil
 	}
 
-	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}, clause.OnConflict{UpdateAll: true}).Create(&groups)
+	result := s.db.
+		Clauses(
+			clause.Locking{Strength: string(lockStrength)},
+			clause.OnConflict{
+				Where:     clause.Where{Exprs: []clause.Expression{clause.Eq{Column: "groups.account_id", Value: accountID}}},
+				UpdateAll: true,
+			},
+		).
+		Create(&groups)
 	if result.Error != nil {
 		return status.Errorf(status.Internal, "failed to save groups to store: %v", result.Error)
 	}
@@ -2146,6 +2154,22 @@ func (s *SqlStore) SaveDNSSettings(ctx context.Context, lockStrength LockingStre
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save dns settings to store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to save dns settings to store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+
+	return nil
+}
+
+// SaveAccountSettings stores the account settings in DB.
+func (s *SqlStore) SaveAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.Settings) error {
+	result := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Model(&types.Account{}).
+		Select("*").Where(idQueryCondition, accountID).Updates(&types.AccountSettings{Settings: settings})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save account settings to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to save account settings to store")
 	}
 
 	if result.RowsAffected == 0 {

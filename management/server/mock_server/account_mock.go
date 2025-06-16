@@ -90,7 +90,7 @@ type MockAccountManager struct {
 	GetDNSSettingsFunc                  func(ctx context.Context, accountID, userID string) (*types.DNSSettings, error)
 	SaveDNSSettingsFunc                 func(ctx context.Context, accountID, userID string, dnsSettingsToSave *types.DNSSettings) error
 	GetPeerFunc                         func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
-	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error)
+	UpdateAccountSettingsFunc           func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
 	LoginPeerFunc                       func(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	SyncPeerFunc                        func(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	InviteUserFunc                      func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
@@ -113,11 +113,12 @@ type MockAccountManager struct {
 	DeleteSetupKeyFunc                  func(ctx context.Context, accountID, userID, keyID string) error
 	BuildUserInfosForAccountFunc        func(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	GetStoreFunc                        func() store.Store
-	CreateAccountByPrivateDomainFunc    func(ctx context.Context, initiatorId, domain string) (*types.Account, error)
 	UpdateToPrimaryAccountFunc          func(ctx context.Context, accountId string) (*types.Account, error)
 	GetOwnerInfoFunc                    func(ctx context.Context, accountID string) (*types.UserInfo, error)
 	GetCurrentUserInfoFunc              func(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
 	GetAccountMetaFunc                  func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
+
+	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -661,7 +662,7 @@ func (am *MockAccountManager) GetPeer(ctx context.Context, accountID, peerID, us
 }
 
 // UpdateAccountSettings mocks UpdateAccountSettings of the AccountManager interface
-func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error) {
+func (am *MockAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error) {
 	if am.UpdateAccountSettingsFunc != nil {
 		return am.UpdateAccountSettingsFunc(ctx, accountID, userID, newSettings)
 	}
@@ -862,11 +863,11 @@ func (am *MockAccountManager) GetStore() store.Store {
 	return nil
 }
 
-func (am *MockAccountManager) CreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, error) {
-	if am.CreateAccountByPrivateDomainFunc != nil {
-		return am.CreateAccountByPrivateDomainFunc(ctx, initiatorId, domain)
+func (am *MockAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error) {
+	if am.GetOrCreateAccountByPrivateDomainFunc != nil {
+		return am.GetOrCreateAccountByPrivateDomainFunc(ctx, initiatorId, domain)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method CreateAccountByPrivateDomain is not implemented")
+	return nil, false, status.Errorf(codes.Unimplemented, "method GetOrCreateAccountByPrivateDomainFunc is not implemented")
 }
 
 func (am *MockAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
