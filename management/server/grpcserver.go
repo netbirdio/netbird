@@ -345,7 +345,7 @@ func mapError(ctx context.Context, err error) error {
 		}
 	}
 	if errors.Is(err, internalStatus.ErrPeerAlreadyLoggedIn) {
-		return status.Error(codes.AlreadyExists, internalStatus.ErrPeerAlreadyLoggedIn.Error())
+		return status.Error(codes.PermissionDenied, internalStatus.ErrPeerAlreadyLoggedIn.Error())
 	}
 	log.WithContext(ctx).Errorf("got an unhandled error: %s", err)
 	return status.Errorf(codes.Internal, "failed handling request")
