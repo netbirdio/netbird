@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -23,6 +24,11 @@ import (
 
 type domainMap map[domain.Domain][]netip.Prefix
 
+type wgInterface interface {
+	Name() string
+	Address() wgaddr.Address
+}
+
 type DnsInterceptor struct {
 	mu                   sync.RWMutex
 	route                *route.Route
@@ -32,6 +38,7 @@ type DnsInterceptor struct {
 	dnsServer            nbdns.Server
 	currentPeerKey       string
 	interceptedDomains   domainMap
+	wgInterface          wgInterface
 	peerStore            *peerstore.Store
 }
 
@@ -41,6 +48,7 @@ func New(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	statusRecorder *peer.Status,
 	dnsServer nbdns.Server,
+	wgInterface wgInterface,
 	peerStore *peerstore.Store,
 ) *DnsInterceptor {
 	return &DnsInterceptor{
@@ -49,6 +57,7 @@ func New(
 		allowedIPsRefcounter: allowedIPsRefCounter,
 		statusRecorder:       statusRecorder,
 		dnsServer:            dnsServer,
+		wgInterface:          wgInterface,
 		interceptedDomains:   make(domainMap),
 		peerStore:            peerStore,
 	}
@@ -162,13 +171,16 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
+	client, err := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), nbdns.UpstreamTimeout)
+	if err != nil {
+		d.writeDNSError(w, r, fmt.Sprintf("create DNS client: %v", err))
+		return
+	}
+
 	if r.Extra == nil {
 		r.MsgHdr.AuthenticatedData = true
 	}
-	client := &dns.Client{
-		Timeout: nbdns.UpstreamTimeout,
-		Net:     "udp",
-	}
+
 	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
 	reply, _, err := nbdns.ExchangeWithFallback(context.TODO(), client, r, upstream)
 	if err != nil {

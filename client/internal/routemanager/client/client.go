@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"runtime"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -23,7 +22,7 @@ import (
 
 const (
 	handlerTypeDynamic = iota
-	handlerTypeDomain
+	handlerTypeDnsInterceptor
 	handlerTypeStatic
 )
 
@@ -566,13 +565,14 @@ func HandlerFromRoute(
 	useNewDNSRoute bool,
 ) RouteHandler {
 	switch handlerType(rt, useNewDNSRoute) {
-	case handlerTypeDomain:
+	case handlerTypeDnsInterceptor:
 		return dnsinterceptor.New(
 			rt,
 			routeRefCounter,
 			allowedIPsRefCounter,
 			statusRecorder,
 			dnsServer,
+			wgInterface,
 			peerStore,
 		)
 	case handlerTypeDynamic:
@@ -596,8 +596,8 @@ func handlerType(rt *route.Route, useNewDNSRoute bool) int {
 		return handlerTypeStatic
 	}
 
-	if useNewDNSRoute && runtime.GOOS != "ios" {
-		return handlerTypeDomain
+	if useNewDNSRoute {
+		return handlerTypeDnsInterceptor
 	}
 	return handlerTypeDynamic
 }
