@@ -789,11 +789,6 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
-	metahash := metaHash(login.Meta)
-	if !am.loginFilter.allowLogin(login.WireGuardPubKey, metahash) {
-		return nil, nil, nil, status.ErrPeerAlreadyLoggedIn
-	}
-
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
 		return am.handlePeerLoginNotFound(ctx, login, err)
@@ -904,8 +899,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
-
-	am.loginFilter.addLogin(login.WireGuardPubKey, metahash)
 
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peer)
 }

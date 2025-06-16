@@ -1530,6 +1530,10 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth nbcontext.U
 	return domainCategory == types.PrivateCategory || userAuth.DomainCategory != types.PrivateCategory || domain != userAuth.Domain
 }
 
+func (am *DefaultAccountManager) AllowSync(wgPubKey, metahash string) bool {
+	return am.loginFilter.allowLogin(wgPubKey, metahash)
+}
+
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	start := time.Now()
 	defer func() {
@@ -1550,6 +1554,9 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
+
+	metahash := metaHash(meta)
+	am.loginFilter.addLogin(peerPubKey, metahash)
 
 	return peer, netMap, postureChecks, nil
 }

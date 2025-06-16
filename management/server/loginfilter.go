@@ -3,36 +3,46 @@ package server
 import (
 	"strings"
 	"sync"
+	"time"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
 const (
-	loginFilterSize = 100_000 // Size of the login filter map, making it large enough for a future
+	loginFilterSize = 100_000         // Size of the login filter map, making it large enough for a future
+	filterTimeout   = 5 * time.Minute // Duration to secure the previous login information in the filter
 )
 
 type loginFilter struct {
 	mu     sync.RWMutex
-	logged map[string]string
+	logged map[string]metahash
+}
+
+type metahash struct {
+	hash      string
+	lastlogin time.Time
 }
 
 func newLoginFilter() *loginFilter {
 	return &loginFilter{
-		logged: make(map[string]string, loginFilterSize),
+		logged: make(map[string]metahash, loginFilterSize),
 	}
 }
 
 func (l *loginFilter) addLogin(wgPubKey, metaHash string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.logged[wgPubKey] = metaHash
+	l.logged[wgPubKey] = metahash{
+		hash:      metaHash,
+		lastlogin: time.Now(),
+	}
 }
 
 func (l *loginFilter) allowLogin(wgPubKey, metaHash string) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if loggedMetaHash, ok := l.logged[wgPubKey]; ok {
-		return loggedMetaHash == metaHash
+		return loggedMetaHash.hash == metaHash && time.Since(loggedMetaHash.lastlogin) < filterTimeout
 	}
 	return true
 }
