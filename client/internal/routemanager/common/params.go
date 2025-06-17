@@ -17,7 +17,7 @@ type HandlerParams struct {
 	Route                *route.Route
 	RouteRefCounter      *refcounter.RouteRefCounter
 	AllowedIPsRefCounter *refcounter.AllowedIPsRefCounter
-	DnsRouterInteval     time.Duration
+	DnsRouterInterval    time.Duration
 	StatusRecorder       *peer.Status
 	WgInterface          iface.WGIface
 	DnsServer            dns.Server

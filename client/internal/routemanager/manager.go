@@ -310,7 +310,7 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 			Route:                route,
 			RouteRefCounter:      m.routeRefCounter,
 			AllowedIPsRefCounter: m.allowedIPsRefCounter,
-			DnsRouterInteval:     m.dnsRouteInterval,
+			DnsRouterInterval:    m.dnsRouteInterval,
 			StatusRecorder:       m.statusRecorder,
 			WgInterface:          m.wgInterface,
 			DnsServer:            m.dnsServer,

@@ -58,7 +58,7 @@ func NewRoute(params common.HandlerParams, resolverAddr string) *Route {
 		route:                params.Route,
 		routeRefCounter:      params.RouteRefCounter,
 		allowedIPsRefcounter: params.AllowedIPsRefCounter,
-		interval:             params.DnsRouterInteval,
+		interval:             params.DnsRouterInterval,
 		statusRecorder:       params.StatusRecorder,
 		wgInterface:          params.WgInterface,
 		resolverAddr:         resolverAddr,
