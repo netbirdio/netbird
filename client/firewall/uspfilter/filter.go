@@ -572,14 +572,14 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	return nil
 }
 
-// DropOutgoing filter outgoing packets
-func (m *Manager) DropOutgoing(packetData []byte, size int) bool {
-	return m.processOutgoingHooks(packetData, size)
+// FilterOutBound filters outgoing packets
+func (m *Manager) FilterOutbound(packetData []byte, size int) bool {
+	return m.filterOutbound(packetData, size)
 }
 
-// DropIncoming filter incoming packets
-func (m *Manager) DropIncoming(packetData []byte, size int) bool {
-	return m.dropFilter(packetData, size)
+// FilterInbound filters incoming packets
+func (m *Manager) FilterInbound(packetData []byte, size int) bool {
+	return m.filterInbound(packetData, size)
 }
 
 // UpdateLocalIPs updates the list of local IPs
@@ -587,7 +587,7 @@ func (m *Manager) UpdateLocalIPs() error {
 	return m.localipmanager.UpdateLocalIPs(m.wgIface)
 }
 
-func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
+func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 
@@ -714,9 +714,9 @@ func (m *Manager) udpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte
 	return false
 }
 
-// dropFilter implements filtering logic for incoming packets.
+// filterInbound implements filtering logic for incoming packets.
 // If it returns true, the packet should be dropped.
-func (m *Manager) dropFilter(packetData []byte, size int) bool {
+func (m *Manager) filterInbound(packetData []byte, size int) bool {
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 

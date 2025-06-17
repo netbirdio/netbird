@@ -9,11 +9,11 @@ import (
 
 // PacketFilter interface for firewall abilities
 type PacketFilter interface {
-	// DropOutgoing filter outgoing packets from host to external destinations
-	DropOutgoing(packetData []byte, size int) bool
+	// FilterOutbound filter outgoing packets from host to external destinations
+	FilterOutbound(packetData []byte, size int) bool
 
-	// DropIncoming filter incoming packets from external sources to host
-	DropIncoming(packetData []byte, size int) bool
+	// FilterInbound filter incoming packets from external sources to host
+	FilterInbound(packetData []byte, size int) bool
 
 	// AddUDPPacketHook calls hook when UDP packet from given direction matched
 	//
@@ -54,7 +54,7 @@ func (d *FilteredDevice) Read(bufs [][]byte, sizes []int, offset int) (n int, er
 	}
 
 	for i := 0; i < n; i++ {
-		if filter.DropOutgoing(bufs[i][offset:offset+sizes[i]], sizes[i]) {
+		if filter.FilterOutbound(bufs[i][offset:offset+sizes[i]], sizes[i]) {
 			bufs = append(bufs[:i], bufs[i+1:]...)
 			sizes = append(sizes[:i], sizes[i+1:]...)
 			n--
@@ -78,7 +78,7 @@ func (d *FilteredDevice) Write(bufs [][]byte, offset int) (int, error) {
 	filteredBufs := make([][]byte, 0, len(bufs))
 	dropped := 0
 	for _, buf := range bufs {
-		if !filter.DropIncoming(buf[offset:], len(buf)) {
+		if !filter.FilterInbound(buf[offset:], len(buf)) {
 			filteredBufs = append(filteredBufs, buf)
 			dropped++
 		}

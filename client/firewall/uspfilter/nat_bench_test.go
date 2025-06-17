@@ -93,7 +93,7 @@ func BenchmarkDNATTranslation(b *testing.B) {
 
 			// Pre-establish connection for reverse DNAT test
 			if sc.setupDNAT {
-				manager.processOutgoingHooks(outboundPacket, 0)
+				manager.filterOutbound(outboundPacket, 0)
 			}
 
 			b.ResetTimer()
@@ -103,7 +103,7 @@ func BenchmarkDNATTranslation(b *testing.B) {
 				for i := 0; i < b.N; i++ {
 					// Create fresh packet each time since translation modifies it
 					packet := generateDNATTestPacket(b, srcIP, originalIP, sc.proto, 12345, 80)
-					manager.processOutgoingHooks(packet, 0)
+					manager.filterOutbound(packet, 0)
 				}
 			})
 
@@ -113,7 +113,7 @@ func BenchmarkDNATTranslation(b *testing.B) {
 					for i := 0; i < b.N; i++ {
 						// Create fresh packet each time since translation modifies it
 						packet := generateDNATTestPacket(b, translatedIP, srcIP, sc.proto, 80, 12345)
-						manager.dropFilter(packet, 0)
+						manager.filterInbound(packet, 0)
 					}
 				})
 			}
@@ -159,7 +159,7 @@ func BenchmarkDNATConcurrency(b *testing.B) {
 		outboundPackets[i] = generateDNATTestPacket(b, srcIP, originalIPs[i], layers.IPProtocolTCP, 12345, 80)
 		inboundPackets[i] = generateDNATTestPacket(b, translatedIPs[i], srcIP, layers.IPProtocolTCP, 80, 12345)
 		// Establish connections
-		manager.processOutgoingHooks(outboundPackets[i], 0)
+		manager.filterOutbound(outboundPackets[i], 0)
 	}
 
 	b.ResetTimer()
@@ -170,7 +170,7 @@ func BenchmarkDNATConcurrency(b *testing.B) {
 			for pb.Next() {
 				idx := i % numMappings
 				packet := generateDNATTestPacket(b, srcIP, originalIPs[idx], layers.IPProtocolTCP, 12345, 80)
-				manager.processOutgoingHooks(packet, 0)
+				manager.filterOutbound(packet, 0)
 				i++
 			}
 		})
@@ -182,7 +182,7 @@ func BenchmarkDNATConcurrency(b *testing.B) {
 			for pb.Next() {
 				idx := i % numMappings
 				packet := generateDNATTestPacket(b, translatedIPs[idx], srcIP, layers.IPProtocolTCP, 80, 12345)
-				manager.dropFilter(packet, 0)
+				manager.filterInbound(packet, 0)
 				i++
 			}
 		})
@@ -225,7 +225,7 @@ func BenchmarkDNATScaling(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				packet := generateDNATTestPacket(b, srcIP, lastOriginal, layers.IPProtocolTCP, 12345, 80)
-				manager.processOutgoingHooks(packet, 0)
+				manager.filterOutbound(packet, 0)
 			}
 		})
 	}
