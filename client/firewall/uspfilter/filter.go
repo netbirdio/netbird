@@ -599,14 +599,6 @@ func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
 		return false
 	}
 
-	translated := m.translateOutboundDNAT(packetData, d)
-	if translated {
-		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-			m.logger.Error("Failed to re-decode packet after DNAT: %v", err)
-			return false
-		}
-	}
-
 	srcIP, dstIP := m.extractIPs(d)
 	if !srcIP.IsValid() {
 		m.logger.Error("Unknown network layer: %v", d.decoded[0])
@@ -618,6 +610,7 @@ func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
 	}
 
 	m.trackOutbound(d, srcIP, dstIP, size)
+	m.translateOutboundDNAT(packetData, d)
 
 	return false
 }
@@ -745,15 +738,17 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 		return false
 	}
 
-	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, size) {
-		translated := m.translateInboundReverse(packetData, d)
-		if translated {
-			// Re-decode after translation
-			if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-				m.logger.Error("Failed to re-decode packet after reverse DNAT: %v", err)
-				return true
-			}
+	translated := m.translateInboundReverse(packetData, d)
+	if translated {
+		// Re-decode after translation to get original addresses
+		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+			m.logger.Error("Failed to re-decode packet after reverse DNAT: %v", err)
+			return true
 		}
+		srcIP, dstIP = m.extractIPs(d)
+	}
+
+	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, size) {
 		return false
 	}
 
