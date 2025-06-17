@@ -133,7 +133,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		}
 
 		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
-			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
+			am.schedulePeerLoginExpiration(ctx, accountID)
 		}
 
 		if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
@@ -296,7 +296,8 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		am.StoreEvent(ctx, userID, peer.IP.String(), accountID, event, peer.EventMeta(dnsDomain))
 
 		if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
-			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
+			am.peerLoginExpiry.Cancel(ctx, []string{accountID})
+			am.schedulePeerLoginExpiration(ctx, accountID)
 		}
 	}
 
