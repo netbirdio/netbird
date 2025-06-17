@@ -87,8 +87,6 @@ func TestGetFakeIP(t *testing.T) {
 	}
 }
 
-
-
 func TestMultipleAllocations(t *testing.T) {
 	manager := NewManager()
 
@@ -181,7 +179,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 func TestIPExhaustion(t *testing.T) {
 	// Create a manager with limited range for testing
-	manager := &FakeIPManager{
+	manager := &Manager{
 		nextIP:     netip.AddrFrom4([4]byte{240, 0, 0, 1}),
 		allocated:  make(map[netip.Addr]netip.Addr),
 		fakeToReal: make(map[netip.Addr]netip.Addr),
@@ -212,7 +210,7 @@ func TestIPExhaustion(t *testing.T) {
 
 func TestWrapAround(t *testing.T) {
 	// Create manager starting near the end of range
-	manager := &FakeIPManager{
+	manager := &Manager{
 		nextIP:     netip.AddrFrom4([4]byte{240, 0, 0, 254}),
 		allocated:  make(map[netip.Addr]netip.Addr),
 		fakeToReal: make(map[netip.Addr]netip.Addr),

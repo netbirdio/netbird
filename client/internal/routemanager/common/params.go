@@ -24,5 +24,5 @@ type HandlerParams struct {
 	PeerStore            *peerstore.Store
 	UseNewDNSRoute       bool
 	Firewall             manager.Manager
-	FakeIPManager        *fakeip.FakeIPManager
+	FakeIPManager        *fakeip.Manager
 }

@@ -41,10 +41,6 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-type internalDNATer interface {
-	AddInternalDNATMapping(netip.Addr, netip.Addr) error
-}
-
 // Manager is a route manager interface
 type Manager interface {
 	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
@@ -102,7 +98,7 @@ type DefaultManager struct {
 	disableClientRoutes bool
 	disableServerRoutes bool
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
-	fakeIPManager       *fakeip.FakeIPManager
+	fakeIPManager       *fakeip.Manager
 }
 
 func NewManager(config ManagerConfig) *DefaultManager {
@@ -544,12 +540,6 @@ func (m *DefaultManager) initialClientRoutes(initialRoutes []*route.Route) []*ro
 	rs = append(rs, fakeIPRoute)
 
 	return rs
-}
-
-// supportsInternalDNAT checks if the firewall supports internal DNAT
-func (m *DefaultManager) supportsInternalDNAT(fw firewall.Manager) bool {
-	_, ok := fw.(internalDNATer)
-	return ok
 }
 
 func isRouteSupported(route *route.Route) bool {

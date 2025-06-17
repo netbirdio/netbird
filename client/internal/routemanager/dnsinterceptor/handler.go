@@ -50,7 +50,7 @@ type DnsInterceptor struct {
 	wgInterface          wgInterface
 	peerStore            *peerstore.Store
 	firewall             firewall.Manager
-	fakeIPManager        *fakeip.FakeIPManager
+	fakeIPManager        *fakeip.Manager
 }
 
 func New(params common.HandlerParams) *DnsInterceptor {
@@ -428,7 +428,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 			}
 		}
 
-		d.removeDNATMappingsForRealIPs(toRemove)
+		d.removeDNATMappings(toRemove)
 	}
 
 	// Update domain prefixes using resolved domain as key - store real IPs
@@ -449,8 +449,8 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// removeDNATMappingsForRealIPs removes DNAT mappings from the firewall for real IP prefixes
-func (d *DnsInterceptor) removeDNATMappingsForRealIPs(realPrefixes []netip.Prefix) {
+// removeDNATMappings removes DNAT mappings from the firewall for real IP prefixes
+func (d *DnsInterceptor) removeDNATMappings(realPrefixes []netip.Prefix) {
 	if len(realPrefixes) == 0 {
 		return
 	}
@@ -501,27 +501,6 @@ func (d *DnsInterceptor) addDNATMappings(mappings map[netip.Addr]netip.Addr) {
 	}
 }
 
-// removeDNATMappings removes DNAT mappings from the firewall for removed prefixes
-func (d *DnsInterceptor) removeDNATMappings(prefixes []netip.Prefix) {
-	if len(prefixes) == 0 {
-		return
-	}
-
-	dnatFirewall, ok := d.internalDnatFw()
-	if !ok {
-		return
-	}
-
-	for _, prefix := range prefixes {
-		fakeIP := prefix.Addr()
-		if err := dnatFirewall.RemoveInternalDNATMapping(fakeIP); err != nil {
-			log.Errorf("Failed to remove DNAT mapping for %s: %v", fakeIP, err)
-		} else {
-			log.Debugf("Removed DNAT mapping for: %s", fakeIP)
-		}
-	}
-}
-
 // cleanupDNATMappings removes all DNAT mappings for this interceptor
 func (d *DnsInterceptor) cleanupDNATMappings() {
 	if _, ok := d.internalDnatFw(); !ok {
@@ -529,7 +508,7 @@ func (d *DnsInterceptor) cleanupDNATMappings() {
 	}
 
 	for _, prefixes := range d.interceptedDomains {
-		d.removeDNATMappingsForRealIPs(prefixes)
+		d.removeDNATMappings(prefixes)
 	}
 }
 
