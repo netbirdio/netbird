@@ -170,11 +170,11 @@ func (m *Manager) rewritePacketDestination(packetData []byte, d *decoder, newIP 
 		return fmt.Errorf("only IPv4 supported")
 	}
 
-	oldDst := make([]byte, 4)
-	copy(oldDst, packetData[16:20])
-	newDst := newIP.AsSlice()
+	var oldDst [4]byte
+	copy(oldDst[:], packetData[16:20])
+	newDst := newIP.As4()
 
-	copy(packetData[16:20], newDst)
+	copy(packetData[16:20], newDst[:])
 
 	ipHeaderLen := int(d.ip4.IHL) * 4
 	binary.BigEndian.PutUint16(packetData[10:12], 0)
@@ -184,9 +184,9 @@ func (m *Manager) rewritePacketDestination(packetData []byte, d *decoder, newIP 
 	if len(d.decoded) > 1 {
 		switch d.decoded[1] {
 		case layers.LayerTypeTCP:
-			m.updateTCPChecksum(packetData, ipHeaderLen, oldDst, newDst)
+			m.updateTCPChecksum(packetData, ipHeaderLen, oldDst[:], newDst[:])
 		case layers.LayerTypeUDP:
-			m.updateUDPChecksum(packetData, ipHeaderLen, oldDst, newDst)
+			m.updateUDPChecksum(packetData, ipHeaderLen, oldDst[:], newDst[:])
 		case layers.LayerTypeICMPv4:
 			m.updateICMPChecksum(packetData, ipHeaderLen)
 		}
@@ -201,11 +201,11 @@ func (m *Manager) rewritePacketSource(packetData []byte, d *decoder, newIP netip
 		return fmt.Errorf("only IPv4 supported")
 	}
 
-	oldSrc := make([]byte, 4)
-	copy(oldSrc, packetData[12:16])
-	newSrc := newIP.AsSlice()
+	var oldSrc [4]byte
+	copy(oldSrc[:], packetData[12:16])
+	newSrc := newIP.As4()
 
-	copy(packetData[12:16], newSrc)
+	copy(packetData[12:16], newSrc[:])
 
 	ipHeaderLen := int(d.ip4.IHL) * 4
 	binary.BigEndian.PutUint16(packetData[10:12], 0)
@@ -215,9 +215,9 @@ func (m *Manager) rewritePacketSource(packetData []byte, d *decoder, newIP netip
 	if len(d.decoded) > 1 {
 		switch d.decoded[1] {
 		case layers.LayerTypeTCP:
-			m.updateTCPChecksum(packetData, ipHeaderLen, oldSrc, newSrc)
+			m.updateTCPChecksum(packetData, ipHeaderLen, oldSrc[:], newSrc[:])
 		case layers.LayerTypeUDP:
-			m.updateUDPChecksum(packetData, ipHeaderLen, oldSrc, newSrc)
+			m.updateUDPChecksum(packetData, ipHeaderLen, oldSrc[:], newSrc[:])
 		case layers.LayerTypeICMPv4:
 			m.updateICMPChecksum(packetData, ipHeaderLen)
 		}
