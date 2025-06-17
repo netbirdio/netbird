@@ -70,15 +70,20 @@ func (m *metahash) prepareHashes() string {
 }
 
 func metaHash(meta nbpeer.PeerSystemMeta) string {
-	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname)
+	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname) + len(meta.SystemSerialNumber) + 4
 
 	var b strings.Builder
 	b.Grow(estimatedSize)
 
 	b.WriteString(meta.WtVersion)
+	b.WriteByte('|')
 	b.WriteString(meta.OSVersion)
+	b.WriteByte('|')
 	b.WriteString(meta.KernelVersion)
+	b.WriteByte('|')
 	b.WriteString(meta.Hostname)
+	b.WriteByte('|')
+	b.WriteString(meta.SystemSerialNumber)
 
 	return b.String()
 }
