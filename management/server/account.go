@@ -24,6 +24,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
@@ -409,14 +410,15 @@ func (am *DefaultAccountManager) handlePeerLoginExpirationSettings(ctx context.C
 			event = activity.AccountPeerLoginExpirationDisabled
 			am.peerLoginExpiry.Cancel(ctx, []string{accountID})
 		} else {
-			am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
+			am.schedulePeerLoginExpiration(ctx, accountID)
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 	}
 
 	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
-		am.checkAndSchedulePeerLoginExpiration(ctx, accountID)
+		am.peerLoginExpiry.Cancel(ctx, []string{accountID})
+		am.schedulePeerLoginExpiration(ctx, accountID)
 	}
 }
 
@@ -454,6 +456,8 @@ func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
+		ctx := context.WithValue(ctx, nbcontext.AccountIDKey, accountID)
+		ctx = context.WithValue(ctx, hook.ExecutionContextKey, fmt.Sprintf("%s-PEER-EXPIRATION", hook.SystemSource))
 		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 		defer unlock()
 
@@ -478,8 +482,11 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 	}
 }
 
-func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(ctx context.Context, accountID string) {
-	am.peerLoginExpiry.Cancel(ctx, []string{accountID})
+func (am *DefaultAccountManager) schedulePeerLoginExpiration(ctx context.Context, accountID string) {
+	if am.peerLoginExpiry.IsSchedulerRunning(accountID) {
+		log.WithContext(ctx).Tracef("peer login expiration job for account %s is already scheduled", accountID)
+		return
+	}
 	if nextRun, ok := am.getNextPeerExpiration(ctx, accountID); ok {
 		go am.peerLoginExpiry.Schedule(ctx, nextRun, accountID, am.peerLoginExpirationJob(ctx, accountID))
 	}
