@@ -12,7 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-const channelBufferSize = 100
+const channelBufferSize = 2
 
 type UpdateMessage struct {
 	Update     *proto.SyncResponse
@@ -53,12 +53,19 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 
 	if channel, ok := p.peerChannels[peerID]; ok {
 		found = true
-		select {
-		case channel <- update:
-			log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
-		default:
-			dropped = true
-			log.WithContext(ctx).Warnf("channel for peer %s is %d full or closed", peerID, len(channel))
+		for {
+			select {
+			case channel <- update:
+				log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
+				return
+			default:
+				select {
+				case <-channel:
+					log.WithContext(ctx).Tracef("dropped oldest message from channel for peer %s", peerID)
+				default:
+					log.WithContext(ctx).Tracef("channel unexpectedly empty while trying to drop for peer %s", peerID)
+				}
+			}
 		}
 	} else {
 		log.WithContext(ctx).Debugf("peer %s has no channel", peerID)
