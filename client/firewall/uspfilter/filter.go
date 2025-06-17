@@ -745,9 +745,7 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 		return false
 	}
 
-	// Step 1: Check connection tracking FIRST (with original addresses)
 	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, size) {
-		// Step 2: Apply reverse DNAT for established connections
 		translated := m.translateInboundReverse(packetData, d)
 		if translated {
 			// Re-decode after translation
