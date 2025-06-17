@@ -208,15 +208,11 @@ func (m *Manager) translateOutboundDNAT(packetData []byte, d *decoder) bool {
 	}
 
 	if err := m.rewritePacketDestination(packetData, d, translatedIP); err != nil {
-		if m.logger != nil {
-			m.logger.Error("Failed to rewrite packet destination: %v", err)
-		}
+		m.logger.Error("Failed to rewrite packet destination: %v", err)
 		return false
 	}
 
-	if m.logger != nil {
-		m.logger.Trace("DNAT: %s -> %s", dstIP, translatedIP)
-	}
+	m.logger.Trace("DNAT: %s -> %s", dstIP, translatedIP)
 	return true
 }
 
@@ -238,15 +234,11 @@ func (m *Manager) translateInboundReverse(packetData []byte, d *decoder) bool {
 	}
 
 	if err := m.rewritePacketSource(packetData, d, originalIP); err != nil {
-		if m.logger != nil {
-			m.logger.Error("Failed to rewrite packet source: %v", err)
-		}
+		m.logger.Error("Failed to rewrite packet source: %v", err)
 		return false
 	}
 
-	if m.logger != nil {
-		m.logger.Trace("Reverse DNAT: %s -> %s", srcIP, originalIP)
-	}
+	m.logger.Trace("Reverse DNAT: %s -> %s", srcIP, originalIP)
 	return true
 }
 
