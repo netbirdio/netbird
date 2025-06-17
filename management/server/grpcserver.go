@@ -141,11 +141,6 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	if err != nil {
 		return err
 	}
-	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
-	metahashed := metaHash(peerMeta)
-	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
-		return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
-	}
 
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
@@ -178,7 +173,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP)
+	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), extractPeerMeta(ctx, syncReq.GetMeta()), realIP)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
 		return mapError(ctx, err)
@@ -455,12 +450,6 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, err
 	}
 
-	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
-	metahashed := metaHash(peerMeta)
-	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
-		return nil, mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
-	}
-
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
@@ -491,7 +480,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
-		Meta:            peerMeta,
+		Meta:            extractPeerMeta(ctx, loginReq.GetMeta()),
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
 		ConnectionIP:    realIP,

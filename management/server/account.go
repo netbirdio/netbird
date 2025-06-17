@@ -1531,7 +1531,7 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth nbcontext.U
 }
 
 func (am *DefaultAccountManager) AllowSync(wgPubKey, metahash string) bool {
-	return am.loginFilter.allowLogin(wgPubKey, metahash)
+	return true
 }
 
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
@@ -1571,7 +1571,6 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
-	am.loginFilter.removeLogin(peerPubKey)
 	return nil
 
 }
