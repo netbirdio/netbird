@@ -120,10 +120,6 @@ func (b *biDNATMap) getOriginal(translated netip.Addr) (netip.Addr, bool) {
 	return original, exists
 }
 
-func (b *biDNATMap) len() int {
-	return len(b.forward)
-}
-
 func (m *Manager) AddInternalDNATMapping(originalAddr, translatedAddr netip.Addr) error {
 	if !originalAddr.IsValid() || !translatedAddr.IsValid() {
 		return fmt.Errorf("invalid IP addresses")

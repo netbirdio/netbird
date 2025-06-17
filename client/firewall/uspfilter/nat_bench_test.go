@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	log "github.com/sirupsen/logrus"
@@ -345,7 +346,8 @@ func BenchmarkDNATMemoryAllocations(b *testing.B) {
 			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 		)
 		d.parser.IgnoreUnsupported = true
-		d.parser.DecodeLayers(testPacket, &d.decoded)
+		err = d.parser.DecodeLayers(testPacket, &d.decoded)
+		assert.NoError(b, err)
 
 		manager.translateOutboundDNAT(testPacket, d)
 	}
@@ -373,7 +375,8 @@ func BenchmarkDirectIPExtraction(b *testing.B) {
 			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
 		)
 		d.parser.IgnoreUnsupported = true
-		d.parser.DecodeLayers(packet, &d.decoded)
+		err := d.parser.DecodeLayers(packet, &d.decoded)
+		assert.NoError(b, err)
 
 		for i := 0; i < b.N; i++ {
 			// Extract using decoder (traditional method)
