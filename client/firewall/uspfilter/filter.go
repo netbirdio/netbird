@@ -109,6 +109,7 @@ type Manager struct {
 	dnatEnabled  atomic.Bool
 	dnatMappings map[netip.Addr]netip.Addr
 	dnatMutex    sync.RWMutex
+	dnatBiMap    *biDNATMap
 }
 
 // decoder for packages
