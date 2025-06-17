@@ -738,8 +738,7 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 		return false
 	}
 
-	translated := m.translateInboundReverse(packetData, d)
-	if translated {
+	if translated := m.translateInboundReverse(packetData, d); translated {
 		// Re-decode after translation to get original addresses
 		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
 			m.logger.Error("Failed to re-decode packet after reverse DNAT: %v", err)

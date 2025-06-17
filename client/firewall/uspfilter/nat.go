@@ -2,6 +2,7 @@ package uspfilter
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/netip"
 
@@ -9,6 +10,8 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 )
+
+var ErrIPv4Only = errors.New("only IPv4 is supported for DNAT")
 
 func ipv4Checksum(header []byte) uint16 {
 	if len(header) < 20 {
@@ -245,7 +248,7 @@ func (m *Manager) translateInboundReverse(packetData []byte, d *decoder) bool {
 // rewritePacketDestination replaces destination IP in the packet
 func (m *Manager) rewritePacketDestination(packetData []byte, d *decoder, newIP netip.Addr) error {
 	if len(packetData) < 20 || d.decoded[0] != layers.LayerTypeIPv4 || !newIP.Is4() {
-		return fmt.Errorf("only IPv4 supported")
+		return ErrIPv4Only
 	}
 
 	var oldDst [4]byte
@@ -280,7 +283,7 @@ func (m *Manager) rewritePacketDestination(packetData []byte, d *decoder, newIP 
 // rewritePacketSource replaces the source IP address in the packet
 func (m *Manager) rewritePacketSource(packetData []byte, d *decoder, newIP netip.Addr) error {
 	if len(packetData) < 20 || d.decoded[0] != layers.LayerTypeIPv4 || !newIP.Is4() {
-		return fmt.Errorf("only IPv4 supported")
+		return ErrIPv4Only
 	}
 
 	var oldSrc [4]byte
