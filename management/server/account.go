@@ -456,7 +456,9 @@ func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.
 
 func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
+		//nolint
 		ctx := context.WithValue(ctx, nbcontext.AccountIDKey, accountID)
+		//nolint
 		ctx = context.WithValue(ctx, hook.ExecutionContextKey, fmt.Sprintf("%s-PEER-EXPIRATION", hook.SystemSource))
 		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 		defer unlock()
