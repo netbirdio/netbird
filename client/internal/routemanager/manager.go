@@ -66,6 +66,7 @@ type ManagerConfig struct {
 	InitialRoutes       []*route.Route
 	StateManager        *statemanager.Manager
 	DNSServer           dns.Server
+	DNSFeatureFlag      bool
 	PeerStore           *peerstore.Store
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -134,12 +135,28 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	}
 
 	if runtime.GOOS == "android" {
-		dm.fakeIPManager = fakeip.NewManager()
-
-		cr := dm.initialClientRoutes(config.InitialRoutes)
-		dm.notifier.SetInitialClientRoutes(cr)
+		dm.setupAndroidRoutes(config)
 	}
 	return dm
+}
+func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
+	cr := m.initialClientRoutes(config.InitialRoutes)
+
+	if config.DNSFeatureFlag {
+		m.fakeIPManager = fakeip.NewManager()
+
+		id := uuid.NewString()
+		fakeIPRoute := &route.Route{
+			ID:          route.ID(id),
+			Network:     m.fakeIPManager.GetFakeIPBlock(),
+			NetID:       route.NetID(id),
+			Peer:        m.pubKey,
+			NetworkType: route.IPv4Network,
+		}
+		cr = append(cr, fakeIPRoute)
+	}
+
+	m.notifier.SetInitialClientRoutes(cr, config.DNSFeatureFlag)
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
@@ -527,17 +544,6 @@ func (m *DefaultManager) initialClientRoutes(initialRoutes []*route.Route) []*ro
 	for _, routes := range crMap {
 		rs = append(rs, routes...)
 	}
-
-	fakeIPBlock := m.fakeIPManager.GetFakeIPBlock()
-	id := uuid.NewString()
-	fakeIPRoute := &route.Route{
-		ID:          route.ID(id),
-		Network:     fakeIPBlock,
-		NetID:       route.NetID(id),
-		Peer:        m.pubKey,
-		NetworkType: route.IPv4Network,
-	}
-	rs = append(rs, fakeIPRoute)
 
 	return rs
 }

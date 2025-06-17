@@ -29,9 +29,13 @@ func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
 	n.listener = listener
 }
 
-func (n *Notifier) SetInitialClientRoutes(clientRoutes []*route.Route) {
+func (n *Notifier) SetInitialClientRoutes(clientRoutes []*route.Route, dnsFeatureFlag bool) {
 	nets := make([]string, 0)
 	for _, r := range clientRoutes {
+		if r.IsDynamic() && !dnsFeatureFlag {
+			// this kind of dynamic route is not supported on android
+			continue
+		}
 		nets = append(nets, r.Network.String())
 	}
 	sort.Strings(nets)

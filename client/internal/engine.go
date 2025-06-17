@@ -383,7 +383,13 @@ func (e *Engine) Start() error {
 	}
 	e.stateManager.Start()
 
-	initialRoutes, dnsServer, err := e.newDnsServer()
+	initialRoutes, dnsConfig, dnsFeatureFlag, err := e.readInitialSettings()
+	if err != nil {
+		e.close()
+		return fmt.Errorf("read initial settings: %w", err)
+	}
+
+	dnsServer, err := e.newDnsServer(dnsConfig)
 	if err != nil {
 		e.close()
 		return fmt.Errorf("create dns server: %w", err)
@@ -400,6 +406,7 @@ func (e *Engine) Start() error {
 		InitialRoutes:       initialRoutes,
 		StateManager:        e.stateManager,
 		DNSServer:           dnsServer,
+		DNSFeatureFlag:      dnsFeatureFlag,
 		PeerStore:           e.peerStore,
 		DisableClientRoutes: e.config.DisableClientRoutes,
 		DisableServerRoutes: e.config.DisableServerRoutes,
@@ -1009,8 +1016,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
-	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
-
 	// apply routes first, route related actions might depend on routing being enabled
 	routes := toRoutes(networkMap.GetRoutes())
 	serverRoutes, clientRoutes := e.routeManager.ClassifyRoutes(routes)
@@ -1021,6 +1026,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Debugf("updated lazy connection manager with %d HA groups", len(clientRoutes))
 	}
 
+	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
 	if err := e.routeManager.UpdateRoutes(serial, serverRoutes, clientRoutes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update routes: %v", err)
 	}
@@ -1489,7 +1495,12 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
+func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, error) {
+	if runtime.GOOS != "android" {
+		// nolint:nilnil
+		return nil, nil, false, nil
+	}
+
 	info := system.GetInfo(e.ctx)
 	info.SetFlags(
 		e.config.RosenpassEnabled,
@@ -1506,11 +1517,12 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 
 	netMap, err := e.mgmClient.GetNetworkMap(info)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
 	dnsCfg := toDNSConfig(netMap.GetDNSConfig(), e.wgInterface.Address().Network)
-	return routes, &dnsCfg, nil
+	dnsFeatureFlag := toDNSFeatureFlag(netMap)
+	return routes, &dnsCfg, dnsFeatureFlag, nil
 }
 
 func (e *Engine) newWgIface() (*iface.WGIface, error) {
@@ -1557,18 +1569,14 @@ func (e *Engine) wgInterfaceCreate() (err error) {
 	return err
 }
 
-func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
+func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 	// due to tests where we are using a mocked version of the DNS server
 	if e.dnsServer != nil {
-		return nil, e.dnsServer, nil
+		return e.dnsServer, nil
 	}
 
 	switch runtime.GOOS {
 	case "android":
-		routes, dnsConfig, err := e.readInitialSettings()
-		if err != nil {
-			return nil, nil, err
-		}
 		dnsServer := dns.NewDefaultServerPermanentUpstream(
 			e.ctx,
 			e.wgInterface,
@@ -1579,19 +1587,19 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 			e.config.DisableDNS,
 		)
 		go e.mobileDep.DnsReadyListener.OnReady()
-		return routes, dnsServer, nil
+		return dnsServer, nil
 
 	case "ios":
 		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder, e.config.DisableDNS)
-		return nil, dnsServer, nil
+		return dnsServer, nil
 
 	default:
 		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager, e.config.DisableDNS)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
-		return nil, dnsServer, nil
+		return dnsServer, nil
 	}
 }
 
