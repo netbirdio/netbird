@@ -47,6 +47,7 @@ func (l *loginFilter) addLogin(wgPubKey, metaHash string) {
 	}
 	mh.hashes[metaHash] = struct{}{}
 	mh.counter++
+	l.logged[wgPubKey] = mh
 	if mh.counter > loggingLimit && len(mh.hashes) > 1 {
 		log.WithFields(log.Fields{
 			"wgPubKey":                            wgPubKey,
