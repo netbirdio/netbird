@@ -43,21 +43,18 @@ func (l *loginFilter) addLogin(wgPubKey, metaHash string) {
 			hashes: make(map[string]struct{}, loggingLimit),
 			start:  time.Now(),
 		}
-		l.logged[wgPubKey] = mh
 	}
 	mh.hashes[metaHash] = struct{}{}
 	mh.counter++
-	l.logged[wgPubKey] = mh
-	if mh.counter > loggingLimit && len(mh.hashes) > 1 {
+	if mh.counter >= loggingLimit && mh.counter%loggingLimit == 0 && len(mh.hashes) > 1 {
 		log.WithFields(log.Fields{
 			"wgPubKey":                            wgPubKey,
 			"number of different hashes":          len(mh.hashes),
 			"elapsed time for number of attempts": time.Since(mh.start),
 			"number of syncs":                     mh.counter,
 		}).Info(mh.prepareHashes())
-
-		delete(l.logged, wgPubKey)
 	}
+	l.logged[wgPubKey] = mh
 }
 
 func (m *metahash) prepareHashes() string {
