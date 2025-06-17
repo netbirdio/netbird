@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"strings"
 
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -62,4 +63,15 @@ func (s *Server) RemoveProfile(ctx context.Context, req *proto.RemoveProfileRequ
 		Success: true,
 		Error:   "",
 	}, nil
+}
+
+// sanitazeUsername sanitizes the username by removing any invalid characters
+func sanitazeUsername(username string) string {
+	// Remove invalid characters for a username in a file path
+	return strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+			return -1 // remove this character
+		}
+		return r
+	}, username)
 }
