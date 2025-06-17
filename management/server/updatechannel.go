@@ -21,7 +21,7 @@ type UpdateMessage struct {
 
 type PeersUpdateManager struct {
 	// peerChannels is an update channel indexed by Peer.ID
-	peerChannels map[string]chan *UpdateMessage
+	peerChannels map[string]*UpdateBuffer
 	// channelsMux keeps the mutex to access peerChannels
 	channelsMux *sync.RWMutex
 	// metrics provides method to collect application metrics
@@ -31,7 +31,7 @@ type PeersUpdateManager struct {
 // NewPeersUpdateManager returns a new instance of PeersUpdateManager
 func NewPeersUpdateManager(metrics telemetry.AppMetrics) *PeersUpdateManager {
 	return &PeersUpdateManager{
-		peerChannels: make(map[string]chan *UpdateMessage),
+		peerChannels: make(map[string]*UpdateBuffer),
 		channelsMux:  &sync.RWMutex{},
 		metrics:      metrics,
 	}
@@ -53,27 +53,14 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 
 	if channel, ok := p.peerChannels[peerID]; ok {
 		found = true
-		for {
-			select {
-			case channel <- update:
-				log.WithContext(ctx).Debugf("update was sent to channel for peer %s", peerID)
-				return
-			default:
-				select {
-				case <-channel:
-					log.WithContext(ctx).Tracef("dropped oldest message from channel for peer %s", peerID)
-				default:
-					log.WithContext(ctx).Tracef("channel unexpectedly empty while trying to drop for peer %s", peerID)
-				}
-			}
-		}
+		channel.Push(update)
 	} else {
 		log.WithContext(ctx).Debugf("peer %s has no channel", peerID)
 	}
 }
 
 // CreateChannel creates a go channel for a given peer used to deliver updates relevant to the peer.
-func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) chan *UpdateMessage {
+func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) *UpdateBuffer {
 	start := time.Now()
 
 	closed := false
@@ -88,22 +75,21 @@ func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) c
 
 	if channel, ok := p.peerChannels[peerID]; ok {
 		closed = true
+		channel.Close()
 		delete(p.peerChannels, peerID)
-		close(channel)
 	}
 	// mbragin: todo shouldn't it be more? or configurable?
-	channel := make(chan *UpdateMessage, channelBufferSize)
-	p.peerChannels[peerID] = channel
+	buffer := NewUpdateBuffer()
 
 	log.WithContext(ctx).Debugf("opened updates channel for a peer %s", peerID)
 
-	return channel
+	return buffer
 }
 
 func (p *PeersUpdateManager) closeChannel(ctx context.Context, peerID string) {
 	if channel, ok := p.peerChannels[peerID]; ok {
 		delete(p.peerChannels, peerID)
-		close(channel)
+		channel.Close()
 
 		log.WithContext(ctx).Debugf("closed updates channel of a peer %s", peerID)
 		return

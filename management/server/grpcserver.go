@@ -184,7 +184,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return err
 	}
 
-	updates := s.peersUpdateManager.CreateChannel(ctx, peer.ID)
+	updateBuffer := s.peersUpdateManager.CreateChannel(ctx, peer.ID)
 
 	s.ephemeralManager.OnPeerConnected(ctx, peer)
 
@@ -199,37 +199,24 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	log.WithContext(ctx).Debugf("Sync: took %v", time.Since(reqStart))
 
-	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
+	return s.handleUpdates(ctx, accountID, peerKey, peer, updateBuffer, srv)
 }
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
-func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates *UpdateBuffer, srv proto.ManagementService_SyncServer) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
+
 	for {
-		select {
-		// condition when there are some updates
-		case update, open := <-updates:
-			if s.appMetrics != nil {
-				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates) + 1)
-			}
-
-			if !open {
-				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
-				s.cancelPeerRoutines(ctx, accountID, peer)
-				return nil
-			}
-			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
-
-			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
-				return err
-			}
-
-		// condition when client <-> server connection has been terminated
-		case <-srv.Context().Done():
-			// happens when connection drops, e.g. client disconnects
-			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
+		update, ok := updates.Pop(ctx)
+		if !ok {
+			log.WithContext(ctx).Debugf("update buffer for peer %s closed", peerKey.String())
 			s.cancelPeerRoutines(ctx, accountID, peer)
-			return srv.Context().Err()
+			return nil
+		}
+
+		log.WithContext(ctx).Debugf("sending latest update to peer %s", peerKey.String())
+		if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
+			return err
 		}
 	}
 }
