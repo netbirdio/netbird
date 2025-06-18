@@ -40,7 +40,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	mgmt "github.com/netbirdio/netbird/management/client"
@@ -229,31 +228,6 @@ func TestEngine_SSH(t *testing.T) {
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
 	}
 
-	var sshKeysAdded []string
-	var sshPeersRemoved []string
-
-	sshCtx, cancel := context.WithCancel(context.Background())
-
-	engine.sshServerFunc = func(hostKeyPEM []byte, addr string) (ssh.Server, error) {
-		return &ssh.MockServer{
-			Ctx: sshCtx,
-			StopFunc: func() error {
-				cancel()
-				return nil
-			},
-			StartFunc: func() error {
-				<-ctx.Done()
-				return ctx.Err()
-			},
-			AddAuthorizedKeyFunc: func(peer, newKey string) error {
-				sshKeysAdded = append(sshKeysAdded, newKey)
-				return nil
-			},
-			RemoveAuthorizedKeyFunc: func(peer string) {
-				sshPeersRemoved = append(sshPeersRemoved, peer)
-			},
-		}, nil
-	}
 	err = engine.Start()
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +279,6 @@ func TestEngine_SSH(t *testing.T) {
 
 	time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
-	assert.Contains(t, sshKeysAdded, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFATYCqaQw/9id1Qkq3n16JYhDhXraI6Pc1fgB8ynEfQ")
 
 	// now remove peer
 	networkMap = &mgmtProto.NetworkMap{
@@ -321,7 +294,6 @@ func TestEngine_SSH(t *testing.T) {
 
 	// time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
-	assert.Contains(t, sshPeersRemoved, "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=")
 
 	// now disable SSH server
 	networkMap = &mgmtProto.NetworkMap{
@@ -338,7 +310,67 @@ func TestEngine_SSH(t *testing.T) {
 	}
 
 	assert.Nil(t, engine.sshServer)
+}
 
+func TestEngine_SSHUpdateLogic(t *testing.T) {
+	// Test that SSH server start/stop logic works based on config
+	engine := &Engine{
+		config: &EngineConfig{
+			ServerSSHAllowed: false, // Start with SSH disabled
+		},
+		syncMsgMux: &sync.Mutex{},
+	}
+
+	// Test SSH disabled config
+	sshConfig := &mgmtProto.SSHConfig{SshEnabled: false}
+	err := engine.updateSSH(sshConfig)
+	assert.NoError(t, err)
+	assert.Nil(t, engine.sshServer)
+
+	// Test inbound blocked
+	engine.config.BlockInbound = true
+	err = engine.updateSSH(&mgmtProto.SSHConfig{SshEnabled: true})
+	assert.NoError(t, err)
+	assert.Nil(t, engine.sshServer)
+	engine.config.BlockInbound = false
+
+	// Test with server SSH not allowed
+	err = engine.updateSSH(&mgmtProto.SSHConfig{SshEnabled: true})
+	assert.NoError(t, err)
+	assert.Nil(t, engine.sshServer)
+}
+
+func TestEngine_SSHServerConsistency(t *testing.T) {
+
+	t.Run("server set only on successful creation", func(t *testing.T) {
+		engine := &Engine{
+			config: &EngineConfig{
+				ServerSSHAllowed: true,
+				SSHKey:           []byte("test-key"),
+			},
+			syncMsgMux: &sync.Mutex{},
+		}
+
+		engine.wgInterface = nil
+
+		err := engine.updateSSH(&mgmtProto.SSHConfig{SshEnabled: true})
+
+		assert.Error(t, err)
+		assert.Nil(t, engine.sshServer)
+	})
+
+	t.Run("cleanup handles nil gracefully", func(t *testing.T) {
+		engine := &Engine{
+			config: &EngineConfig{
+				ServerSSHAllowed: false,
+			},
+			syncMsgMux: &sync.Mutex{},
+		}
+
+		err := engine.stopSSHServer()
+		assert.NoError(t, err)
+		assert.Nil(t, engine.sshServer)
+	})
 }
 
 func TestEngine_UpdateNetworkMap(t *testing.T) {

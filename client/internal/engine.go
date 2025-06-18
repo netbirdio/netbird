@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"reflect"
 	"runtime"
 	"slices"
 	"sort"
@@ -76,6 +75,14 @@ const (
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
+
+// sshServer interface for SSH server operations
+type sshServer interface {
+	Start(addr string) error
+	Stop() error
+	RemoveAuthorizedKey(peer string)
+	AddAuthorizedKey(peer, newKey string) error
+}
 
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
@@ -172,8 +179,7 @@ type Engine struct {
 
 	networkMonitor *networkmonitor.NetworkMonitor
 
-	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
-	sshServer     nbssh.Server
+	sshServer sshServer
 
 	statusRecorder     *peer.Status
 	peerConnDispatcher *dispatcher.ConnectionDispatcher
@@ -236,7 +242,6 @@ func NewEngine(
 		STUNs:          []*stun.URI{},
 		TURNs:          []*stun.URI{},
 		networkSerial:  0,
-		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
@@ -649,7 +654,7 @@ func (e *Engine) removeAllPeers() error {
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
 
-	if !isNil(e.sshServer) {
+	if e.sshServer != nil {
 		e.sshServer.RemoveAuthorizedKey(peerKey)
 	}
 
@@ -805,63 +810,73 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	return nil
 }
 
-func isNil(server nbssh.Server) bool {
-	return server == nil || reflect.ValueOf(server).IsNil()
-}
-
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	if e.config.BlockInbound {
-		log.Infof("SSH server is disabled because inbound connections are blocked")
-		return nil
+		log.Info("SSH server is disabled because inbound connections are blocked")
+		return e.stopSSHServer()
 	}
 
 	if !e.config.ServerSSHAllowed {
-		log.Info("SSH server is not enabled")
+		log.Info("SSH server is disabled in config")
+		return e.stopSSHServer()
+	}
+
+	if !sshConf.GetSshEnabled() {
+		return e.stopSSHServer()
+	}
+
+	// SSH is enabled and supported - start server if not already running
+	if e.sshServer != nil {
+		log.Debug("SSH server is already running")
 		return nil
 	}
 
-	if sshConf.GetSshEnabled() {
-		if runtime.GOOS == "windows" {
-			log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
-			return nil
-		}
-		// start SSH server if it wasn't running
-		if isNil(e.sshServer) {
-			listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
-			if nbnetstack.IsEnabled() {
-				listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
-			}
-			// nil sshServer means it has not yet been started
-			var err error
-			e.sshServer, err = e.sshServerFunc(e.config.SSHKey, listenAddr)
+	return e.startSSHServer()
+}
 
-			if err != nil {
-				return fmt.Errorf("create ssh server: %w", err)
-			}
-			go func() {
-				// blocking
-				err = e.sshServer.Start()
-				if err != nil {
-					// will throw error when we stop it even if it is a graceful stop
-					log.Debugf("stopped SSH server with error %v", err)
-				}
-				e.syncMsgMux.Lock()
-				defer e.syncMsgMux.Unlock()
-				e.sshServer = nil
-				log.Infof("stopped SSH server")
-			}()
-		} else {
-			log.Debugf("SSH server is already running")
-		}
-	} else if !isNil(e.sshServer) {
-		// Disable SSH server request, so stop it if it was running
-		err := e.sshServer.Stop()
-		if err != nil {
-			log.Warnf("failed to stop SSH server %v", err)
-		}
-		e.sshServer = nil
+func (e *Engine) startSSHServer() error {
+	if e.wgInterface == nil {
+		return fmt.Errorf("wg interface not initialized")
 	}
+
+	listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
+	if nbnetstack.IsEnabled() {
+		listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
+	}
+
+	server := nbssh.NewServer(e.config.SSHKey)
+	e.sshServer = server
+	log.Infof("starting SSH server on %s", listenAddr)
+
+	go func() {
+		err := server.Start(listenAddr)
+		if err != nil {
+			log.Debugf("SSH server stopped with error: %v", err)
+		}
+
+		e.syncMsgMux.Lock()
+		defer e.syncMsgMux.Unlock()
+		if e.sshServer == server {
+			e.sshServer = nil
+			log.Info("SSH server stopped")
+		}
+	}()
+
 	return nil
+}
+
+func (e *Engine) stopSSHServer() error {
+	if e.sshServer == nil {
+		return nil
+	}
+
+	log.Info("stopping SSH server")
+	err := e.sshServer.Stop()
+	if err != nil {
+		log.Warnf("failed to stop SSH server: %v", err)
+	}
+	e.sshServer = nil
+	return err
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
@@ -1074,7 +1089,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.statusRecorder.FinishPeerListModifications()
 
 		// update SSHServer by adding remote peer SSH keys
-		if !isNil(e.sshServer) {
+		if e.sshServer != nil {
 			for _, config := range networkMap.GetRemotePeers() {
 				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
 					err := e.sshServer.AddAuthorizedKey(config.WgPubKey, string(config.GetSshConfig().GetSshPubKey()))
@@ -1476,7 +1491,7 @@ func (e *Engine) close() {
 		e.statusRecorder.SetWgIface(nil)
 	}
 
-	if !isNil(e.sshServer) {
+	if e.sshServer != nil {
 		err := e.sshServer.Stop()
 		if err != nil {
 			log.Warnf("failed stopping the SSH server: %v", err)
