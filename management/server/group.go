@@ -664,15 +664,6 @@ func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, ac
 	return false, nil
 }
 
-func (am *DefaultAccountManager) anyGroupHasPeers(account *types.Account, groupIDs []string) bool {
-	for _, groupID := range groupIDs {
-		if group, exists := account.Groups[groupID]; exists && group.HasPeers() {
-			return true
-		}
-	}
-	return false
-}
-
 // anyGroupHasPeersOrResources checks if any of the given groups in the account have peers or resources.
 func anyGroupHasPeersOrResources(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) (bool, error) {
 	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, groupIDs)
