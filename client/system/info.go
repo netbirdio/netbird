@@ -59,16 +59,16 @@ type Info struct {
 	Environment        Environment
 	Files              []File // for posture checks
 
-	RosenpassEnabled      bool
-	RosenpassPermissive   bool
-	ServerSSHAllowed      bool
+	RosenpassEnabled    bool
+	RosenpassPermissive bool
+	ServerSSHAllowed    bool
 
-	DisableClientRoutes   bool
-	DisableServerRoutes   bool
-	DisableDNS            bool
-	DisableFirewall       bool
-	BlockLANAccess        bool
-	BlockInbound          bool
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
+	BlockLANAccess      bool
+	BlockInbound        bool
 
 	LazyConnectionEnabled bool
 }
