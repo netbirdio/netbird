@@ -12,6 +12,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/version"
 )
 
 type eventHandler struct {
@@ -153,7 +155,7 @@ func (h *eventHandler) handleGitHubClick() {
 }
 
 func (h *eventHandler) handleUpdateClick() {
-	if err := openURL("https://netbird.io/download"); err != nil {
+	if err := openURL(version.DownloadUrl()); err != nil {
 		log.Errorf("failed to open download URL: %v", err)
 	}
 }

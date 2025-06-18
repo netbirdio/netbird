@@ -575,13 +575,12 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 // FinishPeerListModifications this event invoke the notification
 func (d *Status) FinishPeerListModifications() {
 	d.mux.Lock()
+	defer d.mux.Unlock()
 
 	if !d.peerListChangedForNotification {
-		d.mux.Unlock()
 		return
 	}
 	d.peerListChangedForNotification = false
-	d.mux.Unlock()
 
 	d.notifyPeerListChanged()
 

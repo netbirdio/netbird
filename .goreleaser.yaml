@@ -149,6 +149,7 @@ nfpms:
 dockers:
   - image_templates:
       - netbirdio/netbird:{{ .Version }}-amd64
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-amd64
     ids:
       - netbird
     goarch: amd64
@@ -164,6 +165,7 @@ dockers:
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/netbird:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/netbird:{{ .Version }}-arm64v8
     ids:
       - netbird
     goarch: arm64
