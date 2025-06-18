@@ -1,4 +1,4 @@
-package inalt
+package inactivity
 
 import "time"
 
