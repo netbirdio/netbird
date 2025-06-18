@@ -241,9 +241,13 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 	t.Run("check that all peers get map", func(t *testing.T) {
 		for _, p := range account.Peers {
+			if p.ID == "peerK" {
+				// skip peerK, it has no connections(old peer with no port range support)
+				continue
+			}
 			peers, firewallRules := account.GetPeerConnectionResources(context.Background(), p, validatedPeers)
-			assert.GreaterOrEqual(t, len(peers), 1, "minimum number peers should present")
-			assert.GreaterOrEqual(t, len(firewallRules), 1, "minimum number of firewall rules should present")
+			assert.GreaterOrEqual(t, len(peers), 2, "minimum number peers should present")
+			assert.GreaterOrEqual(t, len(firewallRules), 2, "minimum number of firewall rules should present")
 		}
 	})
 
