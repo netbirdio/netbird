@@ -19,21 +19,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/server/util"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
-	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/types"
-
-	route2 "github.com/netbirdio/netbird/route"
-
-	"github.com/netbirdio/netbird/management/server/status"
-
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
 	nbroute "github.com/netbirdio/netbird/route"
+	route2 "github.com/netbirdio/netbird/route"
 )
 
 func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
@@ -3246,6 +3242,132 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 	accountGroups, err = store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)
 	require.NoError(t, err)
 	require.Equal(t, 8003, len(accountGroups))
+}
+func TestSqlStore_GetAccountRoutes(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve routes by existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount: 1,
+		},
+		{
+			name:          "non-existing account ID",
+			accountID:     "nonexistent",
+			expectedCount: 0,
+		},
+		{
+			name:          "empty account ID",
+			accountID:     "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			routes, err := store.GetAccountRoutes(context.Background(), LockingStrengthShare, tt.accountID)
+			require.NoError(t, err)
+			require.Len(t, routes, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_GetRouteByID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	tests := []struct {
+		name        string
+		routeID     string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing route",
+			routeID:     "ct03t427qv97vmtmglog",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing route",
+			routeID:     "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve with empty route ID",
+			routeID:     "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			route, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, tt.routeID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, route)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, route)
+				require.Equal(t, tt.routeID, string(route.ID))
+			}
+		})
+	}
+}
+
+func TestSqlStore_SaveRoute(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	route := &route2.Route{
+		ID:                  "route-id",
+		AccountID:           accountID,
+		Network:             netip.MustParsePrefix("10.10.0.0/16"),
+		NetID:               "netID",
+		PeerGroups:          []string{"routeA"},
+		NetworkType:         route2.IPv4Network,
+		Masquerade:          true,
+		Metric:              9999,
+		Enabled:             true,
+		Groups:              []string{"groupA"},
+		AccessControlGroups: []string{},
+	}
+	err = store.SaveRoute(context.Background(), LockingStrengthUpdate, route)
+	require.NoError(t, err)
+
+	saveRoute, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, string(route.ID))
+	require.NoError(t, err)
+	require.Equal(t, route, saveRoute)
+
+}
+
+func TestSqlStore_DeleteRoute(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	routeID := "ct03t427qv97vmtmglog"
+
+	err = store.DeleteRoute(context.Background(), LockingStrengthUpdate, accountID, routeID)
+	require.NoError(t, err)
+
+	route, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, routeID)
+	require.Error(t, err)
+	require.Nil(t, route)
 }
 
 func TestSqlStore_GetAccountMeta(t *testing.T) {
