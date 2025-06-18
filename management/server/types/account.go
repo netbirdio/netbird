@@ -1055,7 +1055,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 					continue
 				}
 
-				rules = append(rules, expandPortsAndRanges(ctx, fr, rule, targetPeer)...)
+				rules = append(rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules
@@ -1586,7 +1586,7 @@ func (a *Account) AddAllGroup() error {
 }
 
 // expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules
-func expandPortsAndRanges(ctx context.Context, base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
+func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
 	var expanded []*FirewallRule
 
 	if len(rule.Ports) > 0 {
@@ -1600,9 +1600,8 @@ func expandPortsAndRanges(ctx context.Context, base FirewallRule, rule *PolicyRu
 
 	var peerSupportsPortRanges bool
 
-	// skip processing the port ranges if the peer version doesn't support it
-	meetMin, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peer.Meta.WtVersion)
-	if err == nil && meetMin {
+	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peer.Meta.WtVersion)
+	if err == nil && meetMinVer {
 		peerSupportsPortRanges = true
 	}
 
@@ -1618,7 +1617,6 @@ func expandPortsAndRanges(ctx context.Context, base FirewallRule, rule *PolicyRu
 			}
 			fr.Port = strconv.FormatUint(uint64(portRange.Start), 10)
 		}
-
 		expanded = append(expanded, &fr)
 	}
 
