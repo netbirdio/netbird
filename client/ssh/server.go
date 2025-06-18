@@ -18,7 +18,7 @@ import (
 )
 
 // DefaultSSHPort is the default SSH port of the NetBird's embedded SSH server
-const DefaultSSHPort = 44338
+const DefaultSSHPort = 22022
 
 // TerminalTimeout is the timeout for terminal session to be ready
 const TerminalTimeout = 10 * time.Second

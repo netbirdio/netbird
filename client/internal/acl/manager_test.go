@@ -249,7 +249,7 @@ func TestDefaultManagerSquashRules(t *testing.T) {
 	}
 
 	manager := &DefaultManager{}
-	rules, _ := manager.squashAcceptRules(networkMap)
+	rules := manager.squashAcceptRules(networkMap)
 	assert.Equal(t, 2, len(rules))
 
 	r := rules[0]
@@ -326,7 +326,7 @@ func TestDefaultManagerSquashRulesNoAffect(t *testing.T) {
 	}
 
 	manager := &DefaultManager{}
-	rules, _ := manager.squashAcceptRules(networkMap)
+	rules := manager.squashAcceptRules(networkMap)
 	assert.Equal(t, len(networkMap.FirewallRules), len(rules))
 }
 
