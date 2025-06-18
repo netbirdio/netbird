@@ -27,6 +27,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				ID:     "peerB",
 				IP:     net.ParseIP("100.65.80.39"),
 				Status: &nbpeer.PeerStatus{},
+				Meta:   nbpeer.PeerSystemMeta{WtVersion: "0.48.0"},
 			},
 			"peerC": {
 				ID:     "peerC",
