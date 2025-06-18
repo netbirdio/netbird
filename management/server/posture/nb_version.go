@@ -58,7 +58,7 @@ func MeetsMinVersion(minVer, peerVer string) (bool, error) {
 	peerVer = sanitizeVersion(peerVer)
 	minVer = sanitizeVersion(minVer)
 
-	peerNBVersion, err := version.NewVersion(peerVer)
+	peerNBVer, err := version.NewVersion(peerVer)
 	if err != nil {
 		return false, err
 	}
@@ -68,5 +68,5 @@ func MeetsMinVersion(minVer, peerVer string) (bool, error) {
 		return false, err
 	}
 
-	return constraints.Check(peerNBVersion), nil
+	return constraints.Check(peerNBVer), nil
 }
