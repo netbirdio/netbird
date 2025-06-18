@@ -1585,29 +1585,27 @@ func (a *Account) AddAllGroup() error {
 	return nil
 }
 
-// expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rule entries.
+// expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules
 func expandPortsAndRanges(ctx context.Context, base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
 	var expanded []*FirewallRule
 
-	for _, port := range rule.Ports {
-		fr := base
-		fr.Port = port
-		expanded = append(expanded, &fr)
+	if len(rule.Ports) > 0 {
+		for _, port := range rule.Ports {
+			fr := base
+			fr.Port = port
+			expanded = append(expanded, &fr)
+		}
+		return expanded
+	}
+
+	// skip processing the port ranges if the peer version doesn't support it
+	meetMin, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peer.Meta.WtVersion)
+	if err == nil && !meetMin {
+		log.WithContext(ctx).Warnf("peer %s version doesn't support firewall rules port ranges, requires version %s+", peer.ID, firewallRuleMinPortRangesVer)
+		return expanded
 	}
 
 	for _, portRange := range rule.PortRanges {
-		meetMin, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peer.Meta.WtVersion)
-		if err == nil && !meetMin {
-			log.WithContext(ctx).Debugf("peer %s version doesn't support firewall rules port ranges, fallback to single ports", peer.ID)
-
-			for start := portRange.Start; start <= portRange.End; start++ {
-				fr := base
-				fr.Port = strconv.Itoa(int(start))
-				expanded = append(expanded, &fr)
-			}
-			continue
-		}
-
 		fr := base
 		fr.PortRange = portRange
 		expanded = append(expanded, &fr)

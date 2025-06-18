@@ -411,69 +411,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerK"], validatedPeers)
 		assert.Len(t, peers, 1)
 		assert.Contains(t, peers, account.Peers["peerI"])
-
-		expectedFirewallRules := []*types.FirewallRule{
-			{
-				PeerIP:    "100.65.31.2",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "tcp",
-				Port:      "9090",
-				PolicyID:  "RuleWorkflow",
-			},
-			{
-				PeerIP:    "100.65.31.2",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "tcp",
-				Port:      "9091",
-				PolicyID:  "RuleWorkflow",
-			},
-			{
-				PeerIP:    "100.65.31.2",
-				Direction: types.FirewallRuleDirectionIN,
-				Action:    "accept",
-				Protocol:  "tcp",
-				Port:      "9092",
-				PolicyID:  "RuleWorkflow",
-			},
-			{
-				PeerIP:    "100.65.31.2",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "tcp",
-				Port:      "9090",
-				PolicyID:  "RuleWorkflow",
-			},
-			{
-				PeerIP:    "100.65.31.2",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "tcp",
-				Port:      "9091",
-				PolicyID:  "RuleWorkflow",
-			},
-			{
-				PeerIP:    "100.65.31.2",
-				Direction: types.FirewallRuleDirectionOUT,
-				Action:    "accept",
-				Protocol:  "tcp",
-				Port:      "9092",
-				PolicyID:  "RuleWorkflow",
-			},
-		}
-		assert.Len(t, firewallRules, len(expectedFirewallRules))
-
-		for _, rule := range firewallRules {
-			contains := false
-			for _, expectedRule := range expectedFirewallRules {
-				if rule.Equal(expectedRule) {
-					contains = true
-					break
-				}
-			}
-			assert.True(t, contains, "rule not found in expected rules %#v", rule)
-		}
+		assert.Len(t, firewallRules, 0)
 	})
 }
 
