@@ -63,6 +63,12 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				IP:     net.ParseIP("100.65.31.2"),
 				Status: &nbpeer.PeerStatus{},
 			},
+			"peerK": {
+				ID:     "peerK",
+				IP:     net.ParseIP("100.32.80.1"),
+				Status: &nbpeer.PeerStatus{},
+				Meta:   nbpeer.PeerSystemMeta{WtVersion: "0.30.0"},
+			},
 		},
 		Groups: map[string]*types.Group{
 			"GroupAll": {
@@ -109,6 +115,13 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Name: "dmz",
 				Peers: []string{
 					"peerI",
+				},
+			},
+			"GroupWorkflow": {
+				ID:   "GroupWorkflow",
+				Name: "workflow",
+				Peers: []string{
+					"peerK",
 				},
 			},
 		},
@@ -189,6 +202,35 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 					},
 				},
 			},
+			{
+				ID:          "RuleWorkflow",
+				Name:        "Workflow",
+				Description: "No description",
+				Enabled:     true,
+				Rules: []*types.PolicyRule{
+					{
+						ID:            "RuleWorkflow",
+						Name:          "Workflow",
+						Description:   "No description",
+						Bidirectional: true,
+						Enabled:       true,
+						Protocol:      types.PolicyRuleProtocolTCP,
+						Action:        types.PolicyTrafficActionAccept,
+						PortRanges: []types.RulePortRange{
+							{
+								Start: 9090,
+								End:   9092,
+							},
+						},
+						Sources: []string{
+							"GroupWorkflow",
+						},
+						Destinations: []string{
+							"GroupDMZ",
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -199,14 +241,14 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 	t.Run("check that all peers get map", func(t *testing.T) {
 		for _, p := range account.Peers {
-			peers, firewallRules := account.GetPeerConnectionResources(context.Background(), p.ID, validatedPeers)
-			assert.GreaterOrEqual(t, len(peers), 2, "minimum number peers should present")
-			assert.GreaterOrEqual(t, len(firewallRules), 2, "minimum number of firewall rules should present")
+			peers, firewallRules := account.GetPeerConnectionResources(context.Background(), p, validatedPeers)
+			assert.GreaterOrEqual(t, len(peers), 1, "minimum number peers should present")
+			assert.GreaterOrEqual(t, len(firewallRules), 1, "minimum number of firewall rules should present")
 		}
 	})
 
 	t.Run("check first peer map details", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerB", validatedPeers)
+		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], validatedPeers)
 		assert.Len(t, peers, 8)
 		assert.Contains(t, peers, account.Peers["peerA"])
 		assert.Contains(t, peers, account.Peers["peerC"])
@@ -364,6 +406,75 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			assert.True(t, contains, "rule not found in expected rules %#v", rule)
 		}
 	})
+
+	t.Run("check port ranges support for older peers", func(t *testing.T) {
+		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerK"], validatedPeers)
+		assert.Len(t, peers, 1)
+		assert.Contains(t, peers, account.Peers["peerI"])
+
+		expectedFirewallRules := []*types.FirewallRule{
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "9090",
+				PolicyID:  "RuleWorkflow",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "9091",
+				PolicyID:  "RuleWorkflow",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "9092",
+				PolicyID:  "RuleWorkflow",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "9090",
+				PolicyID:  "RuleWorkflow",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "9091",
+				PolicyID:  "RuleWorkflow",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "9092",
+				PolicyID:  "RuleWorkflow",
+			},
+		}
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
+
+		for _, rule := range firewallRules {
+			contains := false
+			for _, expectedRule := range expectedFirewallRules {
+				if rule.Equal(expectedRule) {
+					contains = true
+					break
+				}
+			}
+			assert.True(t, contains, "rule not found in expected rules %#v", rule)
+		}
+	})
 }
 
 func TestAccount_getPeersByPolicyDirect(t *testing.T) {
@@ -466,10 +577,10 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	}
 
 	t.Run("check first peer map", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerB", approvedPeers)
+		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers)
 		assert.Contains(t, peers, account.Peers["peerC"])
 
-		epectedFirewallRules := []*types.FirewallRule{
+		expectedFirewallRules := []*types.FirewallRule{
 			{
 				PeerIP:    "100.65.254.139",
 				Direction: types.FirewallRuleDirectionIN,
@@ -487,19 +598,19 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				PolicyID:  "RuleSwarm",
 			},
 		}
-		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, sortFunc())
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
+		slices.SortFunc(expectedFirewallRules, sortFunc())
 		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
-			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
+			assert.Equal(t, expectedFirewallRules[i], firewallRules[i])
 		}
 	})
 
 	t.Run("check second peer map", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerC", approvedPeers)
+		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers)
 		assert.Contains(t, peers, account.Peers["peerB"])
 
-		epectedFirewallRules := []*types.FirewallRule{
+		expectedFirewallRules := []*types.FirewallRule{
 			{
 				PeerIP:    "100.65.80.39",
 				Direction: types.FirewallRuleDirectionIN,
@@ -517,21 +628,21 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				PolicyID:  "RuleSwarm",
 			},
 		}
-		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, sortFunc())
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
+		slices.SortFunc(expectedFirewallRules, sortFunc())
 		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
-			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
+			assert.Equal(t, expectedFirewallRules[i], firewallRules[i])
 		}
 	})
 
 	account.Policies[1].Rules[0].Bidirectional = false
 
 	t.Run("check first peer map directional only", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerB", approvedPeers)
+		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers)
 		assert.Contains(t, peers, account.Peers["peerC"])
 
-		epectedFirewallRules := []*types.FirewallRule{
+		expectedFirewallRules := []*types.FirewallRule{
 			{
 				PeerIP:    "100.65.254.139",
 				Direction: types.FirewallRuleDirectionOUT,
@@ -541,19 +652,19 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				PolicyID:  "RuleSwarm",
 			},
 		}
-		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, sortFunc())
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
+		slices.SortFunc(expectedFirewallRules, sortFunc())
 		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
-			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
+			assert.Equal(t, expectedFirewallRules[i], firewallRules[i])
 		}
 	})
 
 	t.Run("check second peer map directional only", func(t *testing.T) {
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerC", approvedPeers)
+		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers)
 		assert.Contains(t, peers, account.Peers["peerB"])
 
-		epectedFirewallRules := []*types.FirewallRule{
+		expectedFirewallRules := []*types.FirewallRule{
 			{
 				PeerIP:    "100.65.80.39",
 				Direction: types.FirewallRuleDirectionIN,
@@ -563,11 +674,11 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				PolicyID:  "RuleSwarm",
 			},
 		}
-		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, sortFunc())
+		assert.Len(t, firewallRules, len(expectedFirewallRules))
+		slices.SortFunc(expectedFirewallRules, sortFunc())
 		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
-			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
+			assert.Equal(t, expectedFirewallRules[i], firewallRules[i])
 		}
 	})
 }
@@ -748,7 +859,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 	t.Run("verify peer's network map with default group peer list", func(t *testing.T) {
 		// peerB doesn't fulfill the NB posture check but is included in the destination group Swarm,
 		// will establish a connection with all source peers satisfying the NB posture check.
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerB", approvedPeers)
+		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers)
 		assert.Len(t, peers, 4)
 		assert.Len(t, firewallRules, 4)
 		assert.Contains(t, peers, account.Peers["peerA"])
@@ -758,7 +869,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerC satisfy the NB posture check, should establish connection to all destination group peer's
 		// We expect a single permissive firewall rule which all outgoing connections
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), "peerC", approvedPeers)
+		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers)
 		assert.Len(t, peers, len(account.Groups["GroupSwarm"].Peers))
 		assert.Len(t, firewallRules, 1)
 		expectedFirewallRules := []*types.FirewallRule{
@@ -775,7 +886,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerE doesn't fulfill the NB posture check and exists in only destination group Swarm,
 		// all source group peers satisfying the NB posture check should establish connection
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), "peerE", approvedPeers)
+		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerE"], approvedPeers)
 		assert.Len(t, peers, 4)
 		assert.Len(t, firewallRules, 4)
 		assert.Contains(t, peers, account.Peers["peerA"])
@@ -785,7 +896,7 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerI doesn't fulfill the OS version posture check and exists in only destination group Swarm,
 		// all source group peers satisfying the NB posture check should establish connection
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), "peerI", approvedPeers)
+		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerI"], approvedPeers)
 		assert.Len(t, peers, 4)
 		assert.Len(t, firewallRules, 4)
 		assert.Contains(t, peers, account.Peers["peerA"])
@@ -800,19 +911,19 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerB doesn't satisfy the NB posture check, and doesn't exist in destination group peer's
 		// no connection should be established to any peer of destination group
-		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), "peerB", approvedPeers)
+		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerB"], approvedPeers)
 		assert.Len(t, peers, 0)
 		assert.Len(t, firewallRules, 0)
 
 		// peerI doesn't satisfy the OS version posture check, and doesn't exist in destination group peer's
 		// no connection should be established to any peer of destination group
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), "peerI", approvedPeers)
+		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerI"], approvedPeers)
 		assert.Len(t, peers, 0)
 		assert.Len(t, firewallRules, 0)
 
 		// peerC satisfy the NB posture check, should establish connection to all destination group peer's
 		// We expect a single permissive firewall rule which all outgoing connections
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), "peerC", approvedPeers)
+		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers)
 		assert.Len(t, peers, len(account.Groups["GroupSwarm"].Peers))
 		assert.Len(t, firewallRules, len(account.Groups["GroupSwarm"].Peers))
 
@@ -827,14 +938,14 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 
 		// peerE doesn't fulfill the NB posture check and exists in only destination group Swarm,
 		// all source group peers satisfying the NB posture check should establish connection
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), "peerE", approvedPeers)
+		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerE"], approvedPeers)
 		assert.Len(t, peers, 3)
 		assert.Len(t, firewallRules, 3)
 		assert.Contains(t, peers, account.Peers["peerA"])
 		assert.Contains(t, peers, account.Peers["peerC"])
 		assert.Contains(t, peers, account.Peers["peerD"])
 
-		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), "peerA", approvedPeers)
+		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerA"], approvedPeers)
 		assert.Len(t, peers, 5)
 		// assert peers from Group Swarm
 		assert.Contains(t, peers, account.Peers["peerD"])
