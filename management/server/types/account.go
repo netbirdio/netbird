@@ -1007,7 +1007,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 // The generator function is used to generate the list of peers and firewall rules that are applicable to a given peer.
 // It safe to call the generator function multiple times for same peer and different rules no duplicates will be
 // generated. The accumulator function returns the result of all the generator calls.
-func (a *Account) connResourcesGenerator(ctx context.Context, resourcePeer *nbpeer.Peer) (func(*PolicyRule, []*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
+func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer.Peer) (func(*PolicyRule, []*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
 	rulesExists := make(map[string]struct{})
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
@@ -1055,7 +1055,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context, resourcePeer *nbpe
 					continue
 				}
 
-				rules = append(rules, expandPortsAndRanges(ctx, fr, rule, resourcePeer)...)
+				rules = append(rules, expandPortsAndRanges(ctx, fr, rule, targetPeer)...)
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules
@@ -1590,13 +1590,12 @@ func expandPortsAndRanges(ctx context.Context, base FirewallRule, rule *PolicyRu
 	var expanded []*FirewallRule
 
 	for _, port := range rule.Ports {
-		fw := base
-		fw.Port = port
-		expanded = append(expanded, &fw)
+		fr := base
+		fr.Port = port
+		expanded = append(expanded, &fr)
 	}
 
 	for _, portRange := range rule.PortRanges {
-
 		meetMin, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peer.Meta.WtVersion)
 		if err == nil && !meetMin {
 			log.WithContext(ctx).Debugf("peer %s version doesn't support firewall rules port ranges, fallback to single ports", peer.ID)
