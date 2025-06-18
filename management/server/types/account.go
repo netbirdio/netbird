@@ -38,7 +38,7 @@ const (
 	UnknownCategory = "unknown"
 
 	// firewallRuleMinPortRangesVer defines the minimum peer version that supports port range rules.
-	firewallRuleMinPortRangesVer = "0.35.0"
+	firewallRuleMinPortRangesVer = "0.48.0"
 )
 
 type LookupMap map[string]struct{}
@@ -1598,16 +1598,27 @@ func expandPortsAndRanges(ctx context.Context, base FirewallRule, rule *PolicyRu
 		return expanded
 	}
 
+	var peerSupportsPortRanges bool
+
 	// skip processing the port ranges if the peer version doesn't support it
 	meetMin, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peer.Meta.WtVersion)
-	if err == nil && !meetMin {
-		log.WithContext(ctx).Warnf("peer %s version doesn't support firewall rules port ranges, requires version %s+", peer.ID, firewallRuleMinPortRangesVer)
-		return expanded
+	if err == nil && meetMin {
+		peerSupportsPortRanges = true
 	}
 
 	for _, portRange := range rule.PortRanges {
 		fr := base
-		fr.PortRange = portRange
+
+		if peerSupportsPortRanges {
+			fr.PortRange = portRange
+		} else {
+			// Peer doesn't support port ranges, only allow single-port ranges
+			if portRange.Start != portRange.End {
+				continue
+			}
+			fr.Port = strconv.FormatUint(uint64(portRange.Start), 10)
+		}
+
 		expanded = append(expanded, &fr)
 	}
 

@@ -218,8 +218,12 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 						Action:        types.PolicyTrafficActionAccept,
 						PortRanges: []types.RulePortRange{
 							{
+								Start: 8088,
+								End:   8088,
+							},
+							{
 								Start: 9090,
-								End:   9092,
+								End:   9095,
 							},
 						},
 						Sources: []string{
@@ -241,13 +245,9 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 	t.Run("check that all peers get map", func(t *testing.T) {
 		for _, p := range account.Peers {
-			if p.ID == "peerK" {
-				// skip peerK, it has no connections(old peer with no port range support)
-				continue
-			}
 			peers, firewallRules := account.GetPeerConnectionResources(context.Background(), p, validatedPeers)
-			assert.GreaterOrEqual(t, len(peers), 2, "minimum number peers should present")
-			assert.GreaterOrEqual(t, len(firewallRules), 2, "minimum number of firewall rules should present")
+			assert.GreaterOrEqual(t, len(peers), 1, "minimum number peers should present")
+			assert.GreaterOrEqual(t, len(firewallRules), 1, "minimum number of firewall rules should present")
 		}
 	})
 
@@ -415,7 +415,26 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		peers, firewallRules := account.GetPeerConnectionResources(context.Background(), account.Peers["peerK"], validatedPeers)
 		assert.Len(t, peers, 1)
 		assert.Contains(t, peers, account.Peers["peerI"])
-		assert.Len(t, firewallRules, 0)
+
+		expectedFirewallRules := []*types.FirewallRule{
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "8088",
+				PolicyID:  "RuleWorkflow",
+			},
+			{
+				PeerIP:    "100.65.31.2",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "8088",
+				PolicyID:  "RuleWorkflow",
+			},
+		}
+		assert.ElementsMatch(t, firewallRules, expectedFirewallRules)
 	})
 }
 
