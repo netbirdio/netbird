@@ -15,6 +15,9 @@ const (
 	filterTimeout   = 5 * time.Minute // Duration to secure the previous login information in the filter
 
 	loggingLimit = 100
+
+	loggingLimitOnePeer    = 30
+	loggingTresholdOnePeer = 5 * time.Minute
 )
 
 type loginFilter struct {
@@ -53,6 +56,13 @@ func (l *loginFilter) addLogin(wgPubKey, metaHash string) {
 			"elapsed time for number of attempts": time.Since(mh.start),
 			"number of syncs":                     mh.counter,
 		}).Info(mh.prepareHashes())
+	} else if mh.counter%loggingLimitOnePeer == 0 && time.Since(mh.start) > loggingTresholdOnePeer && len(mh.hashes) == 1 {
+		log.WithFields(log.Fields{
+			"wgPubKey":                            wgPubKey,
+			"elapsed time for number of attempts": time.Since(mh.start),
+			"number of syncs":                     mh.counter,
+		}).Info(mh.prepareHashes())
+		mh.start = time.Now()
 	}
 	l.logged[wgPubKey] = mh
 }
@@ -66,8 +76,10 @@ func (m *metahash) prepareHashes() string {
 	return sb.String()
 }
 
-func metaHash(meta nbpeer.PeerSystemMeta) string {
-	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname) + len(meta.SystemSerialNumber) + 4
+func metaHash(meta nbpeer.PeerSystemMeta, pubip string) string {
+	mac := getMacAddress(meta.NetworkAddresses)
+	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname) + len(meta.SystemSerialNumber) +
+		len(pubip) + len(mac) + 6
 
 	var b strings.Builder
 	b.Grow(estimatedSize)
@@ -81,6 +93,21 @@ func metaHash(meta nbpeer.PeerSystemMeta) string {
 	b.WriteString(meta.Hostname)
 	b.WriteByte('|')
 	b.WriteString(meta.SystemSerialNumber)
+	b.WriteByte('|')
+	b.WriteString(pubip)
+	b.WriteByte('|')
+	b.WriteString(mac)
 
 	return b.String()
+}
+
+func getMacAddress(nas []nbpeer.NetworkAddress) string {
+	if len(nas) == 0 {
+		return ""
+	}
+	macs := make([]string, 0, len(nas))
+	for _, na := range nas {
+		macs = append(macs, na.Mac)
+	}
+	return strings.Join(macs, "/")
 }

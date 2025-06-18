@@ -166,7 +166,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
 	realIP := getRealIP(ctx)
-	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s] [%s]", req.WgPubKey, realIP.String(), metaHash(extractPeerMeta(ctx, syncReq.GetMeta())))
+	sip := realIP.String()
+	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s] [%s]", req.WgPubKey, sip, metaHash(extractPeerMeta(ctx, syncReq.GetMeta()), sip))
 
 	if syncReq.GetMeta() == nil {
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
