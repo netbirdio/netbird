@@ -1564,7 +1564,7 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
-	metahash := metaHash(meta)
+	metahash := metaHash(meta, realIP.String())
 	am.loginFilter.addLogin(peerPubKey, metahash)
 
 	return peer, netMap, postureChecks, nil
