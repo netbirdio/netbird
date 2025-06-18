@@ -24,20 +24,12 @@ func sanitizeVersion(version string) string {
 }
 
 func (n *NBVersionCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
-	peerVersion := sanitizeVersion(peer.Meta.WtVersion)
-	minVersion := sanitizeVersion(n.MinVersion)
-
-	peerNBVersion, err := version.NewVersion(peerVersion)
+	meetsMin, err := MeetsMinVersion(n.MinVersion, peer.Meta.WtVersion)
 	if err != nil {
 		return false, err
 	}
 
-	constraints, err := version.NewConstraint(">= " + minVersion)
-	if err != nil {
-		return false, err
-	}
-
-	if constraints.Check(peerNBVersion) {
+	if meetsMin {
 		return true, nil
 	}
 
@@ -59,4 +51,22 @@ func (n *NBVersionCheck) Validate() error {
 		return fmt.Errorf("%s version: %s is not valid", n.Name(), n.MinVersion)
 	}
 	return nil
+}
+
+// MeetsMinVersion checks if the peer's version meets or exceeds the minimum required version
+func MeetsMinVersion(minVer, peerVer string) (bool, error) {
+	peerVer = sanitizeVersion(peerVer)
+	minVer = sanitizeVersion(minVer)
+
+	peerNBVersion, err := version.NewVersion(peerVer)
+	if err != nil {
+		return false, err
+	}
+
+	constraints, err := version.NewConstraint(">= " + minVer)
+	if err != nil {
+		return false, err
+	}
+
+	return constraints.Check(peerNBVersion), nil
 }
