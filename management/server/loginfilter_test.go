@@ -14,10 +14,11 @@ import (
 
 func testCfg() *config {
 	return &config{
-		filterTimeout:     20 * time.Millisecond,
-		reconnThreshold:   50 * time.Millisecond,
-		blockDuration:     100 * time.Millisecond,
-		reconnLimitForBan: 3,
+		filterTimeout:           20 * time.Millisecond,
+		reconnThreshold:         50 * time.Millisecond,
+		blockDuration:           100 * time.Millisecond,
+		reconnLimitForBan:       3,
+		differentMetaReconnects: 1,
 	}
 }
 
@@ -99,6 +100,10 @@ func (s *LoginFilterTestSuite) TestDifferentHashIsBlockedWhenActive() {
 	meta1 := uint64(23424223423)
 	meta2 := uint64(99878798987987)
 
+	for range s.filter.cfg.differentMetaReconnects {
+		s.filter.addLogin(pubKey, meta1)
+	}
+
 	s.filter.addLogin(pubKey, meta1)
 
 	s.False(s.filter.allowLogin(pubKey, meta2))
@@ -177,12 +182,6 @@ func BenchmarkHashingMethods(b *testing.B) {
 func fnvHashToString(meta nbpeer.PeerSystemMeta, pubip string) string {
 	h := fnv.New64a()
 
-	if len(meta.NetworkAddresses) != 0 {
-		for _, na := range meta.NetworkAddresses {
-			h.Write([]byte(na.Mac))
-		}
-	}
-
 	h.Write([]byte(meta.WtVersion))
 	h.Write([]byte(meta.OSVersion))
 	h.Write([]byte(meta.KernelVersion))
@@ -194,9 +193,8 @@ func fnvHashToString(meta nbpeer.PeerSystemMeta, pubip string) string {
 }
 
 func builderString(meta nbpeer.PeerSystemMeta, pubip string) string {
-	mac := getMacAddress(meta.NetworkAddresses)
 	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname) + len(meta.SystemSerialNumber) +
-		len(pubip) + len(mac) + 6
+		len(pubip) + 5
 
 	var b strings.Builder
 	b.Grow(estimatedSize)
@@ -212,19 +210,6 @@ func builderString(meta nbpeer.PeerSystemMeta, pubip string) string {
 	b.WriteString(meta.SystemSerialNumber)
 	b.WriteByte('|')
 	b.WriteString(pubip)
-	b.WriteByte('|')
-	b.WriteString(mac)
 
 	return b.String()
-}
-
-func getMacAddress(nas []nbpeer.NetworkAddress) string {
-	if len(nas) == 0 {
-		return ""
-	}
-	macs := make([]string, 0, len(nas))
-	for _, na := range nas {
-		macs = append(macs, na.Mac)
-	}
-	return strings.Join(macs, "/")
 }
