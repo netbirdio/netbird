@@ -426,6 +426,10 @@ components:
               items:
                 type: string
                 example: "stage-host-1"
+            ephemeral:
+              description: Indicates whether the peer is ephemeral or not
+              type: boolean
+              example: false
           required:
             - city_name
             - connected
@@ -450,6 +454,7 @@ components:
             - approval_required
             - serial_number
             - extra_dns_labels
+            - ephemeral
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
