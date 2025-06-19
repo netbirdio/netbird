@@ -159,7 +159,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		if s.logBlockedPeers {
 			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
 		}
-		return internalStatus.ErrPeerAlreadyLoggedIn
+		return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
 	}
 
 	if s.appMetrics != nil {
