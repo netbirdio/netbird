@@ -32,14 +32,21 @@ var sshCmd = &cobra.Command{
 
 Examples:
   netbird ssh peer-hostname
-  netbird ssh user@peer-hostname
-  netbird ssh peer-hostname --login myuser
-  netbird ssh peer-hostname -p 22022
+  netbird ssh root@peer-hostname
+  netbird ssh --login root peer-hostname
+  netbird ssh peer-hostname
   netbird ssh peer-hostname ls -la
   netbird ssh peer-hostname whoami`,
 	DisableFlagParsing: true,
 	Args:               validateSSHArgsWithoutFlagParsing,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Check if help was requested
+		for _, arg := range args {
+			if arg == "-h" || arg == "--help" {
+				return cmd.Help()
+			}
+		}
+
 		SetFlagsFromEnvVars(rootCmd)
 		SetFlagsFromEnvVars(cmd)
 
@@ -185,10 +192,16 @@ func runSSH(ctx context.Context, addr string, pemKey []byte, cmd *cobra.Command)
 
 	if command != "" {
 		if err := c.ExecuteCommandWithIO(ctx, command); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
 			return err
 		}
 	} else {
 		if err := c.OpenTerminal(ctx); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
 			return err
 		}
 	}

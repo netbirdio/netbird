@@ -40,6 +40,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	mgmt "github.com/netbirdio/netbird/management/client"
@@ -203,6 +204,13 @@ func TestEngine_SSH(t *testing.T) {
 		return
 	}
 
+	// Generate SSH key for the test
+	sshKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -218,6 +226,7 @@ func TestEngine_SSH(t *testing.T) {
 			WgPrivateKey:     key,
 			WgPort:           33100,
 			ServerSSHAllowed: true,
+			SSHKey:           sshKey,
 		},
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
@@ -229,9 +238,7 @@ func TestEngine_SSH(t *testing.T) {
 	}
 
 	err = engine.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer func() {
 		err := engine.Stop()
@@ -257,9 +264,7 @@ func TestEngine_SSH(t *testing.T) {
 	}
 
 	err = engine.updateNetworkMap(networkMap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	assert.Nil(t, engine.sshServer)
 
@@ -273,9 +278,7 @@ func TestEngine_SSH(t *testing.T) {
 	}
 
 	err = engine.updateNetworkMap(networkMap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
@@ -288,9 +291,7 @@ func TestEngine_SSH(t *testing.T) {
 	}
 
 	err = engine.updateNetworkMap(networkMap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
@@ -305,9 +306,7 @@ func TestEngine_SSH(t *testing.T) {
 	}
 
 	err = engine.updateNetworkMap(networkMap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	assert.Nil(t, engine.sshServer)
 }

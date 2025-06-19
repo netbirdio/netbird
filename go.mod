@@ -41,6 +41,7 @@ require (
 	github.com/cilium/ebpf v0.15.0
 	github.com/coder/websocket v1.8.12
 	github.com/coreos/go-iptables v0.7.0
+	github.com/creack/pty v1.1.18
 	github.com/eko/gocache/lib/v4 v4.2.0
 	github.com/eko/gocache/store/go_cache/v4 v4.2.2
 	github.com/eko/gocache/store/redis/v4 v4.2.2
@@ -148,7 +149,6 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
-	github.com/creack/pty v1.1.18 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/distribution/reference v0.6.0 // indirect

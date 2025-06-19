@@ -4,6 +4,7 @@ package ssh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
@@ -12,6 +13,21 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 )
+
+// ConsoleUnavailableError indicates that Windows console handles are not available
+// (e.g., in CI environments where stdout/stdin are redirected)
+type ConsoleUnavailableError struct {
+	Operation string
+	Err       error
+}
+
+func (e *ConsoleUnavailableError) Error() string {
+	return fmt.Sprintf("console unavailable for %s: %v", e.Operation, e.Err)
+}
+
+func (e *ConsoleUnavailableError) Unwrap() error {
+	return e.Err
+}
 
 var (
 	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
@@ -46,11 +62,24 @@ type consoleScreenBufferInfo struct {
 
 func (c *Client) setupTerminalMode(_ context.Context, session *ssh.Session) error {
 	if err := c.saveWindowsConsoleState(); err != nil {
-		return fmt.Errorf("save console state: %w", err)
+		var consoleErr *ConsoleUnavailableError
+		if errors.As(err, &consoleErr) {
+			// Console is unavailable (e.g., CI environment), continue with defaults
+			log.Debugf("console unavailable, continuing with defaults: %v", err)
+			c.terminalFd = 0
+		} else {
+			return fmt.Errorf("save console state: %w", err)
+		}
 	}
 
 	if err := c.enableWindowsVirtualTerminal(); err != nil {
-		log.Debugf("failed to enable virtual terminal: %v", err)
+		var consoleErr *ConsoleUnavailableError
+		if errors.As(err, &consoleErr) {
+			// Console is unavailable, this is expected in CI environments
+			log.Debugf("virtual terminal unavailable: %v", err)
+		} else {
+			log.Debugf("failed to enable virtual terminal: %v", err)
+		}
 	}
 
 	w, h := c.getWindowsConsoleSize()
@@ -98,13 +127,19 @@ func (c *Client) saveWindowsConsoleState() error {
 	ret, _, err := procGetConsoleMode.Call(uintptr(stdout), uintptr(unsafe.Pointer(&stdoutMode)))
 	if ret == 0 {
 		log.Debugf("failed to get stdout console mode: %v", err)
-		return fmt.Errorf("get stdout console mode: %w", err)
+		return &ConsoleUnavailableError{
+			Operation: "get stdout console mode",
+			Err:       err,
+		}
 	}
 
 	ret, _, err = procGetConsoleMode.Call(uintptr(stdin), uintptr(unsafe.Pointer(&stdinMode)))
 	if ret == 0 {
 		log.Debugf("failed to get stdin console mode: %v", err)
-		return fmt.Errorf("get stdin console mode: %w", err)
+		return &ConsoleUnavailableError{
+			Operation: "get stdin console mode",
+			Err:       err,
+		}
 	}
 
 	c.terminalFd = 1
@@ -129,20 +164,29 @@ func (c *Client) enableWindowsVirtualTerminal() error {
 	ret, _, err := procGetConsoleMode.Call(uintptr(stdout), uintptr(unsafe.Pointer(&mode)))
 	if ret == 0 {
 		log.Debugf("failed to get stdout console mode for VT setup: %v", err)
-		return fmt.Errorf("get stdout console mode: %w", err)
+		return &ConsoleUnavailableError{
+			Operation: "get stdout console mode for VT",
+			Err:       err,
+		}
 	}
 
 	mode |= enableVirtualTerminalProcessing
 	ret, _, err = procSetConsoleMode.Call(uintptr(stdout), uintptr(mode))
 	if ret == 0 {
 		log.Debugf("failed to enable virtual terminal processing: %v", err)
-		return fmt.Errorf("enable virtual terminal processing: %w", err)
+		return &ConsoleUnavailableError{
+			Operation: "enable virtual terminal processing",
+			Err:       err,
+		}
 	}
 
 	ret, _, err = procGetConsoleMode.Call(uintptr(stdin), uintptr(unsafe.Pointer(&mode)))
 	if ret == 0 {
 		log.Debugf("failed to get stdin console mode for VT setup: %v", err)
-		return fmt.Errorf("get stdin console mode: %w", err)
+		return &ConsoleUnavailableError{
+			Operation: "get stdin console mode for VT",
+			Err:       err,
+		}
 	}
 
 	mode &= ^uint32(enableLineInput | enableEchoInput | enableProcessedInput)
@@ -150,7 +194,10 @@ func (c *Client) enableWindowsVirtualTerminal() error {
 	ret, _, err = procSetConsoleMode.Call(uintptr(stdin), uintptr(mode))
 	if ret == 0 {
 		log.Debugf("failed to set stdin raw mode: %v", err)
-		return fmt.Errorf("set stdin raw mode: %w", err)
+		return &ConsoleUnavailableError{
+			Operation: "set stdin raw mode",
+			Err:       err,
+		}
 	}
 
 	log.Debugf("enabled Windows virtual terminal processing")

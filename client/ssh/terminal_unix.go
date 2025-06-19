@@ -39,7 +39,7 @@ func (c *Client) setupTerminalMode(ctx context.Context, session *ssh.Session) er
 		case sig := <-sigChan:
 			_ = term.Restore(fd, state)
 			signal.Reset(sig)
-			syscall.Kill(syscall.Getpid(), sig.(syscall.Signal))
+			_ = syscall.Kill(syscall.Getpid(), sig.(syscall.Signal))
 		}
 	}()
 

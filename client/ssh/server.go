@@ -26,7 +26,6 @@ import (
 // DefaultSSHPort is the default SSH port of the NetBird's embedded SSH server
 const DefaultSSHPort = 22022
 
-// Error message constants
 const (
 	errWriteSession = "write session error: %v"
 	errExitSession  = "exit session error: %v"
@@ -35,7 +34,7 @@ const (
 	// Windows shell executables
 	cmdExe        = "cmd.exe"
 	powershellExe = "powershell.exe"
-	pwshExe       = "pwsh.exe"
+	pwshExe       = "pwsh.exe" // nolint:gosec // G101: false positive for shell executable name
 
 	// Shell detection strings
 	powershellName = "powershell"
