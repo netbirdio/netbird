@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -23,7 +26,11 @@ func TestNewManager(t *testing.T) {
 		t.Run(fmt.Sprintf("Scenario %d", i), func(t *testing.T) {
 			mock := newMockWgInterface("peer1", sc.Data, timer)
 			manager := NewManager(mock)
-			manager.AddPeer("peer1")
+			peerCfg := &lazyconn.PeerConfig{
+				PublicKey: "peer1",
+				Log:       log.WithField("peer", "peer1"),
+			}
+			manager.AddPeer(peerCfg)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
