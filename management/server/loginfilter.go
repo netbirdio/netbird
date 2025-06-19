@@ -11,18 +11,18 @@ import (
 const (
 	filterTimeout = 5 * time.Minute // Duration to secure the previous login information in the filter
 
-	reconnThreshold         = 5 * time.Minute
-	blockDuration           = 10 * time.Minute // Duration for which a peer is banned after exceeding the reconnection limit
-	reconnLimitForBan       = 30               // Number of reconnections within the reconnTreshold that triggers a ban
-	differentMetaReconnects = 3                // Number of reconnections with different metadata that triggers a ban of one peer
+	reconnThreshold   = 5 * time.Minute
+	blockDuration     = 10 * time.Minute // Duration for which a peer is banned after exceeding the reconnection limit
+	reconnLimitForBan = 30               // Number of reconnections within the reconnTreshold that triggers a ban
+	metaChangeLim     = 3                // Number of reconnections with different metadata that triggers a ban of one peer
 )
 
 type config struct {
-	filterTimeout           time.Duration
-	reconnThreshold         time.Duration
-	blockDuration           time.Duration
-	reconnLimitForBan       int
-	differentMetaReconnects int
+	filterTimeout     time.Duration
+	reconnThreshold   time.Duration
+	blockDuration     time.Duration
+	reconnLimitForBan int
+	metaChangeLim     int
 }
 
 type loginFilter struct {
@@ -41,11 +41,11 @@ type metahash struct {
 
 func initCfg() *config {
 	return &config{
-		filterTimeout:           filterTimeout,
-		reconnThreshold:         reconnThreshold,
-		blockDuration:           blockDuration,
-		reconnLimitForBan:       reconnLimitForBan,
-		differentMetaReconnects: differentMetaReconnects,
+		filterTimeout:     filterTimeout,
+		reconnThreshold:   reconnThreshold,
+		blockDuration:     blockDuration,
+		reconnLimitForBan: reconnLimitForBan,
+		metaChangeLim:     metaChangeLim,
 	}
 }
 
@@ -64,7 +64,7 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	mh, ok := l.logged[wgPubKey]
-	if !ok || mh.banned {
+	if !ok || mh.banned || (mh.hash != metaHash && mh.counter > l.cfg.metaChangeLim) {
 		mh = metahash{
 			hash:       metaHash,
 			firstLogin: time.Now(),
@@ -89,7 +89,7 @@ func (l *loginFilter) allowLogin(wgPubKey string, metaHash uint64) bool {
 	if mh.banned && time.Since(mh.lastSeen) < l.cfg.blockDuration {
 		return false
 	}
-	if mh.hash != metaHash && time.Since(mh.lastSeen) < l.cfg.filterTimeout && mh.counter > l.cfg.differentMetaReconnects {
+	if mh.hash != metaHash && time.Since(mh.lastSeen) < l.cfg.filterTimeout && mh.counter > l.cfg.metaChangeLim {
 		return false
 	}
 	return true

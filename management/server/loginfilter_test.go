@@ -14,11 +14,11 @@ import (
 
 func testCfg() *config {
 	return &config{
-		filterTimeout:           20 * time.Millisecond,
-		reconnThreshold:         50 * time.Millisecond,
-		blockDuration:           100 * time.Millisecond,
-		reconnLimitForBan:       3,
-		differentMetaReconnects: 1,
+		filterTimeout:     20 * time.Millisecond,
+		reconnThreshold:   50 * time.Millisecond,
+		blockDuration:     100 * time.Millisecond,
+		reconnLimitForBan: 3,
+		metaChangeLim:     1,
 	}
 }
 
@@ -100,7 +100,7 @@ func (s *LoginFilterTestSuite) TestDifferentHashIsBlockedWhenActive() {
 	meta1 := uint64(23424223423)
 	meta2 := uint64(99878798987987)
 
-	for range s.filter.cfg.differentMetaReconnects {
+	for range s.filter.cfg.metaChangeLim {
 		s.filter.addLogin(pubKey, meta1)
 	}
 
