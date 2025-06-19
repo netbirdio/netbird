@@ -130,9 +130,6 @@ func getRealIP(ctx context.Context) net.IP {
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
 	reqStart := time.Now()
-	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountSyncRequest()
-	}
 
 	ctx := srv.Context()
 
@@ -146,8 +143,20 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
 	metahashed := metaHash(peerMeta, sRealIP)
 	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
+		if s.appMetrics != nil {
+			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
+		}
 		return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
 	}
+
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountSyncRequest()
+	}
+	defer func() {
+		if s.appMetrics != nil {
+			s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))
+		}
+	}()
 
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
@@ -196,10 +205,6 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	s.ephemeralManager.OnPeerConnected(ctx, peer)
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
-
-	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))
-	}
 
 	unlock()
 	unlock = nil
@@ -439,14 +444,6 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	reqStart := time.Now()
-	defer func() {
-		if s.appMetrics != nil {
-			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart))
-		}
-	}()
-	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountLoginRequest()
-	}
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
 	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
@@ -460,9 +457,20 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
 	metahashed := metaHash(peerMeta, sRealIP)
 	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
-		return nil, mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
+		if s.appMetrics != nil {
+			s.appMetrics.GRPCMetrics().CountLoginRequestBlocked()
+		}
+		return nil, internalStatus.ErrPeerAlreadyLoggedIn
 	}
 
+	defer func() {
+		if s.appMetrics != nil {
+			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart))
+		}
+	}()
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountLoginRequest()
+	}
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())

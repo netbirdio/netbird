@@ -43,7 +43,7 @@ const (
 type Type int32
 
 var (
-	ErrExtraSettingsNotFound = fmt.Errorf("extra settings not found")
+	ErrExtraSettingsNotFound = errors.New("extra settings not found")
 	ErrPeerAlreadyLoggedIn   = errors.New("peer with the same public key is already logged in")
 )
 
