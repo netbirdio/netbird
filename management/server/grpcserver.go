@@ -141,8 +141,10 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	if err != nil {
 		return err
 	}
+	realIP := getRealIP(ctx)
+	sRealIP := realIP.String()
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
-	metahashed := metaHash(peerMeta)
+	metahashed := metaHash(peerMeta, sRealIP)
 	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
 		return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
 	}
@@ -171,8 +173,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
-	realIP := getRealIP(ctx)
-	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, realIP.String())
+	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	if syncReq.GetMeta() == nil {
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
@@ -447,7 +448,8 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		s.appMetrics.GRPCMetrics().CountLoginRequest()
 	}
 	realIP := getRealIP(ctx)
-	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP.String())
+	sRealIP := realIP.String()
+	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(ctx, req, loginReq)
@@ -456,7 +458,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	}
 
 	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
-	metahashed := metaHash(peerMeta)
+	metahashed := metaHash(peerMeta, sRealIP)
 	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
 		return nil, mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
 	}

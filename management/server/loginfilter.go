@@ -1,7 +1,7 @@
 package server
 
 import (
-	"strings"
+	"hash/fnv"
 	"sync"
 	"time"
 
@@ -11,38 +11,86 @@ import (
 const (
 	loginFilterSize = 100_000         // Size of the login filter map, making it large enough for a future
 	filterTimeout   = 5 * time.Minute // Duration to secure the previous login information in the filter
+
+	reconnTreshold    = 5 * time.Minute
+	blockDuration     = 10 * time.Minute // Duration for which a user is banned after exceeding the reconnection limit
+	reconnLimitForBan = 30               // Number of reconnections within the reconnTrashold that triggers a ban
 )
+
+type config struct {
+	loginFilterSize   int
+	filterTimeout     time.Duration
+	reconnTreshold    time.Duration
+	blockDuration     time.Duration
+	reconnLimitForBan int
+}
 
 type loginFilter struct {
 	mu     sync.RWMutex
+	cfg    *config
 	logged map[string]metahash
 }
 
 type metahash struct {
-	hash      string
-	lastlogin time.Time
+	hash       uint64
+	counter    int
+	banned     bool
+	firstLogin time.Time
+	lastSeen   time.Time
+}
+
+func initCfg() *config {
+	return &config{
+		loginFilterSize:   loginFilterSize,
+		filterTimeout:     filterTimeout,
+		reconnTreshold:    reconnTreshold,
+		blockDuration:     blockDuration,
+		reconnLimitForBan: reconnLimitForBan,
+	}
 }
 
 func newLoginFilter() *loginFilter {
+	return newLoginFilterWithCfg(initCfg())
+}
+
+func newLoginFilterWithCfg(cfg *config) *loginFilter {
 	return &loginFilter{
-		logged: make(map[string]metahash, loginFilterSize),
+		logged: make(map[string]metahash, cfg.loginFilterSize),
+		cfg:    cfg,
 	}
 }
 
-func (l *loginFilter) addLogin(wgPubKey, metaHash string) {
+func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.logged[wgPubKey] = metahash{
-		hash:      metaHash,
-		lastlogin: time.Now(),
+	mh, ok := l.logged[wgPubKey]
+	if !ok || mh.banned {
+		mh = metahash{
+			hash:       metaHash,
+			firstLogin: time.Now(),
+		}
 	}
+	mh.counter++
+	mh.hash = metaHash
+	mh.lastSeen = time.Now()
+	if mh.counter > l.cfg.reconnLimitForBan && mh.lastSeen.Sub(mh.firstLogin) < l.cfg.reconnTreshold {
+		mh.banned = true
+	}
+	l.logged[wgPubKey] = mh
 }
 
-func (l *loginFilter) allowLogin(wgPubKey, metaHash string) bool {
+func (l *loginFilter) allowLogin(wgPubKey string, metaHash uint64) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	if loggedMetaHash, ok := l.logged[wgPubKey]; ok {
-		return loggedMetaHash.hash == metaHash && time.Since(loggedMetaHash.lastlogin) < filterTimeout
+	mh, ok := l.logged[wgPubKey]
+	if !ok {
+		return true
+	}
+	if mh.banned && time.Since(mh.lastSeen) < l.cfg.blockDuration {
+		return false
+	}
+	if mh.hash != metaHash && time.Since(mh.lastSeen) < l.cfg.filterTimeout {
+		return false
 	}
 	return true
 }
@@ -53,16 +101,22 @@ func (l *loginFilter) removeLogin(wgPubKey string) {
 	delete(l.logged, wgPubKey)
 }
 
-func metaHash(meta nbpeer.PeerSystemMeta) string {
-	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname)
+func metaHash(meta nbpeer.PeerSystemMeta, pubip string) uint64 {
+	h := fnv.New64a()
 
-	var b strings.Builder
-	b.Grow(estimatedSize)
+	if len(meta.NetworkAddresses) != 0 {
+		for _, na := range meta.NetworkAddresses {
+			h.Write([]byte(na.Mac))
+		}
+	}
 
-	b.WriteString(meta.WtVersion)
-	b.WriteString(meta.OSVersion)
-	b.WriteString(meta.KernelVersion)
-	b.WriteString(meta.Hostname)
+	h.Write([]byte(meta.WtVersion))
+	h.Write([]byte(meta.OSVersion))
+	h.Write([]byte(meta.KernelVersion))
+	h.Write([]byte(meta.Hostname))
+	h.Write([]byte(meta.SystemSerialNumber))
+	h.Write([]byte(pubip))
 
-	return b.String()
+	return h.Sum64()
+
 }
