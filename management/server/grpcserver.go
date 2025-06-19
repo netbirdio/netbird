@@ -36,6 +36,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
+const (
+	envLogBlockedPeers = "NB_LOG_BLOCKED_PEERS"
+)
+
 // GRPCServer an instance of a Management gRPC API server
 type GRPCServer struct {
 	accountManager  account.Manager
@@ -80,7 +84,7 @@ func NewServer(
 		}
 	}
 
-	logBlockedPeers := os.Getenv("NB_LOG_BLOCKED_PEERS") == "true"
+	logBlockedPeers := os.Getenv(envLogBlockedPeers) == "true"
 
 	return &GRPCServer{
 		wgKey: key,
@@ -466,6 +470,9 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
 	metahashed := metaHash(peerMeta, sRealIP)
 	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
+		if s.logBlockedPeers {
+			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
+		}
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestBlocked()
 		}
