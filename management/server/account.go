@@ -1615,6 +1615,10 @@ func (am *DefaultAccountManager) GetDNSDomain(settings *types.Settings) string {
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
+	err := am.Store.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+	if err != nil {
+		log.Errorf("failed to increment network serial number for account %s: %v", accountID, err)
+	}
 	am.BufferUpdateAccountPeers(ctx, accountID)
 }
 
