@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +49,8 @@ type GRPCServer struct {
 	ephemeralManager   *EphemeralManager
 	peerLocks          sync.Map
 	authManager        auth.Manager
+
+	logBlockedPeers bool
 }
 
 // NewServer creates a new Management server
@@ -77,6 +80,8 @@ func NewServer(
 		}
 	}
 
+	logBlockedPeers := os.Getenv("NB_LOG_BLOCKED_PEERS") == "true"
+
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
@@ -88,6 +93,7 @@ func NewServer(
 		authManager:        authManager,
 		appMetrics:         appMetrics,
 		ephemeralManager:   ephemeralManager,
+		logBlockedPeers:    logBlockedPeers,
 	}, nil
 }
 
@@ -145,6 +151,9 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
+		}
+		if s.logBlockedPeers {
+			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
 		}
 		return internalStatus.ErrPeerAlreadyLoggedIn
 	}

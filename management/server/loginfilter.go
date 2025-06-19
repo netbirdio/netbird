@@ -9,8 +9,7 @@ import (
 )
 
 const (
-	loginFilterSize = 100_000         // Size of the login filter map, making it large enough for a future
-	filterTimeout   = 5 * time.Minute // Duration to secure the previous login information in the filter
+	filterTimeout = 5 * time.Minute // Duration to secure the previous login information in the filter
 
 	reconnTreshold    = 5 * time.Minute
 	blockDuration     = 10 * time.Minute // Duration for which a user is banned after exceeding the reconnection limit
@@ -18,7 +17,6 @@ const (
 )
 
 type config struct {
-	loginFilterSize   int
 	filterTimeout     time.Duration
 	reconnTreshold    time.Duration
 	blockDuration     time.Duration
@@ -41,7 +39,6 @@ type metahash struct {
 
 func initCfg() *config {
 	return &config{
-		loginFilterSize:   loginFilterSize,
 		filterTimeout:     filterTimeout,
 		reconnTreshold:    reconnTreshold,
 		blockDuration:     blockDuration,
@@ -55,7 +52,7 @@ func newLoginFilter() *loginFilter {
 
 func newLoginFilterWithCfg(cfg *config) *loginFilter {
 	return &loginFilter{
-		logged: make(map[string]metahash, cfg.loginFilterSize),
+		logged: make(map[string]metahash),
 		cfg:    cfg,
 	}
 }
@@ -118,5 +115,4 @@ func metaHash(meta nbpeer.PeerSystemMeta, pubip string) uint64 {
 	h.Write([]byte(pubip))
 
 	return h.Sum64()
-
 }
