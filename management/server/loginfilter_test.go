@@ -15,7 +15,7 @@ import (
 func testCfg() *config {
 	return &config{
 		filterTimeout:     20 * time.Millisecond,
-		reconnTreshold:    50 * time.Millisecond,
+		reconnThreshold:   50 * time.Millisecond,
 		blockDuration:     100 * time.Millisecond,
 		reconnLimitForBan: 3,
 	}

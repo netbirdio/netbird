@@ -11,14 +11,14 @@ import (
 const (
 	filterTimeout = 5 * time.Minute // Duration to secure the previous login information in the filter
 
-	reconnTreshold    = 5 * time.Minute
+	reconnThreshold   = 5 * time.Minute
 	blockDuration     = 10 * time.Minute // Duration for which a peer is banned after exceeding the reconnection limit
 	reconnLimitForBan = 30               // Number of reconnections within the reconnTreshold that triggers a ban
 )
 
 type config struct {
 	filterTimeout     time.Duration
-	reconnTreshold    time.Duration
+	reconnThreshold   time.Duration
 	blockDuration     time.Duration
 	reconnLimitForBan int
 }
@@ -40,7 +40,7 @@ type metahash struct {
 func initCfg() *config {
 	return &config{
 		filterTimeout:     filterTimeout,
-		reconnTreshold:    reconnTreshold,
+		reconnThreshold:   reconnThreshold,
 		blockDuration:     blockDuration,
 		reconnLimitForBan: reconnLimitForBan,
 	}
@@ -70,7 +70,7 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 	mh.counter++
 	mh.hash = metaHash
 	mh.lastSeen = time.Now()
-	if mh.counter > l.cfg.reconnLimitForBan && mh.lastSeen.Sub(mh.firstLogin) < l.cfg.reconnTreshold {
+	if mh.counter > l.cfg.reconnLimitForBan && mh.lastSeen.Sub(mh.firstLogin) < l.cfg.reconnThreshold {
 		mh.banned = true
 	}
 	l.logged[wgPubKey] = mh

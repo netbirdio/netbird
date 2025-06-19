@@ -893,6 +893,9 @@ func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth n
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
 }
 
-func (am *MockAccountManager) AllowSync(_ string, _ uint64) bool {
+func (am *MockAccountManager) AllowSync(key string, hash uint64) bool {
+	if am.AllowSyncFunc != nil {
+		return am.AllowSyncFunc(key, hash)
+	}
 	return true
 }
