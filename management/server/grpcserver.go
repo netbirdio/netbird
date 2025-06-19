@@ -146,7 +146,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
 		}
-		return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
+		return internalStatus.ErrPeerAlreadyLoggedIn
 	}
 
 	if s.appMetrics != nil {
