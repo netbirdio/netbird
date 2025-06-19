@@ -24,6 +24,7 @@ type WGTunDevice struct {
 	mtu        int
 	iceBind    *bind.ICEBind
 	tunAdapter TunAdapter
+	disableDNS bool
 
 	name           string
 	device         *device.Device
@@ -32,7 +33,7 @@ type WGTunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(address wgaddr.Address, port int, key string, mtu int, iceBind *bind.ICEBind, tunAdapter TunAdapter) *WGTunDevice {
+func NewTunDevice(address wgaddr.Address, port int, key string, mtu int, iceBind *bind.ICEBind, tunAdapter TunAdapter, disableDNS bool) *WGTunDevice {
 	return &WGTunDevice{
 		address:    address,
 		port:       port,
@@ -40,6 +41,7 @@ func NewTunDevice(address wgaddr.Address, port int, key string, mtu int, iceBind
 		mtu:        mtu,
 		iceBind:    iceBind,
 		tunAdapter: tunAdapter,
+		disableDNS: disableDNS,
 	}
 }
 
@@ -48,6 +50,13 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 
 	routesString := routesToString(routes)
 	searchDomainsToString := searchDomainsToString(searchDomains)
+
+	// Skip DNS configuration when DisableDNS is enabled
+	if t.disableDNS {
+		log.Info("DNS is disabled, skipping DNS and search domain configuration")
+		dns = ""
+		searchDomainsToString = ""
+	}
 
 	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, dns, searchDomainsToString, routesString)
 	if err != nil {

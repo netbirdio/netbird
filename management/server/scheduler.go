@@ -12,6 +12,7 @@ import (
 type Scheduler interface {
 	Cancel(ctx context.Context, IDs []string)
 	Schedule(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
+	IsSchedulerRunning(ID string) bool
 }
 
 // MockScheduler is a mock implementation of  Scheduler
@@ -26,7 +27,7 @@ func (mock *MockScheduler) Cancel(ctx context.Context, IDs []string) {
 		mock.CancelFunc(ctx, IDs)
 		return
 	}
-	log.WithContext(ctx).Errorf("MockScheduler doesn't have Cancel function defined ")
+	log.WithContext(ctx).Warnf("MockScheduler doesn't have Cancel function defined ")
 }
 
 // Schedule mocks the Schedule function of the Scheduler interface
@@ -35,7 +36,13 @@ func (mock *MockScheduler) Schedule(ctx context.Context, in time.Duration, ID st
 		mock.ScheduleFunc(ctx, in, ID, job)
 		return
 	}
-	log.WithContext(ctx).Errorf("MockScheduler doesn't have Schedule function defined")
+	log.WithContext(ctx).Warnf("MockScheduler doesn't have Schedule function defined")
+}
+
+func (mock *MockScheduler) IsSchedulerRunning(ID string) bool {
+	// MockScheduler does not implement IsSchedulerRunning, so we return false
+	log.Warnf("MockScheduler doesn't have IsSchedulerRunning function defined")
+	return false
 }
 
 // DefaultScheduler is a generic structure that allows to schedule jobs (functions) to run in the future and cancel them.
@@ -123,4 +130,12 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 		}
 
 	}()
+}
+
+// IsSchedulerRunning checks if a job with the provided ID is scheduled to run
+func (wm *DefaultScheduler) IsSchedulerRunning(ID string) bool {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	_, ok := wm.jobs[ID]
+	return ok
 }

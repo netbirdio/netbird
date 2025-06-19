@@ -18,13 +18,19 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
 
 const errResolveFailed = "failed to resolve query for domain=%s: %v"
 const upstreamTimeout = 15 * time.Second
+
+type resolver interface {
+	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+}
+
+type firewaller interface {
+	UpdateSet(set firewall.Set, prefixes []netip.Prefix) error
+}
 
 type DNSForwarder struct {
 	listenAddress  string
@@ -38,16 +44,18 @@ type DNSForwarder struct {
 
 	mutex      sync.RWMutex
 	fwdEntries []*ForwarderEntry
-	firewall   firewall.Manager
+	firewall   firewaller
+	resolver   resolver
 }
 
-func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewall.Manager, statusRecorder *peer.Status) *DNSForwarder {
+func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewaller, statusRecorder *peer.Status) *DNSForwarder {
 	log.Debugf("creating DNS forwarder with listen_address=%s ttl=%d", listenAddress, ttl)
 	return &DNSForwarder{
 		listenAddress:  listenAddress,
 		ttl:            ttl,
 		firewall:       firewall,
 		statusRecorder: statusRecorder,
+		resolver:       net.DefaultResolver,
 	}
 }
 
@@ -57,14 +65,17 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 	// UDP server
 	mux := dns.NewServeMux()
 	f.mux = mux
+	mux.HandleFunc(".", f.handleDNSQueryUDP)
 	f.dnsServer = &dns.Server{
 		Addr:    f.listenAddress,
 		Net:     "udp",
 		Handler: mux,
 	}
+
 	// TCP server
 	tcpMux := dns.NewServeMux()
 	f.tcpMux = tcpMux
+	tcpMux.HandleFunc(".", f.handleDNSQueryTCP)
 	f.tcpServer = &dns.Server{
 		Addr:    f.listenAddress,
 		Net:     "tcp",
@@ -87,30 +98,13 @@ func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
 	// return the first error we get (e.g. bind failure or shutdown)
 	return <-errCh
 }
+
 func (f *DNSForwarder) UpdateDomains(entries []*ForwarderEntry) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
-	if f.mux == nil {
-		log.Debug("DNS mux is nil, skipping domain update")
-		f.fwdEntries = entries
-		return
-	}
-
-	oldDomains := filterDomains(f.fwdEntries)
-	for _, d := range oldDomains {
-		f.mux.HandleRemove(d.PunycodeString())
-		f.tcpMux.HandleRemove(d.PunycodeString())
-	}
-
-	newDomains := filterDomains(entries)
-	for _, d := range newDomains {
-		f.mux.HandleFunc(d.PunycodeString(), f.handleDNSQueryUDP)
-		f.tcpMux.HandleFunc(d.PunycodeString(), f.handleDNSQueryTCP)
-	}
-
 	f.fwdEntries = entries
-	log.Debugf("Updated domains from %v to %v", oldDomains, newDomains)
+	log.Debugf("Updated DNS forwarder with %d domains", len(entries))
 }
 
 func (f *DNSForwarder) Close(ctx context.Context) error {
@@ -157,22 +151,31 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns
 		return nil
 	}
 
+	mostSpecificResId, matchingEntries := f.getMatchingEntries(strings.TrimSuffix(domain, "."))
+	// query doesn't match any configured domain
+	if mostSpecificResId == "" {
+		resp.Rcode = dns.RcodeRefused
+		if err := w.WriteMsg(resp); err != nil {
+			log.Errorf("failed to write DNS response: %v", err)
+		}
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), upstreamTimeout)
 	defer cancel()
-	ips, err := net.DefaultResolver.LookupNetIP(ctx, network, domain)
+	ips, err := f.resolver.LookupNetIP(ctx, network, domain)
 	if err != nil {
 		f.handleDNSError(w, query, resp, domain, err)
 		return nil
 	}
 
-	f.updateInternalState(domain, ips)
+	f.updateInternalState(ips, mostSpecificResId, matchingEntries)
 	f.addIPsToResponse(resp, domain, ips)
 
 	return resp
 }
 
 func (f *DNSForwarder) handleDNSQueryUDP(w dns.ResponseWriter, query *dns.Msg) {
-
 	resp := f.handleDNSQuery(w, query)
 	if resp == nil {
 		return
@@ -206,9 +209,8 @@ func (f *DNSForwarder) handleDNSQueryTCP(w dns.ResponseWriter, query *dns.Msg) {
 	}
 }
 
-func (f *DNSForwarder) updateInternalState(domain string, ips []netip.Addr) {
+func (f *DNSForwarder) updateInternalState(ips []netip.Addr, mostSpecificResId route.ResID, matchingEntries []*ForwarderEntry) {
 	var prefixes []netip.Prefix
-	mostSpecificResId, matchingEntries := f.getMatchingEntries(strings.TrimSuffix(domain, "."))
 	if mostSpecificResId != "" {
 		for _, ip := range ips {
 			var prefix netip.Prefix
@@ -338,17 +340,4 @@ func (f *DNSForwarder) getMatchingEntries(domain string) (route.ResID, []*Forwar
 	}
 
 	return selectedResId, matches
-}
-
-// filterDomains returns a list of normalized domains
-func filterDomains(entries []*ForwarderEntry) domain.List {
-	newDomains := make(domain.List, 0, len(entries))
-	for _, d := range entries {
-		if d.Domain == "" {
-			log.Warn("empty domain in DNS forwarder")
-			continue
-		}
-		newDomains = append(newDomains, domain.Domain(nbdns.NormalizeZone(d.Domain.PunycodeString())))
-	}
-	return newDomains
 }

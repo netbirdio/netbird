@@ -230,3 +230,7 @@ func NewUserRoleNotFoundError(role string) error {
 func NewOperationNotFoundError(operation operations.Operation) error {
 	return Errorf(NotFound, "operation: %s not found", operation)
 }
+
+func NewRouteNotFoundError(routeID string) error {
+	return Errorf(NotFound, "route: %s not found", routeID)
+}

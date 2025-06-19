@@ -398,11 +398,15 @@ func (d *DefaultManager) squashAcceptRules(
 	//
 	// We zeroed this to notify squash function that this protocol can't be squashed.
 	addRuleToCalculationMap := func(i int, r *mgmProto.FirewallRule, protocols map[mgmProto.RuleProtocol]*protoMatch) {
-		drop := r.Action == mgmProto.RuleAction_DROP || r.Port != ""
-		if drop {
+		hasPortRestrictions := r.Action == mgmProto.RuleAction_DROP ||
+			r.Port != "" || !portInfoEmpty(r.PortInfo)
+
+		if hasPortRestrictions {
+			// Don't squash rules with port restrictions
 			protocols[r.Protocol] = &protoMatch{ips: map[string]int{}}
 			return
 		}
+
 		if _, ok := protocols[r.Protocol]; !ok {
 			protocols[r.Protocol] = &protoMatch{
 				ips: map[string]int{},

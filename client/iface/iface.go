@@ -43,6 +43,7 @@ type WGIFaceOpts struct {
 	MobileArgs   *device.MobileIFaceArguments
 	TransportNet transport.Net
 	FilterFn     bind.FilterFn
+	DisableDNS   bool
 }
 
 // WGIface represents an interface instance
