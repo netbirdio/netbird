@@ -12,8 +12,8 @@ const (
 	filterTimeout = 5 * time.Minute // Duration to secure the previous login information in the filter
 
 	reconnTreshold    = 5 * time.Minute
-	blockDuration     = 10 * time.Minute // Duration for which a user is banned after exceeding the reconnection limit
-	reconnLimitForBan = 30               // Number of reconnections within the reconnTrashold that triggers a ban
+	blockDuration     = 10 * time.Minute // Duration for which a peer is banned after exceeding the reconnection limit
+	reconnLimitForBan = 30               // Number of reconnections within the reconnTreshold that triggers a ban
 )
 
 type config struct {
