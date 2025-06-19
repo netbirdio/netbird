@@ -68,3 +68,8 @@ func (i *Monitor) PauseTimer() {
 func (i *Monitor) ResetTimer() {
 	i.timer.Reset(i.inactivityThreshold)
 }
+
+func (i *Monitor) ResetMonitor(ctx context.Context, timeoutChan chan peer.ConnID) {
+	i.Stop()
+	go i.Start(ctx, timeoutChan)
+}
