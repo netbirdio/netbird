@@ -1598,17 +1598,11 @@ func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer
 		return expanded
 	}
 
-	var peerSupportsPortRanges bool
-
-	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peer.Meta.WtVersion)
-	if err == nil && meetMinVer {
-		peerSupportsPortRanges = true
-	}
-
+	supportPortRanges := peerSupportsPortRanges(peer.Meta.WtVersion)
 	for _, portRange := range rule.PortRanges {
 		fr := base
 
-		if peerSupportsPortRanges {
+		if supportPortRanges {
 			fr.PortRange = portRange
 		} else {
 			// Peer doesn't support port ranges, only allow single-port ranges
@@ -1621,4 +1615,14 @@ func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer
 	}
 
 	return expanded
+}
+
+// peerSupportsPortRanges checks if the peer version supports port ranges.
+func peerSupportsPortRanges(peerVer string) bool {
+	if strings.Contains(peerVer, "dev") {
+		return true
+	}
+
+	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
+	return err == nil && meetMinVer
 }
