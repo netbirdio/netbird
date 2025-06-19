@@ -1255,7 +1255,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	}
 
 	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
-		conn.Close()
+		conn.Close(false)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 
@@ -1331,9 +1331,14 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn, ok := e.connMgr.OnSignalMsg(e.ctx, msg.Key)
+			conn, ok := e.peerStore.PeerConn(msg.Key)
 			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
+			}
+
+			msgType := msg.GetBody().GetType()
+			if msgType != sProto.Body_GO_IDLE {
+				e.connMgr.ActivatePeer(e.ctx, conn)
 			}
 
 			switch msg.GetBody().Type {
@@ -1392,6 +1397,8 @@ func (e *Engine) receiveSignalEvents() {
 
 				go conn.OnRemoteCandidate(candidate, e.routeManager.GetClientRoutes())
 			case sProto.Body_MODE:
+			case sProto.Body_GO_IDLE:
+				e.connMgr.DeactivatePeer(conn)
 			}
 
 			return nil

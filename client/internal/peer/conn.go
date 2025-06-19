@@ -226,7 +226,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
-func (conn *Conn) Close() {
+func (conn *Conn) Close(graceful bool) {
 	conn.mu.Lock()
 	defer conn.wgWatcherWg.Wait()
 	defer conn.mu.Unlock()
@@ -234,6 +234,10 @@ func (conn *Conn) Close() {
 	if !conn.opened {
 		conn.Log.Debugf("ignore close connection to peer")
 		return
+	}
+
+	if graceful {
+		conn.signaler.SignalIdle(conn.config.Key)
 	}
 
 	conn.Log.Infof("close peer connection")

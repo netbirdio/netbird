@@ -201,7 +201,7 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	if !ok {
 		return
 	}
-	defer conn.Close()
+	defer conn.Close(false)
 
 	if !e.isStartedWithLazyMgr() {
 		return
@@ -211,23 +211,25 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	conn.Log.Infof("removed peer from lazy conn manager")
 }
 
-func (e *ConnMgr) OnSignalMsg(ctx context.Context, peerKey string) (*peer.Conn, bool) {
-	conn, ok := e.peerStore.PeerConn(peerKey)
-	if !ok {
-		return nil, false
-	}
-
+func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
 	if !e.isStartedWithLazyMgr() {
-		return conn, true
+		return
 	}
 
-	if found := e.lazyConnMgr.ActivatePeer(e.lazyCtx, peerKey); found {
+	if found := e.lazyConnMgr.ActivatePeer(e.lazyCtx, conn.GetKey()); found {
 		conn.Log.Infof("activated peer from inactive state")
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
 	}
-	return conn, true
+}
+
+func (e *ConnMgr) DeactivatePeer(conn *peer.Conn) {
+	if !e.isStartedWithLazyMgr() {
+		return
+	}
+
+	e.lazyConnMgr.DeactivatePeer(conn.ConnID())
 }
 
 func (e *ConnMgr) Close() {
