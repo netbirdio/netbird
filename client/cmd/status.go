@@ -26,6 +26,7 @@ var (
 	statusFilter         string
 	ipsFilterMap         map[string]struct{}
 	prefixNamesFilterMap map[string]struct{}
+	connectionTypeFilter string
 )
 
 var statusCmd = &cobra.Command{
@@ -45,6 +46,7 @@ func init() {
 	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g., --filter-by-ips 100.64.0.100,100.64.0.200")
 	statusCmd.PersistentFlags().StringSliceVar(&prefixNamesFilter, "filter-by-names", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
 	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
+	statusCmd.PersistentFlags().StringVar(&connectionTypeFilter, "filter-by-connection-type", "", "filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
 }
 
 func statusFunc(cmd *cobra.Command, args []string) error {
@@ -89,7 +91,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap)
+	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter)
 	var statusOutputString string
 	switch {
 	case detailFlag:
@@ -154,6 +156,15 @@ func parseFilters() error {
 			prefixNamesFilterMap[strings.ToLower(name)] = struct{}{}
 		}
 		enableDetailFlagWhenFilterFlag()
+	}
+
+	switch strings.ToLower(connectionTypeFilter) {
+	case "", "p2p", "relayed":
+		if strings.ToLower(connectionTypeFilter) != "" {
+			enableDetailFlagWhenFilterFlag()
+		}
+	default:
+		return fmt.Errorf("wrong connection-type filter, should be one of P2P|Relayed, got: %s", connectionTypeFilter)
 	}
 
 	return nil
