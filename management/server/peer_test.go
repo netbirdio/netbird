@@ -480,7 +480,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	accountID := "test_account"
 	adminUser := "account_creator"
 	someUser := "some_user"
-	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
 	account.Users[someUser] = &types.User{
 		Id:   someUser,
 		Role: types.UserRoleUser,
@@ -667,7 +667,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			accountID := "test_account"
 			adminUser := "account_creator"
 			someUser := "some_user"
-			account := newAccountWithId(context.Background(), accountID, adminUser, "")
+			account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
 			account.Users[someUser] = &types.User{
 				Id:            someUser,
 				Role:          testCase.role,
@@ -737,7 +737,7 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 	adminUser := "account_creator"
 	regularUser := "regular_user"
 
-	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
 	account.Users[regularUser] = &types.User{
 		Id:   regularUser,
 		Role: types.UserRoleUser,
@@ -1267,7 +1267,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1342,7 +1342,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1477,7 +1477,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1546,7 +1546,7 @@ func Test_LoginPeer(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -2052,7 +2052,7 @@ func Test_DeletePeer(t *testing.T) {
 	// account with an admin and a regular user
 	accountID := "test_account"
 	adminUser := "account_creator"
-	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
 	account.Peers = map[string]*nbpeer.Peer{
 		"peer1": {
 			ID:        "peer1",
