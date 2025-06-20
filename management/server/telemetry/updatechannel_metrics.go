@@ -95,7 +95,7 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 
 	calcPostureChecksDurationMicro, err := meter.Int64Histogram("management.updatechannel.calc.posturechecks.duration.micro",
 		metric.WithUnit("microseconds"),
-		metric.WithDescription("Duration of how long it takes to check if a peer has a channel"),
+		metric.WithDescription("Duration of how long it takes to to get the posture checks for a peer"),
 	)
 	if err != nil {
 		return nil, err
@@ -103,7 +103,7 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 
 	calcPeerNetworkMapDurationMicro, err := meter.Int64Histogram("management.updatechannel.calc.networkmap.duration.micro",
 		metric.WithUnit("microseconds"),
-		metric.WithDescription("Duration of how long it takes to check if a peer has a channel"),
+		metric.WithDescription("Duration of how long it takes to calculate the network map for a peer"),
 	)
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 
 	mergeNetworkMapDurationMicro, err := meter.Int64Histogram("management.updatechannel.merge.networkmap.duration.micro",
 		metric.WithUnit("microseconds"),
-		metric.WithDescription("Duration of how long it takes to check if a peer has a channel"),
+		metric.WithDescription("Duration of how long it takes to merge the network maps for a peer"),
 	)
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 
 	toSyncResponseDurationMicro, err := meter.Int64Histogram("management.updatechannel.tosyncresponse.duration.micro",
 		metric.WithUnit("microseconds"),
-		metric.WithDescription("Duration of how long it takes to check if a peer has a channel"),
+		metric.WithDescription("Duration of how long it takes to convert the network map to sync response"),
 	)
 	if err != nil {
 		return nil, err
