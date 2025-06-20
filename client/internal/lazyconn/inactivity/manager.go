@@ -60,14 +60,23 @@ func NewManager(iface WgInterface) *Manager {
 }
 
 func (m *Manager) AddPeer(peerCfg *lazyconn.PeerConfig) {
-	if _, exists := m.interestedPeers[peerCfg.PublicKey]; !exists {
-		m.interestedPeers[peerCfg.PublicKey] = &peerInfo{
-			log: peerCfg.Log,
-		}
+	if _, exists := m.interestedPeers[peerCfg.PublicKey]; exists {
+		return
+	}
+
+	peerCfg.Log.Debugf("adding peer to inactivity manager")
+	m.interestedPeers[peerCfg.PublicKey] = &peerInfo{
+		log: peerCfg.Log,
 	}
 }
 
 func (m *Manager) RemovePeer(peer string) {
+	pi, ok := m.interestedPeers[peer]
+	if !ok {
+		return
+	}
+
+	pi.log.Debugf("remove peer from inactivity manager")
 	delete(m.interestedPeers, peer)
 }
 
@@ -129,16 +138,17 @@ func (m *Manager) checkStats(now time.Time) ([]string, error) {
 		}
 
 		// sometimes we measure false inactivity, so we need to check if we have activity in a row
-		inactive := isInactive(stat, info)
-		if inactive {
+		if isInactive(stat, info) {
 			info.inActivityInRow++
 		} else {
 			info.inActivityInRow = 0
 		}
 
+		info.log.Infof("peer inactivity counter: %d", info.inActivityInRow)
 		if info.inActivityInRow >= 3 {
 			info.log.Infof("peer is inactive for %d checks, marking as inactive", info.inActivityInRow)
 			idlePeers = append(idlePeers, peer)
+			info.inActivityInRow = 0
 		}
 		info.lastIdleCheckAt = now
 		info.lastRxBytesAtLastIdleCheck = stat.RxBytes
@@ -151,16 +161,16 @@ func isInactive(stat configurer.WGStats, info *peerInfo) bool {
 	rxSyncPrevPeriod := stat.RxBytes - info.lastRxBytesAtLastIdleCheck
 	switch rxSyncPrevPeriod {
 	case 0:
-		info.log.Tracef("peer inactive, received 0 bytes")
+		info.log.Debugf("peer inactive, received 0 bytes")
 		return true
 	case keepAliveBytes:
-		info.log.Tracef("peer inactive, only keep alive received, current RxBytes: %d", rxSyncPrevPeriod)
+		info.log.Debugf("peer inactive, only keep alive received, current RxBytes: %d", rxSyncPrevPeriod)
 		return true
 	case handshakeInitBytes + keepAliveBytes:
-		info.log.Tracef("peer inactive, only handshakeInitBytes + keepAliveBytes, current RxBytes: %d", rxSyncPrevPeriod)
+		info.log.Debugf("peer inactive, only handshakeInitBytes + keepAliveBytes, current RxBytes: %d", rxSyncPrevPeriod)
 		return true
 	case handshakeRespBytes + keepAliveBytes:
-		info.log.Tracef("peer inactive, only handshakeRespBytes + keepAliveBytes, current RxBytes: %d", rxSyncPrevPeriod)
+		info.log.Debugf("peer inactive, only handshakeRespBytes + keepAliveBytes, current RxBytes: %d", rxSyncPrevPeriod)
 		return true
 	default:
 		info.log.Infof("active, RxBytes: %d", rxSyncPrevPeriod)

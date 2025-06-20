@@ -218,8 +218,6 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 		return false, err
 	}
 
-	m.inactivityManager.AddPeer(&peerCfg)
-
 	m.managedPeers[peerCfg.PublicKey] = &peerCfg
 	m.managedPeersByConnID[peerCfg.PeerConnID] = &managedPeer{
 		peerCfg:         &peerCfg,
@@ -230,7 +228,7 @@ func (m *Manager) AddPeer(peerCfg lazyconn.PeerConfig) (bool, error) {
 
 // AddActivePeers adds a list of peers to the lazy connection manager
 // suppose these peers was in connected or in connecting states
-func (m *Manager) AddActivePeers(ctx context.Context, peerCfg []lazyconn.PeerConfig) error {
+func (m *Manager) AddActivePeers(peerCfg []lazyconn.PeerConfig) error {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
@@ -257,7 +255,7 @@ func (m *Manager) RemovePeer(peerID string) {
 
 // ActivatePeer activates a peer connection when a signal message is received
 // Also activates all peers in the same HA groups as this peer
-func (m *Manager) ActivatePeer(ctx context.Context, peerID string) (found bool) {
+func (m *Manager) ActivatePeer(peerID string) (found bool) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 	cfg, mp := m.getPeerForActivation(peerID)
@@ -387,7 +385,6 @@ func (m *Manager) addActivePeer(peerCfg *lazyconn.PeerConfig) error {
 		expectedWatcher: watcherInactivity,
 	}
 
-	peerCfg.Log.Infof("starting inactivity monitor on peer that has been removed from exclude list")
 	m.inactivityManager.AddPeer(peerCfg)
 	return nil
 }
@@ -502,7 +499,7 @@ func (m *Manager) onPeerConnected(peerConnID peerid.ConnID) {
 		return
 	}
 
-	mp.peerCfg.Log.Infof("peer connected, pausing inactivity monitor while connection is not disconnected")
+	mp.peerCfg.Log.Infof("peer connected, starting inactivity monitor")
 	m.inactivityManager.AddPeer(mp.peerCfg)
 }
 
@@ -520,6 +517,4 @@ func (m *Manager) onPeerDisconnected(peerConnID peerid.ConnID) {
 	}
 
 	// todo reset inactivity monitor
-
-	mp.peerCfg.Log.Infof("reset inactivity monitor timer")
 }

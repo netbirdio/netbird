@@ -216,7 +216,7 @@ func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
 		return
 	}
 
-	if found := e.lazyConnMgr.ActivatePeer(e.lazyCtx, conn.GetKey()); found {
+	if found := e.lazyConnMgr.ActivatePeer(conn.GetKey()); found {
 		conn.Log.Infof("activated peer from inactive state")
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
@@ -277,7 +277,7 @@ func (e *ConnMgr) addPeersToLazyConnManager() error {
 		lazyPeerCfgs = append(lazyPeerCfgs, lazyPeerCfg)
 	}
 
-	return e.lazyConnMgr.AddActivePeers(e.lazyCtx, lazyPeerCfgs)
+	return e.lazyConnMgr.AddActivePeers(lazyPeerCfgs)
 }
 
 func (e *ConnMgr) closeManager(ctx context.Context) {
