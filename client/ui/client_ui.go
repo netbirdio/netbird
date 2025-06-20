@@ -705,8 +705,14 @@ func (s *serviceClient) onTrayReady() {
 	// setup systray menu items
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
 	s.mStatus.Disable()
-	s.mProfileName = systray.AddMenuItem("Profile: Home", "Selected Profile: Home")
-	s.mProfileName.Disable()
+	s.mProfileName = systray.AddMenuItem("hakan_work", "Selected Profile: Home")
+	systray.AddMenuItem("(hakan.@gmail.com)", "").Disable()
+	s.mProfiles = s.mProfileName
+	s.mProfileName.AddSubMenuItem("hakan_work", "Selected Profile: Personal").Check()
+	s.mProfileName.AddSubMenuItem("hakan_personal", "Selected Profile: Personal")
+	s.mProfileName.AddSubMenuItem("common", "Selected Profile: Common")
+	s.mProfileName.AddSeparator()
+	s.mProfileName.AddSubMenuItem("Manage Profiles", "Selected Profile: Work")
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
@@ -723,8 +729,6 @@ func (s *serviceClient) onTrayReady() {
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()
-
-	s.mProfiles = systray.AddMenuItem("Profiles", profilesMenuDescr)
 
 	s.exitNodeMu.Lock()
 	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
