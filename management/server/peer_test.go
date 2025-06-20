@@ -1579,7 +1579,6 @@ func Test_LoginPeer(t *testing.T) {
 	testCases := []struct {
 		name                         string
 		setupKey                     string
-		wireGuardPubKey              string
 		expectExtraDNSLabelsMismatch bool
 		extraDNSLabels               []string
 		expectLoginError             bool
