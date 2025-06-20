@@ -223,6 +223,8 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	config := &Config{
 		// defaults to false only for new (post 0.26) configurations
 		ServerSSHAllowed: util.False(),
+		// default to disabling server routes on Android for security
+		DisableServerRoutes: runtime.GOOS == "android",
 	}
 
 	if _, err := config.apply(input); err != nil {
@@ -416,9 +418,15 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		config.ServerSSHAllowed = input.ServerSSHAllowed
 		updated = true
 	} else if config.ServerSSHAllowed == nil {
-		// enables SSH for configs from old versions to preserve backwards compatibility
-		log.Infof("falling back to enabled SSH server for pre-existing configuration")
-		config.ServerSSHAllowed = util.True()
+		if runtime.GOOS == "android" {
+			// default to disabled SSH on Android for security
+			log.Infof("setting SSH server to false by default on Android")
+			config.ServerSSHAllowed = util.False()
+		} else {
+			// enables SSH for configs from old versions to preserve backwards compatibility
+			log.Infof("falling back to enabled SSH server for pre-existing configuration")
+			config.ServerSSHAllowed = util.True()
+		}
 		updated = true
 	}
 

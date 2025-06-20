@@ -86,5 +86,5 @@ type epID stack.TransportEndpointID
 
 func (i epID) String() string {
 	// src and remote is swapped
-	return fmt.Sprintf("%s:%d -> %s:%d", i.RemoteAddress, i.RemotePort, i.LocalAddress, i.LocalPort)
+	return fmt.Sprintf("%s:%d → %s:%d", i.RemoteAddress, i.RemotePort, i.LocalAddress, i.LocalPort)
 }

@@ -1534,6 +1534,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 		MTU:          iface.DefaultMTU,
 		TransportNet: transportNet,
 		FilterFn:     e.addrViaRoutes,
+		DisableDNS:   e.config.DisableDNS,
 	}
 
 	switch runtime.GOOS {

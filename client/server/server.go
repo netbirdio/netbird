@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -66,6 +67,7 @@ type Server struct {
 
 	lastProbe         time.Time
 	persistNetworkMap bool
+	isSessionActive   atomic.Bool
 }
 
 type oauthAuthFlow struct {
@@ -567,9 +569,6 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
-		if err == context.Canceled {
-			return nil, nil //nolint:nilnil
-		}
 		s.mutex.Lock()
 		s.oauthAuthFlow.expiresAt = time.Now()
 		s.mutex.Unlock()
@@ -640,6 +639,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	for {
 		select {
 		case <-runningChan:
+			s.isSessionActive.Store(true)
 			return &proto.UpResponse{}, nil
 		case <-callerCtx.Done():
 			log.Debug("context done, stopping the wait for engine to become ready")
@@ -668,6 +668,7 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
+	s.isSessionActive.Store(false)
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
@@ -692,6 +693,12 @@ func (s *Server) Status(
 	status, err := internal.CtxGetState(s.rootCtx).Status()
 	if err != nil {
 		return nil, err
+	}
+
+	if status == internal.StatusNeedsLogin && s.isSessionActive.Load() {
+		log.Debug("status requested while session is active, returning SessionExpired")
+		status = internal.StatusSessionExpired
+		s.isSessionActive.Store(false)
 	}
 
 	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion()}
