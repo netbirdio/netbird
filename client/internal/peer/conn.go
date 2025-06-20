@@ -319,6 +319,9 @@ func (conn *Conn) WgConfig() WgConfig {
 
 // IsConnected returns true if the peer is connected
 func (conn *Conn) IsConnected() bool {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
 	return conn.evalStatus() == StatusConnected
 }
 
