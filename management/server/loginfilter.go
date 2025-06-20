@@ -146,11 +146,9 @@ func metaHash(meta nbpeer.PeerSystemMeta, pubip string) uint64 {
 	h.Write([]byte(pubip))
 
 	macs := uint64(0)
-	if len(meta.NetworkAddresses) != 0 {
-		for _, na := range meta.NetworkAddresses {
-			for _, r := range na.Mac {
-				macs += uint64(r)
-			}
+	for _, na := range meta.NetworkAddresses {
+		for _, r := range na.Mac {
+			macs += uint64(r)
 		}
 	}
 
