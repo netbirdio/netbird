@@ -1580,7 +1580,6 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
-	am.loginFilter.removeLogin(peerPubKey)
 	return nil
 
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"hash/fnv"
+	"math"
 	"sync"
 	"time"
 
@@ -9,44 +10,44 @@ import (
 )
 
 const (
-	filterTimeout = 5 * time.Minute // Duration to secure the previous login information in the filter
-
 	reconnThreshold   = 5 * time.Minute
-	blockDuration     = 10 * time.Minute // Duration for which a peer is banned after exceeding the reconnection limit
+	baseBlockDuration = 10 * time.Minute // Duration for which a peer is banned after exceeding the reconnection limit
 	reconnLimitForBan = 30               // Number of reconnections within the reconnTreshold that triggers a ban
-	metaChangeLim     = 3                // Number of reconnections with different metadata that triggers a ban of one peer
+	metaChangeLimit   = 3                // Number of reconnections with different metadata that triggers a ban of one peer
 )
 
 type config struct {
-	filterTimeout     time.Duration
 	reconnThreshold   time.Duration
-	blockDuration     time.Duration
+	baseBlockDuration time.Duration
 	reconnLimitForBan int
-	metaChangeLim     int
+	metaChangeLimit   int
+}
+
+func initCfg() *config {
+	return &config{
+		reconnThreshold:   reconnThreshold,
+		baseBlockDuration: baseBlockDuration,
+		reconnLimitForBan: reconnLimitForBan,
+		metaChangeLimit:   metaChangeLimit,
+	}
 }
 
 type loginFilter struct {
 	mu     sync.RWMutex
 	cfg    *config
-	logged map[string]metahash
+	logged map[string]*peerState
 }
 
-type metahash struct {
-	hash       uint64
-	counter    int
-	banned     bool
-	firstLogin time.Time
-	lastSeen   time.Time
-}
-
-func initCfg() *config {
-	return &config{
-		filterTimeout:     filterTimeout,
-		reconnThreshold:   reconnThreshold,
-		blockDuration:     blockDuration,
-		reconnLimitForBan: reconnLimitForBan,
-		metaChangeLim:     metaChangeLim,
-	}
+type peerState struct {
+	currentHash           uint64
+	sessionCounter        int
+	sessionStart          time.Time
+	lastSeen              time.Time
+	isBanned              bool
+	banLevel              int
+	banExpiresAt          time.Time
+	metaChangeCounter     int
+	metaChangeWindowStart time.Time
 }
 
 func newLoginFilter() *loginFilter {
@@ -55,54 +56,93 @@ func newLoginFilter() *loginFilter {
 
 func newLoginFilterWithCfg(cfg *config) *loginFilter {
 	return &loginFilter{
-		logged: make(map[string]metahash),
+		logged: make(map[string]*peerState),
 		cfg:    cfg,
 	}
-}
-
-func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	mh, ok := l.logged[wgPubKey]
-	if !ok || mh.banned || (mh.hash != metaHash && mh.counter > l.cfg.metaChangeLim) {
-		mh = metahash{
-			hash:       metaHash,
-			firstLogin: time.Now(),
-		}
-	}
-	mh.counter++
-	mh.hash = metaHash
-	mh.lastSeen = time.Now()
-	if mh.counter > l.cfg.reconnLimitForBan && mh.lastSeen.Sub(mh.firstLogin) < l.cfg.reconnThreshold {
-		mh.banned = true
-	}
-	l.logged[wgPubKey] = mh
 }
 
 func (l *loginFilter) allowLogin(wgPubKey string, metaHash uint64) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	mh, ok := l.logged[wgPubKey]
+	state, ok := l.logged[wgPubKey]
 	if !ok {
 		return true
 	}
-	if mh.banned && time.Since(mh.lastSeen) < l.cfg.blockDuration {
+	if state.isBanned && time.Now().Before(state.banExpiresAt) {
 		return false
 	}
-	if mh.hash != metaHash && time.Since(mh.lastSeen) < l.cfg.filterTimeout && mh.counter > l.cfg.metaChangeLim {
-		return false
+	if metaHash != state.currentHash {
+		if time.Now().Before(state.metaChangeWindowStart.Add(l.cfg.reconnThreshold)) && state.metaChangeCounter >= l.cfg.metaChangeLimit {
+			return false
+		}
 	}
 	return true
 }
 
-func (l *loginFilter) removeLogin(wgPubKey string) {
+func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.logged, wgPubKey)
+
+	now := time.Now()
+	state, ok := l.logged[wgPubKey]
+
+	if !ok {
+		l.logged[wgPubKey] = &peerState{
+			currentHash:           metaHash,
+			sessionCounter:        1,
+			sessionStart:          now,
+			lastSeen:              now,
+			metaChangeWindowStart: now,
+			metaChangeCounter:     1,
+		}
+		return
+	}
+
+	if state.isBanned && now.After(state.banExpiresAt) {
+		state.isBanned = false
+	}
+
+	if state.banLevel > 0 && now.Sub(state.lastSeen) > (2*l.cfg.baseBlockDuration) {
+		state.banLevel = 0
+	}
+
+	if metaHash != state.currentHash {
+		if now.After(state.metaChangeWindowStart.Add(l.cfg.reconnThreshold)) {
+			state.metaChangeWindowStart = now
+			state.metaChangeCounter = 1
+		} else {
+			state.metaChangeCounter++
+		}
+		state.currentHash = metaHash
+		state.sessionCounter = 1
+		state.sessionStart = now
+		state.lastSeen = now
+		return
+	}
+
+	state.sessionCounter++
+	if state.sessionCounter > l.cfg.reconnLimitForBan && now.Sub(state.sessionStart) < l.cfg.reconnThreshold {
+		state.isBanned = true
+		state.banLevel++
+
+		backoffFactor := math.Pow(2, float64(state.banLevel-1))
+		duration := time.Duration(float64(l.cfg.baseBlockDuration) * backoffFactor)
+		state.banExpiresAt = now.Add(duration)
+
+		state.sessionCounter = 0
+		state.sessionStart = now
+	}
+	state.lastSeen = now
 }
 
 func metaHash(meta nbpeer.PeerSystemMeta, pubip string) uint64 {
 	h := fnv.New64a()
+
+	if len(meta.NetworkAddresses) != 0 {
+		for _, na := range meta.NetworkAddresses {
+			h.Write([]byte(na.Mac))
+		}
+	}
 
 	h.Write([]byte(meta.WtVersion))
 	h.Write([]byte(meta.OSVersion))

@@ -2,6 +2,7 @@ package server
 
 import (
 	"hash/fnv"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,13 +13,12 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
-func testCfg() *config {
+func testAdvancedCfg() *config {
 	return &config{
-		filterTimeout:     20 * time.Millisecond,
 		reconnThreshold:   50 * time.Millisecond,
-		blockDuration:     100 * time.Millisecond,
+		baseBlockDuration: 100 * time.Millisecond,
 		reconnLimitForBan: 3,
-		metaChangeLim:     1,
+		metaChangeLimit:   2,
 	}
 }
 
@@ -28,113 +28,131 @@ type LoginFilterTestSuite struct {
 }
 
 func (s *LoginFilterTestSuite) SetupTest() {
-	s.filter = newLoginFilterWithCfg(testCfg())
+	s.filter = newLoginFilterWithCfg(testAdvancedCfg())
 }
 
 func TestLoginFilterTestSuite(t *testing.T) {
 	suite.Run(t, new(LoginFilterTestSuite))
 }
 
-func (s *LoginFilterTestSuite) TestFirstLogin() {
+func (s *LoginFilterTestSuite) TestFirstLoginIsAlwaysAllowed() {
 	pubKey := "PUB_KEY_A"
-	meta := uint64(4353457657645)
+	meta := uint64(1)
 
-	s.True(s.filter.allowLogin(pubKey, meta), "should allow a new peer")
+	s.True(s.filter.allowLogin(pubKey, meta))
 
 	s.filter.addLogin(pubKey, meta)
 	s.Require().Contains(s.filter.logged, pubKey)
-	s.Equal(1, s.filter.logged[pubKey].counter)
+	s.Equal(1, s.filter.logged[pubKey].sessionCounter)
 }
 
-func (s *LoginFilterTestSuite) TestFlappingPeerTriggersBan() {
+func (s *LoginFilterTestSuite) TestFlappingSameHashTriggersBan() {
 	pubKey := "PUB_KEY_A"
-	meta := uint64(4353457657645)
+	meta := uint64(1)
 	limit := s.filter.cfg.reconnLimitForBan
 
-	for range limit {
+	for i := 0; i <= limit; i++ {
 		s.filter.addLogin(pubKey, meta)
 	}
 
-	s.True(s.filter.allowLogin(pubKey, meta), "should still allow login at the limit boundary")
-
-	s.filter.addLogin(pubKey, meta)
-
-	s.False(s.filter.allowLogin(pubKey, meta), "should deny login after exceeding the limit")
-	s.True(s.filter.logged[pubKey].banned, "peer should be marked as banned")
+	s.False(s.filter.allowLogin(pubKey, meta))
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.True(s.filter.logged[pubKey].isBanned)
 }
 
-func (s *LoginFilterTestSuite) TestBannedPeerIsDenied() {
+func (s *LoginFilterTestSuite) TestBanDurationIncreasesExponentially() {
 	pubKey := "PUB_KEY_A"
-	meta := uint64(4353457657645)
+	meta := uint64(1)
+	limit := s.filter.cfg.reconnLimitForBan
+	baseBan := s.filter.cfg.baseBlockDuration
 
-	s.filter.logged[pubKey] = metahash{
-		hash:     meta,
-		banned:   true,
-		lastSeen: time.Now(),
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
 	}
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(1, s.filter.logged[pubKey].banLevel)
+	firstBanDuration := s.filter.logged[pubKey].banExpiresAt.Sub(s.filter.logged[pubKey].lastSeen)
+	s.InDelta(baseBan, firstBanDuration, float64(time.Millisecond))
 
-	s.False(s.filter.allowLogin(pubKey, meta))
+	s.filter.logged[pubKey].banExpiresAt = time.Now().Add(-time.Second)
+	s.filter.logged[pubKey].isBanned = false
+
+	for i := 0; i <= limit; i++ {
+		s.filter.addLogin(pubKey, meta)
+	}
+	s.True(s.filter.logged[pubKey].isBanned)
+	s.Equal(2, s.filter.logged[pubKey].banLevel)
+	secondBanDuration := s.filter.logged[pubKey].banExpiresAt.Sub(s.filter.logged[pubKey].lastSeen)
+	expectedSecondDuration := time.Duration(float64(baseBan) * math.Pow(2, 1))
+	s.InDelta(expectedSecondDuration, secondBanDuration, float64(time.Millisecond))
 }
 
 func (s *LoginFilterTestSuite) TestPeerIsAllowedAfterBanExpires() {
 	pubKey := "PUB_KEY_A"
-	meta := uint64(4353457657645)
+	meta := uint64(1)
 
-	s.filter.logged[pubKey] = metahash{
-		hash:     meta,
-		banned:   true,
-		lastSeen: time.Now().Add(-(s.filter.cfg.blockDuration + time.Second)),
+	s.filter.logged[pubKey] = &peerState{
+		isBanned:     true,
+		banExpiresAt: time.Now().Add(-(s.filter.cfg.baseBlockDuration + time.Second)),
 	}
-
-	s.True(s.filter.allowLogin(pubKey, meta), "should allow login after ban expires")
-
-	s.filter.addLogin(pubKey, meta)
-	s.Require().Contains(s.filter.logged, pubKey)
-	entry := s.filter.logged[pubKey]
-	s.False(entry.banned, "ban should be lifted on new login")
-	s.Equal(1, entry.counter, "counter should be reset")
-}
-
-func (s *LoginFilterTestSuite) TestDifferentHashIsBlockedWhenActive() {
-	pubKey := "PUB_KEY_A"
-	meta1 := uint64(23424223423)
-	meta2 := uint64(99878798987987)
-
-	for range s.filter.cfg.metaChangeLim {
-		s.filter.addLogin(pubKey, meta1)
-	}
-
-	s.filter.addLogin(pubKey, meta1)
-
-	s.False(s.filter.allowLogin(pubKey, meta2))
-}
-
-func (s *LoginFilterTestSuite) TestDifferentHashIsAllowedAfterTimeout() {
-	pubKey := "PUB_KEY_A"
-	meta1 := uint64(23424223423)
-	meta2 := uint64(99878798987987)
-
-	s.filter.addLogin(pubKey, meta1)
-
-	s.Require().Contains(s.filter.logged, pubKey)
-	entry := s.filter.logged[pubKey]
-	entry.lastSeen = time.Now().Add(-(s.filter.cfg.filterTimeout + time.Second))
-	s.filter.logged[pubKey] = entry
-
-	s.True(s.filter.allowLogin(pubKey, meta2))
-}
-
-func (s *LoginFilterTestSuite) TestRemovedPeerCanLogin() {
-	pubKey := "PUB_KEY_A"
-	meta := uint64(4353457657645)
-
-	s.filter.addLogin(pubKey, meta)
-	s.Require().Contains(s.filter.logged, pubKey)
-
-	s.filter.removeLogin(pubKey)
-	s.NotContains(s.filter.logged, pubKey)
 
 	s.True(s.filter.allowLogin(pubKey, meta))
+
+	s.filter.addLogin(pubKey, meta)
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.False(s.filter.logged[pubKey].isBanned)
+}
+
+func (s *LoginFilterTestSuite) TestBanLevelResetsAfterGoodBehavior() {
+	pubKey := "PUB_KEY_A"
+	meta := uint64(1)
+
+	s.filter.logged[pubKey] = &peerState{
+		currentHash: meta,
+		banLevel:    3,
+		lastSeen:    time.Now().Add(-3 * s.filter.cfg.baseBlockDuration),
+	}
+
+	s.filter.addLogin(pubKey, meta)
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.Equal(0, s.filter.logged[pubKey].banLevel)
+}
+
+func (s *LoginFilterTestSuite) TestFlappingDifferentHashesTriggersBlock() {
+	pubKey := "PUB_KEY_A"
+	limit := s.filter.cfg.metaChangeLimit
+
+	for i := range limit {
+		s.filter.addLogin(pubKey, uint64(i+1))
+	}
+
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.Equal(limit, s.filter.logged[pubKey].metaChangeCounter)
+
+	isAllowed := s.filter.allowLogin(pubKey, uint64(limit+1))
+
+	s.False(isAllowed, "should block new meta hash after limit is reached")
+}
+
+func (s *LoginFilterTestSuite) TestMetaChangeIsAllowedAfterWindowResets() {
+	pubKey := "PUB_KEY_A"
+	meta1 := uint64(1)
+	meta2 := uint64(2)
+	meta3 := uint64(3)
+
+	s.filter.addLogin(pubKey, meta1)
+	s.filter.addLogin(pubKey, meta2)
+	s.Require().Contains(s.filter.logged, pubKey)
+	s.Equal(s.filter.cfg.metaChangeLimit, s.filter.logged[pubKey].metaChangeCounter)
+	s.False(s.filter.allowLogin(pubKey, meta3), "should be blocked inside window")
+
+	s.filter.logged[pubKey].metaChangeWindowStart = time.Now().Add(-(s.filter.cfg.reconnThreshold + time.Second))
+
+	s.True(s.filter.allowLogin(pubKey, meta3), "should be allowed after window expires")
+
+	s.filter.addLogin(pubKey, meta3)
+	s.Equal(1, s.filter.logged[pubKey].metaChangeCounter, "meta change counter should reset")
 }
 
 func BenchmarkHashingMethods(b *testing.B) {
@@ -182,6 +200,12 @@ func BenchmarkHashingMethods(b *testing.B) {
 func fnvHashToString(meta nbpeer.PeerSystemMeta, pubip string) string {
 	h := fnv.New64a()
 
+	if len(meta.NetworkAddresses) != 0 {
+		for _, na := range meta.NetworkAddresses {
+			h.Write([]byte(na.Mac))
+		}
+	}
+
 	h.Write([]byte(meta.WtVersion))
 	h.Write([]byte(meta.OSVersion))
 	h.Write([]byte(meta.KernelVersion))
@@ -193,8 +217,9 @@ func fnvHashToString(meta nbpeer.PeerSystemMeta, pubip string) string {
 }
 
 func builderString(meta nbpeer.PeerSystemMeta, pubip string) string {
+	mac := getMacAddress(meta.NetworkAddresses)
 	estimatedSize := len(meta.WtVersion) + len(meta.OSVersion) + len(meta.KernelVersion) + len(meta.Hostname) + len(meta.SystemSerialNumber) +
-		len(pubip) + 5
+		len(pubip) + len(mac) + 6
 
 	var b strings.Builder
 	b.Grow(estimatedSize)
@@ -212,4 +237,15 @@ func builderString(meta nbpeer.PeerSystemMeta, pubip string) string {
 	b.WriteString(pubip)
 
 	return b.String()
+}
+
+func getMacAddress(nas []nbpeer.NetworkAddress) string {
+	if len(nas) == 0 {
+		return ""
+	}
+	macs := make([]string, 0, len(nas))
+	for _, na := range nas {
+		macs = append(macs, na.Mac)
+	}
+	return strings.Join(macs, "/")
 }
