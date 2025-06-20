@@ -67,6 +67,7 @@ func init() {
 	mgmtCmd.Flags().BoolVar(&idpSignKeyRefreshEnabled, idpSignKeyRefreshEnabledFlagName, false, "Enable cache headers evaluation to determine signing key rotation period. This will refresh the signing key upon expiry.")
 	mgmtCmd.Flags().BoolVar(&userDeleteFromIDPEnabled, "user-delete-from-idp", false, "Allows to delete user from IDP when user is deleted from account")
 	mgmtCmd.Flags().BoolVar(&disableGeoliteUpdate, "disable-geolite-update", true, "disables automatic updates to the Geolite2 geolocation databases")
+	setFlagsFromEnvVars(mgmtCmd)
 	rootCmd.MarkFlagRequired("config") //nolint
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
