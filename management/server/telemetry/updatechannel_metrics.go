@@ -95,7 +95,7 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 
 	calcPostureChecksDurationMicro, err := meter.Int64Histogram("management.updatechannel.calc.posturechecks.duration.micro",
 		metric.WithUnit("microseconds"),
-		metric.WithDescription("Duration of how long it takes to to get the posture checks for a peer"),
+		metric.WithDescription("Duration of how long it takes to get the posture checks for a peer"),
 	)
 	if err != nil {
 		return nil, err
