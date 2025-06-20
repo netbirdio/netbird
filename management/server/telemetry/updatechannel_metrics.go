@@ -18,6 +18,10 @@ type UpdateChannelMetrics struct {
 	getAllConnectedPeersDurationMicro metric.Int64Histogram
 	getAllConnectedPeers              metric.Int64Histogram
 	hasChannelDurationMicro           metric.Int64Histogram
+	calcPostureChecksDurationMicro    metric.Int64Histogram
+	calcPeerNetworkMapDurationMicro   metric.Int64Histogram
+	mergeNetworkMapDurationMicro      metric.Int64Histogram
+	toSyncResponseDurationMicro       metric.Int64Histogram
 	ctx                               context.Context
 }
 
@@ -89,6 +93,38 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 		return nil, err
 	}
 
+	calcPostureChecksDurationMicro, err := meter.Int64Histogram("management.updatechannel.calc.posturechecks.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to check if a peer has a channel"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	calcPeerNetworkMapDurationMicro, err := meter.Int64Histogram("management.updatechannel.calc.networkmap.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to check if a peer has a channel"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	mergeNetworkMapDurationMicro, err := meter.Int64Histogram("management.updatechannel.merge.networkmap.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to check if a peer has a channel"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	toSyncResponseDurationMicro, err := meter.Int64Histogram("management.updatechannel.tosyncresponse.duration.micro",
+		metric.WithUnit("microseconds"),
+		metric.WithDescription("Duration of how long it takes to check if a peer has a channel"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &UpdateChannelMetrics{
 		createChannelDurationMicro:        createChannelDurationMicro,
 		closeChannelDurationMicro:         closeChannelDurationMicro,
@@ -98,6 +134,10 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 		getAllConnectedPeersDurationMicro: getAllConnectedPeersDurationMicro,
 		getAllConnectedPeers:              getAllConnectedPeers,
 		hasChannelDurationMicro:           hasChannelDurationMicro,
+		calcPostureChecksDurationMicro:    calcPostureChecksDurationMicro,
+		calcPeerNetworkMapDurationMicro:   calcPeerNetworkMapDurationMicro,
+		mergeNetworkMapDurationMicro:      mergeNetworkMapDurationMicro,
+		toSyncResponseDurationMicro:       toSyncResponseDurationMicro,
 		ctx:                               ctx,
 	}, nil
 }
@@ -136,4 +176,20 @@ func (metrics *UpdateChannelMetrics) CountGetAllConnectedPeersDuration(duration 
 // CountHasChannelDuration counts the duration of the HasChannel method
 func (metrics *UpdateChannelMetrics) CountHasChannelDuration(duration time.Duration) {
 	metrics.hasChannelDurationMicro.Record(metrics.ctx, duration.Microseconds())
+}
+
+func (metrics *UpdateChannelMetrics) CountCalcPostureChecksDuration(duration time.Duration) {
+	metrics.calcPostureChecksDurationMicro.Record(metrics.ctx, duration.Microseconds())
+}
+
+func (metrics *UpdateChannelMetrics) CountCalcPeerNetworkMapDuration(duration time.Duration) {
+	metrics.calcPeerNetworkMapDurationMicro.Record(metrics.ctx, duration.Microseconds())
+}
+
+func (metrics *UpdateChannelMetrics) CountMergeNetworkMapDuration(duration time.Duration) {
+	metrics.mergeNetworkMapDurationMicro.Record(metrics.ctx, duration.Microseconds())
+}
+
+func (metrics *UpdateChannelMetrics) CountToSyncResponseDuration(duration time.Duration) {
+	metrics.toSyncResponseDurationMicro.Record(metrics.ctx, duration.Microseconds())
 }
