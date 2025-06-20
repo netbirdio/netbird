@@ -1,8 +1,16 @@
+x-default: &default
+  restart: 'unless-stopped'
+  logging:
+    driver: 'json-file'
+    options:
+      max-size: '500m'
+      max-file: '2'
+
 services:
   # UI dashboard
   dashboard:
+    <<: *default
     image: netbirdio/dashboard:$NETBIRD_DASHBOARD_TAG
-    restart: unless-stopped
     environment:
       # Endpoints
       - NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_MGMT_API_ENDPOINT
@@ -28,16 +36,11 @@ services:
     - traefik.enable=true
     - traefik.http.routers.netbird-dashboard.rule=Host(`$NETBIRD_DOMAIN`)
     - traefik.http.services.netbird-dashboard.loadbalancer.server.port=80
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
 
   # Signal
   signal:
+    <<: *default
     image: netbirdio/signal:$NETBIRD_SIGNAL_TAG
-    restart: unless-stopped
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
     labels:
@@ -45,27 +48,17 @@ services:
     - traefik.http.routers.netbird-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/signalexchange.SignalExchange/`)
     - traefik.http.services.netbird-signal.loadbalancer.server.port=10000
     - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
 
   # Relay
   relay:
+    <<: *default
     image: netbirdio/relay:$NETBIRD_RELAY_TAG
-    restart: unless-stopped
     environment:
     - NB_LOG_LEVEL=info
     - NB_LISTEN_ADDRESS=:33080
     - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_ENDPOINT
     # todo: change to a secure secret
     - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
     labels:
     - traefik.enable=true
     - traefik.http.routers.netbird-relay.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/relay`)
@@ -73,8 +66,8 @@ services:
 
   # Management
   management:
+    <<: *default
     image: netbirdio/management:$NETBIRD_MANAGEMENT_TAG
-    restart: unless-stopped
     depends_on:
       - dashboard
     volumes:
@@ -99,30 +92,20 @@ services:
     - traefik.http.routers.netbird-management.service=netbird-management
     - traefik.http.services.netbird-management.loadbalancer.server.port=33073
     - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
     environment:
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
       - NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN
       
   # Coturn
   coturn:
+    <<: *default
     image: coturn/coturn:$COTURN_TAG
-    restart: unless-stopped
     domainname: $TURN_DOMAIN
     volumes:
       - ./turnserver.conf:/etc/turnserver.conf:ro
     network_mode: host
     command:
       - -c /etc/turnserver.conf
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "500m"
-        max-file: "2"
 
 volumes:
   $MGMT_VOLUMENAME:
