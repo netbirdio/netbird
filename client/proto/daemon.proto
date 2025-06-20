@@ -67,6 +67,16 @@ service DaemonService {
   rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
+
+  // Profiles
+  rpc GetProfiles(GetProfilesRequest) returns (GetProfilesResponse) {}
+
+  rpc CreateProfile(CreateProfileRequest) returns (CreateProfileResponse) {}
+
+  rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
+
+  rpc RemoveProfile(RemoveProfileRequest) returns (RemoveProfileResponse) {}
+
 }
 
 
@@ -494,4 +504,49 @@ message GetEventsRequest {}
 
 message GetEventsResponse {
   repeated SystemEvent events = 1;
+}
+
+
+// Profiles
+message Profile {
+  string name = 1;
+  bool selected = 2;
+
+}
+
+message GetProfilesRequest {
+}
+
+message GetProfilesResponse {
+  repeated Profile profiles = 1;
+}
+
+message CreateProfileRequest {
+  string profile = 1;
+}
+
+message CreateProfileResponse {
+  bool success = 1;
+  string error = 2;
+  string profile = 3;
+}
+
+message SwitchProfileRequest {
+  string profile = 1;
+}
+
+message SwitchProfileResponse {
+  bool success = 1;
+  string error = 2;
+  string profile = 3;
+}
+
+message RemoveProfileRequest {
+  string profile = 1;
+}
+
+message RemoveProfileResponse {
+  bool success = 1;
+  string error = 2;
+  string profile = 3;
 }

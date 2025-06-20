@@ -49,6 +49,8 @@ func (h *eventHandler) listen(ctx context.Context) {
 			h.handleAdvancedSettingsClick()
 		case <-h.client.mCreateDebugBundle.ClickedCh:
 			h.handleCreateDebugBundleClick()
+		case <-h.client.mProfiles.ClickedCh:
+			h.handleProfilesClick()
 		case <-h.client.mQuit.ClickedCh:
 			h.handleQuitClick()
 			return
@@ -131,6 +133,14 @@ func (h *eventHandler) handleCreateDebugBundleClick() {
 	go func() {
 		defer h.client.mCreateDebugBundle.Enable()
 		h.runSelfCommand("debug", "true")
+	}()
+}
+
+func (h *eventHandler) handleProfilesClick() {
+	h.client.mProfiles.Disable()
+	go func() {
+		defer h.client.mProfiles.Enable()
+		h.runSelfCommand("profiles", "true")
 	}()
 }
 
