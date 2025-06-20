@@ -168,9 +168,11 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	defer func() {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))
+			log.WithContext(ctx).Infof("Sync request from peer %s took %v", peerKey.String(), time.Since(reqStart))
 		}
 	}()
 
+	syncbody := time.Now()
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 
@@ -223,6 +225,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	unlock = nil
 
 	log.WithContext(ctx).Debugf("Sync: took %v", time.Since(reqStart))
+
+	log.WithContext(ctx).Info("Sync body after the filter for peer %s took %v", peerKey.String(), time.Since(syncbody))
 
 	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
 }
@@ -483,10 +487,13 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart))
 		}
+		log.WithContext(ctx).Infof("Login request from peer %s took %v", peerKey.String(), time.Since(reqStart))
 	}()
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountLoginRequest()
 	}
+
+	bodytime := time.Now()
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
@@ -544,6 +551,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
+	log.WithContext(ctx).Info("Login body after the filter for peer %s took %v", peerKey.String(), time.Since(bodytime))
 
 	return &proto.EncryptedMessage{
 		WgPubKey: s.wgKey.PublicKey().String(),

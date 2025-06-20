@@ -3,6 +3,7 @@ package server
 import (
 	"hash/fnv"
 	"math"
+	"math/rand"
 	"strconv"
 	"strings"
 	"testing"
@@ -248,4 +249,27 @@ func getMacAddress(nas []nbpeer.NetworkAddress) string {
 		macs = append(macs, na.Mac)
 	}
 	return strings.Join(macs, "/")
+}
+
+func BenchmarkLoginFilter_ParallelLoad(b *testing.B) {
+	filter := newLoginFilterWithCfg(testAdvancedCfg())
+	numKeys := 100000
+	pubKeys := make([]string, numKeys)
+	for i := range numKeys {
+		pubKeys[i] = "PUB_KEY_" + strconv.Itoa(i)
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+		for pb.Next() {
+			key := pubKeys[r.Intn(numKeys)]
+			meta := r.Uint64()
+
+			if filter.allowLogin(key, meta) {
+				filter.addLogin(key, meta)
+			}
+		}
+	})
 }
