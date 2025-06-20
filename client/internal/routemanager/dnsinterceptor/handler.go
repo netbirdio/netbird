@@ -244,15 +244,14 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 	}
 
 	if len(r.Answer) > 0 && len(r.Question) > 0 {
-		origPattern := ""
+		var origPattern domain.Domain
 		if writer, ok := w.(*nbdns.ResponseWriterChain); ok {
 			origPattern = writer.GetOrigPattern()
 		}
 
 		resolvedDomain := domain.Domain(strings.ToLower(r.Question[0].Name))
 
-		// already punycode via RegisterHandler()
-		originalDomain := domain.Domain(origPattern)
+		originalDomain := origPattern
 		if originalDomain == "" {
 			originalDomain = resolvedDomain
 		}

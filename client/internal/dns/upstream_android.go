@@ -10,6 +10,7 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/management/domain"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -28,7 +29,7 @@ func newUpstreamResolver(
 	_ netip.Prefix,
 	statusRecorder *peer.Status,
 	hostsDNSHolder *hostsDNSHolder,
-	domain string,
+	domain domain.Domain,
 ) (*upstreamResolver, error) {
 	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, domain)
 	c := &upstreamResolver{

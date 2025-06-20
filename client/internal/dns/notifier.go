@@ -1,21 +1,19 @@
 package dns
 
 import (
-	"reflect"
-	"sort"
 	"sync"
 
 	"github.com/netbirdio/netbird/client/internal/listener"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 type notifier struct {
 	listener      listener.NetworkChangeListener
 	listenerMux   sync.Mutex
-	searchDomains []string
+	searchDomains domain.List
 }
 
-func newNotifier(initialSearchDomains []string) *notifier {
-	sort.Strings(initialSearchDomains)
+func newNotifier(initialSearchDomains domain.List) *notifier {
 	return &notifier{
 		searchDomains: initialSearchDomains,
 	}
@@ -27,16 +25,8 @@ func (n *notifier) setListener(listener listener.NetworkChangeListener) {
 	n.listener = listener
 }
 
-func (n *notifier) onNewSearchDomains(searchDomains []string) {
-	sort.Strings(searchDomains)
-
-	if len(n.searchDomains) != len(searchDomains) {
-		n.searchDomains = searchDomains
-		n.notify()
-		return
-	}
-
-	if reflect.DeepEqual(n.searchDomains, searchDomains) {
+func (n *notifier) onNewSearchDomains(searchDomains domain.List) {
+	if searchDomains.Equal(n.searchDomains) {
 		return
 	}
 

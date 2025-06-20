@@ -44,12 +44,12 @@ type Server interface {
 	DnsIP() string
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
 	OnUpdatedHostDNSServer(strings []string)
-	SearchDomains() []string
+	SearchDomains() domain.List
 	ProbeAvailability()
 }
 
 type nsGroupsByDomain struct {
-	domain string
+	domain domain.Domain
 	groups []*nbdns.NameServerGroup
 }
 
@@ -90,7 +90,7 @@ type handlerWithStop interface {
 }
 
 type handlerWrapper struct {
-	domain   string
+	domain   domain.Domain
 	handler  handlerWithStop
 	priority int
 }
@@ -197,7 +197,7 @@ func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	s.registerHandler(domains.ToPunycodeList(), handler, priority)
+	s.registerHandler(domains, handler, priority)
 
 	// TODO: This will take over zones for non-wildcard domains, for which we might not have a handler in the chain
 	for _, domain := range domains {
@@ -207,7 +207,7 @@ func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler
 	s.applyHostConfig()
 }
 
-func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, priority int) {
+func (s *DefaultServer) registerHandler(domains domain.List, handler dns.Handler, priority int) {
 	log.Debugf("registering handler %s with priority %d", handler, priority)
 
 	for _, domain := range domains {
@@ -224,7 +224,7 @@ func (s *DefaultServer) DeregisterHandler(domains domain.List, priority int) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	s.deregisterHandler(domains.ToPunycodeList(), priority)
+	s.deregisterHandler(domains, priority)
 	for _, domain := range domains {
 		zone := toZone(domain)
 		s.extraDomains[zone]--
@@ -235,7 +235,7 @@ func (s *DefaultServer) DeregisterHandler(domains domain.List, priority int) {
 	s.applyHostConfig()
 }
 
-func (s *DefaultServer) deregisterHandler(domains []string, priority int) {
+func (s *DefaultServer) deregisterHandler(domains domain.List, priority int) {
 	log.Debugf("deregistering handler %v with priority %d", domains, priority)
 
 	for _, domain := range domains {
@@ -378,8 +378,8 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 	return nil
 }
 
-func (s *DefaultServer) SearchDomains() []string {
-	var searchDomains []string
+func (s *DefaultServer) SearchDomains() domain.List {
+	var searchDomains domain.List
 
 	for _, dConf := range s.currentConfig.Domains {
 		if dConf.Disabled {
@@ -472,18 +472,16 @@ func (s *DefaultServer) applyHostConfig() {
 
 	config := s.currentConfig
 
-	existingDomains := make(map[string]struct{})
+	existingDomains := make(map[domain.Domain]struct{})
 	for _, d := range config.Domains {
 		existingDomains[d.Domain] = struct{}{}
 	}
 
 	// add extra domains only if they're not already in the config
-	for domain := range s.extraDomains {
-		domainStr := domain.PunycodeString()
-
-		if _, exists := existingDomains[domainStr]; !exists {
+	for d := range s.extraDomains {
+		if _, exists := existingDomains[d]; !exists {
 			config.Domains = append(config.Domains, DomainConfig{
-				Domain:    domainStr,
+				Domain:    d,
 				MatchOnly: true,
 			})
 		}
@@ -525,7 +523,7 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 		}
 
 		muxUpdates = append(muxUpdates, handlerWrapper{
-			domain:   customZone.Domain,
+			domain: domain.Domain(customZone.Domain),
 			handler:  s.localResolver,
 			priority: PriorityLocal,
 		})
@@ -651,7 +649,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	// this will introduce a short period of time when the server is not able to handle DNS requests
 	for _, existing := range s.dnsMuxMap {
-		s.deregisterHandler([]string{existing.domain}, existing.priority)
+		s.deregisterHandler(domain.List{existing.domain}, existing.priority)
 		existing.handler.Stop()
 	}
 
@@ -662,7 +660,7 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 		if update.domain == nbdns.RootZone {
 			containsRootUpdate = true
 		}
-		s.registerHandler([]string{update.domain}, update.handler, update.priority)
+		s.registerHandler(domain.List{update.domain}, update.handler, update.priority)
 		muxUpdateMap[update.handler.ID()] = update
 	}
 
@@ -691,7 +689,7 @@ func (s *DefaultServer) upstreamCallbacks(
 	handler dns.Handler,
 	priority int,
 ) (deactivate func(error), reactivate func()) {
-	var removeIndex map[string]int
+	var removeIndex map[domain.Domain]int
 	deactivate = func(err error) {
 		s.mux.Lock()
 		defer s.mux.Unlock()
@@ -699,20 +697,20 @@ func (s *DefaultServer) upstreamCallbacks(
 		l := log.WithField("nameservers", nsGroup.NameServers)
 		l.Info("Temporarily deactivating nameservers group due to timeout")
 
-		removeIndex = make(map[string]int)
+		removeIndex = make(map[domain.Domain]int)
 		for _, domain := range nsGroup.Domains {
 			removeIndex[domain] = -1
 		}
 		if nsGroup.Primary {
 			removeIndex[nbdns.RootZone] = -1
 			s.currentConfig.RouteAll = false
-			s.deregisterHandler([]string{nbdns.RootZone}, priority)
+			s.deregisterHandler(domain.List{nbdns.RootZone}, priority)
 		}
 
 		for i, item := range s.currentConfig.Domains {
 			if _, found := removeIndex[item.Domain]; found {
 				s.currentConfig.Domains[i].Disabled = true
-				s.deregisterHandler([]string{item.Domain}, priority)
+				s.deregisterHandler(domain.List{item.Domain}, priority)
 				removeIndex[item.Domain] = i
 			}
 		}
@@ -736,12 +734,12 @@ func (s *DefaultServer) upstreamCallbacks(
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
-		for domain, i := range removeIndex {
-			if i == -1 || i >= len(s.currentConfig.Domains) || s.currentConfig.Domains[i].Domain != domain {
+		for d, i := range removeIndex {
+			if i == -1 || i >= len(s.currentConfig.Domains) || s.currentConfig.Domains[i].Domain != d{
 				continue
 			}
 			s.currentConfig.Domains[i].Disabled = false
-			s.registerHandler([]string{domain}, handler, priority)
+			s.registerHandler(domain.List{d}, handler, priority)
 		}
 
 		l := log.WithField("nameservers", nsGroup.NameServers)
@@ -749,7 +747,7 @@ func (s *DefaultServer) upstreamCallbacks(
 
 		if nsGroup.Primary {
 			s.currentConfig.RouteAll = true
-			s.registerHandler([]string{nbdns.RootZone}, handler, priority)
+			s.registerHandler(domain.List{nbdns.RootZone}, handler, priority)
 		}
 
 		s.applyHostConfig()
@@ -781,7 +779,7 @@ func (s *DefaultServer) addHostRootZone() {
 	handler.deactivate = func(error) {}
 	handler.reactivate = func() {}
 
-	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityDefault)
+	s.registerHandler(domain.List{nbdns.RootZone}, handler, PriorityDefault)
 }
 
 func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {
@@ -796,7 +794,7 @@ func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {
 		state := peer.NSGroupState{
 			ID:      generateGroupKey(group),
 			Servers: servers,
-			Domains: group.Domains,
+			Domains: group.Domains.ToPunycodeList(),
 			// The probe will determine the state, default enabled
 			Enabled: true,
 			Error:   nil,
@@ -829,7 +827,7 @@ func generateGroupKey(nsGroup *nbdns.NameServerGroup) string {
 
 // groupNSGroupsByDomain groups nameserver groups by their match domains
 func groupNSGroupsByDomain(nsGroups []*nbdns.NameServerGroup) []nsGroupsByDomain {
-	domainMap := make(map[string][]*nbdns.NameServerGroup)
+	domainMap := make(map[domain.Domain][]*nbdns.NameServerGroup)
 
 	for _, group := range nsGroups {
 		if group.Primary {
