@@ -1,6 +1,8 @@
 package dns
 
 import (
+	"net/netip"
+
 	"github.com/miekg/dns"
 )
 
@@ -14,5 +16,5 @@ type service interface {
 	RegisterMux(domain string, handler dns.Handler)
 	DeregisterMux(key string)
 	RuntimePort() int
-	RuntimeIP() string
+	RuntimeIP() netip.Addr
 }
