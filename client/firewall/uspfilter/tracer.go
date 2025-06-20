@@ -401,7 +401,7 @@ func (m *Manager) addForwardingResult(trace *PacketTrace, action, remoteAddr str
 
 func (m *Manager) traceOutbound(packetData []byte, trace *PacketTrace) *PacketTrace {
 	// will create or update the connection state
-	dropped := m.processOutgoingHooks(packetData, 0)
+	dropped := m.filterOutbound(packetData, 0)
 	if dropped {
 		trace.AddResult(StageCompleted, "Packet dropped by outgoing hook", false)
 	} else {

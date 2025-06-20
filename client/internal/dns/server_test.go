@@ -464,7 +464,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	defer ctrl.Finish()
 
 	packetfilter := pfmock.NewMockPacketFilter(ctrl)
-	packetfilter.EXPECT().DropOutgoing(gomock.Any(), gomock.Any()).AnyTimes()
+	packetfilter.EXPECT().FilterOutbound(gomock.Any(), gomock.Any()).AnyTimes()
 	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 	packetfilter.EXPECT().RemovePacketHook(gomock.Any())
 

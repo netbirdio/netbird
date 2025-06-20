@@ -146,7 +146,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 		tun.EXPECT().Write(mockBufs, 0).Return(0, nil)
 
 		filter := mocks.NewMockPacketFilter(ctrl)
-		filter.EXPECT().DropIncoming(gomock.Any(), gomock.Any()).Return(true)
+		filter.EXPECT().FilterInbound(gomock.Any(), gomock.Any()).Return(true)
 
 		wrapped := newDeviceFilter(tun)
 		wrapped.filter = filter
@@ -201,7 +201,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 				return 1, nil
 			})
 		filter := mocks.NewMockPacketFilter(ctrl)
-		filter.EXPECT().DropOutgoing(gomock.Any(), gomock.Any()).Return(true)
+		filter.EXPECT().FilterOutbound(gomock.Any(), gomock.Any()).Return(true)
 
 		wrapped := newDeviceFilter(tun)
 		wrapped.filter = filter

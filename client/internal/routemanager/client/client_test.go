@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/static"
 	"github.com/netbirdio/netbird/route"
 )
 
 func TestGetBestrouteFromStatuses(t *testing.T) {
-
 	testCases := []struct {
 		name            string
 		statuses        map[route.ID]routerPeerStatus
@@ -811,9 +811,12 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 				currentRoute = tc.existingRoutes[tc.currentRoute]
 			}
 
+			params := common.HandlerParams{
+				Route:               &route.Route{Network: netip.MustParsePrefix("192.168.0.0/24")},
+			}
 			// create new clientNetwork
 			client := &Watcher{
-				handler:       static.NewRoute(&route.Route{Network: netip.MustParsePrefix("192.168.0.0/24")}, nil, nil),
+				handler:       static.NewRoute(params),
 				routes:        tc.existingRoutes,
 				currentChosen: currentRoute,
 			}
