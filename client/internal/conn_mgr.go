@@ -133,7 +133,7 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 		excludedPeers = append(excludedPeers, lazyPeerCfg)
 	}
 
-	added := e.lazyConnMgr.ExcludePeer(e.lazyCtx, excludedPeers)
+	added := e.lazyConnMgr.ExcludePeer(excludedPeers)
 	for _, peerID := range added {
 		var peerConn *peer.Conn
 		var exists bool

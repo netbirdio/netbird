@@ -26,6 +26,8 @@ const (
 
 	checkInterval        = keepAliveInterval // todo: 5 * time.Second
 	keepAliveCheckPeriod = keepAliveInterval
+
+	inactivityThreshold = 3 // number of checks to consider peer inactive
 )
 
 const (
@@ -98,14 +100,19 @@ func (m *Manager) Start(ctx context.Context) {
 			if len(idlePeers) == 0 {
 				continue
 			}
-			select {
-			case m.InactivePeersChan <- idlePeers:
-			case <-ctx.Done():
-				continue
-			default:
-				continue
-			}
+
+			m.notifyInactivePeers(ctx, idlePeers)
 		}
+	}
+}
+
+func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers []string) {
+	select {
+	case m.InactivePeersChan <- inactivePeers:
+	case <-ctx.Done():
+		return
+	default:
+		return
 	}
 }
 
@@ -120,8 +127,8 @@ func (m *Manager) checkStats(now time.Time) ([]string, error) {
 	for peer, info := range m.interestedPeers {
 		stat, found := stats[peer]
 		if !found {
+			// when peer is in connecting state
 			info.log.Warnf("peer not found in wg stats")
-			continue
 		}
 
 		// First measurement: initialize
@@ -137,7 +144,7 @@ func (m *Manager) checkStats(now time.Time) ([]string, error) {
 			continue
 		}
 
-		// sometimes we measure false inactivity, so we need to check if we have activity in a row
+		// sometimes we measure false inactivity, so we need to check if we have inactivity in a row
 		if isInactive(stat, info) {
 			info.inActivityInRow++
 		} else {
@@ -145,7 +152,7 @@ func (m *Manager) checkStats(now time.Time) ([]string, error) {
 		}
 
 		info.log.Infof("peer inactivity counter: %d", info.inActivityInRow)
-		if info.inActivityInRow >= 3 {
+		if info.inActivityInRow >= inactivityThreshold {
 			info.log.Infof("peer is inactive for %d checks, marking as inactive", info.inActivityInRow)
 			idlePeers = append(idlePeers, peer)
 			info.inActivityInRow = 0
@@ -159,6 +166,14 @@ func (m *Manager) checkStats(now time.Time) ([]string, error) {
 
 func isInactive(stat configurer.WGStats, info *peerInfo) bool {
 	rxSyncPrevPeriod := stat.RxBytes - info.lastRxBytesAtLastIdleCheck
+
+	// when the peer reconnected we lose the rx bytes from between the reset and the last check.
+	// We will suppose the peer was active
+	if rxSyncPrevPeriod < 0 {
+		info.log.Debugf("rxBytes decreased, resetting last rxBytes at last idle check")
+		return false
+	}
+
 	switch rxSyncPrevPeriod {
 	case 0:
 		info.log.Debugf("peer inactive, received 0 bytes")

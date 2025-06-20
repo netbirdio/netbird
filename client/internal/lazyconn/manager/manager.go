@@ -157,7 +157,7 @@ func (m *Manager) Start(ctx context.Context) {
 // Adds them back to the managed list and start the inactivity listener if they are removed from the exclude list. In
 // this case, we suppose that the connection status is connected or connecting.
 // If the peer is not exists yet in the managed list then the responsibility is the upper layer to call the AddPeer function
-func (m *Manager) ExcludePeer(ctx context.Context, peerConfigs []lazyconn.PeerConfig) []string {
+func (m *Manager) ExcludePeer(peerConfigs []lazyconn.PeerConfig) []string {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
@@ -517,4 +517,5 @@ func (m *Manager) onPeerDisconnected(peerConnID peerid.ConnID) {
 	}
 
 	// todo reset inactivity monitor
+	mp.peerCfg.Log.Infof("--- peer disconnected, stopping inactivity monitor?")
 }
