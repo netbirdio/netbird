@@ -67,6 +67,7 @@ type Manager struct {
 // engineCtx is the context for creating peer Connection
 func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.Store, wgIface lazyconn.WGIface, connStateDispatcher *dispatcher.ConnectionDispatcher) *Manager {
 	log.Infof("setup lazy connection service")
+
 	m := &Manager{
 		engineCtx:            engineCtx,
 		peerStore:            peerStore,
@@ -76,17 +77,9 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 		managedPeersByConnID: make(map[peerid.ConnID]*managedPeer),
 		excludes:             make(map[string]lazyconn.PeerConfig),
 		activityManager:      activity.NewManager(wgIface),
-		inactivityManager:    inactivity.NewManager(wgIface),
+		inactivityManager:    inactivity.NewManager(wgIface, config.InactivityThreshold),
 		peerToHAGroups:       make(map[string][]route.HAUniqueID),
 		haGroupToPeers:       make(map[route.HAUniqueID][]string),
-	}
-
-	if config.InactivityThreshold != nil {
-		if *config.InactivityThreshold >= inactivity.MinimumInactivityThreshold {
-			m.inactivityThreshold = *config.InactivityThreshold
-		} else {
-			log.Warnf("inactivity threshold is too low, using %v", m.inactivityThreshold)
-		}
 	}
 
 	m.connStateListener = &dispatcher.ConnectionListener{
@@ -620,5 +613,5 @@ func (m *Manager) onPeerDisconnected(peerConnID peerid.ConnID) {
 	}
 
 	// todo reset inactivity monitor
-	mp.peerCfg.Log.Infof("--- peer disconnected, stopping inactivity monitor?")
+	mp.peerCfg.Log.Warnf("--- peer disconnected, stopping inactivity monitor?")
 }

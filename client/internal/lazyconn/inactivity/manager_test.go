@@ -25,7 +25,7 @@ func TestNewManager(t *testing.T) {
 
 		t.Run(fmt.Sprintf("Scenario %d", i), func(t *testing.T) {
 			mock := newMockWgInterface("peer1", sc.Data, timer)
-			manager := NewManager(mock)
+			manager := NewManager(mock, nil)
 			peerCfg := &lazyconn.PeerConfig{
 				PublicKey: "peer1",
 				Log:       log.WithField("peer", "peer1"),
