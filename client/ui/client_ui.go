@@ -193,6 +193,12 @@ var iconConnectingMacOS []byte
 //go:embed assets/netbird-systemtray-error-macos.png
 var iconErrorMacOS []byte
 
+//go:embed assets/connected.png
+var iconConnectedDot []byte
+
+//go:embed assets/disconnected.png
+var iconDisconnectedDot []byte
+
 type serviceClient struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -205,7 +211,9 @@ type serviceClient struct {
 
 	icAbout              []byte
 	icConnected          []byte
+	icConnectedDot       []byte
 	icDisconnected       []byte
+	icDisconnectedDot    []byte
 	icUpdateConnected    []byte
 	icUpdateDisconnected []byte
 	icConnecting         []byte
@@ -345,6 +353,8 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 func (s *serviceClient) setNewIcons() {
 	s.icAbout = iconAbout
+	s.icConnectedDot = iconConnectedDot
+	s.icDisconnectedDot = iconDisconnectedDot
 	if s.app.Settings().ThemeVariant() == theme.VariantDark {
 		s.icConnected = iconConnectedDark
 		s.icDisconnected = iconDisconnected
@@ -625,6 +635,7 @@ func (s *serviceClient) updateStatus() error {
 			}
 			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
+			s.mStatus.SetIcon(s.icConnectedDot)
 			s.mUp.Disable()
 			s.mDown.Enable()
 			s.mNetworks.Enable()
@@ -684,6 +695,7 @@ func (s *serviceClient) setDisconnectedStatus() {
 	}
 	systray.SetTooltip("NetBird (Disconnected)")
 	s.mStatus.SetTitle("Disconnected")
+	s.mStatus.SetIcon(s.icDisconnectedDot)
 	s.mDown.Disable()
 	s.mUp.Enable()
 	s.mNetworks.Disable()
@@ -708,6 +720,7 @@ func (s *serviceClient) onTrayReady() {
 
 	// setup systray menu items
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
+	s.mStatus.SetIcon(s.icDisconnectedDot)
 	s.mStatus.Disable()
 	s.mProfileName = systray.AddMenuItem("hakan_work", "Selected Profile: Home")
 	systray.AddMenuItem("(hakan.@gmail.com)", "").Disable()

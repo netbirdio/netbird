@@ -434,7 +434,6 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		inputConfig.PreSharedKey = msg.OptionalPreSharedKey
 	}
 
-	fmt.Printf("LOGGED IN!!!!!!: %s\n", inputConfig.ConfigPath)
 	config, err := internal.UpdateOrCreateConfig(inputConfig)
 	if err != nil {
 		return nil, err
