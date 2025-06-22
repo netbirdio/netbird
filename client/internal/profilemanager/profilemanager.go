@@ -1,9 +1,12 @@
 package profilemanager
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -14,6 +17,8 @@ type Profile struct {
 }
 
 type ProfileManager struct {
+	mu            sync.Mutex
+	activeProfile *Profile
 }
 
 func NewProfileManager() *ProfileManager {
@@ -31,39 +36,80 @@ func (pm *ProfileManager) AddProfile(profile Profile) error {
 		return ErrProfileAlreadyExists
 	}
 
-}
-
-func getConfigDir() (string, error) {
-	configDir, err := os.UserConfigDir()
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath})
 	if err != nil {
-		return "", err
+		return fmt.Errorf("failed to create new config: %w", err)
 	}
 
-	configDir = filepath.Join(configDir, "netbird")
-	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(configDir, 0755); err != nil {
-			return "", err
-		}
+	err = util.WriteJsonWithRestrictedPermission(context.Background(), profPath, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to write profile config: %w", err)
 	}
 
-	return configDir, nil
+	return nil
 }
 
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
+func (pm *ProfileManager) RemoveProfile(profileName string) error {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	profPath := filepath.Join(configDir, profileName+".json")
+	if !fileExists(profPath) {
+		return ErrProfileNotFound
+	}
+
+	activeProf, err := pm.GetActiveProfile()
+	if err != nil && !errors.Is(err, ErrNoActiveProfile) {
+		return fmt.Errorf("failed to get active profile: %w", err)
+	}
+
+	if activeProf.Name == profileName {
+		return fmt.Errorf("cannot remove active profile: %s", profileName)
+	}
+
+	err = util.RemoveJson(profPath)
+	if err != nil {
+		return fmt.Errorf("failed to remove profile config: %w", err)
+	}
+	return nil
 }
 
-// createNewConfig creates a new config generating a new Wireguard key and saving to file
-func createNewConfig(input ConfigInput) (*Config, error) {
-	config := &Config{
-		// defaults to false only for new (post 0.26) configurations
-		ServerSSHAllowed: util.False(),
+func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if pm.activeProfile == nil {
+		return nil, ErrNoActiveProfile
 	}
 
-	if _, err := config.apply(input); err != nil {
-		return nil, err
+	return pm.activeProfile, nil
+}
+
+func (pm *ProfileManager) SetActiveProfile(profileName string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	pm.activeProfile = &Profile{Name: profileName}
+}
+
+func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config directory: %w", err)
 	}
 
-	return config, nil
+	files, err := util.ListFiles(configDir, "*.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list profile files: %w", err)
+	}
+
+	var profiles []Profile
+	for _, file := range files {
+		profileName := strings.TrimSuffix(filepath.Base(file), ".json")
+		profiles = append(profiles, Profile{Name: profileName})
+	}
+
+	return profiles, nil
 }
