@@ -12,8 +12,9 @@ import (
 )
 
 type Profile struct {
-	Name  string
-	Email string
+	Name     string
+	Email    string
+	IsActive bool
 }
 
 type ProfileManager struct {
@@ -31,6 +32,7 @@ func (pm *ProfileManager) AddProfile(profile Profile) error {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
 
+	// TODO(hakan): sanitize profile name
 	profPath := filepath.Join(configDir, profile.Name+".json")
 	if fileExists(profPath) {
 		return ErrProfileAlreadyExists
@@ -105,10 +107,20 @@ func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
 		return nil, fmt.Errorf("failed to list profile files: %w", err)
 	}
 
+	var activeProfName string
+	activeProf, err := pm.GetActiveProfile()
+	if err == nil {
+		activeProfName = activeProf.Name
+	}
+
 	var profiles []Profile
 	for _, file := range files {
 		profileName := strings.TrimSuffix(filepath.Base(file), ".json")
-		profiles = append(profiles, Profile{Name: profileName})
+		var isActive bool
+		if activeProfName != "" && activeProfName == profileName {
+			isActive = true
+		}
+		profiles = append(profiles, Profile{Name: profileName, IsActive: isActive})
 	}
 
 	return profiles, nil
