@@ -332,6 +332,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 	}
 
 	s.eventHandler = newEventHandler(s)
+	s.profileManager = profilemanager.NewProfileManager()
 	s.setNewIcons()
 
 	switch {
@@ -722,10 +723,9 @@ func (s *serviceClient) onTrayReady() {
 	s.mStatus.SetIcon(s.icDisconnectedDot)
 	s.mStatus.Disable()
 
-	s.profileManager = profilemanager.NewProfileManager()
 	profileMenuItem := systray.AddMenuItem("", "")
 	emailMenuItem := systray.AddMenuItem("", "")
-	s.mProfile = newProfileMenu(s.profileManager, profileMenuItem, emailMenuItem)
+	s.mProfile = newProfileMenu(s.profileManager, *s.eventHandler, profileMenuItem, emailMenuItem)
 
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")

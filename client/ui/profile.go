@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -245,21 +246,30 @@ func (s *serviceClient) getProfiles() ([]profilemanager.Profile, error) {
 	return prof, nil
 }
 
-type profileMenu struct {
-	profileManager     *profilemanager.ProfileManager
-	profileMenuItem    *systray.MenuItem
-	emailMenuItem      *systray.MenuItem
-	profileItems       []*systray.MenuItem
-	manageProfilesItem *systray.MenuItem
+type subItem struct {
+	*systray.MenuItem
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
-func newProfileMenu(profileManager *profilemanager.ProfileManager, profileMenuItem, emailMenuItem *systray.MenuItem) *profileMenu {
+type profileMenu struct {
+	profileManager        *profilemanager.ProfileManager
+	eventHandler          eventHandler
+	profileMenuItem       *systray.MenuItem
+	emailMenuItem         *systray.MenuItem
+	profileSubItems       []*subItem
+	manageProfilesSubItem *subItem
+}
+
+func newProfileMenu(profileManager *profilemanager.ProfileManager, eventHandler eventHandler, profileMenuItem, emailMenuItem *systray.MenuItem) *profileMenu {
 	p := profileMenu{
 		profileManager:  profileManager,
+		eventHandler:    eventHandler,
 		profileMenuItem: profileMenuItem,
 		emailMenuItem:   emailMenuItem,
 	}
 
+	p.emailMenuItem.Disable()
 	p.refresh()
 
 	return &p
@@ -273,25 +283,83 @@ func (p *profileMenu) refresh() {
 	}
 
 	// Clear existing profile items
-	for _, item := range p.profileItems {
+	for _, item := range p.profileSubItems {
 		item.Remove()
+		item.cancel()
 	}
 
-	if p.manageProfilesItem != nil {
+	if p.manageProfilesSubItem != nil {
 		// Remove the manage profiles item if it exists
-		p.manageProfilesItem.Remove()
+		p.manageProfilesSubItem.Remove()
+		p.manageProfilesSubItem.cancel()
+		p.manageProfilesSubItem = nil
 	}
 
+	var activeProfile *profilemanager.Profile
 	for _, profile := range profiles {
 		item := p.profileMenuItem.AddSubMenuItem(profile.Name, "")
 		if profile.IsActive {
 			item.Check()
+			activeProfile = &profile
 		}
 
-		p.profileItems = append(p.profileItems, item)
+		ctx, cancel := context.WithCancel(context.Background())
+		p.profileSubItems = append(p.profileSubItems, &subItem{item, ctx, cancel})
+
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return // context cancelled
+				case _, ok := <-item.ClickedCh:
+					if !ok {
+						return // channel closed
+					}
+
+					// Handle profile selection
+					if profile.IsActive {
+						log.Infof("Profile '%s' is already active", profile.Name)
+						return
+					}
+					err := p.profileManager.SwitchProfile(profile.Name)
+					if err != nil {
+						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
+						return
+					}
+					log.Infof("Switched to profile '%s'", profile.Name)
+					p.profileMenuItem.SetTitle(profile.Name)
+					// TODO(hakan): update email menu item if needed
+				}
+			}
+		}()
+
 		// TODO(hakan): handle switch profile
 	}
 	p.profileMenuItem.AddSeparator()
-	p.manageProfilesItem = p.profileMenuItem.AddSubMenuItem("Manage Profiles", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	manageItem := p.profileMenuItem.AddSubMenuItem("Manage Profiles", "")
+	p.manageProfilesSubItem = &subItem{manageItem, ctx, cancel}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return // context cancelled
+			case _, ok := <-manageItem.ClickedCh:
+				if !ok {
+					return // channel closed
+				}
+				// Handle manage profiles click
+				p.eventHandler.runSelfCommand("profiles", "true")
+			}
+		}
+	}()
+
+	if activeProfile != nil {
+		p.profileMenuItem.SetTitle(activeProfile.Name)
+	} else {
+		p.profileMenuItem.SetTitle("Profile: None")
+		p.emailMenuItem.Hide()
+	}
 
 }
