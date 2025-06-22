@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -14,13 +12,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/proto"
 )
 
 // showProfilesUI creates and displays the Profiles window with a list of existing profiles,
 // a button to add new profiles, allows removal, and lets the user switch the active profile.
 func (s *serviceClient) showProfilesUI() {
-	mProfiles := newProfileMenu()
 
 	profiles, err := s.getProfiles()
 	if err != nil {
@@ -78,14 +74,8 @@ func (s *serviceClient) showProfilesUI() {
 						if !confirm {
 							return
 						}
-
-						conn, err := s.getSrvClient(defaultFailTimeout)
-						if err != nil {
-							log.Errorf("get client: %v", err)
-							return
-						}
 						// switch
-						err = mProfiles.switchProfile(s.ctx, conn, profile.Name)
+						err = s.switchProfile(profile.Name)
 						if err != nil {
 							dialog.ShowError(fmt.Errorf("failed to select profile: %w", err), s.wProfiles)
 							return
@@ -195,28 +185,9 @@ func (s *serviceClient) showProfilesUI() {
 	s.wProfiles.Show()
 }
 
-type profileMenu struct {
-	mtx      sync.Mutex
-	profiles []*proto.Profile
-}
-
 type profile struct {
 	name     string
 	selected bool
-}
-
-func newProfileMenu() *profileMenu {
-	p := &profileMenu{
-		profiles: make([]*proto.Profile, 0),
-	}
-	return p
-}
-
-func (p *profileMenu) clearProfiles() {
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
-
-	p.profiles = make([]*proto.Profile, 0)
 }
 
 // func (p *profileMenu) updateProfiles(ctx context.Context, conn proto.DaemonServiceClient) {
@@ -248,18 +219,11 @@ func (s *serviceClient) addProfile(profileName string) error {
 	return nil
 }
 
-func (p *profileMenu) switchProfile(pCtx context.Context, conn proto.DaemonServiceClient, profileName string) error {
-	ctx, cancel := context.WithTimeout(pCtx, defaultFailTimeout)
-	defer cancel()
-
-	resp, err := conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{Profile: profileName})
+func (s *serviceClient) switchProfile(profileName string) error {
+	err := s.profileManager.SwitchProfile(profileName)
 	if err != nil {
-		return fmt.Errorf("switch profile: %v", err)
+		return fmt.Errorf("switch profile: %w", err)
 	}
-	if !resp.Success {
-		return fmt.Errorf("switch profile: %s", resp.Error)
-	}
-
 	return nil
 }
 

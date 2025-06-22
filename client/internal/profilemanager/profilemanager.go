@@ -126,6 +126,27 @@ func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
 	return profiles, nil
 }
 
+// TODO(hakan): implement
+func (pm *ProfileManager) SwitchProfile(profileName string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Check if the profile exists
+	configDir, err := getConfigDir()
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	profPath := filepath.Join(configDir, profileName+".json")
+	if !fileExists(profPath) {
+		return ErrProfileNotFound
+	}
+
+	// Set the active profile
+	pm.activeProfile = &Profile{Name: profileName}
+	return nil
+}
+
 // sanitazeUsername sanitizes the username by removing any invalid characters
 func sanitazeUsername(username string) string {
 	// Remove invalid characters for a username in a file path
