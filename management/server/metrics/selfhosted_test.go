@@ -47,8 +47,8 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 				"1": {
 					ID:         "1",
 					UserID:     "test",
-					SSHEnabled: true,
-					Meta:       nbpeer.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1"},
+					SSHEnabled: false,
+					Meta:       nbpeer.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1", Flags: nbpeer.Flags{ServerSSHAllowed: true, RosenpassEnabled: true}},
 				},
 			},
 			Policies: []*types.Policy{
@@ -312,7 +312,23 @@ func TestGenerateProperties(t *testing.T) {
 	}
 
 	if properties["posture_checks"] != 2 {
-		t.Errorf("expected 1 posture_checks, got %d", properties["posture_checks"])
+		t.Errorf("expected 2 posture_checks, got %d", properties["posture_checks"])
+	}
+
+	if properties["rosenpass_enabled"] != 1 {
+		t.Errorf("expected 1 rosenpass_enabled, got %d", properties["rosenpass_enabled"])
+	}
+
+	if properties["rosenpass_enabled"] != 1 {
+		t.Errorf("expected 1 rosenpass_enabled, got %d", properties["rosenpass_enabled"])
+	}
+
+	if properties["active_user_peers_last_day"] != 2 {
+		t.Errorf("expected 2 active_user_peers_last_day, got %d", properties["active_user_peers_last_day"])
+	}
+
+	if properties["active_users_last_day"] != 1 {
+		t.Errorf("expected 1 active_users_last_day, got %d", properties["active_users_last_day"])
 	}
 
 }
