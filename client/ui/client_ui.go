@@ -879,7 +879,7 @@ func (s *serviceClient) onUpdateAvailable() {
 func (s *serviceClient) onSessionExpire() {
 	s.sendNotification = true
 	if s.sendNotification {
-		s.eventHandler.runSelfCommand("login-url", "true")
+		s.eventHandler.runSelfCommand(s.ctx, "login-url", "true")
 		s.sendNotification = false
 	}
 }
