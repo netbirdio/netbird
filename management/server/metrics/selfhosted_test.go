@@ -319,10 +319,6 @@ func TestGenerateProperties(t *testing.T) {
 		t.Errorf("expected 1 rosenpass_enabled, got %d", properties["rosenpass_enabled"])
 	}
 
-	if properties["rosenpass_enabled"] != 1 {
-		t.Errorf("expected 1 rosenpass_enabled, got %d", properties["rosenpass_enabled"])
-	}
-
 	if properties["active_user_peers_last_day"] != 2 {
 		t.Errorf("expected 2 active_user_peers_last_day, got %d", properties["active_user_peers_last_day"])
 	}
