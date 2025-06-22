@@ -9,10 +9,16 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
+
+type profile struct {
+	name     string
+	selected bool
+}
 
 // showProfilesUI creates and displays the Profiles window with a list of existing profiles,
 // a button to add new profiles, allows removal, and lets the user switch the active profile.
@@ -185,11 +191,6 @@ func (s *serviceClient) showProfilesUI() {
 	s.wProfiles.Show()
 }
 
-type profile struct {
-	name     string
-	selected bool
-}
-
 // func (p *profileMenu) updateProfiles(ctx context.Context, conn proto.DaemonServiceClient) {
 // 	profiles, err := p.getProfiles(ctx, conn)
 // 	if err != nil {
@@ -242,4 +243,55 @@ func (s *serviceClient) getProfiles() ([]profilemanager.Profile, error) {
 		return nil, fmt.Errorf("list profiles: %w", err)
 	}
 	return prof, nil
+}
+
+type profileMenu struct {
+	profileManager     *profilemanager.ProfileManager
+	profileMenuItem    *systray.MenuItem
+	emailMenuItem      *systray.MenuItem
+	profileItems       []*systray.MenuItem
+	manageProfilesItem *systray.MenuItem
+}
+
+func newProfileMenu(profileManager *profilemanager.ProfileManager, profileMenuItem, emailMenuItem *systray.MenuItem) *profileMenu {
+	p := profileMenu{
+		profileManager:  profileManager,
+		profileMenuItem: profileMenuItem,
+		emailMenuItem:   emailMenuItem,
+	}
+
+	p.refresh()
+
+	return &p
+}
+
+func (p *profileMenu) refresh() {
+	profiles, err := p.profileManager.ListProfiles()
+	if err != nil {
+		log.Errorf("failed to list profiles: %v", err)
+		return
+	}
+
+	// Clear existing profile items
+	for _, item := range p.profileItems {
+		item.Remove()
+	}
+
+	if p.manageProfilesItem != nil {
+		// Remove the manage profiles item if it exists
+		p.manageProfilesItem.Remove()
+	}
+
+	for _, profile := range profiles {
+		item := p.profileMenuItem.AddSubMenuItem(profile.Name, "")
+		if profile.IsActive {
+			item.Check()
+		}
+
+		p.profileItems = append(p.profileItems, item)
+		// TODO(hakan): handle switch profile
+	}
+	p.profileMenuItem.AddSeparator()
+	p.manageProfilesItem = p.profileMenuItem.AddSubMenuItem("Manage Profiles", "")
+
 }

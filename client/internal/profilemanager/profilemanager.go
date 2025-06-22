@@ -114,6 +114,8 @@ func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
 	}
 
 	var profiles []Profile
+	// add default profile always
+	profiles = append(profiles, Profile{Name: "default", IsActive: activeProfName == "default"})
 	for _, file := range files {
 		profileName := strings.TrimSuffix(filepath.Base(file), ".json")
 		var isActive bool

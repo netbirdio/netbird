@@ -221,11 +221,10 @@ type serviceClient struct {
 
 	// systray menu items
 	mStatus            *systray.MenuItem
-	mProfileName       *systray.MenuItem
 	mUp                *systray.MenuItem
 	mDown              *systray.MenuItem
 	mSettings          *systray.MenuItem
-	mProfiles          *systray.MenuItem
+	mProfile           *profileMenu
 	mAbout             *systray.MenuItem
 	mGitHub            *systray.MenuItem
 	mVersionUI         *systray.MenuItem
@@ -722,14 +721,12 @@ func (s *serviceClient) onTrayReady() {
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
 	s.mStatus.SetIcon(s.icDisconnectedDot)
 	s.mStatus.Disable()
-	s.mProfileName = systray.AddMenuItem("hakan_work", "Selected Profile: Home")
-	systray.AddMenuItem("(hakan.@gmail.com)", "").Disable()
-	s.mProfiles = s.mProfileName
-	s.mProfileName.AddSubMenuItem("hakan_work", "Selected Profile: Personal").Check()
-	s.mProfileName.AddSubMenuItem("hakan_personal", "Selected Profile: Personal")
-	s.mProfileName.AddSubMenuItem("common", "Selected Profile: Common")
-	s.mProfileName.AddSeparator()
-	s.mProfileName.AddSubMenuItem("Manage Profiles", "Selected Profile: Work")
+
+	s.profileManager = profilemanager.NewProfileManager()
+	profileMenuItem := systray.AddMenuItem("", "")
+	emailMenuItem := systray.AddMenuItem("", "")
+	s.mProfile = newProfileMenu(s.profileManager, profileMenuItem, emailMenuItem)
+
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
