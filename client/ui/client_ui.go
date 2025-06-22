@@ -280,7 +280,7 @@ func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool
 
 		showAdvancedSettings: showSettings,
 		showNetworks:         showNetworks,
-		update:               version.NewUpdate(),
+		update:               version.NewUpdate("nb/client-ui"),
 	}
 
 	s.eventHandler = newEventHandler(s)
