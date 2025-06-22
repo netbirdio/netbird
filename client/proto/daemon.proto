@@ -67,16 +67,6 @@ service DaemonService {
   rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
-
-  // Profiles
-  rpc GetProfiles(GetProfilesRequest) returns (GetProfilesResponse) {}
-
-  rpc CreateProfile(CreateProfileRequest) returns (CreateProfileResponse) {}
-
-  rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
-
-  rpc RemoveProfile(RemoveProfileRequest) returns (RemoveProfileResponse) {}
-
 }
 
 
