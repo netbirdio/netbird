@@ -1853,38 +1853,47 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 }
 
 func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
-	account, err := am.Store.GetAccount(ctx, accountId)
+	var account *types.Account
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		var err error
+		account, err = transaction.GetAccount(ctx, accountId)
+		if err != nil {
+			return err
+		}
+
+		if account.IsDomainPrimaryAccount {
+			return nil
+		}
+
+		existingPrimaryAccountID, err := transaction.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, account.Domain)
+
+		// error is not a not found error
+		if handleNotFound(err) != nil {
+			return err
+		}
+
+		// a primary account already exists for this private domain
+		if err == nil {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"accountId":         accountId,
+				"existingAccountId": existingPrimaryAccountID,
+			}).Errorf("cannot update account to primary, another account already exists as primary for the same domain")
+			return status.Errorf(status.Internal, "cannot update account to primary")
+		}
+
+		account.IsDomainPrimaryAccount = true
+
+		if err := transaction.SaveAccount(ctx, account); err != nil {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"accountId": accountId,
+			}).Errorf("failed to update account to primary: %v", err)
+			return status.Errorf(status.Internal, "failed to update account to primary")
+		}
+
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	if account.IsDomainPrimaryAccount {
-		return account, nil
-	}
-
-	existingPrimaryAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthShare, account.Domain)
-
-	// error is not a not found error
-	if handleNotFound(err) != nil {
-		return nil, err
-	}
-
-	// a primary account already exists for this private domain
-	if err == nil {
-		log.WithContext(ctx).WithFields(log.Fields{
-			"accountId":         accountId,
-			"existingAccountId": existingPrimaryAccountID,
-		}).Errorf("cannot update account to primary, another account already exists as primary for the same domain")
-		return nil, status.Errorf(status.Internal, "cannot update account to primary")
-	}
-
-	account.IsDomainPrimaryAccount = true
-
-	if err := am.Store.SaveAccount(ctx, account); err != nil {
-		log.WithContext(ctx).WithFields(log.Fields{
-			"accountId": accountId,
-		}).Errorf("failed to update account to primary: %v", err)
-		return nil, status.Errorf(status.Internal, "failed to update account to primary")
 	}
 
 	return account, nil

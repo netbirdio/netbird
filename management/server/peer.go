@@ -92,7 +92,7 @@ func (am *DefaultAccountManager) getUserAccessiblePeers(ctx context.Context, acc
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		aclPeers, _ := account.GetPeerConnectionResources(ctx, peer.ID, approvedPeersMap)
+		aclPeers, _ := account.GetPeerConnectionResources(ctx, peer, approvedPeersMap)
 		for _, p := range aclPeers {
 			peersMap[p.ID] = p
 		}
@@ -1149,7 +1149,7 @@ func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accoun
 	}
 
 	for _, p := range userPeers {
-		aclPeers, _ := account.GetPeerConnectionResources(ctx, p.ID, approvedPeersMap)
+		aclPeers, _ := account.GetPeerConnectionResources(ctx, p, approvedPeersMap)
 		for _, aclPeer := range aclPeers {
 			if aclPeer.ID == peer.ID {
 				return peer, nil
