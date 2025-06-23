@@ -4,11 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/util"
+)
+
+const (
+	defaultProfileName = "default"
 )
 
 type Profile struct {
@@ -18,8 +25,7 @@ type Profile struct {
 }
 
 type ProfileManager struct {
-	mu            sync.Mutex
-	activeProfile *Profile
+	mu sync.Mutex
 }
 
 func NewProfileManager() *ProfileManager {
@@ -67,7 +73,7 @@ func (pm *ProfileManager) RemoveProfile(profileName string) error {
 		return fmt.Errorf("failed to get active profile: %w", err)
 	}
 
-	if activeProf.Name == profileName {
+	if activeProf != nil && activeProf.Name == profileName {
 		return fmt.Errorf("cannot remove active profile: %s", profileName)
 	}
 
@@ -82,18 +88,8 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if pm.activeProfile == nil {
-		return nil, ErrNoActiveProfile
-	}
-
-	return pm.activeProfile, nil
-}
-
-func (pm *ProfileManager) SetActiveProfile(profileName string) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	pm.activeProfile = &Profile{Name: profileName}
+	prof := pm.getActiveProfileState()
+	return &Profile{Name: prof}, nil
 }
 
 func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
@@ -115,7 +111,7 @@ func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
 
 	var profiles []Profile
 	// add default profile always
-	profiles = append(profiles, Profile{Name: "default", IsActive: activeProfName == "default"})
+	profiles = append(profiles, Profile{Name: "default", IsActive: activeProfName == "" || activeProfName == "default"})
 	for _, file := range files {
 		profileName := strings.TrimSuffix(filepath.Base(file), ".json")
 		var isActive bool
@@ -128,24 +124,13 @@ func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
 	return profiles, nil
 }
 
-// TODO(hakan): implement
 func (pm *ProfileManager) SwitchProfile(profileName string) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	// Check if the profile exists
-	configDir, err := getConfigDir()
-	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
+	if err := pm.setActiveProfileState(profileName); err != nil {
+		return fmt.Errorf("failed to switch profile: %w", err)
 	}
 
-	profPath := filepath.Join(configDir, profileName+".json")
-	if !fileExists(profPath) {
-		return ErrProfileNotFound
-	}
+	// TODO(hakan): implement the logic to switch the profile in the application
 
-	// Set the active profile
-	pm.activeProfile = &Profile{Name: profileName}
 	return nil
 }
 
@@ -158,4 +143,58 @@ func sanitazeUsername(username string) string {
 		}
 		return r
 	}, username)
+}
+
+func (pm *ProfileManager) getActiveProfileState() string {
+
+	configDir, err := getConfigDir()
+	if err != nil {
+		log.Warnf("failed to get config directory: %v", err)
+		return defaultProfileName
+	}
+
+	statePath := filepath.Join(configDir, "active_profile.txt")
+
+	prof, err := os.ReadFile(statePath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Warnf("failed to read active profile state: %v", err)
+		} else {
+			pm.setActiveProfileState(defaultProfileName)
+		}
+		return defaultProfileName
+	}
+	profileName := strings.TrimSpace(string(prof))
+
+	if profileName == "" {
+		log.Warnf("active profile state is empty, using default profile: %s", defaultProfileName)
+		return defaultProfileName
+	}
+	if !fileExists(filepath.Join(configDir, profileName+".json")) {
+		log.Warnf("active profile %s does not exist, using default profile: %s", profileName, defaultProfileName)
+		return defaultProfileName
+	}
+	return profileName
+}
+
+func (pm *ProfileManager) setActiveProfileState(profileName string) error {
+
+	configDir, err := getConfigDir()
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	profPath := filepath.Join(configDir, profileName+".json")
+	if !fileExists(profPath) {
+		return fmt.Errorf("profile %s does not exist", profileName)
+	}
+
+	statePath := filepath.Join(configDir, "active_profile.txt")
+
+	err = os.WriteFile(statePath, []byte(profileName), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write active profile state: %w", err)
+	}
+
+	return nil
 }

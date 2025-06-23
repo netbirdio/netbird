@@ -287,6 +287,7 @@ func (p *profileMenu) refresh() {
 		item.Remove()
 		item.cancel()
 	}
+	p.profileSubItems = make([]*subItem, 0, len(profiles))
 
 	if p.manageProfilesSubItem != nil {
 		// Remove the manage profiles item if it exists
@@ -327,7 +328,7 @@ func (p *profileMenu) refresh() {
 						return
 					}
 					log.Infof("Switched to profile '%s'", profile.Name)
-					p.profileMenuItem.SetTitle(profile.Name)
+					p.refresh()
 					// TODO(hakan): update email menu item if needed
 				}
 			}
@@ -351,6 +352,7 @@ func (p *profileMenu) refresh() {
 				}
 				// Handle manage profiles click
 				p.eventHandler.runSelfCommand("profiles", "true")
+				p.refresh()
 			}
 		}
 	}()

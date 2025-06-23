@@ -152,6 +152,7 @@ func init() {
 	rootCmd.AddCommand(networksCMD)
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
+	rootCmd.AddCommand(profileCmd)
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
@@ -166,6 +167,12 @@ func init() {
 	logCmd.AddCommand(logLevelCmd)
 	debugCmd.AddCommand(forCmd)
 	debugCmd.AddCommand(persistenceCmd)
+
+	// profile commands
+	profileCmd.AddCommand(profileListCmd)
+	profileCmd.AddCommand(profileAddCmd)
+	profileCmd.AddCommand(profileRemoveCmd)
+	profileCmd.AddCommand(profileSelectCmd)
 
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+
