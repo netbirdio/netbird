@@ -1,6 +1,7 @@
 FROM alpine:3.21.0
 
-COPY netbird /usr/local/bin/netbird
+ARG NETBIRD_BINARY=netbird
+COPY ${NETBIRD_BINARY} /usr/local/bin/netbird
 
 RUN apk add --no-cache ca-certificates \
     && adduser -D -h /var/lib/netbird netbird
