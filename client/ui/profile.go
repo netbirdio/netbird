@@ -192,23 +192,6 @@ func (s *serviceClient) showProfilesUI() {
 	s.wProfiles.Show()
 }
 
-// func (p *profileMenu) updateProfiles(ctx context.Context, conn proto.DaemonServiceClient) {
-// 	profiles, err := p.getProfiles(ctx, conn)
-// 	if err != nil {
-// 		log.Errorf("get profiles: %v", err)
-// 		return
-// 	}
-
-// 	// Clear existing profiles
-// 	p.clearProfiles()
-
-// 	p.mtx.Lock()
-// 	defer p.mtx.Unlock()
-// 	// Add new profiles
-// 	p.profiles = append(p.profiles, profiles...)
-
-// }
-
 func (s *serviceClient) addProfile(profileName string) error {
 	err := s.profileManager.AddProfile(profilemanager.Profile{
 		Name: profileName,
@@ -334,7 +317,6 @@ func (p *profileMenu) refresh() {
 			}
 		}()
 
-		// TODO(hakan): handle switch profile
 	}
 	p.profileMenuItem.AddSeparator()
 	ctx, cancel := context.WithCancel(context.Background())

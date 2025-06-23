@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	defaultProfileName = "default"
+	defaultProfileName   = "default"
+	profileStateFilename = "active_profile.txt"
 )
 
 type Profile struct {
@@ -111,7 +112,7 @@ func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
 
 	var profiles []Profile
 	// add default profile always
-	profiles = append(profiles, Profile{Name: "default", IsActive: activeProfName == "" || activeProfName == "default"})
+	profiles = append(profiles, Profile{Name: defaultProfileName, IsActive: activeProfName == "" || activeProfName == defaultProfileName})
 	for _, file := range files {
 		profileName := strings.TrimSuffix(filepath.Base(file), ".json")
 		var isActive bool
@@ -153,7 +154,7 @@ func (pm *ProfileManager) getActiveProfileState() string {
 		return defaultProfileName
 	}
 
-	statePath := filepath.Join(configDir, "active_profile.txt")
+	statePath := filepath.Join(configDir, profileStateFilename)
 
 	prof, err := os.ReadFile(statePath)
 	if err != nil {
@@ -170,7 +171,7 @@ func (pm *ProfileManager) getActiveProfileState() string {
 		log.Warnf("active profile state is empty, using default profile: %s", defaultProfileName)
 		return defaultProfileName
 	}
-	if !fileExists(filepath.Join(configDir, profileName+".json")) {
+	if profileName != defaultProfileName && !fileExists(filepath.Join(configDir, profileName+".json")) {
 		log.Warnf("active profile %s does not exist, using default profile: %s", profileName, defaultProfileName)
 		return defaultProfileName
 	}
@@ -184,12 +185,14 @@ func (pm *ProfileManager) setActiveProfileState(profileName string) error {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
 
-	profPath := filepath.Join(configDir, profileName+".json")
-	if !fileExists(profPath) {
-		return fmt.Errorf("profile %s does not exist", profileName)
+	if profileName != defaultProfileName {
+		profPath := filepath.Join(configDir, profileName+".json")
+		if !fileExists(profPath) {
+			return fmt.Errorf("profile %s does not exist", profileName)
+		}
 	}
 
-	statePath := filepath.Join(configDir, "active_profile.txt")
+	statePath := filepath.Join(configDir, profileStateFilename)
 
 	err = os.WriteFile(statePath, []byte(profileName), 0644)
 	if err != nil {
