@@ -11,7 +11,11 @@ import (
 
 // setFlagsFromEnvVars reads and updates flag values from environment variables with prefix NB_
 func setFlagsFromEnvVars(cmd *cobra.Command) {
-	flags := cmd.PersistentFlags()
+	processFlagSet(cmd.PersistentFlags())
+	processFlagSet(cmd.Flags())
+}
+
+func processFlagSet(flagSet *pflag.FlagSet) {
 	flags.VisitAll(func(f *pflag.Flag) {
 		newEnvVar := flagNameToEnvVar(f.Name, "NB_")
 		value, present := os.LookupEnv(newEnvVar)
