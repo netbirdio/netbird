@@ -189,9 +189,6 @@ func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocatio
 
 // UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -324,9 +321,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -475,13 +469,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	if err != nil {
 		return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
 	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer func() {
-		if unlock != nil {
-			unlock()
-		}
-	}()
 
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireWriteLockByUID (e.g., database is slow)
@@ -663,9 +650,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	unlock()
-	unlock = nil
-
 	if updateAccountPeers {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
@@ -805,15 +789,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 	}
 
-	unlockAccount := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer unlockAccount()
-	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, login.WireGuardPubKey)
-	defer func() {
-		if unlockPeer != nil {
-			unlockPeer()
-		}
-	}()
-
 	var peer *nbpeer.Peer
 	var updateRemotePeers bool
 	var isRequiresApproval bool
@@ -893,9 +868,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	unlockPeer()
-	unlockPeer = nil
 
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		am.BufferUpdateAccountPeers(ctx, accountID)
