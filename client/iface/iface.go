@@ -217,6 +217,14 @@ func (w *WGIface) GetStats() (map[string]configurer.WGStats, error) {
 	return w.configurer.GetStats()
 }
 
+func (w *WGIface) LastActivities() map[string]time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.configurer.LastActivities()
+
+}
+
 func (w *WGIface) FullStats() (*configurer.Stats, error) {
 	return w.configurer.FullStats()
 }

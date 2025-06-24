@@ -14,7 +14,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 		return nil, err
 	}
 
-	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress)
+	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, nil)
 
 	wgIFace := &WGIface{
 		userspaceBind:  true,

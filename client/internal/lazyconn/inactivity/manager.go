@@ -1,101 +1,32 @@
 package inactivity
 
 import (
-	"container/list"
 	"context"
 	"fmt"
-	"math"
-	"os"
-	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 )
 
-// Responder: vmp2
-// - Receive handshake initiation: 148 bytes + extra 32 bytes, every 02:00 - 03:00 minutes
-// - Receive keep alive: 32 bytes, every 25 sec
-// Initiator: mp1
-// - Receive handshake response:
-// - Receive keep alive: 32 bytes, every 25 sec
-
 const (
-	keepAliveBytes       = 32
-	keepAliveInterval    = 25 * time.Second
-	handshakeInitBytes   = 148
-	handshakeRespBytes   = 92
-	handshakeMaxInterval = 3 * time.Minute
-
 	checkInterval = 1 * time.Minute
-	historySize   = 5 * time.Minute
 
 	DefaultInactivityThreshold = 15 * time.Minute
-	MinimumInactivityThreshold = 5 * time.Minute
-
-	recorderEnv = "NB_LAZYCONN_RECORDER_ENABLED"
+	MinimumInactivityThreshold = 1 * time.Minute
 )
 
 type WgInterface interface {
-	GetStats() (map[string]configurer.WGStats, error)
-}
-
-type peerHistory struct {
-	lastRxBytes       int64      // last received bytes
-	bytesHistory      *list.List // linked list of int64
-	historySize       int
-	summarizedBytes   int64
-	inactivityCounter int // counter to track inactivity
-	log               *log.Entry
-}
-
-func newPeerHistory(log *log.Entry, historySize int) *peerHistory {
-	return &peerHistory{
-		bytesHistory: list.New(),
-		historySize:  historySize,
-		log:          log,
-	}
-}
-
-func (pi *peerHistory) appendRxBytes(rxBytes int64) {
-	// If at capacity, remove the oldest element (front)
-	if pi.bytesHistory.Len() == pi.historySize {
-		pi.summarizedBytes -= pi.bytesHistory.Front().Value.(int64)
-		pi.bytesHistory.Remove(pi.bytesHistory.Front())
-	}
-
-	// Add the new rxBytes at the back
-	pi.bytesHistory.PushBack(rxBytes)
-	pi.summarizedBytes += rxBytes
-}
-
-func (pi *peerHistory) historyString() string {
-	var history []string
-	for e := pi.bytesHistory.Front(); e != nil; e = e.Next() {
-		history = append(history, fmt.Sprintf("%d", e.Value.(int64)))
-	}
-	return fmt.Sprintf("%s", history)
-}
-
-func (pi *peerHistory) reset() {
-	for e := pi.bytesHistory.Front(); e != nil; e = e.Next() {
-		e.Value = int64(0)
-	}
-	pi.summarizedBytes = 0
+	LastActivities() map[string]time.Time
 }
 
 type Manager struct {
 	InactivePeersChan chan []string
-	iface             WgInterface
-	interestedPeers   map[string]*peerHistory
 
-	maxBytesPerPeriod int64
-	historySize       int // Size of the history buffer for each peer, used to track received bytes over time
-	recorder          *Recorder
-
-	thresholdOfInactivity int // Number of consecutive checks with low activity to consider a peer inactive
+	iface               WgInterface
+	interestedPeers     map[string]*lazyconn.PeerConfig
+	inactivityThreshold time.Duration
 }
 
 func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager {
@@ -105,15 +36,12 @@ func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager 
 		log.Warnf("invalid inactivity threshold configured: %v, using default: %v", err, DefaultInactivityThreshold)
 	}
 
-	expectedMaxBytes := calculateExpectedMaxBytes()
-	log.Infof("receive less than %d bytes per %v, will be considered inactive", expectedMaxBytes, inactivityThreshold)
+	log.Infof("inactivity threshold configured: %v", inactivityThreshold)
 	return &Manager{
-		InactivePeersChan:     make(chan []string, 1),
-		iface:                 iface,
-		interestedPeers:       make(map[string]*peerHistory),
-		historySize:           int(historySize.Minutes()),
-		maxBytesPerPeriod:     expectedMaxBytes,
-		thresholdOfInactivity: int(math.Ceil(inactivityThreshold.Minutes() / checkInterval.Minutes())),
+		InactivePeersChan:   make(chan []string, 1),
+		iface:               iface,
+		interestedPeers:     make(map[string]*lazyconn.PeerConfig),
+		inactivityThreshold: inactivityThreshold,
 	}
 }
 
@@ -123,7 +51,7 @@ func (m *Manager) AddPeer(peerCfg *lazyconn.PeerConfig) {
 	}
 
 	peerCfg.Log.Debugf("adding peer to inactivity manager")
-	m.interestedPeers[peerCfg.PublicKey] = newPeerHistory(peerCfg.Log, m.historySize)
+	m.interestedPeers[peerCfg.PublicKey] = peerCfg
 }
 
 func (m *Manager) RemovePeer(peer string) {
@@ -132,17 +60,11 @@ func (m *Manager) RemovePeer(peer string) {
 		return
 	}
 
-	pi.log.Debugf("remove peer from inactivity manager")
+	pi.Log.Debugf("remove peer from inactivity manager")
 	delete(m.interestedPeers, peer)
 }
 
 func (m *Manager) Start(ctx context.Context) {
-	enabled, err := strconv.ParseBool(os.Getenv(recorderEnv))
-	if err == nil && enabled {
-		m.recorder = NewRecorder()
-		defer m.recorder.Close()
-	}
-
 	ticker := newTicker(checkInterval)
 	defer ticker.Stop()
 
@@ -150,8 +72,8 @@ func (m *Manager) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case tickTime := <-ticker.C():
-			idlePeers, err := m.checkStats(tickTime)
+		case <-ticker.C():
+			idlePeers, err := m.checkStats()
 			if err != nil {
 				log.Errorf("error checking stats: %v", err)
 				return
@@ -176,50 +98,23 @@ func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers []strin
 	}
 }
 
-func (m *Manager) checkStats(now time.Time) ([]string, error) {
-	stats, err := m.iface.GetStats()
-	if err != nil {
-		return nil, err
-	}
+func (m *Manager) checkStats() ([]string, error) {
+	lastActivities := m.iface.LastActivities()
 
 	var idlePeers []string
 
-	for peer, history := range m.interestedPeers {
-		stat, found := stats[peer]
-		if !found {
+	for peerID, peerCfg := range m.interestedPeers {
+		lastActive, ok := lastActivities[peerID]
+		if !ok {
 			// when peer is in connecting state
-			history.log.Warnf("peer not found in wg stats")
-		}
-
-		deltaRx := stat.RxBytes - history.lastRxBytes
-		if deltaRx < 0 {
-			deltaRx = 0 // reset to zero if negative
-			history.reset()
-		}
-
-		m.recorder.ReceivedBytes(peer, now, deltaRx)
-
-		history.lastRxBytes = stat.RxBytes
-		history.appendRxBytes(deltaRx)
-
-		// not enough history to determine inactivity
-		if history.bytesHistory.Len() < m.historySize {
-			history.log.Debugf("not enough history to determine inactivity, current history size: %d, required: %d", history.bytesHistory.Len(), m.historySize)
+			peerCfg.Log.Warnf("peer not found in wg stats")
 			continue
 		}
 
-		if history.summarizedBytes <= m.maxBytesPerPeriod {
-			history.inactivityCounter++
-			history.log.Debugf("peer is inactive, summarizedBytes: %d, maxBytesPerPeriod: %d, %v", history.summarizedBytes, m.maxBytesPerPeriod, history.historyString())
-		} else {
-			history.inactivityCounter = 0 // reset inactivity counter if activity is detected
-			history.log.Debugf("peer is active, summarizedBytes: %d, maxBytesPerPeriod: %d, %v", history.summarizedBytes, m.maxBytesPerPeriod, history.historyString())
-		}
-
-		if history.inactivityCounter >= m.thresholdOfInactivity {
-			history.log.Infof("peer is inactive for %d consecutive checks, marking as idle (limit %d) ", history.inactivityCounter, m.thresholdOfInactivity)
-			idlePeers = append(idlePeers, peer)
-			history.inactivityCounter = 0 // reset inactivity counter after marking as idle
+		peerCfg.Log.Infof("--- checking peer last activity: %v (%v)", lastActive, m.inactivityThreshold)
+		if time.Since(lastActive) > m.inactivityThreshold {
+			peerCfg.Log.Infof("--- peer is inactive since: %v", lastActive)
+			idlePeers = append(idlePeers, peerID)
 		}
 	}
 
@@ -234,16 +129,4 @@ func validateInactivityThreshold(configuredThreshold *time.Duration) (time.Durat
 		return 0, fmt.Errorf("configured inactivity threshold %v is too low, using %v", *configuredThreshold, MinimumInactivityThreshold)
 	}
 	return *configuredThreshold, nil
-}
-
-func calculateExpectedMaxBytes() int64 {
-	// Calculate number of keep-alive packets expected
-	keepAliveCount := int64(historySize.Seconds() / keepAliveInterval.Seconds())
-	keepAliveBytes := keepAliveCount * keepAliveBytes
-
-	// Calculate potential handshake packets (conservative estimate)
-	handshakeCount := int64(historySize.Minutes() / handshakeMaxInterval.Minutes())
-	handshakeBytes := handshakeCount * (handshakeInitBytes + keepAliveBytes) // handshake + extra bytes
-
-	return keepAliveBytes + handshakeBytes
 }

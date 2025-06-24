@@ -19,4 +19,5 @@ type WGConfigurer interface {
 	Close()
 	GetStats() (map[string]configurer.WGStats, error)
 	FullStats() (*configurer.Stats, error)
+	LastActivities() map[string]time.Time
 }
