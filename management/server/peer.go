@@ -234,7 +234,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 
 		if peer.Name != update.Name {
-			existingLabels, err := getPeerDNSLabels(ctx, transaction, accountID)
+			existingLabels, err := getPeerDNSLabels(ctx, transaction, accountID, update.Name)
 			if err != nil {
 				return err
 			}
@@ -548,16 +548,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
-		freeLabel, err := am.getFreeDNSLabel(ctx, transaction, accountID, peer.Meta.Hostname)
-		if err != nil {
-			return fmt.Errorf("failed to get free DNS label: %w", err)
-		}
-
-		freeIP, err := getFreeIP(ctx, transaction, accountID)
-		if err != nil {
-			return fmt.Errorf("failed to get free IP: %w", err)
-		}
-
 		if err := domain.ValidateDomainsList(peer.ExtraDNSLabels); err != nil {
 			return status.Errorf(status.InvalidArgument, "invalid extra DNS labels: %v", err)
 		}
@@ -567,10 +557,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			ID:                          xid.New().String(),
 			AccountID:                   accountID,
 			Key:                         peer.Key,
-			IP:                          freeIP,
 			Meta:                        peer.Meta,
 			Name:                        peer.Meta.Hostname,
-			DNSLabel:                    freeLabel,
 			UserID:                      userID,
 			Status:                      &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
 			SSHEnabled:                  false,
@@ -587,12 +575,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to get account settings: %w", err)
-		}
-
-		opEvent.TargetID = newPeer.ID
-		opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain(settings))
-		if !addedByUser {
-			opEvent.Meta["setup_key_name"] = setupKeyName
 		}
 
 		if am.geo != nil && newPeer.Location.ConnectionIP != nil {
@@ -622,9 +604,37 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			}
 		}
 
-		err = transaction.AddPeerToAccount(ctx, store.LockingStrengthUpdate, newPeer)
-		if err != nil {
-			return fmt.Errorf("failed to add peer to account: %w", err)
+		maxAttempts := 3
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			freeLabel, err := am.getFreeDNSLabel(ctx, transaction, accountID, peer.Meta.Hostname)
+			if err != nil {
+				return fmt.Errorf("failed to get free DNS label: %w", err)
+			}
+
+			freeIP, err := getFreeIP(ctx, transaction, accountID)
+			if err != nil {
+				return fmt.Errorf("failed to get free IP: %w", err)
+			}
+
+			newPeer.DNSLabel = freeLabel
+			newPeer.IP = freeIP
+
+			err = transaction.AddPeerToAccount(ctx, store.LockingStrengthUpdate, newPeer)
+			if err == nil {
+				break
+			}
+
+			if !isUniqueConstraintError(err) || attempt == maxAttempts {
+				return fmt.Errorf("failed to add peer to account: %w", err)
+			}
+
+			log.WithContext(ctx).Warnf("retrying peer registration due to unique constraint conflict on attempt %d: %v", attempt, err)
+		}
+
+		opEvent.TargetID = newPeer.ID
+		opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain(settings))
+		if !addedByUser {
+			opEvent.Meta["setup_key_name"] = setupKeyName
 		}
 
 		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
@@ -674,12 +684,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 }
 
 func getFreeIP(ctx context.Context, transaction store.Store, accountID string) (net.IP, error) {
-	takenIps, err := transaction.GetTakenIPs(ctx, store.LockingStrengthShare, accountID)
+	takenIps, err := transaction.GetTakenIPs(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get taken IPs: %w", err)
 	}
 
-	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthUpdate, accountID)
+	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting network: %w", err)
 	}
@@ -1465,8 +1475,8 @@ func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID str
 	return groupIDs, err
 }
 
-func getPeerDNSLabels(ctx context.Context, transaction store.Store, accountID string) (types.LookupMap, error) {
-	dnsLabels, err := transaction.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID)
+func getPeerDNSLabels(ctx context.Context, transaction store.Store, accountID string, hostname string) (types.LookupMap, error) {
+	dnsLabels, err := transaction.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID, hostname)
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,8 @@ import (
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
+	"github.com/go-sql-driver/mysql"
+	"github.com/lib/pq"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
@@ -102,6 +104,20 @@ type DefaultAccountManager struct {
 
 	accountUpdateLocks               sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
+}
+
+func isUniqueConstraintError(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+		return true
+	}
+
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+		return true
+	}
+
+	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -1658,7 +1674,7 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction
 }
 
 func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, s store.Store, accountID string, peerHostName string) (string, error) {
-	existingLabels, err := s.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID)
+	existingLabels, err := s.GetPeerLabelsInAccount(ctx, store.LockingStrengthNone, accountID, peerHostName)
 	if err != nil {
 		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
 	}

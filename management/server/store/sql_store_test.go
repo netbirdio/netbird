@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -630,7 +631,7 @@ func TestMigrate(t *testing.T) {
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on empty db")
 
 	_, ipnet, err := net.ParseCIDR("10.0.0.0/24")
@@ -685,10 +686,10 @@ func TestMigrate(t *testing.T) {
 	err = store.(*SqlStore).db.Save(rt).Error
 	require.NoError(t, err, "Failed to insert Gob data")
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on gob populated db")
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
 
 	err = store.(*SqlStore).db.Delete(rt).Where("id = ?", "route1").Error
@@ -704,10 +705,10 @@ func TestMigrate(t *testing.T) {
 	err = store.(*SqlStore).db.Save(nRT).Error
 	require.NoError(t, err, "Failed to insert json nil slice data")
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on json nil slice populated db")
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
 
 }
@@ -976,45 +977,97 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 }
 
 func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
-	if err != nil {
-		return
-	}
-	t.Cleanup(cleanup)
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		peerHostname := "peer1"
 
-	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		_, err := store.GetAccount(context.Background(), existingAccountID)
+		require.NoError(t, err)
 
-	_, err = store.GetAccount(context.Background(), existingAccountID)
-	require.NoError(t, err)
+		labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, labels)
 
-	labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
-	require.NoError(t, err)
-	assert.Equal(t, []string{}, labels)
+		peer1 := &nbpeer.Peer{
+			ID:        "peer1",
+			AccountID: existingAccountID,
+			DNSLabel:  "peer1.domain.test",
+			IP:        net.IP{2, 2, 2, 2},
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+		require.NoError(t, err)
 
-	peer1 := &nbpeer.Peer{
-		ID:        "peer1",
-		AccountID: existingAccountID,
-		DNSLabel:  "peer1.domain.test",
-	}
-	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
-	require.NoError(t, err)
+		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"peer1.domain.test"}, labels)
 
-	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"peer1.domain.test"}, labels)
+		peer2 := &nbpeer.Peer{
+			ID:        "peer1second",
+			AccountID: existingAccountID,
+			DNSLabel:  "peer1-1.domain.test",
+			IP:        net.IP{1, 1, 1, 1},
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+		require.NoError(t, err)
 
-	peer2 := &nbpeer.Peer{
-		ID:        "peer2",
-		AccountID: existingAccountID,
-		DNSLabel:  "peer2.domain.test",
-	}
-	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
-	require.NoError(t, err)
+		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
+		require.NoError(t, err)
 
-	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"peer1.domain.test", "peer2.domain.test"}, labels)
+		expected := []string{"peer1.domain.test", "peer1-1.domain.test"}
+		sort.Strings(expected)
+		sort.Strings(labels)
+		assert.Equal(t, expected, labels)
+	})
+}
+
+func Test_AddPeerWithSameDnsLabel(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+		_, err := store.GetAccount(context.Background(), existingAccountID)
+		require.NoError(t, err)
+
+		peer1 := &nbpeer.Peer{
+			ID:        "peer1",
+			AccountID: existingAccountID,
+			DNSLabel:  "peer1.domain.test",
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+		require.NoError(t, err)
+
+		peer2 := &nbpeer.Peer{
+			ID:        "peer1second",
+			AccountID: existingAccountID,
+			DNSLabel:  "peer1.domain.test",
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+		require.Error(t, err)
+	})
+}
+
+func Test_AddPeerWithSameIP(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+		_, err := store.GetAccount(context.Background(), existingAccountID)
+		require.NoError(t, err)
+
+		peer1 := &nbpeer.Peer{
+			ID:        "peer1",
+			AccountID: existingAccountID,
+			IP:        net.IP{1, 1, 1, 1},
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+		require.NoError(t, err)
+
+		peer2 := &nbpeer.Peer{
+			ID:        "peer1second",
+			AccountID: existingAccountID,
+			IP:        net.IP{1, 1, 1, 1},
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+		require.Error(t, err)
+	})
 }
 
 func TestSqlite_GetAccountNetwork(t *testing.T) {

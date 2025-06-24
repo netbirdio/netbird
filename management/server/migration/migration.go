@@ -373,3 +373,42 @@ func DropIndex[T any](ctx context.Context, db *gorm.DB, indexName string) error 
 	log.WithContext(ctx).Infof("dropped index %s from table %T", indexName, model)
 	return nil
 }
+
+func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName string, columns ...string) error {
+	var model T
+
+	stmt := &gorm.Statement{DB: db}
+	if err := stmt.Parse(&model); err != nil {
+		return fmt.Errorf("failed to parse model schema: %w", err)
+	}
+	tableName := stmt.Schema.Table
+	dialect := db.Dialector.Name()
+
+	var columnClause string
+	if dialect == "mysql" {
+		var withLength []string
+		for _, col := range columns {
+			if col == "ip" || col == "dns_label" {
+				withLength = append(withLength, fmt.Sprintf("%s(64)", col))
+			} else {
+				withLength = append(withLength, col)
+			}
+		}
+		columnClause = strings.Join(withLength, ", ")
+	} else {
+		columnClause = strings.Join(columns, ", ")
+	}
+
+	createStmt := fmt.Sprintf("CREATE UNIQUE INDEX %s ON %s (%s)", indexName, tableName, columnClause)
+	if dialect == "postgres" || dialect == "sqlite" {
+		createStmt = strings.Replace(createStmt, "CREATE UNIQUE INDEX", "CREATE UNIQUE INDEX IF NOT EXISTS", 1)
+	}
+
+	log.WithContext(ctx).Infof("executing index creation: %s", createStmt)
+	if err := db.Exec(createStmt).Error; err != nil {
+		return fmt.Errorf("failed to create index %s: %w", indexName, err)
+	}
+
+	log.WithContext(ctx).Infof("successfully created index %s on table %s", indexName, tableName)
+	return nil
+}

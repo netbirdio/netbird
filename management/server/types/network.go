@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/binary"
 	"math/rand"
 	"net"
 	"sync"
@@ -161,24 +162,47 @@ func (n *Network) Copy() *Network {
 // This method considers already taken IPs and reuses IPs if there are gaps in takenIps
 // E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3
 func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
-	takenIPMap := make(map[string]struct{})
-	takenIPMap[ipNet.IP.String()] = struct{}{}
+	baseIP := ipToUint32(ipNet.IP.Mask(ipNet.Mask))
+	totalIPs := uint32(1 << SubnetSize)
+
+	taken := make(map[uint32]struct{}, len(takenIps)+1)
+	taken[baseIP] = struct{}{}            // reserve network IP
+	taken[baseIP+totalIPs-1] = struct{}{} // reserve broadcast IP
+
 	for _, ip := range takenIps {
-		takenIPMap[ip.String()] = struct{}{}
+		taken[ipToUint32(ip)] = struct{}{}
 	}
 
-	ips, _ := generateIPs(&ipNet, takenIPMap)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	maxAttempts := (int(totalIPs) - len(taken)) / 100
 
-	if len(ips) == 0 {
-		return nil, status.Errorf(status.PreconditionFailed, "failed allocating new IP for the ipNet %s - network is out of IPs", ipNet.String())
+	for i := 0; i < maxAttempts; i++ {
+		offset := uint32(rng.Intn(int(totalIPs-2))) + 1
+		candidate := baseIP + offset
+		if _, exists := taken[candidate]; !exists {
+			return uint32ToIP(candidate), nil
+		}
 	}
 
-	// pick a random IP
-	s := rand.NewSource(time.Now().Unix())
-	r := rand.New(s)
-	intn := r.Intn(len(ips))
+	for offset := uint32(1); offset < totalIPs-1; offset++ {
+		candidate := baseIP + offset
+		if _, exists := taken[candidate]; !exists {
+			return uint32ToIP(candidate), nil
+		}
+	}
 
-	return ips[intn], nil
+	return nil, status.Errorf(status.PreconditionFailed, "network %s is out of IPs", ipNet.String())
+}
+
+func ipToUint32(ip net.IP) uint32 {
+	ip = ip.To4()
+	return binary.BigEndian.Uint32(ip)
+}
+
+func uint32ToIP(n uint32) net.IP {
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, n)
+	return ip
 }
 
 // generateIPs generates a list of all possible IPs of the given network excluding IPs specified in the exclusion list

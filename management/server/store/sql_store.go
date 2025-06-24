@@ -92,8 +92,8 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
 	}
 
-	if err := migrate(ctx, db); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
+	if err := migratePreAuto(ctx, db); err != nil {
+		return nil, fmt.Errorf("migratePreAuto: %w", err)
 	}
 	err = db.AutoMigrate(
 		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{},
@@ -102,7 +102,10 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("auto migrate: %w", err)
+		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
+	}
+	if err := migratePostAuto(ctx, db); err != nil {
+		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
 	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
@@ -967,7 +970,7 @@ func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength
 	return ips, nil
 }
 
-func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error) {
+func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) ([]string, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
