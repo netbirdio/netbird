@@ -150,7 +150,9 @@ message WaitSSOLoginRequest {
   string hostname = 2;
 }
 
-message WaitSSOLoginResponse {}
+message WaitSSOLoginResponse {
+  string email = 1;
+}
 
 message UpRequest {}
 

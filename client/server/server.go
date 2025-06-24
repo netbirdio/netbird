@@ -586,7 +586,9 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
-	return &proto.WaitSSOLoginResponse{}, nil
+	return &proto.WaitSSOLoginResponse{
+		Email: tokenInfo.Email,
+	}, nil
 }
 
 // Up starts engine work in the daemon.
