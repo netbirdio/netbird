@@ -527,10 +527,22 @@ func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
 			return nil, err
 		}
 
-		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+		resp, err := conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 		if err != nil {
 			log.Errorf("waiting sso login failed with: %v", err)
 			return nil, err
+		}
+
+		if resp.Email != "" {
+			err := s.profileManager.SetActiveProfileState(&profilemanager.ProfileState{
+				Email: resp.Email,
+			})
+			if err != nil {
+				log.Warnf("failed to set profile state: %v", err)
+			} else {
+				s.mProfile.refresh()
+			}
+
 		}
 	}
 

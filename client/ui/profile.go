@@ -253,6 +253,7 @@ func newProfileMenu(profileManager *profilemanager.ProfileManager, eventHandler 
 	}
 
 	p.emailMenuItem.Disable()
+	p.emailMenuItem.Hide()
 	p.refresh()
 
 	return &p
@@ -277,6 +278,17 @@ func (p *profileMenu) refresh() {
 		p.manageProfilesSubItem.Remove()
 		p.manageProfilesSubItem.cancel()
 		p.manageProfilesSubItem = nil
+	}
+
+	activeProfState, err := p.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Warnf("failed to get active profile state: %v", err)
+		p.emailMenuItem.Hide()
+	} else {
+		if activeProfState.Email != "" {
+			p.emailMenuItem.SetTitle(fmt.Sprintf("(%s)", activeProfState.Email))
+			p.emailMenuItem.Show()
+		}
 	}
 
 	var activeProfile *profilemanager.Profile
@@ -312,7 +324,6 @@ func (p *profileMenu) refresh() {
 					}
 					log.Infof("Switched to profile '%s'", profile.Name)
 					p.refresh()
-					// TODO(hakan): update email menu item if needed
 				}
 			}
 		}()

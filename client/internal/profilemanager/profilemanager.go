@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -15,13 +16,12 @@ import (
 )
 
 const (
-	defaultProfileName   = "default"
-	profileStateFilename = "active_profile.txt"
+	defaultProfileName         = "default"
+	activeProfileStateFilename = "active_profile.txt"
 )
 
 type Profile struct {
 	Name     string
-	Email    string
 	IsActive bool
 }
 
@@ -50,7 +50,7 @@ func (pm *ProfileManager) AddProfile(profile Profile) error {
 		return fmt.Errorf("failed to create new config: %w", err)
 	}
 
-	err = util.WriteJsonWithRestrictedPermission(context.Background(), profPath, cfg)
+	err = util.WriteJson(context.Background(), profPath, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to write profile config: %w", err)
 	}
@@ -104,6 +104,15 @@ func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
 		return nil, fmt.Errorf("failed to list profile files: %w", err)
 	}
 
+	var filtered []string
+	for _, file := range files {
+		if strings.HasSuffix(file, "state.json") {
+			continue // skip state files
+		}
+		filtered = append(filtered, file)
+	}
+	sort.Strings(filtered)
+
 	var activeProfName string
 	activeProf, err := pm.GetActiveProfile()
 	if err == nil {
@@ -113,7 +122,7 @@ func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
 	var profiles []Profile
 	// add default profile always
 	profiles = append(profiles, Profile{Name: defaultProfileName, IsActive: activeProfName == "" || activeProfName == defaultProfileName})
-	for _, file := range files {
+	for _, file := range filtered {
 		profileName := strings.TrimSuffix(filepath.Base(file), ".json")
 		var isActive bool
 		if activeProfName != "" && activeProfName == profileName {
@@ -154,7 +163,7 @@ func (pm *ProfileManager) getActiveProfileState() string {
 		return defaultProfileName
 	}
 
-	statePath := filepath.Join(configDir, profileStateFilename)
+	statePath := filepath.Join(configDir, activeProfileStateFilename)
 
 	prof, err := os.ReadFile(statePath)
 	if err != nil {
@@ -192,7 +201,7 @@ func (pm *ProfileManager) setActiveProfileState(profileName string) error {
 		}
 	}
 
-	statePath := filepath.Join(configDir, profileStateFilename)
+	statePath := filepath.Join(configDir, activeProfileStateFilename)
 
 	err = os.WriteFile(statePath, []byte(profileName), 0644)
 	if err != nil {
