@@ -46,28 +46,40 @@
 			<ComponentRef Id="NetbirdFiles" />
 		</ComponentGroup>
 
-		<Property Id="cmd" Value="cmd.exe"/>
-
 		<CustomAction Id="KillDaemon"
-                      ExeCommand='/c "taskkill /im netbird.exe"'
+                      BinaryRef="WixCA"
+                      DllEntry="WixQuietExec64"
                       Execute="deferred"
-                      Property="cmd"
                       Impersonate="no"
                       Return="ignore"
             />
 
 		<CustomAction Id="KillUI"
-                      ExeCommand='/c "taskkill /im netbird-ui.exe"'
+                      BinaryRef="WixCA"
+                      DllEntry="WixQuietExec64"
                       Execute="deferred"
-                      Property="cmd"
                       Impersonate="no"
                       Return="ignore"
             />
 
+		<CustomAction Id="SetKillDaemonCommand"
+                      Property="KillDaemon"
+                      Value="taskkill /f /im netbird.exe"
+                      Execute="immediate"
+            />
+
+		<CustomAction Id="SetKillUICommand"
+                      Property="KillUI"
+                      Value="taskkill /f /im netbird-ui.exe"
+                      Execute="immediate"
+            />
+
 		<InstallExecuteSequence>
 			<!-- For Uninstallation -->
+			<Custom Action="SetKillDaemonCommand" Before="KillDaemon" Condition="Installed"/>
 			<Custom Action="KillDaemon" Before="RemoveFiles" Condition="Installed"/>
-			<Custom Action="KillUI" After="KillDaemon" Condition="Installed"/>
+			<Custom Action="SetKillUICommand" After="KillDaemon" Condition="Installed"/>
+			<Custom Action="KillUI" After="SetKillUICommand" Condition="Installed"/>
 		</InstallExecuteSequence>
 
 		<!-- Icons -->
