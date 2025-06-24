@@ -143,6 +143,11 @@ message Flags {
   bool blockInbound = 9;
 
   bool lazyConnectionEnabled = 10;
+
+  bool enableSSHRoot = 11;
+  bool enableSSHSFTP = 12;
+  bool enableSSHLocalPortForwarding = 13;
+  bool enableSSHRemotePortForwarding = 14;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.

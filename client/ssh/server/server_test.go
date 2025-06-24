@@ -1,74 +1,61 @@
-package ssh
+package server
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"net/netip"
+	"os/user"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gliderlabs/ssh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
+	cryptossh "golang.org/x/crypto/ssh"
+
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 )
 
 func TestServer_AddAuthorizedKey(t *testing.T) {
-	key, err := GeneratePrivateKey(ED25519)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := NewServer(key)
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+	server := New(key)
 
-	// add multiple keys
 	keys := map[string][]byte{}
 	for i := 0; i < 10; i++ {
 		peer := fmt.Sprintf("%s-%d", "remotePeer", i)
-		remotePrivKey, err := GeneratePrivateKey(ED25519)
-		if err != nil {
-			t.Fatal(err)
-		}
-		remotePubKey, err := GeneratePublicKey(remotePrivKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		remotePrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+		require.NoError(t, err)
+		remotePubKey, err := nbssh.GeneratePublicKey(remotePrivKey)
+		require.NoError(t, err)
 
 		err = server.AddAuthorizedKey(peer, string(remotePubKey))
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 		keys[peer] = remotePubKey
 	}
 
-	// make sure that all keys have been added
 	for peer, remotePubKey := range keys {
 		k, ok := server.authorizedKeys[peer]
 		assert.True(t, ok, "expecting remotePeer key to be found in authorizedKeys")
-
-		assert.Equal(t, string(remotePubKey), strings.TrimSpace(string(ssh.MarshalAuthorizedKey(k))))
+		assert.Equal(t, string(remotePubKey), strings.TrimSpace(string(cryptossh.MarshalAuthorizedKey(k))))
 	}
-
 }
 
 func TestServer_RemoveAuthorizedKey(t *testing.T) {
-	key, err := GeneratePrivateKey(ED25519)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := NewServer(key)
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+	server := New(key)
 
-	remotePrivKey, err := GeneratePrivateKey(ED25519)
-	if err != nil {
-		t.Fatal(err)
-	}
-	remotePubKey, err := GeneratePublicKey(remotePrivKey)
-	if err != nil {
-		t.Fatal(err)
-	}
+	remotePrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+	remotePubKey, err := nbssh.GeneratePublicKey(remotePrivKey)
+	require.NoError(t, err)
 
 	err = server.AddAuthorizedKey("remotePeer", string(remotePubKey))
-	if err != nil {
-		t.Error(err)
-	}
+	require.NoError(t, err)
 
 	server.RemoveAuthorizedKey("remotePeer")
 
@@ -77,69 +64,55 @@ func TestServer_RemoveAuthorizedKey(t *testing.T) {
 }
 
 func TestServer_PubKeyHandler(t *testing.T) {
-	key, err := GeneratePrivateKey(ED25519)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := NewServer(key)
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+	server := New(key)
 
 	var keys []ssh.PublicKey
 	for i := 0; i < 10; i++ {
 		peer := fmt.Sprintf("%s-%d", "remotePeer", i)
-		remotePrivKey, err := GeneratePrivateKey(ED25519)
-		if err != nil {
-			t.Fatal(err)
-		}
-		remotePubKey, err := GeneratePublicKey(remotePrivKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		remotePrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+		require.NoError(t, err)
+		remotePubKey, err := nbssh.GeneratePublicKey(remotePrivKey)
+		require.NoError(t, err)
 
 		remoteParsedPubKey, _, _, _, err := ssh.ParseAuthorizedKey(remotePubKey)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		err = server.AddAuthorizedKey(peer, string(remotePubKey))
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 		keys = append(keys, remoteParsedPubKey)
 	}
 
 	for _, key := range keys {
 		accepted := server.publicKeyHandler(nil, key)
-
 		assert.True(t, accepted, "SSH key should be accepted")
 	}
 }
 
 func TestServer_StartStop(t *testing.T) {
-	key, err := GeneratePrivateKey(ED25519)
-	if err != nil {
-		t.Fatal(err)
-	}
+	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
 
-	server := NewServer(key)
+	server := New(key)
 
-	// Test stopping when not started
 	err = server.Stop()
 	assert.NoError(t, err)
 }
 
 func TestSSHServerIntegration(t *testing.T) {
 	// Generate host key for server
-	hostKey, err := GeneratePrivateKey(ED25519)
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
 	// Generate client key pair
-	clientPrivKey, err := GeneratePrivateKey(ED25519)
+	clientPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
-	clientPubKey, err := GeneratePublicKey(clientPrivKey)
+	clientPubKey, err := nbssh.GeneratePublicKey(clientPrivKey)
 	require.NoError(t, err)
 
 	// Create server with random port
-	server := NewServer(hostKey)
+	server := New(hostKey)
 
 	// Add client's public key as authorized
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
@@ -164,7 +137,8 @@ func TestSSHServerIntegration(t *testing.T) {
 		}
 
 		started <- actualAddr
-		errChan <- server.Start(actualAddr)
+		addrPort, _ := netip.ParseAddrPort(actualAddr)
+		errChan <- server.Start(context.Background(), addrPort)
 	}()
 
 	select {
@@ -184,26 +158,30 @@ func TestSSHServerIntegration(t *testing.T) {
 	}()
 
 	// Parse client private key
-	signer, err := ssh.ParsePrivateKey(clientPrivKey)
+	signer, err := cryptossh.ParsePrivateKey(clientPrivKey)
 	require.NoError(t, err)
 
 	// Parse server host key for verification
-	hostPrivParsed, err := ssh.ParsePrivateKey(hostKey)
+	hostPrivParsed, err := cryptossh.ParsePrivateKey(hostKey)
 	require.NoError(t, err)
 	hostPubKey := hostPrivParsed.PublicKey()
 
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user for test")
+
 	// Create SSH client config
-	config := &ssh.ClientConfig{
-		User: "test-user",
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(signer),
+	config := &cryptossh.ClientConfig{
+		User: currentUser.Username,
+		Auth: []cryptossh.AuthMethod{
+			cryptossh.PublicKeys(signer),
 		},
-		HostKeyCallback: ssh.FixedHostKey(hostPubKey),
+		HostKeyCallback: cryptossh.FixedHostKey(hostPubKey),
 		Timeout:         3 * time.Second,
 	}
 
 	// Connect to SSH server
-	client, err := ssh.Dial("tcp", serverAddr, config)
+	client, err := cryptossh.Dial("tcp", serverAddr, config)
 	require.NoError(t, err)
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -228,17 +206,17 @@ func TestSSHServerIntegration(t *testing.T) {
 
 func TestSSHServerMultipleConnections(t *testing.T) {
 	// Generate host key for server
-	hostKey, err := GeneratePrivateKey(ED25519)
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
 	// Generate client key pair
-	clientPrivKey, err := GeneratePrivateKey(ED25519)
+	clientPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
-	clientPubKey, err := GeneratePublicKey(clientPrivKey)
+	clientPubKey, err := nbssh.GeneratePublicKey(clientPrivKey)
 	require.NoError(t, err)
 
 	// Create server
-	server := NewServer(hostKey)
+	server := New(hostKey)
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
 	require.NoError(t, err)
 
@@ -260,7 +238,8 @@ func TestSSHServerMultipleConnections(t *testing.T) {
 		}
 
 		started <- actualAddr
-		errChan <- server.Start(actualAddr)
+		addrPort, _ := netip.ParseAddrPort(actualAddr)
+		errChan <- server.Start(context.Background(), addrPort)
 	}()
 
 	select {
@@ -280,20 +259,24 @@ func TestSSHServerMultipleConnections(t *testing.T) {
 	}()
 
 	// Parse client private key
-	signer, err := ssh.ParsePrivateKey(clientPrivKey)
+	signer, err := cryptossh.ParsePrivateKey(clientPrivKey)
 	require.NoError(t, err)
 
 	// Parse server host key
-	hostPrivParsed, err := ssh.ParsePrivateKey(hostKey)
+	hostPrivParsed, err := cryptossh.ParsePrivateKey(hostKey)
 	require.NoError(t, err)
 	hostPubKey := hostPrivParsed.PublicKey()
 
-	config := &ssh.ClientConfig{
-		User: "test-user",
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(signer),
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user for test")
+
+	config := &cryptossh.ClientConfig{
+		User: currentUser.Username,
+		Auth: []cryptossh.AuthMethod{
+			cryptossh.PublicKeys(signer),
 		},
-		HostKeyCallback: ssh.FixedHostKey(hostPubKey),
+		HostKeyCallback: cryptossh.FixedHostKey(hostPubKey),
 		Timeout:         3 * time.Second,
 	}
 
@@ -303,7 +286,7 @@ func TestSSHServerMultipleConnections(t *testing.T) {
 
 	for i := 0; i < numConnections; i++ {
 		go func(id int) {
-			client, err := ssh.Dial("tcp", serverAddr, config)
+			client, err := cryptossh.Dial("tcp", serverAddr, config)
 			if err != nil {
 				results <- fmt.Errorf("connection %d failed: %w", id, err)
 				return
@@ -336,23 +319,23 @@ func TestSSHServerMultipleConnections(t *testing.T) {
 	}
 }
 
-func TestSSHServerAuthenticationFailure(t *testing.T) {
+func TestSSHServerNoAuthMode(t *testing.T) {
 	// Generate host key for server
-	hostKey, err := GeneratePrivateKey(ED25519)
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
 	// Generate authorized key
-	authorizedPrivKey, err := GeneratePrivateKey(ED25519)
+	authorizedPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
-	authorizedPubKey, err := GeneratePublicKey(authorizedPrivKey)
+	authorizedPubKey, err := nbssh.GeneratePublicKey(authorizedPrivKey)
 	require.NoError(t, err)
 
 	// Generate unauthorized key (different from authorized)
-	unauthorizedPrivKey, err := GeneratePrivateKey(ED25519)
+	unauthorizedPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
 	// Create server with only one authorized key
-	server := NewServer(hostKey)
+	server := New(hostKey)
 	err = server.AddAuthorizedKey("authorized-peer", string(authorizedPubKey))
 	require.NoError(t, err)
 
@@ -374,7 +357,8 @@ func TestSSHServerAuthenticationFailure(t *testing.T) {
 		}
 
 		started <- actualAddr
-		errChan <- server.Start(actualAddr)
+		addrPort, _ := netip.ParseAddrPort(actualAddr)
+		errChan <- server.Start(context.Background(), addrPort)
 	}()
 
 	select {
@@ -394,35 +378,41 @@ func TestSSHServerAuthenticationFailure(t *testing.T) {
 	}()
 
 	// Parse unauthorized private key
-	unauthorizedSigner, err := ssh.ParsePrivateKey(unauthorizedPrivKey)
+	unauthorizedSigner, err := cryptossh.ParsePrivateKey(unauthorizedPrivKey)
 	require.NoError(t, err)
 
 	// Parse server host key
-	hostPrivParsed, err := ssh.ParsePrivateKey(hostKey)
+	hostPrivParsed, err := cryptossh.ParsePrivateKey(hostKey)
 	require.NoError(t, err)
 	hostPubKey := hostPrivParsed.PublicKey()
 
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user for test")
+
 	// Try to connect with unauthorized key
-	config := &ssh.ClientConfig{
-		User: "test-user",
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(unauthorizedSigner),
+	config := &cryptossh.ClientConfig{
+		User: currentUser.Username,
+		Auth: []cryptossh.AuthMethod{
+			cryptossh.PublicKeys(unauthorizedSigner),
 		},
-		HostKeyCallback: ssh.FixedHostKey(hostPubKey),
+		HostKeyCallback: cryptossh.FixedHostKey(hostPubKey),
 		Timeout:         3 * time.Second,
 	}
 
-	// This should fail
-	_, err = ssh.Dial("tcp", serverAddr, config)
-	assert.Error(t, err, "Connection should fail with unauthorized key")
-	assert.Contains(t, err.Error(), "unable to authenticate")
+	// This should succeed in no-auth mode
+	conn, err := cryptossh.Dial("tcp", serverAddr, config)
+	assert.NoError(t, err, "Connection should succeed in no-auth mode")
+	if conn != nil {
+		assert.NoError(t, conn.Close())
+	}
 }
 
 func TestSSHServerStartStopCycle(t *testing.T) {
-	hostKey, err := GeneratePrivateKey(ED25519)
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server := NewServer(hostKey)
+	server := New(hostKey)
 	serverAddr := "127.0.0.1:0"
 
 	// Test multiple start/stop cycles
@@ -445,7 +435,8 @@ func TestSSHServerStartStopCycle(t *testing.T) {
 			}
 
 			started <- actualAddr
-			errChan <- server.Start(actualAddr)
+			addrPort, _ := netip.ParseAddrPort(actualAddr)
+			errChan <- server.Start(context.Background(), addrPort)
 		}()
 
 		select {
@@ -459,4 +450,49 @@ func TestSSHServerStartStopCycle(t *testing.T) {
 		err = server.Stop()
 		require.NoError(t, err, "Cycle %d: Stop should succeed", i+1)
 	}
+}
+
+func TestSSHServer_WindowsShellHandling(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping Windows shell test in short mode")
+	}
+
+	server := &Server{}
+
+	if runtime.GOOS == "windows" {
+		// Test Windows cmd.exe shell behavior
+		args := server.getShellCommandArgs("cmd.exe", "echo test")
+		assert.Equal(t, "cmd.exe", args[0])
+		assert.Equal(t, "/c", args[1])
+		assert.Equal(t, "echo test", args[2])
+
+		// Test PowerShell behavior
+		args = server.getShellCommandArgs("powershell.exe", "echo test")
+		assert.Equal(t, "powershell.exe", args[0])
+		assert.Equal(t, "-Command", args[1])
+		assert.Equal(t, "echo test", args[2])
+	} else {
+		// Test Unix shell behavior
+		args := server.getShellCommandArgs("/bin/sh", "echo test")
+		assert.Equal(t, "/bin/sh", args[0])
+		assert.Equal(t, "-c", args[1])
+		assert.Equal(t, "echo test", args[2])
+	}
+}
+
+func TestSSHServer_PortForwardingConfiguration(t *testing.T) {
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	server1 := New(hostKey)
+	server2 := New(hostKey)
+
+	assert.False(t, server1.allowLocalPortForwarding, "Local port forwarding should be disabled by default for security")
+	assert.False(t, server1.allowRemotePortForwarding, "Remote port forwarding should be disabled by default for security")
+
+	server2.SetAllowLocalPortForwarding(true)
+	server2.SetAllowRemotePortForwarding(true)
+
+	assert.True(t, server2.allowLocalPortForwarding, "Local port forwarding should be enabled when explicitly set")
+	assert.True(t, server2.allowRemotePortForwarding, "Remote port forwarding should be enabled when explicitly set")
 }

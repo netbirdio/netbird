@@ -1,6 +1,6 @@
 //go:build windows
 
-package ssh
+package client
 
 import (
 	"context"
@@ -64,7 +64,6 @@ func (c *Client) setupTerminalMode(_ context.Context, session *ssh.Session) erro
 	if err := c.saveWindowsConsoleState(); err != nil {
 		var consoleErr *ConsoleUnavailableError
 		if errors.As(err, &consoleErr) {
-			// Console is unavailable (e.g., CI environment), continue with defaults
 			log.Debugf("console unavailable, continuing with defaults: %v", err)
 			c.terminalFd = 0
 		} else {
@@ -75,10 +74,9 @@ func (c *Client) setupTerminalMode(_ context.Context, session *ssh.Session) erro
 	if err := c.enableWindowsVirtualTerminal(); err != nil {
 		var consoleErr *ConsoleUnavailableError
 		if errors.As(err, &consoleErr) {
-			// Console is unavailable, this is expected in CI environments
 			log.Debugf("virtual terminal unavailable: %v", err)
 		} else {
-			log.Debugf("failed to enable virtual terminal: %v", err)
+			return fmt.Errorf("failed to enable virtual terminal: %w", err)
 		}
 	}
 
@@ -100,13 +98,13 @@ func (c *Client) setupTerminalMode(_ context.Context, session *ssh.Session) erro
 		ssh.VEOF:          4,   // Ctrl+D
 		ssh.VEOL:          0,
 		ssh.VEOL2:         0,
-		ssh.VSTART:        17,  // Ctrl+Q
-		ssh.VSTOP:         19,  // Ctrl+S
-		ssh.VSUSP:         26,  // Ctrl+Z
-		ssh.VDISCARD:      15,  // Ctrl+O
-		ssh.VWERASE:       23,  // Ctrl+W
-		ssh.VLNEXT:        22,  // Ctrl+V
-		ssh.VREPRINT:      18,  // Ctrl+R
+		ssh.VSTART:        17, // Ctrl+Q
+		ssh.VSTOP:         19, // Ctrl+S
+		ssh.VSUSP:         26, // Ctrl+Z
+		ssh.VDISCARD:      15, // Ctrl+O
+		ssh.VWERASE:       23, // Ctrl+W
+		ssh.VLNEXT:        22, // Ctrl+V
+		ssh.VREPRINT:      18, // Ctrl+R
 	}
 
 	return session.RequestPty("xterm-256color", h, w, modes)
@@ -150,10 +148,10 @@ func (c *Client) saveWindowsConsoleState() error {
 	return nil
 }
 
-func (c *Client) enableWindowsVirtualTerminal() error {
+func (c *Client) enableWindowsVirtualTerminal() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Debugf("panic in enableWindowsVirtualTerminal: %v", r)
+			err = fmt.Errorf("panic in enableWindowsVirtualTerminal: %v", r)
 		}
 	}()
 
@@ -161,42 +159,38 @@ func (c *Client) enableWindowsVirtualTerminal() error {
 	stdin := syscall.Handle(os.Stdin.Fd())
 	var mode uint32
 
-	ret, _, err := procGetConsoleMode.Call(uintptr(stdout), uintptr(unsafe.Pointer(&mode)))
+	ret, _, winErr := procGetConsoleMode.Call(uintptr(stdout), uintptr(unsafe.Pointer(&mode)))
 	if ret == 0 {
-		log.Debugf("failed to get stdout console mode for VT setup: %v", err)
 		return &ConsoleUnavailableError{
 			Operation: "get stdout console mode for VT",
-			Err:       err,
+			Err:       winErr,
 		}
 	}
 
 	mode |= enableVirtualTerminalProcessing
-	ret, _, err = procSetConsoleMode.Call(uintptr(stdout), uintptr(mode))
+	ret, _, winErr = procSetConsoleMode.Call(uintptr(stdout), uintptr(mode))
 	if ret == 0 {
-		log.Debugf("failed to enable virtual terminal processing: %v", err)
 		return &ConsoleUnavailableError{
 			Operation: "enable virtual terminal processing",
-			Err:       err,
+			Err:       winErr,
 		}
 	}
 
-	ret, _, err = procGetConsoleMode.Call(uintptr(stdin), uintptr(unsafe.Pointer(&mode)))
+	ret, _, winErr = procGetConsoleMode.Call(uintptr(stdin), uintptr(unsafe.Pointer(&mode)))
 	if ret == 0 {
-		log.Debugf("failed to get stdin console mode for VT setup: %v", err)
 		return &ConsoleUnavailableError{
 			Operation: "get stdin console mode for VT",
-			Err:       err,
+			Err:       winErr,
 		}
 	}
 
 	mode &= ^uint32(enableLineInput | enableEchoInput | enableProcessedInput)
 	mode |= enableVirtualTerminalInput
-	ret, _, err = procSetConsoleMode.Call(uintptr(stdin), uintptr(mode))
+	ret, _, winErr = procSetConsoleMode.Call(uintptr(stdin), uintptr(mode))
 	if ret == 0 {
-		log.Debugf("failed to set stdin raw mode: %v", err)
 		return &ConsoleUnavailableError{
 			Operation: "set stdin raw mode",
-			Err:       err,
+			Err:       winErr,
 		}
 	}
 
@@ -227,28 +221,35 @@ func (c *Client) getWindowsConsoleSize() (int, int) {
 	return width, height
 }
 
-func (c *Client) restoreWindowsConsoleState() {
+func (c *Client) restoreWindowsConsoleState() error {
+	var err error
 	defer func() {
 		if r := recover(); r != nil {
-			log.Debugf("panic in restoreWindowsConsoleState: %v", r)
+			err = fmt.Errorf("panic in restoreWindowsConsoleState: %v", r)
 		}
 	}()
 
 	if c.terminalFd != 1 {
-		return
+		return nil
 	}
 
 	stdout := syscall.Handle(os.Stdout.Fd())
 	stdin := syscall.Handle(os.Stdin.Fd())
 
-	ret, _, err := procSetConsoleMode.Call(uintptr(stdout), uintptr(c.windowsStdoutMode))
+	ret, _, winErr := procSetConsoleMode.Call(uintptr(stdout), uintptr(c.windowsStdoutMode))
 	if ret == 0 {
-		log.Debugf("failed to restore stdout console mode: %v", err)
+		log.Debugf("failed to restore stdout console mode: %v", winErr)
+		if err == nil {
+			err = fmt.Errorf("restore stdout console mode: %w", winErr)
+		}
 	}
 
-	ret, _, err = procSetConsoleMode.Call(uintptr(stdin), uintptr(c.windowsStdinMode))
+	ret, _, winErr = procSetConsoleMode.Call(uintptr(stdin), uintptr(c.windowsStdinMode))
 	if ret == 0 {
-		log.Debugf("failed to restore stdin console mode: %v", err)
+		log.Debugf("failed to restore stdin console mode: %v", winErr)
+		if err == nil {
+			err = fmt.Errorf("restore stdin console mode: %w", winErr)
+		}
 	}
 
 	c.terminalFd = 0
@@ -256,4 +257,5 @@ func (c *Client) restoreWindowsConsoleState() {
 	c.windowsStdinMode = 0
 
 	log.Debugf("restored Windows console state")
+	return err
 }

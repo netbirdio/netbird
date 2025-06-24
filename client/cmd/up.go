@@ -258,6 +258,22 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*interna
 		ic.ServerSSHAllowed = &serverSSHAllowed
 	}
 
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		ic.EnableSSHRoot = &enableSSHRoot
+	}
+
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		ic.EnableSSHSFTP = &enableSSHSFTP
+	}
+
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			return nil, err
@@ -350,6 +366,22 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		loginRequest.ServerSSHAllowed = &serverSSHAllowed
+	}
+
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		loginRequest.EnableSSHRoot = &enableSSHRoot
+	}
+
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		loginRequest.EnableSSHSFTP = &enableSSHSFTP
+	}
+
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		loginRequest.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		loginRequest.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
 	}
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {

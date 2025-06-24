@@ -74,11 +74,11 @@ require (
 	github.com/pion/stun/v2 v2.0.0
 	github.com/pion/transport/v3 v3.0.1
 	github.com/pion/turn/v3 v3.0.1
+	github.com/pkg/sftp v1.10.1
 	github.com/prometheus/client_golang v1.22.0
 	github.com/quic-go/quic-go v0.48.2
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/xid v1.3.0
-	github.com/runletapp/go-console v0.0.0-20211204140000-27323a28410a
 	github.com/shirou/gopsutil/v3 v3.24.4
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
@@ -179,7 +179,6 @@ require (
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
-	github.com/iamacarpet/go-winpty v1.0.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
@@ -193,6 +192,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/libdns/libdns v0.2.2 // indirect
 	github.com/lufia/plan9stats v0.0.0-20240513124658-fba389f38bae // indirect
 	github.com/magiconair/properties v1.8.7 // indirect

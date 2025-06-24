@@ -260,6 +260,22 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	return m.router.UpdateSet(set, prefixes)
 }
 
+// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services
+func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// RemoveInboundDNAT removes inbound DNAT rule
+func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
 func getConntrackEstablished() []string {
 	return []string{"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"}
 }

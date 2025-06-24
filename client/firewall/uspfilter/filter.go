@@ -29,6 +29,12 @@ import (
 
 const layerTypeAll = 0
 
+// serviceKey represents a protocol/port combination for netstack service registry
+type serviceKey struct {
+	protocol gopacket.LayerType
+	port     uint16
+}
+
 const (
 	// EnvDisableConntrack disables the stateful filter, replies to outbound traffic won't be allowed.
 	EnvDisableConntrack = "NB_DISABLE_CONNTRACK"
@@ -110,6 +116,15 @@ type Manager struct {
 	dnatMappings map[netip.Addr]netip.Addr
 	dnatMutex    sync.RWMutex
 	dnatBiMap    *biDNATMap
+
+	// Port-specific DNAT for SSH redirection
+	portDNATEnabled atomic.Bool
+	portDNATMap     *portDNATMap
+	portDNATMutex   sync.RWMutex
+	portNATTracker  *portNATTracker
+
+	netstackServices     map[serviceKey]struct{}
+	netstackServiceMutex sync.RWMutex
 }
 
 // decoder for packages
@@ -196,6 +211,9 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
+		portDNATMap:         &portDNATMap{rules: make([]portDNATRule, 0)},
+		portNATTracker:      newPortNATTracker(),
+		netstackServices:    make(map[serviceKey]struct{}),
 	}
 	m.routingEnabled.Store(false)
 
@@ -333,18 +351,22 @@ func (m *Manager) initForwarder() error {
 	return nil
 }
 
+// Init initializes the firewall manager with state manager.
 func (m *Manager) Init(*statemanager.Manager) error {
 	return nil
 }
 
+// IsServerRouteSupported returns whether server routes are supported.
 func (m *Manager) IsServerRouteSupported() bool {
 	return true
 }
 
+// IsStateful returns whether the firewall manager tracks connection state.
 func (m *Manager) IsStateful() bool {
 	return m.stateful
 }
 
+// AddNatRule adds a routing firewall rule for NAT translation.
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
 		return m.nativeFirewall.AddNatRule(pair)
@@ -611,6 +633,7 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 
 	m.trackOutbound(d, srcIP, dstIP, size)
 	m.translateOutboundDNAT(packetData, d)
+	m.translateOutboundPortReverse(packetData, d)
 
 	return false
 }
@@ -738,6 +761,15 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 		return false
 	}
 
+	if translated := m.translateInboundPortDNAT(packetData, d); translated {
+		// Re-decode after port DNAT translation to update port information
+		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+			m.logger.Error("Failed to re-decode packet after port DNAT: %v", err)
+			return true
+		}
+		srcIP, dstIP = m.extractIPs(d)
+	}
+
 	if translated := m.translateInboundReverse(packetData, d); translated {
 		// Re-decode after translation to get original addresses
 		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
@@ -786,9 +818,7 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 		return true
 	}
 
-	// If requested we pass local traffic to internal interfaces to the forwarder.
-	// netstack doesn't have an interface to forward packets to the native stack so we always need to use the forwarder.
-	if m.localForwarding && (m.netstack || dstIP != m.wgIface.Address().IP) {
+	if m.shouldForward(d, dstIP) {
 		return m.handleForwardedLocalTraffic(packetData)
 	}
 
@@ -1214,4 +1244,96 @@ func (m *Manager) DisableRouting() error {
 	}
 
 	return nil
+}
+
+// RegisterNetstackService registers a service as listening on the netstack for the given protocol and port
+func (m *Manager) RegisterNetstackService(protocol nftypes.Protocol, port uint16) {
+	m.netstackServiceMutex.Lock()
+	defer m.netstackServiceMutex.Unlock()
+	layerType := m.protocolToLayerType(protocol)
+	key := serviceKey{protocol: layerType, port: port}
+	m.netstackServices[key] = struct{}{}
+	m.logger.Debug("RegisterNetstackService: registered %s:%d (layerType=%s)", protocol, port, layerType)
+	m.logger.Debug("RegisterNetstackService: current registry size: %d", len(m.netstackServices))
+}
+
+// UnregisterNetstackService removes a service from the netstack registry
+func (m *Manager) UnregisterNetstackService(protocol nftypes.Protocol, port uint16) {
+	m.netstackServiceMutex.Lock()
+	defer m.netstackServiceMutex.Unlock()
+	layerType := m.protocolToLayerType(protocol)
+	key := serviceKey{protocol: layerType, port: port}
+	delete(m.netstackServices, key)
+	m.logger.Debug("Unregistered netstack service on protocol %s port %d", protocol, port)
+}
+
+// isNetstackService checks if a service is registered as listening on netstack for the given protocol and port
+func (m *Manager) isNetstackService(layerType gopacket.LayerType, port uint16) bool {
+	m.netstackServiceMutex.RLock()
+	defer m.netstackServiceMutex.RUnlock()
+	key := serviceKey{protocol: layerType, port: port}
+	_, exists := m.netstackServices[key]
+	return exists
+}
+
+// protocolToLayerType converts nftypes.Protocol to gopacket.LayerType for internal use
+func (m *Manager) protocolToLayerType(protocol nftypes.Protocol) gopacket.LayerType {
+	switch protocol {
+	case nftypes.TCP:
+		return layers.LayerTypeTCP
+	case nftypes.UDP:
+		return layers.LayerTypeUDP
+	case nftypes.ICMP:
+		return layers.LayerTypeICMPv4
+	default:
+		return gopacket.LayerType(0) // Invalid/unknown
+	}
+}
+
+// shouldForward determines if a packet should be forwarded to the forwarder.
+// The forwarder handles routing packets to the native OS network stack.
+// Returns true if packet should go to the forwarder, false if it should go to netstack listeners or the native stack directly.
+func (m *Manager) shouldForward(d *decoder, dstIP netip.Addr) bool {
+	// not enabled, never forward
+	if !m.localForwarding {
+		return false
+	}
+
+	// netstack always needs to forward because it's lacking a native interface
+	// exception for registered netstack services, those should go to netstack listeners
+	if m.netstack {
+		return !m.hasMatchingNetstackService(d)
+	}
+
+	// traffic to our other local interfaces (not NetBird IP) - always forward
+	if dstIP != m.wgIface.Address().IP {
+		return true
+	}
+
+	// traffic to our NetBird IP, not netstack mode - send to netstack listeners
+	return false
+}
+
+// hasMatchingNetstackService checks if there's a registered netstack service for this packet
+func (m *Manager) hasMatchingNetstackService(d *decoder) bool {
+	if len(d.decoded) < 2 {
+		return false
+	}
+
+	var dstPort uint16
+	switch d.decoded[1] {
+	case layers.LayerTypeTCP:
+		dstPort = uint16(d.tcp.DstPort)
+	case layers.LayerTypeUDP:
+		dstPort = uint16(d.udp.DstPort)
+	default:
+		return false
+	}
+
+	key := serviceKey{protocol: d.decoded[1], port: dstPort}
+	m.netstackServiceMutex.RLock()
+	_, exists := m.netstackServices[key]
+	m.netstackServiceMutex.RUnlock()
+
+	return exists
 }

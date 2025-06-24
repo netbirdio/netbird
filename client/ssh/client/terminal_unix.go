@@ -1,6 +1,6 @@
 //go:build !windows
 
-package ssh
+package client
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -35,11 +36,22 @@ func (c *Client) setupTerminalMode(ctx context.Context, session *ssh.Session) er
 		defer signal.Stop(sigChan)
 		select {
 		case <-ctx.Done():
-			_ = term.Restore(fd, state)
+			if err := term.Restore(fd, state); err != nil {
+				log.Debugf("restore terminal state: %v", err)
+			}
 		case sig := <-sigChan:
-			_ = term.Restore(fd, state)
+			if err := term.Restore(fd, state); err != nil {
+				log.Debugf("restore terminal state: %v", err)
+			}
 			signal.Reset(sig)
-			_ = syscall.Kill(syscall.Getpid(), sig.(syscall.Signal))
+			s, ok := sig.(syscall.Signal)
+			if !ok {
+				log.Debugf("signal %v is not a syscall.Signal: %T", sig, sig)
+				return
+			}
+			if err := syscall.Kill(syscall.Getpid(), s); err != nil {
+				log.Debugf("kill process with signal %v: %v", s, err)
+			}
 		}
 	}()
 
@@ -68,8 +80,8 @@ func (c *Client) setupNonTerminalMode(_ context.Context, session *ssh.Session) e
 }
 
 // restoreWindowsConsoleState is a no-op on Unix systems
-func (c *Client) restoreWindowsConsoleState() {
-	// No-op on Unix systems
+func (c *Client) restoreWindowsConsoleState() error {
+	return nil
 }
 
 func (c *Client) setupTerminal(session *ssh.Session, fd int) error {
@@ -82,20 +94,32 @@ func (c *Client) setupTerminal(session *ssh.Session, fd int) error {
 		ssh.ECHO:          1,
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
-		1:                 3,   // VINTR - Ctrl+C
-		2:                 28,  // VQUIT - Ctrl+\
-		3:                 127, // VERASE - Backspace
-		4:                 21,  // VKILL - Ctrl+U
-		5:                 4,   // VEOF - Ctrl+D
-		6:                 0,   // VEOL
-		7:                 0,   // VEOL2
-		8:                 17,  // VSTART - Ctrl+Q
-		9:                 19,  // VSTOP - Ctrl+S
-		10:                26,  // VSUSP - Ctrl+Z
-		18:                18,  // VREPRINT - Ctrl+R
-		19:                23,  // VWERASE - Ctrl+W
-		20:                22,  // VLNEXT - Ctrl+V
-		21:                15,  // VDISCARD - Ctrl+O
+		// Ctrl+C
+		ssh.VINTR:         3,
+		// Ctrl+\
+		ssh.VQUIT:         28,
+		// Backspace
+		ssh.VERASE:        127,
+		// Ctrl+U
+		ssh.VKILL:         21,
+		// Ctrl+D
+		ssh.VEOF:          4,
+		ssh.VEOL:          0,
+		ssh.VEOL2:         0,
+		// Ctrl+Q
+		ssh.VSTART:        17,
+		// Ctrl+S
+		ssh.VSTOP:         19,
+		// Ctrl+Z
+		ssh.VSUSP:         26,
+		// Ctrl+O
+		ssh.VDISCARD:      15,
+		// Ctrl+R
+		ssh.VREPRINT:      18,
+		// Ctrl+W
+		ssh.VWERASE:       23,
+		// Ctrl+V
+		ssh.VLNEXT:        22,
 	}
 
 	terminal := os.Getenv("TERM")

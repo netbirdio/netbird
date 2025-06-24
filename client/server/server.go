@@ -408,6 +408,22 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		inputConfig.BlockInbound = msg.BlockInbound
 		s.latestConfigInput.BlockInbound = msg.BlockInbound
 	}
+	if msg.EnableSSHRoot != nil {
+		inputConfig.EnableSSHRoot = msg.EnableSSHRoot
+		s.latestConfigInput.EnableSSHRoot = msg.EnableSSHRoot
+	}
+	if msg.EnableSSHSFTP != nil {
+		inputConfig.EnableSSHSFTP = msg.EnableSSHSFTP
+		s.latestConfigInput.EnableSSHSFTP = msg.EnableSSHSFTP
+	}
+	if msg.EnableSSHLocalPortForwarding != nil {
+		inputConfig.EnableSSHLocalPortForwarding = msg.EnableSSHLocalPortForwarding
+		s.latestConfigInput.EnableSSHLocalPortForwarding = msg.EnableSSHLocalPortForwarding
+	}
+	if msg.EnableSSHRemotePortForwarding != nil {
+		inputConfig.EnableSSHRemotePortForwarding = msg.EnableSSHRemotePortForwarding
+		s.latestConfigInput.EnableSSHRemotePortForwarding = msg.EnableSSHRemotePortForwarding
+	}
 
 	if msg.CleanDNSLabels {
 		inputConfig.DNSLabels = domain.List{}
@@ -720,6 +736,45 @@ func (s *Server) Status(
 	return &statusResponse, nil
 }
 
+// GetPeerSSHHostKey retrieves SSH host key for a specific peer
+func (s *Server) GetPeerSSHHostKey(
+	ctx context.Context,
+	req *proto.GetPeerSSHHostKeyRequest,
+) (*proto.GetPeerSSHHostKeyResponse, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	response := &proto.GetPeerSSHHostKeyResponse{
+		Found: false,
+	}
+
+	if s.statusRecorder == nil {
+		return response, nil
+	}
+
+	fullStatus := s.statusRecorder.GetFullStatus()
+	peerAddress := req.GetPeerAddress()
+
+	// Search for peer by IP or FQDN
+	for _, peerState := range fullStatus.Peers {
+		if peerState.IP == peerAddress || peerState.FQDN == peerAddress {
+			if len(peerState.SSHHostKey) > 0 {
+				response.SshHostKey = peerState.SSHHostKey
+				response.PeerIP = peerState.IP
+				response.PeerFQDN = peerState.FQDN
+				response.Found = true
+			}
+			break
+		}
+	}
+
+	return response, nil
+}
+
 func (s *Server) runProbes() {
 	if s.connectClient == nil {
 		return
@@ -776,26 +831,50 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	disableServerRoutes := s.config.DisableServerRoutes
 	blockLANAccess := s.config.BlockLANAccess
 
+	enableSSHRoot := false
+	if s.config.EnableSSHRoot != nil {
+		enableSSHRoot = *s.config.EnableSSHRoot
+	}
+
+	enableSSHSFTP := false
+	if s.config.EnableSSHSFTP != nil {
+		enableSSHSFTP = *s.config.EnableSSHSFTP
+	}
+
+	enableSSHLocalPortForwarding := false
+	if s.config.EnableSSHLocalPortForwarding != nil {
+		enableSSHLocalPortForwarding = *s.config.EnableSSHLocalPortForwarding
+	}
+
+	enableSSHRemotePortForwarding := false
+	if s.config.EnableSSHRemotePortForwarding != nil {
+		enableSSHRemotePortForwarding = *s.config.EnableSSHRemotePortForwarding
+	}
+
 	return &proto.GetConfigResponse{
-		ManagementUrl:         managementURL,
-		ConfigFile:            s.latestConfigInput.ConfigPath,
-		LogFile:               s.logFile,
-		PreSharedKey:          preSharedKey,
-		AdminURL:              adminURL,
-		InterfaceName:         s.config.WgIface,
-		WireguardPort:         int64(s.config.WgPort),
-		DisableAutoConnect:    s.config.DisableAutoConnect,
-		ServerSSHAllowed:      *s.config.ServerSSHAllowed,
-		RosenpassEnabled:      s.config.RosenpassEnabled,
-		RosenpassPermissive:   s.config.RosenpassPermissive,
-		LazyConnectionEnabled: s.config.LazyConnectionEnabled,
-		BlockInbound:          s.config.BlockInbound,
-		DisableNotifications:  disableNotifications,
-		NetworkMonitor:        networkMonitor,
-		DisableDns:            disableDNS,
-		DisableClientRoutes:   disableClientRoutes,
-		DisableServerRoutes:   disableServerRoutes,
-		BlockLanAccess:        blockLANAccess,
+		ManagementUrl:                 managementURL,
+		ConfigFile:                    s.latestConfigInput.ConfigPath,
+		LogFile:                       s.logFile,
+		PreSharedKey:                  preSharedKey,
+		AdminURL:                      adminURL,
+		InterfaceName:                 s.config.WgIface,
+		WireguardPort:                 int64(s.config.WgPort),
+		DisableAutoConnect:            s.config.DisableAutoConnect,
+		ServerSSHAllowed:              *s.config.ServerSSHAllowed,
+		RosenpassEnabled:              s.config.RosenpassEnabled,
+		RosenpassPermissive:           s.config.RosenpassPermissive,
+		LazyConnectionEnabled:         s.config.LazyConnectionEnabled,
+		BlockInbound:                  s.config.BlockInbound,
+		DisableNotifications:          disableNotifications,
+		NetworkMonitor:                networkMonitor,
+		DisableDns:                    disableDNS,
+		DisableClientRoutes:           disableClientRoutes,
+		DisableServerRoutes:           disableServerRoutes,
+		BlockLanAccess:                blockLANAccess,
+		EnableSSHRoot:                 enableSSHRoot,
+		EnableSSHSFTP:                 enableSSHSFTP,
+		EnableSSHLocalPortForwarding:  enableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding: enableSSHRemotePortForwarding,
 	}, nil
 }
 
@@ -859,6 +938,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			RosenpassEnabled:           peerState.RosenpassEnabled,
 			Networks:                   maps.Keys(peerState.GetRoutes()),
 			Latency:                    durationpb.New(peerState.Latency),
+			SshHostKey:                 peerState.SSHHostKey,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

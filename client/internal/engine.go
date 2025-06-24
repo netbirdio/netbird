@@ -28,7 +28,6 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
-	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
@@ -50,7 +49,6 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
-	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -75,14 +73,6 @@ const (
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
-
-// sshServer interface for SSH server operations
-type sshServer interface {
-	Start(addr string) error
-	Stop() error
-	RemoveAuthorizedKey(peer string)
-	AddAuthorizedKey(peer, newKey string) error
-}
 
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
@@ -120,7 +110,11 @@ type EngineConfig struct {
 	RosenpassEnabled    bool
 	RosenpassPermissive bool
 
-	ServerSSHAllowed bool
+	ServerSSHAllowed              bool
+	EnableSSHRoot                 *bool
+	EnableSSHSFTP                 *bool
+	EnableSSHLocalPortForwarding  *bool
+	EnableSSHRemotePortForwarding *bool
 
 	DNSRouteInterval time.Duration
 
@@ -282,6 +276,12 @@ func (e *Engine) Stop() error {
 		e.networkMonitor.Stop()
 	}
 	log.Info("Network monitor: stopped")
+
+	if err := e.stopSSHServer(); err != nil {
+		log.Warnf("failed to stop SSH server: %v", err)
+	}
+
+	e.cleanupSSHConfig()
 
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
 	e.stopDNSServer()
@@ -801,6 +801,10 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.LazyConnectionEnabled,
+		e.config.EnableSSHRoot,
+		e.config.EnableSSHSFTP,
+		e.config.EnableSSHLocalPortForwarding,
+		e.config.EnableSSHRemotePortForwarding,
 	)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
@@ -808,75 +812,6 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		return err
 	}
 	return nil
-}
-
-func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
-	if e.config.BlockInbound {
-		log.Info("SSH server is disabled because inbound connections are blocked")
-		return e.stopSSHServer()
-	}
-
-	if !e.config.ServerSSHAllowed {
-		log.Info("SSH server is disabled in config")
-		return e.stopSSHServer()
-	}
-
-	if !sshConf.GetSshEnabled() {
-		return e.stopSSHServer()
-	}
-
-	// SSH is enabled and supported - start server if not already running
-	if e.sshServer != nil {
-		log.Debug("SSH server is already running")
-		return nil
-	}
-
-	return e.startSSHServer()
-}
-
-func (e *Engine) startSSHServer() error {
-	if e.wgInterface == nil {
-		return fmt.Errorf("wg interface not initialized")
-	}
-
-	listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
-	if nbnetstack.IsEnabled() {
-		listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
-	}
-
-	server := nbssh.NewServer(e.config.SSHKey)
-	e.sshServer = server
-	log.Infof("starting SSH server on %s", listenAddr)
-
-	go func() {
-		err := server.Start(listenAddr)
-		if err != nil {
-			log.Debugf("SSH server stopped with error: %v", err)
-		}
-
-		e.syncMsgMux.Lock()
-		defer e.syncMsgMux.Unlock()
-		if e.sshServer == server {
-			e.sshServer = nil
-			log.Info("SSH server stopped")
-		}
-	}()
-
-	return nil
-}
-
-func (e *Engine) stopSSHServer() error {
-	if e.sshServer == nil {
-		return nil
-	}
-
-	log.Info("stopping SSH server")
-	err := e.sshServer.Stop()
-	if err != nil {
-		log.Warnf("failed to stop SSH server: %v", err)
-	}
-	e.sshServer = nil
-	return err
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
@@ -896,8 +831,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	}
 
 	if conf.GetSshConfig() != nil {
-		err := e.updateSSH(conf.GetSshConfig())
-		if err != nil {
+		if err := e.updateSSH(conf.GetSshConfig()); err != nil {
 			log.Warnf("failed handling SSH server setup: %v", err)
 		}
 	}
@@ -933,6 +867,10 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.BlockLANAccess,
 			e.config.BlockInbound,
 			e.config.LazyConnectionEnabled,
+			e.config.EnableSSHRoot,
+			e.config.EnableSSHSFTP,
+			e.config.EnableSSHLocalPortForwarding,
+			e.config.EnableSSHRemotePortForwarding,
 		)
 
 		// err = e.mgmClient.Sync(info, e.handleSync)
@@ -1098,6 +1036,14 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 					}
 				}
 			}
+		}
+
+		// update peer SSH host keys in status recorder for daemon API access
+		e.updatePeerSSHHostKeys(networkMap.GetRemotePeers())
+
+		// update SSH client known_hosts with peer host keys for OpenSSH client
+		if err := e.updateSSHKnownHosts(networkMap.GetRemotePeers()); err != nil {
+			log.Warnf("failed to update SSH known_hosts: %v", err)
 		}
 	}
 
@@ -1284,6 +1230,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		conn.AddBeforeAddPeerHook(e.beforePeerHook)
 		conn.AddAfterRemovePeerHook(e.afterPeerHook)
 	}
+
 	return nil
 }
 
@@ -1491,13 +1438,6 @@ func (e *Engine) close() {
 		e.statusRecorder.SetWgIface(nil)
 	}
 
-	if e.sshServer != nil {
-		err := e.sshServer.Stop()
-		if err != nil {
-			log.Warnf("failed stopping the SSH server: %v", err)
-		}
-	}
-
 	if e.firewall != nil {
 		err := e.firewall.Close(e.stateManager)
 		if err != nil {
@@ -1528,6 +1468,10 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.LazyConnectionEnabled,
+		e.config.EnableSSHRoot,
+		e.config.EnableSSHSFTP,
+		e.config.EnableSSHLocalPortForwarding,
+		e.config.EnableSSHRemotePortForwarding,
 	)
 
 	netMap, err := e.mgmClient.GetNetworkMap(info)

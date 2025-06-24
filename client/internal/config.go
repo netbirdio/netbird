@@ -45,24 +45,28 @@ var defaultInterfaceBlacklist = []string{
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
-	ManagementURL       string
-	AdminURL            string
-	ConfigPath          string
-	StateFilePath       string
-	PreSharedKey        *string
-	ServerSSHAllowed    *bool
-	NATExternalIPs      []string
-	CustomDNSAddress    []byte
-	RosenpassEnabled    *bool
-	RosenpassPermissive *bool
-	InterfaceName       *string
-	WireguardPort       *int
-	NetworkMonitor      *bool
-	DisableAutoConnect  *bool
-	ExtraIFaceBlackList []string
-	DNSRouteInterval    *time.Duration
-	ClientCertPath      string
-	ClientCertKeyPath   string
+	ManagementURL                 string
+	AdminURL                      string
+	ConfigPath                    string
+	StateFilePath                 string
+	PreSharedKey                  *string
+	ServerSSHAllowed              *bool
+	EnableSSHRoot                 *bool
+	EnableSSHSFTP                 *bool
+	EnableSSHLocalPortForwarding  *bool
+	EnableSSHRemotePortForwarding *bool
+	NATExternalIPs                []string
+	CustomDNSAddress              []byte
+	RosenpassEnabled              *bool
+	RosenpassPermissive           *bool
+	InterfaceName                 *string
+	WireguardPort                 *int
+	NetworkMonitor                *bool
+	DisableAutoConnect            *bool
+	ExtraIFaceBlackList           []string
+	DNSRouteInterval              *time.Duration
+	ClientCertPath                string
+	ClientCertKeyPath             string
 
 	DisableClientRoutes *bool
 	DisableServerRoutes *bool
@@ -81,18 +85,22 @@ type ConfigInput struct {
 // Config Configuration type
 type Config struct {
 	// Wireguard private key of local peer
-	PrivateKey           string
-	PreSharedKey         string
-	ManagementURL        *url.URL
-	AdminURL             *url.URL
-	WgIface              string
-	WgPort               int
-	NetworkMonitor       *bool
-	IFaceBlackList       []string
-	DisableIPv6Discovery bool
-	RosenpassEnabled     bool
-	RosenpassPermissive  bool
-	ServerSSHAllowed     *bool
+	PrivateKey                    string
+	PreSharedKey                  string
+	ManagementURL                 *url.URL
+	AdminURL                      *url.URL
+	WgIface                       string
+	WgPort                        int
+	NetworkMonitor                *bool
+	IFaceBlackList                []string
+	DisableIPv6Discovery          bool
+	RosenpassEnabled              bool
+	RosenpassPermissive           bool
+	ServerSSHAllowed              *bool
+	EnableSSHRoot                 *bool
+	EnableSSHSFTP                 *bool
+	EnableSSHLocalPortForwarding  *bool
+	EnableSSHRemotePortForwarding *bool
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -423,6 +431,46 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
 			config.ServerSSHAllowed = util.True()
 		}
+		updated = true
+	}
+
+	if input.EnableSSHRoot != nil && input.EnableSSHRoot != config.EnableSSHRoot {
+		if *input.EnableSSHRoot {
+			log.Infof("enabling SSH root login")
+		} else {
+			log.Infof("disabling SSH root login")
+		}
+		config.EnableSSHRoot = input.EnableSSHRoot
+		updated = true
+	}
+
+	if input.EnableSSHSFTP != nil && input.EnableSSHSFTP != config.EnableSSHSFTP {
+		if *input.EnableSSHSFTP {
+			log.Infof("enabling SSH SFTP subsystem")
+		} else {
+			log.Infof("disabling SSH SFTP subsystem")
+		}
+		config.EnableSSHSFTP = input.EnableSSHSFTP
+		updated = true
+	}
+
+	if input.EnableSSHLocalPortForwarding != nil && input.EnableSSHLocalPortForwarding != config.EnableSSHLocalPortForwarding {
+		if *input.EnableSSHLocalPortForwarding {
+			log.Infof("enabling SSH local port forwarding")
+		} else {
+			log.Infof("disabling SSH local port forwarding")
+		}
+		config.EnableSSHLocalPortForwarding = input.EnableSSHLocalPortForwarding
+		updated = true
+	}
+
+	if input.EnableSSHRemotePortForwarding != nil && input.EnableSSHRemotePortForwarding != config.EnableSSHRemotePortForwarding {
+		if *input.EnableSSHRemotePortForwarding {
+			log.Infof("enabling SSH remote port forwarding")
+		} else {
+			log.Infof("disabling SSH remote port forwarding")
+		}
+		config.EnableSSHRemotePortForwarding = input.EnableSSHRemotePortForwarding
 		updated = true
 	}
 

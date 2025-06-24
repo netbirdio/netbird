@@ -222,25 +222,33 @@ type serviceClient struct {
 	iInterfacePort *widget.Entry
 
 	// switch elements for settings form
-	sRosenpassPermissive *widget.Check
-	sNetworkMonitor      *widget.Check
-	sDisableDNS          *widget.Check
-	sDisableClientRoutes *widget.Check
-	sDisableServerRoutes *widget.Check
-	sBlockLANAccess      *widget.Check
+	sRosenpassPermissive        *widget.Check
+	sNetworkMonitor             *widget.Check
+	sDisableDNS                 *widget.Check
+	sDisableClientRoutes        *widget.Check
+	sDisableServerRoutes        *widget.Check
+	sBlockLANAccess             *widget.Check
+	sEnableSSHRoot              *widget.Check
+	sEnableSSHSFTP              *widget.Check
+	sEnableSSHLocalPortForward  *widget.Check
+	sEnableSSHRemotePortForward *widget.Check
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
-	managementURL       string
-	preSharedKey        string
-	adminURL            string
-	RosenpassPermissive bool
-	interfaceName       string
-	interfacePort       int
-	networkMonitor      bool
-	disableDNS          bool
-	disableClientRoutes bool
-	disableServerRoutes bool
-	blockLANAccess      bool
+	managementURL              string
+	preSharedKey               string
+	adminURL                   string
+	RosenpassPermissive        bool
+	interfaceName              string
+	interfacePort              int
+	networkMonitor             bool
+	disableDNS                 bool
+	disableClientRoutes        bool
+	disableServerRoutes        bool
+	blockLANAccess             bool
+	enableSSHRoot              bool
+	enableSSHSFTP              bool
+	enableSSHLocalPortForward  bool
+	enableSSHRemotePortForward bool
 
 	connected            bool
 	update               *version.Update
@@ -360,96 +368,155 @@ func (s *serviceClient) showSettingsUI() {
 	s.sDisableClientRoutes = widget.NewCheck("This peer won't route traffic to other peers", nil)
 	s.sDisableServerRoutes = widget.NewCheck("This peer won't act as router for others", nil)
 	s.sBlockLANAccess = widget.NewCheck("Blocks local network access when used as exit node", nil)
+	s.sEnableSSHRoot = widget.NewCheck("Enable SSH Root Login", nil)
+	s.sEnableSSHSFTP = widget.NewCheck("Enable SSH SFTP", nil)
+	s.sEnableSSHLocalPortForward = widget.NewCheck("Enable SSH Local Port Forwarding", nil)
+	s.sEnableSSHRemotePortForward = widget.NewCheck("Enable SSH Remote Port Forwarding", nil)
 
 	s.wSettings.SetContent(s.getSettingsForm())
-	s.wSettings.Resize(fyne.NewSize(600, 500))
+	s.wSettings.Resize(fyne.NewSize(600, 400))
 	s.wSettings.SetFixedSize(true)
 
 	s.getSrvConfig()
 	s.wSettings.Show()
 }
 
-// getSettingsForm to embed it into settings window.
-func (s *serviceClient) getSettingsForm() *widget.Form {
+// getConnectionForm creates the connection settings form
+func (s *serviceClient) getConnectionForm() *widget.Form {
 	return &widget.Form{
 		Items: []*widget.FormItem{
-			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
-			{Text: "Interface Name", Widget: s.iInterfaceName},
-			{Text: "Interface Port", Widget: s.iInterfacePort},
 			{Text: "Management URL", Widget: s.iMngURL},
 			{Text: "Admin URL", Widget: s.iAdminURL},
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
+			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
+			{Text: "Interface Name", Widget: s.iInterfaceName},
+			{Text: "Interface Port", Widget: s.iInterfacePort},
 			{Text: "Config File", Widget: s.iConfigFile},
 			{Text: "Log File", Widget: s.iLogFile},
+		},
+	}
+}
+
+// getNetworkForm creates the network settings form
+func (s *serviceClient) getNetworkForm() *widget.Form {
+	return &widget.Form{
+		Items: []*widget.FormItem{
 			{Text: "Network Monitor", Widget: s.sNetworkMonitor},
 			{Text: "Disable DNS", Widget: s.sDisableDNS},
 			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
 			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
 			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
 		},
-		SubmitText: "Save",
-		OnSubmit: func() {
-			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
-				// validate preSharedKey if it added
-				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
-					dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
-					return
-				}
-			}
+	}
+}
 
-			port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
-			if err != nil {
-				dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
-				return
-			}
-
-			iAdminURL := strings.TrimSpace(s.iAdminURL.Text)
-			iMngURL := strings.TrimSpace(s.iMngURL.Text)
-
-			defer s.wSettings.Close()
-
-			// Check if any settings have changed
-			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
-				s.adminURL != iAdminURL || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
-				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
-				s.networkMonitor != s.sNetworkMonitor.Checked ||
-				s.disableDNS != s.sDisableDNS.Checked ||
-				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
-				s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
-				s.blockLANAccess != s.sBlockLANAccess.Checked {
-
-				s.managementURL = iMngURL
-				s.preSharedKey = s.iPreSharedKey.Text
-				s.adminURL = iAdminURL
-
-				loginRequest := proto.LoginRequest{
-					ManagementUrl:       iMngURL,
-					AdminURL:            iAdminURL,
-					IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-					RosenpassPermissive: &s.sRosenpassPermissive.Checked,
-					InterfaceName:       &s.iInterfaceName.Text,
-					WireguardPort:       &port,
-					NetworkMonitor:      &s.sNetworkMonitor.Checked,
-					DisableDns:          &s.sDisableDNS.Checked,
-					DisableClientRoutes: &s.sDisableClientRoutes.Checked,
-					DisableServerRoutes: &s.sDisableServerRoutes.Checked,
-					BlockLanAccess:      &s.sBlockLANAccess.Checked,
-				}
-
-				if s.iPreSharedKey.Text != censoredPreSharedKey {
-					loginRequest.OptionalPreSharedKey = &s.iPreSharedKey.Text
-				}
-
-				if err := s.restartClient(&loginRequest); err != nil {
-					log.Errorf("restarting client connection: %v", err)
-					return
-				}
-			}
-		},
-		OnCancel: func() {
-			s.wSettings.Close()
+// getSSHForm creates the SSH settings form
+func (s *serviceClient) getSSHForm() *widget.Form {
+	return &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "SSH Root Login", Widget: s.sEnableSSHRoot},
+			{Text: "SSH SFTP", Widget: s.sEnableSSHSFTP},
+			{Text: "SSH Local Port Forwarding", Widget: s.sEnableSSHLocalPortForward},
+			{Text: "SSH Remote Port Forwarding", Widget: s.sEnableSSHRemotePortForward},
 		},
 	}
+}
+
+// getSettingsForm creates the tabbed settings interface
+func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
+	// Create individual forms for each tab
+	connectionForm := s.getConnectionForm()
+	networkForm := s.getNetworkForm()
+	sshForm := s.getSSHForm()
+
+	// Create tabs
+	tabs := container.NewAppTabs(
+		container.NewTabItem("Connection", connectionForm),
+		container.NewTabItem("Network", networkForm),
+		container.NewTabItem("SSH", sshForm),
+	)
+
+	// Create save and cancel buttons
+	saveButton := widget.NewButton("Save", func() {
+		if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
+			// validate preSharedKey if it added
+			if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
+				dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
+				return
+			}
+		}
+
+		port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
+		if err != nil {
+			dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
+			return
+		}
+
+		iAdminURL := strings.TrimSpace(s.iAdminURL.Text)
+		iMngURL := strings.TrimSpace(s.iMngURL.Text)
+
+		defer s.wSettings.Close()
+
+		// Check if any settings have changed
+		if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
+			s.adminURL != iAdminURL || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
+			s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
+			s.networkMonitor != s.sNetworkMonitor.Checked ||
+			s.disableDNS != s.sDisableDNS.Checked ||
+			s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
+			s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
+			s.blockLANAccess != s.sBlockLANAccess.Checked ||
+			s.enableSSHRoot != s.sEnableSSHRoot.Checked ||
+			s.enableSSHSFTP != s.sEnableSSHSFTP.Checked ||
+			s.enableSSHLocalPortForward != s.sEnableSSHLocalPortForward.Checked ||
+			s.enableSSHRemotePortForward != s.sEnableSSHRemotePortForward.Checked {
+
+			s.managementURL = iMngURL
+			s.preSharedKey = s.iPreSharedKey.Text
+			s.adminURL = iAdminURL
+
+			loginRequest := proto.LoginRequest{
+				ManagementUrl:                 iMngURL,
+				AdminURL:                      iAdminURL,
+				IsUnixDesktopClient:           runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+				RosenpassPermissive:           &s.sRosenpassPermissive.Checked,
+				InterfaceName:                 &s.iInterfaceName.Text,
+				WireguardPort:                 &port,
+				NetworkMonitor:                &s.sNetworkMonitor.Checked,
+				DisableDns:                    &s.sDisableDNS.Checked,
+				DisableClientRoutes:           &s.sDisableClientRoutes.Checked,
+				DisableServerRoutes:           &s.sDisableServerRoutes.Checked,
+				BlockLanAccess:                &s.sBlockLANAccess.Checked,
+				EnableSSHRoot:                 &s.sEnableSSHRoot.Checked,
+				EnableSSHSFTP:                 &s.sEnableSSHSFTP.Checked,
+				EnableSSHLocalPortForwarding:  &s.sEnableSSHLocalPortForward.Checked,
+				EnableSSHRemotePortForwarding: &s.sEnableSSHRemotePortForward.Checked,
+			}
+
+			if s.iPreSharedKey.Text != censoredPreSharedKey {
+				loginRequest.OptionalPreSharedKey = &s.iPreSharedKey.Text
+			}
+
+			if err := s.restartClient(&loginRequest); err != nil {
+				log.Errorf("restarting client connection: %v", err)
+				return
+			}
+		}
+	})
+
+	cancelButton := widget.NewButton("Cancel", func() {
+		s.wSettings.Close()
+	})
+
+	// Create button container
+	buttonContainer := container.NewHBox(
+		layout.NewSpacer(),
+		cancelButton,
+		saveButton,
+	)
+
+	// Return the complete layout with tabs and buttons
+	return container.NewBorder(nil, buttonContainer, nil, nil, tabs)
 }
 
 func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
@@ -828,6 +895,10 @@ func (s *serviceClient) getSrvConfig() {
 	s.disableClientRoutes = cfg.DisableClientRoutes
 	s.disableServerRoutes = cfg.DisableServerRoutes
 	s.blockLANAccess = cfg.BlockLanAccess
+	s.enableSSHRoot = cfg.EnableSSHRoot
+	s.enableSSHSFTP = cfg.EnableSSHSFTP
+	s.enableSSHLocalPortForward = cfg.EnableSSHLocalPortForwarding
+	s.enableSSHRemotePortForward = cfg.EnableSSHRemotePortForwarding
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
@@ -846,6 +917,10 @@ func (s *serviceClient) getSrvConfig() {
 		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
 		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
 		s.sBlockLANAccess.SetChecked(cfg.BlockLanAccess)
+		s.sEnableSSHRoot.SetChecked(cfg.EnableSSHRoot)
+		s.sEnableSSHSFTP.SetChecked(cfg.EnableSSHSFTP)
+		s.sEnableSSHLocalPortForward.SetChecked(cfg.EnableSSHLocalPortForwarding)
+		s.sEnableSSHRemotePortForward.SetChecked(cfg.EnableSSHRemotePortForwarding)
 	}
 
 	if s.mNotifications == nil {
