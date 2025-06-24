@@ -2057,10 +2057,14 @@ func Test_DeletePeer(t *testing.T) {
 		"peer1": {
 			ID:        "peer1",
 			AccountID: accountID,
+			IP:        net.IP{1, 1, 1, 1},
+			DNSLabel:  "peer1.test",
 		},
 		"peer2": {
 			ID:        "peer2",
 			AccountID: accountID,
+			IP:        net.IP{2, 2, 2, 2},
+			DNSLabel:  "peer2.test",
 		},
 	}
 	account.Groups = map[string]*types.Group{

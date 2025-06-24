@@ -2615,11 +2615,11 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	account := &types.Account{
 		Id: "accountID",
 		Peers: map[string]*nbpeer.Peer{
-			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
-			"peer2": {ID: "peer2", Key: "key2", UserID: "user1"},
-			"peer3": {ID: "peer3", Key: "key3", UserID: "user1"},
-			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
-			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
+			"peer1": {ID: "peer1", Key: "key1", UserID: "user1", IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"},
+			"peer2": {ID: "peer2", Key: "key2", UserID: "user1", IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"},
+			"peer3": {ID: "peer3", Key: "key3", UserID: "user1", IP: net.IP{3, 3, 3, 3}, DNSLabel: "peer3.domain.test"},
+			"peer4": {ID: "peer4", Key: "key4", UserID: "user2", IP: net.IP{4, 4, 4, 4}, DNSLabel: "peer4.domain.test"},
+			"peer5": {ID: "peer5", Key: "key5", UserID: "user2", IP: net.IP{5, 5, 5, 5}, DNSLabel: "peer5.domain.test"},
 		},
 		Groups: map[string]*types.Group{
 			"group1": {ID: "group1", Name: "group1", Issued: types.GroupIssuedAPI, Peers: []string{}},
@@ -3335,11 +3335,11 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	account, err := manager.GetOrCreateAccountByUser(ctx, initiatorId, domain)
 	require.NoError(t, err)
 
-	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId}
+	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId, IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"}
 	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer1)
 	require.NoError(t, err)
 
-	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, UserID: initiatorId}
+	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, UserID: initiatorId, IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"}
 	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer2)
 	require.NoError(t, err)
 
