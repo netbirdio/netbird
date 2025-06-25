@@ -196,7 +196,7 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 
 func ipToUint32(ip net.IP) uint32 {
 	ip = ip.To4()
-	if ip == nil || len(ip) < 4 {
+	if len(ip) < 4 {
 		return 0
 	}
 	return binary.BigEndian.Uint32(ip)
