@@ -19,8 +19,8 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/spf13/pflag v1.0.5
 	github.com/vishvananda/netlink v1.3.0
-	golang.org/x/crypto v0.37.0
-	golang.org/x/sys v0.32.0
+	golang.org/x/crypto v0.39.0
+	golang.org/x/sys v0.33.0
 	golang.zx2c4.com/wireguard v0.0.0-20230704135630-469159ecf7d1
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6
 	golang.zx2c4.com/wireguard/windows v0.5.3
@@ -58,7 +58,7 @@ require (
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
 	github.com/hashicorp/go-version v1.6.0
 	github.com/libdns/route53 v1.5.0
-	github.com/libp2p/go-netroute v0.2.1
+	github.com/libp2p/go-netroute v0.2.3-0.20250423180851-3420296a12db
 	github.com/mdlayher/socket v0.5.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
@@ -101,10 +101,10 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a
-	golang.org/x/net v0.39.0
+	golang.org/x/net v0.41.0
 	golang.org/x/oauth2 v0.24.0
-	golang.org/x/sync v0.13.0
-	golang.org/x/term v0.31.0
+	golang.org/x/sync v0.15.0
+	golang.org/x/term v0.32.0
 	google.golang.org/api v0.177.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.5.7
@@ -238,10 +238,10 @@ require (
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/image v0.18.0 // indirect
-	golang.org/x/mod v0.17.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
+	golang.org/x/mod v0.25.0 // indirect
+	golang.org/x/text v0.26.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
+	golang.org/x/tools v0.33.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240509183442-62759503f434 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
@@ -258,5 +258,3 @@ replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-2
 replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
 replace github.com/pion/ice/v3 => github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e
-
-replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944
