@@ -83,15 +83,12 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 	var peers []*nbpeer.Peer
 	var settings *types.Settings
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
-		}
+	groups, err = am.Store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
 
-		peers, err = transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
-		return err
-	})
+	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
 	if err != nil {
 		return nil, err
 	}
