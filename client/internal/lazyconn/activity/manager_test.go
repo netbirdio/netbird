@@ -24,6 +24,11 @@ func (m *MocPeer) ConnID() peerid.ConnID {
 type MocWGIface struct {
 }
 
+func (m MocWGIface) LastActivities() map[string]time.Time {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m MocWGIface) RemovePeer(string) error {
 	return nil
 }
