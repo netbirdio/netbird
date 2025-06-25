@@ -26,11 +26,12 @@ import (
 //
 // The implementation is not thread-safe; it is protected by engine.syncMsgMux.
 type ConnMgr struct {
-	peerStore      *peerstore.Store
-	statusRecorder *peer.Status
-	iface          lazyconn.WGIface
-	dispatcher     *dispatcher.ConnectionDispatcher
-	enabledLocally bool
+	peerStore        *peerstore.Store
+	statusRecorder   *peer.Status
+	iface            lazyconn.WGIface
+	dispatcher       *dispatcher.ConnectionDispatcher
+	enabledLocally   bool
+	rosenpassEnabled bool
 
 	lazyConnMgr *manager.Manager
 
@@ -41,10 +42,11 @@ type ConnMgr struct {
 
 func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *dispatcher.ConnectionDispatcher) *ConnMgr {
 	e := &ConnMgr{
-		peerStore:      peerStore,
-		statusRecorder: statusRecorder,
-		iface:          iface,
-		dispatcher:     dispatcher,
+		peerStore:        peerStore,
+		statusRecorder:   statusRecorder,
+		iface:            iface,
+		dispatcher:       dispatcher,
+		rosenpassEnabled: engineConfig.RosenpassEnabled,
 	}
 	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
 		e.enabledLocally = true
@@ -61,6 +63,11 @@ func (e *ConnMgr) Start(ctx context.Context) {
 
 	if !e.enabledLocally {
 		log.Infof("lazy connection manager is disabled")
+		return
+	}
+
+	if e.rosenpassEnabled {
+		log.Warnf("rosenpass connection manager is enabled, lazy connection manager will not be started")
 		return
 	}
 
@@ -83,7 +90,12 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 			return nil
 		}
 
-		log.Infof("lazy connection manager is enabled by management feature flag")
+		if e.rosenpassEnabled {
+			log.Infof("rosenpass connection manager is enabled, lazy connection manager will not be started")
+			return nil
+		}
+
+		log.Warnf("lazy connection manager is enabled by management feature flag")
 		e.initLazyManager(ctx)
 		e.statusRecorder.UpdateLazyConnection(true)
 		return e.addPeersToLazyConnManager()
