@@ -280,7 +280,7 @@ func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool
 
 		showAdvancedSettings: showSettings,
 		showNetworks:         showNetworks,
-		update:               version.NewUpdate(),
+		update:               version.NewUpdate("nb/client-ui"),
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -572,7 +572,7 @@ func (s *serviceClient) updateStatus() error {
 		var systrayIconState bool
 
 		switch {
-		case status.Status == string(internal.StatusConnected) && !s.mUp.Disabled():
+		case status.Status == string(internal.StatusConnected):
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -879,7 +879,7 @@ func (s *serviceClient) onUpdateAvailable() {
 func (s *serviceClient) onSessionExpire() {
 	s.sendNotification = true
 	if s.sendNotification {
-		s.eventHandler.runSelfCommand("login-url", "true")
+		s.eventHandler.runSelfCommand(s.ctx, "login-url", "true")
 		s.sendNotification = false
 	}
 }
@@ -992,21 +992,6 @@ func (s *serviceClient) restartClient(loginRequest *proto.LoginRequest) error {
 // showLoginURL creates a borderless window styled like a pop-up in the top-right corner using s.wLoginURL.
 func (s *serviceClient) showLoginURL() {
 
-	resp, err := s.login(false)
-	if err != nil {
-		log.Errorf("failed to fetch login URL: %v", err)
-		return
-	}
-	verificationURL := resp.VerificationURIComplete
-	if verificationURL == "" {
-		verificationURL = resp.VerificationURI
-	}
-
-	if verificationURL == "" {
-		log.Error("no verification URL provided in the login response")
-		return
-	}
-
 	resIcon := fyne.NewStaticResource("netbird.png", iconAbout)
 
 	if s.wLoginURL == nil {
@@ -1025,6 +1010,21 @@ func (s *serviceClient) showLoginURL() {
 			return
 		}
 
+		resp, err := s.login(false)
+		if err != nil {
+			log.Errorf("failed to fetch login URL: %v", err)
+			return
+		}
+		verificationURL := resp.VerificationURIComplete
+		if verificationURL == "" {
+			verificationURL = resp.VerificationURI
+		}
+
+		if verificationURL == "" {
+			log.Error("no verification URL provided in the login response")
+			return
+		}
+
 		if err := openURL(verificationURL); err != nil {
 			log.Errorf("failed to open login URL: %v", err)
 			return
@@ -1038,7 +1038,19 @@ func (s *serviceClient) showLoginURL() {
 		}
 
 		label.SetText("Re-authentication successful.\nReconnecting")
-		time.Sleep(300 * time.Millisecond)
+		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		if err != nil {
+			log.Errorf("get service status: %v", err)
+			return
+		}
+
+		if status.Status == string(internal.StatusConnected) {
+			label.SetText("Already connected.\nClosing this window.")
+			time.Sleep(2 * time.Second)
+			s.wLoginURL.Close()
+			return
+		}
+
 		_, err = conn.Up(s.ctx, &proto.UpRequest{})
 		if err != nil {
 			label.SetText("Reconnecting failed, please create \na debug bundle in the settings and contact support.")

@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const httpAgent = "pkg/test"
+
 func TestNewUpdate(t *testing.T) {
 	version = "1.0.0"
 	svr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -21,7 +23,7 @@ func TestNewUpdate(t *testing.T) {
 	wg.Add(1)
 
 	onUpdate := false
-	u := NewUpdate()
+	u := NewUpdate(httpAgent)
 	defer u.StopWatch()
 	u.SetOnUpdateListener(func() {
 		onUpdate = true
@@ -46,7 +48,7 @@ func TestDoNotUpdate(t *testing.T) {
 	wg.Add(1)
 
 	onUpdate := false
-	u := NewUpdate()
+	u := NewUpdate(httpAgent)
 	defer u.StopWatch()
 	u.SetOnUpdateListener(func() {
 		onUpdate = true
@@ -71,7 +73,7 @@ func TestDaemonUpdate(t *testing.T) {
 	wg.Add(1)
 
 	onUpdate := false
-	u := NewUpdate()
+	u := NewUpdate(httpAgent)
 	defer u.StopWatch()
 	u.SetOnUpdateListener(func() {
 		onUpdate = true

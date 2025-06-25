@@ -176,7 +176,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	client, err := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), nbdns.UpstreamTimeout)
 	if err != nil {
-		d.writeDNSError(w, r, fmt.Sprintf("create DNS client: %v", err))
+		d.writeDNSError(w, r, logger, fmt.Sprintf("create DNS client: %v", err))
 		return
 	}
 
