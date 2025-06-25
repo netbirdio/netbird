@@ -568,7 +568,7 @@ func (m *Manager) onPeerInactivityTimedOut(peerID string) {
 	mp.peerCfg.Log.Infof("connection timed out")
 
 	// this is blocking operation, potentially can be optimized
-	m.peerStore.PeerConnClose(mp.peerCfg.PublicKey)
+	m.peerStore.PeerConnIdle(mp.peerCfg.PublicKey)
 
 	mp.peerCfg.Log.Infof("start activity monitor")
 
