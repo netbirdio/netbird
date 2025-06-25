@@ -38,4 +38,5 @@ type wgIfaceBase interface {
 	GetStats() (map[string]configurer.WGStats, error)
 	GetNet() *netstack.Net
 	FullStats() (*configurer.Stats, error)
+	LastActivities() map[string]time.Time
 }
