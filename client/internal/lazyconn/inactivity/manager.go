@@ -111,9 +111,8 @@ func (m *Manager) checkStats() ([]string, error) {
 			continue
 		}
 
-		peerCfg.Log.Infof("--- checking peer last activity: %v (%v)", lastActive, m.inactivityThreshold)
 		if time.Since(lastActive) > m.inactivityThreshold {
-			peerCfg.Log.Infof("--- peer is inactive since: %v", lastActive)
+			peerCfg.Log.Infof("peer is inactive since: %v", lastActive)
 			idlePeers = append(idlePeers, peerID)
 		}
 	}
