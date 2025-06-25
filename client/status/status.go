@@ -98,9 +98,10 @@ type OutputOverview struct {
 	NSServerGroups          []NsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
 	Events                  []SystemEventOutput        `json:"events" yaml:"events"`
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
+	ProfileName             string                     `json:"profileName" yaml:"profileName"`
 }
 
-func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}) OutputOverview {
+func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, profName string) OutputOverview {
 	pbFullStatus := resp.GetFullStatus()
 
 	managementState := pbFullStatus.GetManagementState()
@@ -138,6 +139,7 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
 		Events:                  mapEvents(pbFullStatus.GetEvents()),
 		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
+		ProfileName:             profName,
 	}
 
 	if anon {
@@ -404,6 +406,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		"OS: %s\n"+
 			"Daemon version: %s\n"+
 			"CLI version: %s\n"+
+			"Profile: %s\n"+
 			"Management: %s\n"+
 			"Signal: %s\n"+
 			"Relays: %s\n"+
@@ -419,6 +422,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		overview.DaemonVersion,
 		version.NetbirdVersion(),
+		overview.ProfileName,
 		managementConnString,
 		signalConnString,
 		relaysString,

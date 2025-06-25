@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
@@ -89,7 +90,13 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap)
+	pm := profilemanager.NewProfileManager()
+	var profName string
+	if activeProf, err := pm.GetActiveProfile(); err == nil {
+		profName = activeProf.Name
+	}
+
+	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, profName)
 	var statusOutputString string
 	switch {
 	case detailFlag:
