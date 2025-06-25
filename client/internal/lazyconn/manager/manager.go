@@ -59,8 +59,6 @@ type Manager struct {
 	peerToHAGroups map[string][]route.HAUniqueID // peer ID -> HA groups they belong to
 	haGroupToPeers map[route.HAUniqueID][]string // HA group -> peer IDs in the group
 	routesMu       sync.RWMutex
-
-	onInactive chan peerid.ConnID
 }
 
 // NewManager creates a new lazy connection manager

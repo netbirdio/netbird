@@ -237,7 +237,9 @@ func (conn *Conn) Close(graceful bool) {
 	}
 
 	if graceful {
-		conn.signaler.SignalIdle(conn.config.Key)
+		if err := conn.signaler.SignalIdle(conn.config.Key); err != nil {
+			conn.Log.Errorf("failed to signal idle state to peer: %v", err)
+		}
 	}
 
 	conn.Log.Infof("close peer connection")
