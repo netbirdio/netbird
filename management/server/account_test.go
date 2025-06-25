@@ -3142,8 +3142,8 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 		{"Small", 50, 5, 7, 20, 5, 80},
 		{"Medium", 500, 100, 5, 40, 30, 140},
 		{"Large", 5000, 200, 80, 120, 140, 390},
-		{"Small single", 50, 10, 7, 20, 8, 80},
-		{"Medium single", 500, 10, 5, 40, 16, 85},
+		{"Small single", 50, 10, 7, 20, 6, 80},
+		{"Medium single", 500, 10, 5, 40, 15, 85},
 		{"Large 5", 5000, 15, 80, 120, 80, 200},
 	}
 
