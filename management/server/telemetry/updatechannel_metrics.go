@@ -22,6 +22,9 @@ type UpdateChannelMetrics struct {
 	calcPeerNetworkMapDurationMicro   metric.Int64Histogram
 	mergeNetworkMapDurationMicro      metric.Int64Histogram
 	toSyncResponseDurationMicro       metric.Int64Histogram
+	bufferPushCounter                 metric.Int64Counter
+	bufferOverwriteCounter            metric.Int64Counter
+	bufferIgnoreCounter               metric.Int64Counter
 	ctx                               context.Context
 }
 
@@ -125,6 +128,27 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 		return nil, err
 	}
 
+	bufferPushCounter, err := meter.Int64Counter("management.updatechannel.buffer.push.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of updates pushed to an empty buffer"))
+	if err != nil {
+		return nil, err
+	}
+
+	bufferOverwriteCounter, err := meter.Int64Counter("management.updatechannel.buffer.overwrite.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of updates overwriting old unsent updates in the buffer"))
+	if err != nil {
+		return nil, err
+	}
+
+	bufferIgnoreCounter, err := meter.Int64Counter("management.updatechannel.buffer.ignore.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of updates being ignored due to old network serial"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &UpdateChannelMetrics{
 		createChannelDurationMicro:        createChannelDurationMicro,
 		closeChannelDurationMicro:         closeChannelDurationMicro,
@@ -138,6 +162,9 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 		calcPeerNetworkMapDurationMicro:   calcPeerNetworkMapDurationMicro,
 		mergeNetworkMapDurationMicro:      mergeNetworkMapDurationMicro,
 		toSyncResponseDurationMicro:       toSyncResponseDurationMicro,
+		bufferPushCounter:                 bufferPushCounter,
+		bufferOverwriteCounter:            bufferOverwriteCounter,
+		bufferIgnoreCounter:               bufferIgnoreCounter,
 		ctx:                               ctx,
 	}, nil
 }
@@ -192,4 +219,19 @@ func (metrics *UpdateChannelMetrics) CountMergeNetworkMapDuration(duration time.
 
 func (metrics *UpdateChannelMetrics) CountToSyncResponseDuration(duration time.Duration) {
 	metrics.toSyncResponseDurationMicro.Record(metrics.ctx, duration.Microseconds())
+}
+
+// CountBufferPush counts how many buffer push operations are happening on an empty buffer
+func (metrics *UpdateChannelMetrics) CountBufferPush() {
+	metrics.bufferPushCounter.Add(metrics.ctx, 1)
+}
+
+// CountBufferOverwrite counts how many buffer overwrite operations are happening on a non-empty buffer
+func (metrics *UpdateChannelMetrics) CountBufferOverwrite() {
+	metrics.bufferOverwriteCounter.Add(metrics.ctx, 1)
+}
+
+// CountBufferIgnore counts how many buffer ignore operations are happening when a new update is pushed
+func (metrics *UpdateChannelMetrics) CountBufferIgnore() {
+	metrics.bufferIgnoreCounter.Add(metrics.ctx, 1)
 }

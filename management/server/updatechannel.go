@@ -79,7 +79,7 @@ func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) *
 		delete(p.peerChannels, peerID)
 	}
 	// mbragin: todo shouldn't it be more? or configurable?
-	buffer := NewUpdateBuffer()
+	buffer := NewUpdateBuffer(p.metrics.UpdateChannelMetrics())
 
 	log.WithContext(ctx).Debugf("opened updates channel for a peer %s", peerID)
 
