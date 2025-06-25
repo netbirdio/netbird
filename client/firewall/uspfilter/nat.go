@@ -211,7 +211,7 @@ func (m *Manager) translateOutboundDNAT(packetData []byte, d *decoder) bool {
 	}
 
 	if err := m.rewritePacketDestination(packetData, d, translatedIP); err != nil {
-		m.logger.Error("Failed to rewrite packet destination: %v", err)
+		m.logger.Errorf("Failed to rewrite packet destination: %v", err)
 		return false
 	}
 
