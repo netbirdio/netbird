@@ -17,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -1186,7 +1187,10 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message, ok := updMsg.Pop(context.Background())
+		if !ok {
+			t.Fatal("failed to receive update message")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 2 {
 			t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
@@ -1213,7 +1217,10 @@ func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message, ok := updMsg.Pop(context.Background())
+		if !ok {
+			t.Fatal("failed to receive update message")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 0 {
 			t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
@@ -1249,7 +1256,10 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message, ok := updMsg.Pop(context.Background())
+		if !ok {
+			t.Fatal("failed to receive update message")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 2 {
 			t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
@@ -1314,7 +1324,10 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message, ok := updMsg.Pop(context.Background())
+		if !ok {
+			t.Fatal("failed to receive update message")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 1 {
 			t.Errorf("mismatch peers count: 1 expected, got %v", len(networkMap.RemotePeers))
@@ -1370,7 +1383,10 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		message, ok := updMsg.Pop(context.Background())
+		if !ok {
+			t.Fatal("failed to receive update message")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 0 {
 			t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
@@ -2960,23 +2976,58 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *types.Account, 
 	return manager, account, peer1, peer2, peer3
 }
 
-func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) {
+func peerShouldNotReceiveUpdate(t *testing.T, buffer *UpdateBuffer) {
 	t.Helper()
+
+	resultCh := make(chan struct {
+		msg *UpdateMessage
+		ok  bool
+	}, 1)
+
+	go func() {
+		msg, ok := buffer.Pop(context.Background())
+		resultCh <- struct {
+			msg *UpdateMessage
+			ok  bool
+		}{msg, ok}
+	}()
+
 	select {
-	case msg := <-updateMessage:
+	case msg := <-resultCh:
+		if !msg.ok {
+			t.Errorf("Update message channel closed unexpectedly")
+		}
 		t.Errorf("Unexpected message received: %+v", msg)
 	case <-time.After(500 * time.Millisecond):
 		return
 	}
 }
 
-func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) {
+func peerShouldReceiveUpdate(t *testing.T, buffer *UpdateBuffer) {
 	t.Helper()
 
+	resultCh := make(chan struct {
+		msg *UpdateMessage
+		ok  bool
+	}, 1)
+
+	go func() {
+		msg, ok := buffer.Pop(context.Background())
+		resultCh <- struct {
+			msg *UpdateMessage
+			ok  bool
+		}{msg, ok}
+	}()
+
 	select {
-	case msg := <-updateMessage:
-		if msg == nil {
+	case msg := <-resultCh:
+		if !msg.ok {
+			t.Errorf("Update message channel closed unexpectedly")
+			return
+		}
+		if msg.msg == nil {
 			t.Errorf("Received nil update message, expected valid message")
+			return
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Error("Timed out waiting for update message")
@@ -3017,9 +3068,13 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 			if err != nil {
 				b.Fatalf("Failed to get account: %v", err)
 			}
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateBuffer)
+			metrics, err := telemetry.NewUpdateChannelMetrics(context.Background(), noop.NewMeterProvider().Meter("test"))
+			if err != nil {
+				b.Fatalf("Failed to create update channel metrics: %v", err)
+			}
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = NewUpdateBuffer(metrics)
 			}
 			manager.peersUpdateManager.peerChannels = peerChannels
 
@@ -3085,9 +3140,13 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 			if err != nil {
 				b.Fatalf("Failed to get account: %v", err)
 			}
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateBuffer)
+			metrics, err := telemetry.NewUpdateChannelMetrics(context.Background(), noop.NewMeterProvider().Meter("test"))
+			if err != nil {
+				b.Fatalf("Failed to create update channel metrics: %v", err)
+			}
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = NewUpdateBuffer(metrics)
 			}
 			manager.peersUpdateManager.peerChannels = peerChannels
 
@@ -3160,9 +3219,13 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			if err != nil {
 				b.Fatalf("Failed to get account: %v", err)
 			}
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateBuffer)
+			metrics, err := telemetry.NewUpdateChannelMetrics(context.Background(), noop.NewMeterProvider().Meter("test"))
+			if err != nil {
+				b.Fatalf("Failed to create update channel metrics: %v", err)
+			}
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = NewUpdateBuffer(metrics)
 			}
 			manager.peersUpdateManager.peerChannels = peerChannels
 
