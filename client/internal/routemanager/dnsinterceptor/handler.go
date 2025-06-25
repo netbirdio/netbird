@@ -6,13 +6,13 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -24,6 +24,11 @@ import (
 
 type domainMap map[domain.Domain][]netip.Prefix
 
+type wgInterface interface {
+	Name() string
+	Address() wgaddr.Address
+}
+
 type DnsInterceptor struct {
 	mu                   sync.RWMutex
 	route                *route.Route
@@ -33,6 +38,7 @@ type DnsInterceptor struct {
 	dnsServer            nbdns.Server
 	currentPeerKey       string
 	interceptedDomains   domainMap
+	wgInterface          wgInterface
 	peerStore            *peerstore.Store
 }
 
@@ -42,6 +48,7 @@ func New(
 	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
 	statusRecorder *peer.Status,
 	dnsServer nbdns.Server,
+	wgInterface wgInterface,
 	peerStore *peerstore.Store,
 ) *DnsInterceptor {
 	return &DnsInterceptor{
@@ -50,6 +57,7 @@ func New(
 		allowedIPsRefcounter: allowedIPsRefCounter,
 		statusRecorder:       statusRecorder,
 		dnsServer:            dnsServer,
+		wgInterface:          wgInterface,
 		interceptedDomains:   make(domainMap),
 		peerStore:            peerStore,
 	}
@@ -60,7 +68,7 @@ func (d *DnsInterceptor) String() string {
 }
 
 func (d *DnsInterceptor) AddRoute(context.Context) error {
-	d.dnsServer.RegisterHandler(d.route.Domains.ToPunycodeList(), d, nbdns.PriorityDNSRoute)
+	d.dnsServer.RegisterHandler(d.route.Domains, d, nbdns.PriorityDNSRoute)
 	return nil
 }
 
@@ -89,7 +97,7 @@ func (d *DnsInterceptor) RemoveRoute() error {
 	clear(d.interceptedDomains)
 	d.mu.Unlock()
 
-	d.dnsServer.DeregisterHandler(d.route.Domains.ToPunycodeList(), nbdns.PriorityDNSRoute)
+	d.dnsServer.DeregisterHandler(d.route.Domains, nbdns.PriorityDNSRoute)
 
 	return nberrors.FormatErrorOrNil(merr)
 }
@@ -136,73 +144,89 @@ func (d *DnsInterceptor) RemoveAllowedIPs() error {
 
 // ServeDNS implements the dns.Handler interface
 func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	requestID := nbdns.GenerateRequestID()
+	logger := log.WithField("request_id", requestID)
+
 	if len(r.Question) == 0 {
 		return
 	}
-	log.Tracef("received DNS request for domain=%s type=%v class=%v",
+	logger.Tracef("received DNS request for domain=%s type=%v class=%v",
 		r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+
+	// pass if non A/AAAA query
+	if r.Question[0].Qtype != dns.TypeA && r.Question[0].Qtype != dns.TypeAAAA {
+		d.continueToNextHandler(w, r, logger, "non A/AAAA query")
+		return
+	}
 
 	d.mu.RLock()
 	peerKey := d.currentPeerKey
 	d.mu.RUnlock()
 
 	if peerKey == "" {
-		log.Tracef("no current peer key set, letting next handler try for domain=%s", r.Question[0].Name)
-
-		d.continueToNextHandler(w, r, "no current peer key")
+		d.writeDNSError(w, r, logger, "no current peer key")
 		return
 	}
 
 	upstreamIP, err := d.getUpstreamIP(peerKey)
 	if err != nil {
-		log.Errorf("failed to get upstream IP: %v", err)
-		d.continueToNextHandler(w, r, fmt.Sprintf("failed to get upstream IP: %v", err))
+		d.writeDNSError(w, r, logger, fmt.Sprintf("get upstream IP: %v", err))
 		return
 	}
 
-	// set the AuthenticatedData flag and the EDNS0 buffer size to 4096 bytes to support larger dns records
+	client, err := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), nbdns.UpstreamTimeout)
+	if err != nil {
+		d.writeDNSError(w, r, logger, fmt.Sprintf("create DNS client: %v", err))
+		return
+	}
+
 	if r.Extra == nil {
-		r.SetEdns0(4096, false)
 		r.MsgHdr.AuthenticatedData = true
 	}
 
-	client := &dns.Client{
-		Timeout: 5 * time.Second,
-		Net:     "udp",
-	}
 	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
-	reply, _, err := client.ExchangeContext(context.Background(), r, upstream)
+	reply, _, err := nbdns.ExchangeWithFallback(context.TODO(), client, r, upstream)
+	if err != nil {
+		logger.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
+		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
+			logger.Errorf("failed writing DNS response: %v", err)
+		}
+		return
+	}
 
 	var answer []dns.RR
 	if reply != nil {
 		answer = reply.Answer
 	}
-	log.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, answer)
 
-	if err != nil {
-		log.Errorf("failed to exchange DNS request with %s: %v", upstream, err)
-		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
-			log.Errorf("failed writing DNS response: %v", err)
-		}
-		return
-	}
+	logger.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, answer)
 
 	reply.Id = r.Id
 	if err := d.writeMsg(w, reply); err != nil {
-		log.Errorf("failed writing DNS response: %v", err)
+		logger.Errorf("failed writing DNS response: %v", err)
+	}
+}
+
+func (d *DnsInterceptor) writeDNSError(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry, reason string) {
+	logger.Warnf("failed to query upstream for domain=%s: %s", r.Question[0].Name, reason)
+
+	resp := new(dns.Msg)
+	resp.SetRcode(r, dns.RcodeServerFailure)
+	if err := w.WriteMsg(resp); err != nil {
+		logger.Errorf("failed to write DNS error response: %v", err)
 	}
 }
 
 // continueToNextHandler signals the handler chain to try the next handler
-func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg, reason string) {
-	log.Tracef("continuing to next handler for domain=%s reason=%s", r.Question[0].Name, reason)
+func (d *DnsInterceptor) continueToNextHandler(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry, reason string) {
+	logger.Tracef("continuing to next handler for domain=%s reason=%s", r.Question[0].Name, reason)
 
 	resp := new(dns.Msg)
 	resp.SetRcode(r, dns.RcodeNameError)
 	// Set Zero bit to signal handler chain to continue
 	resp.MsgHdr.Zero = true
 	if err := w.WriteMsg(resp); err != nil {
-		log.Errorf("failed writing DNS continue response: %v", err)
+		logger.Errorf("failed writing DNS continue response: %v", err)
 	}
 }
 
@@ -225,7 +249,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 			origPattern = writer.GetOrigPattern()
 		}
 
-		resolvedDomain := domain.Domain(r.Question[0].Name)
+		resolvedDomain := domain.Domain(strings.ToLower(r.Question[0].Name))
 
 		// already punycode via RegisterHandler()
 		originalDomain := domain.Domain(origPattern)
@@ -255,7 +279,7 @@ func (d *DnsInterceptor) writeMsg(w dns.ResponseWriter, r *dns.Msg) error {
 				continue
 			}
 
-			prefix := netip.PrefixFrom(ip, ip.BitLen())
+			prefix := netip.PrefixFrom(ip.Unmap(), ip.BitLen())
 			newPrefixes = append(newPrefixes, prefix)
 		}
 
@@ -319,9 +343,14 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 
 	// Update domain prefixes using resolved domain as key
 	if len(toAdd) > 0 || len(toRemove) > 0 {
+		if d.route.KeepRoute {
+			// replace stored prefixes with old + added
+			// nolint:gocritic
+			newPrefixes = append(oldPrefixes, toAdd...)
+		}
 		d.interceptedDomains[resolvedDomain] = newPrefixes
 		originalDomain = domain.Domain(strings.TrimSuffix(string(originalDomain), "."))
-		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes)
+		d.statusRecorder.UpdateResolvedDomainsStates(originalDomain, resolvedDomain, newPrefixes, d.route.GetResourceID())
 
 		if len(toAdd) > 0 {
 			log.Debugf("added dynamic route(s) for domain=%s (pattern: domain=%s): %s",
@@ -329,7 +358,7 @@ func (d *DnsInterceptor) updateDomainPrefixes(resolvedDomain, originalDomain dom
 				originalDomain.SafeString(),
 				toAdd)
 		}
-		if len(toRemove) > 0 {
+		if len(toRemove) > 0 && !d.route.KeepRoute {
 			log.Debugf("removed dynamic route(s) for domain=%s (pattern: domain=%s): %s",
 				resolvedDomain.SafeString(),
 				originalDomain.SafeString(),

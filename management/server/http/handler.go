@@ -10,10 +10,12 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/settings"
+
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 
-	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroups "github.com/netbirdio/netbird/management/server/groups"
@@ -41,7 +43,7 @@ const apiPrefix = "/api"
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func NewAPIHandler(
 	ctx context.Context,
-	accountManager s.AccountManager,
+	accountManager account.Manager,
 	networksManager nbnetworks.Manager,
 	resourceManager resources.Manager,
 	routerManager routers.Manager,
@@ -53,17 +55,17 @@ func NewAPIHandler(
 	proxyController port_forwarding.Controller,
 	permissionsManager permissions.Manager,
 	peersManager nbpeers.Manager,
+	settingsManager settings.Manager,
 ) (http.Handler, error) {
 
 	authMiddleware := middleware.NewAuthMiddleware(
 		authManager,
 		accountManager.GetAccountIDFromUserAuth,
 		accountManager.SyncUserJWTGroups,
+		accountManager.GetUserFromUserAuth,
 	)
 
 	corsMiddleware := cors.AllowAll()
-
-	acMiddleware := middleware.NewAccessControl(accountManager.GetUserFromUserAuth)
 
 	rootRouter := mux.NewRouter()
 	metricsMiddleware := appMetrics.HTTPMiddleware()
@@ -71,17 +73,19 @@ func NewAPIHandler(
 	prefix := apiPrefix
 	router := rootRouter.PathPrefix(prefix).Subrouter()
 
-	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
+	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController); err != nil {
+	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController, settingsManager); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
-	accounts.AddEndpoints(accountManager, router)
+	accounts.AddEndpoints(accountManager, settingsManager, router)
 	peers.AddEndpoints(accountManager, router)
 	users.AddEndpoints(accountManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)
+	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
+	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
 	groups.AddEndpoints(accountManager, router)
 	routes.AddEndpoints(accountManager, router)
 	dns.AddEndpoints(accountManager, router)

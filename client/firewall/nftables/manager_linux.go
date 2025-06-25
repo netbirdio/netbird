@@ -113,13 +113,13 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
 func (m *Manager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
 	ipsetName string,
-	comment string,
 ) ([]firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -129,25 +129,25 @@ func (m *Manager) AddPeerFiltering(
 		return nil, fmt.Errorf("unsupported IP version: %s", ip.String())
 	}
 
-	return m.aclManager.AddPeerFiltering(ip, proto, sPort, dPort, action, ipsetName, comment)
+	return m.aclManager.AddPeerFiltering(id, ip, proto, sPort, dPort, action, ipsetName)
 }
 
 func (m *Manager) AddRouteFiltering(
+	id []byte,
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination firewall.Network,
 	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
+	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if !destination.Addr().Is4() {
-		return nil, fmt.Errorf("unsupported IP version: %s", destination.Addr().String())
+	if destination.IsPrefix() && !destination.Prefix.Addr().Is4() {
+		return nil, fmt.Errorf("unsupported IP version: %s", destination.Prefix.Addr().String())
 	}
 
-	return m.router.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
+	return m.router.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 }
 
 // DeletePeerRule from the firewall by rule definition
@@ -167,6 +167,10 @@ func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
 }
 
 func (m *Manager) IsServerRouteSupported() bool {
+	return true
+}
+
+func (m *Manager) IsStateful() bool {
 	return true
 }
 
@@ -241,7 +245,7 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 	return firewall.SetLegacyManagement(m.router, isLegacy)
 }
 
-// Reset firewall to the default state
+// Close closes the firewall manager
 func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -324,10 +328,16 @@ func (m *Manager) SetLogLevel(log.Level) {
 }
 
 func (m *Manager) EnableRouting() error {
+	if err := m.router.ipFwdState.RequestForwarding(); err != nil {
+		return fmt.Errorf("enable IP forwarding: %w", err)
+	}
 	return nil
 }
 
 func (m *Manager) DisableRouting() error {
+	if err := m.router.ipFwdState.ReleaseForwarding(); err != nil {
+		return fmt.Errorf("disable IP forwarding: %w", err)
+	}
 	return nil
 }
 
@@ -356,6 +366,14 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 	defer m.mutex.Unlock()
 
 	return m.router.DeleteDNATRule(rule)
+}
+
+// UpdateSet updates the set with the given prefixes
+func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.UpdateSet(set, prefixes)
 }
 
 func (m *Manager) createWorkTable() (*nftables.Table, error) {

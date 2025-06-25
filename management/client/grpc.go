@@ -159,6 +159,7 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 	// blocking until error
 	err = c.receiveEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
+		c.notifyDisconnected(err)
 		s, _ := gstatus.FromError(err)
 		switch s.Code() {
 		case codes.PermissionDenied:
@@ -167,7 +168,6 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
 			return nil
 		default:
-			c.notifyDisconnected(err)
 			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 			return err
 		}
@@ -258,10 +258,8 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 			return err
 		}
 
-		err = msgHandler(decryptedResp)
-		if err != nil {
+		if err := msgHandler(decryptedResp); err != nil {
 			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
-			return err
 		}
 	}
 }
@@ -546,10 +544,15 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			RosenpassEnabled:    info.RosenpassEnabled,
 			RosenpassPermissive: info.RosenpassPermissive,
 			ServerSSHAllowed:    info.ServerSSHAllowed,
+
 			DisableClientRoutes: info.DisableClientRoutes,
 			DisableServerRoutes: info.DisableServerRoutes,
 			DisableDNS:          info.DisableDNS,
 			DisableFirewall:     info.DisableFirewall,
+			BlockLANAccess:      info.BlockLANAccess,
+			BlockInbound:        info.BlockInbound,
+
+			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
 	}
 }

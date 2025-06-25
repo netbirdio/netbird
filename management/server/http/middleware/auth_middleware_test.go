@@ -190,6 +190,9 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
 			return nil
 		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			return &types.User{}, nil
+		},
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -239,14 +242,15 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			},
 		},
 		{
-			name:       "Valid PAT Token ignores child",
+			name:       "Valid PAT Token accesses child",
 			path:       "/test?account=xyz",
 			authHeader: "Token " + PAT,
 			expectedUserAuth: &nbcontext.UserAuth{
-				AccountId:      accountID,
+				AccountId:      "xyz",
 				UserId:         userID,
 				Domain:         testAccount.Domain,
 				DomainCategory: testAccount.DomainCategory,
+				IsChild:        true,
 				IsPAT:          true,
 			},
 		},
@@ -290,6 +294,9 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
 			return nil
+		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			return &types.User{}, nil
 		},
 	)
 

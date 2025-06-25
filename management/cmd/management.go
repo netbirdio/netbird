@@ -36,6 +36,7 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/management/server/peers"
+	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
@@ -51,7 +52,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
-	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -71,7 +71,7 @@ var (
 	mgmtSingleAccModeDomain string
 	certFile                string
 	certKey                 string
-	config                  *server.Config
+	config                  *types.Config
 
 	kaep = keepalive.EnforcementPolicy{
 		MinTime:             15 * time.Second,
@@ -102,9 +102,9 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = loadMgmtConfig(ctx, mgmtConfig)
+			config, err = loadMgmtConfig(ctx, types.MgmtConfigPath)
 			if err != nil {
-				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
+				return fmt.Errorf("failed reading provided config file: %s: %v", types.MgmtConfigPath, err)
 			}
 
 			if cmd.Flag(idpSignKeyRefreshEnabledFlagName).Changed {
@@ -159,7 +159,13 @@ var (
 			if err != nil {
 				return err
 			}
-			store, err := store.NewStore(ctx, config.StoreConfig.Engine, config.Datadir, appMetrics)
+
+			integrationMetrics, err := integrations.InitIntegrationMetrics(ctx, appMetrics)
+			if err != nil {
+				return err
+			}
+
+			store, err := store.NewStore(ctx, config.StoreConfig.Engine, config.Datadir, appMetrics, false)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}
@@ -176,7 +182,7 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			eventStore, key, err := integrations.InitEventStore(ctx, config.Datadir, config.DataStoreEncryptionKey)
+			eventStore, key, err := integrations.InitEventStore(ctx, config.Datadir, config.DataStoreEncryptionKey, integrationMetrics)
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %s", err)
 			}
@@ -184,7 +190,7 @@ var (
 			if config.DataStoreEncryptionKey != key {
 				log.WithContext(ctx).Infof("update config with activity store key")
 				config.DataStoreEncryptionKey = key
-				err := updateMgmtConfig(ctx, mgmtConfig, config)
+				err := updateMgmtConfig(ctx, types.MgmtConfigPath, config)
 				if err != nil {
 					return fmt.Errorf("failed to write out store encryption key: %s", err)
 				}
@@ -202,19 +208,19 @@ var (
 				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
 			}
 
+			permissionsManager := integrations.InitPermissionsManager(store)
 			userManager := users.NewManager(store)
-			settingsManager := settings.NewManager(store)
-			permissionsManager := permissions.NewManager(userManager, settingsManager)
+			extraSettingsManager := integrations.NewManager(eventStore)
+			settingsManager := settings.NewManager(store, userManager, extraSettingsManager, permissionsManager)
 			peersManager := peers.NewManager(store, permissionsManager)
 			proxyController := integrations.NewController(store)
-
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
 
-			secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
+			secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsManager)
 
 			trustedPeers := config.ReverseProxy.TrustedPeers
 			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
@@ -276,7 +282,7 @@ var (
 			routersManager := routers.NewManager(store, permissionsManager, accountManager)
 			networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, accountManager)
 
-			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, integratedPeerValidator, proxyController, permissionsManager, peersManager)
+			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, integratedPeerValidator, proxyController, permissionsManager, peersManager, settingsManager)
 
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
@@ -350,6 +356,13 @@ var (
 			log.WithContext(ctx).Infof("management server version %s", version.NetbirdVersion())
 			log.WithContext(ctx).Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
 			serveGRPCWithHTTP(ctx, listener, rootHandler, tlsEnabled)
+
+			update := version.NewUpdate("nb/management")
+			update.SetDaemonVersion(version.NetbirdVersion())
+			update.SetOnUpdateListener(func() {
+				log.WithContext(ctx).Infof("your management version, \"%s\", is outdated, a new management version is available. Learn more here: https://github.com/netbirdio/netbird/releases", version.NetbirdVersion())
+			})
+			defer update.StopWatch()
 
 			SetupCloseHandler()
 
@@ -486,8 +499,8 @@ func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handle
 	})
 }
 
-func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config, error) {
-	loadedConfig := &server.Config{}
+func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*types.Config, error) {
+	loadedConfig := &types.Config{}
 	_, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig)
 	if err != nil {
 		return nil, err
@@ -522,7 +535,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 			oidcConfig.JwksURI, loadedConfig.HttpConfig.AuthKeysLocation)
 		loadedConfig.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
-		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(server.NONE)) {
+		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(types.NONE)) {
 			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.TokenEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
@@ -539,7 +552,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
 
 			if loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
-				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = server.DefaultDeviceAuthFlowScope
+				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = types.DefaultDeviceAuthFlowScope
 			}
 		}
 
@@ -560,7 +573,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*server.Config,
 	return loadedConfig, err
 }
 
-func updateMgmtConfig(ctx context.Context, path string, config *server.Config) error {
+func updateMgmtConfig(ctx context.Context, path string, config *types.Config) error {
 	return util.DirectWriteJson(ctx, path, config)
 }
 
@@ -636,7 +649,7 @@ func handleRebrand(cmd *cobra.Command) error {
 			}
 		}
 	}
-	if mgmtConfig == defaultMgmtConfig {
+	if types.MgmtConfigPath == defaultMgmtConfig {
 		if migrateToNetbird(oldDefaultMgmtConfig, defaultMgmtConfig) {
 			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
 			err = cpDir(oldDefaultMgmtConfigDir, defaultMgmtConfigDir)

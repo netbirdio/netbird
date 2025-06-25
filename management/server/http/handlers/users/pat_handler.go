@@ -6,7 +6,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -16,10 +16,10 @@ import (
 
 // patHandler is the nameserver group handler of the account
 type patHandler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func addUsersTokensEndpoint(accountManager server.AccountManager, router *mux.Router) {
+func addUsersTokensEndpoint(accountManager account.Manager, router *mux.Router) {
 	tokenHandler := newPATsHandler(accountManager)
 	router.HandleFunc("/users/{userId}/tokens", tokenHandler.getAllTokens).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}/tokens", tokenHandler.createToken).Methods("POST", "OPTIONS")
@@ -28,7 +28,7 @@ func addUsersTokensEndpoint(accountManager server.AccountManager, router *mux.Ro
 }
 
 // newPATsHandler creates a new patHandler HTTP handler
-func newPATsHandler(accountManager server.AccountManager) *patHandler {
+func newPATsHandler(accountManager account.Manager) *patHandler {
 	return &patHandler{
 		accountManager: accountManager,
 	}

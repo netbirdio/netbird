@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -46,10 +44,16 @@ const (
 	DomainNetwork
 )
 
+// ID is the unique route ID.
 type ID string
 
+// ResID is the resourceID part of a route.ID (first part before the colon).
+type ResID string
+
+// NetID is the route network identifier, a human-readable string.
 type NetID string
 
+// HAMap is a map of HAUniqueID to a list of routes.
 type HAMap map[HAUniqueID][]*Route
 
 // NetworkType route network type
@@ -162,21 +166,25 @@ func (r *Route) IsDynamic() bool {
 	return r.NetworkType == DomainNetwork
 }
 
+// GetHAUniqueID returns the HAUniqueID for the route, it can be used for grouping.
 func (r *Route) GetHAUniqueID() HAUniqueID {
-	if r.IsDynamic() {
-		domains, err := r.Domains.String()
-		if err != nil {
-			log.Errorf("Failed to convert domains to string: %v", err)
-			domains = r.Domains.PunycodeString()
-		}
-		return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, domains))
-	}
-	return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, r.Network.String()))
+	return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, r.NetString()))
 }
 
-// GetResourceID returns the Networks Resource ID from a route ID
-func (r *Route) GetResourceID() string {
-	return strings.Split(string(r.ID), ":")[0]
+// GetResourceID returns the Networks ResID from the route ID.
+// It's the part before the first colon in the ID string.
+func (r *Route) GetResourceID() ResID {
+	return ResID(strings.Split(string(r.ID), ":")[0])
+}
+
+// NetString returns the network string.
+// If the route is dynamic, it returns the domains as comma-separated punycode-encoded string.
+// If the route is not dynamic, it returns the network (prefix) string.
+func (r *Route) NetString() string {
+	if r.IsDynamic() {
+		return r.Domains.SafeString()
+	}
+	return r.Network.String()
 }
 
 // ParseNetwork Parses a network prefix string and returns a netip.Prefix object and if is invalid, IPv4 or IPv6

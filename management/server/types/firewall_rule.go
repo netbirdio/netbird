@@ -20,6 +20,9 @@ const (
 
 // FirewallRule is a rule of the firewall.
 type FirewallRule struct {
+	// PolicyID is the ID of the policy this rule is derived from
+	PolicyID string
+
 	// PeerIP of the peer
 	PeerIP string
 
@@ -58,6 +61,8 @@ func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 	}
 
 	baseRule := RouteFirewallRule{
+		PolicyID:     rule.PolicyID,
+		RouteID:      route.ID,
 		SourceRanges: sourceRanges,
 		Action:       string(rule.Action),
 		Destination:  route.Network.String(),
@@ -71,7 +76,6 @@ func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 		rules = append(rules, generateRulesWithPortRanges(baseRule, rule, rulesExists)...)
 	} else {
 		rules = append(rules, generateRulesWithPorts(ctx, baseRule, rule, rulesExists)...)
-
 	}
 
 	// TODO: generate IPv6 rules for dynamic routes

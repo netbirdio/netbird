@@ -3,6 +3,7 @@ package uspfilter
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os/exec"
 	"syscall"
 	"time"
@@ -20,13 +21,13 @@ const (
 	firewallRuleName        = "Netbird"
 )
 
-// Close closes the firewall manager
+// Close cleans up the firewall manager by removing all rules and closing trackers
 func (m *Manager) Close(*statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	m.outgoingRules = make(map[string]RuleSet)
-	m.incomingRules = make(map[string]RuleSet)
+	m.outgoingRules = make(map[netip.Addr]RuleSet)
+	m.incomingRules = make(map[netip.Addr]RuleSet)
 
 	if m.udpTracker != nil {
 		m.udpTracker.Close()
@@ -40,8 +41,8 @@ func (m *Manager) Close(*statemanager.Manager) error {
 		m.tcpTracker.Close()
 	}
 
-	if m.forwarder != nil {
-		m.forwarder.Stop()
+	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.Stop()
 	}
 
 	if m.logger != nil {

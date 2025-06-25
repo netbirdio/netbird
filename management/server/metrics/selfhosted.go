@@ -15,7 +15,6 @@ import (
 	"github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbversion "github.com/netbirdio/netbird/version"
 )
@@ -49,7 +48,7 @@ type properties map[string]interface{}
 // DataSource metric data source
 type DataSource interface {
 	GetAllAccounts(ctx context.Context) []*types.Account
-	GetStoreEngine() store.Engine
+	GetStoreEngine() types.Engine
 }
 
 // ConnManager peer connection manager that holds state for current active connections
@@ -185,7 +184,9 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		ephemeralPeersSKs         int
 		ephemeralPeersSKUsage     int
 		activePeersLastDay        int
+		activeUserPeersLastDay    int
 		osPeers                   map[string]int
+		activeUsersLastDay        map[string]struct{}
 		userPeers                 int
 		rules                     int
 		rulesProtocol             map[string]int
@@ -204,6 +205,7 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		version                   string
 		peerActiveVersions        []string
 		osUIClients               map[string]int
+		rosenpassEnabled          int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
@@ -211,6 +213,7 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	osUIClients = make(map[string]int)
 	rulesProtocol = make(map[string]int)
 	rulesDirection = make(map[string]int)
+	activeUsersLastDay = make(map[string]struct{})
 	uptime = time.Since(w.startupTime).Seconds()
 	connections := w.connManager.GetAllConnectedPeers()
 	version = nbversion.NetbirdVersion()
@@ -278,8 +281,12 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		for _, peer := range account.Peers {
 			peers++
 
-			if peer.SSHEnabled {
+			if peer.SSHEnabled || peer.Meta.Flags.ServerSSHAllowed {
 				peersSSHEnabled++
+			}
+
+			if peer.Meta.Flags.RosenpassEnabled {
+				rosenpassEnabled++
 			}
 
 			if peer.UserID != "" {
@@ -300,6 +307,10 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 			_, connected := connections[peer.ID]
 			if connected || peer.Status.LastSeen.After(w.lastRun) {
 				activePeersLastDay++
+				if peer.UserID != "" {
+					activeUserPeersLastDay++
+					activeUsersLastDay[peer.UserID] = struct{}{}
+				}
 				osActiveKey := osKey + "_active"
 				osActiveCount := osPeers[osActiveKey]
 				osPeers[osActiveKey] = osActiveCount + 1
@@ -321,6 +332,8 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["ephemeral_peers_setup_keys"] = ephemeralPeersSKs
 	metricsProperties["ephemeral_peers_setup_keys_usage"] = ephemeralPeersSKUsage
 	metricsProperties["active_peers_last_day"] = activePeersLastDay
+	metricsProperties["active_user_peers_last_day"] = activeUserPeersLastDay
+	metricsProperties["active_users_last_day"] = len(activeUsersLastDay)
 	metricsProperties["user_peers"] = userPeers
 	metricsProperties["rules"] = rules
 	metricsProperties["rules_with_src_posture_checks"] = rulesWithSrcPostureChecks
@@ -339,6 +352,7 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["ui_clients"] = uiClient
 	metricsProperties["idp_manager"] = w.idpManager
 	metricsProperties["store_engine"] = w.dataSource.GetStoreEngine()
+	metricsProperties["rosenpass_enabled"] = rosenpassEnabled
 
 	for protocol, count := range rulesProtocol {
 		metricsProperties["rules_protocol_"+protocol] = count

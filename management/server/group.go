@@ -10,13 +10,15 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/activity"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
-
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/status"
 )
 
 type GroupLinkError struct {
@@ -30,17 +32,13 @@ func (e *GroupLinkError) Error() string {
 
 // CheckGroupPermissions validates if a user has the necessary permissions to view groups
 func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, accountID, userID string) error {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
 	if err != nil {
 		return err
 	}
 
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	return nil
@@ -68,27 +66,26 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 }
 
 // SaveGroup object of the peers
-func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
+func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *types.Group, create bool) error {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
-	return am.SaveGroups(ctx, accountID, userID, []*types.Group{newGroup})
+	return am.SaveGroups(ctx, accountID, userID, []*types.Group{newGroup}, create)
 }
 
 // SaveGroups adds new groups to the account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
-func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, userID string, groups []*types.Group, create bool) error {
+	operation := operations.Create
+	if !create {
+		operation = operations.Update
+	}
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operation)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var eventsToStore []func()
@@ -119,7 +116,7 @@ func (am *DefaultAccountManager) SaveGroups(ctx context.Context, accountID, user
 			return err
 		}
 
-		return transaction.SaveGroups(ctx, store.LockingStrengthUpdate, groupsToSave)
+		return transaction.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, groupsToSave)
 	})
 	if err != nil {
 		return err
@@ -161,6 +158,13 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		return nil
 	}
 
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("failed to get account settings for group events: %v", err)
+		return nil
+	}
+	dnsDomain := am.GetDNSDomain(settings)
+
 	for _, peerID := range addedPeers {
 		peer, ok := peers[peerID]
 		if !ok {
@@ -171,7 +175,7 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		eventsToStore = append(eventsToStore, func() {
 			meta := map[string]any{
 				"group": newGroup.Name, "group_id": newGroup.ID,
-				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(dnsDomain),
 			}
 			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupAddedToPeer, meta)
 		})
@@ -187,7 +191,7 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		eventsToStore = append(eventsToStore, func() {
 			meta := map[string]any{
 				"group": newGroup.Name, "group_id": newGroup.ID,
-				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+				"peer_ip": peer.IP.String(), "peer_fqdn": peer.FQDN(dnsDomain),
 			}
 			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.GroupRemovedFromPeer, meta)
 		})
@@ -210,17 +214,12 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 // If an error occurs while deleting a group, the function skips it and continues deleting other groups.
 // Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, userID string, groupIDs []string) error {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Delete)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var allErrors error
@@ -498,6 +497,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 		return &GroupLinkError{"user", linkedUser.Id}
 	}
 
+	if isLinked, linkedRouter := isGroupLinkedToNetworkRouter(ctx, transaction, group.AccountID, group.ID); isLinked {
+		return &GroupLinkError{"network router", linkedRouter.ID}
+	}
+
 	return checkGroupLinkedToSettings(ctx, transaction, group)
 }
 
@@ -613,6 +616,22 @@ func isGroupLinkedToUser(ctx context.Context, transaction store.Store, accountID
 	return false, nil
 }
 
+// isGroupLinkedToNetworkRouter checks if a group is linked to any network router in the account.
+func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *routerTypes.NetworkRouter) {
+	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("error retrieving network routers while checking group linkage: %v", err)
+		return false, nil
+	}
+
+	for _, router := range routers {
+		if slices.Contains(router.PeerGroups, groupID) {
+			return true, router
+		}
+	}
+	return false, nil
+}
+
 // areGroupChangesAffectPeers checks if any changes to the specified groups will affect peers.
 func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) (bool, error) {
 	if len(groupIDs) == 0 {
@@ -637,18 +656,12 @@ func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, ac
 		if linked, _ := isGroupLinkedToRoute(ctx, transaction, accountID, groupID); linked {
 			return true, nil
 		}
+		if linked, _ := isGroupLinkedToNetworkRouter(ctx, transaction, accountID, groupID); linked {
+			return true, nil
+		}
 	}
 
 	return false, nil
-}
-
-func (am *DefaultAccountManager) anyGroupHasPeers(account *types.Account, groupIDs []string) bool {
-	for _, groupID := range groupIDs {
-		if group, exists := account.Groups[groupID]; exists && group.HasPeers() {
-			return true
-		}
-	}
-	return false
 }
 
 // anyGroupHasPeersOrResources checks if any of the given groups in the account have peers or resources.

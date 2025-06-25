@@ -9,7 +9,7 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.0.18"
+  SIGN_PIPE_VER: "v0.0.19"
   GORELEASER_VER: "v2.3.2"
   PRODUCT_NAME: "NetBird"
   COPYRIGHT: "NetBird GmbH"
@@ -65,6 +65,13 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
+      - name: Log in to the GitHub container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.CI_DOCKER_PUSH_GITHUB_TOKEN }}
       - name: Install OS build dependencies
         run: sudo apt update && sudo apt install -y -q gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
 
@@ -87,25 +94,25 @@ jobs:
         with:
           name: release
           path: dist/
-          retention-days: 3
+          retention-days: 7
       - name: upload linux packages
         uses: actions/upload-artifact@v4
         with:
           name: linux-packages
           path: dist/netbird_linux**
-          retention-days: 3
+          retention-days: 7
       - name: upload windows packages
         uses: actions/upload-artifact@v4
         with:
           name: windows-packages
           path: dist/netbird_windows**
-          retention-days: 3
+          retention-days: 7
       - name: upload macos packages
         uses: actions/upload-artifact@v4
         with:
           name: macos-packages
           path: dist/netbird_darwin**
-          retention-days: 3
+          retention-days: 7
 
   release_ui:
     runs-on: ubuntu-latest

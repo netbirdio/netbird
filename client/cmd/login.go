@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -18,6 +19,10 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 )
+
+func init() {
+	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+}
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
@@ -50,6 +55,9 @@ var loginCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+
+			// update host's static platform and system information
+			system.UpdateStaticInfo()
 
 			ic := internal.ConfigInput{
 				ManagementURL: managementURL,
@@ -91,11 +99,11 @@ var loginCmd = &cobra.Command{
 		}
 
 		loginRequest := proto.LoginRequest{
-			SetupKey:             providedSetupKey,
-			ManagementUrl:        managementURL,
-			IsLinuxDesktopClient: isLinuxRunningDesktop(),
-			Hostname:             hostName,
-			DnsLabels:            dnsLabelsReq,
+			SetupKey:            providedSetupKey,
+			ManagementUrl:       managementURL,
+			IsUnixDesktopClient: isUnixRunningDesktop(),
+			Hostname:            hostName,
+			DnsLabels:           dnsLabelsReq,
 		}
 
 		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -127,7 +135,7 @@ var loginCmd = &cobra.Command{
 		}
 
 		if loginResp.NeedsSSOLogin {
-			openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
+			openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
 
 			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 			if err != nil {
@@ -188,7 +196,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 }
 
 func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *internal.Config) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isLinuxRunningDesktop())
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop())
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +206,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
-	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode)
+	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode, noBrowser)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
 	waitCTX, c := context.WithTimeout(context.TODO(), waitTimeout)
@@ -212,23 +220,34 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 	return &tokenInfo, nil
 }
 
-func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
+func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBrowser bool) {
 	var codeMsg string
 	if userCode != "" && !strings.Contains(verificationURIComplete, userCode) {
 		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
 	}
 
-	cmd.Println("Please do the SSO login in your browser. \n" +
-		"If your browser didn't open automatically, use this URL to log in:\n\n" +
-		verificationURIComplete + " " + codeMsg)
+	if noBrowser {
+		cmd.Println("Use this URL to log in:\n\n" + verificationURIComplete + " " + codeMsg)
+	} else {
+		cmd.Println("Please do the SSO login in your browser. \n" +
+			"If your browser didn't open automatically, use this URL to log in:\n\n" +
+			verificationURIComplete + " " + codeMsg)
+	}
+
 	cmd.Println("")
-	if err := open.Run(verificationURIComplete); err != nil {
-		cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
-			"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
+
+	if !noBrowser {
+		if err := open.Run(verificationURIComplete); err != nil {
+			cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
+				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
+		}
 	}
 }
 
-// isLinuxRunningDesktop checks if a Linux OS is running desktop environment
-func isLinuxRunningDesktop() bool {
+// isUnixRunningDesktop checks if a Linux OS is running desktop environment
+func isUnixRunningDesktop() bool {
+	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
+		return false
+	}
 	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }

@@ -2,7 +2,7 @@ package dns
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/google/gopacket"
@@ -24,11 +24,15 @@ type ServiceViaMemory struct {
 }
 
 func NewServiceViaMemory(wgIface WGIface) *ServiceViaMemory {
+	lastIP, err := nbnet.GetLastIPFromNetwork(wgIface.Address().Network, 1)
+	if err != nil {
+		log.Errorf("get last ip from network: %v", err)
+	}
 	s := &ServiceViaMemory{
 		wgInterface: wgIface,
 		dnsMux:      dns.NewServeMux(),
 
-		runtimeIP:   nbnet.GetLastIPFromNetwork(wgIface.Address().Network, 1).String(),
+		runtimeIP:   lastIP.String(),
 		runtimePort: defaultPort,
 	}
 	return s
@@ -91,7 +95,7 @@ func (s *ServiceViaMemory) filterDNSTraffic() (string, error) {
 	}
 
 	firstLayerDecoder := layers.LayerTypeIPv4
-	if s.wgInterface.Address().Network.IP.To4() == nil {
+	if s.wgInterface.Address().IP.Is6() {
 		firstLayerDecoder = layers.LayerTypeIPv6
 	}
 
@@ -117,5 +121,10 @@ func (s *ServiceViaMemory) filterDNSTraffic() (string, error) {
 		return true
 	}
 
-	return filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook), nil
+	ip, err := netip.ParseAddr(s.runtimeIP)
+	if err != nil {
+		return "", fmt.Errorf("parse runtime ip: %w", err)
+	}
+
+	return filter.AddUDPPacketHook(false, ip, uint16(s.runtimePort), hook), nil
 }

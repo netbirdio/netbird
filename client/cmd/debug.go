@@ -11,9 +11,12 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/debug"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	nbstatus "github.com/netbirdio/netbird/client/status"
+	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
 const errCloseConnection = "Failed to close connection: %v"
@@ -84,16 +87,27 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	}()
 
 	client := proto.NewDaemonServiceClient(conn)
-	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
+	request := &proto.DebugBundleRequest{
 		Anonymize:  anonymizeFlag,
 		Status:     getStatusOutput(cmd, anonymizeFlag),
 		SystemInfo: debugSystemInfoFlag,
-	})
+	}
+	if debugUploadBundle {
+		request.UploadURL = debugUploadBundleURL
+	}
+	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
 	}
+	cmd.Printf("Local file:\n%s\n", resp.GetPath())
 
-	cmd.Println(resp.GetPath())
+	if resp.GetUploadFailureReason() != "" {
+		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
+	}
+
+	if debugUploadBundle {
+		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
+	}
 
 	return nil
 }
@@ -208,21 +222,17 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	headerPreDown := fmt.Sprintf("----- Netbird pre-down - Timestamp: %s - Duration: %s", time.Now().Format(time.RFC3339), duration)
 	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, getStatusOutput(cmd, anonymizeFlag))
-
-	resp, err := client.DebugBundle(cmd.Context(), &proto.DebugBundleRequest{
+	request := &proto.DebugBundleRequest{
 		Anonymize:  anonymizeFlag,
 		Status:     statusOutput,
 		SystemInfo: debugSystemInfoFlag,
-	})
+	}
+	if debugUploadBundle {
+		request.UploadURL = debugUploadBundleURL
+	}
+	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
-	}
-
-	// Disable network map persistence after creating the debug bundle
-	if _, err := client.SetNetworkMapPersistence(cmd.Context(), &proto.SetNetworkMapPersistenceRequest{
-		Enabled: false,
-	}); err != nil {
-		return fmt.Errorf("failed to disable network map persistence: %v", status.Convert(err).Message())
 	}
 
 	if stateWasDown {
@@ -239,7 +249,15 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		cmd.Println("Log level restored to", initialLogLevel.GetLevel())
 	}
 
-	cmd.Println(resp.GetPath())
+	cmd.Printf("Local file:\n%s\n", resp.GetPath())
+
+	if resp.GetUploadFailureReason() != "" {
+		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
+	}
+
+	if debugUploadBundle {
+		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
+	}
 
 	return nil
 }
@@ -325,4 +343,35 @@ func formatDuration(d time.Duration) string {
 	d %= time.Minute
 	s := d / time.Second
 	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+}
+
+func generateDebugBundle(config *internal.Config, recorder *peer.Status, connectClient *internal.ConnectClient, logFilePath string) {
+	var networkMap *mgmProto.NetworkMap
+	var err error
+
+	if connectClient != nil {
+		networkMap, err = connectClient.GetLatestNetworkMap()
+		if err != nil {
+			log.Warnf("Failed to get latest network map: %v", err)
+		}
+	}
+
+	bundleGenerator := debug.NewBundleGenerator(
+		debug.GeneratorDependencies{
+			InternalConfig: config,
+			StatusRecorder: recorder,
+			NetworkMap:     networkMap,
+			LogFile:        logFilePath,
+		},
+		debug.BundleConfig{
+			IncludeSystemInfo: true,
+		},
+	)
+
+	path, err := bundleGenerator.Generate()
+	if err != nil {
+		log.Errorf("Failed to generate debug bundle: %v", err)
+		return
+	}
+	log.Infof("Generated debug bundle from SIGUSR1 at: %s", path)
 }

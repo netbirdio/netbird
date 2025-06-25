@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -21,10 +21,10 @@ const failedToConvertRoute = "failed to convert route to response: %v"
 
 // handler is the routes handler of the account
 type handler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	routesHandler := newHandler(accountManager)
 	router.HandleFunc("/routes", routesHandler.getAllRoutes).Methods("GET", "OPTIONS")
 	router.HandleFunc("/routes", routesHandler.createRoute).Methods("POST", "OPTIONS")
@@ -34,7 +34,7 @@ func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
 }
 
 // newHandler returns a new instance of routes handler
-func newHandler(accountManager server.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}
@@ -301,7 +301,7 @@ func (h *handler) getRoute(w http.ResponseWriter, r *http.Request) {
 
 	foundRoute, err := h.accountManager.GetRoute(r.Context(), accountID, route.ID(routeID), userID)
 	if err != nil {
-		util.WriteError(r.Context(), status.Errorf(status.NotFound, "route not found"), w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 

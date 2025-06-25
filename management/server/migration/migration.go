@@ -352,3 +352,24 @@ func MigrateNewField[T any](ctx context.Context, db *gorm.DB, columnName string,
 	log.WithContext(ctx).Infof("Migration of empty %s to default value in table %s completed", columnName, tableName)
 	return nil
 }
+
+func DropIndex[T any](ctx context.Context, db *gorm.DB, indexName string) error {
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no migration needed", model)
+		return nil
+	}
+
+	if !db.Migrator().HasIndex(&model, indexName) {
+		log.WithContext(ctx).Debugf("index %s does not exist in table %T, no migration needed", indexName, model)
+		return nil
+	}
+
+	if err := db.Migrator().DropIndex(&model, indexName); err != nil {
+		return fmt.Errorf("failed to drop index %s: %w", indexName, err)
+	}
+
+	log.WithContext(ctx).Infof("dropped index %s from table %T", indexName, model)
+	return nil
+}

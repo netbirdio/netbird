@@ -49,7 +49,7 @@ type UniversalUDPMuxParams struct {
 // NewUniversalUDPMuxDefault creates an implementation of UniversalUDPMux embedding UDPMux
 func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDefault {
 	if params.Logger == nil {
-		params.Logger = logging.NewDefaultLoggerFactory().NewLogger("ice")
+		params.Logger = getLogger()
 	}
 	if params.XORMappedAddrCacheTTL == 0 {
 		params.XORMappedAddrCacheTTL = time.Second * 25
@@ -164,7 +164,7 @@ func (u *udpConn) performFilterCheck(addr net.Addr) error {
 		return nil
 	}
 
-	if u.address.Network.Contains(a.AsSlice()) {
+	if u.address.Network.Contains(a) {
 		log.Warnf("Address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 		return fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 	}

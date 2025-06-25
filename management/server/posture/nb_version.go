@@ -3,6 +3,7 @@ package posture
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
@@ -16,18 +17,19 @@ type NBVersionCheck struct {
 
 var _ Check = (*NBVersionCheck)(nil)
 
+// sanitizeVersion removes anything after the pre-release tag (e.g., "-dev", "-alpha", etc.)
+func sanitizeVersion(version string) string {
+	parts := strings.Split(version, "-")
+	return parts[0]
+}
+
 func (n *NBVersionCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
-	peerNBVersion, err := version.NewVersion(peer.Meta.WtVersion)
+	meetsMin, err := MeetsMinVersion(n.MinVersion, peer.Meta.WtVersion)
 	if err != nil {
 		return false, err
 	}
 
-	constraints, err := version.NewConstraint(">= " + n.MinVersion)
-	if err != nil {
-		return false, err
-	}
-
-	if constraints.Check(peerNBVersion) {
+	if meetsMin {
 		return true, nil
 	}
 
@@ -49,4 +51,22 @@ func (n *NBVersionCheck) Validate() error {
 		return fmt.Errorf("%s version: %s is not valid", n.Name(), n.MinVersion)
 	}
 	return nil
+}
+
+// MeetsMinVersion checks if the peer's version meets or exceeds the minimum required version
+func MeetsMinVersion(minVer, peerVer string) (bool, error) {
+	peerVer = sanitizeVersion(peerVer)
+	minVer = sanitizeVersion(minVer)
+
+	peerNBVer, err := version.NewVersion(peerVer)
+	if err != nil {
+		return false, err
+	}
+
+	constraints, err := version.NewConstraint(">= " + minVer)
+	if err != nil {
+		return false, err
+	}
+
+	return constraints.Check(peerNBVer), nil
 }

@@ -100,7 +100,7 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 
 		// Convert to proto format
 		for domain, ips := range domainMap {
-			pbRoute.ResolvedIPs[string(domain)] = &proto.IPList{
+			pbRoute.ResolvedIPs[domain.SafeString()] = &proto.IPList{
 				Ips: ips,
 			}
 		}

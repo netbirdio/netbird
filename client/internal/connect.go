@@ -349,6 +349,25 @@ func (c *ConnectClient) Engine() *Engine {
 	return e
 }
 
+// GetLatestNetworkMap returns the latest network map from the engine.
+func (c *ConnectClient) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
+	engine := c.Engine()
+	if engine == nil {
+		return nil, errors.New("engine is not initialized")
+	}
+
+	networkMap, err := engine.GetLatestNetworkMap()
+	if err != nil {
+		return nil, fmt.Errorf("get latest network map: %w", err)
+	}
+
+	if networkMap == nil {
+		return nil, errors.New("network map is not available")
+	}
+
+	return networkMap, nil
+}
+
 // Status returns the current client status
 func (c *ConnectClient) Status() StatusType {
 	if c == nil {
@@ -417,11 +436,13 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		DNSRouteInterval:     config.DNSRouteInterval,
 
 		DisableClientRoutes: config.DisableClientRoutes,
-		DisableServerRoutes: config.DisableServerRoutes,
+		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
 		DisableDNS:          config.DisableDNS,
 		DisableFirewall:     config.DisableFirewall,
+		BlockLANAccess:      config.BlockLANAccess,
+		BlockInbound:        config.BlockInbound,
 
-		BlockLANAccess: config.BlockLANAccess,
+		LazyConnectionEnabled: config.LazyConnectionEnabled,
 	}
 
 	if config.PreSharedKey != "" {
@@ -462,7 +483,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 	return signalClient, nil
 }
 
-// loginToManagement creates Management Services client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
+// loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *Config) (*mgmProto.LoginResponse, error) {
 
 	serverPublicKey, err := client.GetServerPublicKey()
@@ -479,6 +500,9 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.DisableServerRoutes,
 		config.DisableDNS,
 		config.DisableFirewall,
+		config.BlockLANAccess,
+		config.BlockInbound,
+		config.LazyConnectionEnabled,
 	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {

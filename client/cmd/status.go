@@ -44,7 +44,7 @@ func init() {
 	statusCmd.MarkFlagsMutuallyExclusive("detail", "json", "yaml", "ipv4")
 	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g., --filter-by-ips 100.64.0.100,100.64.0.200")
 	statusCmd.PersistentFlags().StringSliceVar(&prefixNamesFilter, "filter-by-names", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
-	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(connected|disconnected), e.g., --filter-by-status connected")
+	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
 }
 
 func statusFunc(cmd *cobra.Command, args []string) error {
@@ -69,7 +69,10 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
+	status := resp.GetStatus()
+
+	if status == string(internal.StatusNeedsLogin) || status == string(internal.StatusLoginFailed) ||
+		status == string(internal.StatusSessionExpired) {
 		cmd.Printf("Daemon status: %s\n\n"+
 			"Run UP command to log in with SSO (interactive login):\n\n"+
 			" netbird up \n\n"+
@@ -127,12 +130,12 @@ func getStatus(ctx context.Context) (*proto.StatusResponse, error) {
 
 func parseFilters() error {
 	switch strings.ToLower(statusFilter) {
-	case "", "disconnected", "connected":
+	case "", "idle", "connecting", "connected":
 		if strings.ToLower(statusFilter) != "" {
 			enableDetailFlagWhenFilterFlag()
 		}
 	default:
-		return fmt.Errorf("wrong status filter, should be one of connected|disconnected, got: %s", statusFilter)
+		return fmt.Errorf("wrong status filter, should be one of connected|connecting|idle, got: %s", statusFilter)
 	}
 
 	if len(ipsFilter) > 0 {

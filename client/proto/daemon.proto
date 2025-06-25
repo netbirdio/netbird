@@ -94,7 +94,7 @@ message LoginRequest {
 
   bytes customDNSAddress = 7;
 
-  bool isLinuxDesktopClient = 8;
+  bool isUnixDesktopClient = 8;
 
   string hostname = 9;
 
@@ -122,7 +122,6 @@ message LoginRequest {
   optional bool disable_server_routes = 21;
   optional bool disable_dns = 22;
   optional bool disable_firewall = 23;
-
   optional bool block_lan_access = 24;
 
   optional bool disable_notifications = 25;
@@ -134,6 +133,9 @@ message LoginRequest {
   // omits initialized empty slices due to omitempty tags
   bool cleanDNSLabels = 27;
 
+  optional bool lazyConnectionEnabled = 28;
+
+  optional bool block_inbound = 29;
 }
 
 message LoginResponse {
@@ -201,6 +203,20 @@ message GetConfigResponse {
   bool rosenpassPermissive = 12;
 
   bool disable_notifications = 13;
+
+  bool lazyConnectionEnabled = 14;
+
+  bool blockInbound = 15;
+
+  bool networkMonitor = 16;
+
+  bool disable_dns = 17;
+
+  bool disable_client_routes = 18;
+
+  bool disable_server_routes = 19;
+
+  bool block_lan_access = 20;
 }
 
 // PeerState contains the latest state of a peer
@@ -274,6 +290,8 @@ message FullStatus {
   int32 NumberOfForwardingRules = 8;
 
   repeated SystemEvent events = 7;
+
+  bool lazyConnectionEnabled = 9;
 }
 
 // Networks
@@ -336,10 +354,13 @@ message DebugBundleRequest {
   bool anonymize = 1;
   string status = 2;
   bool systemInfo = 3;
+  string uploadURL = 4;
 }
 
 message DebugBundleResponse {
   string path = 1;
+  string uploadedKey = 2;
+  string uploadFailureReason = 3;
 }
 
 enum LogLevel {

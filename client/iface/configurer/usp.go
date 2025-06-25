@@ -1,9 +1,11 @@
 package configurer
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"runtime"
 	"strconv"
@@ -15,6 +17,20 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbnet "github.com/netbirdio/netbird/util/net"
+)
+
+const (
+	privateKey                  = "private_key"
+	ipcKeyLastHandshakeTimeSec  = "last_handshake_time_sec"
+	ipcKeyLastHandshakeTimeNsec = "last_handshake_time_nsec"
+	ipcKeyTxBytes               = "tx_bytes"
+	ipcKeyRxBytes               = "rx_bytes"
+	allowedIP                   = "allowed_ip"
+	endpoint                    = "endpoint"
+	fwmark                      = "fwmark"
+	listenPort                  = "listen_port"
+	publicKey                   = "public_key"
+	presharedKey                = "preshared_key"
 )
 
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
@@ -52,7 +68,7 @@ func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -61,7 +77,7 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, kee
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: false,
 		// don't replace allowed ips, wg will handle duplicated peer IP
-		AllowedIPs:                  allowedIps,
+		AllowedIPs:                  prefixesToIPNets(allowedIps),
 		PersistentKeepaliveInterval: &keepAlive,
 		PresharedKey:                preSharedKey,
 		Endpoint:                    endpoint,
@@ -91,10 +107,10 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
-	_, ipNet, err := net.ParseCIDR(allowedIP)
-	if err != nil {
-		return err
+func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
+	ipNet := net.IPNet{
+		IP:   allowedIP.Addr().AsSlice(),
+		Mask: net.CIDRMask(allowedIP.Bits(), allowedIP.Addr().BitLen()),
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
@@ -105,7 +121,7 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: false,
-		AllowedIPs:        []net.IPNet{*ipNet},
+		AllowedIPs:        []net.IPNet{ipNet},
 	}
 
 	config := wgtypes.Config{
@@ -115,7 +131,7 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
 	return c.device.IpcSet(toWgUserspaceString(config))
 }
 
-func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
+func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	ipc, err := c.device.IpcGet()
 	if err != nil {
 		return err
@@ -138,6 +154,8 @@ func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
 
 	foundPeer := false
 	removedAllowedIP := false
+	ip := allowedIP.String()
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
@@ -160,8 +178,8 @@ func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
 
 		// Append the line to the output string
 		if foundPeer && strings.HasPrefix(line, "allowed_ip=") {
-			allowedIP := strings.TrimPrefix(line, "allowed_ip=")
-			_, ipNet, err := net.ParseCIDR(allowedIP)
+			allowedIPStr := strings.TrimPrefix(line, "allowed_ip=")
+			_, ipNet, err := net.ParseCIDR(allowedIPStr)
 			if err != nil {
 				return err
 			}
@@ -176,6 +194,15 @@ func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, ip string) error {
 		Peers: []wgtypes.PeerConfig{peer},
 	}
 	return c.device.IpcSet(toWgUserspaceString(config))
+}
+
+func (c *WGUSPConfigurer) FullStats() (*Stats, error) {
+	ipcStr, err := c.device.IpcGet()
+	if err != nil {
+		return nil, fmt.Errorf("IpcGet failed: %w", err)
+	}
+
+	return parseStatus(c.deviceName, ipcStr)
 }
 
 // startUAPI starts the UAPI listener for managing the WireGuard interface via external tool
@@ -217,91 +244,75 @@ func (t *WGUSPConfigurer) Close() {
 	}
 }
 
-func (t *WGUSPConfigurer) GetStats(peerKey string) (WGStats, error) {
+func (t *WGUSPConfigurer) GetStats() (map[string]WGStats, error) {
 	ipc, err := t.device.IpcGet()
 	if err != nil {
-		return WGStats{}, fmt.Errorf("ipc get: %w", err)
+		return nil, fmt.Errorf("ipc get: %w", err)
 	}
 
-	stats, err := findPeerInfo(ipc, peerKey, []string{
-		"last_handshake_time_sec",
-		"last_handshake_time_nsec",
-		"tx_bytes",
-		"rx_bytes",
-	})
-	if err != nil {
-		return WGStats{}, fmt.Errorf("find peer info: %w", err)
-	}
-
-	sec, err := strconv.ParseInt(stats["last_handshake_time_sec"], 10, 64)
-	if err != nil {
-		return WGStats{}, fmt.Errorf("parse handshake sec: %w", err)
-	}
-	nsec, err := strconv.ParseInt(stats["last_handshake_time_nsec"], 10, 64)
-	if err != nil {
-		return WGStats{}, fmt.Errorf("parse handshake nsec: %w", err)
-	}
-	txBytes, err := strconv.ParseInt(stats["tx_bytes"], 10, 64)
-	if err != nil {
-		return WGStats{}, fmt.Errorf("parse tx_bytes: %w", err)
-	}
-	rxBytes, err := strconv.ParseInt(stats["rx_bytes"], 10, 64)
-	if err != nil {
-		return WGStats{}, fmt.Errorf("parse rx_bytes: %w", err)
-	}
-
-	return WGStats{
-		LastHandshake: time.Unix(sec, nsec),
-		TxBytes:       txBytes,
-		RxBytes:       rxBytes,
-	}, nil
+	return parseTransfers(ipc)
 }
 
-func findPeerInfo(ipcInput string, peerKey string, searchConfigKeys []string) (map[string]string, error) {
-	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
-	if err != nil {
-		return nil, fmt.Errorf("parse key: %w", err)
-	}
-
-	hexKey := hex.EncodeToString(peerKeyParsed[:])
-
-	lines := strings.Split(ipcInput, "\n")
-
-	configFound := map[string]string{}
-	foundPeer := false
+func parseTransfers(ipc string) (map[string]WGStats, error) {
+	stats := make(map[string]WGStats)
+	var (
+		currentKey   string
+		currentStats WGStats
+		hasPeer      bool
+	)
+	lines := strings.Split(ipc, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
 		// If we're within the details of the found peer and encounter another public key,
 		// this means we're starting another peer's details. So, stop.
-		if strings.HasPrefix(line, "public_key=") && foundPeer {
-			break
-		}
-
-		// Identify the peer with the specific public key
-		if line == fmt.Sprintf("public_key=%s", hexKey) {
-			foundPeer = true
-		}
-
-		for _, key := range searchConfigKeys {
-			if foundPeer && strings.HasPrefix(line, key+"=") {
-				v := strings.SplitN(line, "=", 2)
-				configFound[v[0]] = v[1]
+		if strings.HasPrefix(line, "public_key=") {
+			peerID := strings.TrimPrefix(line, "public_key=")
+			h, err := hex.DecodeString(peerID)
+			if err != nil {
+				return nil, fmt.Errorf("decode peerID: %w", err)
 			}
+			currentKey = base64.StdEncoding.EncodeToString(h)
+			currentStats = WGStats{} // Reset stats for the new peer
+			hasPeer = true
+			stats[currentKey] = currentStats
+			continue
+		}
+
+		if !hasPeer {
+			continue
+		}
+
+		key := strings.SplitN(line, "=", 2)
+		if len(key) != 2 {
+			continue
+		}
+		switch key[0] {
+		case ipcKeyLastHandshakeTimeSec:
+			hs, err := toLastHandshake(key[1])
+			if err != nil {
+				return nil, err
+			}
+			currentStats.LastHandshake = hs
+			stats[currentKey] = currentStats
+		case ipcKeyRxBytes:
+			rxBytes, err := toBytes(key[1])
+			if err != nil {
+				return nil, fmt.Errorf("parse rx_bytes: %w", err)
+			}
+			currentStats.RxBytes = rxBytes
+			stats[currentKey] = currentStats
+		case ipcKeyTxBytes:
+			TxBytes, err := toBytes(key[1])
+			if err != nil {
+				return nil, fmt.Errorf("parse tx_bytes: %w", err)
+			}
+			currentStats.TxBytes = TxBytes
+			stats[currentKey] = currentStats
 		}
 	}
 
-	// todo: use multierr
-	for _, key := range searchConfigKeys {
-		if _, ok := configFound[key]; !ok {
-			return configFound, fmt.Errorf("config key not found: %s", key)
-		}
-	}
-	if !foundPeer {
-		return nil, fmt.Errorf("%w: %s", ErrPeerNotFound, peerKey)
-	}
-
-	return configFound, nil
+	return stats, nil
 }
 
 func toWgUserspaceString(wgCfg wgtypes.Config) string {
@@ -355,9 +366,154 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 	return sb.String()
 }
 
+func toLastHandshake(stringVar string) (time.Time, error) {
+	sec, err := strconv.ParseInt(stringVar, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse handshake sec: %w", err)
+	}
+	return time.Unix(sec, 0), nil
+}
+
+func toBytes(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
+}
+
 func getFwmark() int {
 	if nbnet.AdvancedRouting() {
-		return nbnet.NetbirdFwmark
+		return nbnet.ControlPlaneMark
 	}
 	return 0
+}
+
+func hexToWireguardKey(hexKey string) (wgtypes.Key, error) {
+	// Decode hex string to bytes
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return wgtypes.Key{}, fmt.Errorf("failed to decode hex key: %w", err)
+	}
+
+	// Check if we have the right number of bytes (WireGuard keys are 32 bytes)
+	if len(keyBytes) != 32 {
+		return wgtypes.Key{}, fmt.Errorf("invalid key length: expected 32 bytes, got %d", len(keyBytes))
+	}
+
+	// Convert to wgtypes.Key
+	var key wgtypes.Key
+	copy(key[:], keyBytes)
+
+	return key, nil
+}
+
+func parseStatus(deviceName, ipcStr string) (*Stats, error) {
+	stats := &Stats{DeviceName: deviceName}
+	var currentPeer *Peer
+	for _, line := range strings.Split(strings.TrimSpace(ipcStr), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		val := parts[1]
+
+		switch key {
+		case privateKey:
+			key, err := hexToWireguardKey(val)
+			if err != nil {
+				log.Errorf("failed to parse private key: %v", err)
+				continue
+			}
+			stats.PublicKey = key.PublicKey().String()
+		case publicKey:
+			// Save previous peer
+			if currentPeer != nil {
+				stats.Peers = append(stats.Peers, *currentPeer)
+			}
+			key, err := hexToWireguardKey(val)
+			if err != nil {
+				log.Errorf("failed to parse public key: %v", err)
+				continue
+			}
+			currentPeer = &Peer{
+				PublicKey: key.String(),
+			}
+		case listenPort:
+			if port, err := strconv.Atoi(val); err == nil {
+				stats.ListenPort = port
+			}
+		case fwmark:
+			if fwmark, err := strconv.Atoi(val); err == nil {
+				stats.FWMark = fwmark
+			}
+		case endpoint:
+			if currentPeer == nil {
+				continue
+			}
+
+			host, portStr, err := net.SplitHostPort(strings.Trim(val, "[]"))
+			if err != nil {
+				log.Errorf("failed to parse endpoint: %v", err)
+				continue
+			}
+			port, err := strconv.Atoi(portStr)
+			if err != nil {
+				log.Errorf("failed to parse endpoint port: %v", err)
+				continue
+			}
+			currentPeer.Endpoint = net.UDPAddr{
+				IP:   net.ParseIP(host),
+				Port: port,
+			}
+		case allowedIP:
+			if currentPeer == nil {
+				continue
+			}
+			_, ipnet, err := net.ParseCIDR(val)
+			if err == nil {
+				currentPeer.AllowedIPs = append(currentPeer.AllowedIPs, *ipnet)
+			}
+		case ipcKeyTxBytes:
+			if currentPeer == nil {
+				continue
+			}
+			rxBytes, err := toBytes(val)
+			if err != nil {
+				continue
+			}
+			currentPeer.TxBytes = rxBytes
+		case ipcKeyRxBytes:
+			if currentPeer == nil {
+				continue
+			}
+			rxBytes, err := toBytes(val)
+			if err != nil {
+				continue
+			}
+			currentPeer.RxBytes = rxBytes
+
+		case ipcKeyLastHandshakeTimeSec:
+			if currentPeer == nil {
+				continue
+			}
+
+			ts, err := toLastHandshake(val)
+			if err != nil {
+				continue
+			}
+			currentPeer.LastHandshake = ts
+		case presharedKey:
+			if currentPeer == nil {
+				continue
+			}
+			if val != "" {
+				currentPeer.PresharedKey = true
+			}
+		}
+	}
+	if currentPeer != nil {
+		stats.Peers = append(stats.Peers, *currentPeer)
+	}
+	return stats, nil
 }

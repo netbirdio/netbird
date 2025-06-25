@@ -2,15 +2,15 @@ package iface
 
 import (
 	"net"
+	"net/netip"
 
-	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type wgIfaceBase interface {
-	AddAllowedIP(peerKey string, allowedIP string) error
-	RemoveAllowedIP(peerKey string, allowedIP string) error
+	AddAllowedIP(peerKey string, allowedIP netip.Prefix) error
+	RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error
 
 	Name() string
 	Address() wgaddr.Address
@@ -18,5 +18,4 @@ type wgIfaceBase interface {
 	IsUserspaceBind() bool
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
-	GetStats(peerKey string) (configurer.WGStats, error)
 }

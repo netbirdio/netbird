@@ -36,9 +36,23 @@ const (
 	PublicCategory  = "public"
 	PrivateCategory = "private"
 	UnknownCategory = "unknown"
+
+	// firewallRuleMinPortRangesVer defines the minimum peer version that supports port range rules.
+	firewallRuleMinPortRangesVer = "0.48.0"
 )
 
 type LookupMap map[string]struct{}
+
+// AccountMeta is a struct that contains a stripped down version of the Account object.
+// It doesn't carry any peers, groups, policies, or routes, etc. Just some metadata (e.g. ID, created by, created at, etc).
+type AccountMeta struct {
+	// AccountId is the unique identifier of the account
+	AccountID      string `gorm:"column:id"`
+	CreatedAt      time.Time
+	CreatedBy      string
+	Domain         string
+	DomainCategory string
+}
 
 // Account represents a unique account of the system
 type Account struct {
@@ -149,11 +163,6 @@ func (a *Account) getRoutingPeerRoutes(ctx context.Context, peerID string) (enab
 		return enabledRoutes, disabledRoutes
 	}
 
-	// currently we support only linux routing peers
-	if peer.Meta.GoOS != "linux" {
-		return enabledRoutes, disabledRoutes
-	}
-
 	seenRoute := make(map[route.ID]struct{})
 
 	takeRoute := func(r *route.Route, id string) {
@@ -242,7 +251,7 @@ func (a *Account) GetPeerNetworkMap(
 		}
 	}
 
-	aclPeers, firewallRules := a.GetPeerConnectionResources(ctx, peerID, validatedPeersMap)
+	aclPeers, firewallRules := a.GetPeerConnectionResources(ctx, peer, validatedPeersMap)
 	// exclude expired peers
 	var peersToConnect []*nbpeer.Peer
 	var expiredPeers []*nbpeer.Peer
@@ -860,6 +869,16 @@ func (a *Account) Copy() *Account {
 	}
 }
 
+func (a *Account) GetMeta() *AccountMeta {
+	return &AccountMeta{
+		AccountID:      a.Id,
+		CreatedBy:      a.CreatedBy,
+		CreatedAt:      a.CreatedAt,
+		Domain:         a.Domain,
+		DomainCategory: a.DomainCategory,
+	}
+}
+
 func (a *Account) GetGroupAll() (*Group, error) {
 	for _, g := range a.Groups {
 		if g.Name == "All" {
@@ -945,8 +964,9 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) map
 // GetPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) GetPeerConnectionResources(ctx context.Context, peerID string, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
-	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx)
+func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}) ([]*nbpeer.Peer, []*FirewallRule) {
+	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx, peer)
+
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue
@@ -957,8 +977,8 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peerID string,
 				continue
 			}
 
-			sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
-			destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, rule.Destinations, peerID, nil, validatedPeersMap)
+			sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, rule.Sources, peer.ID, policy.SourcePostureChecks, validatedPeersMap)
+			destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, rule.Destinations, peer.ID, nil, validatedPeersMap)
 
 			if rule.Bidirectional {
 				if peerInSources {
@@ -987,7 +1007,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peerID string,
 // The generator function is used to generate the list of peers and firewall rules that are applicable to a given peer.
 // It safe to call the generator function multiple times for same peer and different rules no duplicates will be
 // generated. The accumulator function returns the result of all the generator calls.
-func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule, []*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
+func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer.Peer) (func(*PolicyRule, []*nbpeer.Peer, int), func() ([]*nbpeer.Peer, []*FirewallRule)) {
 	rulesExists := make(map[string]struct{})
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
@@ -1012,6 +1032,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 				}
 
 				fr := FirewallRule{
+					PolicyID:  rule.ID,
 					PeerIP:    peer.IP.String(),
 					Direction: direction,
 					Action:    string(rule.Action),
@@ -1029,16 +1050,12 @@ func (a *Account) connResourcesGenerator(ctx context.Context) (func(*PolicyRule,
 				}
 				rulesExists[ruleID] = struct{}{}
 
-				if len(rule.Ports) == 0 {
+				if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 					rules = append(rules, &fr)
 					continue
 				}
 
-				for _, port := range rule.Ports {
-					pr := fr // clone rule and add set new port
-					pr.Port = port
-					rules = append(rules, &pr)
-				}
+				rules = append(rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 			}
 		}, func() ([]*nbpeer.Peer, []*FirewallRule) {
 			return peers, rules
@@ -1223,6 +1240,7 @@ func getDefaultPermit(route *route.Route) []*RouteFirewallRule {
 		Protocol:     string(PolicyRuleProtocolALL),
 		Domains:      route.Domains,
 		IsDynamic:    route.IsDynamic(),
+		RouteID:      route.ID,
 	}
 
 	rules = append(rules, &rule)
@@ -1271,7 +1289,7 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer 
 		if route.Peer != peer.Key {
 			continue
 		}
-		resourceAppliedPolicies := resourcePolicies[route.GetResourceID()]
+		resourceAppliedPolicies := resourcePolicies[string(route.GetResourceID())]
 		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
 
 		rules := a.getRouteFirewallRules(ctx, peer.ID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
@@ -1565,4 +1583,46 @@ func (a *Account) AddAllGroup() error {
 		a.Policies = []*Policy{defaultPolicy}
 	}
 	return nil
+}
+
+// expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules
+func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
+	var expanded []*FirewallRule
+
+	if len(rule.Ports) > 0 {
+		for _, port := range rule.Ports {
+			fr := base
+			fr.Port = port
+			expanded = append(expanded, &fr)
+		}
+		return expanded
+	}
+
+	supportPortRanges := peerSupportsPortRanges(peer.Meta.WtVersion)
+	for _, portRange := range rule.PortRanges {
+		fr := base
+
+		if supportPortRanges {
+			fr.PortRange = portRange
+		} else {
+			// Peer doesn't support port ranges, only allow single-port ranges
+			if portRange.Start != portRange.End {
+				continue
+			}
+			fr.Port = strconv.FormatUint(uint64(portRange.Start), 10)
+		}
+		expanded = append(expanded, &fr)
+	}
+
+	return expanded
+}
+
+// peerSupportsPortRanges checks if the peer version supports port ranges.
+func peerSupportsPortRanges(peerVer string) bool {
+	if strings.Contains(peerVer, "dev") {
+		return true
+	}
+
+	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
+	return err == nil && meetMinVer
 }

@@ -3,6 +3,7 @@ package uspfilter
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"testing"
 	"time"
@@ -18,9 +19,12 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/internal/netflow"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 var logger = log.NewFromLogrus(logrus.StandardLogger())
+var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 type IFaceMock struct {
 	SetFilterFunc   func(device.PacketFilter) error
@@ -62,7 +66,7 @@ func TestManagerCreate(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -82,7 +86,7 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 		},
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -92,9 +96,8 @@ func TestManagerAddPeerFiltering(t *testing.T) {
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
-	comment := "Test rule"
 
-	rule, err := m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
+	rule, err := m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -116,26 +119,25 @@ func TestManagerDeleteRule(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
 	}
 
-	ip := net.ParseIP("192.168.1.1")
+	ip := netip.MustParseAddr("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
-	comment := "Test rule 2"
 
-	rule2, err := m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
+	rule2, err := m.AddPeerFiltering(nil, ip.AsSlice(), proto, nil, port, action, "")
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
 	}
 
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip.String()][r.ID()]; !ok {
+		if _, ok := m.incomingRules[ip][r.ID()]; !ok {
 			t.Errorf("rule2 is not in the incomingRules")
 		}
 	}
@@ -149,7 +151,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip.String()][r.ID()]; ok {
+		if _, ok := m.incomingRules[ip][r.ID()]; ok {
 			t.Errorf("rule2 is not in the incomingRules")
 		}
 	}
@@ -160,7 +162,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 		name       string
 		in         bool
 		expDir     fw.RuleDirection
-		ip         net.IP
+		ip         netip.Addr
 		dPort      uint16
 		hook       func([]byte) bool
 		expectedID string
@@ -169,7 +171,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 			name:   "Test Outgoing UDP Packet Hook",
 			in:     false,
 			expDir: fw.RuleDirectionOUT,
-			ip:     net.IPv4(10, 168, 0, 1),
+			ip:     netip.MustParseAddr("10.168.0.1"),
 			dPort:  8000,
 			hook:   func([]byte) bool { return true },
 		},
@@ -177,7 +179,7 @@ func TestAddUDPPacketHook(t *testing.T) {
 			name:   "Test Incoming UDP Packet Hook",
 			in:     true,
 			expDir: fw.RuleDirectionIN,
-			ip:     net.IPv6loopback,
+			ip:     netip.MustParseAddr("::1"),
 			dPort:  9000,
 			hook:   func([]byte) bool { return false },
 		},
@@ -187,18 +189,18 @@ func TestAddUDPPacketHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager, err := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false)
+			}, false, flowLogger)
 			require.NoError(t, err)
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
 
 			var addedRule PeerRule
 			if tt.in {
-				if len(manager.incomingRules[tt.ip.String()]) != 1 {
+				if len(manager.incomingRules[tt.ip]) != 1 {
 					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules))
 					return
 				}
-				for _, rule := range manager.incomingRules[tt.ip.String()] {
+				for _, rule := range manager.incomingRules[tt.ip] {
 					addedRule = rule
 				}
 			} else {
@@ -206,12 +208,12 @@ func TestAddUDPPacketHook(t *testing.T) {
 					t.Errorf("expected 1 outgoing rule, got %d", len(manager.outgoingRules))
 					return
 				}
-				for _, rule := range manager.outgoingRules[tt.ip.String()] {
+				for _, rule := range manager.outgoingRules[tt.ip] {
 					addedRule = rule
 				}
 			}
 
-			if !tt.ip.Equal(addedRule.ip) {
+			if tt.ip.Compare(addedRule.ip) != 0 {
 				t.Errorf("expected ip %s, got %s", tt.ip, addedRule.ip)
 				return
 			}
@@ -236,7 +238,7 @@ func TestManagerReset(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
@@ -246,9 +248,8 @@ func TestManagerReset(t *testing.T) {
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []uint16{80}}
 	action := fw.ActionDrop
-	comment := "Test rule"
 
-	_, err = m.AddPeerFiltering(ip, proto, nil, port, action, "", comment)
+	_, err = m.AddPeerFiltering(nil, ip, proto, nil, port, action, "")
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -270,31 +271,23 @@ func TestNotMatchByIP(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("100.10.0.100"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("100.10.0.0"),
-					Mask: net.CIDRMask(16, 32),
-				},
+				IP:      netip.MustParseAddr("100.10.0.100"),
+				Network: netip.MustParsePrefix("100.10.0.0/16"),
 			}
 		},
 	}
 
-	m, err := Create(ifaceMock, false)
+	m, err := Create(ifaceMock, false, flowLogger)
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
-	}
-	m.wgNetwork = &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
 	}
 
 	ip := net.ParseIP("0.0.0.0")
 	proto := fw.ProtocolUDP
 	action := fw.ActionAccept
-	comment := "Test rule"
 
-	_, err = m.AddPeerFiltering(ip, proto, nil, nil, action, "", comment)
+	_, err = m.AddPeerFiltering(nil, ip, proto, nil, nil, action, "")
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -328,7 +321,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if m.dropFilter(buf.Bytes()) {
+	if m.dropFilter(buf.Bytes(), 0) {
 		t.Errorf("expected packet to be accepted")
 		return
 	}
@@ -347,7 +340,7 @@ func TestRemovePacketHook(t *testing.T) {
 	}
 
 	// creating manager instance
-	manager, err := Create(iface, false)
+	manager, err := Create(iface, false, flowLogger)
 	if err != nil {
 		t.Fatalf("Failed to create Manager: %s", err)
 	}
@@ -357,7 +350,7 @@ func TestRemovePacketHook(t *testing.T) {
 
 	// Add a UDP packet hook
 	hookFunc := func(data []byte) bool { return true }
-	hookID := manager.AddUDPPacketHook(false, net.IPv4(192, 168, 0, 1), 8080, hookFunc)
+	hookID := manager.AddUDPPacketHook(false, netip.MustParseAddr("192.168.0.1"), 8080, hookFunc)
 
 	// Assert the hook is added by finding it in the manager's outgoing rules
 	found := false
@@ -393,15 +386,11 @@ func TestRemovePacketHook(t *testing.T) {
 func TestProcessOutgoingHooks(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false)
+	}, false, flowLogger)
 	require.NoError(t, err)
 
-	manager.wgNetwork = &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
-	}
 	manager.udpTracker.Close()
-	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger)
+	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger, flowLogger)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
 	}()
@@ -423,7 +412,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	hookCalled := false
 	hookID := manager.AddUDPPacketHook(
 		false,
-		net.ParseIP("100.10.0.100"),
+		netip.MustParseAddr("100.10.0.100"),
 		53,
 		func([]byte) bool {
 			hookCalled = true
@@ -458,7 +447,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test hook gets called
-	result := manager.processOutgoingHooks(buf.Bytes())
+	result := manager.processOutgoingHooks(buf.Bytes(), 0)
 	require.True(t, result)
 	require.True(t, hookCalled)
 
@@ -468,7 +457,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	err = gopacket.SerializeLayers(buf, opts, ipv4)
 	require.NoError(t, err)
 
-	result = manager.processOutgoingHooks(buf.Bytes())
+	result = manager.processOutgoingHooks(buf.Bytes(), 0)
 	require.False(t, result)
 }
 
@@ -479,7 +468,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			ifaceMock := &IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
 			}
-			manager, err := Create(ifaceMock, false)
+			manager, err := Create(ifaceMock, false, flowLogger)
 			require.NoError(t, err)
 			time.Sleep(time.Second)
 
@@ -494,7 +483,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
-				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
+				_, err = manager.AddPeerFiltering(nil, ip, "tcp", nil, port, fw.ActionAccept, "")
 
 				require.NoError(t, err, "failed to add rule")
 			}
@@ -506,16 +495,11 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false)
+	}, false, flowLogger)
 	require.NoError(t, err)
 
-	manager.wgNetwork = &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
-	}
-
 	manager.udpTracker.Close() // Close the existing tracker
-	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger)
+	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger, flowLogger)
 	manager.decoders = sync.Pool{
 		New: func() any {
 			d := &decoder{
@@ -534,8 +518,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}()
 
 	// Set up packet parameters
-	srcIP := net.ParseIP("100.10.0.1")
-	dstIP := net.ParseIP("100.10.0.100")
+	srcIP := netip.MustParseAddr("100.10.0.1")
+	dstIP := netip.MustParseAddr("100.10.0.100")
 	srcPort := uint16(51334)
 	dstPort := uint16(53)
 
@@ -543,8 +527,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	outboundIPv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
-		SrcIP:    srcIP,
-		DstIP:    dstIP,
+		SrcIP:    srcIP.AsSlice(),
+		DstIP:    dstIP.AsSlice(),
 		Protocol: layers.IPProtocolUDP,
 	}
 	outboundUDP := &layers.UDP{
@@ -569,15 +553,15 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	require.NoError(t, err)
 
 	// Process outbound packet and verify connection tracking
-	drop := manager.DropOutgoing(outboundBuf.Bytes())
+	drop := manager.DropOutgoing(outboundBuf.Bytes(), 0)
 	require.False(t, drop, "Initial outbound packet should not be dropped")
 
 	// Verify connection was tracked
 	conn, exists := manager.udpTracker.GetConnection(srcIP, srcPort, dstIP, dstPort)
 
 	require.True(t, exists, "Connection should be tracked after outbound packet")
-	require.True(t, conntrack.ValidateIPs(conntrack.MakeIPAddr(srcIP), conn.SourceIP), "Source IP should match")
-	require.True(t, conntrack.ValidateIPs(conntrack.MakeIPAddr(dstIP), conn.DestIP), "Destination IP should match")
+	require.True(t, srcIP.Compare(conn.SourceIP) == 0, "Source IP should match")
+	require.True(t, dstIP.Compare(conn.DestIP) == 0, "Destination IP should match")
 	require.Equal(t, srcPort, conn.SourcePort, "Source port should match")
 	require.Equal(t, dstPort, conn.DestPort, "Destination port should match")
 
@@ -585,8 +569,8 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	inboundIPv4 := &layers.IPv4{
 		TTL:      64,
 		Version:  4,
-		SrcIP:    dstIP, // Original destination is now source
-		DstIP:    srcIP, // Original source is now destination
+		SrcIP:    dstIP.AsSlice(), // Original destination is now source
+		DstIP:    srcIP.AsSlice(), // Original source is now destination
 		Protocol: layers.IPProtocolUDP,
 	}
 	inboundUDP := &layers.UDP{
@@ -636,7 +620,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	for _, cp := range checkPoints {
 		time.Sleep(cp.sleep)
 
-		drop = manager.dropFilter(inboundBuf.Bytes())
+		drop = manager.dropFilter(inboundBuf.Bytes(), 0)
 		require.Equal(t, cp.shouldAllow, !drop, cp.description)
 
 		// If the connection should still be valid, verify it exists
@@ -685,7 +669,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}
 
 	// Create a new outbound connection for invalid tests
-	drop = manager.processOutgoingHooks(outboundBuf.Bytes())
+	drop = manager.processOutgoingHooks(outboundBuf.Bytes(), 0)
 	require.False(t, drop, "Second outbound packet should not be dropped")
 
 	for _, tc := range invalidCases {
@@ -707,8 +691,208 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the invalid packet is dropped
-			drop = manager.dropFilter(testBuf.Bytes())
+			drop = manager.dropFilter(testBuf.Bytes(), 0)
 			require.True(t, drop, tc.description)
 		})
+	}
+}
+
+func TestUpdateSetMerge(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}
+
+	manager, err := Create(ifaceMock, false, flowLogger)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+
+	set := fw.NewDomainSet(domain.List{"example.org"})
+
+	initialPrefixes := []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/24"),
+		netip.MustParsePrefix("192.168.1.0/24"),
+	}
+
+	rule, err := manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+		fw.Network{Set: set},
+		fw.ProtocolTCP,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rule)
+
+	// Update the set with initial prefixes
+	err = manager.UpdateSet(set, initialPrefixes)
+	require.NoError(t, err)
+
+	// Test initial prefixes work
+	srcIP := netip.MustParseAddr("100.10.0.1")
+	dstIP1 := netip.MustParseAddr("10.0.0.100")
+	dstIP2 := netip.MustParseAddr("192.168.1.100")
+	dstIP3 := netip.MustParseAddr("172.16.0.100")
+
+	_, isAllowed1 := manager.routeACLsPass(srcIP, dstIP1, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed2 := manager.routeACLsPass(srcIP, dstIP2, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed3 := manager.routeACLsPass(srcIP, dstIP3, fw.ProtocolTCP, 12345, 80)
+
+	require.True(t, isAllowed1, "Traffic to 10.0.0.100 should be allowed")
+	require.True(t, isAllowed2, "Traffic to 192.168.1.100 should be allowed")
+	require.False(t, isAllowed3, "Traffic to 172.16.0.100 should be denied")
+
+	newPrefixes := []netip.Prefix{
+		netip.MustParsePrefix("172.16.0.0/16"),
+		netip.MustParsePrefix("10.1.0.0/24"),
+	}
+
+	err = manager.UpdateSet(set, newPrefixes)
+	require.NoError(t, err)
+
+	// Check that all original prefixes are still included
+	_, isAllowed1 = manager.routeACLsPass(srcIP, dstIP1, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed2 = manager.routeACLsPass(srcIP, dstIP2, fw.ProtocolTCP, 12345, 80)
+	require.True(t, isAllowed1, "Traffic to 10.0.0.100 should still be allowed after update")
+	require.True(t, isAllowed2, "Traffic to 192.168.1.100 should still be allowed after update")
+
+	// Check that new prefixes are included
+	dstIP4 := netip.MustParseAddr("172.16.1.100")
+	dstIP5 := netip.MustParseAddr("10.1.0.50")
+
+	_, isAllowed4 := manager.routeACLsPass(srcIP, dstIP4, fw.ProtocolTCP, 12345, 80)
+	_, isAllowed5 := manager.routeACLsPass(srcIP, dstIP5, fw.ProtocolTCP, 12345, 80)
+
+	require.True(t, isAllowed4, "Traffic to new prefix 172.16.0.0/16 should be allowed")
+	require.True(t, isAllowed5, "Traffic to new prefix 10.1.0.0/24 should be allowed")
+
+	// Verify the rule has all prefixes
+	manager.mutex.RLock()
+	foundRule := false
+	for _, r := range manager.routeRules {
+		if r.id == rule.ID() {
+			foundRule = true
+			require.Len(t, r.destinations, len(initialPrefixes)+len(newPrefixes),
+				"Rule should have all prefixes merged")
+		}
+	}
+	manager.mutex.RUnlock()
+	require.True(t, foundRule, "Rule should be found")
+}
+
+func TestUpdateSetDeduplication(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}
+
+	manager, err := Create(ifaceMock, false, flowLogger)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+
+	set := fw.NewDomainSet(domain.List{"example.org"})
+
+	rule, err := manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+		fw.Network{Set: set},
+		fw.ProtocolTCP,
+		nil,
+		nil,
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rule)
+
+	initialPrefixes := []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/24"),
+		netip.MustParsePrefix("10.0.0.0/24"), // Duplicate
+		netip.MustParsePrefix("192.168.1.0/24"),
+		netip.MustParsePrefix("192.168.1.0/24"), // Duplicate
+	}
+
+	err = manager.UpdateSet(set, initialPrefixes)
+	require.NoError(t, err)
+
+	// Check the internal state for deduplication
+	manager.mutex.RLock()
+	foundRule := false
+	for _, r := range manager.routeRules {
+		if r.id == rule.ID() {
+			foundRule = true
+			// Should have deduplicated to 2 prefixes
+			require.Len(t, r.destinations, 2, "Duplicate prefixes should be removed")
+
+			// Check the prefixes are correct
+			expectedPrefixes := []netip.Prefix{
+				netip.MustParsePrefix("10.0.0.0/24"),
+				netip.MustParsePrefix("192.168.1.0/24"),
+			}
+			for i, prefix := range expectedPrefixes {
+				require.True(t, r.destinations[i] == prefix,
+					"Prefix should match expected value")
+			}
+		}
+	}
+	manager.mutex.RUnlock()
+	require.True(t, foundRule, "Rule should be found")
+
+	// Test with overlapping prefixes of different sizes
+	overlappingPrefixes := []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/16"),    // More general
+		netip.MustParsePrefix("10.0.0.0/24"),    // More specific (already exists)
+		netip.MustParsePrefix("192.168.0.0/16"), // More general
+		netip.MustParsePrefix("192.168.1.0/24"), // More specific (already exists)
+	}
+
+	err = manager.UpdateSet(set, overlappingPrefixes)
+	require.NoError(t, err)
+
+	// Check that all prefixes are included (no deduplication of overlapping prefixes)
+	manager.mutex.RLock()
+	for _, r := range manager.routeRules {
+		if r.id == rule.ID() {
+			// Should have all 4 prefixes (2 original + 2 new more general ones)
+			require.Len(t, r.destinations, 4,
+				"Overlapping prefixes should not be deduplicated")
+
+			// Verify they're sorted correctly (more specific prefixes should come first)
+			prefixes := make([]string, 0, len(r.destinations))
+			for _, p := range r.destinations {
+				prefixes = append(prefixes, p.String())
+			}
+
+			// Check sorted order
+			require.Equal(t, []string{
+				"10.0.0.0/16",
+				"10.0.0.0/24",
+				"192.168.0.0/16",
+				"192.168.1.0/24",
+			}, prefixes, "Prefixes should be sorted")
+		}
+	}
+	manager.mutex.RUnlock()
+
+	// Test functionality with all prefixes
+	testCases := []struct {
+		dstIP    netip.Addr
+		expected bool
+		desc     string
+	}{
+		{netip.MustParseAddr("10.0.0.100"), true, "IP in both /16 and /24"},
+		{netip.MustParseAddr("10.0.1.100"), true, "IP only in /16"},
+		{netip.MustParseAddr("192.168.1.100"), true, "IP in both /16 and /24"},
+		{netip.MustParseAddr("192.168.2.100"), true, "IP only in /16"},
+		{netip.MustParseAddr("172.16.0.100"), false, "IP not in any prefix"},
+	}
+
+	srcIP := netip.MustParseAddr("100.10.0.1")
+	for _, tc := range testCases {
+		_, isAllowed := manager.routeACLsPass(srcIP, tc.dstIP, fw.ProtocolTCP, 12345, 80)
+		require.Equal(t, tc.expected, isAllowed, tc.desc)
 	}
 }

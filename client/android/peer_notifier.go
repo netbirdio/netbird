@@ -7,30 +7,23 @@ type PeerInfo struct {
 	ConnStatus string // Todo replace to enum
 }
 
-// PeerInfoCollection made for Java layer to get non default types as collection
-type PeerInfoCollection interface {
-	Add(s string) PeerInfoCollection
-	Get(i int) string
-	Size() int
-}
-
-// PeerInfoArray is the implementation of the PeerInfoCollection
+// PeerInfoArray is a wrapper of []PeerInfo
 type PeerInfoArray struct {
 	items []PeerInfo
 }
 
 // Add new PeerInfo to the collection
-func (array PeerInfoArray) Add(s PeerInfo) PeerInfoArray {
+func (array *PeerInfoArray) Add(s PeerInfo) *PeerInfoArray {
 	array.items = append(array.items, s)
 	return array
 }
 
 // Get return an element of the collection
-func (array PeerInfoArray) Get(i int) *PeerInfo {
+func (array *PeerInfoArray) Get(i int) *PeerInfo {
 	return &array.items[i]
 }
 
 // Size return with the size of the collection
-func (array PeerInfoArray) Size() int {
+func (array *PeerInfoArray) Size() int {
 	return len(array.items)
 }

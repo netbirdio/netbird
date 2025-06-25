@@ -3,6 +3,7 @@ package dns
 import (
 	"context"
 	"net"
+	"net/netip"
 	"syscall"
 	"time"
 
@@ -23,8 +24,8 @@ type upstreamResolver struct {
 func newUpstreamResolver(
 	ctx context.Context,
 	_ string,
-	_ net.IP,
-	_ *net.IPNet,
+	_ netip.Addr,
+	_ netip.Prefix,
 	statusRecorder *peer.Status,
 	hostsDNSHolder *hostsDNSHolder,
 	domain string,
@@ -55,7 +56,7 @@ func (u *upstreamResolver) exchangeWithinVPN(ctx context.Context, upstream strin
 
 // exchangeWithoutVPN protect the UDP socket by Android SDK to avoid to goes through the VPN
 func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	timeout := upstreamTimeout
+	timeout := UpstreamTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout = time.Until(deadline)
 	}
@@ -82,4 +83,11 @@ func (u *upstreamResolver) isLocalResolver(upstream string) bool {
 		return true
 	}
 	return false
+}
+
+func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {
+	return &dns.Client{
+		Timeout: dialTimeout,
+		Net:     "udp",
+	}, nil
 }

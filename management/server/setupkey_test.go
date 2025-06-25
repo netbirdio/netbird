@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +40,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 			Name:  "group_name_2",
 			Peers: []string{},
 		},
-	})
+	}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +108,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
-	})
+	}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +117,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		ID:    "group_2",
 		Name:  "group_name_2",
 		Peers: []string{},
-	})
+	}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +181,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 			}
 
 			assertKey(t, key, tCase.expectedKeyName, false, tCase.expectedType, tCase.expectedUsedTimes,
-				tCase.expectedCreatedAt, tCase.expectedExpiresAt, strconv.Itoa(int(types.Hash(key.Key))),
+				tCase.expectedCreatedAt, tCase.expectedExpiresAt, key.Id,
 				tCase.expectedUpdatedAt, tCase.expectedGroups, false)
 
 			// check the corresponding events that should have been generated
@@ -258,10 +257,10 @@ func TestGenerateDefaultSetupKey(t *testing.T) {
 	expectedExpiresAt := time.Now().UTC().Add(24 * 30 * time.Hour)
 	var expectedAutoGroups []string
 
-	key, plainKey := types.GenerateDefaultSetupKey()
+	key, _ := types.GenerateDefaultSetupKey()
 
 	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
-		expectedExpiresAt, strconv.Itoa(int(types.Hash(plainKey))), expectedUpdatedAt, expectedAutoGroups, true)
+		expectedExpiresAt, key.Id, expectedUpdatedAt, expectedAutoGroups, true)
 
 }
 
@@ -275,10 +274,10 @@ func TestGenerateSetupKey(t *testing.T) {
 	expectedUpdatedAt := time.Now().UTC()
 	var expectedAutoGroups []string
 
-	key, plain := types.GenerateSetupKey(expectedName, types.SetupKeyOneOff, time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false, false)
+	key, _ := types.GenerateSetupKey(expectedName, types.SetupKeyOneOff, time.Hour, []string{}, types.SetupKeyUnlimitedUsage, false, false)
 
 	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
-		expectedExpiresAt, strconv.Itoa(int(types.Hash(plain))), expectedUpdatedAt, expectedAutoGroups, true)
+		expectedExpiresAt, key.Id, expectedUpdatedAt, expectedAutoGroups, true)
 
 }
 
@@ -403,7 +402,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	policy := &types.Policy{
@@ -418,7 +417,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 			},
 		},
 	}
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy)
+	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	require.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)

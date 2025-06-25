@@ -178,11 +178,25 @@ const (
 	UserStatusInvited UserStatus = "invited"
 )
 
-// Defines values for UserPermissionsDashboardView.
+// Defines values for GetApiEventsNetworkTrafficParamsType.
 const (
-	UserPermissionsDashboardViewBlocked UserPermissionsDashboardView = "blocked"
-	UserPermissionsDashboardViewFull    UserPermissionsDashboardView = "full"
-	UserPermissionsDashboardViewLimited UserPermissionsDashboardView = "limited"
+	GetApiEventsNetworkTrafficParamsTypeTYPEDROP    GetApiEventsNetworkTrafficParamsType = "TYPE_DROP"
+	GetApiEventsNetworkTrafficParamsTypeTYPEEND     GetApiEventsNetworkTrafficParamsType = "TYPE_END"
+	GetApiEventsNetworkTrafficParamsTypeTYPESTART   GetApiEventsNetworkTrafficParamsType = "TYPE_START"
+	GetApiEventsNetworkTrafficParamsTypeTYPEUNKNOWN GetApiEventsNetworkTrafficParamsType = "TYPE_UNKNOWN"
+)
+
+// Defines values for GetApiEventsNetworkTrafficParamsConnectionType.
+const (
+	GetApiEventsNetworkTrafficParamsConnectionTypeP2P    GetApiEventsNetworkTrafficParamsConnectionType = "P2P"
+	GetApiEventsNetworkTrafficParamsConnectionTypeROUTED GetApiEventsNetworkTrafficParamsConnectionType = "ROUTED"
+)
+
+// Defines values for GetApiEventsNetworkTrafficParamsDirection.
+const (
+	GetApiEventsNetworkTrafficParamsDirectionDIRECTIONUNKNOWN GetApiEventsNetworkTrafficParamsDirection = "DIRECTION_UNKNOWN"
+	GetApiEventsNetworkTrafficParamsDirectionEGRESS           GetApiEventsNetworkTrafficParamsDirection = "EGRESS"
+	GetApiEventsNetworkTrafficParamsDirectionINGRESS          GetApiEventsNetworkTrafficParamsDirection = "INGRESS"
 )
 
 // AccessiblePeer defines model for AccessiblePeer.
@@ -223,6 +237,18 @@ type AccessiblePeer struct {
 
 // Account defines model for Account.
 type Account struct {
+	// CreatedAt Account creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy Account creator
+	CreatedBy string `json:"created_by"`
+
+	// Domain Account domain
+	Domain string `json:"domain"`
+
+	// DomainCategory Account domain category
+	DomainCategory string `json:"domain_category"`
+
 	// Id Account ID
 	Id       string          `json:"id"`
 	Settings AccountSettings `json:"settings"`
@@ -230,8 +256,14 @@ type Account struct {
 
 // AccountExtraSettings defines model for AccountExtraSettings.
 type AccountExtraSettings struct {
+	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
+	NetworkTrafficLogsEnabled bool `json:"network_traffic_logs_enabled"`
+
+	// NetworkTrafficPacketCounterEnabled Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
+	NetworkTrafficPacketCounterEnabled bool `json:"network_traffic_packet_counter_enabled"`
+
 	// PeerApprovalEnabled (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
-	PeerApprovalEnabled *bool `json:"peer_approval_enabled,omitempty"`
+	PeerApprovalEnabled bool `json:"peer_approval_enabled"`
 }
 
 // AccountRequest defines model for AccountRequest.
@@ -241,7 +273,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
-	Extra *AccountExtraSettings `json:"extra,omitempty"`
+	// DnsDomain Allows to define a custom dns domain for the account
+	DnsDomain *string               `json:"dns_domain,omitempty"`
+	Extra     *AccountExtraSettings `json:"extra,omitempty"`
 
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
@@ -254,6 +288,9 @@ type AccountSettings struct {
 
 	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
 	JwtGroupsEnabled *bool `json:"jwt_groups_enabled,omitempty"`
+
+	// LazyConnectionEnabled Enables or disables experimental lazy connection
+	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
 
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
@@ -817,6 +854,130 @@ type NetworkRouterRequest struct {
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
 }
 
+// NetworkTrafficEndpoint defines model for NetworkTrafficEndpoint.
+type NetworkTrafficEndpoint struct {
+	// Address IP address (and possibly port) in string form.
+	Address string `json:"address"`
+
+	// DnsLabel DNS label/name if available.
+	DnsLabel    *string                `json:"dns_label"`
+	GeoLocation NetworkTrafficLocation `json:"geo_location"`
+
+	// Id ID of this endpoint (e.g., peer ID or resource ID).
+	Id string `json:"id"`
+
+	// Name Name is the name of the endpoint object (e.g., a peer name).
+	Name string `json:"name"`
+
+	// Os Operating system of the peer, if applicable.
+	Os *string `json:"os"`
+
+	// Type Type of the endpoint object (e.g., UNKNOWN, PEER, HOST_RESOURCE).
+	Type string `json:"type"`
+}
+
+// NetworkTrafficEvent defines model for NetworkTrafficEvent.
+type NetworkTrafficEvent struct {
+	Destination NetworkTrafficEndpoint `json:"destination"`
+
+	// Direction Direction of the traffic (e.g. DIRECTION_UNKNOWN, INGRESS, EGRESS).
+	Direction string `json:"direction"`
+
+	// Events List of events that are correlated to this flow (e.g., start, end).
+	Events []NetworkTrafficSubEvent `json:"events"`
+
+	// FlowId FlowID is the ID of the connection flow. Not unique because it can be the same for multiple events (e.g., start and end of the connection).
+	FlowId string               `json:"flow_id"`
+	Icmp   NetworkTrafficICMP   `json:"icmp"`
+	Policy NetworkTrafficPolicy `json:"policy"`
+
+	// Protocol Protocol is the protocol of the traffic (e.g. 1 = ICMP, 6 = TCP, 17 = UDP, etc.).
+	Protocol int `json:"protocol"`
+
+	// ReporterId ID of the reporter of the event (e.g., the peer that reported the event).
+	ReporterId string `json:"reporter_id"`
+
+	// RxBytes Number of bytes received.
+	RxBytes int `json:"rx_bytes"`
+
+	// RxPackets Number of packets received.
+	RxPackets int                    `json:"rx_packets"`
+	Source    NetworkTrafficEndpoint `json:"source"`
+
+	// TxBytes Number of bytes transmitted.
+	TxBytes int `json:"tx_bytes"`
+
+	// TxPackets Number of packets transmitted.
+	TxPackets int                `json:"tx_packets"`
+	User      NetworkTrafficUser `json:"user"`
+}
+
+// NetworkTrafficEventsResponse defines model for NetworkTrafficEventsResponse.
+type NetworkTrafficEventsResponse struct {
+	// Data List of network traffic events
+	Data []NetworkTrafficEvent `json:"data"`
+
+	// Page Current page number
+	Page int `json:"page"`
+
+	// PageSize Number of items per page
+	PageSize int `json:"page_size"`
+
+	// TotalPages Total number of pages available
+	TotalPages int `json:"total_pages"`
+
+	// TotalRecords Total number of event records available
+	TotalRecords int `json:"total_records"`
+}
+
+// NetworkTrafficICMP defines model for NetworkTrafficICMP.
+type NetworkTrafficICMP struct {
+	// Code ICMP code (if applicable).
+	Code int `json:"code"`
+
+	// Type ICMP type (if applicable).
+	Type int `json:"type"`
+}
+
+// NetworkTrafficLocation defines model for NetworkTrafficLocation.
+type NetworkTrafficLocation struct {
+	// CityName Name of the city (if known).
+	CityName string `json:"city_name"`
+
+	// CountryCode ISO country code (if known).
+	CountryCode string `json:"country_code"`
+}
+
+// NetworkTrafficPolicy defines model for NetworkTrafficPolicy.
+type NetworkTrafficPolicy struct {
+	// Id ID of the policy that allowed this event.
+	Id string `json:"id"`
+
+	// Name Name of the policy that allowed this event.
+	Name string `json:"name"`
+}
+
+// NetworkTrafficSubEvent defines model for NetworkTrafficSubEvent.
+type NetworkTrafficSubEvent struct {
+	// Timestamp Timestamp of the event as sent by the peer.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Type Type of the event (e.g., TYPE_UNKNOWN, TYPE_START, TYPE_END, TYPE_DROP).
+	Type string `json:"type"`
+}
+
+// NetworkTrafficUser defines model for NetworkTrafficUser.
+type NetworkTrafficUser struct {
+	// Email Email of the user who initiated the event (if any).
+	Email string `json:"email"`
+
+	// Id UserID is the ID of the user that initiated the event (can be empty as not every event is user-initiated).
+	Id string `json:"id"`
+
+	// Name Name of the user who initiated the event (if any).
+	Name string `json:"name"`
+}
+
 // OSVersionCheck Posture check for the version of operating system
 type OSVersionCheck struct {
 	// Android Posture check for the version of operating system
@@ -854,6 +1015,9 @@ type Peer struct {
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// Ephemeral Indicates whether the peer is ephemeral or not
+	Ephemeral bool `json:"ephemeral"`
 
 	// ExtraDnsLabels Extra DNS labels added to the peer
 	ExtraDnsLabels []string `json:"extra_dns_labels"`
@@ -935,6 +1099,9 @@ type PeerBatch struct {
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// Ephemeral Indicates whether the peer is ephemeral or not
+	Ephemeral bool `json:"ephemeral"`
 
 	// ExtraDnsLabels Extra DNS labels added to the peer
 	ExtraDnsLabels []string `json:"extra_dns_labels"`
@@ -1610,12 +1777,10 @@ type UserCreateRequest struct {
 
 // UserPermissions defines model for UserPermissions.
 type UserPermissions struct {
-	// DashboardView User's permission to view the dashboard
-	DashboardView *UserPermissionsDashboardView `json:"dashboard_view,omitempty"`
+	// IsRestricted Indicates whether this User's Peers view is restricted
+	IsRestricted bool                       `json:"is_restricted"`
+	Modules      map[string]map[string]bool `json:"modules"`
 }
-
-// UserPermissionsDashboardView User's permission to view the dashboard
-type UserPermissionsDashboardView string
 
 // UserRequest defines model for UserRequest.
 type UserRequest struct {
@@ -1628,6 +1793,51 @@ type UserRequest struct {
 	// Role User's NetBird account role
 	Role string `json:"role"`
 }
+
+// GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParams struct {
+	// Page Page number
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Number of items per page
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// UserId Filter by user ID
+	UserId *string `form:"user_id,omitempty" json:"user_id,omitempty"`
+
+	// ReporterId Filter by reporter ID
+	ReporterId *string `form:"reporter_id,omitempty" json:"reporter_id,omitempty"`
+
+	// Protocol Filter by protocol
+	Protocol *int `form:"protocol,omitempty" json:"protocol,omitempty"`
+
+	// Type Filter by event type
+	Type *GetApiEventsNetworkTrafficParamsType `form:"type,omitempty" json:"type,omitempty"`
+
+	// ConnectionType Filter by connection type
+	ConnectionType *GetApiEventsNetworkTrafficParamsConnectionType `form:"connection_type,omitempty" json:"connection_type,omitempty"`
+
+	// Direction Filter by direction
+	Direction *GetApiEventsNetworkTrafficParamsDirection `form:"direction,omitempty" json:"direction,omitempty"`
+
+	// Search Case-insensitive partial match on user email, source/destination names, and source/destination addresses
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// StartDate Start date for filtering events (ISO 8601 format, e.g., 2024-01-01T00:00:00Z).
+	StartDate *time.Time `form:"start_date,omitempty" json:"start_date,omitempty"`
+
+	// EndDate End date for filtering events (ISO 8601 format, e.g., 2024-01-31T23:59:59Z).
+	EndDate *time.Time `form:"end_date,omitempty" json:"end_date,omitempty"`
+}
+
+// GetApiEventsNetworkTrafficParamsType defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParamsType string
+
+// GetApiEventsNetworkTrafficParamsConnectionType defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParamsConnectionType string
+
+// GetApiEventsNetworkTrafficParamsDirection defines parameters for GetApiEventsNetworkTraffic.
+type GetApiEventsNetworkTrafficParamsDirection string
 
 // GetApiPeersParams defines parameters for GetApiPeers.
 type GetApiPeersParams struct {

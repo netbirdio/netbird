@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -31,14 +30,16 @@ const (
 	systemdDbusSetDNSMethodSuffix          = systemdDbusLinkInterface + ".SetDNS"
 	systemdDbusSetDefaultRouteMethodSuffix = systemdDbusLinkInterface + ".SetDefaultRoute"
 	systemdDbusSetDomainsMethodSuffix      = systemdDbusLinkInterface + ".SetDomains"
+	systemdDbusSetDNSSECMethodSuffix       = systemdDbusLinkInterface + ".SetDNSSEC"
 	systemdDbusResolvConfModeForeign       = "foreign"
 
 	dbusErrorUnknownObject = "org.freedesktop.DBus.Error.UnknownObject"
+
+	dnsSecDisabled = "no"
 )
 
 type systemdDbusConfigurator struct {
 	dbusLinkObject dbus.ObjectPath
-	routingAll     bool
 	ifaceName      string
 }
 
@@ -97,9 +98,13 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 		Family:  unix.AF_INET,
 		Address: ipAs4[:],
 	}
-	err = s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput})
-	if err != nil {
-		return fmt.Errorf("setting the interface DNS server %s:%d failed with error: %w", config.ServerIP, config.ServerPort, err)
+	if err = s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput}); err != nil {
+		return fmt.Errorf("set interface DNS server %s:%d: %w", config.ServerIP, config.ServerPort, err)
+	}
+
+	// We don't support dnssec. On some machines this is default on so we explicitly set it to off
+	if err = s.callLinkMethod(systemdDbusSetDNSSECMethodSuffix, dnsSecDisabled); err != nil {
+		log.Warnf("failed to set DNSSEC to 'no': %v", err)
 	}
 
 	var (
@@ -112,7 +117,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 			continue
 		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
-			Domain:    dns.Fqdn(dConf.Domain),
+			Domain:    dConf.Domain,
 			MatchOnly: dConf.MatchOnly,
 		})
 
@@ -124,18 +129,19 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 	}
 
 	if config.RouteAll {
-		log.Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 		err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
 		if err != nil {
-			return fmt.Errorf("setting link as default dns router, failed with error: %w", err)
+			return fmt.Errorf("set link as default dns router: %w", err)
 		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
 			Domain:    nbdns.RootZone,
 			MatchOnly: true,
 		})
-		s.routingAll = true
-	} else if s.routingAll {
-		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
+		log.Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
+	} else {
+		if err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, false); err != nil {
+			return fmt.Errorf("remove link as default dns router: %w", err)
+		}
 	}
 
 	state := &ShutdownState{
@@ -151,6 +157,11 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 	if err != nil {
 		log.Error(err)
 	}
+
+	if err := s.flushDNSCache(); err != nil {
+		log.Errorf("failed to flush DNS cache: %v", err)
+	}
+
 	return nil
 }
 
@@ -163,7 +174,8 @@ func (s *systemdDbusConfigurator) setDomainsForInterface(domainsInput []systemdD
 	if err != nil {
 		return fmt.Errorf("setting domains configuration failed with error: %w", err)
 	}
-	return s.flushCaches()
+
+	return nil
 }
 
 func (s *systemdDbusConfigurator) restoreHostDNS() error {
@@ -183,10 +195,14 @@ func (s *systemdDbusConfigurator) restoreHostDNS() error {
 		return fmt.Errorf("unable to revert link configuration, got error: %w", err)
 	}
 
-	return s.flushCaches()
+	if err := s.flushDNSCache(); err != nil {
+		log.Errorf("failed to flush DNS cache: %v", err)
+	}
+
+	return nil
 }
 
-func (s *systemdDbusConfigurator) flushCaches() error {
+func (s *systemdDbusConfigurator) flushDNSCache() error {
 	obj, closeConn, err := getDbusObject(systemdResolvedDest, systemdDbusObjectNode)
 	if err != nil {
 		return fmt.Errorf("attempting to retrieve the object %s, err: %w", systemdDbusObjectNode, err)

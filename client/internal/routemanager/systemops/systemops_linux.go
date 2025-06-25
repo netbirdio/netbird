@@ -45,7 +45,7 @@ var sysctlFailed bool
 
 type ruleParams struct {
 	priority       int
-	fwmark         int
+	fwmark         uint32
 	tableID        int
 	family         int
 	invert         bool
@@ -55,10 +55,10 @@ type ruleParams struct {
 
 func getSetupRules() []ruleParams {
 	return []ruleParams{
-		{100, -1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, false, 0, "rule with suppress prefixlen v4"},
-		{100, -1, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, false, 0, "rule with suppress prefixlen v6"},
-		{110, nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V4, true, -1, "rule v4 netbird"},
-		{110, nbnet.NetbirdFwmark, NetbirdVPNTableID, netlink.FAMILY_V6, true, -1, "rule v6 netbird"},
+		{100, 0, syscall.RT_TABLE_MAIN, netlink.FAMILY_V4, false, 0, "rule with suppress prefixlen v4"},
+		{100, 0, syscall.RT_TABLE_MAIN, netlink.FAMILY_V6, false, 0, "rule with suppress prefixlen v6"},
+		{110, nbnet.ControlPlaneMark, NetbirdVPNTableID, netlink.FAMILY_V4, true, -1, "rule v4 netbird"},
+		{110, nbnet.ControlPlaneMark, NetbirdVPNTableID, netlink.FAMILY_V6, true, -1, "rule v6 netbird"},
 	}
 }
 
@@ -149,6 +149,10 @@ func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) erro
 }
 
 func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+	if err := r.validateRoute(prefix); err != nil {
+		return err
+	}
+
 	if !nbnet.AdvancedRouting() {
 		return r.genericAddVPNRoute(prefix, intf)
 	}
@@ -172,6 +176,10 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 }
 
 func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
+	if err := r.validateRoute(prefix); err != nil {
+		return err
+	}
+
 	if !nbnet.AdvancedRouting() {
 		return r.genericRemoveVPNRoute(prefix, intf)
 	}
@@ -219,7 +227,7 @@ func getRoutes(tableID, family int) ([]netip.Prefix, error) {
 
 			ones, _ := route.Dst.Mask.Size()
 
-			prefix := netip.PrefixFrom(addr, ones)
+			prefix := netip.PrefixFrom(addr.Unmap(), ones)
 			if prefix.IsValid() {
 				prefixList = append(prefixList, prefix)
 			}
@@ -247,7 +255,7 @@ func addRoute(prefix netip.Prefix, nexthop Nexthop, tableID int) error {
 		return fmt.Errorf("add gateway and device: %w", err)
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !isOpErr(err) {
+	if err := netlink.RouteAdd(route); err != nil && !isOpErr(err) {
 		return fmt.Errorf("netlink add route: %w", err)
 	}
 
@@ -270,7 +278,7 @@ func addUnreachableRoute(prefix netip.Prefix, tableID int) error {
 		Dst:    ipNet,
 	}
 
-	if err := netlink.RouteAdd(route); err != nil && !errors.Is(err, syscall.EEXIST) && !isOpErr(err) {
+	if err := netlink.RouteAdd(route); err != nil && !isOpErr(err) {
 		return fmt.Errorf("netlink add unreachable route: %w", err)
 	}
 

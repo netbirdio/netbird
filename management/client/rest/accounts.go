@@ -16,11 +16,13 @@ type AccountsAPI struct {
 // List list all accounts, only returns one account always
 // See more: https://docs.netbird.io/api/resources/accounts#list-all-accounts
 func (a *AccountsAPI) List(ctx context.Context) ([]api.Account, error) {
-	resp, err := a.c.newRequest(ctx, "GET", "/api/accounts", nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/accounts", nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[[]api.Account](resp)
 	return ret, err
 }
@@ -32,11 +34,13 @@ func (a *AccountsAPI) Update(ctx context.Context, accountID string, request api.
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.newRequest(ctx, "PUT", "/api/accounts/"+accountID, bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/accounts/"+accountID, bytes.NewReader(requestBytes))
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	ret, err := parseResponse[api.Account](resp)
 	return &ret, err
 }
@@ -44,11 +48,13 @@ func (a *AccountsAPI) Update(ctx context.Context, accountID string, request api.
 // Delete delete account
 // See more: https://docs.netbird.io/api/resources/accounts#delete-an-account
 func (a *AccountsAPI) Delete(ctx context.Context, accountID string) error {
-	resp, err := a.c.newRequest(ctx, "DELETE", "/api/accounts/"+accountID, nil)
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/accounts/"+accountID, nil)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	return nil
 }

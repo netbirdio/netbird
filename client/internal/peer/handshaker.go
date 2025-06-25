@@ -43,7 +43,6 @@ type OfferAnswer struct {
 
 type Handshaker struct {
 	mu                  sync.Mutex
-	ctx                 context.Context
 	log                 *log.Entry
 	config              ConnConfig
 	signaler            *Signaler
@@ -57,9 +56,8 @@ type Handshaker struct {
 	remoteAnswerCh chan OfferAnswer
 }
 
-func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
+func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
 	return &Handshaker{
-		ctx:            ctx,
 		log:            log,
 		config:         config,
 		signaler:       signaler,
@@ -74,21 +72,21 @@ func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAn
 	h.onNewOfferListeners = append(h.onNewOfferListeners, offer)
 }
 
-func (h *Handshaker) Listen() {
+func (h *Handshaker) Listen(ctx context.Context) {
 	for {
-		h.log.Debugf("wait for remote offer confirmation")
-		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
+		h.log.Info("wait for remote offer confirmation")
+		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation(ctx)
 		if err != nil {
 			var connectionClosedError *ConnectionClosedError
 			if errors.As(err, &connectionClosedError) {
-				h.log.Tracef("stop handshaker")
+				h.log.Info("exit from handshaker")
 				return
 			}
 			h.log.Errorf("failed to received remote offer confirmation: %s", err)
 			continue
 		}
 
-		h.log.Debugf("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
+		h.log.Infof("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
 		for _, listener := range h.onNewOfferListeners {
 			go listener(remoteOfferAnswer)
 		}
@@ -108,7 +106,7 @@ func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) bool {
 	case h.remoteOffersCh <- offer:
 		return true
 	default:
-		h.log.Debugf("OnRemoteOffer skipping message because is not ready")
+		h.log.Warnf("OnRemoteOffer skipping message because is not ready")
 		// connection might not be ready yet to receive so we ignore the message
 		return false
 	}
@@ -127,18 +125,17 @@ func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) bool {
 	}
 }
 
-func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
+func (h *Handshaker) waitForRemoteOfferConfirmation(ctx context.Context) (*OfferAnswer, error) {
 	select {
 	case remoteOfferAnswer := <-h.remoteOffersCh:
 		// received confirmation from the remote peer -> ready to proceed
-		err := h.sendAnswer()
-		if err != nil {
+		if err := h.sendAnswer(); err != nil {
 			return nil, err
 		}
 		return &remoteOfferAnswer, nil
 	case remoteOfferAnswer := <-h.remoteAnswerCh:
 		return &remoteOfferAnswer, nil
-	case <-h.ctx.Done():
+	case <-ctx.Done():
 		// closed externally
 		return nil, NewConnectionClosedError(h.config.Key)
 	}
@@ -155,8 +152,8 @@ func (h *Handshaker) sendOffer() error {
 		IceCredentials:  IceCredentials{iceUFrag, icePwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
-		RosenpassPubKey: h.config.RosenpassPubKey,
-		RosenpassAddr:   h.config.RosenpassAddr,
+		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
+		RosenpassAddr:   h.config.RosenpassConfig.Addr,
 	}
 
 	addr, err := h.relay.RelayInstanceAddress()
@@ -168,15 +165,15 @@ func (h *Handshaker) sendOffer() error {
 }
 
 func (h *Handshaker) sendAnswer() error {
-	h.log.Debugf("sending answer")
+	h.log.Infof("sending answer")
 	uFrag, pwd := h.ice.GetLocalUserCredentials()
 
 	answer := OfferAnswer{
 		IceCredentials:  IceCredentials{uFrag, pwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
-		RosenpassPubKey: h.config.RosenpassPubKey,
-		RosenpassAddr:   h.config.RosenpassAddr,
+		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
+		RosenpassAddr:   h.config.RosenpassConfig.Addr,
 	}
 	addr, err := h.relay.RelayInstanceAddress()
 	if err == nil {

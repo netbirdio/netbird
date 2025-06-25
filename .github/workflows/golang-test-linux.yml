@@ -146,6 +146,65 @@ jobs:
       - name: Test
         run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay)
 
+  test_client_on_docker:
+    name: "Client (Docker) / Unit"
+    needs: [build-cache]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Go environment
+        id: go-env
+        run: |
+          echo "cache_dir=$(go env GOCACHE)" >> $GITHUB_OUTPUT
+          echo "modcache_dir=$(go env GOMODCACHE)" >> $GITHUB_OUTPUT
+
+      - name: Cache Go modules
+        uses: actions/cache/restore@v4
+        id: cache-restore
+        with:
+          path: |
+            ${{ steps.go-env.outputs.cache_dir }}
+            ${{ steps.go-env.outputs.modcache_dir }}
+          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gotest-cache-
+
+      - name: Run tests in container
+        env:
+          HOST_GOCACHE: ${{ steps.go-env.outputs.cache_dir }}
+          HOST_GOMODCACHE: ${{ steps.go-env.outputs.modcache_dir }}
+        run: |
+          CONTAINER_GOCACHE="/root/.cache/go-build"
+          CONTAINER_GOMODCACHE="/go/pkg/mod"
+
+          docker run --rm \
+            --cap-add=NET_ADMIN \
+            --privileged \
+            -v $PWD:/app \
+            -w /app \
+            -v "${HOST_GOCACHE}:${CONTAINER_GOCACHE}" \
+            -v "${HOST_GOMODCACHE}:${CONTAINER_GOMODCACHE}" \
+            -e CGO_ENABLED=1 \
+            -e CI=true \
+            -e DOCKER_CI=true \
+            -e GOARCH=${GOARCH_TARGET} \
+            -e GOCACHE=${CONTAINER_GOCACHE} \
+            -e GOMODCACHE=${CONTAINER_GOMODCACHE} \
+            golang:1.23-alpine \
+            sh -c ' \
+              apk update; apk add --no-cache \
+                ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
+              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /client/ui -e /upload-server)
+            '
+
   test_relay:
     name: "Relay / Unit"
     needs: [build-cache]
@@ -164,6 +223,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo apt update && sudo apt install -y gcc-multilib g++-multilib libc6-dev-i386
+
       - name: Get Go environment
         run: |
           echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
@@ -178,13 +241,6 @@ jobs:
           key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-gotest-cache-
-
-      - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
-
-      - name: Install 32-bit libpcap
-        if: matrix.arch == '386'
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
 
       - name: Install modules
         run: go mod tidy
@@ -217,6 +273,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo apt update && sudo apt install -y gcc-multilib g++-multilib libc6-dev-i386
+
       - name: Get Go environment
         run: |
           echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
@@ -231,13 +291,6 @@ jobs:
           key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-gotest-cache-
-
-      - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
-
-      - name: Install 32-bit libpcap
-        if: matrix.arch == '386'
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
 
       - name: Install modules
         run: go mod tidy
@@ -286,13 +339,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gotest-cache-
 
-      - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
-
-      - name: Install 32-bit libpcap
-        if: matrix.arch == '386'
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
-
       - name: Install modules
         run: go mod tidy
 
@@ -314,6 +360,7 @@ jobs:
         run: |          
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
+            CI=true \
           go test -tags=devcert \
             -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE" \
             -timeout 20m ./management/...
@@ -353,13 +400,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gotest-cache-
 
-      - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
-
-      - name: Install 32-bit libpcap
-        if: matrix.arch == '386'
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
-
       - name: Install modules
         run: go mod tidy
 
@@ -380,10 +420,11 @@ jobs:
       - name: Test
         run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
-          NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true \
+          NETBIRD_STORE_ENGINE=${{ matrix.store }} \
+          CI=true \
           go test -tags devcert -run=^$ -bench=. \
           -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
-          -timeout 20m ./...
+          -timeout 20m ./management/...
 
   api_benchmark:
     name: "Management / Benchmark (API)"
@@ -396,6 +437,33 @@ jobs:
         store: [ 'sqlite', 'postgres' ]
     runs-on: ubuntu-22.04
     steps:
+      - name: Create Docker network
+        run: docker network create promnet
+
+      - name: Start Prometheus Pushgateway
+        run: docker run -d --name pushgateway --network promnet -p 9091:9091 prom/pushgateway
+
+      - name: Start Prometheus (for Pushgateway forwarding)
+        run: |
+          echo '
+          global:
+            scrape_interval: 15s
+          scrape_configs:
+            - job_name: "pushgateway"
+              static_configs:
+                - targets: ["pushgateway:9091"]
+          remote_write:
+            - url: ${{ secrets.GRAFANA_URL }}
+              basic_auth:
+                username: ${{ secrets.GRAFANA_USER }}
+                password: ${{ secrets.GRAFANA_API_KEY }}
+          ' > prometheus.yml
+
+          docker run -d --name prometheus --network promnet \
+            -v $PWD/prometheus.yml:/etc/prometheus/prometheus.yml \
+            -p 9090:9090 \
+            prom/prometheus
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
@@ -420,13 +488,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gotest-cache-
 
-      - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
-
-      - name: Install 32-bit libpcap
-        if: matrix.arch == '386'
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
-
       - name: Install modules
         run: go mod tidy
 
@@ -447,11 +508,13 @@ jobs:
       - name: Test
         run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
-          NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true \
+          NETBIRD_STORE_ENGINE=${{ matrix.store }} \
+          CI=true \
+          GIT_BRANCH=${{ github.ref_name }} \
           go test -tags=benchmark \
             -run=^$ \
             -bench=. \
-            -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
+            -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,GIT_BRANCH,GITHUB_RUN_ID' \
             -timeout 20m ./management/...
 
   api_integration_test:
@@ -489,13 +552,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gotest-cache-
 
-      - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
-
-      - name: Install 32-bit libpcap
-        if: matrix.arch == '386'
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt-get install -y libpcap0.8-dev:i386
-
       - name: Install modules
         run: go mod tidy
 
@@ -505,89 +561,8 @@ jobs:
       - name: Test
         run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
-          NETBIRD_STORE_ENGINE=${{ matrix.store }} CI=true \
+          NETBIRD_STORE_ENGINE=${{ matrix.store }} \
+          CI=true \
           go test -tags=integration \
           -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
           -timeout 20m ./management/...
-
-  test_client_on_docker:
-    name: "Client (Docker) / Unit"
-    needs: [ build-cache ]
-    runs-on: ubuntu-20.04
-    steps:
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.23.x"
-          cache: false
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Get Go environment
-        run: |
-          echo "cache=$(go env GOCACHE)" >> $GITHUB_ENV
-          echo "modcache=$(go env GOMODCACHE)" >> $GITHUB_ENV     
-
-      - name: Cache Go modules
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ${{ env.cache }}
-            ${{ env.modcache }}
-          key: ${{ runner.os }}-gotest-cache-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-gotest-cache-
-
-      - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
-
-      - name: Install modules
-        run: go mod tidy
-
-      - name: check git status
-        run: git --no-pager diff --exit-code
-
-      - name: Generate Shared Sock Test bin
-        run: CGO_ENABLED=0 go test -c -o sharedsock-testing.bin ./sharedsock
-
-      - name: Generate RouteManager Test bin
-        run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin  ./client/internal/routemanager
-
-      - name: Generate SystemOps Test bin
-        run: CGO_ENABLED=1 go test -c -o systemops-testing.bin -tags netgo -ldflags '-w -extldflags "-static -ldbus-1 -lpcap"' ./client/internal/routemanager/systemops
-
-      - name: Generate nftables Manager Test bin
-        run: CGO_ENABLED=0 go test -c -o nftablesmanager-testing.bin ./client/firewall/nftables/...
-
-      - name: Generate Engine Test bin
-        run: CGO_ENABLED=1 go test -c -o engine-testing.bin ./client/internal
-
-      - name: Generate Peer Test bin
-        run: CGO_ENABLED=0 go test -c -o peer-testing.bin ./client/internal/peer/
-
-      - run: chmod +x *testing.bin
-
-      - name: Run Shared Sock tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/sharedsock --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/sharedsock-testing.bin -test.timeout 5m -test.parallel 1
-
-      - name: Run Iface tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/netbird -v /tmp/cache:/tmp/cache -v /tmp/modcache:/tmp/modcache -w /netbird -e GOCACHE=/tmp/cache -e GOMODCACHE=/tmp/modcache -e CGO_ENABLED=0 golang:1.23-alpine go test  -test.timeout 5m -test.parallel 1 ./client/iface/...
-
-      - name: Run RouteManager tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/routemanager-testing.bin  -test.timeout 5m -test.parallel 1
-
-      - name: Run SystemOps tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager/systemops --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/systemops-testing.bin  -test.timeout 5m -test.parallel 1
-
-      - name: Run nftables Manager tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/firewall --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/nftablesmanager-testing.bin  -test.timeout 5m -test.parallel 1
-
-      - name: Run Engine tests in docker with file store
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal -e NETBIRD_STORE_ENGINE="jsonfile" --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/engine-testing.bin  -test.timeout 5m -test.parallel 1
-
-      - name: Run Engine tests in docker with sqlite store
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal -e NETBIRD_STORE_ENGINE="sqlite" --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/engine-testing.bin  -test.timeout 5m -test.parallel 1
-
-      - name: Run Peer tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/peer  --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/peer-testing.bin  -test.timeout 5m -test.parallel 1
