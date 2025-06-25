@@ -17,11 +17,11 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 		return nil, err
 	}
 
-	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, nil)
+	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress)
 
 	var tun WGTunDevice
 	if netstack.IsEnabled() {
-		tun = device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr(), nil)
+		tun = device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr())
 	} else {
 		tun = device.NewTunDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind)
 	}

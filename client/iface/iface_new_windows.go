@@ -14,7 +14,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 	if err != nil {
 		return nil, err
 	}
-	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, nil)
+	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress)
 
 	var tun WGTunDevice
 	if netstack.IsEnabled() {
