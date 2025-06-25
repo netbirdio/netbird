@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 // var peersUpdater *PeersUpdateManager
@@ -23,7 +24,12 @@ func TestCreateChannel(t *testing.T) {
 
 func TestSendUpdate(t *testing.T) {
 	peer := "test-sendupdate"
-	peersUpdater := NewPeersUpdateManager(nil)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("failed to create metrics: %v", err)
+	}
+	peersUpdater := NewPeersUpdateManager(metrics)
 	update1 := &UpdateMessage{Update: &proto.SyncResponse{
 		NetworkMap: &proto.NetworkMap{
 			Serial: 0,
@@ -33,10 +39,26 @@ func TestSendUpdate(t *testing.T) {
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
 	}
+
+	resultCh := make(chan struct {
+		msg *UpdateMessage
+		ok  bool
+	}, 1)
+
+	go func() {
+		for range [channelBufferSize]int{} {
+			msg, ok := peersUpdater.peerChannels[peer].Pop(context.Background())
+			resultCh <- struct {
+				msg *UpdateMessage
+				ok  bool
+			}{msg, ok}
+		}
+	}()
+
 	peersUpdater.SendUpdate(context.Background(), peer, update1)
 	select {
-	case <-peersUpdater.peerChannels[peer]:
-	default:
+	case <-resultCh:
+	case <-time.After(1 * time.Second):
 		t.Error("Update wasn't send")
 	}
 
@@ -56,8 +78,8 @@ func TestSendUpdate(t *testing.T) {
 		select {
 		case <-timeout:
 			t.Error("timed out reading previously sent updates")
-		case updateReader := <-peersUpdater.peerChannels[peer]:
-			if updateReader.Update.NetworkMap.Serial == update2.Update.NetworkMap.Serial {
+		case updateReader := <-resultCh:
+			if updateReader.msg.Update.NetworkMap.Serial == update2.Update.NetworkMap.Serial {
 				t.Error("got the update that shouldn't have been sent")
 			}
 		}

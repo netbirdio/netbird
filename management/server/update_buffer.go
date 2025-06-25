@@ -25,17 +25,15 @@ func (b *UpdateBuffer) Push(update *UpdateMessage) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.update == nil {
-		b.update = update
-		b.cond.Signal()
-		b.metrics.CountBufferPush()
-		return
-	}
-
 	// the equal case we need because we don't always increment the serial number
-	if update.NetworkMap.Network.Serial >= b.update.NetworkMap.Network.Serial {
+	if b.update == nil || update.Update.NetworkMap.Serial > b.update.Update.NetworkMap.Serial || b.update.Update.NetworkMap.Serial == 0 {
 		b.update = update
 		b.cond.Signal()
+		if b.update == nil {
+			b.metrics.CountBufferPush()
+			return
+		}
+
 		b.metrics.CountBufferOverwrite()
 		return
 	}
@@ -50,19 +48,15 @@ func (b *UpdateBuffer) Pop(ctx context.Context) (*UpdateMessage, bool) {
 	for b.update == nil && !b.closed {
 		waitCh := make(chan struct{})
 		go func() {
-			b.cond.Wait()
-			close(waitCh)
+			select {
+			case <-ctx.Done():
+				b.cond.Broadcast()
+			case <-waitCh:
+				// noop
+			}
 		}()
-
-		b.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			b.mu.Lock()
-			return nil, false
-		case <-waitCh:
-			// Wakeup due to Push() or Close()
-		}
-		b.mu.Lock()
+		b.cond.Wait()
+		close(waitCh)
 	}
 
 	if b.closed {

@@ -79,7 +79,19 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	secret := "some_secret"
 	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
-	updateChannel := peersManager.CreateChannel(context.Background(), peer)
+	buffer := peersManager.CreateChannel(context.Background(), peer)
+	resultCh := make(chan struct {
+		msg *UpdateMessage
+		ok  bool
+	}, 1)
+
+	go func() {
+		msg, ok := buffer.Pop(context.Background())
+		resultCh <- struct {
+			msg *UpdateMessage
+			ok  bool
+		}{msg, ok}
+	}()
 
 	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
@@ -117,8 +129,8 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 loop:
 	for timeout := time.After(5 * time.Second); ; {
 		select {
-		case update := <-updateChannel:
-			updates = append(updates, update)
+		case update := <-resultCh:
+			updates = append(updates, update.msg)
 		case <-timeout:
 			break loop
 		}

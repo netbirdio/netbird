@@ -19,6 +19,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -963,10 +964,14 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 				b.Fatalf("Failed to get account: %v", err)
 			}
 
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateBuffer)
+			metrics, err := telemetry.NewUpdateChannelMetrics(context.Background(), noop.NewMeterProvider().Meter("test"))
+			if err != nil {
+				b.Fatalf("Failed to create update channel metrics: %v", err)
+			}
 
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = NewUpdateBuffer(metrics)
 			}
 
 			manager.peersUpdateManager.peerChannels = peerChannels
@@ -1028,17 +1033,24 @@ func TestUpdateAccountPeers(t *testing.T) {
 				t.Fatalf("Failed to get account: %v", err)
 			}
 
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateBuffer)
+			metrics, err := telemetry.NewUpdateChannelMetrics(context.Background(), noop.NewMeterProvider().Meter("test"))
+			if err != nil {
+				t.Fatalf("Failed to create update channel metrics: %v", err)
+			}
 
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = NewUpdateBuffer(metrics)
 			}
 
 			manager.peersUpdateManager.peerChannels = peerChannels
 			manager.UpdateAccountPeers(ctx, account.Id)
 
 			for _, channel := range peerChannels {
-				update := <-channel
+				update, ok := channel.Pop(context.Background())
+				if !ok {
+					t.Fatalf("Expected update for peer, but channel is empty")
+				}
 				assert.Nil(t, update.Update.NetbirdConfig)
 				assert.Equal(t, tc.peers, len(update.NetworkMap.Peers))
 				assert.Equal(t, tc.peers*2, len(update.NetworkMap.FirewallRules))
