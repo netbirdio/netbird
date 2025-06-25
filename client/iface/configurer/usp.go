@@ -94,10 +94,11 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 		return ipcErr
 	}
 
-	addr := netip.MustParseAddr(endpoint.IP.String())
-	addrPort := netip.AddrPortFrom(addr, uint16(endpoint.Port))
-
-	c.activityRecorder.UpsertAddress(peerKey, addrPort)
+	if endpoint != nil {
+		addr := netip.MustParseAddr(endpoint.IP.String())
+		addrPort := netip.AddrPortFrom(addr, uint16(endpoint.Port))
+		c.activityRecorder.UpsertAddress(peerKey, addrPort)
+	}
 	return nil
 }
 
