@@ -166,23 +166,53 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	return apiHandler, am, done
 }
 
-func peerShouldNotReceiveUpdate(t TB, updateMessage <-chan *server.UpdateMessage) {
+func peerShouldNotReceiveUpdate(t TB, buffer *server.UpdateBuffer) {
 	t.Helper()
+
+	resultCh := make(chan struct {
+		msg *server.UpdateMessage
+		ok  bool
+	}, 1)
+
+	go func() {
+		msg, ok := buffer.Pop(context.Background())
+		resultCh <- struct {
+			msg *server.UpdateMessage
+			ok  bool
+		}{msg, ok}
+	}()
+
 	select {
-	case msg := <-updateMessage:
+	case msg := <-resultCh:
 		t.Errorf("Unexpected message received: %+v", msg)
 	case <-time.After(500 * time.Millisecond):
 		return
 	}
 }
 
-func peerShouldReceiveUpdate(t TB, updateMessage <-chan *server.UpdateMessage, expected *server.UpdateMessage) {
+func peerShouldReceiveUpdate(t TB, buffer *server.UpdateBuffer, expected *server.UpdateMessage) {
 	t.Helper()
 
+	resultCh := make(chan struct {
+		msg *server.UpdateMessage
+		ok  bool
+	}, 1)
+
+	go func() {
+		msg, ok := buffer.Pop(context.Background())
+		resultCh <- struct {
+			msg *server.UpdateMessage
+			ok  bool
+		}{msg, ok}
+	}()
+
 	select {
-	case msg := <-updateMessage:
-		if msg == nil {
+	case msg := <-resultCh:
+		if msg.msg == nil {
 			t.Errorf("Received nil update message, expected valid message")
+		}
+		if !msg.ok {
+			t.Errorf("Expected to receive an update message, but got ok = false")
 		}
 		assert.Equal(t, expected, msg)
 	case <-time.After(500 * time.Millisecond):
