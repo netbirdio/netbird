@@ -7,7 +7,6 @@ import (
 	"net/netip"
 	"runtime"
 	"sync"
-	"time"
 
 	"github.com/pion/stun/v2"
 	"github.com/pion/transport/v3"
@@ -209,7 +208,7 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
 
 			if isTransportPkg(msg.Buffers, msg.N) {
-				s.activityRecorder.Record(addrPort, time.Now())
+				s.activityRecorder.Record(addrPort)
 			}
 			log.Infof("--- received Datagram %s from %s, size: %d", msg.Addr, msg.Addr.String(), sizes[i])
 			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
@@ -273,7 +272,7 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 
 		if isTransportPkg(buffs, sizes[0]) {
 			if ep, ok := eps[0].(*Endpoint); ok {
-				c.activityRecorder.Record(ep.AddrPort, time.Now())
+				c.activityRecorder.Record(ep.AddrPort)
 			}
 		}
 

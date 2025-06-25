@@ -7,6 +7,12 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/monotime"
+)
+
+const (
+	saveFrequency = int64(5 * time.Second)
 )
 
 type PeerRecord struct {
@@ -69,18 +75,19 @@ func (r *ActivityRecorder) Remove(publicKey string) {
 }
 
 // Record updates LastActivity for the given address using atomic store
-func (r *ActivityRecorder) Record(address netip.AddrPort, when time.Time) {
+func (r *ActivityRecorder) Record(address netip.AddrPort) {
 	r.mu.RLock()
 	record, ok := r.addrToPeer[address]
 	r.mu.RUnlock()
 	if !ok {
-		log.Warnf("could not find record for address %s at %s", address, when)
+		log.Warnf("could not find record for address %s", address)
 		return
 	}
 
-	if when.UnixNano()-record.LastActivity.Load() < int64(5*time.Second) {
+	now := monotime.Now()
+	if now-record.LastActivity.Load() < saveFrequency {
 		return
 	}
 
-	record.LastActivity.Store(when.UnixNano())
+	record.LastActivity.Store(now)
 }
