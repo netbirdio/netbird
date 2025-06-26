@@ -243,7 +243,7 @@ func (e *ConnMgr) DeactivatePeer(conn *peer.Conn) {
 		return
 	}
 
-	conn.Log.Infof("closing peer connection: remote peer entered idle lazy state and sent GOAWAY")
+	conn.Log.Infof("closing peer connection: remote peer initiated inactive, idle lazy state and sent GOAWAY")
 	e.lazyConnMgr.DeactivatePeer(conn.ConnID())
 }
 
