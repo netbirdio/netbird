@@ -60,7 +60,7 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 		return nil, fmt.Errorf("get extra settings: %w", err)
 	}
 
-	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get account settings: %w", err)
 	}
@@ -82,7 +82,7 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 		return nil, fmt.Errorf("get extra settings: %w", err)
 	}
 
-	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get account settings: %w", err)
 	}

@@ -72,7 +72,7 @@ func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID s
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetAccountDNSSettings(ctx, store.LockingStrengthShare, accountID)
+	return am.Store.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
 }
 
 // SaveDNSSettings validates a user role and updates the account's DNS settings
@@ -139,7 +139,7 @@ func (am *DefaultAccountManager) prepareDNSSettingsEvents(ctx context.Context, t
 	var eventsToStore []func()
 
 	modifiedGroups := slices.Concat(addedGroups, removedGroups)
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, modifiedGroups)
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, modifiedGroups)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get groups for dns settings events: %v", err)
 		return nil
@@ -195,7 +195,7 @@ func validateDNSSettings(ctx context.Context, transaction store.Store, accountID
 		return nil
 	}
 
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, settings.DisabledManagementGroups)
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, settings.DisabledManagementGroups)
 	if err != nil {
 		return err
 	}

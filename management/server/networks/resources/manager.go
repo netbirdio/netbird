@@ -57,7 +57,7 @@ func (m *managerImpl) GetAllResourcesInNetwork(ctx context.Context, accountID, u
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetNetworkResourcesByNetID(ctx, store.LockingStrengthShare, accountID, networkID)
+	return m.store.GetNetworkResourcesByNetID(ctx, store.LockingStrengthNone, accountID, networkID)
 }
 
 func (m *managerImpl) GetAllResourcesInAccount(ctx context.Context, accountID, userID string) ([]*types.NetworkResource, error) {
@@ -69,7 +69,7 @@ func (m *managerImpl) GetAllResourcesInAccount(ctx context.Context, accountID, u
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthShare, accountID)
+	return m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
@@ -81,7 +81,7 @@ func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID,
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	resources, err := m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthShare, accountID)
+	resources, err := m.store.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network resources: %w", err)
 	}
@@ -113,7 +113,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 
 	var eventsToStore []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		_, err = transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
+		_, err = transaction.GetNetworkResourceByName(ctx, store.LockingStrengthNone, resource.AccountID, resource.Name)
 		if err == nil {
 			return status.Errorf(status.InvalidArgument, "resource with name %s already exists", resource.Name)
 		}
@@ -174,7 +174,7 @@ func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networ
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, resourceID)
+	resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, resourceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network resource: %w", err)
 	}
@@ -218,17 +218,17 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			return status.NewResourceNotPartOfNetworkError(resource.ID, resource.NetworkID)
 		}
 
-		_, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
+		_, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, resource.AccountID, resource.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}
 
-		oldResource, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthShare, resource.AccountID, resource.Name)
+		oldResource, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthNone, resource.AccountID, resource.Name)
 		if err == nil && oldResource.ID != resource.ID {
 			return status.Errorf(status.InvalidArgument, "new resource name already exists")
 		}
 
-		oldResource, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, resource.AccountID, resource.ID)
+		oldResource, err = transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, resource.AccountID, resource.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}

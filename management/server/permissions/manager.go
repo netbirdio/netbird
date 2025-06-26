@@ -45,7 +45,7 @@ func (m *managerImpl) ValidateUserPermissions(
 		return true, nil
 	}
 
-	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return false, err
 	}

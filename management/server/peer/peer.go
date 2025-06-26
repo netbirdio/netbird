@@ -31,7 +31,7 @@ type Peer struct {
 	// Status peer's management connection status
 	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_"`
 	// The user ID that registered the peer
-	UserID string
+	UserID string `gorm:"index"`
 	// SSHKey is a public SSH key of the peer
 	SSHKey string
 	// SSHEnabled indicates whether SSH server is enabled on the peer
