@@ -24,6 +24,10 @@ func (m *MocPeer) ConnID() peerid.ConnID {
 type MocWGIface struct {
 }
 
+func (m MocWGIface) IsUserspaceBind() bool {
+	panic("implement me")
+}
+
 func (m MocWGIface) LastActivities() map[string]time.Time {
 	//TODO implement me
 	panic("implement me")
