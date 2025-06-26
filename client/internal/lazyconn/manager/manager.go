@@ -75,9 +75,14 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 		managedPeersByConnID: make(map[peerid.ConnID]*managedPeer),
 		excludes:             make(map[string]lazyconn.PeerConfig),
 		activityManager:      activity.NewManager(wgIface),
-		inactivityManager:    inactivity.NewManager(wgIface, config.InactivityThreshold),
 		peerToHAGroups:       make(map[string][]route.HAUniqueID),
 		haGroupToPeers:       make(map[route.HAUniqueID][]string),
+	}
+
+	if wgIface.IsUserspaceBind() {
+		m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold)
+	} else {
+		log.Warnf("inactivity manager not supported for kernel mode, wait for remote peer to close the connection")
 	}
 
 	m.connStateListener = &dispatcher.ConnectionListener{
@@ -129,7 +134,9 @@ func (m *Manager) UpdateRouteHAMap(haMap route.HAMap) {
 func (m *Manager) Start(ctx context.Context) {
 	defer m.close()
 
-	go m.inactivityManager.Start(ctx)
+	if m.inactivityManager != nil {
+		go m.inactivityManager.Start(ctx)
+	}
 
 	for {
 		select {
@@ -137,12 +144,13 @@ func (m *Manager) Start(ctx context.Context) {
 			return
 		case peerConnID := <-m.activityManager.OnActivityChan:
 			m.onPeerActivity(peerConnID)
-		case peerIDs := <-m.inactivityManager.InactivePeersChan:
+		case peerIDs := <-m.inactivityManager.InactivePeersChan():
 			for _, peerID := range peerIDs {
 				m.onPeerInactivityTimedOut(peerID)
 			}
 		}
 	}
+
 }
 
 // ExcludePeer marks peers for a permanent connection
@@ -589,7 +597,6 @@ func (m *Manager) onPeerConnected(peerConnID peerid.ConnID) {
 		return
 	}
 
-	mp.peerCfg.Log.Infof("peer connected, starting inactivity monitor")
 	m.inactivityManager.AddPeer(mp.peerCfg)
 }
 

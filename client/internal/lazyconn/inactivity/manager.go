@@ -22,7 +22,7 @@ type WgInterface interface {
 }
 
 type Manager struct {
-	InactivePeersChan chan []string
+	inactivePeersChan chan []string
 
 	iface               WgInterface
 	interestedPeers     map[string]*lazyconn.PeerConfig
@@ -38,23 +38,40 @@ func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager 
 
 	log.Infof("inactivity threshold configured: %v", inactivityThreshold)
 	return &Manager{
-		InactivePeersChan:   make(chan []string, 1),
+		inactivePeersChan:   make(chan []string, 1),
 		iface:               iface,
 		interestedPeers:     make(map[string]*lazyconn.PeerConfig),
 		inactivityThreshold: inactivityThreshold,
 	}
 }
 
+func (m *Manager) InactivePeersChan() <-chan []string {
+	if m == nil {
+		// return a nil channel that blocks forever
+		return nil
+	}
+
+	return m.inactivePeersChan
+}
+
 func (m *Manager) AddPeer(peerCfg *lazyconn.PeerConfig) {
+	if m == nil {
+		return
+	}
+
 	if _, exists := m.interestedPeers[peerCfg.PublicKey]; exists {
 		return
 	}
 
-	peerCfg.Log.Debugf("adding peer to inactivity manager")
+	peerCfg.Log.Infof("adding peer to inactivity manager")
 	m.interestedPeers[peerCfg.PublicKey] = peerCfg
 }
 
 func (m *Manager) RemovePeer(peer string) {
+	if m == nil {
+		return
+	}
+
 	pi, ok := m.interestedPeers[peer]
 	if !ok {
 		return
@@ -65,6 +82,10 @@ func (m *Manager) RemovePeer(peer string) {
 }
 
 func (m *Manager) Start(ctx context.Context) {
+	if m == nil {
+		return
+	}
+
 	ticker := newTicker(checkInterval)
 	defer ticker.Stop()
 
@@ -90,7 +111,7 @@ func (m *Manager) Start(ctx context.Context) {
 
 func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers []string) {
 	select {
-	case m.InactivePeersChan <- inactivePeers:
+	case m.inactivePeersChan <- inactivePeers:
 	case <-ctx.Done():
 		return
 	default:

@@ -51,9 +51,9 @@ func TestPeerTriggersInactivity(t *testing.T) {
 	// Send a tick to simulate time passage
 	fakeTick <- time.Now()
 
-	// Check if peer appears on InactivePeersChan
+	// Check if peer appears on inactivePeersChan
 	select {
-	case inactivePeers := <-manager.InactivePeersChan:
+	case inactivePeers := <-manager.inactivePeersChan:
 		assert.Contains(t, inactivePeers, peerID, "expected peer to be marked inactive")
 	case <-time.After(1 * time.Second):
 		t.Fatal("expected inactivity event, but none received")
@@ -92,9 +92,9 @@ func TestPeerTriggersActivity(t *testing.T) {
 	// Send a tick to simulate time passage
 	fakeTick <- time.Now()
 
-	// Check if peer appears on InactivePeersChan
+	// Check if peer appears on inactivePeersChan
 	select {
-	case <-manager.InactivePeersChan:
+	case <-manager.inactivePeersChan:
 		t.Fatal("expected inactive peer to be marked inactive")
 	case <-time.After(1 * time.Second):
 		// No inactivity event should be received
