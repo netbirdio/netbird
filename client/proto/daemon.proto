@@ -136,6 +136,9 @@ message LoginRequest {
   optional bool lazyConnectionEnabled = 28;
 
   optional bool block_inbound = 29;
+
+  optional string profileName = 30;
+  optional string profilePath = 31;
 }
 
 message LoginResponse {

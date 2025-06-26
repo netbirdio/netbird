@@ -123,14 +123,23 @@ func (s *Server) Start() error {
 	s.actCancel = cancel
 
 	// set the default config if not exists
-	if ok, err := s.profileManager.CopyDefaultProfileIfNotExists(); err != nil {
+	ok, err := s.profileManager.CopyDefaultProfileIfNotExists()
+	if err != nil {
 		if err := s.profileManager.CreateDefaultProfile(); err != nil {
 			log.Errorf("failed to create default profile: %v", err)
 			return fmt.Errorf("failed to create default profile: %w", err)
 		}
-		if ok {
-			state.Set(internal.StatusNeedsLogin)
+
+		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+			Name: "default",
+			Path: s.profileManager.DefaultProfilePath(),
+		}); err != nil {
+			log.Errorf("failed to set active profile state: %v", err)
+			return fmt.Errorf("failed to set active profile state: %w", err)
 		}
+	}
+	if ok {
+		state.Set(internal.StatusNeedsLogin)
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfileState()
@@ -313,6 +322,25 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			state.Set(internal.StatusIdle)
 		}
 	}()
+
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+	if msg.ProfileName != nil && msg.ProfilePath != nil {
+		if *msg.ProfileName != activeProf.Name && *msg.ProfilePath != activeProf.Path {
+			log.Infof("switching to profile %s at %s", *msg.ProfileName, *msg.ProfilePath)
+			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+				Name: *msg.ProfileName,
+				Path: *msg.ProfilePath,
+			}); err != nil {
+				log.Errorf("failed to set active profile state: %v", err)
+				return nil, fmt.Errorf("failed to set active profile state: %w", err)
+			}
+			s.latestConfigInput.ConfigPath = *msg.ProfilePath
+		}
+	}
 
 	s.mutex.Lock()
 	inputConfig := s.latestConfigInput

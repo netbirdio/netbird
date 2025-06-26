@@ -25,6 +25,20 @@ type Profile struct {
 	IsActive bool
 }
 
+func (p *Profile) FilePath() (string, error) {
+	if p.Name == defaultProfileName {
+		return defaultConfigPath, nil
+	}
+
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	profPath := filepath.Join(configDir, p.Name+".json")
+	return profPath, nil
+}
+
 type ProfileManager struct {
 	mu sync.Mutex
 }
@@ -37,6 +51,10 @@ func (pm *ProfileManager) AddProfile(profile Profile) error {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	if profile.Name == defaultProfileName {
+		return fmt.Errorf("cannot create profile with reserved name: %s", defaultProfileName)
 	}
 
 	// TODO(hakan): sanitize profile name
@@ -64,6 +82,9 @@ func (pm *ProfileManager) RemoveProfile(profileName string) error {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
 
+	if profileName == defaultProfileName {
+		return fmt.Errorf("cannot remove profile with reserved name: %s", defaultProfileName)
+	}
 	profPath := filepath.Join(configDir, profileName+".json")
 	if !fileExists(profPath) {
 		return ErrProfileNotFound
@@ -138,9 +159,6 @@ func (pm *ProfileManager) SwitchProfile(profileName string) error {
 	if err := pm.setActiveProfileState(profileName); err != nil {
 		return fmt.Errorf("failed to switch profile: %w", err)
 	}
-
-	// TODO(hakan): implement the logic to switch the profile in the application
-
 	return nil
 }
 

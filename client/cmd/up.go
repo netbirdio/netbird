@@ -36,6 +36,9 @@ const (
 
 	noBrowserFlag = "no-browser"
 	noBrowserDesc = "do not open the browser for SSO login"
+
+	profileNameFlag = "profile"
+	profileNameDesc = "profile name to use for the login. If not specified, the last used profile will be used."
 )
 
 var (
@@ -43,6 +46,7 @@ var (
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
 	noBrowser          bool
+	profileName        string
 
 	upCmd = &cobra.Command{
 		Use:   "up",

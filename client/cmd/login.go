@@ -23,6 +23,7 @@ import (
 
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 }
 
 var loginCmd = &cobra.Command{
@@ -50,6 +51,26 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 
+		pm := profilemanager.NewProfileManager()
+
+		activeProf, err := pm.GetActiveProfile()
+		if err != nil {
+			return fmt.Errorf("get active profile: %v", err)
+		}
+
+		// switch profile if provided
+		if profileName != "" && activeProf.Name != profileName {
+			err = pm.SwitchProfile(profileName)
+			if err != nil {
+				return fmt.Errorf("switch profile: %v", err)
+			}
+		}
+
+		profPath, err := activeProf.FilePath()
+		if err != nil {
+			return fmt.Errorf("get active profile path: %v", err)
+		}
+
 		// workaround to run without service
 		if logFile == "console" {
 			err = handleRebrand(cmd)
@@ -63,18 +84,18 @@ var loginCmd = &cobra.Command{
 			ic := profilemanager.ConfigInput{
 				ManagementURL: managementURL,
 				AdminURL:      adminURL,
-				ConfigPath:    configPath,
+				ConfigPath:    profPath,
 			}
 			if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
 				ic.PreSharedKey = &preSharedKey
 			}
 
-			config, err := profilemanager.UpdateOrCreateConfig(ic)
+			config, err := profilemanager.UpdateConfig(ic)
 			if err != nil {
-				return fmt.Errorf("get config file: %v", err)
+				return fmt.Errorf("update config: %v", err)
 			}
 
-			config, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+			config, _ = profilemanager.UpdateOldManagementURL(ctx, config, profPath)
 
 			err = foregroundLogin(ctx, cmd, config, providedSetupKey)
 			if err != nil {
@@ -105,6 +126,8 @@ var loginCmd = &cobra.Command{
 			IsUnixDesktopClient: isUnixRunningDesktop(),
 			Hostname:            hostName,
 			DnsLabels:           dnsLabelsReq,
+			ProfileName:         &profileName,
+			ProfilePath:         &profPath,
 		}
 
 		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
