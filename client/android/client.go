@@ -204,7 +204,7 @@ func (c *Client) Networks() *NetworkArray {
 		}
 
 		r := routes[0]
-		netStr := routes[0].Network.String()
+		netStr := r.Network.String()
 		if r.IsDynamic() {
 			netStr = r.Domains.SafeString()
 		}
