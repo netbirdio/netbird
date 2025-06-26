@@ -20,6 +20,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	daemonProto "github.com/netbirdio/netbird/client/proto"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
@@ -71,7 +72,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	// create new server
 	s := New(ctx, t.TempDir()+"/config.json", "debug")
 	s.latestConfigInput.ManagementURL = "http://" + mgmtAddr
-	config, err := internal.UpdateOrCreateConfig(s.latestConfigInput)
+	config, err := profilemanager.UpdateOrCreateConfig(s.latestConfigInput)
 	if err != nil {
 		t.Fatalf("failed to create config: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestServer_Up(t *testing.T) {
 
 	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
 	require.NoError(t, err)
-	s.config = &internal.Config{
+	s.config = &profilemanager.Config{
 		ManagementURL: u,
 	}
 
@@ -137,7 +138,7 @@ func TestServer_SubcribeEvents(t *testing.T) {
 
 	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
 	require.NoError(t, err)
-	s.config = &internal.Config{
+	s.config = &profilemanager.Config{
 		ManagementURL: u,
 	}
 

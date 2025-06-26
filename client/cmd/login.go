@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
@@ -59,7 +60,7 @@ var loginCmd = &cobra.Command{
 			// update host's static platform and system information
 			system.UpdateStaticInfo()
 
-			ic := internal.ConfigInput{
+			ic := profilemanager.ConfigInput{
 				ManagementURL: managementURL,
 				AdminURL:      adminURL,
 				ConfigPath:    configPath,
@@ -68,12 +69,12 @@ var loginCmd = &cobra.Command{
 				ic.PreSharedKey = &preSharedKey
 			}
 
-			config, err := internal.UpdateOrCreateConfig(ic)
+			config, err := profilemanager.UpdateOrCreateConfig(ic)
 			if err != nil {
 				return fmt.Errorf("get config file: %v", err)
 			}
 
-			config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
+			config, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 			err = foregroundLogin(ctx, cmd, config, providedSetupKey)
 			if err != nil {
@@ -149,7 +150,7 @@ var loginCmd = &cobra.Command{
 	},
 }
 
-func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.Config, setupKey string) error {
+func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey string) error {
 	needsLogin := false
 
 	err := WithBackOff(func() error {
@@ -195,7 +196,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 	return nil
 }
 
-func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *internal.Config) (*auth.TokenInfo, error) {
+func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config) (*auth.TokenInfo, error) {
 	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop())
 	if err != nil {
 		return nil, err

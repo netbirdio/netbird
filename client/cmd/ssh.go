@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/util"
 )
@@ -58,7 +59,7 @@ var sshCmd = &cobra.Command{
 
 		ctx := internal.CtxInitState(cmd.Context())
 
-		config, err := internal.UpdateConfig(internal.ConfigInput{
+		config, err := profilemanager.UpdateConfig(profilemanager.ConfigInput{
 			ConfigPath: configPath,
 		})
 		if err != nil {

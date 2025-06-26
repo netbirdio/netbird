@@ -39,6 +39,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -1141,25 +1142,25 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 	}{
 		{
 			name:                    "Parse Valid List Should Be OK",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1", "8.8.8.8/" + testingInterface},
 			expectedOutput:          []string{"1.1.1.1", "8.8.8.8/" + testingIP},
 		},
 		{
 			name:                    "Only Interface name Should Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{testingInterface},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid IP Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1000"},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid Mapping Element Should return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1/10.10.10.1/eth0"},
 			expectedOutput:          nil,
 		},

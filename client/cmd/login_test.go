@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -33,7 +33,7 @@ func TestLogin(t *testing.T) {
 	}
 
 	// validate generated config
-	actualConf := &internal.Config{}
+	actualConf := &profilemanager.Config{}
 	_, err = util.ReadJson(confPath, actualConf)
 	if err != nil {
 		t.Errorf("expected proper config file written, got broken %v", err)

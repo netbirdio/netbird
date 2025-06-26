@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"os"
 	"reflect"
 	"runtime"
 	"slices"
@@ -2060,4 +2061,17 @@ func compareNetIPLists(list1 []netip.Prefix, list2 []string) bool {
 		}
 	}
 	return true
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
+func createFile(path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return file.Close()
 }

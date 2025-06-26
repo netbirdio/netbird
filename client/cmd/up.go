@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/management/domain"
@@ -128,12 +129,12 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	config, err := internal.UpdateOrCreateConfig(*ic)
+	config, err := profilemanager.UpdateOrCreateConfig(*ic)
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
 	}
 
-	config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
+	config, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
 	if err != nil {
@@ -235,8 +236,8 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	return nil
 }
 
-func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*internal.ConfigInput, error) {
-	ic := internal.ConfigInput{
+func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
+	ic := profilemanager.ConfigInput{
 		ManagementURL:       managementURL,
 		AdminURL:            adminURL,
 		ConfigPath:          configPath,

@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/management/domain"
 
@@ -50,14 +51,14 @@ type Server struct {
 	rootCtx   context.Context
 	actCancel context.CancelFunc
 
-	latestConfigInput internal.ConfigInput
+	latestConfigInput profilemanager.ConfigInput
 
 	logFile string
 
 	oauthAuthFlow oauthAuthFlow
 
 	mutex  sync.Mutex
-	config *internal.Config
+	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
 
 	connectClient *internal.ConnectClient
@@ -68,6 +69,8 @@ type Server struct {
 	lastProbe         time.Time
 	persistNetworkMap bool
 	isSessionActive   atomic.Bool
+
+	profileManager profilemanager.ServiceManager
 }
 
 type oauthAuthFlow struct {
@@ -81,12 +84,13 @@ type oauthAuthFlow struct {
 func New(ctx context.Context, configPath, logFile string) *Server {
 	return &Server{
 		rootCtx: ctx,
-		latestConfigInput: internal.ConfigInput{
+		latestConfigInput: profilemanager.ConfigInput{
 			ConfigPath: configPath,
 		},
 		logFile:           logFile,
 		persistNetworkMap: true,
 		statusRecorder:    peer.NewRecorder(""),
+		profileManager:    profilemanager.ServiceManager{},
 	}
 }
 
@@ -118,24 +122,30 @@ func (s *Server) Start() error {
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
 
-	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
-	// on failure we return error to retry
-	config, err := internal.UpdateConfig(s.latestConfigInput)
-	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
-		s.config, err = internal.UpdateOrCreateConfig(s.latestConfigInput)
-		if err != nil {
-			log.Warnf("unable to create configuration file: %v", err)
-			return err
+	// set the default config if not exists
+	if ok, err := s.profileManager.CopyDefaultProfileIfNotExists(); err != nil {
+		if err := s.profileManager.CreateDefaultProfile(); err != nil {
+			log.Errorf("failed to create default profile: %v", err)
+			return fmt.Errorf("failed to create default profile: %w", err)
 		}
-		state.Set(internal.StatusNeedsLogin)
-		return nil
-	} else if err != nil {
-		log.Warnf("unable to create configuration file: %v", err)
-		return err
+		if ok {
+			state.Set(internal.StatusNeedsLogin)
+		}
+	}
+
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		return fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	config, err := profilemanager.GetConfig(activeProf.Path)
+	if err != nil {
+		log.Errorf("failed to get active profile config: %v", err)
+		return fmt.Errorf("failed to get active profile config: %w", err)
 	}
 
 	// if configuration exists, we just start connections.
-	config, _ = internal.UpdateOldManagementURL(ctx, config, s.latestConfigInput.ConfigPath)
+	config, _ = profilemanager.UpdateOldManagementURL(ctx, config, s.latestConfigInput.ConfigPath)
 
 	s.config = config
 
@@ -160,7 +170,7 @@ func (s *Server) Start() error {
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
-func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
+func (s *Server) connectWithRetryRuns(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status,
 	runningChan chan struct{},
 ) {
 	backOff := getConnectWithBackoff(ctx)
@@ -434,13 +444,13 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		inputConfig.PreSharedKey = msg.OptionalPreSharedKey
 	}
 
-	config, err := internal.UpdateOrCreateConfig(inputConfig)
+	config, err := profilemanager.UpdateOrCreateConfig(inputConfig)
 	if err != nil {
 		return nil, err
 	}
 
 	if msg.ManagementUrl == "" {
-		config, _ = internal.UpdateOldManagementURL(ctx, config, s.latestConfigInput.ConfigPath)
+		config, _ = profilemanager.UpdateOldManagementURL(ctx, config, s.latestConfigInput.ConfigPath)
 		s.config = config
 		s.latestConfigInput.ManagementURL = config.ManagementURL.String()
 	}

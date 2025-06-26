@@ -1,6 +1,7 @@
 package profilemanager
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/ssh"
+	mgm "github.com/netbirdio/netbird/management/client"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/util"
 )
@@ -36,7 +38,7 @@ const (
 	DefaultAdminURL = "https://app.netbird.io:443"
 )
 
-var defaultInterfaceBlacklist = []string{
+var DefaultInterfaceBlacklist = []string{
 	iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
 }
@@ -308,8 +310,8 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	if len(config.IFaceBlackList) == 0 {
 		log.Infof("filling in interface blacklist with defaults: [ %s ]",
-			strings.Join(defaultInterfaceBlacklist, " "))
-		config.IFaceBlackList = append(config.IFaceBlackList, defaultInterfaceBlacklist...)
+			strings.Join(DefaultInterfaceBlacklist, " "))
+		config.IFaceBlackList = append(config.IFaceBlackList, DefaultInterfaceBlacklist...)
 		updated = true
 	}
 
@@ -520,4 +522,194 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 		return true
 	}
 	return false
+}
+
+// UpdateConfig update existing configuration according to input configuration and return with the configuration
+func UpdateConfig(input ConfigInput) (*Config, error) {
+	if !fileExists(input.ConfigPath) {
+		return nil, fmt.Errorf("config file %s does not exist", input.ConfigPath)
+	}
+
+	return update(input)
+}
+
+// UpdateOrCreateConfig reads existing config or generates a new one
+func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
+	if !fileExists(input.ConfigPath) {
+		log.Infof("generating new config %s", input.ConfigPath)
+		cfg, err := createNewConfig(input)
+		if err != nil {
+			return nil, err
+		}
+		err = util.WriteJsonWithRestrictedPermission(context.Background(), input.ConfigPath, cfg)
+		return cfg, err
+	}
+
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
+	}
+	err := util.EnforcePermission(input.ConfigPath)
+	if err != nil {
+		log.Errorf("failed to enforce permission on config dir: %v", err)
+	}
+	return update(input)
+}
+
+func update(input ConfigInput) (*Config, error) {
+	config := &Config{}
+
+	if _, err := util.ReadJson(input.ConfigPath, config); err != nil {
+		return nil, err
+	}
+
+	updated, err := config.apply(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if updated {
+		if err := util.WriteJson(context.Background(), input.ConfigPath, config); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
+}
+
+func GetConfig(configPath string) (*Config, error) {
+	if !fileExists(configPath) {
+		return nil, fmt.Errorf("config file %s does not exist", configPath)
+	}
+
+	config := &Config{}
+	if _, err := util.ReadJson(configPath, config); err != nil {
+		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	}
+
+	return config, nil
+}
+
+// UpdateOldManagementURL checks whether client can switch to the new Management URL with port 443 and the management domain.
+// If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
+// The check is performed only for the NetBird's managed version.
+func UpdateOldManagementURL(ctx context.Context, config *Config, configPath string) (*Config, error) {
+	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
+	if err != nil {
+		return nil, err
+	}
+
+	parsedOldDefaultManagementURL, err := parseURL("Management URL", oldDefaultManagementURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if config.ManagementURL.Hostname() != defaultManagementURL.Hostname() &&
+		config.ManagementURL.Hostname() != parsedOldDefaultManagementURL.Hostname() {
+		// only do the check for the NetBird's managed version
+		return config, nil
+	}
+
+	var mgmTlsEnabled bool
+	if config.ManagementURL.Scheme == "https" {
+		mgmTlsEnabled = true
+	}
+
+	if !mgmTlsEnabled {
+		// only do the check for HTTPs scheme (the hosted version of the Management service is always HTTPs)
+		return config, nil
+	}
+
+	if config.ManagementURL.Port() != managementLegacyPortString &&
+		config.ManagementURL.Hostname() == defaultManagementURL.Hostname() {
+		return config, nil
+	}
+
+	newURL, err := parseURL("Management URL", fmt.Sprintf("%s://%s:%d",
+		config.ManagementURL.Scheme, defaultManagementURL.Hostname(), 443))
+	if err != nil {
+		return nil, err
+	}
+	// here we check whether we could switch from the legacy 33073 port to the new 443
+	log.Infof("attempting to switch from the legacy Management URL %s to the new one %s",
+		config.ManagementURL.String(), newURL.String())
+	key, err := wgtypes.ParseKey(config.PrivateKey)
+	if err != nil {
+		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		return config, err
+	}
+
+	client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
+	if err != nil {
+		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		return config, err
+	}
+	defer func() {
+		err = client.Close()
+		if err != nil {
+			log.Warnf("failed to close the Management service client %v", err)
+		}
+	}()
+
+	// gRPC check
+	_, err = client.GetServerPublicKey()
+	if err != nil {
+		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		return nil, err
+	}
+
+	// everything is alright => update the config
+	newConfig, err := UpdateConfig(ConfigInput{
+		ManagementURL: newURL.String(),
+		ConfigPath:    configPath,
+	})
+	if err != nil {
+		log.Infof("couldn't switch to the new Management %s", newURL.String())
+		return config, fmt.Errorf("failed updating config file: %v", err)
+	}
+	log.Infof("successfully switched to the new Management URL: %s", newURL.String())
+
+	return newConfig, nil
+}
+
+// CreateInMemoryConfig generate a new config but do not write out it to the store
+func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
+	return createNewConfig(input)
+}
+
+// ReadConfig read config file and return with Config. If it is not exists create a new with default values
+func ReadConfig(configPath string) (*Config, error) {
+	if fileExists(configPath) {
+		err := util.EnforcePermission(configPath)
+		if err != nil {
+			log.Errorf("failed to enforce permission on config dir: %v", err)
+		}
+
+		config := &Config{}
+		if _, err := util.ReadJson(configPath, config); err != nil {
+			return nil, err
+		}
+		// initialize through apply() without changes
+		if changed, err := config.apply(ConfigInput{}); err != nil {
+			return nil, err
+		} else if changed {
+			if err = WriteOutConfig(configPath, config); err != nil {
+				return nil, err
+			}
+		}
+
+		return config, nil
+	}
+
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: configPath})
+	if err != nil {
+		return nil, err
+	}
+
+	err = WriteOutConfig(configPath, cfg)
+	return cfg, err
+}
+
+// WriteOutConfig write put the prepared config to the given path
+func WriteOutConfig(path string, config *Config) error {
+	return util.WriteJson(context.Background(), path, config)
 }

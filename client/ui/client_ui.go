@@ -870,8 +870,8 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 // getSrvConfig from the service to show it in the settings window.
 func (s *serviceClient) getSrvConfig() {
-	s.managementURL = internal.DefaultManagementURL
-	s.adminURL = internal.DefaultAdminURL
+	s.managementURL = profilemanager.DefaultManagementURL
+	s.adminURL = profilemanager.DefaultAdminURL
 
 	conn, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
