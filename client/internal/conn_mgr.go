@@ -236,11 +236,14 @@ func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
 	}
 }
 
+// DeactivatePeer deactivates a peer connection in the lazy connection manager.
+// If locally the lazy connection is disabled, we force the peer connection open.
 func (e *ConnMgr) DeactivatePeer(conn *peer.Conn) {
 	if !e.isStartedWithLazyMgr() {
 		return
 	}
 
+	conn.Log.Infof("closing peer connection: remote peer entered idle lazy state and sent GOAWAY")
 	e.lazyConnMgr.DeactivatePeer(conn.ConnID())
 }
 

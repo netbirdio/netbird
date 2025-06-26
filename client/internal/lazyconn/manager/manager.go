@@ -323,12 +323,8 @@ func (m *Manager) getPeerForActivation(peerID string) (*lazyconn.PeerConfig, *ma
 // activateSinglePeer activates a single peer (internal method)
 func (m *Manager) activateSinglePeer(cfg *lazyconn.PeerConfig, mp *managedPeer) bool {
 	mp.expectedWatcher = watcherInactivity
-
 	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
-
-	cfg.Log.Infof("starting inactivity monitor for peer: %s", cfg.PublicKey)
 	m.inactivityManager.AddPeer(cfg)
-
 	return true
 }
 

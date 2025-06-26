@@ -226,7 +226,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
-func (conn *Conn) Close(graceful bool) {
+func (conn *Conn) Close(signalToRemote bool) {
 	conn.mu.Lock()
 	defer conn.wgWatcherWg.Wait()
 	defer conn.mu.Unlock()
@@ -236,7 +236,7 @@ func (conn *Conn) Close(graceful bool) {
 		return
 	}
 
-	if graceful {
+	if signalToRemote {
 		if err := conn.signaler.SignalIdle(conn.config.Key); err != nil {
 			conn.Log.Errorf("failed to signal idle state to peer: %v", err)
 		}
