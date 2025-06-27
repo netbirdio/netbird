@@ -58,7 +58,7 @@ func (r *ActivityRecorder) UpsertAddress(publicKey string, address netip.AddrPor
 		record := &PeerRecord{
 			Address: address,
 		}
-		record.LastActivity.Store(time.Now().Unix())
+		record.LastActivity.Store(monotime.Now())
 		r.peers[publicKey] = record
 	}
 
