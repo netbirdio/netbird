@@ -22,7 +22,7 @@ type WgInterface interface {
 }
 
 type Manager struct {
-	inactivePeersChan chan []string
+	inactivePeersChan chan map[string]struct{}
 
 	iface               WgInterface
 	interestedPeers     map[string]*lazyconn.PeerConfig
@@ -38,14 +38,14 @@ func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager 
 
 	log.Infof("inactivity threshold configured: %v", inactivityThreshold)
 	return &Manager{
-		inactivePeersChan:   make(chan []string, 1),
+		inactivePeersChan:   make(chan map[string]struct{}, 1),
 		iface:               iface,
 		interestedPeers:     make(map[string]*lazyconn.PeerConfig),
 		inactivityThreshold: inactivityThreshold,
 	}
 }
 
-func (m *Manager) InactivePeersChan() <-chan []string {
+func (m *Manager) InactivePeersChan() chan map[string]struct{} {
 	if m == nil {
 		// return a nil channel that blocks forever
 		return nil
@@ -109,7 +109,7 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 }
 
-func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers []string) {
+func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers map[string]struct{}) {
 	select {
 	case m.inactivePeersChan <- inactivePeers:
 	case <-ctx.Done():
@@ -119,10 +119,10 @@ func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers []strin
 	}
 }
 
-func (m *Manager) checkStats() ([]string, error) {
+func (m *Manager) checkStats() (map[string]struct{}, error) {
 	lastActivities := m.iface.LastActivities()
 
-	var idlePeers []string
+	idlePeers := make(map[string]struct{})
 
 	for peerID, peerCfg := range m.interestedPeers {
 		lastActive, ok := lastActivities[peerID]
@@ -134,7 +134,7 @@ func (m *Manager) checkStats() ([]string, error) {
 
 		if time.Since(lastActive) > m.inactivityThreshold {
 			peerCfg.Log.Infof("peer is inactive since: %v", lastActive)
-			idlePeers = append(idlePeers, peerID)
+			idlePeers[peerID] = struct{}{}
 		}
 	}
 

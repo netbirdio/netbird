@@ -56,6 +56,7 @@ type Manager struct {
 	inactivityManager *inactivity.Manager
 
 	// Route HA group management
+	// If any peer in the same HA group is active, all peers in that group should prevent going idle
 	peerToHAGroups map[string][]route.HAUniqueID // peer ID -> HA groups they belong to
 	haGroupToPeers map[route.HAUniqueID][]string // HA group -> peer IDs in the group
 	routesMu       sync.RWMutex
@@ -126,8 +127,7 @@ func (m *Manager) UpdateRouteHAMap(haMap route.HAMap) {
 		}
 	}
 
-	log.Debugf("updated route HA mappings: %d HA groups, %d peers with routes",
-		len(m.haGroupToPeers), len(m.peerToHAGroups))
+	log.Debugf("updated route HA mappings: %d HA groups, %d peers with routes", len(m.haGroupToPeers), len(m.peerToHAGroups))
 }
 
 // Start starts the manager and listens for peer activity and inactivity events
@@ -145,9 +145,7 @@ func (m *Manager) Start(ctx context.Context) {
 		case peerConnID := <-m.activityManager.OnActivityChan:
 			m.onPeerActivity(peerConnID)
 		case peerIDs := <-m.inactivityManager.InactivePeersChan():
-			for _, peerID := range peerIDs {
-				m.onPeerInactivityTimedOut(peerID)
-			}
+			m.onPeerInactivityTimedOut(peerIDs)
 		}
 	}
 
@@ -474,7 +472,7 @@ func (m *Manager) close() {
 }
 
 // shouldDeferIdleForHA checks if peer should stay connected due to HA group requirements
-func (m *Manager) shouldDeferIdleForHA(peerID string) bool {
+func (m *Manager) shouldDeferIdleForHA(inactivePeers map[string]struct{}, peerID string) bool {
 	m.routesMu.RLock()
 	defer m.routesMu.RUnlock()
 
@@ -505,8 +503,8 @@ func (m *Manager) shouldDeferIdleForHA(peerID string) bool {
 				continue
 			}
 
-			// Other member is still connected, defer idle
-			if peer, ok := m.peerStore.PeerConn(groupPeerID); ok && peer.IsConnected() {
+			// If any peer in the group is active, do defer idle
+			if _, isInactive := inactivePeers[groupPeerID]; !isInactive {
 				return true
 			}
 		}
@@ -541,46 +539,48 @@ func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
 	m.peerStore.PeerConnOpen(m.engineCtx, mp.peerCfg.PublicKey)
 }
 
-func (m *Manager) onPeerInactivityTimedOut(peerID string) {
+func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	peerCfg, ok := m.managedPeers[peerID]
-	if !ok {
-		log.Errorf("peer not found by peerId: %v", peerID)
-		return
-	}
+	for peerID := range peerIDs {
+		peerCfg, ok := m.managedPeers[peerID]
+		if !ok {
+			log.Errorf("peer not found by peerId: %v", peerID)
+			continue
+		}
 
-	mp, ok := m.managedPeersByConnID[peerCfg.PeerConnID]
-	if !ok {
-		log.Errorf("peer not found by conn id: %v", peerCfg.PeerConnID)
-		return
-	}
+		mp, ok := m.managedPeersByConnID[peerCfg.PeerConnID]
+		if !ok {
+			log.Errorf("peer not found by conn id: %v", peerCfg.PeerConnID)
+			continue
+		}
 
-	if mp.expectedWatcher != watcherInactivity {
-		mp.peerCfg.Log.Warnf("ignore inactivity event")
-		return
-	}
+		if mp.expectedWatcher != watcherInactivity {
+			mp.peerCfg.Log.Warnf("ignore inactivity event")
+			continue
+		}
 
-	if m.shouldDeferIdleForHA(mp.peerCfg.PublicKey) {
-		// todo: review to how reset the inactivity detection
-		return
-	}
+		if m.shouldDeferIdleForHA(peerIDs, mp.peerCfg.PublicKey) {
+			mp.peerCfg.Log.Infof("defer inactivity due to active HA group peers")
+			continue
+		}
 
-	mp.peerCfg.Log.Infof("connection timed out")
+		mp.peerCfg.Log.Infof("connection timed out")
 
-	// this is blocking operation, potentially can be optimized
-	m.peerStore.PeerConnIdle(mp.peerCfg.PublicKey)
+		// this is blocking operation, potentially can be optimized
+		m.peerStore.PeerConnIdle(mp.peerCfg.PublicKey)
 
-	mp.peerCfg.Log.Infof("start activity monitor")
+		mp.peerCfg.Log.Infof("start activity monitor")
 
-	mp.expectedWatcher = watcherActivity
+		mp.expectedWatcher = watcherActivity
 
-	m.inactivityManager.RemovePeer(mp.peerCfg.PublicKey)
+		m.inactivityManager.RemovePeer(mp.peerCfg.PublicKey)
 
-	if err := m.activityManager.MonitorPeerActivity(*mp.peerCfg); err != nil {
-		mp.peerCfg.Log.Errorf("failed to create activity monitor: %v", err)
-		return
+		if err := m.activityManager.MonitorPeerActivity(*mp.peerCfg); err != nil {
+			mp.peerCfg.Log.Errorf("failed to create activity monitor: %v", err)
+			continue
+		}
 	}
 }
 
