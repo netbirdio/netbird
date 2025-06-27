@@ -513,7 +513,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 }
 
 // Up starts engine work in the daemon.
-func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpResponse, error) {
+func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -550,6 +550,40 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	if s.config == nil {
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
+
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	if msg.ProfileName != nil && msg.ProfilePath != nil {
+		if *msg.ProfileName != activeProf.Name && *msg.ProfilePath != activeProf.Path {
+			log.Infof("switching to profile %s at %s", *msg.ProfileName, *msg.ProfilePath)
+			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+				Name: *msg.ProfileName,
+				Path: *msg.ProfilePath,
+			}); err != nil {
+				log.Errorf("failed to set active profile state: %v", err)
+				return nil, fmt.Errorf("failed to set active profile state: %w", err)
+			}
+		}
+	}
+
+	activeProf, err = s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	log.Infof("active profile: %s at %s", activeProf.Name, activeProf.Path)
+
+	config, err := profilemanager.GetConfig(activeProf.Path)
+	if err != nil {
+		log.Errorf("failed to get active profile config: %v", err)
+		return nil, fmt.Errorf("failed to get active profile config: %w", err)
+	}
+	s.config = config
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)

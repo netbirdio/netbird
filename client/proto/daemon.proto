@@ -157,7 +157,10 @@ message WaitSSOLoginResponse {
   string email = 1;
 }
 
-message UpRequest {}
+message UpRequest {
+  optional string profileName = 1;
+  optional string profilePath = 2;
+}
 
 message UpResponse {}
 

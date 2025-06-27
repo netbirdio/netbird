@@ -75,6 +75,7 @@ func init() {
 	)
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 
 }
 
@@ -128,7 +129,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	if foregroundMode {
 		return runInForegroundMode(ctx, cmd, activeProf)
 	}
-	return runInDaemonMode(ctx, cmd, pm)
+	return runInDaemonMode(ctx, cmd, pm, activeProf)
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
@@ -182,11 +183,28 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	return connectClient.Run(nil)
 }
 
-func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager) error {
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile) error {
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
 	if err != nil {
 		return err
 	}
+
+	configPath, err := activeProf.FilePath()
+	if err != nil {
+		return fmt.Errorf("get active profile path: %v", err)
+	}
+
+	ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
+	if err != nil {
+		return fmt.Errorf("setup config: %v", err)
+	}
+
+	config, err := profilemanager.UpdateOrCreateConfig(*ic)
+	if err != nil {
+		return fmt.Errorf("get config file: %v", err)
+	}
+
+	config, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
@@ -266,7 +284,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		}
 	}
 
-	if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
+	if _, err := client.Up(ctx, &proto.UpRequest{
+		ProfileName: &activeProf.Name,
+		ProfilePath: &configPath,
+	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)
 	}
 	cmd.Println("Connected")
