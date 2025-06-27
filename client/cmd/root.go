@@ -45,7 +45,6 @@ const (
 )
 
 var (
-	configPath              string
 	defaultConfigPathDir    string
 	defaultConfigPath       string
 	oldDefaultConfigPathDir string
@@ -132,7 +131,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultAdminURL))
 	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout. If syslog is specified the log will be sent to syslog daemon.")
 	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
@@ -292,7 +290,7 @@ func getSetupKeyFromFile(setupKeyPath string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func handleRebrand(cmd *cobra.Command) error {
+func handleRebrand(cmd *cobra.Command, activeProf *profilemanager.Profile) error {
 	var err error
 	if logFile == defaultLogFile {
 		if migrateToNetbird(oldDefaultLogFile, defaultLogFile) {
@@ -303,7 +301,7 @@ func handleRebrand(cmd *cobra.Command) error {
 			}
 		}
 	}
-	if configPath == defaultConfigPath {
+	if activeProf.IsDefault() {
 		if migrateToNetbird(oldDefaultConfigPath, defaultConfigPath) {
 			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultConfigPathDir, defaultConfigPathDir)
 			err = cpDir(oldDefaultConfigPathDir, defaultConfigPathDir)

@@ -39,6 +39,10 @@ func (p *Profile) FilePath() (string, error) {
 	return profPath, nil
 }
 
+func (p *Profile) IsDefault() bool {
+	return p.Name == defaultProfileName
+}
+
 type ProfileManager struct {
 	mu sync.Mutex
 }

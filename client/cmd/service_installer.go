@@ -17,18 +17,11 @@ var installCmd = &cobra.Command{
 
 		cmd.SetOut(cmd.OutOrStdout())
 
-		err := handleRebrand(cmd)
-		if err != nil {
-			return err
-		}
-
 		svcConfig := newSVCConfig()
 
 		svcConfig.Arguments = []string{
 			"service",
 			"run",
-			"--config",
-			configPath,
 			"--log-level",
 			logLevel,
 			"--daemon-addr",
@@ -96,11 +89,6 @@ var uninstallCmd = &cobra.Command{
 		SetFlagsFromEnvVars(rootCmd)
 
 		cmd.SetOut(cmd.OutOrStdout())
-
-		err := handleRebrand(cmd)
-		if err != nil {
-			return err
-		}
 
 		ctx, cancel := context.WithCancel(cmd.Context())
 

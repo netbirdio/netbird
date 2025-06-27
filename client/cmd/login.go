@@ -66,6 +66,11 @@ var loginCmd = &cobra.Command{
 			}
 		}
 
+		activeProf, err = pm.GetActiveProfile()
+		if err != nil {
+			return fmt.Errorf("get active profile: %v", err)
+		}
+
 		profPath, err := activeProf.FilePath()
 		if err != nil {
 			return fmt.Errorf("get active profile path: %v", err)
@@ -73,7 +78,7 @@ var loginCmd = &cobra.Command{
 
 		// workaround to run without service
 		if logFile == "console" {
-			err = handleRebrand(cmd)
+			err = handleRebrand(cmd, activeProf)
 			if err != nil {
 				return err
 			}

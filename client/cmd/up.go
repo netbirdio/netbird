@@ -106,14 +106,20 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 	}
 
+	pm := profilemanager.NewProfileManager()
+	activeProf, err := pm.GetActiveProfile()
+	if err != nil {
+		return fmt.Errorf("get active profile: %v", err)
+	}
+
 	if foregroundMode {
-		return runInForegroundMode(ctx, cmd)
+		return runInForegroundMode(ctx, cmd, activeProf)
 	}
 	return runInDaemonMode(ctx, cmd)
 }
 
-func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
-	err := handleRebrand(cmd)
+func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
+	err := handleRebrand(cmd, activeProf)
 	if err != nil {
 		return err
 	}
@@ -123,7 +129,12 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	ic, err := setupConfig(customDNSAddressConverted, cmd)
+	configPath, err := activeProf.FilePath()
+	if err != nil {
+		return fmt.Errorf("get active profile path: %v", err)
+	}
+
+	ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
 	if err != nil {
 		return fmt.Errorf("setup config: %v", err)
 	}
@@ -240,7 +251,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	return nil
 }
 
-func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
+func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configPath string) (*profilemanager.ConfigInput, error) {
 	ic := profilemanager.ConfigInput{
 		ManagementURL:       managementURL,
 		AdminURL:            adminURL,
