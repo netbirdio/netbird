@@ -512,8 +512,22 @@ func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
 		return nil, err
 	}
 
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Errorf("get active profile: %v", err)
+		return nil, err
+	}
+
+	filePath, err := activeProf.FilePath()
+	if err != nil {
+		log.Errorf("get active profile file path: %v", err)
+		return nil, err
+	}
+
 	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{
 		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+		ProfileName:         &activeProf.Name,
+		ProfilePath:         &filePath,
 	})
 	if err != nil {
 		log.Errorf("login to management URL with: %v", err)
@@ -737,7 +751,7 @@ func (s *serviceClient) onTrayReady() {
 
 	profileMenuItem := systray.AddMenuItem("", "")
 	emailMenuItem := systray.AddMenuItem("", "")
-	s.mProfile = newProfileMenu(s.profileManager, *s.eventHandler, profileMenuItem, emailMenuItem)
+	s.mProfile = newProfileMenu(s.profileManager, *s.eventHandler, profileMenuItem, emailMenuItem, s.menuDownClick, s.menuUpClick, s.getSrvClient)
 
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")

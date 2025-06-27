@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -13,7 +14,9 @@ import (
 	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 type profile struct {
@@ -242,14 +245,23 @@ type profileMenu struct {
 	emailMenuItem         *systray.MenuItem
 	profileSubItems       []*subItem
 	manageProfilesSubItem *subItem
+	downClickCallback     func() error
+	upClickCallback       func() error
+	getSrvClientCallback  func(timeout time.Duration) (proto.DaemonServiceClient, error)
 }
 
-func newProfileMenu(profileManager *profilemanager.ProfileManager, eventHandler eventHandler, profileMenuItem, emailMenuItem *systray.MenuItem) *profileMenu {
+func newProfileMenu(profileManager *profilemanager.ProfileManager,
+	eventHandler eventHandler, profileMenuItem, emailMenuItem *systray.MenuItem,
+	downClickCallback, upClickCallback func() error,
+	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)) *profileMenu {
 	p := profileMenu{
-		profileManager:  profileManager,
-		eventHandler:    eventHandler,
-		profileMenuItem: profileMenuItem,
-		emailMenuItem:   emailMenuItem,
+		profileManager:       profileManager,
+		eventHandler:         eventHandler,
+		profileMenuItem:      profileMenuItem,
+		emailMenuItem:        emailMenuItem,
+		downClickCallback:    downClickCallback,
+		upClickCallback:      upClickCallback,
+		getSrvClientCallback: getSrvClientCallback,
 	}
 
 	p.emailMenuItem.Disable()
@@ -323,6 +335,27 @@ func (p *profileMenu) refresh() {
 						return
 					}
 					log.Infof("Switched to profile '%s'", profile.Name)
+					conn, err := p.getSrvClientCallback(defaultFailTimeout)
+					if err != nil {
+						log.Errorf("failed to get daemon client: %v", err)
+						return
+					}
+
+					status, err := conn.Status(ctx, &proto.StatusRequest{})
+					if err != nil {
+						log.Errorf("failed to get status after switching profile: %v", err)
+						return
+					}
+
+					if status.Status == string(internal.StatusConnected) {
+						if err := p.downClickCallback(); err != nil {
+							log.Errorf("failed to handle down click after switching profile: %v", err)
+						}
+					}
+
+					if err := p.upClickCallback(); err != nil {
+						log.Errorf("failed to handle up click after switching profile: %v", err)
+					}
 					p.refresh()
 				}
 			}
