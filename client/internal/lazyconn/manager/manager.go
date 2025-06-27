@@ -479,34 +479,41 @@ func (m *Manager) shouldDeferIdleForHA(inactivePeers map[string]struct{}, peerID
 	}
 
 	for _, haGroup := range haGroups {
-		groupPeers := m.haGroupToPeers[haGroup]
-
-		for _, groupPeerID := range groupPeers {
-			if groupPeerID == peerID {
-				continue
-			}
-
-			cfg, ok := m.managedPeers[groupPeerID]
-			if !ok {
-				continue
-			}
-
-			groupMp, ok := m.managedPeersByConnID[cfg.PeerConnID]
-			if !ok {
-				continue
-			}
-
-			if groupMp.expectedWatcher != watcherInactivity {
-				continue
-			}
-
-			// If any peer in the group is active, do defer idle
-			if _, isInactive := inactivePeers[groupPeerID]; !isInactive {
-				return true
-			}
+		if active := m.checkHaGroupActivity(haGroup, peerID, inactivePeers); active {
+			return true
 		}
 	}
 
+	return false
+}
+
+func (m *Manager) checkHaGroupActivity(haGroup route.HAUniqueID, peerID string, inactivePeers map[string]struct{}) bool {
+	groupPeers := m.haGroupToPeers[haGroup]
+	for _, groupPeerID := range groupPeers {
+
+		if groupPeerID == peerID {
+			continue
+		}
+
+		cfg, ok := m.managedPeers[groupPeerID]
+		if !ok {
+			continue
+		}
+
+		groupMp, ok := m.managedPeersByConnID[cfg.PeerConnID]
+		if !ok {
+			continue
+		}
+
+		if groupMp.expectedWatcher != watcherInactivity {
+			continue
+		}
+
+		// If any peer in the group is active, do defer idle
+		if _, isInactive := inactivePeers[groupPeerID]; !isInactive {
+			return true
+		}
+	}
 	return false
 }
 
