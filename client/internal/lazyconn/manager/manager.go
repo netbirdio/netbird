@@ -64,13 +64,12 @@ type Manager struct {
 
 // NewManager creates a new lazy connection manager
 // engineCtx is the context for creating peer Connection
-func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.Store, wgIface lazyconn.WGIface, connStateDispatcher *dispatcher.ConnectionDispatcher) *Manager {
+func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.Store, wgIface lazyconn.WGIface) *Manager {
 	log.Infof("setup lazy connection service")
 
 	m := &Manager{
 		engineCtx:            engineCtx,
 		peerStore:            peerStore,
-		connStateDispatcher:  connStateDispatcher,
 		inactivityThreshold:  inactivity.DefaultInactivityThreshold,
 		managedPeers:         make(map[string]*lazyconn.PeerConfig),
 		managedPeersByConnID: make(map[peerid.ConnID]*managedPeer),
@@ -85,13 +84,6 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 	} else {
 		log.Warnf("inactivity manager not supported for kernel mode, wait for remote peer to close the connection")
 	}
-
-	m.connStateListener = &dispatcher.ConnectionListener{
-		OnConnected:    m.onPeerConnected,
-		OnDisconnected: m.onPeerDisconnected,
-	}
-
-	connStateDispatcher.AddListener(m.connStateListener)
 
 	return m
 }
@@ -326,7 +318,7 @@ func (m *Manager) getPeerForActivation(peerID string) (*lazyconn.PeerConfig, *ma
 	return cfg, mp
 }
 
-// activateSinglePeer activates a single peer (internal method)
+// activateSinglePeer activates a single peer
 func (m *Manager) activateSinglePeer(cfg *lazyconn.PeerConfig, mp *managedPeer) bool {
 	mp.expectedWatcher = watcherInactivity
 	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
@@ -582,37 +574,4 @@ func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {
 			continue
 		}
 	}
-}
-
-func (m *Manager) onPeerConnected(peerConnID peerid.ConnID) {
-	m.managedPeersMu.Lock()
-	defer m.managedPeersMu.Unlock()
-
-	mp, ok := m.managedPeersByConnID[peerConnID]
-	if !ok {
-		return
-	}
-
-	if mp.expectedWatcher != watcherInactivity {
-		return
-	}
-
-	m.inactivityManager.AddPeer(mp.peerCfg)
-}
-
-func (m *Manager) onPeerDisconnected(peerConnID peerid.ConnID) {
-	m.managedPeersMu.Lock()
-	defer m.managedPeersMu.Unlock()
-
-	mp, ok := m.managedPeersByConnID[peerConnID]
-	if !ok {
-		return
-	}
-
-	if mp.expectedWatcher != watcherInactivity {
-		return
-	}
-
-	// todo reset inactivity monitor
-	mp.peerCfg.Log.Warnf("--- peer disconnected, stopping inactivity monitor?")
 }

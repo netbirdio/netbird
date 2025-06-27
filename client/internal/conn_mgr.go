@@ -12,7 +12,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/route"
 )
@@ -29,7 +28,6 @@ type ConnMgr struct {
 	peerStore        *peerstore.Store
 	statusRecorder   *peer.Status
 	iface            lazyconn.WGIface
-	dispatcher       *dispatcher.ConnectionDispatcher
 	enabledLocally   bool
 	rosenpassEnabled bool
 
@@ -40,12 +38,11 @@ type ConnMgr struct {
 	lazyCtxCancel context.CancelFunc
 }
 
-func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *dispatcher.ConnectionDispatcher) *ConnMgr {
+func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
 	e := &ConnMgr{
 		peerStore:        peerStore,
 		statusRecorder:   statusRecorder,
 		iface:            iface,
-		dispatcher:       dispatcher,
 		rosenpassEnabled: engineConfig.RosenpassEnabled,
 	}
 	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
@@ -261,7 +258,7 @@ func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	cfg := manager.Config{
 		InactivityThreshold: inactivityThresholdEnv(),
 	}
-	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface, e.dispatcher)
+	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface)
 
 	e.lazyCtx, e.lazyCtxCancel = context.WithCancel(engineCtx)
 
