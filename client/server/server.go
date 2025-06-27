@@ -144,7 +144,20 @@ func (s *Server) Start() error {
 	config, err := profilemanager.GetConfig(activeProf.Path)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
-		return fmt.Errorf("failed to get active profile config: %w", err)
+
+		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+			Name: "default",
+			Path: s.profileManager.DefaultProfilePath(),
+		}); err != nil {
+			log.Errorf("failed to set active profile state: %v", err)
+			return fmt.Errorf("failed to set active profile state: %w", err)
+		}
+
+		config, err = profilemanager.GetConfig(s.profileManager.DefaultProfilePath())
+		if err != nil {
+			log.Errorf("failed to get default profile config: %v", err)
+			return fmt.Errorf("failed to get default profile config: %w", err)
+		}
 	}
 	s.config = config
 

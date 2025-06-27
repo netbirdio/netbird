@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/skratchdot/open-golang/open"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
@@ -46,11 +47,6 @@ var loginCmd = &cobra.Command{
 			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 		}
 
-		providedSetupKey, err := getSetupKey()
-		if err != nil {
-			return err
-		}
-
 		pm := profilemanager.NewProfileManager()
 
 		activeProf, err := pm.GetActiveProfile()
@@ -71,10 +67,22 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("get active profile: %v", err)
 		}
 
-		profPath, err := activeProf.FilePath()
+		configPath, err := activeProf.FilePath()
 		if err != nil {
 			return fmt.Errorf("get active profile path: %v", err)
 		}
+
+		providedSetupKey, err := getSetupKey()
+		if err != nil {
+			return err
+		}
+
+		config, err := profilemanager.ReadConfig(configPath)
+		if err != nil {
+			return fmt.Errorf("update config: %v", err)
+		}
+
+		config, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 		// workaround to run without service
 		if logFile == "console" {
@@ -85,22 +93,6 @@ var loginCmd = &cobra.Command{
 
 			// update host's static platform and system information
 			system.UpdateStaticInfo()
-
-			ic := profilemanager.ConfigInput{
-				ManagementURL: managementURL,
-				AdminURL:      adminURL,
-				ConfigPath:    profPath,
-			}
-			if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
-				ic.PreSharedKey = &preSharedKey
-			}
-
-			config, err := profilemanager.UpdateConfig(ic)
-			if err != nil {
-				return fmt.Errorf("update config: %v", err)
-			}
-
-			config, _ = profilemanager.UpdateOldManagementURL(ctx, config, profPath)
 
 			err = foregroundLogin(ctx, cmd, config, providedSetupKey)
 			if err != nil {
@@ -132,7 +124,7 @@ var loginCmd = &cobra.Command{
 			Hostname:            hostName,
 			DnsLabels:           dnsLabelsReq,
 			ProfileName:         &profileName,
-			ProfilePath:         &profPath,
+			ProfilePath:         &configPath,
 		}
 
 		if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -166,9 +158,18 @@ var loginCmd = &cobra.Command{
 		if loginResp.NeedsSSOLogin {
 			openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
 
-			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
+			resp, err := client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 			if err != nil {
 				return fmt.Errorf("waiting sso login failed with: %v", err)
+			}
+
+			if resp.Email != "" {
+				err = pm.SetActiveProfileState(&profilemanager.ProfileState{
+					Email: resp.Email,
+				})
+				if err != nil {
+					log.Warnf("failed to set active profile email: %v", err)
+				}
 			}
 		}
 

@@ -112,10 +112,23 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get active profile: %v", err)
 	}
 
+	// switch profile if provided
+	if profileName != "" && activeProf.Name != profileName {
+		err = pm.SwitchProfile(profileName)
+		if err != nil {
+			return fmt.Errorf("switch profile: %v", err)
+		}
+	}
+
+	activeProf, err = pm.GetActiveProfile()
+	if err != nil {
+		return fmt.Errorf("get active profile: %v", err)
+	}
+
 	if foregroundMode {
 		return runInForegroundMode(ctx, cmd, activeProf)
 	}
-	return runInDaemonMode(ctx, cmd)
+	return runInDaemonMode(ctx, cmd, pm)
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
@@ -169,7 +182,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	return connectClient.Run(nil)
 }
 
-func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager) error {
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
 	if err != nil {
 		return err
@@ -238,9 +251,18 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
 
-		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
+		resp, err := client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 		if err != nil {
 			return fmt.Errorf("waiting sso login failed with: %v", err)
+		}
+
+		if resp.Email != "" {
+			err = pm.SetActiveProfileState(&profilemanager.ProfileState{
+				Email: resp.Email,
+			})
+			if err != nil {
+				log.Warnf("failed to set active profile email: %v", err)
+			}
 		}
 	}
 
