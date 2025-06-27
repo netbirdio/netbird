@@ -70,12 +70,24 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(30*time.Second))
 	defer cancel()
 	// create new server
-	s := New(ctx, t.TempDir()+"/config.json", "debug")
-	s.latestConfigInput.ManagementURL = "http://" + mgmtAddr
-	config, err := profilemanager.UpdateOrCreateConfig(s.latestConfigInput)
+	ic := profilemanager.ConfigInput{
+		ManagementURL: "http://" + mgmtAddr,
+		ConfigPath:    t.TempDir() + "/config.json",
+	}
+
+	config, err := profilemanager.UpdateOrCreateConfig(ic)
 	if err != nil {
 		t.Fatalf("failed to create config: %v", err)
 	}
+
+	pm := profilemanager.ServiceManager{}
+	pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name: "test-profile",
+		Path: ic.ConfigPath,
+	})
+
+	s := New(ctx, "debug")
+
 	s.config = config
 
 	s.statusRecorder = peer.NewRecorder(config.ManagementURL.String())
@@ -91,11 +103,35 @@ func TestConnectWithRetryRuns(t *testing.T) {
 }
 
 func TestServer_Up(t *testing.T) {
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.DefaultConfigPathDir = t.TempDir()
+	profilemanager.ActiveProfileStatePath = t.TempDir() + "/active_profile.json"
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+	})
+
 	ctx := internal.CtxInitState(context.Background())
 
-	s := New(ctx, t.TempDir()+"/config.json", "console")
+	ic := profilemanager.ConfigInput{
+		ConfigPath: t.TempDir() + "/config.json",
+	}
 
-	err := s.Start()
+	_, err := profilemanager.UpdateOrCreateConfig(ic)
+	if err != nil {
+		t.Fatalf("failed to create config: %v", err)
+	}
+
+	pm := profilemanager.ServiceManager{}
+	pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name: "test-profile",
+		Path: ic.ConfigPath,
+	})
+
+	s := New(ctx, "console")
+
+	err = s.Start()
 	require.NoError(t, err)
 
 	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
@@ -129,11 +165,34 @@ func (m *mockSubscribeEventsServer) Context() context.Context {
 }
 
 func TestServer_SubcribeEvents(t *testing.T) {
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.DefaultConfigPathDir = t.TempDir()
+	profilemanager.ActiveProfileStatePath = t.TempDir() + "/active_profile.json"
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+	})
+
 	ctx := internal.CtxInitState(context.Background())
+	ic := profilemanager.ConfigInput{
+		ConfigPath: t.TempDir() + "/config.json",
+	}
 
-	s := New(ctx, t.TempDir()+"/config.json", "console")
+	_, err := profilemanager.UpdateOrCreateConfig(ic)
+	if err != nil {
+		t.Fatalf("failed to create config: %v", err)
+	}
 
-	err := s.Start()
+	pm := profilemanager.ServiceManager{}
+	pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name: "test-profile",
+		Path: ic.ConfigPath,
+	})
+
+	s := New(ctx, "console")
+
+	err = s.Start()
 	require.NoError(t, err)
 
 	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")

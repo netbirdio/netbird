@@ -17,9 +17,9 @@ var (
 	oldDefaultConfigPathDir = ""
 	oldDefaultConfigPath    = ""
 
-	defaultConfigPathDir   = ""
+	DefaultConfigPathDir   = ""
 	defaultConfigPath      = ""
-	activeProfileStatePath = ""
+	ActiveProfileStatePath = ""
 )
 
 var (
@@ -28,22 +28,22 @@ var (
 
 func init() {
 
+	DefaultConfigPathDir = "/var/lib/netbird/"
 	oldDefaultConfigPathDir = "/etc/netbird/"
-	defaultConfigPathDir = "/var/lib/netbird/"
 
 	switch runtime.GOOS {
 	case "windows":
 		oldDefaultConfigPathDir = filepath.Join(os.Getenv("PROGRAMDATA"), "Netbird")
-		defaultConfigPathDir = oldDefaultConfigPathDir
+		DefaultConfigPathDir = oldDefaultConfigPathDir
 
 	case "freebsd":
 		oldDefaultConfigPathDir = "/var/db/netbird/"
-		defaultConfigPathDir = oldDefaultConfigPathDir
+		DefaultConfigPathDir = oldDefaultConfigPathDir
 	}
 
 	oldDefaultConfigPath = filepath.Join(oldDefaultConfigPathDir, "config.json")
-	defaultConfigPath = filepath.Join(defaultConfigPathDir, "default.json")
-	activeProfileStatePath = filepath.Join(defaultConfigPathDir, "active_profile.json")
+	defaultConfigPath = filepath.Join(DefaultConfigPathDir, "default.json")
+	ActiveProfileStatePath = filepath.Join(DefaultConfigPathDir, "active_profile.json")
 }
 
 type ActiveProfileState struct {
@@ -55,7 +55,7 @@ type ServiceManager struct{}
 
 func (s *ServiceManager) CopyDefaultProfileIfNotExists() (bool, error) {
 
-	if err := os.MkdirAll(defaultConfigPathDir, 0600); err != nil {
+	if err := os.MkdirAll(DefaultConfigPathDir, 0600); err != nil {
 		return false, fmt.Errorf("failed to create default config path directory: %w", err)
 	}
 
@@ -107,12 +107,12 @@ func (s *ServiceManager) CreateDefaultProfile() error {
 }
 
 func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
-	if _, err := os.Stat(activeProfileStatePath); os.IsNotExist(err) {
+	if _, err := os.Stat(ActiveProfileStatePath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("no active profile found: %w", err)
 	}
 
 	var activeProfile ActiveProfileState
-	if _, err := util.ReadJson(activeProfileStatePath, &activeProfile); err != nil {
+	if _, err := util.ReadJson(ActiveProfileStatePath, &activeProfile); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if err := s.SetActiveProfileStateToDefault(); err != nil {
 				return nil, fmt.Errorf("failed to set active profile to default: %w", err)
@@ -145,7 +145,7 @@ func (s *ServiceManager) SetActiveProfileState(a *ActiveProfileState) error {
 		return errors.New("invalid active profile state")
 	}
 
-	if err := util.WriteJsonWithRestrictedPermission(context.Background(), activeProfileStatePath, a); err != nil {
+	if err := util.WriteJsonWithRestrictedPermission(context.Background(), ActiveProfileStatePath, a); err != nil {
 		return fmt.Errorf("failed to write active profile state: %w", err)
 	}
 
