@@ -265,7 +265,7 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 		return false
 	}
 
-	m.activateHAGroupPeers(peerID)
+	m.activateHAGroupPeers(cfg)
 
 	return true
 }
@@ -319,7 +319,12 @@ func (m *Manager) getPeerForActivation(peerID string) (*lazyconn.PeerConfig, *ma
 }
 
 // activateSinglePeer activates a single peer
+// return true if the peer was activated, false if it was already active
 func (m *Manager) activateSinglePeer(cfg *lazyconn.PeerConfig, mp *managedPeer) bool {
+	if mp.expectedWatcher == watcherInactivity {
+		return false
+	}
+
 	mp.expectedWatcher = watcherInactivity
 	m.activityManager.RemovePeer(cfg.Log, cfg.PeerConnID)
 	m.inactivityManager.AddPeer(cfg)
@@ -327,22 +332,22 @@ func (m *Manager) activateSinglePeer(cfg *lazyconn.PeerConfig, mp *managedPeer) 
 }
 
 // activateHAGroupPeers activates all peers in HA groups that the given peer belongs to
-func (m *Manager) activateHAGroupPeers(triggerPeerID string) {
+func (m *Manager) activateHAGroupPeers(triggeredPeerCfg *lazyconn.PeerConfig) {
 	var peersToActivate []string
 
 	m.routesMu.RLock()
-	haGroups := m.peerToHAGroups[triggerPeerID]
+	haGroups := m.peerToHAGroups[triggeredPeerCfg.PublicKey]
 
 	if len(haGroups) == 0 {
 		m.routesMu.RUnlock()
-		log.Debugf("peer %s is not part of any HA groups", triggerPeerID)
+		triggeredPeerCfg.Log.Debugf("peer is not part of any HA groups")
 		return
 	}
 
 	for _, haGroup := range haGroups {
 		peers := m.haGroupToPeers[haGroup]
 		for _, peerID := range peers {
-			if peerID != triggerPeerID {
+			if peerID != triggeredPeerCfg.PublicKey {
 				peersToActivate = append(peersToActivate, peerID)
 			}
 		}
@@ -358,14 +363,14 @@ func (m *Manager) activateHAGroupPeers(triggerPeerID string) {
 
 		if m.activateSinglePeer(cfg, mp) {
 			activatedCount++
-			cfg.Log.Infof("activated peer as part of HA group (triggered by %s)", triggerPeerID)
+			cfg.Log.Infof("activated peer as part of HA group (triggered by %s)", triggeredPeerCfg.PublicKey)
 			m.peerStore.PeerConnOpen(m.engineCtx, cfg.PublicKey)
 		}
 	}
 
 	if activatedCount > 0 {
 		log.Infof("activated %d additional peers in HA groups for peer %s (groups: %v)",
-			activatedCount, triggerPeerID, haGroups)
+			activatedCount, triggeredPeerCfg.PublicKey, haGroups)
 	}
 }
 
@@ -526,7 +531,7 @@ func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
 		return
 	}
 
-	m.activateHAGroupPeers(mp.peerCfg.PublicKey)
+	m.activateHAGroupPeers(mp.peerCfg)
 
 	m.peerStore.PeerConnOpen(m.engineCtx, mp.peerCfg.PublicKey)
 }
