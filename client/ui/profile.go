@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -239,22 +242,26 @@ type subItem struct {
 }
 
 type profileMenu struct {
+	mu                    sync.Mutex
+	ctx                   context.Context
 	profileManager        *profilemanager.ProfileManager
 	eventHandler          eventHandler
 	profileMenuItem       *systray.MenuItem
 	emailMenuItem         *systray.MenuItem
 	profileSubItems       []*subItem
 	manageProfilesSubItem *subItem
+	profilesState         []profilemanager.Profile
 	downClickCallback     func() error
 	upClickCallback       func() error
 	getSrvClientCallback  func(timeout time.Duration) (proto.DaemonServiceClient, error)
 }
 
-func newProfileMenu(profileManager *profilemanager.ProfileManager,
+func newProfileMenu(ctx context.Context, profileManager *profilemanager.ProfileManager,
 	eventHandler eventHandler, profileMenuItem, emailMenuItem *systray.MenuItem,
 	downClickCallback, upClickCallback func() error,
 	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)) *profileMenu {
 	p := profileMenu{
+		ctx:                  ctx,
 		profileManager:       profileManager,
 		eventHandler:         eventHandler,
 		profileMenuItem:      profileMenuItem,
@@ -267,11 +274,15 @@ func newProfileMenu(profileManager *profilemanager.ProfileManager,
 	p.emailMenuItem.Disable()
 	p.emailMenuItem.Hide()
 	p.refresh()
+	go p.updateMenu()
 
 	return &p
 }
 
 func (p *profileMenu) refresh() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	profiles, err := p.profileManager.ListProfiles()
 	if err != nil {
 		log.Errorf("failed to list profiles: %v", err)
@@ -284,6 +295,7 @@ func (p *profileMenu) refresh() {
 		item.cancel()
 	}
 	p.profileSubItems = make([]*subItem, 0, len(profiles))
+	p.profilesState = profiles
 
 	if p.manageProfilesSubItem != nil {
 		// Remove the manage profiles item if it exists
@@ -390,4 +402,44 @@ func (p *profileMenu) refresh() {
 		p.emailMenuItem.Hide()
 	}
 
+}
+
+func (p *profileMenu) updateMenu() {
+	// check every second
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+
+			// get profilesList
+			profiles, err := p.profileManager.ListProfiles()
+			if err != nil {
+				log.Errorf("failed to list profiles: %v", err)
+				continue
+			}
+
+			sort.Slice(profiles, func(i, j int) bool {
+				return profiles[i].Name < profiles[j].Name
+			})
+
+			p.mu.Lock()
+			state := p.profilesState
+			p.mu.Unlock()
+
+			sort.Slice(state, func(i, j int) bool {
+				return state[i].Name < state[j].Name
+			})
+
+			if slices.Equal(profiles, state) {
+				continue
+			}
+
+			p.refresh()
+		case <-p.ctx.Done():
+			return // context cancelled
+
+		}
+	}
 }

@@ -123,7 +123,7 @@ var loginCmd = &cobra.Command{
 			IsUnixDesktopClient: isUnixRunningDesktop(),
 			Hostname:            hostName,
 			DnsLabels:           dnsLabelsReq,
-			ProfileName:         &profileName,
+			ProfileName:         &activeProf.Name,
 			ProfilePath:         &configPath,
 		}
 
