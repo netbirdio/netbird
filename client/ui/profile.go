@@ -389,7 +389,7 @@ func (p *profileMenu) refresh() {
 					return // channel closed
 				}
 				// Handle manage profiles click
-				p.eventHandler.runSelfCommand("profiles", "true")
+				p.eventHandler.runSelfCommand(p.ctx, "profiles", "true")
 				p.refresh()
 			}
 		}
