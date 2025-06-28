@@ -68,12 +68,12 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	}
 	t.Cleanup(cleanUp)
 
-	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
-	eventStore := &activity.InMemoryEventStore{}
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
-
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
+
+	peersUpdateManager := mgmt.NewPeersUpdateManager(metrics)
+	eventStore := &activity.InMemoryEventStore{}
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)

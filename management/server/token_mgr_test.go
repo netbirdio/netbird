@@ -30,7 +30,11 @@ var TurnTestHost = &types.Host{
 func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager(nil)
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("failed to create metrics: %v", err)
+	}
+	peersManager := NewPeersUpdateManager(metrics)
 
 	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
@@ -198,7 +202,11 @@ loop:
 func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager(nil)
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("failed to create metrics: %v", err)
+	}
+	peersManager := NewPeersUpdateManager(metrics)
 	peer := "some_peer"
 
 	rc := &types.Relay{

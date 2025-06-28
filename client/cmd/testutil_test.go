@@ -83,7 +83,6 @@ func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc
 	}
 	t.Cleanup(cleanUp)
 
-	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
 		return nil, nil
@@ -92,6 +91,9 @@ func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
+
+	peersUpdateManager := mgmt.NewPeersUpdateManager(metrics)
+
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
