@@ -19,7 +19,7 @@ type UpdateChannelMetrics struct {
 	getAllConnectedPeers              metric.Int64Histogram
 	hasChannelDurationMicro           metric.Int64Histogram
 	calcPostureChecksDurationMicro    metric.Int64Histogram
-	calcPeerNetworkMapDurationMicro   metric.Int64Histogram
+	calcPeerNetworkMapDurationMs      metric.Int64Histogram
 	mergeNetworkMapDurationMicro      metric.Int64Histogram
 	toSyncResponseDurationMicro       metric.Int64Histogram
 	bufferPushCounter                 metric.Int64Counter
@@ -104,8 +104,8 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 		return nil, err
 	}
 
-	calcPeerNetworkMapDurationMicro, err := meter.Int64Histogram("management.updatechannel.calc.networkmap.duration.micro",
-		metric.WithUnit("microseconds"),
+	calcPeerNetworkMapDurationMs, err := meter.Int64Histogram("management.updatechannel.calc.networkmap.duration.ms",
+		metric.WithUnit("milliseconds"),
 		metric.WithDescription("Duration of how long it takes to calculate the network map for a peer"),
 	)
 	if err != nil {
@@ -159,7 +159,7 @@ func NewUpdateChannelMetrics(ctx context.Context, meter metric.Meter) (*UpdateCh
 		getAllConnectedPeers:              getAllConnectedPeers,
 		hasChannelDurationMicro:           hasChannelDurationMicro,
 		calcPostureChecksDurationMicro:    calcPostureChecksDurationMicro,
-		calcPeerNetworkMapDurationMicro:   calcPeerNetworkMapDurationMicro,
+		calcPeerNetworkMapDurationMs:      calcPeerNetworkMapDurationMs,
 		mergeNetworkMapDurationMicro:      mergeNetworkMapDurationMicro,
 		toSyncResponseDurationMicro:       toSyncResponseDurationMicro,
 		bufferPushCounter:                 bufferPushCounter,
@@ -210,7 +210,7 @@ func (metrics *UpdateChannelMetrics) CountCalcPostureChecksDuration(duration tim
 }
 
 func (metrics *UpdateChannelMetrics) CountCalcPeerNetworkMapDuration(duration time.Duration) {
-	metrics.calcPeerNetworkMapDurationMicro.Record(metrics.ctx, duration.Microseconds())
+	metrics.calcPeerNetworkMapDurationMs.Record(metrics.ctx, duration.Milliseconds())
 }
 
 func (metrics *UpdateChannelMetrics) CountMergeNetworkMapDuration(duration time.Duration) {
