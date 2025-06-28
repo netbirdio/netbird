@@ -1189,7 +1189,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 
 		message, ok := updMsg.Pop(context.Background())
 		if !ok {
-			t.Fatal("failed to receive update message")
+			t.Errorf("failed to receive update message")
 		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 2 {
@@ -1219,7 +1219,7 @@ func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 
 		message, ok := updMsg.Pop(context.Background())
 		if !ok {
-			t.Fatal("failed to receive update message")
+			t.Errorf("failed to receive update message")
 		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 0 {
@@ -1258,7 +1258,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 
 		message, ok := updMsg.Pop(context.Background())
 		if !ok {
-			t.Fatal("failed to receive update message")
+			t.Errorf("failed to receive update message")
 		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 2 {
@@ -1326,7 +1326,7 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 
 		message, ok := updMsg.Pop(context.Background())
 		if !ok {
-			t.Fatal("failed to receive update message")
+			t.Errorf("failed to receive update message")
 		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 1 {
@@ -1378,18 +1378,24 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		return
 	}
 
+	// emptying buffer of previous changes
+	_, _ = updMsg.Pop(context.Background())
+
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		message, ok := updMsg.Pop(context.Background())
-		if !ok {
-			t.Fatal("failed to receive update message")
-		}
-		networkMap := message.Update.GetNetworkMap()
-		if len(networkMap.RemotePeers) != 0 {
-			t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
+		// expecting 2 messages (policy delete and group delete)
+		for i := 0; i < 1; i++ {
+			message, ok := updMsg.Pop(context.Background())
+			if !ok {
+				t.Errorf("failed to receive update message")
+			}
+			networkMap := message.Update.GetNetworkMap()
+			if len(networkMap.RemotePeers) != 0 {
+				t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
+			}
 		}
 	}()
 
@@ -2895,7 +2901,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, error) {
 
 	permissionsManager := permissions.NewManager(store)
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(metrics), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 	if err != nil {
 		return nil, err
 	}

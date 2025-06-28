@@ -1746,13 +1746,12 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	var peer5 *nbpeer.Peer
 	var peer6 *nbpeer.Peer
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
 	// Updating not expired peer and peer expiration is enabled should not update account peers and not send peer update
 	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1771,6 +1770,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Adding peer to unlinked group should not update account peers and not send peer update
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1796,6 +1799,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Deleting peer with unlinked group should not update account peers and not send peer update
 	t.Run("deleting peer with unlinked group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1814,6 +1821,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Updating peer label should update account peers and send peer update
 	t.Run("updating peer label", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -1832,6 +1843,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	})
 
 	t.Run("validator requires update", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		requireUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
 			return update, true, nil
 		}
@@ -1854,6 +1869,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	})
 
 	t.Run("validator requires no update", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
 			return update, false, nil
 		}
@@ -1877,6 +1896,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Adding peer to group linked with policy should update account peers and send peer update
 	t.Run("adding peer to group linked with policy", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 			AccountID: account.Id,
 			Enabled:   true,
@@ -1918,6 +1941,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Deleting peer with linked group to policy should update account peers and send peer update
 	t.Run("deleting peer with linked group to policy", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -1936,6 +1963,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Adding peer to group linked with route should update account peers and send peer update
 	t.Run("adding peer to group linked with route", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		route := nbroute.Route{
 			ID:          "testingRoute1",
 			Network:     netip.MustParsePrefix("100.65.250.202/32"),
@@ -1982,6 +2013,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Deleting peer with linked group to route should update account peers and send peer update
 	t.Run("deleting peer with linked group to route", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -2000,6 +2035,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Adding peer to group linked with name server group should update account peers and send peer update
 	t.Run("adding peer to group linked with name server group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		_, err = manager.CreateNameServerGroup(
 			context.Background(), account.Id, "nsGroup", "nsGroup", []nbdns.NameServer{{
 				IP:     netip.MustParseAddr("1.1.1.1"),
@@ -2037,6 +2076,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Deleting peer with linked group to name server group should update account peers and send peer update
 	t.Run("deleting peer with linked group to route", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)

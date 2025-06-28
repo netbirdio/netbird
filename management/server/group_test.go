@@ -429,13 +429,12 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	}, true)
 	assert.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
 	// Saving a group that is not linked to any resource should not update account peers
 	t.Run("saving unlinked group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -459,6 +458,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	// Adding a peer to a group that is not linked to any resource should not update account peers
 	// and not send peer update
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -478,6 +481,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	// Removing a peer from a group that is not linked to any resource should not update account peers
 	// and not send peer update
 	t.Run("removing peer from unliked group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -496,6 +503,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// Deleting group should not update account peers and not send peer update
 	t.Run("deleting group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -529,6 +540,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// Saving a group linked to policy should update account peers and send peer update
 	t.Run("saving linked group to policy", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -551,6 +566,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// adding peer to a used group should update account peers and send peer update
 	t.Run("adding peer to linked group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -569,6 +588,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// removing peer from a linked group should update account peers and send peer update
 	t.Run("removing peer from linked group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -587,6 +610,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// Saving a group linked to name server group should update account peers and send peer update
 	t.Run("saving group linked to name server group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		_, err = manager.CreateNameServerGroup(
 			context.Background(), account.Id, "nsGroup", "nsGroup", []nbdns.NameServer{{
 				IP:     netip.MustParseAddr("1.1.1.1"),
@@ -620,6 +647,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// Saving a group linked to route should update account peers and send peer update
 	t.Run("saving group linked to route", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		newRoute := route.Route{
 			ID:          "route",
 			Network:     netip.MustParsePrefix("192.168.0.0/16"),
@@ -661,6 +692,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// Saving a group linked to dns settings should update account peers and send peer update
 	t.Run("saving group linked to dns settings", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		err := manager.SaveDNSSettings(context.Background(), account.Id, userID, &types.DNSSettings{
 			DisabledManagementGroups: []string{"groupD"},
 		})
@@ -688,6 +723,10 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 	// Saving a group linked to network router should update account peers and send peer update
 	t.Run("saving group linked to network router", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		permissionsManager := permissions.NewManager(manager.Store)
 		groupsManager := groups.NewManager(manager.Store, permissionsManager, manager)
 		resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
@@ -77,7 +78,11 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: 2 * time.Second}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager(nil)
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("failed to create metrics: %v", err)
+	}
+	peersManager := NewPeersUpdateManager(metrics)
 	peer := "some_peer"
 	buffer := peersManager.CreateChannel(context.Background(), peer)
 	resultCh := make(chan struct {

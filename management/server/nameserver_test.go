@@ -988,14 +988,14 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	}, true)
 	assert.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
 	// Creating a nameserver group with a distribution group no peers should not update account peers
 	// and not send peer update
 	t.Run("creating nameserver group with distribution group no peers", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
+
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1023,6 +1023,11 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	// saving a nameserver group with a distribution group with no peers should not update account peers
 	// and not send peer update
 	t.Run("saving nameserver group with distribution group no peers", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
+
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1041,6 +1046,11 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 
 	// Creating a nameserver group with a distribution group no peers should update account peers and send peer update
 	t.Run("creating nameserver group with distribution group has peers", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
+
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -1067,6 +1077,10 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 
 	// saving a nameserver group with a distribution group with peers should update account peers and send peer update
 	t.Run("saving nameserver group with distribution group has peers", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -1097,6 +1111,10 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 
 	// Deleting a nameserver group should update account peers and send peer update
 	t.Run("deleting nameserver group", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)

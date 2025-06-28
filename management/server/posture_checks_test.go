@@ -140,11 +140,6 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	}, true)
 	assert.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
 	postureCheckA := &posture.Checks{
 		Name:      "postureCheckA",
 		AccountID: account.Id,
@@ -171,6 +166,10 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 	// Saving unused posture check should not update account peers and not send peer update
 	t.Run("saving unused posture check", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -189,6 +188,10 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 	// Updating unused posture check should not update account peers and not send peer update
 	t.Run("updating unused posture check", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -226,6 +229,10 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 	// Linking posture check to policy should trigger update account peers and send peer update
 	t.Run("linking posture check to policy with peers", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -244,6 +251,10 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 	// Updating linked posture checks should update account peers and send peer update
 	t.Run("updating linked to posture check with peers", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		postureCheckB.Checks = posture.ChecksDefinition{
 			NBVersionCheck: &posture.NBVersionCheck{
 				MinVersion: "0.29.0",
@@ -273,6 +284,10 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 	// Removing posture check from policy should trigger account peers update and send peer update
 	t.Run("removing posture check from policy", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -292,6 +307,10 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 	// Deleting unused posture check should not trigger account peers update and not send peer update
 	t.Run("deleting unused posture check", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -313,6 +332,10 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 	// Updating linked posture check to policy with no peers should not trigger account peers update and not send peer update
 	t.Run("updating linked posture check to policy with no peers", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 			Enabled: true,
 			Rules: []*types.PolicyRule{
@@ -352,7 +375,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	// Updating linked posture check to policy where destination has peers but source does not
 	// should trigger account peers update and send peer update
 	t.Run("updating linked posture check to policy where destination has peers but source does not", func(t *testing.T) {
-		updMsg1 := manager.peersUpdateManager.CreateChannel(context.Background(), peer2.ID)
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer2.ID)
 		t.Cleanup(func() {
 			manager.peersUpdateManager.CloseChannel(context.Background(), peer2.ID)
 		})
@@ -374,7 +397,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -396,6 +419,10 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	// Updating linked client posture check to policy where source has peers but destination does not,
 	// should trigger account peers update and send peer update
 	t.Run("updating linked posture check to policy where source has peers but destination does not", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		})
 		_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 			Enabled: true,
 			Rules: []*types.PolicyRule{
