@@ -47,7 +47,6 @@ require (
 	github.com/eko/gocache/store/redis/v4 v4.2.2
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gliderlabs/ssh v0.3.8
-	github.com/go-sql-driver/mysql v1.8.1
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/golang/mock v1.6.0
 	github.com/google/go-cmp v0.7.0
@@ -58,7 +57,6 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
 	github.com/hashicorp/go-version v1.6.0
-	github.com/lib/pq v1.10.9
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-netroute v0.2.1
 	github.com/mdlayher/socket v0.5.1
@@ -166,6 +164,7 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/go-text/render v0.2.0 // indirect
 	github.com/go-text/typesetting v0.2.0 // indirect
