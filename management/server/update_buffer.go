@@ -25,6 +25,24 @@ func (b *UpdateBuffer) Push(update *UpdateMessage) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if b.update != nil && update.Update.NetbirdConfig != nil {
+		if update.Update.NetbirdConfig.Relay != nil {
+			b.update.Update.NetbirdConfig.Relay = update.Update.NetbirdConfig.Relay
+		}
+		if update.Update.NetbirdConfig.Signal != nil {
+			b.update.Update.NetbirdConfig.Signal = update.Update.NetbirdConfig.Signal
+		}
+		if update.Update.NetbirdConfig.Flow != nil {
+			b.update.Update.NetbirdConfig.Flow = update.Update.NetbirdConfig.Flow
+		}
+		if update.Update.NetbirdConfig.Stuns != nil {
+			b.update.Update.NetbirdConfig.Stuns = update.Update.NetbirdConfig.Stuns
+		}
+		if update.Update.NetbirdConfig.Turns != nil {
+			b.update.Update.NetbirdConfig.Turns = update.Update.NetbirdConfig.Turns
+		}
+	}
+
 	// the equal case we need because we don't always increment the serial number
 	if b.update == nil || update.Update.NetworkMap.Serial > b.update.Update.NetworkMap.Serial || b.update.Update.NetworkMap.Serial == 0 {
 		b.update = update
