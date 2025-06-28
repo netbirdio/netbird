@@ -906,6 +906,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 		if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 			err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+			if err != nil {
+				return fmt.Errorf("failed to increment network serial: %w", err)
+			}
 		}
 
 		return nil

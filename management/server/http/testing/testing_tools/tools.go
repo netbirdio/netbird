@@ -118,7 +118,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 		t.Fatalf("Failed to create metrics: %v", err)
 	}
 
-	peersUpdateManager := server.NewPeersUpdateManager(nil)
+	peersUpdateManager := server.NewPeersUpdateManager(metrics)
 	updMsg := peersUpdateManager.CreateChannel(context.Background(), TestPeerId)
 	done := make(chan struct{})
 	if validateUpdate {

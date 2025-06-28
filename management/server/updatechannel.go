@@ -12,8 +12,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-const channelBufferSize = 2
-
 type UpdateMessage struct {
 	Update     *proto.SyncResponse
 	NetworkMap *types.NetworkMap
