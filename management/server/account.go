@@ -18,8 +18,6 @@ import (
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
-	"github.com/go-sql-driver/mysql"
-	"github.com/lib/pq"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
@@ -107,17 +105,15 @@ type DefaultAccountManager struct {
 }
 
 func isUniqueConstraintError(err error) bool {
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+	switch {
+	case strings.Contains(err.Error(), "(SQLSTATE 23505)"),
+		strings.Contains(err.Error(), "Error 1062 (23000)"),
+		strings.Contains(err.Error(), "UNIQUE constraint failed"):
 		return true
-	}
 
-	var pqErr *pq.Error
-	if errors.As(err, &pqErr) && pqErr.Code == "23505" {
-		return true
+	default:
+		return false
 	}
-
-	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.

@@ -2094,3 +2094,47 @@ func Test_DeletePeer(t *testing.T) {
 	assert.NotContains(t, group.Peers, "peer1")
 
 }
+
+func Test_IsUniqueConstraintError(t *testing.T) {
+	tests := []struct {
+		name   string
+		engine types.Engine
+	}{
+		{
+			name:   "PostgreSQL uniqueness error",
+			engine: types.PostgresStoreEngine,
+		},
+		{
+			name:   "MySQL uniqueness error",
+			engine: types.MysqlStoreEngine,
+		},
+		{
+			name:   "SQLite uniqueness error",
+			engine: types.SqliteStoreEngine,
+		},
+	}
+
+	peer := &nbpeer.Peer{
+		ID:        "test-peer-id",
+		AccountID: "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+		DNSLabel:  "test-peer-dns-label",
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("NETBIRD_STORE_ENGINE", string(tt.engine))
+			s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+			if err != nil {
+				t.Fatalf("Error when creating store: %s", err)
+			}
+			t.Cleanup(cleanup)
+
+			err = s.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
+			assert.NoError(t, err)
+
+			err = s.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
+			result := isUniqueConstraintError(err)
+			assert.True(t, result)
+		})
+	}
+}
