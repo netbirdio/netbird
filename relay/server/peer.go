@@ -24,21 +24,18 @@ const (
 type Peer struct {
 	metrics *metrics.Metrics
 	log     *log.Entry
-	idS     string
-	idB     []byte
+	id      messages.PeerID
 	conn    net.Conn
 	connMu  sync.RWMutex
 	store   *Store
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(metrics *metrics.Metrics, id []byte, conn net.Conn, store *Store) *Peer {
-	stringID := messages.HashIDToString(id)
+func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn net.Conn, store *Store) *Peer {
 	return &Peer{
 		metrics: metrics,
-		log:     log.WithField("peer_id", stringID),
-		idS:     stringID,
-		idB:     id,
+		log:     log.WithField("peer_id", id.String()),
+		id:      id,
 		conn:    conn,
 		store:   store,
 	}
@@ -94,6 +91,10 @@ func (p *Peer) Work() {
 	}
 }
 
+func (p *Peer) ID() messages.PeerID {
+	return p.id
+}
+
 func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *healthcheck.Sender, n int, msg []byte) {
 	switch msgType {
 	case messages.MsgTypeHealthCheck:
@@ -145,7 +146,7 @@ func (p *Peer) Close() {
 
 // String returns the peer ID
 func (p *Peer) String() string {
-	return p.idS
+	return p.id.String()
 }
 
 func (p *Peer) writeWithTimeout(ctx context.Context, buf []byte) error {
@@ -197,14 +198,14 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 
-	stringPeerID := messages.HashIDToString(peerID)
-	dp, ok := p.store.Peer(stringPeerID)
+	item, ok := p.store.Peer(*peerID)
 	if !ok {
-		p.log.Debugf("peer not found: %s", stringPeerID)
+		p.log.Debugf("peer not found: %s", peerID)
 		return
 	}
+	dp := item.(*Peer)
 
-	err = messages.UpdateTransportMsg(msg, p.idB)
+	err = messages.UpdateTransportMsg(msg, p.id)
 	if err != nil {
 		p.log.Errorf("failed to update transport message: %s", err)
 		return

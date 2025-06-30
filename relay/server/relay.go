@@ -124,7 +124,7 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peer := NewPeer(r.metrics, peerID, conn, r.store)
+	peer := NewPeer(r.metrics, *peerID, conn, r.store)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	storeTime := time.Now()
 	r.store.AddPeer(peer)
@@ -153,12 +153,12 @@ func (r *Relay) Shutdown(ctx context.Context) {
 
 	wg := sync.WaitGroup{}
 	peers := r.store.Peers()
-	for _, peer := range peers {
+	for _, v := range peers {
 		wg.Add(1)
 		go func(p *Peer) {
 			p.CloseGracefully(ctx)
 			wg.Done()
-		}(peer)
+		}(v.(*Peer))
 	}
 	wg.Wait()
 	r.metricsCancel()

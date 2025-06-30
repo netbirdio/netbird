@@ -30,17 +30,17 @@ const (
 
 	// auth message
 	sizeOfMagicByte     = 4
-	headerSizeAuth      = sizeOfMagicByte + IDSize
+	headerSizeAuth      = sizeOfMagicByte + peerIDSize
 	offsetMagicByte     = sizeOfProtoHeader
 	offsetAuthPeerID    = sizeOfProtoHeader + sizeOfMagicByte
 	headerTotalSizeAuth = sizeOfProtoHeader + headerSizeAuth
 
 	// hello message
-	headerSizeHello     = sizeOfMagicByte + IDSize
+	headerSizeHello     = sizeOfMagicByte + peerIDSize
 	headerSizeHelloResp = 0
 
 	// transport
-	headerSizeTransport      = IDSize
+	headerSizeTransport      = peerIDSize
 	offsetTransportID        = sizeOfProtoHeader
 	headerTotalSizeTransport = sizeOfProtoHeader + headerSizeTransport
 )
@@ -135,11 +135,7 @@ func DetermineServerMessageType(msg []byte) (MsgType, error) {
 // message is used to authenticate the client with the server. The authentication is done using an HMAC method.
 // The protocol does not limit to use HMAC, it can be any other method. If the authentication failed the server will
 // close the network connection without any response.
-func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
-	if len(peerID) != IDSize {
-		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
-	}
-
+func MarshalHelloMsg(peerID PeerID, additions []byte) ([]byte, error) {
 	msg := make([]byte, sizeOfProtoHeader+sizeOfMagicByte, sizeOfProtoHeader+headerSizeHello+len(additions))
 
 	msg[0] = byte(CurrentProtocolVersion)
@@ -147,7 +143,7 @@ func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 
 	copy(msg[sizeOfProtoHeader:sizeOfProtoHeader+sizeOfMagicByte], magicHeader)
 
-	msg = append(msg, peerID...)
+	msg = append(msg, peerID[:]...)
 	msg = append(msg, additions...)
 
 	return msg, nil
@@ -156,7 +152,7 @@ func MarshalHelloMsg(peerID []byte, additions []byte) ([]byte, error) {
 // Deprecated: Use UnmarshalAuthMsg instead.
 // UnmarshalHelloMsg extracts peerID and the additional data from the hello message. The Additional data is used to
 // authenticate the client with the server.
-func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
+func UnmarshalHelloMsg(msg []byte) (*PeerID, []byte, error) {
 	if len(msg) < sizeOfProtoHeader+headerSizeHello {
 		return nil, nil, ErrInvalidMessageLength
 	}
@@ -164,7 +160,9 @@ func UnmarshalHelloMsg(msg []byte) ([]byte, []byte, error) {
 		return nil, nil, errors.New("invalid magic header")
 	}
 
-	return msg[sizeOfProtoHeader+sizeOfMagicByte : sizeOfProtoHeader+headerSizeHello], msg[headerSizeHello:], nil
+	peerID := PeerID(msg[sizeOfProtoHeader+sizeOfMagicByte : sizeOfProtoHeader+headerSizeHello])
+
+	return &peerID, msg[headerSizeHello:], nil
 }
 
 // Deprecated: Use MarshalAuthResponse instead.
@@ -197,34 +195,33 @@ func UnmarshalHelloResponse(msg []byte) ([]byte, error) {
 // message is used to authenticate the client with the server. The authentication is done using an HMAC method.
 // The protocol does not limit to use HMAC, it can be any other method. If the authentication failed the server will
 // close the network connection without any response.
-func MarshalAuthMsg(peerID []byte, authPayload []byte) ([]byte, error) {
-	if len(peerID) != IDSize {
-		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
+func MarshalAuthMsg(peerID PeerID, authPayload []byte) ([]byte, error) {
+	if headerTotalSizeAuth+len(authPayload) > MaxHandshakeSize {
+		return nil, fmt.Errorf("too large auth payload")
 	}
 
-	msg := make([]byte, sizeOfProtoHeader+sizeOfMagicByte, headerTotalSizeAuth+len(authPayload))
-
+	msg := make([]byte, headerTotalSizeAuth+len(authPayload))
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeAuth)
-
 	copy(msg[sizeOfProtoHeader:], magicHeader)
-
-	msg = append(msg, peerID...)
-	msg = append(msg, authPayload...)
-
+	copy(msg[offsetAuthPeerID:], peerID[:])
+	copy(msg[headerTotalSizeAuth:], authPayload)
 	return msg, nil
 }
 
 // UnmarshalAuthMsg extracts peerID and the auth payload from the message
-func UnmarshalAuthMsg(msg []byte) ([]byte, []byte, error) {
+func UnmarshalAuthMsg(msg []byte) (*PeerID, []byte, error) {
 	if len(msg) < headerTotalSizeAuth {
 		return nil, nil, ErrInvalidMessageLength
 	}
+
+	// Validate the magic header
 	if !bytes.Equal(msg[offsetMagicByte:offsetMagicByte+sizeOfMagicByte], magicHeader) {
 		return nil, nil, errors.New("invalid magic header")
 	}
 
-	return msg[offsetAuthPeerID:headerTotalSizeAuth], msg[headerTotalSizeAuth:], nil
+	peerID := PeerID(msg[offsetAuthPeerID:headerTotalSizeAuth])
+	return &peerID, msg[headerTotalSizeAuth:], nil
 }
 
 // MarshalAuthResponse creates a response message to the auth.
@@ -268,45 +265,48 @@ func MarshalCloseMsg() []byte {
 // MarshalTransportMsg creates a transport message.
 // The transport message is used to exchange data between peers. The message contains the data to be exchanged and the
 // destination peer hashed ID.
-func MarshalTransportMsg(peerID, payload []byte) ([]byte, error) {
-	if len(peerID) != IDSize {
-		return nil, fmt.Errorf("invalid peerID length: %d", len(peerID))
-	}
-
-	msg := make([]byte, headerTotalSizeTransport, headerTotalSizeTransport+len(payload))
+func MarshalTransportMsg(peerID PeerID, payload []byte) ([]byte, error) {
+	// todo validate size
+	msg := make([]byte, headerTotalSizeTransport+len(payload))
 	msg[0] = byte(CurrentProtocolVersion)
 	msg[1] = byte(MsgTypeTransport)
-	copy(msg[sizeOfProtoHeader:], peerID)
-	msg = append(msg, payload...)
-
+	copy(msg[sizeOfProtoHeader:], peerID[:])
+	copy(msg[sizeOfProtoHeader+peerIDSize:], payload)
 	return msg, nil
 }
 
 // UnmarshalTransportMsg extracts the peerID and the payload from the transport message.
-func UnmarshalTransportMsg(buf []byte) ([]byte, []byte, error) {
+func UnmarshalTransportMsg(buf []byte) (*PeerID, []byte, error) {
 	if len(buf) < headerTotalSizeTransport {
 		return nil, nil, ErrInvalidMessageLength
 	}
 
-	return buf[offsetTransportID:headerTotalSizeTransport], buf[headerTotalSizeTransport:], nil
+	const offsetEnd = offsetTransportID + peerIDSize
+	var peerID PeerID
+	copy(peerID[:], buf[offsetTransportID:offsetEnd])
+	return &peerID, buf[headerTotalSizeTransport:], nil
 }
 
 // UnmarshalTransportID extracts the peerID from the transport message.
-func UnmarshalTransportID(buf []byte) ([]byte, error) {
+func UnmarshalTransportID(buf []byte) (*PeerID, error) {
 	if len(buf) < headerTotalSizeTransport {
 		return nil, ErrInvalidMessageLength
 	}
-	return buf[offsetTransportID:headerTotalSizeTransport], nil
+
+	const offsetEnd = offsetTransportID + peerIDSize
+	var id PeerID
+	copy(id[:], buf[offsetTransportID:offsetEnd])
+	return &id, nil
 }
 
 // UpdateTransportMsg updates the peerID in the transport message.
 // With this function the server can reuse the given byte slice to update the peerID in the transport message. So do
 // need to allocate a new byte slice.
-func UpdateTransportMsg(msg []byte, peerID []byte) error {
-	if len(msg) < offsetTransportID+len(peerID) {
+func UpdateTransportMsg(msg []byte, peerID PeerID) error {
+	if len(msg) < offsetTransportID+peerIDSize {
 		return ErrInvalidMessageLength
 	}
-	copy(msg[offsetTransportID:], peerID)
+	copy(msg[offsetTransportID:], peerID[:])
 	return nil
 }
 

@@ -1,67 +1,31 @@
 package server
 
 import (
-	"context"
-	"net"
 	"testing"
-	"time"
 
-	"go.opentelemetry.io/otel"
-
-	"github.com/netbirdio/netbird/relay/metrics"
+	"github.com/netbirdio/netbird/relay/messages"
 )
 
-type mockConn struct {
+type MocPeer struct {
+	id messages.PeerID
 }
 
-func (m mockConn) Read(b []byte) (n int, err error) {
-	//TODO implement me
-	panic("implement me")
+func (m *MocPeer) Close() {
+
 }
 
-func (m mockConn) Write(b []byte) (n int, err error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m mockConn) Close() error {
-	return nil
-}
-
-func (m mockConn) LocalAddr() net.Addr {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m mockConn) RemoteAddr() net.Addr {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m mockConn) SetDeadline(t time.Time) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m mockConn) SetReadDeadline(t time.Time) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m mockConn) SetWriteDeadline(t time.Time) error {
-	//TODO implement me
-	panic("implement me")
+func (m *MocPeer) ID() messages.PeerID {
+	return m.id
 }
 
 func TestStore_DeletePeer(t *testing.T) {
 	s := NewStore()
 
-	m, _ := metrics.NewMetrics(context.Background(), otel.Meter(""))
-
-	p := NewPeer(m, []byte("peer_one"), nil, nil)
+	pID := messages.HashID("peer_one")
+	p := &MocPeer{id: pID}
 	s.AddPeer(p)
 	s.DeletePeer(p)
-	if _, ok := s.Peer(p.String()); ok {
+	if _, ok := s.Peer(pID); ok {
 		t.Errorf("peer was not deleted")
 	}
 }
@@ -69,17 +33,17 @@ func TestStore_DeletePeer(t *testing.T) {
 func TestStore_DeleteDeprecatedPeer(t *testing.T) {
 	s := NewStore()
 
-	m, _ := metrics.NewMetrics(context.Background(), otel.Meter(""))
+	pID1 := messages.HashID("peer_one")
+	pID2 := messages.HashID("peer_one")
 
-	conn := &mockConn{}
-	p1 := NewPeer(m, []byte("peer_id"), conn, nil)
-	p2 := NewPeer(m, []byte("peer_id"), conn, nil)
+	p1 := &MocPeer{id: pID1}
+	p2 := &MocPeer{id: pID2}
 
 	s.AddPeer(p1)
 	s.AddPeer(p2)
 	s.DeletePeer(p1)
 
-	if _, ok := s.Peer(p2.String()); !ok {
+	if _, ok := s.Peer(pID2); !ok {
 		t.Errorf("second peer was deleted")
 	}
 }

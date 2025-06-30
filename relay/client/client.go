@@ -127,12 +127,12 @@ type Client struct {
 	parentCtx      context.Context
 	connectionURL  string
 	authTokenStore *auth.TokenStore
-	hashedID       []byte
+	hashedID       messages.PeerID
 
 	bufPool *sync.Pool
 
 	relayConn        net.Conn
-	conns            map[string]*connContainer
+	conns            map[messages.PeerID]*connContainer
 	serviceIsRunning bool
 	mu               sync.Mutex // protect serviceIsRunning and conns
 	readLoopMutex    sync.Mutex
@@ -146,7 +146,7 @@ type Client struct {
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
 func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.TokenStore, peerID string) *Client {
-	hashedID, hashedStringId := messages.HashID(peerID)
+	hashedID := messages.HashID(peerID)
 	c := &Client{
 		log:            log.WithFields(log.Fields{"relay": serverURL}),
 		parentCtx:      ctx,
@@ -159,9 +159,9 @@ func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.Token
 				return &buf
 			},
 		},
-		conns: make(map[string]*connContainer),
+		conns: make(map[messages.PeerID]*connContainer),
 	}
-	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedStringId)
+	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedID)
 	return c
 }
 
@@ -205,17 +205,17 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 		return nil, fmt.Errorf("relay connection is not established")
 	}
 
-	hashedID, hashedStringID := messages.HashID(dstPeerID)
-	_, ok := c.conns[hashedStringID]
+	peerID := messages.HashID(dstPeerID)
+	_, ok := c.conns[peerID]
 	if ok {
 		return nil, ErrConnAlreadyExists
 	}
 
-	c.log.Infof("open connection to peer: %s", hashedStringID)
+	c.log.Infof("open connection to peer: %s", peerID)
 	msgChannel := make(chan Msg, 100)
-	conn := NewConn(c, hashedID, hashedStringID, msgChannel, c.instanceURL)
+	conn := NewConn(c, peerID, msgChannel, c.instanceURL)
 
-	c.conns[hashedStringID] = newConnContainer(c.log, conn, msgChannel)
+	c.conns[peerID] = newConnContainer(c.log, conn, msgChannel)
 	return conn, nil
 }
 
@@ -413,18 +413,16 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 		return true
 	}
 
-	stringID := messages.HashIDToString(peerID)
-
 	c.mu.Lock()
 	if !c.serviceIsRunning {
 		c.mu.Unlock()
 		c.bufPool.Put(bufPtr)
 		return false
 	}
-	container, ok := c.conns[stringID]
+	container, ok := c.conns[*peerID]
 	c.mu.Unlock()
 	if !ok {
-		c.log.Errorf("peer not found: %s", stringID)
+		c.log.Errorf("peer not found: %s", peerID.String())
 		c.bufPool.Put(bufPtr)
 		return true
 	}
@@ -437,9 +435,9 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 	return true
 }
 
-func (c *Client) writeTo(connReference *Conn, id string, dstID []byte, payload []byte) (int, error) {
+func (c *Client) writeTo(connReference *Conn, dstID messages.PeerID, payload []byte) (int, error) {
 	c.mu.Lock()
-	conn, ok := c.conns[id]
+	conn, ok := c.conns[dstID]
 	c.mu.Unlock()
 	if !ok {
 		return 0, net.ErrClosed
@@ -492,10 +490,10 @@ func (c *Client) closeAllConns() {
 	for _, container := range c.conns {
 		container.close()
 	}
-	c.conns = make(map[string]*connContainer)
+	c.conns = make(map[messages.PeerID]*connContainer)
 }
 
-func (c *Client) closeConn(connReference *Conn, id string) error {
+func (c *Client) closeConn(connReference *Conn, id messages.PeerID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
