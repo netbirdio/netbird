@@ -951,7 +951,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	peer1 := &nbpeer.Peer{
 		ID:        "peer1",
 		AccountID: existingAccountID,
-		DNSLabel:  "peer1.domain.test",
+		DNSLabel:  "peer1",
 		IP:        net.IP{1, 1, 1, 1},
 	}
 	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
@@ -965,7 +965,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	peer2 := &nbpeer.Peer{
 		ID:        "peer1second",
 		AccountID: existingAccountID,
-		DNSLabel:  "peer1-1.domain.test",
+		DNSLabel:  "peer1-1",
 		IP:        net.IP{2, 2, 2, 2},
 	}
 	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
@@ -992,7 +992,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		peer1 := &nbpeer.Peer{
 			ID:        "peer1",
 			AccountID: existingAccountID,
-			DNSLabel:  "peer1.domain.test",
+			DNSLabel:  "peer1",
 			IP:        net.IP{1, 1, 1, 1},
 		}
 		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
@@ -1000,12 +1000,12 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 
 		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"peer1.domain.test"}, labels)
+		assert.Equal(t, []string{"peer1"}, labels)
 
 		peer2 := &nbpeer.Peer{
 			ID:        "peer1second",
 			AccountID: existingAccountID,
-			DNSLabel:  "peer1-1.domain.test",
+			DNSLabel:  "peer1-1",
 			IP:        net.IP{2, 2, 2, 2},
 		}
 		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
@@ -1014,7 +1014,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
 		require.NoError(t, err)
 
-		expected := []string{"peer1.domain.test", "peer1-1.domain.test"}
+		expected := []string{"peer1", "peer1-1"}
 		sort.Strings(expected)
 		sort.Strings(labels)
 		assert.Equal(t, expected, labels)
