@@ -28,7 +28,10 @@ func (n Nexthop) String() string {
 	if n.Intf == nil {
 		return n.IP.String()
 	}
-	return fmt.Sprintf("%s @ %d (%s)", n.IP.String(), n.Intf.Index, n.Intf.Name)
+	if n.IP.IsValid() {
+		return fmt.Sprintf("%s @ %d (%s)", n.IP.String(), n.Intf.Index, n.Intf.Name)
+	}
+	return fmt.Sprintf("no-ip @ %d (%s)", n.Intf.Index, n.Intf.Name)
 }
 
 type wgIface interface {
