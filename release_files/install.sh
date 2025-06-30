@@ -154,8 +154,10 @@ add_aur_repo() {
         cd netbird-ui && makepkg -sri --noconfirm
     fi
 
-    # Clean up the installed packages
-    ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
+    if [ -n "$REMOVE_PKGS" ]; then
+      # Clean up the installed packages
+      ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
+    fi
 }
 
 prepare_tun_module() {
