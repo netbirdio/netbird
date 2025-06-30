@@ -130,7 +130,7 @@ repo_gpgcheck=1
 EOF
 }
 
-add_aur_repo() {
+install_aur_package() {
     INSTALL_PKGS="git base-devel go"
     REMOVE_PKGS=""
 
@@ -279,7 +279,9 @@ install_netbird() {
     ;;
     pacman)
         ${SUDO} pacman -Syy
-        add_aur_repo
+        install_aur_package
+        # in-line with the docs at https://wiki.archlinux.org/title/Netbird
+        ${SUDO} systemctl enable --now netbird@main.service
     ;;
     pkg)
         # Check if the package is already installed
