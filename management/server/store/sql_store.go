@@ -970,7 +970,7 @@ func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength
 	return ips, nil
 }
 
-func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) ([]string, error) {
+func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string, dnsLabel string) ([]string, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -978,7 +978,7 @@ func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength Lock
 
 	var labels []string
 	result := tx.Model(&nbpeer.Peer{}).
-		Where("account_id = ?", accountID).
+		Where("account_id = ? AND dns_label LIKE ?", accountID, dnsLabel+"%").
 		Pluck("dns_label", &labels)
 
 	if result.Error != nil {

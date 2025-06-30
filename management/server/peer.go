@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -1488,7 +1489,12 @@ func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID str
 }
 
 func getPeerDNSLabels(ctx context.Context, transaction store.Store, accountID string, hostname string) (types.LookupMap, error) {
-	dnsLabels, err := transaction.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID, hostname)
+	dnsName, err := nbdns.GetParsedDomainLabel(hostname)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse peer host name %s: %w", hostname, err)
+	}
+
+	dnsLabels, err := transaction.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID, dnsName)
 	if err != nil {
 		return nil, err
 	}
