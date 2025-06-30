@@ -791,7 +791,6 @@ services:
       - '443:443'
       - '443:443/udp'
       - '80:80'
-      - '8080:8080'
     volumes:
       - netbird_caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile
