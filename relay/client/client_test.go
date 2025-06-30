@@ -18,10 +18,15 @@ import (
 )
 
 var (
-	av               = &allow.Auth{}
 	hmacTokenStore   = &hmac.TokenStore{}
 	serverListenAddr = "127.0.0.1:1234"
 	serverURL        = "rel://127.0.0.1:1234"
+	serverCfg        = server.Config{
+		Meter:          otel.Meter(""),
+		ExposedAddress: serverURL,
+		TLSSupport:     false,
+		AuthValidator:  &allow.Auth{},
+	}
 )
 
 func TestMain(m *testing.M) {
@@ -33,7 +38,7 @@ func TestMain(m *testing.M) {
 func TestClient(t *testing.T) {
 	ctx := context.Background()
 
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -115,7 +120,7 @@ func TestClient(t *testing.T) {
 func TestRegistration(t *testing.T) {
 	ctx := context.Background()
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -189,7 +194,7 @@ func TestEcho(t *testing.T) {
 	idAlice := "alice"
 	idBob := "bob"
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -278,7 +283,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -324,7 +329,7 @@ func TestBindReconnect(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -415,7 +420,7 @@ func TestCloseConn(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -472,7 +477,7 @@ func TestCloseRelayConn(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -524,7 +529,7 @@ func TestCloseByServer(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv1, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv1, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -577,7 +582,7 @@ func TestCloseByClient(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -623,7 +628,7 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 	idAlice := "alice"
 	idBob := "bob"
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}

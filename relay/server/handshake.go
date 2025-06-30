@@ -6,13 +6,18 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/messages"
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/messages/address"
 	//nolint:staticcheck
 	authmsg "github.com/netbirdio/netbird/relay/messages/auth"
 )
+
+type Validator interface {
+	Validate(any) error
+	// Deprecated: Use Validate instead.
+	ValidateHelloMsgType(any) error
+}
 
 // preparedMsg contains the marshalled success response messages
 type preparedMsg struct {
@@ -54,7 +59,7 @@ func marshalResponseHelloMsg(instanceURL string) ([]byte, error) {
 
 type handshake struct {
 	conn        net.Conn
-	validator   auth.Validator
+	validator   Validator
 	preparedMsg *preparedMsg
 
 	handshakeMethodAuth bool
