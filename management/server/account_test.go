@@ -3440,3 +3440,60 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultAccountManager_GetAccountOnboarding(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err)
+
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	require.NoError(t, err)
+
+	onboarding, err := manager.GetAccountOnboarding(context.Background(), account.Id, userID)
+	require.NoError(t, err)
+	require.NotNil(t, onboarding)
+	assert.Equal(t, account.Id, onboarding.AccountID)
+	assert.Equal(t, true, onboarding.OnboardingFlowPending)
+	assert.Equal(t, true, onboarding.SignupFormPending)
+	if onboarding.UpdatedAt.IsZero() {
+		t.Errorf("Onboarding was not retrieved from the store")
+	}
+}
+
+func TestDefaultAccountManager_UpdateAccountOnboarding(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err)
+
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	require.NoError(t, err)
+
+	onboarding := &types.AccountOnboarding{
+		OnboardingFlowPending: true,
+		SignupFormPending:     true,
+	}
+
+	t.Run("update onboarding with no change", func(t *testing.T) {
+		updated, err := manager.UpdateAccountOnboarding(context.Background(), account.Id, userID, onboarding)
+		require.NoError(t, err)
+		assert.Equal(t, onboarding.OnboardingFlowPending, updated.OnboardingFlowPending)
+		assert.Equal(t, onboarding.SignupFormPending, updated.SignupFormPending)
+		if updated.UpdatedAt.IsZero() {
+			t.Errorf("Onboarding was updated in the store")
+		}
+	})
+
+	onboarding.OnboardingFlowPending = false
+	onboarding.SignupFormPending = false
+
+	t.Run("update onboarding", func(t *testing.T) {
+		updated, err := manager.UpdateAccountOnboarding(context.Background(), account.Id, userID, onboarding)
+		require.NoError(t, err)
+		require.NotNil(t, updated)
+		assert.Equal(t, onboarding.OnboardingFlowPending, updated.OnboardingFlowPending)
+		assert.Equal(t, onboarding.SignupFormPending, updated.SignupFormPending)
+	})
+
+	t.Run("update onboarding with no change", func(t *testing.T) {
+		_, err = manager.UpdateAccountOnboarding(context.Background(), account.Id, userID, nil)
+		require.Error(t, err)
+	})
+}
