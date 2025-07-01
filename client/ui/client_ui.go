@@ -398,8 +398,8 @@ func (s *serviceClient) showSettingsUI() {
 
 	s.iMngURL = widget.NewEntry()
 	s.iAdminURL = widget.NewEntry()
-	s.iConfigFile = widget.NewEntry()
-	s.iConfigFile.Disable()
+	//s.iConfigFile = widget.NewEntry()
+	//s.iConfigFile.Disable()
 	s.iLogFile = widget.NewEntry()
 	s.iLogFile.Disable()
 	s.iPreSharedKey = widget.NewPasswordEntry()
@@ -432,7 +432,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			{Text: "Management URL", Widget: s.iMngURL},
 			{Text: "Admin URL", Widget: s.iAdminURL},
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
-			{Text: "Config File", Widget: s.iConfigFile},
+			//{Text: "Config File", Widget: s.iConfigFile},
 			{Text: "Log File", Widget: s.iLogFile},
 			{Text: "Network Monitor", Widget: s.sNetworkMonitor},
 			{Text: "Disable DNS", Widget: s.sDisableDNS},
@@ -455,6 +455,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
 				return
 			}
+			portInt := int(port)
 
 			iAdminURL := strings.TrimSpace(s.iAdminURL.Text)
 			iMngURL := strings.TrimSpace(s.iMngURL.Text)
@@ -475,25 +476,48 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				s.preSharedKey = s.iPreSharedKey.Text
 				s.adminURL = iAdminURL
 
-				loginRequest := proto.LoginRequest{
-					ManagementUrl:       iMngURL,
-					AdminURL:            iAdminURL,
-					IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-					RosenpassPermissive: &s.sRosenpassPermissive.Checked,
-					InterfaceName:       &s.iInterfaceName.Text,
-					WireguardPort:       &port,
-					NetworkMonitor:      &s.sNetworkMonitor.Checked,
-					DisableDns:          &s.sDisableDNS.Checked,
-					DisableClientRoutes: &s.sDisableClientRoutes.Checked,
-					DisableServerRoutes: &s.sDisableServerRoutes.Checked,
-					BlockLanAccess:      &s.sBlockLANAccess.Checked,
+				activeProf, err := s.profileManager.GetActiveProfile()
+				if err != nil {
+					log.Errorf("get active profile: %v", err)
+					return
 				}
+
+				profilePath, err := activeProf.FilePath()
+				if err != nil {
+					log.Errorf("get active profile file path: %v", err)
+					return
+				}
+
+				cfgInput := profilemanager.ConfigInput{
+					ConfigPath: profilePath,
+				}
+
+				if iMngURL != "" {
+					cfgInput.ManagementURL = iMngURL
+				}
+
+				if iAdminURL != "" {
+					cfgInput.AdminURL = iAdminURL
+				}
+
+				cfgInput.RosenpassPermissive = &s.sRosenpassPermissive.Checked
+				cfgInput.InterfaceName = &s.iInterfaceName.Text
+				cfgInput.WireguardPort = &portInt
+				cfgInput.NetworkMonitor = &s.sNetworkMonitor.Checked
+				cfgInput.DisableDNS = &s.sDisableDNS.Checked
+				cfgInput.DisableClientRoutes = &s.sDisableClientRoutes.Checked
+				cfgInput.DisableServerRoutes = &s.sDisableServerRoutes.Checked
+				cfgInput.BlockLANAccess = &s.sBlockLANAccess.Checked
 
 				if s.iPreSharedKey.Text != censoredPreSharedKey {
-					loginRequest.OptionalPreSharedKey = &s.iPreSharedKey.Text
+					cfgInput.PreSharedKey = &s.iPreSharedKey.Text
 				}
 
-				if err := s.restartClient(&loginRequest); err != nil {
+				if _, err := profilemanager.UpdateConfig(cfgInput); err != nil {
+					log.Errorf("set active profile config: %v", err)
+				}
+
+				if err := s.restartClient(); err != nil {
 					log.Errorf("restarting client connection: %v", err)
 					return
 				}
@@ -887,58 +911,64 @@ func (s *serviceClient) getSrvConfig() {
 	s.managementURL = profilemanager.DefaultManagementURL
 	s.adminURL = profilemanager.DefaultAdminURL
 
-	conn, err := s.getSrvClient(failFastTimeout)
+	activeProf, err := s.profileManager.GetActiveProfile()
 	if err != nil {
-		log.Errorf("get client: %v", err)
+		log.Errorf("get active profile: %v", err)
 		return
 	}
 
-	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
+	profPath, err := activeProf.FilePath()
 	if err != nil {
-		log.Errorf("get config settings from server: %v", err)
+		log.Errorf("get active profile file path: %v", err)
 		return
 	}
 
-	if cfg.ManagementUrl != "" {
-		s.managementURL = cfg.ManagementUrl
+	cfg, err := profilemanager.GetConfig(profPath)
+	if err != nil {
+		log.Errorf("get config from profile: %v", err)
+		return
 	}
-	if cfg.AdminURL != "" {
-		s.adminURL = cfg.AdminURL
+
+	if cfg.ManagementURL.String() != "" {
+		s.managementURL = cfg.ManagementURL.String()
+	}
+	if cfg.AdminURL.String() != "" {
+		s.adminURL = cfg.AdminURL.String()
 	}
 	s.preSharedKey = cfg.PreSharedKey
 	s.RosenpassPermissive = cfg.RosenpassPermissive
-	s.interfaceName = cfg.InterfaceName
-	s.interfacePort = int(cfg.WireguardPort)
+	s.interfaceName = cfg.WgIface
+	s.interfacePort = cfg.WgPort
 
-	s.networkMonitor = cfg.NetworkMonitor
-	s.disableDNS = cfg.DisableDns
+	s.networkMonitor = *cfg.NetworkMonitor
+	s.disableDNS = cfg.DisableDNS
 	s.disableClientRoutes = cfg.DisableClientRoutes
 	s.disableServerRoutes = cfg.DisableServerRoutes
-	s.blockLANAccess = cfg.BlockLanAccess
+	s.blockLANAccess = cfg.BlockLANAccess
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iAdminURL.SetText(s.adminURL)
-		s.iConfigFile.SetText(cfg.ConfigFile)
-		s.iLogFile.SetText(cfg.LogFile)
+		//s.iConfigFile.SetText(profPath)
+		//s.iLogFile.SetText(cfg)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
-		s.iInterfaceName.SetText(cfg.InterfaceName)
-		s.iInterfacePort.SetText(strconv.Itoa(int(cfg.WireguardPort)))
+		s.iInterfaceName.SetText(cfg.WgIface)
+		s.iInterfacePort.SetText(strconv.Itoa(cfg.WgPort))
 		s.sRosenpassPermissive.SetChecked(cfg.RosenpassPermissive)
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()
 		}
-		s.sNetworkMonitor.SetChecked(cfg.NetworkMonitor)
-		s.sDisableDNS.SetChecked(cfg.DisableDns)
+		s.sNetworkMonitor.SetChecked(*cfg.NetworkMonitor)
+		s.sDisableDNS.SetChecked(cfg.DisableDNS)
 		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
 		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
-		s.sBlockLANAccess.SetChecked(cfg.BlockLanAccess)
+		s.sBlockLANAccess.SetChecked(cfg.BlockLANAccess)
 	}
 
 	if s.mNotifications == nil {
 		return
 	}
-	if cfg.DisableNotifications {
+	if cfg.DisableNotifications != nil && *cfg.DisableNotifications {
 		s.mNotifications.Uncheck()
 	} else {
 		s.mNotifications.Check()
@@ -1035,17 +1065,34 @@ func (s *serviceClient) updateConfig() error {
 	blockInbound := s.mBlockInbound.Checked()
 	notificationsDisabled := !s.mNotifications.Checked()
 
-	loginRequest := proto.LoginRequest{
-		IsUnixDesktopClient:   runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-		ServerSSHAllowed:      &sshAllowed,
-		RosenpassEnabled:      &rosenpassEnabled,
-		DisableAutoConnect:    &disableAutoStart,
-		DisableNotifications:  &notificationsDisabled,
-		LazyConnectionEnabled: &lazyConnectionEnabled,
-		BlockInbound:          &blockInbound,
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Errorf("get active profile: %v", err)
+		return err
 	}
 
-	if err := s.restartClient(&loginRequest); err != nil {
+	profilePath, err := activeProf.FilePath()
+	if err != nil {
+		log.Errorf("get active profile file path: %v", err)
+		return err
+	}
+
+	cfgInput := profilemanager.ConfigInput{
+		ConfigPath: profilePath,
+	}
+
+	cfgInput.ServerSSHAllowed = &sshAllowed
+	cfgInput.RosenpassEnabled = &rosenpassEnabled
+	cfgInput.DisableAutoConnect = &disableAutoStart
+	cfgInput.DisableNotifications = &notificationsDisabled
+	cfgInput.LazyConnectionEnabled = &lazyConnectionEnabled
+	cfgInput.BlockInbound = &blockInbound
+
+	if _, err := profilemanager.UpdateConfig(cfgInput); err != nil {
+		log.Errorf("set active profile config: %v", err)
+	}
+
+	if err := s.restartClient(); err != nil {
 		log.Errorf("restarting client connection: %v", err)
 		return err
 	}
@@ -1054,16 +1101,11 @@ func (s *serviceClient) updateConfig() error {
 }
 
 // restartClient restarts the client connection.
-func (s *serviceClient) restartClient(loginRequest *proto.LoginRequest) error {
+func (s *serviceClient) restartClient() error {
 	ctx, cancel := context.WithTimeout(s.ctx, defaultFailTimeout)
 	defer cancel()
 
 	client, err := s.getSrvClient(failFastTimeout)
-	if err != nil {
-		return err
-	}
-
-	_, err = client.Login(ctx, loginRequest)
 	if err != nil {
 		return err
 	}
