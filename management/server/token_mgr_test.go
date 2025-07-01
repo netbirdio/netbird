@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
 )
@@ -29,7 +30,11 @@ var TurnTestHost = &types.Host{
 func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager(nil)
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("failed to create metrics: %v", err)
+	}
+	peersManager := NewPeersUpdateManager(metrics)
 
 	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
@@ -77,9 +82,25 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: 2 * time.Second}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager(nil)
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("failed to create metrics: %v", err)
+	}
+	peersManager := NewPeersUpdateManager(metrics)
 	peer := "some_peer"
-	updateChannel := peersManager.CreateChannel(context.Background(), peer)
+	buffer := peersManager.CreateChannel(context.Background(), peer)
+	resultCh := make(chan struct {
+		msg *UpdateMessage
+		ok  bool
+	}, 1)
+
+	go func() {
+		msg, ok := buffer.Pop(context.Background())
+		resultCh <- struct {
+			msg *UpdateMessage
+			ok  bool
+		}{msg, ok}
+	}()
 
 	rc := &types.Relay{
 		Addresses:      []string{"localhost:0"},
@@ -117,8 +138,8 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 loop:
 	for timeout := time.After(5 * time.Second); ; {
 		select {
-		case update := <-updateChannel:
-			updates = append(updates, update)
+		case update := <-resultCh:
+			updates = append(updates, update.msg)
 		case <-timeout:
 			break loop
 		}
@@ -181,7 +202,11 @@ loop:
 func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager(nil)
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("failed to create metrics: %v", err)
+	}
+	peersManager := NewPeersUpdateManager(metrics)
 	peer := "some_peer"
 
 	rc := &types.Relay{

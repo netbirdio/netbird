@@ -144,6 +144,10 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	if expired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
+		err := am.Store.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			log.Errorf("failed to increment network serial number for account %s: %v", accountID, err)
+		}
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -268,6 +272,11 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			}
 			peer.InactivityExpirationEnabled = update.InactivityExpirationEnabled
 			inactivityExpirationChanged = true
+		}
+
+		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		if err != nil {
+			return err
 		}
 
 		return transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer)
@@ -755,6 +764,13 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 				return err
 			}
 		}
+
+		if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
+			if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -885,6 +901,13 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		if shouldStorePeer {
 			if err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer); err != nil {
 				return err
+			}
+		}
+
+		if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
+			err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+			if err != nil {
+				return fmt.Errorf("failed to increment network serial: %w", err)
 			}
 		}
 

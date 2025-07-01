@@ -960,6 +960,12 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		)
 	}
 
+	// ideally this should run in a transaction
+	err = am.Store.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+	if err != nil {
+		log.Errorf("failed to increment network serial number for account %s: %v", accountID, err)
+	}
+
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)

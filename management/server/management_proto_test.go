@@ -424,13 +424,13 @@ func startManagementForTest(t *testing.T, testFile string, config *types.Config)
 		t.Fatal(err)
 	}
 
-	peersUpdateManager := NewPeersUpdateManager(nil)
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	require.NoError(t, err)
+
+	peersUpdateManager := NewPeersUpdateManager(metrics)
 	eventStore := &activity.InMemoryEventStore{}
 
 	ctx := context.WithValue(context.Background(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck
-
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
-	require.NoError(t, err)
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)

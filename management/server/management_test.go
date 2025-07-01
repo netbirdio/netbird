@@ -173,13 +173,13 @@ func startServer(
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 
-	peersUpdateManager := server.NewPeersUpdateManager(nil)
-	eventStore := &activity.InMemoryEventStore{}
-
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	if err != nil {
 		t.Fatalf("failed creating metrics: %v", err)
 	}
+
+	peersUpdateManager := server.NewPeersUpdateManager(metrics)
+	eventStore := &activity.InMemoryEventStore{}
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)

@@ -1284,7 +1284,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 
 	permissionsManager := permissions.NewManager(store)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(metrics), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
 }
 
 func createRouterStore(t *testing.T) (store.Store, error) {
@@ -1972,13 +1972,12 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	}, true)
 	assert.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
-	})
-
 	// Creating a route with no routing peer and no peers in PeerGroups or Groups should not update account peers and not send peer update
 	t.Run("creating route no routing peer and no peers in groups", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+		})
 		route := route.Route{
 			ID:          "testingRoute1",
 			Network:     netip.MustParsePrefix("100.65.250.202/32"),
@@ -2015,6 +2014,10 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 	// Creating a route with no routing peer and having peers in groups should update account peers and send peer update
 	t.Run("creating a route with peers in  PeerGroups and Groups", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+		})
 		route := route.Route{
 			ID:          "testingRoute2",
 			Network:     netip.MustParsePrefix("192.0.2.0/32"),
@@ -2064,6 +2067,10 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 	// Creating route should update account peers and send peer update
 	t.Run("creating route with a routing peer", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -2089,6 +2096,11 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	t.Run("updating route", func(t *testing.T) {
 		baseRoute.Groups = []string{routeGroup1, routeGroup2}
 
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+		})
+
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -2107,6 +2119,10 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 	// Deleting the route should update account peers and send peer update
 	t.Run("deleting route", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+		})
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -2125,6 +2141,10 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 	// Adding peer to route peer groups that do not have any peers should update account peers and send peer update
 	t.Run("adding peer to route peer groups that do not have any peers", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+		})
 		newRoute := route.Route{
 			Network:     netip.MustParsePrefix("192.168.12.0/16"),
 			NetID:       "superNet",
@@ -2165,6 +2185,10 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 	// Adding peer to route groups that do not have any peers should update account peers and send peer update
 	t.Run("adding peer to route groups that do not have any peers", func(t *testing.T) {
+		updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
+		t.Cleanup(func() {
+			manager.peersUpdateManager.CloseChannel(context.Background(), peer1ID)
+		})
 		newRoute := route.Route{
 			Network:     netip.MustParsePrefix("192.168.13.0/16"),
 			NetID:       "superNet",
