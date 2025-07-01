@@ -730,12 +730,10 @@ func (s *SqlStore) GetAccountOnboarding(ctx context.Context, accountID string) (
 	var accountOnboarding types.AccountOnboarding
 	result := s.db.Model(&accountOnboarding).First(&accountOnboarding, accountIDCondition, accountID)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("error when getting account onboarding %s from the store: %s", accountID, result.Error)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			//accountOnboarding.AccountID = accountID
-			//return &accountOnboarding, nil
-			return nil, status.NewAccountNotFoundError(accountID)
+			return nil, status.NewAccountOnboardingNotFoundError(accountID)
 		}
+		log.WithContext(ctx).Errorf("error when getting account onboarding %s from the store: %s", accountID, result.Error)
 		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
 
@@ -744,7 +742,7 @@ func (s *SqlStore) GetAccountOnboarding(ctx context.Context, accountID string) (
 
 // SaveAccountOnboarding updates the onboarding information for a specific account.
 func (s *SqlStore) SaveAccountOnboarding(ctx context.Context, onboarding *types.AccountOnboarding) error {
-	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Save(onboarding)
+	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(onboarding)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error when saving account onboarding %s in the store: %s", onboarding.AccountID, result.Error)
 		return status.Errorf(status.Internal, "error when saving account onboarding %s in the store: %s", onboarding.AccountID, result.Error)

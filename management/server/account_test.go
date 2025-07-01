@@ -3448,15 +3448,29 @@ func TestDefaultAccountManager_GetAccountOnboarding(t *testing.T) {
 	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
 	require.NoError(t, err)
 
-	onboarding, err := manager.GetAccountOnboarding(context.Background(), account.Id, userID)
-	require.NoError(t, err)
-	require.NotNil(t, onboarding)
-	assert.Equal(t, account.Id, onboarding.AccountID)
-	assert.Equal(t, true, onboarding.OnboardingFlowPending)
-	assert.Equal(t, true, onboarding.SignupFormPending)
-	if onboarding.UpdatedAt.IsZero() {
-		t.Errorf("Onboarding was not retrieved from the store")
-	}
+	t.Run("should return account onboarding when onboarding exist", func(t *testing.T) {
+		onboarding, err := manager.GetAccountOnboarding(context.Background(), account.Id, userID)
+		require.NoError(t, err)
+		require.NotNil(t, onboarding)
+		assert.Equal(t, account.Id, onboarding.AccountID)
+		assert.Equal(t, true, onboarding.OnboardingFlowPending)
+		assert.Equal(t, true, onboarding.SignupFormPending)
+		if onboarding.UpdatedAt.IsZero() {
+			t.Errorf("Onboarding was not retrieved from the store")
+		}
+	})
+
+	t.Run("should return account onboarding when onboard don't exist", func(t *testing.T) {
+		account.Id = "with-zero-onboarding"
+		account.Onboarding = types.AccountOnboarding{}
+		err = manager.Store.SaveAccount(context.Background(), account)
+		require.NoError(t, err)
+		onboarding, err := manager.GetAccountOnboarding(context.Background(), account.Id, userID)
+		require.NoError(t, err)
+		require.NotNil(t, onboarding)
+		_, err = manager.Store.GetAccountOnboarding(context.Background(), account.Id)
+		require.Error(t, err, "should return error when onboarding is not set")
+	})
 }
 
 func TestDefaultAccountManager_UpdateAccountOnboarding(t *testing.T) {
@@ -3492,8 +3506,8 @@ func TestDefaultAccountManager_UpdateAccountOnboarding(t *testing.T) {
 		assert.Equal(t, onboarding.SignupFormPending, updated.SignupFormPending)
 	})
 
-	t.Run("update onboarding with no change", func(t *testing.T) {
+	t.Run("update onboarding with no onboarding", func(t *testing.T) {
 		_, err = manager.UpdateAccountOnboarding(context.Background(), account.Id, userID, nil)
-		require.Error(t, err)
+		require.NoError(t, err)
 	})
 }

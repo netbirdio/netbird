@@ -275,41 +275,6 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 	return am.idpManager
 }
 
-func (am *DefaultAccountManager) UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
-	if newOnboarding == nil {
-		return nil, status.Errorf(status.InvalidArgument, "new onboarding data cannot be nil")
-	}
-
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
-	}
-
-	if !allowed {
-		return nil, status.NewPermissionDeniedError()
-	}
-
-	oldOnboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get account onboarding: %w", err)
-	}
-	if oldOnboarding.IsEqual(*newOnboarding) {
-		log.WithContext(ctx).Debugf("no changes in onboarding for account %s", accountID)
-		return oldOnboarding, nil
-	}
-
-	newOnboarding.AccountID = accountID
-	err = am.Store.SaveAccountOnboarding(ctx, newOnboarding)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update account onboarding: %w", err)
-	}
-
-	return newOnboarding, nil
-}
-
 // UpdateAccountSettings updates Account settings.
 // Only users with role UserRoleAdmin can update the account.
 // User that performs the update has to belong to the account.
@@ -1234,7 +1199,58 @@ func (am *DefaultAccountManager) GetAccountOnboarding(ctx context.Context, accou
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetAccountOnboarding(ctx, accountID)
+	onboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
+	if err != nil && err.Error() != status.NewAccountOnboardingNotFoundError(accountID).Error() {
+		log.Errorf("failed to get account onboarding for accountssssssss %s: %v", accountID, err)
+		return nil, err
+	}
+
+	if onboarding == nil {
+		onboarding = &types.AccountOnboarding{
+			AccountID: accountID,
+		}
+	}
+
+	return onboarding, nil
+}
+
+func (am *DefaultAccountManager) UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+	}
+
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	oldOnboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
+	if err != nil && err.Error() != status.NewAccountOnboardingNotFoundError(accountID).Error() {
+		return nil, fmt.Errorf("failed to get account onboarding: %w", err)
+	}
+
+	if oldOnboarding == nil {
+		oldOnboarding = &types.AccountOnboarding{
+			AccountID: accountID,
+		}
+	}
+
+	if newOnboarding == nil {
+		return oldOnboarding, nil
+	}
+
+	if oldOnboarding.IsEqual(*newOnboarding) {
+		log.WithContext(ctx).Debugf("no changes in onboarding for account %s", accountID)
+		return oldOnboarding, nil
+	}
+
+	newOnboarding.AccountID = accountID
+	err = am.Store.SaveAccountOnboarding(ctx, newOnboarding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update account onboarding: %w", err)
+	}
+
+	return newOnboarding, nil
 }
 
 func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
