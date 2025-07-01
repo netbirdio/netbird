@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -2164,8 +2165,8 @@ func Test_AddPeer(t *testing.T) {
 		return
 	}
 
-	const totalPeers = 500 // totalPeers / differentHostnames must be less than 1000
-	const differentHostnames = 1
+	const totalPeers = 300 // totalPeers / differentHostnames should be less than 10 (due to concurrent retries)
+	const differentHostnames = 50
 
 	var wg sync.WaitGroup
 	errs := make(chan error, totalPeers+differentHostnames)
@@ -2220,4 +2221,7 @@ func Test_AddPeer(t *testing.T) {
 		}
 		seenLabel[p.DNSLabel] = true
 	}
+
+	assert.Equal(t, totalPeers, maps.Values(account.SetupKeys)[0].UsedTimes)
+	assert.Equal(t, uint64(totalPeers), account.Network.Serial)
 }

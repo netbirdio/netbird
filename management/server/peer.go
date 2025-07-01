@@ -464,149 +464,143 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	upperKey := strings.ToUpper(setupKey)
 	hashedKey := sha256.Sum256([]byte(upperKey))
 	encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
-	var accountID string
-	var err error
-	addedByUser := false
-	if len(userID) > 0 {
-		addedByUser = true
-		accountID, err = am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userID)
-	} else {
-		accountID, err = am.Store.GetAccountIDBySetupKey(ctx, encodedHashedKey)
-	}
-	if err != nil {
-		return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
-	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer func() {
-		if unlock != nil {
-			unlock()
-		}
-	}()
+	addedByUser := len(userID) > 0
 
 	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
 	// Such case is possible when AddPeer function takes long time to finish after AcquireWriteLockByUID (e.g., database is slow)
 	// and the peer disconnects with a timeout and tries to register again.
 	// We just check if this machine has been registered before and reject the second registration.
 	// The connecting peer should be able to recover with a retry.
-	_, err = am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peer.Key)
+	_, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peer.Key)
 	if err == nil {
 		return nil, nil, nil, status.Errorf(status.PreconditionFailed, "peer has been already registered")
 	}
 
 	opEvent := &activity.Event{
 		Timestamp: time.Now().UTC(),
-		AccountID: accountID,
 	}
 
 	var newPeer *nbpeer.Peer
 	var updateAccountPeers bool
 
+	var setupKeyID string
+	var setupKeyName string
+	var ephemeral bool
+	var groupsToAdd []string
+	var allowExtraDNSLabels bool
+	var accountID string
+	if addedByUser {
+		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to get user groups: %w", err)
+		}
+		groupsToAdd = user.AutoGroups
+		opEvent.InitiatorID = userID
+		opEvent.Activity = activity.PeerAddedByUser
+		accountID = user.AccountID
+	} else {
+		// Validate the setup key
+		sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to get setup key: %w", err)
+		}
+
+		// we will check key twice for early return
+		if !sk.IsValid() {
+			return nil, nil, nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
+		}
+
+		opEvent.InitiatorID = sk.Id
+		opEvent.Activity = activity.PeerAddedWithSetupKey
+		groupsToAdd = sk.AutoGroups
+		ephemeral = sk.Ephemeral
+		setupKeyID = sk.Id
+		setupKeyName = sk.Name
+		allowExtraDNSLabels = sk.AllowExtraDNSLabels
+		accountID = sk.AccountID
+
+		if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
+			return nil, nil, nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
+		}
+	}
+	opEvent.AccountID = accountID
+
+	if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
+		if am.idpManager != nil {
+			userdata, err := am.idpManager.GetUserDataByID(ctx, userID, idp.AppMetadata{WTAccountID: accountID})
+			if err == nil && userdata != nil {
+				peer.Meta.Hostname = fmt.Sprintf("%s-%s", peer.Meta.Hostname, strings.Split(userdata.Email, "@")[0])
+			}
+		}
+	}
+
+	if err := domain.ValidateDomainsList(peer.ExtraDNSLabels); err != nil {
+		return nil, nil, nil, status.Errorf(status.InvalidArgument, "invalid extra DNS labels: %v", err)
+	}
+
+	registrationTime := time.Now().UTC()
+	newPeer = &nbpeer.Peer{
+		ID:                          xid.New().String(),
+		AccountID:                   accountID,
+		Key:                         peer.Key,
+		Meta:                        peer.Meta,
+		Name:                        peer.Meta.Hostname,
+		UserID:                      userID,
+		Status:                      &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
+		SSHEnabled:                  false,
+		SSHKey:                      peer.SSHKey,
+		LastLogin:                   &registrationTime,
+		CreatedAt:                   registrationTime,
+		LoginExpirationEnabled:      addedByUser,
+		Ephemeral:                   ephemeral,
+		Location:                    peer.Location,
+		InactivityExpirationEnabled: addedByUser,
+		ExtraDNSLabels:              peer.ExtraDNSLabels,
+		AllowExtraDNSLabels:         allowExtraDNSLabels,
+	}
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to get account settings: %w", err)
+	}
+
+	if am.geo != nil && newPeer.Location.ConnectionIP != nil {
+		location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", newPeer.Location.ConnectionIP.String(), err)
+		} else {
+			newPeer.Location.CountryCode = location.Country.ISOCode
+			newPeer.Location.CityName = location.City.Names.En
+			newPeer.Location.GeoNameID = location.City.GeonameID
+		}
+	}
+
+	newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
+
 	maxAttempts := 10
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var freeLabel string
+		freeLabel, err = am.getFreeDNSLabel(ctx, am.Store, accountID, peer.Meta.Hostname)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
+		}
+
+		var freeIP net.IP
+		freeIP, err = getFreeIP(ctx, am.Store, accountID)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to get free IP: %w", err)
+		}
+
+		newPeer.DNSLabel = freeLabel
+		newPeer.IP = freeIP
+
+		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+		defer func() {
+			if unlock != nil {
+				unlock()
+			}
+		}()
+
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			var setupKeyID string
-			var setupKeyName string
-			var ephemeral bool
-			var groupsToAdd []string
-			var allowExtraDNSLabels bool
-			if addedByUser {
-				user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
-				if err != nil {
-					return fmt.Errorf("failed to get user groups: %w", err)
-				}
-				groupsToAdd = user.AutoGroups
-				opEvent.InitiatorID = userID
-				opEvent.Activity = activity.PeerAddedByUser
-			} else {
-				// Validate the setup key
-				sk, err := transaction.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
-				if err != nil {
-					return fmt.Errorf("failed to get setup key: %w", err)
-				}
-
-				// we will check key twice for early return
-				if !sk.IsValid() {
-					return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
-				}
-
-				opEvent.InitiatorID = sk.Id
-				opEvent.Activity = activity.PeerAddedWithSetupKey
-				groupsToAdd = sk.AutoGroups
-				ephemeral = sk.Ephemeral
-				setupKeyID = sk.Id
-				setupKeyName = sk.Name
-				allowExtraDNSLabels = sk.AllowExtraDNSLabels
-
-				if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
-					return status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
-				}
-			}
-
-			if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
-				if am.idpManager != nil {
-					userdata, err := am.idpManager.GetUserDataByID(ctx, userID, idp.AppMetadata{WTAccountID: accountID})
-					if err == nil && userdata != nil {
-						peer.Meta.Hostname = fmt.Sprintf("%s-%s", peer.Meta.Hostname, strings.Split(userdata.Email, "@")[0])
-					}
-				}
-			}
-
-			if err := domain.ValidateDomainsList(peer.ExtraDNSLabels); err != nil {
-				return status.Errorf(status.InvalidArgument, "invalid extra DNS labels: %v", err)
-			}
-
-			registrationTime := time.Now().UTC()
-			newPeer = &nbpeer.Peer{
-				ID:                          xid.New().String(),
-				AccountID:                   accountID,
-				Key:                         peer.Key,
-				Meta:                        peer.Meta,
-				Name:                        peer.Meta.Hostname,
-				UserID:                      userID,
-				Status:                      &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
-				SSHEnabled:                  false,
-				SSHKey:                      peer.SSHKey,
-				LastLogin:                   &registrationTime,
-				CreatedAt:                   registrationTime,
-				LoginExpirationEnabled:      addedByUser,
-				Ephemeral:                   ephemeral,
-				Location:                    peer.Location,
-				InactivityExpirationEnabled: addedByUser,
-				ExtraDNSLabels:              peer.ExtraDNSLabels,
-				AllowExtraDNSLabels:         allowExtraDNSLabels,
-			}
-			settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-			if err != nil {
-				return fmt.Errorf("failed to get account settings: %w", err)
-			}
-
-			if am.geo != nil && newPeer.Location.ConnectionIP != nil {
-				location, err := am.geo.Lookup(newPeer.Location.ConnectionIP)
-				if err != nil {
-					log.WithContext(ctx).Warnf("failed to get location for new peer realip: [%s]: %v", newPeer.Location.ConnectionIP.String(), err)
-				} else {
-					newPeer.Location.CountryCode = location.Country.ISOCode
-					newPeer.Location.CityName = location.City.Names.En
-					newPeer.Location.GeoNameID = location.City.GeonameID
-				}
-			}
-
-			newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
-
-			freeLabel, err := am.getFreeDNSLabel(ctx, transaction, accountID, peer.Meta.Hostname)
-			if err != nil {
-				return fmt.Errorf("failed to get free DNS label: %w", err)
-			}
-
-			freeIP, err := getFreeIP(ctx, transaction, accountID)
-			if err != nil {
-				return fmt.Errorf("failed to get free IP: %w", err)
-			}
-
-			newPeer.DNSLabel = freeLabel
-			newPeer.IP = freeIP
-
 			err = transaction.AddPeerToAccount(ctx, store.LockingStrengthUpdate, newPeer)
 			if err != nil {
 				return err
@@ -668,10 +662,14 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			return nil
 		})
 		if err == nil {
+			unlock()
+			unlock = nil
 			break
 		}
 
 		if isUniqueConstraintError(err) {
+			unlock()
+			unlock = nil
 			log.WithContext(ctx).Debugf("Failed to add peer in attempt %d, retrying: %v", attempt, err)
 			continue
 		}
@@ -687,9 +685,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
-
-	unlock()
-	unlock = nil
 
 	if updateAccountPeers {
 		am.BufferUpdateAccountPeers(ctx, accountID)
