@@ -99,7 +99,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{},
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
-		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
+		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
@@ -723,6 +723,34 @@ func (s *SqlStore) GetAccountMeta(ctx context.Context, lockStrength LockingStren
 	}
 
 	return &accountMeta, nil
+}
+
+// GetAccountOnboarding retrieves the onboarding information for a specific account.
+func (s *SqlStore) GetAccountOnboarding(ctx context.Context, accountID string) (*types.AccountOnboarding, error) {
+	var accountOnboarding types.AccountOnboarding
+	result := s.db.Model(&accountOnboarding).First(&accountOnboarding, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when getting account onboarding %s from the store: %s", accountID, result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			//accountOnboarding.AccountID = accountID
+			//return &accountOnboarding, nil
+			return nil, status.NewAccountNotFoundError(accountID)
+		}
+		return nil, status.NewGetAccountFromStoreError(result.Error)
+	}
+
+	return &accountOnboarding, nil
+}
+
+// SaveAccountOnboarding updates the onboarding information for a specific account.
+func (s *SqlStore) SaveAccountOnboarding(ctx context.Context, onboarding *types.AccountOnboarding) error {
+	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Save(onboarding)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when saving account onboarding %s in the store: %s", onboarding.AccountID, result.Error)
+		return status.Errorf(status.Internal, "error when saving account onboarding %s in the store: %s", onboarding.AccountID, result.Error)
+	}
+
+	return nil
 }
 
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {

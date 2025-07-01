@@ -132,12 +132,21 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		settings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
 	}
 
-	onboarding := &types.AccountOnboarding{
-		OnboardingFlowPending: req.Onboarding.OnboardingFlowPending,
-		SignupFormPending:     req.Onboarding.SignupFormPending,
+	var onboarding *types.AccountOnboarding
+	if req.Onboarding != nil {
+		onboarding = &types.AccountOnboarding{
+			OnboardingFlowPending: req.Onboarding.OnboardingFlowPending,
+			SignupFormPending:     req.Onboarding.SignupFormPending,
+		}
 	}
 
-	updatedSettings, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings, onboarding)
+	updatedOnboarding, err := h.accountManager.UpdateAccountOnboarding(r.Context(), accountID, userID, onboarding)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	updatedSettings, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -149,13 +158,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	onboarding, err := h.accountManager.GetAccountOnboarding(r.Context(), accountID, userID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	resp := toAccountResponse(accountID, updatedSettings, meta, onboarding)
+	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }

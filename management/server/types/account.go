@@ -82,12 +82,11 @@ type Account struct {
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
-	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
-
+	Settings         *Settings                        `gorm:"embedded;embeddedPrefix:settings_"`
 	Networks         []*networkTypes.Network          `gorm:"foreignKey:AccountID;references:id"`
 	NetworkRouters   []*routerTypes.NetworkRouter     `gorm:"foreignKey:AccountID;references:id"`
 	NetworkResources []*resourceTypes.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
-	Onboarding       AccountOnboarding
+	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
 }
 
 // Subclass used in gorm to only load network and not whole account
@@ -111,6 +110,12 @@ type AccountOnboarding struct {
 	SignupFormPending     bool
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+}
+
+// IsEqual compares two AccountOnboarding objects and returns true if they are equal
+func (o AccountOnboarding) IsEqual(onboarding AccountOnboarding) bool {
+	return o.OnboardingFlowPending == onboarding.OnboardingFlowPending &&
+		o.SignupFormPending == onboarding.SignupFormPending
 }
 
 // GetRoutesToSync returns the enabled routes for the peer ID and the routes
