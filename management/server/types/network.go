@@ -194,6 +194,21 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	return nil, status.Errorf(status.PreconditionFailed, "network %s is out of IPs", ipNet.String())
 }
 
+func AllocateRandomPeerIP(ipNet net.IPNet) (net.IP, error) {
+	baseIP := ipToUint32(ipNet.IP.Mask(ipNet.Mask))
+
+	ones, bits := ipNet.Mask.Size()
+	hostBits := bits - ones
+
+	totalIPs := uint32(1 << hostBits)
+
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	offset := uint32(rng.Intn(int(totalIPs-2))) + 1
+
+	candidate := baseIP + offset
+	return uint32ToIP(candidate), nil
+}
+
 func ipToUint32(ip net.IP) uint32 {
 	ip = ip.To4()
 	if len(ip) < 4 {

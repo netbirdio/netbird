@@ -235,14 +235,10 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 
 		if peer.Name != update.Name {
-			existingLabels, err := getPeerDNSLabels(ctx, transaction, accountID, update.Name)
+			var newLabel string
+			newLabel, err = am.getPeerIPDNSLabel(ctx, peer.IP, accountID, peer.Meta.Hostname)
 			if err != nil {
-				return err
-			}
-
-			newLabel, err := types.GetPeerHostLabel(update.Name, existingLabels)
-			if err != nil {
-				return err
+				return fmt.Errorf("failed to get free DNS label: %w", err)
 			}
 
 			peer.Name = update.Name
@@ -576,18 +572,23 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
 
+	network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed getting network: %w", err)
+	}
+
 	maxAttempts := 10
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		var freeLabel string
-		freeLabel, err = am.getFreeDNSLabel(ctx, am.Store, accountID, peer.Meta.Hostname)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
-		}
-
 		var freeIP net.IP
-		freeIP, err = getFreeIP(ctx, am.Store, accountID)
+		freeIP, err = types.AllocateRandomPeerIP(network.Net)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to get free IP: %w", err)
+		}
+
+		var freeLabel string
+		freeLabel, err = am.getPeerIPDNSLabel(ctx, freeIP, accountID, peer.Meta.Hostname)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
 		}
 
 		newPeer.DNSLabel = freeLabel
@@ -606,12 +607,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 				return err
 			}
 
-			opEvent.TargetID = newPeer.ID
-			opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain(settings))
-			if !addedByUser {
-				opEvent.Meta["setup_key_name"] = setupKeyName
-			}
-
 			err = transaction.AddPeerToAllGroup(ctx, store.LockingStrengthUpdate, accountID, newPeer.ID)
 			if err != nil {
 				return fmt.Errorf("failed adding peer to All group: %w", err)
@@ -624,11 +619,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 						return err
 					}
 				}
-			}
-
-			updateAccountPeers, err = isPeerInActiveGroup(ctx, transaction, accountID, newPeer.ID)
-			if err != nil {
-				return err
 			}
 
 			if addedByUser {
@@ -680,8 +670,19 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database after %d attempts: %w", maxAttempts, err)
 	}
 
+	updateAccountPeers, err = isPeerInActiveGroup(ctx, am.Store, accountID, newPeer.ID)
+	if err != nil {
+		updateAccountPeers = true
+	}
+
 	if newPeer == nil {
 		return nil, nil, nil, fmt.Errorf("new peer is nil")
+	}
+
+	opEvent.TargetID = newPeer.ID
+	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain(settings))
+	if !addedByUser {
+		opEvent.Meta["setup_key_name"] = setupKeyName
 	}
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
@@ -691,6 +692,20 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	return am.getValidatedPeerWithMap(ctx, false, accountID, newPeer)
+}
+
+func (am *DefaultAccountManager) getPeerIPDNSLabel(ctx context.Context, ip net.IP, accountID, peerHostName string) (string, error) {
+	dnsName, err := nbdns.GetParsedDomainLabel(peerHostName)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse peer host name %s: %w", peerHostName, err)
+	}
+
+	peerID, err := am.Store.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, dnsName)
+	if peerID == "" {
+		return dnsName, nil
+	}
+
+	return fmt.Sprintf("%s-%d-%d", dnsName, ip[2], ip[3]), nil
 }
 
 func getFreeIP(ctx context.Context, transaction store.Store, accountID string) (net.IP, error) {

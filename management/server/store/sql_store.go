@@ -2549,6 +2549,23 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 	return &peer, nil
 }
 
+func (s *SqlStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var peerID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("id").
+		// Where(" = ?", hostname).
+		Where("account_id = ? AND dns_label = ?", accountID, hostname).
+		Limit(1).
+		Scan(&peerID)
+
+	return peerID, result.Error
+}
+
 func (s *SqlStore) CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error) {
 	var count int64
 	result := s.db.Model(&types.Account{}).

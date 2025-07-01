@@ -2170,6 +2170,7 @@ func Test_AddPeer(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errs := make(chan error, totalPeers+differentHostnames)
+	start := make(chan struct{})
 	for i := 0; i < totalPeers; i++ {
 		wg.Add(1)
 		hostNameID := i % differentHostnames
@@ -2182,6 +2183,8 @@ func Test_AddPeer(t *testing.T) {
 				Meta: nbpeer.PeerSystemMeta{Hostname: "peer" + strconv.Itoa(hostNameID), GoOS: "linux"},
 			}
 
+			<-start
+
 			_, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", newPeer)
 			if err != nil {
 				errs <- fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
@@ -2190,9 +2193,13 @@ func Test_AddPeer(t *testing.T) {
 
 		}(i)
 	}
+	startTime := time.Now()
 
+	close(start)
 	wg.Wait()
 	close(errs)
+
+	t.Logf("time since start: %s", time.Since(startTime))
 
 	for err := range errs {
 		t.Fatal(err)
