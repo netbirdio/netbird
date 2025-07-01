@@ -119,6 +119,8 @@ type MockAccountManager struct {
 	GetAccountMetaFunc                  func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
 
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
+
+	AllowSyncFunc func(string, uint64) bool
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -889,4 +891,11 @@ func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth n
 		return am.GetCurrentUserInfoFunc(ctx, userAuth)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
+}
+
+func (am *MockAccountManager) AllowSync(key string, hash uint64) bool {
+	if am.AllowSyncFunc != nil {
+		return am.AllowSyncFunc(key, hash)
+	}
+	return true
 }

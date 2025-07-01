@@ -42,7 +42,10 @@ const (
 // Type is a type of the Error
 type Type int32
 
-var ErrExtraSettingsNotFound = fmt.Errorf("extra settings not found")
+var (
+	ErrExtraSettingsNotFound = errors.New("extra settings not found")
+	ErrPeerAlreadyLoggedIn   = errors.New("peer with the same public key is already logged in")
+)
 
 // Error is an internal error
 type Error struct {
