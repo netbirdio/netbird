@@ -10,7 +10,9 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2136,5 +2138,86 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 			result := isUniqueConstraintError(err)
 			assert.True(t, result)
 		})
+	}
+}
+
+func Test_AddPeer(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	accountID := "testaccount"
+	userID := "testuser"
+
+	_, err = createAccount(manager, accountID, userID, "domain.com")
+	if err != nil {
+		t.Fatal("error creating account")
+		return
+	}
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), accountID, "test-key", types.SetupKeyReusable, time.Hour, nil, 10000, userID, false, false)
+	if err != nil {
+		t.Fatal("error creating setup key")
+		return
+	}
+
+	const totalPeers = 500 // totalPeers / differentHostnames must be less than 1000
+	const differentHostnames = 1
+
+	var wg sync.WaitGroup
+	errs := make(chan error, totalPeers+differentHostnames)
+	for i := 0; i < totalPeers; i++ {
+		wg.Add(1)
+		hostNameID := i % differentHostnames
+
+		go func(i int) {
+			defer wg.Done()
+
+			newPeer := &nbpeer.Peer{
+				Key:  "key" + strconv.Itoa(i),
+				Meta: nbpeer.PeerSystemMeta{Hostname: "peer" + strconv.Itoa(hostNameID), GoOS: "linux"},
+			}
+
+			_, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", newPeer)
+			if err != nil {
+				errs <- fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
+				return
+			}
+
+		}(i)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	account, err := manager.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatalf("Failed to get account %s: %v", accountID, err)
+	}
+
+	assert.Equal(t, totalPeers, len(account.Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
+
+	seenIP := make(map[string]bool)
+	for _, p := range account.Peers {
+		ipStr := p.IP.String()
+		if seenIP[ipStr] {
+			t.Fatalf("Duplicate IP found in account %s: %s", accountID, ipStr)
+		}
+		seenIP[ipStr] = true
+	}
+
+	seenLabel := make(map[string]bool)
+	for _, p := range account.Peers {
+		if seenLabel[p.DNSLabel] {
+			t.Fatalf("Duplicate Label found in account %s: %s", accountID, p.DNSLabel)
+		}
+		seenLabel[p.DNSLabel] = true
 	}
 }
