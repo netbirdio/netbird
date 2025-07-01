@@ -12,40 +12,50 @@ import (
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/messages"
 	"github.com/netbirdio/netbird/relay/metrics"
+	"github.com/netbirdio/netbird/relay/server/store"
 )
 
 const (
-	bufferSize = 8820
+	bufferSize = messages.MaxMessageSize
 
 	errCloseConn = "failed to close connection to peer: %s"
 )
 
 // Peer represents a peer connection
 type Peer struct {
-	metrics *metrics.Metrics
-	log     *log.Entry
-	id      messages.PeerID
-	conn    net.Conn
-	connMu  sync.RWMutex
-	store   *Store
+	metrics  *metrics.Metrics
+	log      *log.Entry
+	id       messages.PeerID
+	conn     net.Conn
+	connMu   sync.RWMutex
+	store    *store.Store
+	notifier *store.PeerNotifier
+
+	peersListener *store.Listener
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
-func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn net.Conn, store *Store) *Peer {
-	return &Peer{
-		metrics: metrics,
-		log:     log.WithField("peer_id", id.String()),
-		id:      id,
-		conn:    conn,
-		store:   store,
+func NewPeer(metrics *metrics.Metrics, id messages.PeerID, conn net.Conn, store *store.Store, notifier *store.PeerNotifier) *Peer {
+	p := &Peer{
+		metrics:  metrics,
+		log:      log.WithField("peer_id", id.String()),
+		id:       id,
+		conn:     conn,
+		store:    store,
+		notifier: notifier,
 	}
+
+	return p
 }
 
 // Work reads data from the connection
 // It manages the protocol (healthcheck, transport, close). Read the message and determine the message type and handle
 // the message accordingly.
 func (p *Peer) Work() {
+	p.peersListener = p.notifier.NewListener(p.sendPeersOnline, p.sendPeersWentOffline)
 	defer func() {
+		p.notifier.RemoveListener(p.peersListener)
+
 		if err := p.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			p.log.Errorf(errCloseConn, err)
 		}
@@ -108,6 +118,10 @@ func (p *Peer) handleMsgType(ctx context.Context, msgType messages.MsgType, hc *
 		if err := p.conn.Close(); err != nil {
 			log.Errorf(errCloseConn, err)
 		}
+	case messages.MsgTypeSubscribePeerState:
+		p.handleSubscribePeerState(msg)
+	case messages.MsgTypeUnsubscribePeerState:
+		p.handleUnsubscribePeerState(msg)
 	default:
 		p.log.Warnf("received unexpected message type: %s", msgType)
 	}
@@ -217,4 +231,53 @@ func (p *Peer) handleTransportMsg(msg []byte) {
 		return
 	}
 	p.metrics.TransferBytesSent.Add(context.Background(), int64(n))
+}
+
+func (p *Peer) handleSubscribePeerState(msg []byte) {
+	peerIDs, err := messages.UnmarshalSubPeerStateMsg(msg)
+	if err != nil {
+		p.log.Errorf("failed to unmarshal open connection message: %s", err)
+		return
+	}
+
+	onlinePeers := p.peersListener.AddInterestedPeers(peerIDs)
+	p.sendPeersOnline(onlinePeers)
+}
+
+func (p *Peer) handleUnsubscribePeerState(msg []byte) {
+	peerIDs, err := messages.UnmarshalUnsubPeerStateMsg(msg)
+	if err != nil {
+		p.log.Errorf("failed to unmarshal open connection message: %s", err)
+		return
+	}
+
+	p.peersListener.RemoveInterestedPeer(peerIDs)
+}
+
+func (p *Peer) sendPeersBecomeOnline(peers []messages.PeerID) {
+	msgs, err := messages.MarshalPeersOnline(peers)
+	if err != nil {
+		p.log.Errorf("failed to marshal peer location message: %s", err)
+		return
+	}
+
+	for n, msg := range msgs {
+		if _, err := p.Write(msg); err != nil {
+			p.log.Errorf("failed to write %d. peers offline message: %s", n, err)
+		}
+	}
+}
+
+func (p *Peer) sendPeersWentOffline(peers []messages.PeerID) {
+	msgs, err := messages.MarshalPeersWentOffline(peers)
+	if err != nil {
+		p.log.Errorf("failed to marshal peer location message: %s", err)
+		return
+	}
+
+	for n, msg := range msgs {
+		if _, err := p.Write(msg); err != nil {
+			p.log.Errorf("failed to write %d. peers offline message: %s", n, err)
+		}
+	}
 }

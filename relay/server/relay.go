@@ -13,6 +13,7 @@ import (
 
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
+	"github.com/netbirdio/netbird/relay/server/store"
 )
 
 type Config struct {
@@ -50,7 +51,8 @@ type Relay struct {
 	metricsCancel context.CancelFunc
 	validator     Validator
 
-	store       *Store
+	store       *store.Store
+	notifier    *store.PeerNotifier
 	instanceURL string
 	preparedMsg *preparedMsg
 
@@ -84,12 +86,14 @@ func NewRelay(config Config) (*Relay, error) {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
 
+	peerStore := store.NewStore()
 	r := &Relay{
 		metrics:       m,
 		metricsCancel: metricsCancel,
 		validator:     config.AuthValidator,
 		instanceURL:   config.instanceURL,
-		store:         NewStore(),
+		store:         peerStore,
+		notifier:      store.NewPeerNotifier(peerStore),
 	}
 
 	r.preparedMsg, err = newPreparedMsg(r.instanceURL)
@@ -124,14 +128,17 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peer := NewPeer(r.metrics, *peerID, conn, r.store)
+	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	storeTime := time.Now()
 	r.store.AddPeer(peer)
+	r.notifier.PeerCameOnline(peer.ID())
+
 	r.metrics.RecordPeerStoreTime(time.Since(storeTime))
 	r.metrics.PeerConnected(peer.String())
 	go func() {
 		peer.Work()
+		r.notifier.PeerWentOffline(peer.ID())
 		r.store.DeletePeer(peer)
 		peer.log.Debugf("relay connection closed")
 		r.metrics.PeerDisconnected(peer.String())

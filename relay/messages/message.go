@@ -9,19 +9,26 @@ import (
 const (
 	MaxHandshakeSize     = 212
 	MaxHandshakeRespSize = 8192
+	MaxMessageSize       = 8820
 
 	CurrentProtocolVersion = 1
 
 	MsgTypeUnknown MsgType = 0
 	// Deprecated: Use MsgTypeAuth instead.
-	MsgTypeHello MsgType = 1
+	MsgTypeHello = 1
 	// Deprecated: Use MsgTypeAuthResponse instead.
-	MsgTypeHelloResponse MsgType = 2
-	MsgTypeTransport     MsgType = 3
-	MsgTypeClose         MsgType = 4
-	MsgTypeHealthCheck   MsgType = 5
-	MsgTypeAuth                  = 6
-	MsgTypeAuthResponse          = 7
+	MsgTypeHelloResponse = 2
+	MsgTypeTransport     = 3
+	MsgTypeClose         = 4
+	MsgTypeHealthCheck   = 5
+	MsgTypeAuth          = 6
+	MsgTypeAuthResponse  = 7
+
+	// Peers state messages
+	MsgTypeSubscribePeerState   = 8
+	MsgTypeUnsubscribePeerState = 9
+	MsgTypePeersOnline          = 10
+	MsgTypePeersWentOffline     = 11
 
 	// base size of the message
 	sizeOfVersionByte = 1
@@ -72,6 +79,10 @@ func (m MsgType) String() string {
 		return "close"
 	case MsgTypeHealthCheck:
 		return "health check"
+	case MsgTypeSubscribePeerState:
+		return "subscribe peer state"
+	case MsgTypeUnsubscribePeerState:
+		return "unsubscribe peer state"
 	default:
 		return "unknown"
 	}
@@ -102,7 +113,9 @@ func DetermineClientMessageType(msg []byte) (MsgType, error) {
 		MsgTypeAuth,
 		MsgTypeTransport,
 		MsgTypeClose,
-		MsgTypeHealthCheck:
+		MsgTypeHealthCheck,
+		MsgTypeSubscribePeerState,
+		MsgTypeUnsubscribePeerState:
 		return msgType, nil
 	default:
 		return MsgTypeUnknown, fmt.Errorf("invalid msg type %d", msgType)
