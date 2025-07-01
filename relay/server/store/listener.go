@@ -10,19 +10,21 @@ import (
 type Listener struct {
 	store *Store
 
-	onlineChan      chan messages.PeerID
-	offlineChan     chan messages.PeerID
-	interestedPeers map[messages.PeerID]struct{}
-	mu              sync.RWMutex
+	onlineChan                chan messages.PeerID
+	offlineChan               chan messages.PeerID
+	interestedPeersForOffline map[messages.PeerID]struct{}
+	interestedPeersForOnline  map[messages.PeerID]struct{}
+	mu                        sync.RWMutex
 }
 
 func newListener(store *Store) *Listener {
 	l := &Listener{
 		store: store,
 
-		onlineChan:      make(chan messages.PeerID, 244), //244 is the message size limit in the relay protocol
-		offlineChan:     make(chan messages.PeerID, 244), //244 is the message size limit in the relay protocol
-		interestedPeers: make(map[messages.PeerID]struct{}),
+		onlineChan:                make(chan messages.PeerID, 244), //244 is the message size limit in the relay protocol
+		offlineChan:               make(chan messages.PeerID, 244), //244 is the message size limit in the relay protocol
+		interestedPeersForOffline: make(map[messages.PeerID]struct{}),
+		interestedPeersForOnline:  make(map[messages.PeerID]struct{}),
 	}
 
 	return l
@@ -34,7 +36,8 @@ func (l *Listener) AddInterestedPeers(peerIDs []messages.PeerID) []messages.Peer
 	defer l.mu.Unlock()
 
 	for _, id := range peerIDs {
-		l.interestedPeers[id] = struct{}{}
+		l.interestedPeersForOnline[id] = struct{}{}
+		l.interestedPeersForOffline[id] = struct{}{}
 	}
 
 	// collect online peers to response back to the caller
@@ -54,7 +57,9 @@ func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
 	defer l.mu.Unlock()
 
 	for _, id := range peerIDs {
-		delete(l.interestedPeers, id)
+		delete(l.interestedPeersForOffline, id)
+		delete(l.interestedPeersForOnline, id)
+
 	}
 }
 
@@ -93,7 +98,7 @@ func (l *Listener) peerWentOffline(peerID messages.PeerID) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	if _, ok := l.interestedPeers[peerID]; ok {
+	if _, ok := l.interestedPeersForOffline[peerID]; ok {
 		// todo: if the listener cancelled and the notifier write to here then will be blocked fore
 		l.offlineChan <- peerID
 	}
@@ -101,10 +106,11 @@ func (l *Listener) peerWentOffline(peerID messages.PeerID) {
 
 // todo handle context cancellation properly
 func (l *Listener) peerComeOnline(peerID messages.PeerID) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-	if _, ok := l.interestedPeers[peerID]; ok {
+	if _, ok := l.interestedPeersForOnline[peerID]; ok {
 		l.onlineChan <- peerID
+		delete(l.interestedPeersForOnline, peerID)
 	}
 }

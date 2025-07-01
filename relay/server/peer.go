@@ -254,7 +254,7 @@ func (p *Peer) handleUnsubscribePeerState(msg []byte) {
 	p.peersListener.RemoveInterestedPeer(peerIDs)
 }
 
-func (p *Peer) sendPeersBecomeOnline(peers []messages.PeerID) {
+func (p *Peer) sendPeersOnline(peers []messages.PeerID) {
 	msgs, err := messages.MarshalPeersOnline(peers)
 	if err != nil {
 		p.log.Errorf("failed to marshal peer location message: %s", err)
