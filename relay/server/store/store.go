@@ -1,8 +1,9 @@
-package server
+package store
 
 import (
-	"github.com/netbirdio/netbird/relay/messages"
 	"sync"
+
+	"github.com/netbirdio/netbird/relay/messages"
 )
 
 type IPeer interface {
