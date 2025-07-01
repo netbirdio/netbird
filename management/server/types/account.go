@@ -87,6 +87,7 @@ type Account struct {
 	Networks         []*networkTypes.Network          `gorm:"foreignKey:AccountID;references:id"`
 	NetworkRouters   []*routerTypes.NetworkRouter     `gorm:"foreignKey:AccountID;references:id"`
 	NetworkResources []*resourceTypes.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
+	Onboarding       AccountOnboarding
 }
 
 // Subclass used in gorm to only load network and not whole account
@@ -102,6 +103,14 @@ type AccountDNSSettings struct {
 // Subclass used in gorm to only load settings and not whole account
 type AccountSettings struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+}
+
+type AccountOnboarding struct {
+	AccountID             string `gorm:"primaryKey"`
+	OnboardingFlowPending bool
+	SignupFormPending     bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 // GetRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -866,6 +875,7 @@ func (a *Account) Copy() *Account {
 		Networks:               nets,
 		NetworkRouters:         networkRouters,
 		NetworkResources:       networkResources,
+		Onboarding:             a.Onboarding,
 	}
 }
 

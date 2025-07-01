@@ -117,6 +117,7 @@ type MockAccountManager struct {
 	GetOwnerInfoFunc                    func(ctx context.Context, accountID string) (*types.UserInfo, error)
 	GetCurrentUserInfoFunc              func(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
 	GetAccountMetaFunc                  func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
+	GetAccountOnboardingFunc            func(ctx context.Context, accountID, userID string) (*types.AccountOnboarding, error)
 
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 }
@@ -812,6 +813,14 @@ func (am *MockAccountManager) GetAccountMeta(ctx context.Context, accountID stri
 		return am.GetAccountMetaFunc(ctx, accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountMeta is not implemented")
+}
+
+// GetAccountOnboarding mocks GetAccountOnboarding of the AccountManager interface
+func (am *MockAccountManager) GetAccountOnboarding(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error) {
+	if am.GetAccountOnboardingFunc != nil {
+		return am.GetAccountOnboardingFunc(ctx, accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountOnboarding is not implemented")
 }
 
 // GetUserByID mocks GetUserByID of the AccountManager interface
