@@ -84,6 +84,14 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 			Selected:    route.Selected,
 		}
 
+		// Set skipAutoApply for default routes only
+		if route.Network.Bits() == 0 && (route.Network.Addr().Is4() || route.Network.Addr().Is6()) {
+			// Find the underlying *route.Route to get SkipAutoApply
+			if clientRoutes, ok := routesMap[route.NetID]; ok && len(clientRoutes) > 0 {
+				pbRoute.SkipAutoApply = clientRoutes[0].SkipAutoApply
+			}
+		}
+
 		// Group resolved IPs by their parent domain
 		domainMap := map[domain.Domain][]string{}
 
@@ -142,6 +150,18 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 			return nil, fmt.Errorf("select routes: %w", err)
 		}
 	}
+
+	// Handle skipAutoApplyOverrides for default routes
+	for netID, skipAuto := range req.GetSkipAutoApplyOverrides() {
+		clientRoutes := routeManager.GetClientRoutesWithNetID()[route.NetID(netID)]
+		if len(clientRoutes) > 0 {
+			// Only update for default routes
+			if clientRoutes[0].Network.Bits() == 0 && (clientRoutes[0].Network.Addr().Is4() || clientRoutes[0].Network.Addr().Is6()) {
+				clientRoutes[0].SkipAutoApply = skipAuto
+			}
+		}
+	}
+
 	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 
 	s.statusRecorder.PublishEvent(

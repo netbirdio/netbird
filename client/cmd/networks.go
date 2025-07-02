@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -111,6 +112,12 @@ func printDomainRoute(cmd *cobra.Command, route *proto.Network, domains []string
 
 func printNetworkRoute(cmd *cobra.Command, route *proto.Network, selectedStatus string) {
 	cmd.Printf("\n  - ID: %s\n    Network: %s\n    Status: %s\n", route.GetID(), route.GetRange(), selectedStatus)
+	if route.GetRange() == "0.0.0.0/0" || route.GetRange() == "::/0" {
+		cmd.Printf("    SkipAutoApply: %v\n", route.SkipAutoApply)
+		if route.SkipAutoApply {
+			cmd.Printf("    [!] This default route will NOT be auto-applied.\n")
+		}
+	}
 }
 
 func printResolvedIPs(cmd *cobra.Command, _ []string, resolvedIPs map[string]*proto.IPList) {
@@ -170,4 +177,17 @@ func networksDeselect(cmd *cobra.Command, args []string) error {
 	cmd.Println("Networks deselected successfully.")
 
 	return nil
+}
+
+func selectNetwork(client proto.DaemonServiceClient, id string, checked bool) error {
+	skipAutoApplyOverrides := map[string]bool{}
+	if id == "0.0.0.0/0" || id == "::/0" {
+		skipAutoApplyOverrides[id] = !checked // checked means apply, so skipAutoApply is false
+	}
+	_, err := client.SelectNetworks(context.Background(), &proto.SelectNetworksRequest{
+		NetworkIDs:             []string{id},
+		Append:                 true,
+		SkipAutoApplyOverrides: skipAutoApplyOverrides,
+	})
+	return err
 }

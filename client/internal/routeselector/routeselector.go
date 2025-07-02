@@ -10,6 +10,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -117,9 +118,16 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 	for id, rt := range routes {
 		netID := id.NetID()
 		_, deselected := rs.deselectedRoutes[netID]
-		if !deselected {
-			filtered[id] = rt
+		if deselected {
+			continue
 		}
+		if len(rt) > 0 {
+			// For default routes, only include if SkipAutoApply is false
+			if (rt[0].Network == vars.Defaultv4 || rt[0].Network == vars.Defaultv6) && rt[0].SkipAutoApply {
+				continue
+			}
+		}
+		filtered[id] = rt
 	}
 	return filtered
 }

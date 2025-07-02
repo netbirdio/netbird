@@ -278,6 +278,10 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 
 	for id, routes := range newRoutes {
 		if len(routes) > 0 {
+			// Skip default routes if SkipAutoApply is true
+			if (routes[0].Network.Bits() == 0 && (routes[0].Network.Addr().Is4() || routes[0].Network.Addr().Is6())) && routes[0].SkipAutoApply {
+				continue
+			}
 			toAdd[id] = routes[0]
 		}
 	}

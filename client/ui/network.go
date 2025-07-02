@@ -123,20 +123,29 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 		network := r.GetRange()
 		domains := r.GetDomains()
 
-		if len(domains) == 0 {
-			grid.Add(widget.NewLabel(network))
-			grid.Add(widget.NewLabel(""))
-			continue
-		}
-
 		// our selectors are only for display
-		noopFunc := func(_ string) {
-			// do nothing
-		}
+		noopFunc := func(_ string) {}
 
-		domainsSelector := widget.NewSelect(domains, noopFunc)
-		domainsSelector.Selected = domains[0]
-		grid.Add(domainsSelector)
+		// Show SkipAutoApply toggle for default routes
+		if network == "0.0.0.0/0" || network == "::/0" {
+			skipAutoApplyCheck := widget.NewCheck("Do not auto-apply this default route", func(checked bool) {
+				// Call backend to update skipAutoApply for this route
+				go s.setSkipAutoApply(r.GetID(), checked)
+			})
+			skipAutoApplyCheck.Checked = r.SkipAutoApply
+			skipAutoApplyCheck.Resize(fyne.NewSize(20, 20))
+			skipAutoApplyCheck.Refresh()
+			grid.Add(skipAutoApplyCheck)
+		} else {
+			if len(domains) == 0 {
+				grid.Add(widget.NewLabel(network))
+				grid.Add(widget.NewLabel(""))
+				continue
+			}
+			domainsSelector := widget.NewSelect(domains, noopFunc)
+			domainsSelector.Selected = domains[0]
+			grid.Add(domainsSelector)
+		}
 
 		var resolvedIPsList []string
 		for domain, ipList := range r.GetResolvedIPs() {
@@ -646,4 +655,18 @@ func wrapText(text string, lineLength int) string {
 	}
 
 	return sb.String()
+}
+
+func (s *serviceClient) setSkipAutoApply(routeID string, skipAuto bool) {
+	ctx := context.Background()
+	if s.conn == nil {
+		s.showError(fmt.Errorf("not connected to daemon"))
+		return
+	}
+	_, err := s.conn.SelectNetworks(ctx, &proto.SelectNetworksRequest{
+		SkipAutoApplyOverrides: map[string]bool{routeID: skipAuto},
+	})
+	if err != nil {
+		s.showError(fmt.Errorf("failed to update SkipAutoApply: %w", err))
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/route"
 )
@@ -256,13 +257,16 @@ func TestRouteSelector_IsSelected(t *testing.T) {
 func TestRouteSelector_FilterSelected(t *testing.T) {
 	rs := routeselector.NewRouteSelector()
 
-	err := rs.SelectRoutes([]route.NetID{"route1", "route2"}, false, []route.NetID{"route1", "route2", "route3"})
+	err := rs.SelectRoutes([]route.NetID{"route1", "route2", "defaultv4", "defaultv6"}, false, []route.NetID{"route1", "route2", "route3", "defaultv4", "defaultv6"})
 	require.NoError(t, err)
 
 	routes := route.HAMap{
 		"route1|10.0.0.0/8":     {},
 		"route2|192.168.0.0/16": {},
 		"route3|172.16.0.0/12":  {},
+		// Default routes
+		"defaultv4|0.0.0.0/0": []*route.Route{{Network: vars.Defaultv4, SkipAutoApply: false}},
+		"defaultv6|::/0":      []*route.Route{{Network: vars.Defaultv6, SkipAutoApply: true}},
 	}
 
 	filtered := rs.FilterSelected(routes)
@@ -270,7 +274,16 @@ func TestRouteSelector_FilterSelected(t *testing.T) {
 	assert.Equal(t, route.HAMap{
 		"route1|10.0.0.0/8":     {},
 		"route2|192.168.0.0/16": {},
+		"defaultv4|0.0.0.0/0":   []*route.Route{{Network: vars.Defaultv4, SkipAutoApply: false}},
 	}, filtered)
+
+	// Now set SkipAutoApply true for v6 and check
+	routes["defaultv6|::/0"] = []*route.Route{{Network: vars.Defaultv6, SkipAutoApply: false}}
+	// Ensure selector is in a state where defaultv6 is selected
+	rs.SelectAllRoutes()
+	filtered = rs.FilterSelected(routes)
+	_, ok := filtered["defaultv6|::/0"]
+	assert.True(t, ok, "defaultv6|::/0 should be present in filtered when SkipAutoApply is false and selected")
 }
 
 func TestRouteSelector_NewRoutesBehavior(t *testing.T) {

@@ -307,6 +307,8 @@ message SelectNetworksRequest {
   repeated string networkIDs = 1;
   bool append = 2;
   bool all = 3;
+  // skipAutoApplyOverrides allows setting skipAutoApply for default routes (0.0.0.0/0, ::/0) by network ID.
+  map<string, bool> skipAutoApplyOverrides = 4;
 }
 
 message SelectNetworksResponse {
@@ -322,6 +324,8 @@ message Network {
   bool selected = 3;
   repeated string domains = 4;
   map<string, IPList> resolvedIPs = 5;
+  // skipAutoApply indicates if a default route should NOT be auto-applied when received from management. Only relevant for default routes (0.0.0.0/0, ::/0).
+  bool skipAutoApply = 6;
 }
 
 // ForwardingRules

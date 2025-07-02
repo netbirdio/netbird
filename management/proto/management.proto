@@ -397,6 +397,8 @@ message Route {
   string NetID = 7;
   repeated string Domains = 8;
   bool keepRoute = 9;
+  // SkipAutoApply indicates if a default route should NOT be auto-applied when received from management. Only relevant for default routes (0.0.0.0/0, ::/0).
+  bool SkipAutoApply = 10;
 }
 
 // DNSConfig represents a dns.Update
