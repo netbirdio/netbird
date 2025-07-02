@@ -294,7 +294,7 @@ func (s *Server) handlePtyWithUserSwitching(logger *log.Entry, session ssh.Sessi
 		} else {
 			errorMsg = "User switching failed - login command not available\r\n"
 		}
-		if _, writeErr := fmt.Fprintf(session.Stderr(), errorMsg); writeErr != nil {
+		if _, writeErr := fmt.Fprint(session.Stderr(), errorMsg); writeErr != nil {
 			logger.Debugf(errWriteSession, writeErr)
 		}
 		if err := session.Exit(1); err != nil {

@@ -56,7 +56,7 @@ const (
 
 	// Common error messages
 	commandFlag          = "-Command"
-	closeTokenErrorMsg   = "close token error: %v"
+	closeTokenErrorMsg   = "close token error: %v" // #nosec G101 -- This is an error message template, not credentials
 	convertUsernameError = "convert username to UTF16: %w"
 	convertDomainError   = "convert domain to UTF16: %w"
 )
