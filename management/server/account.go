@@ -106,6 +106,18 @@ type DefaultAccountManager struct {
 	disableDefaultPolicy bool
 }
 
+func isUniqueConstraintError(err error) bool {
+	switch {
+	case strings.Contains(err.Error(), "(SQLSTATE 23505)"),
+		strings.Contains(err.Error(), "Error 1062 (23000)"),
+		strings.Contains(err.Error(), "UNIQUE constraint failed"):
+		return true
+
+	default:
+		return false
+	}
+}
+
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
 // Returns a bool indicating if there are changes in the JWT group membership, the updated user AutoGroups,
 // newly groups to create and an error if any occurred.
@@ -1659,25 +1671,6 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction
 	}
 
 	return false, nil
-}
-
-func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, s store.Store, accountID string, peerHostName string) (string, error) {
-	existingLabels, err := s.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
-	}
-
-	labelMap := ConvertSliceToMap(existingLabels)
-	newLabel, err := types.GetPeerHostLabel(peerHostName, labelMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to get new host label: %w", err)
-	}
-
-	if newLabel == "" {
-		return "", fmt.Errorf("failed to get new host label: %w", err)
-	}
-
-	return newLabel, nil
 }
 
 func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
