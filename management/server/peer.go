@@ -702,6 +702,7 @@ func getPeerIPDNSLabel(ctx context.Context, tx store.Store, ip net.IP, accountID
 
 	_, err = tx.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, dnsName)
 	if err != nil {
+		//nolint: if the label is not found, it means that it is free to use
 		return dnsName, nil
 	}
 
