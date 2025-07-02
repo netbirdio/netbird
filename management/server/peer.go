@@ -700,8 +700,8 @@ func getPeerIPDNSLabel(ctx context.Context, tx store.Store, ip net.IP, accountID
 		return "", fmt.Errorf("failed to parse peer host name %s: %w", peerHostName, err)
 	}
 
-	peerID, err := tx.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, dnsName)
-	if peerID == "" || err != nil {
+	_, err = tx.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, dnsName)
+	if err != nil {
 		return dnsName, nil
 	}
 

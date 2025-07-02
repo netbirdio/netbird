@@ -2563,6 +2563,10 @@ func (s *SqlStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStr
 		Limit(1).
 		Scan(&peerID)
 
+	if peerID == "" {
+		return "", gorm.ErrRecordNotFound
+	}
+
 	return peerID, result.Error
 }
 
