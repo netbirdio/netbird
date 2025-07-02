@@ -365,6 +365,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		CityName:                    peer.Location.CityName,
 		SerialNumber:                peer.Meta.SystemSerialNumber,
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
+		Ephemeral:                   peer.Ephemeral,
 	}
 }
 

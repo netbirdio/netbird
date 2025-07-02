@@ -120,7 +120,7 @@ func getStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	}
 	defer conn.Close()
 
-	resp, err := proto.NewDaemonServiceClient(conn).Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
+	resp, err := proto.NewDaemonServiceClient(conn).Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true, ShouldRunProbes: true})
 	if err != nil {
 		return nil, fmt.Errorf("status failed: %v", status.Convert(err).Message())
 	}

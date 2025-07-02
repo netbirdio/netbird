@@ -211,7 +211,7 @@ func startServer(
 		port_forwarding.NewControllerMock(),
 		settingsMockManager,
 		permissionsManager,
-	)
+		false)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
 	}
