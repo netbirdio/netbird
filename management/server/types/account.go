@@ -1561,7 +1561,7 @@ func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[st
 }
 
 // AddAllGroup to account object if it doesn't exist
-func (a *Account) AddAllGroup() error {
+func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 	if len(a.Groups) == 0 {
 		allGroup := &Group{
 			ID:     xid.New().String(),
@@ -1572,6 +1572,10 @@ func (a *Account) AddAllGroup() error {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
 		}
 		a.Groups = map[string]*Group{allGroup.ID: allGroup}
+
+		if disableDefaultPolicy {
+			return nil
+		}
 
 		id := xid.New().String()
 

@@ -2061,7 +2061,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 		Onboarding: types.AccountOnboarding{SignupFormPending: true, OnboardingFlowPending: true},
 	}
 
-	if err := acc.AddAllGroup(); err != nil {
+	if err := acc.AddAllGroup(false); err != nil {
 		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
