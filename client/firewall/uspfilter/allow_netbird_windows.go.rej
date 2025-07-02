@@ -1,0 +1,12 @@
+--- client/firewall/uspfilter/allow_netbird_windows.go
++++ client/firewall/uspfilter/allow_netbird_windows.go
+@@ -1,6 +1,9 @@
+ package uspfilter
+ 
+ import (
++	"fmt"
+ 	"os/exec"
++	"regexp"
++	"strings"
+ )
+ 
