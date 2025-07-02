@@ -1,5 +1,4 @@
 package testing_tools
-
 import (
 	"bytes"
 	"context"
@@ -138,7 +137,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)
 	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager)
-	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager)
+	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager, false)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}

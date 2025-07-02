@@ -1184,7 +1184,7 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 	for _, account := range fileStore.GetAllAccounts(ctx) {
 		_, err = account.GetGroupAll()
 		if err != nil {
-			if err := account.AddAllGroup(); err != nil {
+			if err := account.AddAllGroup(false); err != nil {
 				return nil, err
 			}
 		}
