@@ -139,11 +139,6 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 		return fmt.Errorf("create listener: %w", err)
 	}
 
-	if err := s.setupSocketFilter(ln); err != nil {
-		s.closeListener(ln)
-		return fmt.Errorf("setup socket filter: %w", err)
-	}
-
 	sshServer, err := s.createSSHServer(ln)
 	if err != nil {
 		s.cleanupOnError(ln)
@@ -176,14 +171,6 @@ func (s *Server) createListener(ctx context.Context, addr netip.AddrPort) (net.L
 	return ln, addr.String(), nil
 }
 
-// setupSocketFilter attaches socket filter if needed
-func (s *Server) setupSocketFilter(ln net.Listener) error {
-	if s.ifIdx == 0 || ln == nil || s.netstackNet != nil {
-		return nil
-	}
-	return attachSocketFilter(ln, s.ifIdx)
-}
-
 // closeListener safely closes a listener
 func (s *Server) closeListener(ln net.Listener) {
 	if err := ln.Close(); err != nil {
@@ -197,9 +184,6 @@ func (s *Server) cleanupOnError(ln net.Listener) {
 		return
 	}
 
-	if err := detachSocketFilter(ln); err != nil {
-		log.Errorf("failed to detach socket filter: %v", err)
-	}
 	s.closeListener(ln)
 }
 
@@ -216,13 +200,6 @@ func (s *Server) Stop() error {
 
 	if s.sshServer == nil {
 		return nil
-	}
-
-	if s.ifIdx > 0 && s.listener != nil {
-		if err := detachSocketFilter(s.listener); err != nil {
-			// without detaching the filter, the listener will block on shutdown
-			return fmt.Errorf("detach socket filter: %w", err)
-		}
 	}
 
 	if err := s.sshServer.Close(); err != nil && !isShutdownError(err) {

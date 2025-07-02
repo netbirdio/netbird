@@ -194,17 +194,12 @@ func TestMain(m *testing.M) {
 }
 
 func TestEngine_SSH(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("skipping TestEngine_SSH")
-	}
-
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	// Generate SSH key for the test
 	sshKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	if err != nil {
 		t.Fatal(err)
