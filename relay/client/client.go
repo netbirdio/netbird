@@ -142,13 +142,17 @@ type Client struct {
 
 	onDisconnectListener func(string)
 	listenerMutex        sync.Mutex
+
+	stateSubscription *PeersStateSubscription
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
 func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.TokenStore, peerID string) *Client {
 	hashedID := messages.HashID(peerID)
+	relayLog := log.WithFields(log.Fields{"relay": serverURL})
+
 	c := &Client{
-		log:            log.WithFields(log.Fields{"relay": serverURL}),
+		log:            relayLog,
 		parentCtx:      ctx,
 		connectionURL:  serverURL,
 		authTokenStore: authTokenStore,
@@ -161,6 +165,7 @@ func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.Token
 		},
 		conns: make(map[messages.PeerID]*connContainer),
 	}
+
 	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedID)
 	return c
 }
@@ -181,6 +186,8 @@ func (c *Client) Connect() error {
 	if err := c.connect(); err != nil {
 		return err
 	}
+
+	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.closeConnsByPeerID)
 
 	c.log = c.log.WithField("relay", c.instanceURL.String())
 	c.log.Infof("relay connection established")
@@ -211,11 +218,17 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 		return nil, ErrConnAlreadyExists
 	}
 
+	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(context.Background(), peerID); err != nil {
+		c.log.Errorf("peer not available: %s, %s", peerID, err)
+		return nil, err
+	}
+
 	c.log.Infof("open connection to peer: %s", peerID)
 	msgChannel := make(chan Msg, 100)
 	conn := NewConn(c, peerID, msgChannel, c.instanceURL)
 
 	c.conns[peerID] = newConnContainer(c.log, conn, msgChannel)
+
 	return conn, nil
 }
 
@@ -370,6 +383,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 	c.instanceURL = nil
 	c.muInstanceURL.Unlock()
 
+	c.stateSubscription.Cleanup()
 	c.wgReadLoop.Done()
 	_ = c.close(false)
 	c.notifyDisconnected()
@@ -382,6 +396,22 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 		c.bufPool.Put(bufPtr)
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
+	case messages.MsgTypePeersOnline:
+		peersID, err := messages.UnmarshalPeersOnlineMsg(buf)
+		if err != nil {
+			c.log.Errorf("failed to unmarshal peers online msg: %s", err)
+			return true
+		}
+		c.stateSubscription.OnPeersOnline(peersID)
+		return true
+	case messages.MsgTypePeersWentOffline:
+		peersID, err := messages.UnMarshalPeersWentOffline(buf)
+		if err != nil {
+			c.log.Errorf("failed to unmarshal peers online msg: %s", err)
+			return true
+		}
+		c.stateSubscription.OnPeersWentOffline(peersID)
+		return true
 	case messages.MsgTypeClose:
 		c.log.Debugf("relay connection close by server")
 		c.bufPool.Put(bufPtr)
@@ -493,6 +523,28 @@ func (c *Client) closeAllConns() {
 	c.conns = make(map[messages.PeerID]*connContainer)
 }
 
+func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, peerID := range peerIDs {
+		container, ok := c.conns[peerID]
+		if !ok {
+			c.log.Warnf("can not close conenction, peer not found: %s", peerID)
+			continue
+		}
+
+		container.log.Infof("remote peer has been disconnected, free up connection: %s", peerID)
+		container.close()
+		delete(c.conns, peerID)
+	}
+
+	if err := c.stateSubscription.UnsubscribeStateChange(peerIDs); err != nil {
+		c.log.Errorf("failed to unsubscribe from peer state change: %s, %s", peerIDs, err)
+	}
+	return
+}
+
 func (c *Client) closeConn(connReference *Conn, id messages.PeerID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -505,6 +557,11 @@ func (c *Client) closeConn(connReference *Conn, id messages.PeerID) error {
 	if container.conn != connReference {
 		return fmt.Errorf("conn reference mismatch")
 	}
+
+	if err := c.stateSubscription.UnsubscribeStateChange([]messages.PeerID{id}); err != nil {
+		container.log.Errorf("failed to unsubscribe from peer state change: %s", err)
+	}
+
 	c.log.Infof("free up connection to peer: %s", id)
 	delete(c.conns, id)
 	container.close()

@@ -147,7 +147,7 @@ func UnmarshalPeersOnlineMsg(buf []byte) ([]PeerID, error) {
 	}
 
 	if (len(buf)-sizeOfProtoHeader)%peerIDSize != 0 {
-		return nil, errors.New("invalid NodeID size")
+		return nil, errors.New("invalid peers size")
 	}
 
 	numIDs := (len(buf) - sizeOfProtoHeader) / peerIDSize
@@ -193,4 +193,25 @@ func MarshalPeersWentOffline(ids []PeerID) ([][]byte, error) {
 	}
 
 	return messages, nil
+}
+
+func UnMarshalPeersWentOffline(buf []byte) ([]PeerID, error) {
+	if len(buf) < sizeOfProtoHeader {
+		return nil, errors.New("invalid message format")
+	}
+
+	if (len(buf)-sizeOfProtoHeader)%peerIDSize != 0 {
+		return nil, errors.New("invalid peers size")
+	}
+
+	numIDs := (len(buf) - sizeOfProtoHeader) / peerIDSize
+
+	ids := make([]PeerID, numIDs)
+	offset := sizeOfProtoHeader
+	for i := 0; i < numIDs; i++ {
+		copy(ids[i][:], buf[offset:offset+peerIDSize])
+		offset += peerIDSize
+	}
+
+	return ids, nil
 }

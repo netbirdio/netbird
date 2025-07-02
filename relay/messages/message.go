@@ -135,7 +135,9 @@ func DetermineServerMessageType(msg []byte) (MsgType, error) {
 		MsgTypeAuthResponse,
 		MsgTypeTransport,
 		MsgTypeClose,
-		MsgTypeHealthCheck:
+		MsgTypeHealthCheck,
+		MsgTypePeersOnline,
+		MsgTypePeersWentOffline:
 		return msgType, nil
 	default:
 		return MsgTypeUnknown, fmt.Errorf("invalid msg type %d", msgType)

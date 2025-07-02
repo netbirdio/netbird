@@ -35,7 +35,7 @@ func (c *Config) validate() error {
 
 	instanceURL, err := getInstanceURL(c.ExposedAddress, c.TLSSupport)
 	if err != nil {
-		return fmt.Errorf("invalud url: %v", err)
+		return fmt.Errorf("invalid url: %v", err)
 	}
 	c.instanceURL = instanceURL
 

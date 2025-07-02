@@ -1,9 +1,10 @@
 package client
 
 import (
-	"github.com/netbirdio/netbird/relay/messages"
 	"net"
 	"time"
+
+	"github.com/netbirdio/netbird/relay/messages"
 )
 
 // Conn represent a connection to a relayed remote peer.
