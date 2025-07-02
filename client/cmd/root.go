@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
@@ -86,6 +87,30 @@ var (
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
+	}
+
+	getCmd = &cobra.Command{
+		Use:   "get <setting>",
+		Short: "Get a configuration value from the config file",
+		Long:  `Get a configuration value from the Netbird config file. You can also use NB_<SETTING> or WT_<SETTING> environment variables to override the value (same as 'set').`,
+		Args:  cobra.ExactArgs(1),
+		RunE:  getFunc,
+	}
+
+	showCmd = &cobra.Command{
+		Use:   "show",
+		Short: "Show all configuration values",
+		Long:  `Show all configuration values from the Netbird config file, with environment variable overrides if present.`,
+		Args:  cobra.NoArgs,
+		RunE:  showFunc,
+	}
+
+	reloadCmd = &cobra.Command{
+		Use:   "reload",
+		Short: "Reload the configuration in the daemon (daemon mode)",
+		Long:  `Reload the configuration from disk in the running daemon. Use after 'set' to apply changes without restarting the service.`,
+		Args:  cobra.NoArgs,
+		RunE:  reloadFunc,
 	}
 )
 
@@ -152,6 +177,9 @@ func init() {
 	rootCmd.AddCommand(networksCMD)
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
+	rootCmd.AddCommand(getCmd)
+	rootCmd.AddCommand(showCmd)
+	rootCmd.AddCommand(reloadCmd)
 
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
@@ -407,4 +435,168 @@ func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
 	}
 
 	return conn, nil
+}
+
+func getFunc(cmd *cobra.Command, args []string) error {
+	setting := args[0]
+	upper := strings.ToUpper(strings.ReplaceAll(setting, "-", "_"))
+	if v, ok := os.LookupEnv("NB_" + upper); ok {
+		cmd.Println(v)
+		return nil
+	} else if v, ok := os.LookupEnv("WT_" + upper); ok {
+		cmd.Println(v)
+		return nil
+	}
+	config, err := internal.ReadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %v", err)
+	}
+	switch setting {
+	case "management-url":
+		cmd.Println(config.ManagementURL.String())
+	case "admin-url":
+		cmd.Println(config.AdminURL.String())
+	case "interface-name":
+		cmd.Println(config.WgIface)
+	case "external-ip-map":
+		cmd.Println(strings.Join(config.NATExternalIPs, ","))
+	case "extra-iface-blacklist":
+		cmd.Println(strings.Join(config.IFaceBlackList, ","))
+	case "dns-resolver-address":
+		cmd.Println(config.CustomDNSAddress)
+	case "extra-dns-labels":
+		cmd.Println(config.DNSLabels.SafeString())
+	case "preshared-key":
+		cmd.Println(config.PreSharedKey)
+	case "enable-rosenpass":
+		cmd.Println(config.RosenpassEnabled)
+	case "rosenpass-permissive":
+		cmd.Println(config.RosenpassPermissive)
+	case "allow-server-ssh":
+		if config.ServerSSHAllowed != nil {
+			cmd.Println(*config.ServerSSHAllowed)
+		} else {
+			cmd.Println(false)
+		}
+	case "network-monitor":
+		if config.NetworkMonitor != nil {
+			cmd.Println(*config.NetworkMonitor)
+		} else {
+			cmd.Println(false)
+		}
+	case "disable-auto-connect":
+		cmd.Println(config.DisableAutoConnect)
+	case "disable-client-routes":
+		cmd.Println(config.DisableClientRoutes)
+	case "disable-server-routes":
+		cmd.Println(config.DisableServerRoutes)
+	case "disable-dns":
+		cmd.Println(config.DisableDNS)
+	case "disable-firewall":
+		cmd.Println(config.DisableFirewall)
+	case "block-lan-access":
+		cmd.Println(config.BlockLANAccess)
+	case "block-inbound":
+		cmd.Println(config.BlockInbound)
+	case "enable-lazy-connection":
+		cmd.Println(config.LazyConnectionEnabled)
+	case "wireguard-port":
+		cmd.Println(config.WgPort)
+	case "dns-router-interval":
+		cmd.Println(config.DNSRouteInterval)
+	default:
+		return fmt.Errorf("unknown setting: %s", setting)
+	}
+	return nil
+}
+
+func showFunc(cmd *cobra.Command, args []string) error {
+	config, err := internal.ReadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read config: %v", err)
+	}
+	settings := []string{
+		"management-url", "admin-url", "interface-name", "external-ip-map", "extra-iface-blacklist", "dns-resolver-address", "extra-dns-labels", "preshared-key", "enable-rosenpass", "rosenpass-permissive", "allow-server-ssh", "network-monitor", "disable-auto-connect", "disable-client-routes", "disable-server-routes", "disable-dns", "disable-firewall", "block-lan-access", "block-inbound", "enable-lazy-connection", "wireguard-port", "dns-router-interval",
+	}
+	for _, setting := range settings {
+		upper := strings.ToUpper(strings.ReplaceAll(setting, "-", "_"))
+		var val string
+		if v, ok := os.LookupEnv("NB_" + upper); ok {
+			val = v + " (from NB_ env)"
+		} else if v, ok := os.LookupEnv("WT_" + upper); ok {
+			val = v + " (from WT_ env)"
+		} else {
+			switch setting {
+			case "management-url":
+				val = config.ManagementURL.String()
+			case "admin-url":
+				val = config.AdminURL.String()
+			case "interface-name":
+				val = config.WgIface
+			case "external-ip-map":
+				val = strings.Join(config.NATExternalIPs, ",")
+			case "extra-iface-blacklist":
+				val = strings.Join(config.IFaceBlackList, ",")
+			case "dns-resolver-address":
+				val = config.CustomDNSAddress
+			case "extra-dns-labels":
+				val = config.DNSLabels.SafeString()
+			case "preshared-key":
+				val = config.PreSharedKey
+			case "enable-rosenpass":
+				val = fmt.Sprintf("%v", config.RosenpassEnabled)
+			case "rosenpass-permissive":
+				val = fmt.Sprintf("%v", config.RosenpassPermissive)
+			case "allow-server-ssh":
+				if config.ServerSSHAllowed != nil {
+					val = fmt.Sprintf("%v", *config.ServerSSHAllowed)
+				} else {
+					val = "false"
+				}
+			case "network-monitor":
+				if config.NetworkMonitor != nil {
+					val = fmt.Sprintf("%v", *config.NetworkMonitor)
+				} else {
+					val = "false"
+				}
+			case "disable-auto-connect":
+				val = fmt.Sprintf("%v", config.DisableAutoConnect)
+			case "disable-client-routes":
+				val = fmt.Sprintf("%v", config.DisableClientRoutes)
+			case "disable-server-routes":
+				val = fmt.Sprintf("%v", config.DisableServerRoutes)
+			case "disable-dns":
+				val = fmt.Sprintf("%v", config.DisableDNS)
+			case "disable-firewall":
+				val = fmt.Sprintf("%v", config.DisableFirewall)
+			case "block-lan-access":
+				val = fmt.Sprintf("%v", config.BlockLANAccess)
+			case "block-inbound":
+				val = fmt.Sprintf("%v", config.BlockInbound)
+			case "enable-lazy-connection":
+				val = fmt.Sprintf("%v", config.LazyConnectionEnabled)
+			case "wireguard-port":
+				val = fmt.Sprintf("%d", config.WgPort)
+			case "dns-router-interval":
+				val = config.DNSRouteInterval.String()
+			}
+		}
+		cmd.Printf("%-22s: %s\n", setting, val)
+	}
+	return nil
+}
+
+func reloadFunc(cmd *cobra.Command, args []string) error {
+	conn, err := getClient(cmd)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client := proto.NewDaemonServiceClient(conn)
+	_, err = client.ReloadConfig(cmd.Context(), &proto.ReloadConfigRequest{})
+	if err != nil {
+		return fmt.Errorf("failed to reload config in daemon: %v", err)
+	}
+	cmd.Println("Configuration reloaded in daemon.")
+	return nil
 }

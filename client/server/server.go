@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -94,6 +97,8 @@ func (s *Server) Start() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	state := internal.CtxGetState(s.rootCtx)
+
+	s.setupReloadSignal()
 
 	if err := handlePanicLog(); err != nil {
 		log.Warnf("failed to redirect stderr: %v", err)
@@ -917,4 +922,187 @@ func sendTerminalNotification() error {
 	}
 
 	return wallCmd.Wait()
+}
+
+// Add a gRPC method to reload config from disk
+func (s *Server) ReloadConfig(_ context.Context, _ *proto.ReloadConfigRequest) (*proto.ReloadConfigResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	config, err := internal.ReadConfig(s.latestConfigInput.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reload config: %v", err)
+	}
+	s.config = config
+	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
+	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
+	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
+	log.Infof("Reloaded config from disk")
+	return &proto.ReloadConfigResponse{}, nil
+}
+
+// Optionally, handle SIGHUP to reload config
+func (s *Server) setupReloadSignal() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP)
+	go func() {
+		for range c {
+			_, err := s.ReloadConfig(context.Background(), &proto.ReloadConfigRequest{})
+			if err != nil {
+				log.Warnf("failed to reload config on SIGHUP: %v", err)
+			}
+		}
+	}()
+}
+
+func (s *Server) SetConfigValue(_ context.Context, req *proto.SetConfigValueRequest) (*proto.SetConfigValueResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	setting := req.Setting
+	value := req.Value
+	input := internal.ConfigInput{ConfigPath: s.latestConfigInput.ConfigPath}
+	switch setting {
+	case "management-url":
+		input.ManagementURL = value
+	case "admin-url":
+		input.AdminURL = value
+	case "interface-name":
+		input.InterfaceName = &value
+	case "external-ip-map":
+		if value == "" {
+			input.NATExternalIPs = []string{}
+		} else {
+			input.NATExternalIPs = strings.Split(value, ",")
+		}
+	case "extra-iface-blacklist":
+		if value == "" {
+			input.ExtraIFaceBlackList = []string{}
+		} else {
+			input.ExtraIFaceBlackList = strings.Split(value, ",")
+		}
+	case "dns-resolver-address":
+		input.CustomDNSAddress = []byte(value)
+	case "extra-dns-labels":
+		if value == "" {
+			input.DNSLabels = nil
+		} else {
+			labels := strings.Split(value, ",")
+			domains, err := domain.ValidateDomains(labels)
+			if err != nil {
+				return nil, fmt.Errorf("invalid DNS labels: %v", err)
+			}
+			input.DNSLabels = domains
+		}
+	case "preshared-key":
+		input.PreSharedKey = &value
+	case "enable-rosenpass":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.RosenpassEnabled = &b
+	case "rosenpass-permissive":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.RosenpassPermissive = &b
+	case "allow-server-ssh":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.ServerSSHAllowed = &b
+	case "network-monitor":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.NetworkMonitor = &b
+	case "disable-auto-connect":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.DisableAutoConnect = &b
+	case "disable-client-routes":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.DisableClientRoutes = &b
+	case "disable-server-routes":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.DisableServerRoutes = &b
+	case "disable-dns":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.DisableDNS = &b
+	case "disable-firewall":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.DisableFirewall = &b
+	case "block-lan-access":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.BlockLANAccess = &b
+	case "block-inbound":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.BlockInbound = &b
+	case "enable-lazy-connection":
+		b, err := parseBool(value)
+		if err != nil {
+			return nil, err
+		}
+		input.LazyConnectionEnabled = &b
+	case "wireguard-port":
+		var p int
+		_, err := fmt.Sscanf(value, "%d", &p)
+		if err != nil {
+			return nil, fmt.Errorf("invalid wireguard-port: %s", value)
+		}
+		input.WireguardPort = &p
+	case "dns-router-interval":
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid duration: %v", err)
+		}
+		input.DNSRouteInterval = &d
+	default:
+		return nil, fmt.Errorf("unknown setting: %s", setting)
+	}
+	_, err := internal.UpdateOrCreateConfig(input)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update config: %v", err)
+	}
+	// Reload config in memory
+	config, err := internal.ReadConfig(s.latestConfigInput.ConfigPath)
+	if err == nil {
+		s.config = config
+	}
+	return &proto.SetConfigValueResponse{}, nil
+}
+
+func parseBool(val string) (bool, error) {
+	v := strings.ToLower(val)
+	if v == "true" || v == "1" {
+		return true, nil
+	}
+	if v == "false" || v == "0" {
+		return false, nil
+	}
+	return false, fmt.Errorf("invalid boolean value: %s", val)
 }

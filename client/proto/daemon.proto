@@ -67,6 +67,12 @@ service DaemonService {
   rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
+
+  // Reloads the configuration from disk
+  rpc ReloadConfig(ReloadConfigRequest) returns (ReloadConfigResponse) {}
+
+  // Sets a configuration value (for use by regular users via the daemon)
+  rpc SetConfigValue(SetConfigValueRequest) returns (SetConfigValueResponse) {}
 }
 
 
@@ -496,3 +502,12 @@ message GetEventsRequest {}
 message GetEventsResponse {
   repeated SystemEvent events = 1;
 }
+
+message ReloadConfigRequest {}
+message ReloadConfigResponse {}
+
+message SetConfigValueRequest {
+  string setting = 1;
+  string value = 2;
+}
+message SetConfigValueResponse {}

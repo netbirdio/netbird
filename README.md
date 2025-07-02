@@ -134,3 +134,37 @@ We use open-source technologies like [WireGuard®](https://www.wireguard.com/), 
 ### Legal
  _WireGuard_ and the _WireGuard_ logo are [registered trademarks](https://www.wireguard.com/trademark-policy/) of Jason A. Donenfeld.
 
+## Configuration Management
+
+Netbird now supports direct configuration management via CLI commands:
+
+- You can use `netbird set` as a regular user if the daemon is running; it will securely update the config via the daemon.
+- If the daemon is not running, you need write access to the config file (typically requires root).
+
+### Set a configuration value
+
+```
+netbird set <setting> <value>
+# or using environment variables
+NB_INTERFACE_NAME=utun5 netbird set interface-name
+```
+
+### Get a configuration value
+
+```
+netbird get <setting>
+# or using environment variables
+NB_INTERFACE_NAME=utun5 netbird get interface-name
+```
+
+### Show all configuration values
+
+```
+netbird show
+```
+
+- All settings support environment variable overrides: `NB_<SETTING>` or `WT_<SETTING>` (e.g. `NB_ENABLE_ROSENPASS=true`).
+- Supported settings: management-url, admin-url, interface-name, external-ip-map, extra-iface-blacklist, dns-resolver-address, extra-dns-labels, preshared-key, enable-rosenpass, rosenpass-permissive, allow-server-ssh, network-monitor, disable-auto-connect, disable-client-routes, disable-server-routes, disable-dns, disable-firewall, block-lan-access, block-inbound, enable-lazy-connection, wireguard-port, dns-router-interval.
+
+See `netbird set --help`, `netbird get --help`, and `netbird show --help` for more details.
+
