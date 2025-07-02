@@ -112,6 +112,9 @@ func (p *ProxyBind) close() error {
 	if p.closed {
 		return nil
 	}
+
+	p.closeListener.SetCloseListener(nil)
+
 	p.closed = true
 
 	p.cancel()

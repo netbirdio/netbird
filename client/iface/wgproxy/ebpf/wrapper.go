@@ -92,6 +92,8 @@ func (e *ProxyWrapper) CloseConn() error {
 
 	e.cancel()
 
+	e.closeListener.SetCloseListener(nil)
+
 	if err := e.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		return fmt.Errorf("failed to close remote conn: %w", err)
 	}

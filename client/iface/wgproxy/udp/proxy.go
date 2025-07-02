@@ -119,6 +119,8 @@ func (p *WGUDPProxy) close() error {
 	if p.closed {
 		return nil
 	}
+
+	p.closeListener.SetCloseListener(nil)
 	p.closed = true
 
 	p.cancel()
