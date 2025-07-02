@@ -50,12 +50,21 @@ func (s *PeersStateSubscription) OnPeersOnline(peersID []messages.PeerID) {
 }
 
 func (s *PeersStateSubscription) OnPeersWentOffline(peersID []messages.PeerID) {
-	// todo, check in map if we are waiting for this peer
-	s.offlineCallback(peersID)
+	relevantPeers := make([]messages.PeerID, 0, len(peersID))
+	for _, peerID := range peersID {
+		if _, ok := s.listenForOfflinePeers[peerID]; ok {
+			relevantPeers = append(relevantPeers, peerID)
+		}
+	}
+
+	if len(relevantPeers) > 0 {
+		s.offlineCallback(relevantPeers)
+	}
 }
 
 // WaitToBeOnlineAndSubscribe
 // todo: when we unsubscribe while this is running, this will not return with error
+// todo: unsubscribe should be called in case of error or context cancellation
 func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context, peerID messages.PeerID) error {
 	// Check if already waiting for this peer
 	if _, exists := s.waitingPeers[peerID]; exists {
