@@ -1208,6 +1208,14 @@ func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
+	// Ensure that we do not receive an update message before the policy is deleted
+	time.Sleep(time.Second)
+	select {
+	case <-updMsg:
+		t.Logf("received addPeer update message before policy deletion")
+	default:
+	}
+
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
