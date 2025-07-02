@@ -1669,30 +1669,6 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction
 	return false, nil
 }
 
-func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, s store.Store, accountID string, peerHostName string) (string, error) {
-	dnsName, err := nbdns.GetParsedDomainLabel(peerHostName)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse peer host name %s: %w", peerHostName, err)
-	}
-
-	existingLabels, err := s.GetPeerLabelsInAccount(ctx, store.LockingStrengthNone, accountID, dnsName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
-	}
-
-	labelMap := ConvertSliceToMap(existingLabels)
-	newLabel, err := types.GetPeerHostLabel(peerHostName, labelMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to get new host label: %w", err)
-	}
-
-	if newLabel == "" {
-		return "", fmt.Errorf("failed to get new host label: %w", err)
-	}
-
-	return newLabel, nil
-}
-
 func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
 	if err != nil {

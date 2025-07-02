@@ -701,30 +701,11 @@ func getPeerIPDNSLabel(ctx context.Context, tx store.Store, ip net.IP, accountID
 	}
 
 	peerID, err := tx.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, dnsName)
-	if peerID == "" {
+	if peerID == "" || err != nil {
 		return dnsName, nil
 	}
 
 	return fmt.Sprintf("%s-%d-%d", dnsName, ip[2], ip[3]), nil
-}
-
-func getFreeIP(ctx context.Context, transaction store.Store, accountID string) (net.IP, error) {
-	takenIps, err := transaction.GetTakenIPs(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get taken IPs: %w", err)
-	}
-
-	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("failed getting network: %w", err)
-	}
-
-	nextIp, err := types.AllocatePeerIP(network.Net, takenIps)
-	if err != nil {
-		return nil, fmt.Errorf("failed to allocate new peer ip: %w", err)
-	}
-
-	return nextIp, nil
 }
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
@@ -1510,24 +1491,6 @@ func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID str
 	}
 
 	return groupIDs, err
-}
-
-func getPeerDNSLabels(ctx context.Context, transaction store.Store, accountID string, hostname string) (types.LookupMap, error) {
-	dnsName, err := nbdns.GetParsedDomainLabel(hostname)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse peer host name %s: %w", hostname, err)
-	}
-
-	dnsLabels, err := transaction.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID, dnsName)
-	if err != nil {
-		return nil, err
-	}
-
-	existingLabels := make(types.LookupMap)
-	for _, label := range dnsLabels {
-		existingLabels[label] = struct{}{}
-	}
-	return existingLabels, nil
 }
 
 // IsPeerInActiveGroup checks if the given peer is part of a group that is used
