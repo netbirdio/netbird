@@ -55,8 +55,6 @@ type SetupKeyUpdateOperation struct {
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
 func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType,
 	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
 
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Create)
 	if err != nil {
@@ -106,9 +104,6 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 	if keyToSave == nil {
 		return nil, status.Errorf(status.InvalidArgument, "provided setup key to update is nil")
 	}
-
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
 
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Update)
 	if err != nil {

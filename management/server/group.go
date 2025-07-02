@@ -67,8 +67,6 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 
 // SaveGroup object of the peers
 func (am *DefaultAccountManager) SaveGroup(ctx context.Context, accountID, userID string, newGroup *types.Group, create bool) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
 	return am.SaveGroups(ctx, accountID, userID, []*types.Group{newGroup}, create)
 }
 
@@ -202,8 +200,6 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 
 // DeleteGroup object of the peers.
 func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, userID, groupID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
 	return am.DeleteGroups(ctx, accountID, userID, []string{groupID})
 }
 
@@ -262,9 +258,6 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	var group *types.Group
 	var updateAccountPeers bool
 	var err error
@@ -303,9 +296,6 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 
 // GroupAddResource appends resource to the group
 func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	var group *types.Group
 	var updateAccountPeers bool
 	var err error
@@ -344,9 +334,6 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	var group *types.Group
 	var updateAccountPeers bool
 	var err error
@@ -385,9 +372,6 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 
 // GroupDeleteResource removes resource from the group
 func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	var group *types.Group
 	var updateAccountPeers bool
 	var err error

@@ -34,9 +34,6 @@ func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(ctx context.Con
 		return errors.New("invalid groups")
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	return am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		a, err := transaction.GetAccountByUser(ctx, userID)
 		if err != nil {
