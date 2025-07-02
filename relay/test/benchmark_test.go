@@ -121,13 +121,13 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 	connsSender := make([]net.Conn, 0, peerPairs)
 	connsReceiver := make([]net.Conn, 0, peerPairs)
 	for i := 0; i < len(clientsSender); i++ {
-		conn, err := clientsSender[i].OpenConn("receiver-" + fmt.Sprint(i))
+		conn, err := clientsSender[i].OpenConn(ctx, "receiver-"+fmt.Sprint(i))
 		if err != nil {
 			t.Fatalf("failed to bind channel: %s", err)
 		}
 		connsSender = append(connsSender, conn)
 
-		conn, err = clientsReceiver[i].OpenConn("sender-" + fmt.Sprint(i))
+		conn, err = clientsReceiver[i].OpenConn(ctx, "sender-"+fmt.Sprint(i))
 		if err != nil {
 			t.Fatalf("failed to bind channel: %s", err)
 		}

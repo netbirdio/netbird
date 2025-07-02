@@ -204,7 +204,8 @@ func (c *Client) Connect() error {
 // to the relay server, the function will block until the connection is established or timed out. Otherwise,
 // it will return immediately.
 // todo: what should happen if call with the same peerID with multiple times?
-func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
+func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, error) {
+	// todo not lock while we wait for the connection to be established
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -218,12 +219,12 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 		return nil, ErrConnAlreadyExists
 	}
 
-	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(context.Background(), peerID); err != nil {
+	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(ctx, peerID); err != nil {
 		c.log.Errorf("peer not available: %s, %s", peerID, err)
 		return nil, err
 	}
 
-	c.log.Infof("open connection to peer: %s", peerID)
+	c.log.Infof("remote peer is available, prepare the relayed conenction: %s", peerID)
 	msgChannel := make(chan Msg, 100)
 	conn := NewConn(c, peerID, msgChannel, c.instanceURL)
 

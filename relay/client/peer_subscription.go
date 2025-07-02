@@ -10,6 +10,10 @@ import (
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
+const (
+	OpenConnectionTimeout = 30 * time.Second
+)
+
 type relayedConnWriter interface {
 	Write(p []byte) (n int, err error)
 }
@@ -76,8 +80,9 @@ func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context,
 		}
 	}()
 
+	log.Debugf("peer %s wait for ", peerID)
 	// Wait for peer to come online or context to be cancelled
-	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, OpenConnectionTimeout)
 	defer cancel()
 	select {
 	case <-waitCh:

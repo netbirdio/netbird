@@ -87,13 +87,13 @@ func TestClient(t *testing.T) {
 	defer clientBob.Close()
 
 	t.Log("Alice open connection to Bob")
-	connAliceToBob, err := clientAlice.OpenConn("bob")
+	connAliceToBob, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
 
 	t.Log("Bob open connection to Alice")
-	connBobToAlice, err := clientBob.OpenConn("alice")
+	connBobToAlice, err := clientBob.OpenConn(ctx, "alice")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -242,12 +242,12 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	connAliceToBob, err := clientAlice.OpenConn(idBob)
+	connAliceToBob, err := clientAlice.OpenConn(ctx, idBob)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
 
-	connBobToAlice, err := clientBob.OpenConn(idAlice)
+	connBobToAlice, err := clientBob.OpenConn(ctx, idAlice)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -313,7 +313,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
-	_, err = clientAlice.OpenConn("bob")
+	_, err = clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -360,7 +360,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	_, err = clientAlice.OpenConn("bob")
+	_, err = clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -371,7 +371,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	chBob, err := clientBob.OpenConn("alice")
+	chBob, err := clientBob.OpenConn(ctx, "alice")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -388,7 +388,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	chAlice, err := clientAlice.OpenConn("bob")
+	chAlice, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -451,7 +451,7 @@ func TestCloseConn(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	conn, err := clientAlice.OpenConn("bob")
+	conn, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -507,7 +507,7 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 
-	conn, err := clientAlice.OpenConn("bob")
+	conn, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -519,7 +519,7 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Errorf("unexpected reading from closed connection")
 	}
 
-	_, err = clientAlice.OpenConn("bob")
+	_, err = clientAlice.OpenConn(ctx, "bob")
 	if err == nil {
 		t.Errorf("unexpected opening connection to closed server")
 	}
@@ -572,7 +572,7 @@ func TestCloseByServer(t *testing.T) {
 		log.Fatalf("timeout waiting for client to disconnect")
 	}
 
-	_, err = relayClient.OpenConn("bob")
+	_, err = relayClient.OpenConn(ctx, "bob")
 	if err == nil {
 		t.Errorf("unexpected opening connection to closed server")
 	}
@@ -612,7 +612,7 @@ func TestCloseByClient(t *testing.T) {
 		t.Errorf("failed to close client: %s", err)
 	}
 
-	_, err = relayClient.OpenConn("bob")
+	_, err = relayClient.OpenConn(ctx, "bob")
 	if err == nil {
 		t.Errorf("unexpected opening connection to closed server")
 	}
@@ -676,12 +676,12 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 		}
 	}()
 
-	connAliceToBob, err := clientAlice.OpenConn(idBob)
+	connAliceToBob, err := clientAlice.OpenConn(ctx, idBob)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
 
-	connBobToAlice, err := clientBob.OpenConn(idAlice)
+	connBobToAlice, err := clientBob.OpenConn(ctx, idAlice)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
