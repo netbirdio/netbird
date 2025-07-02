@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -527,9 +526,6 @@ func statusRecorderToSignalConnStateNotifier(statusRecorder *peer.Status) signal
 // freePort attempts to determine if the provided port is available, if not it will ask the system for a free port.
 func freePort(initPort int) (int, error) {
 	addr := net.UDPAddr{}
-	if initPort == 0 {
-		initPort = iface.DefaultWgPort
-	}
 
 	addr.Port = initPort
 
