@@ -695,6 +695,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 }
 
 func getPeerIPDNSLabel(ctx context.Context, tx store.Store, ip net.IP, accountID, peerHostName string) (string, error) {
+	ip = ip.To4()
+
 	dnsName, err := nbdns.GetParsedDomainLabel(peerHostName)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse peer host name %s: %w", peerHostName, err)
