@@ -360,25 +360,20 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
-			return err
-		}
-
-		groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthUpdate, accountID, peerID)
-		if err != nil {
-			return fmt.Errorf("failed to get peer groups: %w", err)
-		}
-
-		for _, group := range groups {
-			group.RemovePeer(peerID)
-			err = transaction.SaveGroup(ctx, store.LockingStrengthUpdate, group)
-			if err != nil {
-				return fmt.Errorf("failed to save group: %w", err)
-			}
+		if err = transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
+			return fmt.Errorf("failed to remove peer from groups: %w", err)
 		}
 
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
-		return err
+		if err != nil {
+			return fmt.Errorf("failed to delete peer: %w", err)
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return err
@@ -477,7 +472,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	var newPeer *nbpeer.Peer
-	var updateAccountPeers bool
 
 	var setupKeyID string
 	var setupKeyName string
@@ -607,18 +601,18 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 				return err
 			}
 
-			err = transaction.AddPeerToAllGroup(ctx, store.LockingStrengthUpdate, accountID, newPeer.ID)
-			if err != nil {
-				return fmt.Errorf("failed adding peer to All group: %w", err)
-			}
-
 			if len(groupsToAdd) > 0 {
 				for _, g := range groupsToAdd {
-					err = transaction.AddPeerToGroup(ctx, store.LockingStrengthUpdate, accountID, newPeer.ID, g)
+					err = transaction.AddPeerToGroup(ctx, newPeer.ID, g)
 					if err != nil {
 						return err
 					}
 				}
+			}
+
+			err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
+			if err != nil {
+				return fmt.Errorf("failed adding peer to All group: %w", err)
 			}
 
 			if addedByUser {
@@ -670,11 +664,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database after %d attempts: %w", maxAttempts, err)
 	}
 
-	updateAccountPeers, err = isPeerInActiveGroup(ctx, am.Store, accountID, newPeer.ID)
-	if err != nil {
-		updateAccountPeers = true
-	}
-
 	if newPeer == nil {
 		return nil, nil, nil, fmt.Errorf("new peer is nil")
 	}
@@ -687,9 +676,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	if updateAccountPeers {
-		am.BufferUpdateAccountPeers(ctx, accountID)
-	}
+	am.BufferUpdateAccountPeers(ctx, accountID)
 
 	return am.getValidatedPeerWithMap(ctx, false, accountID, newPeer)
 }
@@ -1019,7 +1006,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	}()
 
 	if isRequiresApproval {
-		network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+		network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, nil, nil, err
 		}

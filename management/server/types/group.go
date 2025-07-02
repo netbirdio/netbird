@@ -26,12 +26,36 @@ type Group struct {
 	Issued string
 
 	// Peers list of the group
-	Peers []string `gorm:"serializer:json"`
+	Peers      []string    `gorm:"-"`
+	GroupPeers []GroupPeer `gorm:"foreignKey:GroupID;references:id;constraint:OnDelete:CASCADE;"`
 
 	// Resources contains a list of resources in that group
 	Resources []Resource `gorm:"serializer:json"`
 
 	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
+}
+
+type GroupPeer struct {
+	GroupID string `gorm:"primaryKey"`
+	PeerID  string `gorm:"primaryKey"`
+}
+
+func (g *Group) LoadGroupPeers() {
+	g.Peers = make([]string, len(g.GroupPeers))
+	for i, peer := range g.GroupPeers {
+		g.Peers[i] = peer.PeerID
+	}
+	// g.GroupPeers = nil
+}
+func (g *Group) StoreGroupPeers() {
+	g.GroupPeers = make([]GroupPeer, len(g.Peers))
+	for i, peer := range g.Peers {
+		g.GroupPeers[i] = GroupPeer{
+			GroupID: g.ID,
+			PeerID:  peer,
+		}
+	}
+	// g.Peers = nil
 }
 
 // EventMeta returns activity event meta related to the group

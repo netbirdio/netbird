@@ -2144,6 +2144,7 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 
 func Test_AddPeer(t *testing.T) {
 	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
+	t.Setenv("NB_GET_ACCOUNT_BUFFER_INTERVAL", "300ms")
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -2155,7 +2156,7 @@ func Test_AddPeer(t *testing.T) {
 
 	_, err = createAccount(manager, accountID, userID, "domain.com")
 	if err != nil {
-		t.Fatal("error creating account")
+		t.Fatalf("error creating account: %v", err)
 		return
 	}
 
@@ -2165,22 +2166,21 @@ func Test_AddPeer(t *testing.T) {
 		return
 	}
 
-	const totalPeers = 300 // totalPeers / differentHostnames should be less than 10 (due to concurrent retries)
-	const differentHostnames = 50
+	const totalPeers = 10000
 
 	var wg sync.WaitGroup
-	errs := make(chan error, totalPeers+differentHostnames)
+	errs := make(chan error, totalPeers)
 	start := make(chan struct{})
 	for i := 0; i < totalPeers; i++ {
 		wg.Add(1)
-		hostNameID := i % differentHostnames
 
 		go func(i int) {
 			defer wg.Done()
 
 			newPeer := &nbpeer.Peer{
-				Key:  "key" + strconv.Itoa(i),
-				Meta: nbpeer.PeerSystemMeta{Hostname: "peer" + strconv.Itoa(hostNameID), GoOS: "linux"},
+				AccountID: accountID,
+				Key:       "key" + strconv.Itoa(i),
+				Meta:      nbpeer.PeerSystemMeta{Hostname: "peer" + strconv.Itoa(i), GoOS: "linux"},
 			}
 
 			<-start
