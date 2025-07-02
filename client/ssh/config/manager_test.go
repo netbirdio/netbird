@@ -207,9 +207,7 @@ func TestManager_DirectoryFallback(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Set HOME to temp directory to control user fallback
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tempDir)
 
 	// Create manager with non-writable system directories
 	manager := &Manager{
@@ -306,15 +304,7 @@ func TestManager_PeerLimit(t *testing.T) {
 
 func TestManager_ForcedSSHConfig(t *testing.T) {
 	// Set force environment variable
-	originalForce := os.Getenv(EnvForceSSHConfig)
-	os.Setenv(EnvForceSSHConfig, "true")
-	defer func() {
-		if originalForce == "" {
-			os.Unsetenv(EnvForceSSHConfig)
-		} else {
-			os.Setenv(EnvForceSSHConfig, originalForce)
-		}
-	}()
+	t.Setenv(EnvForceSSHConfig, "true")
 
 	// Create temporary directory for test
 	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")

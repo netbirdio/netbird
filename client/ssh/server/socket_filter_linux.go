@@ -85,7 +85,7 @@ func attachSocketFilter(listener net.Listener, wgIfIndex int) error {
 
 	fd := int(file.Fd())
 	_, _, errno := syscall.Syscall6(
-		syscall.SYS_SETSOCKOPT,
+		unix.SYS_SETSOCKOPT,
 		uintptr(fd),
 		uintptr(unix.SOL_SOCKET),
 		uintptr(unix.SO_ATTACH_FILTER),

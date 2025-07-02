@@ -376,23 +376,6 @@ func (s *Server) proxyForwardConnection(ctx ssh.Context, logger *log.Entry, conn
 	}
 }
 
-// registerConnectionCancel stores a cancel function for a connection
-func (s *Server) registerConnectionCancel(key ConnectionKey, cancel context.CancelFunc) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.sessionCancels == nil {
-		s.sessionCancels = make(map[ConnectionKey]context.CancelFunc)
-	}
-	s.sessionCancels[key] = cancel
-}
-
-// unregisterConnectionCancel removes a connection's cancel function
-func (s *Server) unregisterConnectionCancel(key ConnectionKey) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessionCancels, key)
-}
-
 // monitorSessionContext watches for session cancellation and closes connections
 func (s *Server) monitorSessionContext(ctx context.Context, channel cryptossh.Channel, conn net.Conn, closed chan struct{}, closeOnce *bool, logger *log.Entry) {
 	<-ctx.Done()

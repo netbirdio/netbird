@@ -183,17 +183,6 @@ func isSameResolvedUser(user1, user2 *user.User) bool {
 	return user1.Uid == user2.Uid
 }
 
-// logPrivilegeCheckResult logs the final result of privilege checking
-func (s *Server) logPrivilegeCheckResult(req PrivilegeCheckRequest, result PrivilegeCheckResult) {
-	if !result.Allowed {
-		log.Debugf("Privilege check denied for %s (user: %s, feature: %s): %v",
-			req.FeatureName, req.RequestedUsername, req.FeatureName, result.Error)
-	} else {
-		log.Debugf("Privilege check allowed for %s (user: %s, requires_switching: %v)",
-			req.FeatureName, req.RequestedUsername, result.RequiresUserSwitching)
-	}
-}
-
 // privilegeCheckContext holds all context needed for privilege checking
 type privilegeCheckContext struct {
 	currentUser           *user.User
@@ -389,7 +378,7 @@ func isWindowsPrivilegedSID(sid string) bool {
 	return false
 }
 
-// buildShellArgs builds shell arguments for executing commands.
+// buildShellArgs builds shell arguments for executing commands
 func buildShellArgs(shell, command string) []string {
 	if command != "" {
 		return []string{shell, "-Command", command}

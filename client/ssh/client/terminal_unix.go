@@ -95,31 +95,31 @@ func (c *Client) setupTerminal(session *ssh.Session, fd int) error {
 		ssh.TTY_OP_ISPEED: 14400,
 		ssh.TTY_OP_OSPEED: 14400,
 		// Ctrl+C
-		ssh.VINTR:         3,
+		ssh.VINTR: 3,
 		// Ctrl+\
-		ssh.VQUIT:         28,
+		ssh.VQUIT: 28,
 		// Backspace
-		ssh.VERASE:        127,
+		ssh.VERASE: 127,
 		// Ctrl+U
-		ssh.VKILL:         21,
+		ssh.VKILL: 21,
 		// Ctrl+D
-		ssh.VEOF:          4,
-		ssh.VEOL:          0,
-		ssh.VEOL2:         0,
+		ssh.VEOF:  4,
+		ssh.VEOL:  0,
+		ssh.VEOL2: 0,
 		// Ctrl+Q
-		ssh.VSTART:        17,
+		ssh.VSTART: 17,
 		// Ctrl+S
-		ssh.VSTOP:         19,
+		ssh.VSTOP: 19,
 		// Ctrl+Z
-		ssh.VSUSP:         26,
+		ssh.VSUSP: 26,
 		// Ctrl+O
-		ssh.VDISCARD:      15,
+		ssh.VDISCARD: 15,
 		// Ctrl+R
-		ssh.VREPRINT:      18,
+		ssh.VREPRINT: 18,
 		// Ctrl+W
-		ssh.VWERASE:       23,
+		ssh.VWERASE: 23,
 		// Ctrl+V
-		ssh.VLNEXT:        22,
+		ssh.VLNEXT: 22,
 	}
 
 	terminal := os.Getenv("TERM")

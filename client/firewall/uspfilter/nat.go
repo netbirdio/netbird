@@ -16,8 +16,11 @@ import (
 
 var ErrIPv4Only = errors.New("only IPv4 is supported for DNAT")
 
+var (
+	errInvalidIPHeaderLength = errors.New("invalid IP header length")
+)
+
 const (
-	invalidIPHeaderLengthMsg     = "invalid IP header length"
 	errRewriteTCPDestinationPort = "rewrite TCP destination port: %v"
 )
 
@@ -173,21 +176,6 @@ func (t *portNATTracker) getConnectionNAT(srcIP, dstIP netip.Addr, srcPort, dstP
 
 	conn, exists := t.connections[key]
 	return conn, exists
-}
-
-// removeConnection removes a tracked connection from the NAT tracking table.
-func (t *portNATTracker) removeConnection(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	key := ConnKey{
-		SrcIP:   srcIP,
-		DstIP:   dstIP,
-		SrcPort: srcPort,
-		DstPort: dstPort,
-	}
-
-	delete(t.connections, key)
 }
 
 // shouldApplyNAT checks if NAT should be applied to a new connection to prevent bidirectional conflicts.
@@ -390,7 +378,7 @@ func (m *Manager) rewritePacketDestination(packetData []byte, d *decoder, newIP 
 
 	ipHeaderLen := int(d.ip4.IHL) * 4
 	if ipHeaderLen < 20 || ipHeaderLen > len(packetData) {
-		return fmt.Errorf(invalidIPHeaderLengthMsg)
+		return errInvalidIPHeaderLength
 	}
 
 	binary.BigEndian.PutUint16(packetData[10:12], 0)
@@ -425,7 +413,7 @@ func (m *Manager) rewritePacketSource(packetData []byte, d *decoder, newIP netip
 
 	ipHeaderLen := int(d.ip4.IHL) * 4
 	if ipHeaderLen < 20 || ipHeaderLen > len(packetData) {
-		return fmt.Errorf(invalidIPHeaderLengthMsg)
+		return errInvalidIPHeaderLength
 	}
 
 	binary.BigEndian.PutUint16(packetData[10:12], 0)
@@ -560,11 +548,12 @@ func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.Laye
 // AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services on specific ports.
 func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
 	var layerType gopacket.LayerType
-	if protocol == firewall.ProtocolTCP {
+	switch protocol {
+	case firewall.ProtocolTCP:
 		layerType = layers.LayerTypeTCP
-	} else if protocol == firewall.ProtocolUDP {
+	case firewall.ProtocolUDP:
 		layerType = layers.LayerTypeUDP
-	} else {
+	default:
 		return fmt.Errorf("unsupported protocol: %s", protocol)
 	}
 
@@ -594,11 +583,12 @@ func (m *Manager) removePortRedirection(targetIP netip.Addr, protocol gopacket.L
 // RemoveInboundDNAT removes inbound DNAT rule for specified local address and ports.
 func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
 	var layerType gopacket.LayerType
-	if protocol == firewall.ProtocolTCP {
+	switch protocol {
+	case firewall.ProtocolTCP:
 		layerType = layers.LayerTypeTCP
-	} else if protocol == firewall.ProtocolUDP {
+	case firewall.ProtocolUDP:
 		layerType = layers.LayerTypeUDP
-	} else {
+	default:
 		return fmt.Errorf("unsupported protocol: %s", protocol)
 	}
 
@@ -747,7 +737,7 @@ func (m *Manager) rewriteTCPDestinationPort(packetData []byte, d *decoder, newPo
 
 	ipHeaderLen := int(d.ip4.IHL) * 4
 	if ipHeaderLen < 20 || ipHeaderLen > len(packetData) {
-		return fmt.Errorf(invalidIPHeaderLengthMsg)
+		return errInvalidIPHeaderLength
 	}
 
 	tcpStart := ipHeaderLen
@@ -786,7 +776,7 @@ func (m *Manager) rewriteTCPSourcePort(packetData []byte, d *decoder, newPort ui
 
 	ipHeaderLen := int(d.ip4.IHL) * 4
 	if ipHeaderLen < 20 || ipHeaderLen > len(packetData) {
-		return fmt.Errorf(invalidIPHeaderLengthMsg)
+		return errInvalidIPHeaderLength
 	}
 
 	tcpStart := ipHeaderLen

@@ -273,7 +273,7 @@ func DialInsecure(ctx context.Context, addr, user string) (*Client, error) {
 	config := &ssh.ClientConfig{
 		User:            user,
 		Timeout:         30 * time.Second,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106 - Only used for tests
 	}
 
 	return dial(ctx, "tcp", addr, config)

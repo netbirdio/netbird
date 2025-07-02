@@ -18,7 +18,7 @@ import (
 const (
 	defaultUnixShell = "/bin/sh"
 
-	pwshExe       = "pwsh.exe"
+	pwshExe       = "pwsh.exe" // #nosec G101 - This is not a credential, just executable name
 	powershellExe = "powershell.exe"
 )
 
@@ -104,7 +104,7 @@ func prepareUserEnv(user *user.User, shell string) []string {
 		fmt.Sprint("USER=" + user.Username),
 		fmt.Sprint("LOGNAME=" + user.Username),
 		fmt.Sprint("HOME=" + user.HomeDir),
-		fmt.Sprint("PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"),
+		"PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games",
 	}
 }
 

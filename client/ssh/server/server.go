@@ -375,16 +375,6 @@ func (s *Server) findSessionKeyByContext(ctx ssh.Context) SessionKey {
 	return "unknown"
 }
 
-// cleanupConnectionPortForward removes port forward state from a connection
-func (s *Server) cleanupConnectionPortForward(sshConn *cryptossh.ServerConn) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if state, exists := s.sshConnections[sshConn]; exists {
-		state.hasActivePortForward = false
-	}
-}
-
 // connectionValidator validates incoming connections based on source IP
 func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	s.mu.RLock()

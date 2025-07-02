@@ -674,19 +674,20 @@ func TestCheckPrivileges_ActualPlatform(t *testing.T) {
 		FeatureName:               "SSH login",
 	})
 
-	if actualOS == "windows" {
+	switch {
+	case actualOS == "windows":
 		// Windows should deny user switching
 		assert.False(t, result.Allowed, "Windows should deny user switching")
 		assert.True(t, result.RequiresUserSwitching, "Should indicate switching is needed")
 		assert.Contains(t, result.Error.Error(), "user switching not supported",
 			"Should indicate user switching not supported")
-	} else if !actualIsPrivileged {
+	case !actualIsPrivileged:
 		// Non-privileged Unix processes should fallback to current user
 		assert.True(t, result.Allowed, "Non-privileged Unix process should fallback to current user")
 		assert.False(t, result.RequiresUserSwitching, "Fallback means no switching actually happens")
 		assert.True(t, result.UsedFallback, "Should indicate fallback was used")
 		assert.NotNil(t, result.User, "Should return current user")
-	} else {
+	default:
 		// Privileged Unix processes should attempt user lookup
 		assert.False(t, result.Allowed, "Should fail due to nonexistent user")
 		assert.True(t, result.RequiresUserSwitching, "Should indicate switching is needed")

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -88,28 +89,7 @@ func testSSHCommandExecutionWithUser(t *testing.T, host, port, keyFile, username
 		"echo", "hello_world")
 
 	output, err := cmd.CombinedOutput()
-	
-	if err != nil {
-		t.Logf("SSH command failed: %v", err)
-		t.Logf("Output: %s", string(output))
-		return
-	}
 
-	assert.Contains(t, string(output), "hello_world", "SSH command should execute successfully")
-}
-
-// testSSHCommandExecution tests basic command execution with system SSH client.
-func testSSHCommandExecution(t *testing.T, host, port, keyFile string) {
-	cmd := exec.Command("ssh",
-		"-i", keyFile,
-		"-p", port,
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "ConnectTimeout=5",
-		fmt.Sprintf("test-user@%s", host),
-		"echo", "hello_world")
-
-	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Logf("SSH command failed: %v", err)
 		t.Logf("Output: %s", string(output))
@@ -269,7 +249,9 @@ func testSSHPortForwarding(t *testing.T, host, port, keyFile string) {
 	_, err = conn.Write([]byte(request))
 	require.NoError(t, err)
 
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		log.Debugf("failed to set read deadline: %v", err)
+	}
 	response := make([]byte, len(expectedResponse))
 	n, err := io.ReadFull(conn, response)
 	if err != nil {
@@ -305,16 +287,16 @@ func generateOpenSSHKey() ([]byte, []byte, error) {
 
 	// Remove the temp file so ssh-keygen can create it
 	if err := os.Remove(keyPath); err != nil {
-		// Ignore if file doesn't exist, we just need it gone
+		t.Logf("failed to remove key file: %v", err)
 	}
 
 	// Clean up temp files
 	defer func() {
 		if err := os.Remove(keyPath); err != nil {
-			// Ignore cleanup errors but could log them in debug mode
+			t.Logf("failed to cleanup key file: %v", err)
 		}
 		if err := os.Remove(keyPath + ".pub"); err != nil {
-			// Ignore cleanup errors but could log them in debug mode
+			t.Logf("failed to cleanup public key file: %v", err)
 		}
 	}()
 

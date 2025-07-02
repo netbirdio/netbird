@@ -233,7 +233,6 @@ func (m *Manager) SetupSSHClientConfigWithPeers(domains []string, peerKeys []Pee
 		}
 	}
 
-
 	// Try to create system-wide SSH config
 	if err := os.MkdirAll(m.sshConfigDir, 0755); err != nil {
 		log.Warnf("Failed to create SSH config directory %s: %v", m.sshConfigDir, err)
@@ -334,7 +333,8 @@ func (m *Manager) RemoveSSHClientConfig() error {
 	// Also try to clean up user config
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil // Not critical
+		log.Debugf("failed to get user home directory: %v", err)
+		return nil
 	}
 
 	userConfigPath := filepath.Join(homeDir, ".ssh", "config")
@@ -541,7 +541,8 @@ func (m *Manager) RemoveKnownHostsFile() error {
 	// Also try to clean up user known_hosts
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil // Not critical
+		log.Debugf("failed to get user home directory: %v", err)
+		return nil
 	}
 
 	userKnownHostsPath := filepath.Join(homeDir, ".ssh", m.userKnownHosts)
@@ -553,4 +554,3 @@ func (m *Manager) RemoveKnownHostsFile() error {
 
 	return nil
 }
-

@@ -538,7 +538,9 @@ func TestSSHPortRedirectionEndToEnd(t *testing.T) {
 
 		// Read server response
 		buf := make([]byte, 1024)
-		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Logf("failed to set read deadline: %v", err)
+		}
 		n, err := conn.Read(buf)
 		require.NoError(t, err, "Should read server response")
 

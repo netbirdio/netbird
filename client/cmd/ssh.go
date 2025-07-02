@@ -184,21 +184,22 @@ func parseCustomSSHFlags(args []string) ([]string, []string, []string) {
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if strings.HasPrefix(arg, "-L") {
+		switch {
+		case strings.HasPrefix(arg, "-L"):
 			if arg == "-L" && i+1 < len(args) {
 				localForwardFlags = append(localForwardFlags, args[i+1])
 				i++
 			} else if len(arg) > 2 {
 				localForwardFlags = append(localForwardFlags, arg[2:])
 			}
-		} else if strings.HasPrefix(arg, "-R") {
+		case strings.HasPrefix(arg, "-R"):
 			if arg == "-R" && i+1 < len(args) {
 				remoteForwardFlags = append(remoteForwardFlags, args[i+1])
 				i++
 			} else if len(arg) > 2 {
 				remoteForwardFlags = append(remoteForwardFlags, arg[2:])
 			}
-		} else {
+		default:
 			filteredArgs = append(filteredArgs, arg)
 		}
 	}

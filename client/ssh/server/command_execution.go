@@ -36,7 +36,7 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 		}
 		errorMsg += "\n"
 
-		if _, writeErr := fmt.Fprintf(session.Stderr(), errorMsg); writeErr != nil {
+		if _, writeErr := fmt.Fprint(session.Stderr(), errorMsg); writeErr != nil {
 			logger.Debugf(errWriteSession, writeErr)
 		}
 		if err := session.Exit(1); err != nil {
@@ -150,34 +150,6 @@ func (s *Server) handleCommandIO(logger *log.Entry, stdinPipe io.WriteCloser, se
 	}
 }
 
-// waitForCommandCompletion waits for command completion and handles exit codes
-func (s *Server) waitForCommandCompletion(sessionKey SessionKey, session ssh.Session, execCmd *exec.Cmd) bool {
-	logger := log.WithField("session", sessionKey)
-
-	if err := execCmd.Wait(); err != nil {
-		logger.Debugf("command execution failed: %v", err)
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) {
-			if err := session.Exit(exitError.ExitCode()); err != nil {
-				logger.Debugf(errExitSession, err)
-			}
-		} else {
-			if _, writeErr := fmt.Fprintf(session.Stderr(), "failed to execute command: %v\n", err); writeErr != nil {
-				logger.Debugf(errWriteSession, writeErr)
-			}
-			if err := session.Exit(1); err != nil {
-				logger.Debugf(errExitSession, err)
-			}
-		}
-		return false
-	}
-
-	if err := session.Exit(0); err != nil {
-		logger.Debugf(errExitSession, err)
-	}
-	return true
-}
-
 // createPtyCommandWithPrivileges creates the exec.Cmd for Pty execution respecting privilege check results
 func (s *Server) createPtyCommandWithPrivileges(cmd []string, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
 	localUser := privilegeResult.User
@@ -243,23 +215,6 @@ func (s *Server) waitForCommandCleanup(logger *log.Entry, session ssh.Session, e
 
 	case err := <-done:
 		return s.handleCommandCompletion(logger, session, err)
-	}
-}
-
-// handleCommandSessionCancellation handles command session cancellation
-func (s *Server) handleCommandSessionCancellation(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, done <-chan error) {
-	logger.Debugf("session cancelled, terminating command")
-	s.killProcessGroup(execCmd)
-
-	select {
-	case err := <-done:
-		logger.Debugf("command terminated after session cancellation: %v", err)
-	case <-time.After(5 * time.Second):
-		logger.Warnf("command did not terminate within 5 seconds after session cancellation")
-	}
-
-	if err := session.Exit(130); err != nil {
-		logger.Debugf(errExitSession, err)
 	}
 }
 

@@ -1267,15 +1267,6 @@ func (m *Manager) UnregisterNetstackService(protocol nftypes.Protocol, port uint
 	m.logger.Debug("Unregistered netstack service on protocol %s port %d", protocol, port)
 }
 
-// isNetstackService checks if a service is registered as listening on netstack for the given protocol and port
-func (m *Manager) isNetstackService(layerType gopacket.LayerType, port uint16) bool {
-	m.netstackServiceMutex.RLock()
-	defer m.netstackServiceMutex.RUnlock()
-	key := serviceKey{protocol: layerType, port: port}
-	_, exists := m.netstackServices[key]
-	return exists
-}
-
 // protocolToLayerType converts nftypes.Protocol to gopacket.LayerType for internal use
 func (m *Manager) protocolToLayerType(protocol nftypes.Protocol) gopacket.LayerType {
 	switch protocol {

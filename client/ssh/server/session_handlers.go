@@ -129,17 +129,17 @@ func (s *Server) buildUserLookupErrorMessage(err error) string {
 	switch {
 	case errors.As(err, &privilegedErr):
 		if privilegedErr.Username == "root" {
-			return fmt.Sprintf("root login is disabled on this SSH server\n")
+			return "root login is disabled on this SSH server\n"
 		}
-		return fmt.Sprintf("privileged user access is disabled on this SSH server\n")
+		return "privileged user access is disabled on this SSH server\n"
 
 	case errors.Is(err, ErrPrivilegeRequired):
-		return fmt.Sprintf("Windows user switching failed - NetBird must run with elevated privileges for user switching\n")
+		return "Windows user switching failed - NetBird must run with elevated privileges for user switching\n"
 
 	case errors.Is(err, ErrPrivilegedUserSwitch):
-		return fmt.Sprintf("Cannot switch to privileged user - current user lacks required privileges\n")
+		return "Cannot switch to privileged user - current user lacks required privileges\n"
 
 	default:
-		return fmt.Sprintf("User authentication failed\n")
+		return "User authentication failed\n"
 	}
 }
