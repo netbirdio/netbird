@@ -39,7 +39,7 @@ func TestSSHServerCompatibility(t *testing.T) {
 	require.NoError(t, err)
 
 	// Generate OpenSSH-compatible keys for client
-	clientPrivKeyOpenSSH, clientPubKeyOpenSSH, err := generateOpenSSHKey()
+	clientPrivKeyOpenSSH, clientPubKeyOpenSSH, err := generateOpenSSHKey(t)
 	require.NoError(t, err)
 
 	server := New(hostKey)
@@ -270,7 +270,7 @@ func isSSHClientAvailable() bool {
 }
 
 // generateOpenSSHKey generates an ED25519 key in OpenSSH format that the system SSH client can use.
-func generateOpenSSHKey() ([]byte, []byte, error) {
+func generateOpenSSHKey(t *testing.T) ([]byte, []byte, error) {
 	// Check if ssh-keygen is available
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
 		// Fall back to our existing key generation and try to convert

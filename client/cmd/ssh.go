@@ -186,25 +186,27 @@ func parseCustomSSHFlags(args []string) ([]string, []string, []string) {
 		arg := args[i]
 		switch {
 		case strings.HasPrefix(arg, "-L"):
-			if arg == "-L" && i+1 < len(args) {
-				localForwardFlags = append(localForwardFlags, args[i+1])
-				i++
-			} else if len(arg) > 2 {
-				localForwardFlags = append(localForwardFlags, arg[2:])
-			}
+			localForwardFlags, i = parseForwardFlag(arg, args, i, localForwardFlags)
 		case strings.HasPrefix(arg, "-R"):
-			if arg == "-R" && i+1 < len(args) {
-				remoteForwardFlags = append(remoteForwardFlags, args[i+1])
-				i++
-			} else if len(arg) > 2 {
-				remoteForwardFlags = append(remoteForwardFlags, arg[2:])
-			}
+			remoteForwardFlags, i = parseForwardFlag(arg, args, i, remoteForwardFlags)
 		default:
 			filteredArgs = append(filteredArgs, arg)
 		}
 	}
 
 	return filteredArgs, localForwardFlags, remoteForwardFlags
+}
+
+func parseForwardFlag(arg string, args []string, i int, flags []string) ([]string, int) {
+	if arg == "-L" || arg == "-R" {
+		if i+1 < len(args) {
+			flags = append(flags, args[i+1])
+			i++
+		}
+	} else if len(arg) > 2 {
+		flags = append(flags, arg[2:])
+	}
+	return flags, i
 }
 
 // extractGlobalFlags parses global flags that were passed before 'ssh' command

@@ -143,18 +143,22 @@ func NewManager() *Manager {
 func getSystemSSHPaths() (configDir, knownHostsDir string) {
 	switch runtime.GOOS {
 	case "windows":
-		// Windows OpenSSH paths
-		programData := os.Getenv("PROGRAMDATA")
-		if programData == "" {
-			programData = `C:\ProgramData`
-		}
-		configDir = filepath.Join(programData, "ssh", "ssh_config.d")
-		knownHostsDir = filepath.Join(programData, "ssh", "ssh_known_hosts.d")
+		configDir, knownHostsDir = getWindowsSSHPaths()
 	default:
 		// Unix-like systems (Linux, macOS, etc.)
 		configDir = "/etc/ssh/ssh_config.d"
 		knownHostsDir = "/etc/ssh/ssh_known_hosts.d"
 	}
+	return configDir, knownHostsDir
+}
+
+func getWindowsSSHPaths() (configDir, knownHostsDir string) {
+	programData := os.Getenv("PROGRAMDATA")
+	if programData == "" {
+		programData = `C:\ProgramData`
+	}
+	configDir = filepath.Join(programData, "ssh", "ssh_config.d")
+	knownHostsDir = filepath.Join(programData, "ssh", "ssh_known_hosts.d")
 	return configDir, knownHostsDir
 }
 
@@ -165,75 +169,95 @@ func (m *Manager) SetupSSHClientConfig(domains []string) error {
 
 // SetupSSHClientConfigWithPeers creates SSH client configuration for peer hostnames
 func (m *Manager) SetupSSHClientConfigWithPeers(domains []string, peerKeys []PeerHostKey) error {
-	peerCount := len(peerKeys)
-
-	// Check if SSH config should be generated
-	if !shouldGenerateSSHConfig(peerCount) {
-		if isSSHConfigDisabled() {
-			log.Debugf("SSH config management disabled via %s", EnvDisableSSHConfig)
-		} else {
-			log.Infof("SSH config generation skipped: too many peers (%d > %d). Use %s=true to force.",
-				peerCount, MaxPeersForSSHConfig, EnvForceSSHConfig)
-		}
+	if !shouldGenerateSSHConfig(len(peerKeys)) {
+		m.logSkipReason(len(peerKeys))
 		return nil
 	}
-	// Try to set up known_hosts for host key verification
+
+	knownHostsPath := m.getKnownHostsPath()
+	sshConfig := m.buildSSHConfig(peerKeys, knownHostsPath)
+	return m.writeSSHConfig(sshConfig, domains)
+}
+
+func (m *Manager) logSkipReason(peerCount int) {
+	if isSSHConfigDisabled() {
+		log.Debugf("SSH config management disabled via %s", EnvDisableSSHConfig)
+	} else {
+		log.Infof("SSH config generation skipped: too many peers (%d > %d). Use %s=true to force.",
+			peerCount, MaxPeersForSSHConfig, EnvForceSSHConfig)
+	}
+}
+
+func (m *Manager) getKnownHostsPath() string {
 	knownHostsPath, err := m.setupKnownHostsFile()
 	if err != nil {
 		log.Warnf("Failed to setup known_hosts file: %v", err)
-		// Continue with fallback to no verification
-		knownHostsPath = "/dev/null"
+		return "/dev/null"
+	}
+	return knownHostsPath
+}
+
+func (m *Manager) buildSSHConfig(peerKeys []PeerHostKey, knownHostsPath string) string {
+	sshConfig := m.buildConfigHeader()
+	for _, peer := range peerKeys {
+		sshConfig += m.buildPeerConfig(peer, knownHostsPath)
+	}
+	return sshConfig
+}
+
+func (m *Manager) buildConfigHeader() string {
+	return "# NetBird SSH client configuration\n" +
+		"# Generated automatically - do not edit manually\n" +
+		"#\n" +
+		"# To disable SSH config management, use:\n" +
+		"#   netbird service reconfigure --service-env NB_DISABLE_SSH_CONFIG=true\n" +
+		"#\n\n"
+}
+
+func (m *Manager) buildPeerConfig(peer PeerHostKey, knownHostsPath string) string {
+	hostPatterns := m.buildHostPatterns(peer)
+	if len(hostPatterns) == 0 {
+		return ""
 	}
 
+	hostLine := strings.Join(hostPatterns, " ")
+	config := fmt.Sprintf("Host %s\n", hostLine)
+	config += "    # NetBird peer-specific configuration\n"
+	config += "    PreferredAuthentications password,publickey,keyboard-interactive\n"
+	config += "    PasswordAuthentication yes\n"
+	config += "    PubkeyAuthentication yes\n"
+	config += "    BatchMode no\n"
+	config += m.buildHostKeyConfig(knownHostsPath)
+	config += "    LogLevel ERROR\n\n"
+	return config
+}
+
+func (m *Manager) buildHostPatterns(peer PeerHostKey) []string {
+	var hostPatterns []string
+	if peer.IP != "" {
+		hostPatterns = append(hostPatterns, peer.IP)
+	}
+	if peer.FQDN != "" {
+		hostPatterns = append(hostPatterns, peer.FQDN)
+	}
+	if peer.Hostname != "" && peer.Hostname != peer.FQDN {
+		hostPatterns = append(hostPatterns, peer.Hostname)
+	}
+	return hostPatterns
+}
+
+func (m *Manager) buildHostKeyConfig(knownHostsPath string) string {
+	if knownHostsPath == "/dev/null" {
+		return "    StrictHostKeyChecking no\n" +
+			"    UserKnownHostsFile /dev/null\n"
+	}
+	return "    StrictHostKeyChecking yes\n" +
+		fmt.Sprintf("    UserKnownHostsFile %s\n", knownHostsPath)
+}
+
+func (m *Manager) writeSSHConfig(sshConfig string, domains []string) error {
 	sshConfigPath := filepath.Join(m.sshConfigDir, m.sshConfigFile)
 
-	// Build SSH client configuration
-	sshConfig := "# NetBird SSH client configuration\n"
-	sshConfig += "# Generated automatically - do not edit manually\n"
-	sshConfig += "#\n"
-	sshConfig += "# To disable SSH config management, use:\n"
-	sshConfig += "#   netbird service reconfigure --service-env NB_DISABLE_SSH_CONFIG=true\n"
-	sshConfig += "#\n\n"
-
-	// Add specific peer entries with multiple hostnames in one Host line
-	for _, peer := range peerKeys {
-		var hostPatterns []string
-
-		// Add IP address
-		if peer.IP != "" {
-			hostPatterns = append(hostPatterns, peer.IP)
-		}
-
-		// Add FQDN
-		if peer.FQDN != "" {
-			hostPatterns = append(hostPatterns, peer.FQDN)
-		}
-
-		// Add short hostname if different from FQDN
-		if peer.Hostname != "" && peer.Hostname != peer.FQDN {
-			hostPatterns = append(hostPatterns, peer.Hostname)
-		}
-
-		if len(hostPatterns) > 0 {
-			hostLine := strings.Join(hostPatterns, " ")
-			sshConfig += fmt.Sprintf("Host %s\n", hostLine)
-			sshConfig += "    # NetBird peer-specific configuration\n"
-			sshConfig += "    PreferredAuthentications password,publickey,keyboard-interactive\n"
-			sshConfig += "    PasswordAuthentication yes\n"
-			sshConfig += "    PubkeyAuthentication yes\n"
-			sshConfig += "    BatchMode no\n"
-			if knownHostsPath == "/dev/null" {
-				sshConfig += "    StrictHostKeyChecking no\n"
-				sshConfig += "    UserKnownHostsFile /dev/null\n"
-			} else {
-				sshConfig += "    StrictHostKeyChecking yes\n"
-				sshConfig += fmt.Sprintf("    UserKnownHostsFile %s\n", knownHostsPath)
-			}
-			sshConfig += "    LogLevel ERROR\n\n"
-		}
-	}
-
-	// Try to create system-wide SSH config
 	if err := os.MkdirAll(m.sshConfigDir, 0755); err != nil {
 		log.Warnf("Failed to create SSH config directory %s: %v", m.sshConfigDir, err)
 		return m.setupUserConfig(sshConfig, domains)

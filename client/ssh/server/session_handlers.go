@@ -52,15 +52,18 @@ func (s *Server) sessionHandler(session ssh.Session) {
 		// ssh <host> <cmd> - non-Pty command execution
 		s.handleCommand(logger, session, privilegeResult, ssh.Pty{}, nil)
 	default:
-		// ssh <host> - no Pty, no command (invalid)
-		if _, err := io.WriteString(session, "no command specified and Pty not requested\n"); err != nil {
-			logger.Debugf(errWriteSession, err)
-		}
-		if err := session.Exit(1); err != nil {
-			logger.Debugf(errExitSession, err)
-		}
-		logger.Infof("rejected non-Pty session without command from %s", session.RemoteAddr())
+		s.rejectInvalidSession(logger, session)
 	}
+}
+
+func (s *Server) rejectInvalidSession(logger *log.Entry, session ssh.Session) {
+	if _, err := io.WriteString(session, "no command specified and Pty not requested\n"); err != nil {
+		logger.Debugf(errWriteSession, err)
+	}
+	if err := session.Exit(1); err != nil {
+		logger.Debugf(errExitSession, err)
+	}
+	logger.Infof("rejected non-Pty session without command from %s", session.RemoteAddr())
 }
 
 func (s *Server) registerSession(session ssh.Session) SessionKey {
