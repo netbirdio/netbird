@@ -98,7 +98,7 @@ func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResu
 	if err != nil {
 		logger.Errorf("Pty command creation failed: %v", err)
 		errorMsg := "User switching failed - login command not available\r\n"
-		if _, writeErr := fmt.Fprintf(session.Stderr(), errorMsg); writeErr != nil {
+		if _, writeErr := fmt.Fprint(session.Stderr(), errorMsg); writeErr != nil {
 			logger.Debugf(errWriteSession, writeErr)
 		}
 		if err := session.Exit(1); err != nil {

@@ -77,12 +77,6 @@ func sftpMain(cmd *cobra.Command, _ []string) error {
 		os.Exit(sshserver.ExitCodeShellExecFail)
 	}
 
-	defer func() {
-		if err := sftpServer.Close(); err != nil {
-			cmd.PrintErrf("SFTP server close error: %v\n", err)
-		}
-	}()
-
 	log.Tracef("starting SFTP server with dropped privileges")
 	if err := sftpServer.Serve(); err != nil && !errors.Is(err, io.EOF) {
 		cmd.PrintErrf("SFTP server error: %v\n", err)

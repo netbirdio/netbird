@@ -522,12 +522,12 @@ func (s *serviceClient) applySettings(iMngURL, iAdminURL string, port int64) {
 
 	loginRequest := s.buildLoginRequest(iMngURL, iAdminURL, port)
 
-	if err := s.restartClient(&loginRequest); err != nil {
+	if err := s.restartClient(loginRequest); err != nil {
 		log.Errorf("restarting client connection: %v", err)
 	}
 }
 
-func (s *serviceClient) buildLoginRequest(iMngURL, iAdminURL string, port int64) proto.LoginRequest {
+func (s *serviceClient) buildLoginRequest(iMngURL, iAdminURL string, port int64) *proto.LoginRequest {
 	loginRequest := proto.LoginRequest{
 		ManagementUrl:                 iMngURL,
 		AdminURL:                      iAdminURL,
@@ -550,7 +550,7 @@ func (s *serviceClient) buildLoginRequest(iMngURL, iAdminURL string, port int64)
 		loginRequest.OptionalPreSharedKey = &s.iPreSharedKey.Text
 	}
 
-	return loginRequest
+	return &loginRequest
 }
 
 func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {

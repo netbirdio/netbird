@@ -378,14 +378,6 @@ func isWindowsPrivilegedSID(sid string) bool {
 	return false
 }
 
-// buildShellArgs builds shell arguments for executing commands
-func buildShellArgs(shell, command string) []string {
-	if command != "" {
-		return []string{shell, "-Command", command}
-	}
-	return []string{shell}
-}
-
 // isCurrentProcessPrivileged checks if the current process is running with elevated privileges.
 // On Unix systems, this means running as root (UID 0).
 // On Windows, this means running as Administrator or SYSTEM.

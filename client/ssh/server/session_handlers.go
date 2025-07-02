@@ -117,7 +117,7 @@ func (s *Server) unregisterSession(sessionKey SessionKey, _ ssh.Session) {
 func (s *Server) handlePrivError(logger *log.Entry, session ssh.Session, err error) {
 	errorMsg := s.buildUserLookupErrorMessage(err)
 
-	if _, writeErr := fmt.Fprintf(session, errorMsg); writeErr != nil {
+	if _, writeErr := fmt.Fprint(session, errorMsg); writeErr != nil {
 		logger.Debugf(errWriteSession, writeErr)
 	}
 	if exitErr := session.Exit(1); exitErr != nil {

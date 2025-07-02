@@ -401,3 +401,11 @@ func (s *Server) killProcessGroup(cmd *exec.Cmd) {
 		logger.Debugf("kill process failed: %v", err)
 	}
 }
+
+// buildShellArgs builds shell arguments for executing commands
+func buildShellArgs(shell, command string) []string {
+	if command != "" {
+		return []string{shell, "-Command", command}
+	}
+	return []string{shell}
+}
