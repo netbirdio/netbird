@@ -236,7 +236,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 		if peer.Name != update.Name {
 			var newLabel string
-			newLabel, err = am.getPeerIPDNSLabel(ctx, peer.IP, accountID, peer.Meta.Hostname)
+			newLabel, err = getPeerIPDNSLabel(ctx, transaction, peer.IP, accountID, update.Name)
 			if err != nil {
 				return fmt.Errorf("failed to get free DNS label: %w", err)
 			}
@@ -586,7 +586,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 
 		var freeLabel string
-		freeLabel, err = am.getPeerIPDNSLabel(ctx, freeIP, accountID, peer.Meta.Hostname)
+		freeLabel, err = getPeerIPDNSLabel(ctx, am.Store, freeIP, accountID, peer.Meta.Hostname)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
 		}
@@ -694,13 +694,13 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	return am.getValidatedPeerWithMap(ctx, false, accountID, newPeer)
 }
 
-func (am *DefaultAccountManager) getPeerIPDNSLabel(ctx context.Context, ip net.IP, accountID, peerHostName string) (string, error) {
+func getPeerIPDNSLabel(ctx context.Context, tx store.Store, ip net.IP, accountID, peerHostName string) (string, error) {
 	dnsName, err := nbdns.GetParsedDomainLabel(peerHostName)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse peer host name %s: %w", peerHostName, err)
 	}
 
-	peerID, err := am.Store.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, dnsName)
+	peerID, err := tx.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, dnsName)
 	if peerID == "" {
 		return dnsName, nil
 	}
