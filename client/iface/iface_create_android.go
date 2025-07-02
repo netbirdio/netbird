@@ -2,11 +2,13 @@ package iface
 
 import (
 	"fmt"
+
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 // CreateOnAndroid creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
-func (w *WGIface) CreateOnAndroid(routes []string, dns string, searchDomains []string) error {
+func (w *WGIface) CreateOnAndroid(routes []string, dns string, searchDomains domain.List) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

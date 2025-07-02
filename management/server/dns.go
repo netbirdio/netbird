@@ -258,7 +258,7 @@ func convertToProtoCustomZone(zone nbdns.CustomZone) *proto.CustomZone {
 func convertToProtoNameServerGroup(nsGroup *nbdns.NameServerGroup) *proto.NameServerGroup {
 	protoGroup := &proto.NameServerGroup{
 		Primary:              nsGroup.Primary,
-		Domains:              nsGroup.Domains,
+		Domains:              nsGroup.Domains.ToPunycodeList(),
 		SearchDomainsEnabled: nsGroup.SearchDomainsEnabled,
 		NameServers:          make([]*proto.NameServer, 0, len(nsGroup.NameServers)),
 	}

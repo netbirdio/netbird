@@ -62,8 +62,8 @@ func (m *MockServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
 	return fmt.Errorf("method UpdateDNSServer is not implemented")
 }
 
-func (m *MockServer) SearchDomains() []string {
-	return make([]string, 0)
+func (m *MockServer) SearchDomains() domain.List {
+	return make(domain.List, 0)
 }
 
 // ProbeAvailability mocks implementation of ProbeAvailability from the Server interface

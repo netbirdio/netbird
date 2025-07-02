@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 // Create creates a new Wireguard interface, sets a given IP and brings it up.
@@ -36,6 +38,6 @@ func (w *WGIface) Create() error {
 }
 
 // CreateOnAndroid this function make sense on mobile only
-func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
+func (w *WGIface) CreateOnAndroid([]string, string, domain.List) error {
 	return fmt.Errorf("this function has not implemented on this platform")
 }

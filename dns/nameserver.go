@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 const (
@@ -64,7 +66,7 @@ type NameServerGroup struct {
 	// Primary indicates that the nameserver group is the primary resolver for any dns query
 	Primary bool
 	// Domains indicate the dns query domains to use with this nameserver group
-	Domains []string `gorm:"serializer:json"`
+	Domains domain.List `gorm:"serializer:json"`
 	// Enabled group status
 	Enabled bool
 	// SearchDomainsEnabled indicates whether to add match domains to search domains list or not
@@ -142,7 +144,7 @@ func (g *NameServerGroup) Copy() *NameServerGroup {
 		Groups:               make([]string, len(g.Groups)),
 		Enabled:              g.Enabled,
 		Primary:              g.Primary,
-		Domains:              make([]string, len(g.Domains)),
+		Domains:              make(domain.List, len(g.Domains)),
 		SearchDomainsEnabled: g.SearchDomainsEnabled,
 	}
 
@@ -188,7 +190,7 @@ func containsNameServer(element NameServer, list []NameServer) bool {
 	return false
 }
 
-func compareGroupsList(list, other []string) bool {
+func compareGroupsList[T comparable](list, other []T) bool {
 	if len(list) != len(other) {
 		return false
 	}

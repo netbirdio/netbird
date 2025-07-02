@@ -19,6 +19,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/management/server/idp"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -1696,7 +1699,7 @@ func TestAccount_Copy(t *testing.T) {
 		NameServerGroups: map[string]*nbdns.NameServerGroup{
 			"nsGroup1": {
 				ID:          "nsGroup1",
-				Domains:     []string{},
+				Domains:     domain.List{},
 				Groups:      []string{},
 				NameServers: []nbdns.NameServer{},
 			},

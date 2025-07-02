@@ -2,7 +2,11 @@
 
 package iface
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/netbirdio/netbird/management/domain"
+)
 
 // Create creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
@@ -21,6 +25,6 @@ func (w *WGIface) Create() error {
 }
 
 // CreateOnAndroid this function make sense on mobile only
-func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
+func (w *WGIface) CreateOnAndroid([]string, string, domain.List) error {
 	return fmt.Errorf("this function has not implemented on non mobile")
 }
