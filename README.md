@@ -37,8 +37,8 @@
  
 </strong>
 <br>
-<a href="https://github.com/netbirdio/kubernetes-operator">
-    New: NetBird Kubernetes Operator
+<a href="https://registry.terraform.io/providers/netbirdio/netbird/latest">
+    New: NetBird terraform provider
   </a> 
 </p>
 
