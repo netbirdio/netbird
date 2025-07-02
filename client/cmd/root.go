@@ -149,6 +149,7 @@ func init() {
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
+	rootCmd.AddCommand(setCmd)
 	rootCmd.AddCommand(networksCMD)
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
@@ -167,24 +168,6 @@ func init() {
 	debugCmd.AddCommand(forCmd)
 	debugCmd.AddCommand(persistenceCmd)
 
-	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
-		`Sets external IPs maps between local addresses and interfaces.`+
-			`You can specify a comma-separated list with a single IP and IP/IP or IP/Interface Name. `+
-			`An empty string "" clears the previous configuration. `+
-			`E.g. --external-ip-map 12.34.56.78/10.0.0.1 or --external-ip-map 12.34.56.200,12.34.56.78/10.0.0.1,12.34.56.80/eth1 `+
-			`or --external-ip-map ""`,
-	)
-	upCmd.PersistentFlags().StringVar(&customDNSAddress, dnsResolverAddress, "",
-		`Sets a custom address for NetBird's local DNS resolver. `+
-			`If set, the agent won't attempt to discover the best ip and port to listen on. `+
-			`An empty string "" clears the previous configuration. `+
-			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
-	)
-	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
-	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
-	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
-	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
-	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "[Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand.")
 
 	debugCmd.PersistentFlags().BoolVarP(&debugSystemInfoFlag, systemInfoFlag, "S", true, "Adds system information to the debug bundle")
 	debugCmd.PersistentFlags().BoolVarP(&debugUploadBundle, uploadBundle, "U", false, fmt.Sprintf("Uploads the debug bundle to a server from URL defined by %s", uploadBundleURL))
