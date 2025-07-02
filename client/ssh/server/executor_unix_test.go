@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -135,13 +136,15 @@ func TestPrivilegeDropper_ActualPrivilegeDrop(t *testing.T) {
 	}
 
 	// Find a non-root user to test with
-	testUser, err := user.Lookup("nobody")
+	testUser, err := findNonRootUser()
 	if err != nil {
-		// Try to find any non-root user
-		testUser, err = findNonRootUser()
-		if err != nil {
-			t.Skip("No suitable non-root user found for testing")
-		}
+		t.Skip("No suitable non-root user found for testing")
+	}
+
+	// Verify the user actually exists by looking it up again
+	_, err = user.LookupId(testUser.Uid)
+	if err != nil {
+		t.Skipf("Test user %s (UID %s) does not exist on this system: %v", testUser.Username, testUser.Uid, err)
 	}
 
 	uid64, err := strconv.ParseUint(testUser.Uid, 10, 32)
@@ -187,30 +190,40 @@ func TestPrivilegeDropper_ActualPrivilegeDrop(t *testing.T) {
 
 // findNonRootUser finds any non-root user on the system for testing
 func findNonRootUser() (*user.User, error) {
-	// Try common non-root users
-	commonUsers := []string{"nobody", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy", "www-data", "backup", "list", "irc"}
+	// Try common non-root users, but avoid "nobody" on macOS due to negative UID issues
+	commonUsers := []string{"daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy", "www-data", "backup", "list", "irc"}
 
 	for _, username := range commonUsers {
 		if u, err := user.Lookup(username); err == nil {
-			uid64, err := strconv.ParseUint(u.Uid, 10, 32)
+			// Parse as signed integer first to handle negative UIDs
+			uid64, err := strconv.ParseInt(u.Uid, 10, 32)
 			if err != nil {
 				continue
 			}
-			if uid64 != 0 { // Not root
+			// Skip negative UIDs (like nobody=-2 on macOS) and root
+			if uid64 > 0 && uid64 != 0 {
 				return u, nil
 			}
 		}
 	}
 
-	// If no common users found, create a minimal user info for testing
-	// This won't actually work for privilege dropping but allows the test structure
-	return &user.User{
-		Uid:      "65534", // Standard nobody UID
-		Gid:      "65534", // Standard nobody GID
-		Username: "nobody",
-		Name:     "nobody",
-		HomeDir:  "/nonexistent",
-	}, nil
+	// If no common users found, try to find any regular user with UID > 100
+	// This helps on macOS where regular users start at UID 501
+	allUsers := []string{"vma", "user", "test", "admin"}
+	for _, username := range allUsers {
+		if u, err := user.Lookup(username); err == nil {
+			uid64, err := strconv.ParseInt(u.Uid, 10, 32)
+			if err != nil {
+				continue
+			}
+			if uid64 > 100 { // Regular user
+				return u, nil
+			}
+		}
+	}
+
+	// If no common users found, return an error
+	return nil, fmt.Errorf("no suitable non-root user found on this system")
 }
 
 func TestPrivilegeDropper_ExecuteWithPrivilegeDrop_Validation(t *testing.T) {

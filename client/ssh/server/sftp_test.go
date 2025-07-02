@@ -24,6 +24,10 @@ func TestSSHServer_SFTPSubsystem(t *testing.T) {
 		t.Skip("Skipping SFTP test when running as root - may have protocol compatibility issues")
 	}
 
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	// Generate host key for server
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
@@ -88,9 +92,7 @@ func TestSSHServer_SFTPSubsystem(t *testing.T) {
 	require.NoError(t, err)
 	hostPubKey := hostPrivParsed.PublicKey()
 
-	// Get current user for SSH connection
-	currentUser, err := user.Current()
-	require.NoError(t, err, "Should be able to get current user for test")
+	// (currentUser already obtained at function start)
 
 	// Create SSH client connection
 	clientConfig := &cryptossh.ClientConfig{
@@ -131,6 +133,10 @@ func TestSSHServer_SFTPSubsystem(t *testing.T) {
 }
 
 func TestSSHServer_SFTPDisabled(t *testing.T) {
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	// Generate host key for server
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
@@ -194,9 +200,7 @@ func TestSSHServer_SFTPDisabled(t *testing.T) {
 	require.NoError(t, err)
 	hostPubKey := hostPrivParsed.PublicKey()
 
-	// Get current user for SSH connection
-	currentUser, err := user.Current()
-	require.NoError(t, err, "Should be able to get current user for test")
+	// (currentUser already obtained at function start)
 
 	// Create SSH client connection
 	clientConfig := &cryptossh.ClientConfig{

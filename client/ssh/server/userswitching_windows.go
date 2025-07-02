@@ -21,16 +21,23 @@ func validateUsername(username string) error {
 		return fmt.Errorf("username cannot be empty")
 	}
 
+	// Handle domain\username format - extract just the username part for validation
+	usernameToValidate := username
+	if idx := strings.LastIndex(username, `\`); idx != -1 {
+		usernameToValidate = username[idx+1:]
+	}
+
 	// Windows SAM Account Name limits: 20 characters for users, 16 for computers
-	// We use 20 as the general limit
-	if len(username) > 20 {
+	// We use 20 as the general limit (applies to username part only)
+	if len(usernameToValidate) > 20 {
 		return fmt.Errorf("username too long (max 20 characters for Windows)")
 	}
 
 	// Check for Windows SAM Account Name invalid characters
 	// Prohibited: " / \ [ ] : ; | = , + * ? < >
+	// Note: backslash is allowed in full username (domain\user) but not in the user part
 	invalidChars := []rune{'"', '/', '\\', '[', ']', ':', ';', '|', '=', ',', '+', '*', '?', '<', '>'}
-	for _, char := range username {
+	for _, char := range usernameToValidate {
 		for _, invalid := range invalidChars {
 			if char == invalid {
 				return fmt.Errorf("username contains invalid character '%c'", char)
@@ -43,18 +50,18 @@ func validateUsername(username string) error {
 	}
 
 	// Period cannot be the final character
-	if strings.HasSuffix(username, ".") {
+	if strings.HasSuffix(usernameToValidate, ".") {
 		return fmt.Errorf("username cannot end with a period")
 	}
 
 	// Check for reserved patterns
-	if username == "." || username == ".." {
+	if usernameToValidate == "." || usernameToValidate == ".." {
 		return fmt.Errorf("username cannot be '.' or '..'")
 	}
 
-	// Warn about @ character (causes login issues)
-	if strings.Contains(username, "@") {
-		log.Warnf("username '%s' contains '@' character which may cause login issues", username)
+	// Warn about @ character (causes login issues) - check in username part only
+	if strings.Contains(usernameToValidate, "@") {
+		log.Warnf("username '%s' contains '@' character which may cause login issues", usernameToValidate)
 	}
 
 	return nil

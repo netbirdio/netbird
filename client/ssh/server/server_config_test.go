@@ -298,8 +298,14 @@ func TestServer_PortConflictHandling(t *testing.T) {
 	assert.Error(t, err, "Second client should fail to bind to same port")
 	if err != nil {
 		// The error should indicate the address is already in use
-		assert.Contains(t, strings.ToLower(err.Error()), "address already in use",
-			"Error should indicate port conflict")
+		errMsg := strings.ToLower(err.Error())
+		if runtime.GOOS == "windows" {
+			assert.Contains(t, errMsg, "only one usage of each socket address",
+				"Error should indicate port conflict")
+		} else {
+			assert.Contains(t, errMsg, "address already in use",
+				"Error should indicate port conflict")
+		}
 	}
 
 	// Cancel first client's context and wait for it to finish

@@ -210,11 +210,18 @@ func TestManager_DirectoryFallback(t *testing.T) {
 	t.Setenv("HOME", tempDir)
 
 	// Create manager with non-writable system directories
-	// Use /dev/null as parent to ensure failure on all systems
+	// Use paths that will fail on all systems
+	var failPath string
+	if runtime.GOOS == "windows" {
+		failPath = "NUL:" // Special device that can't be used as directory on Windows
+	} else {
+		failPath = "/dev/null" // Special device that can't be used as directory on Unix
+	}
+
 	manager := &Manager{
-		sshConfigDir:   "/dev/null/ssh_config.d", // Should fail
+		sshConfigDir:   failPath + "/ssh_config.d", // Should fail
 		sshConfigFile:  "99-netbird.conf",
-		knownHostsDir:  "/dev/null/ssh_known_hosts.d", // Should fail
+		knownHostsDir:  failPath + "/ssh_known_hosts.d", // Should fail
 		knownHostsFile: "99-netbird",
 		userKnownHosts: "known_hosts_netbird",
 	}
