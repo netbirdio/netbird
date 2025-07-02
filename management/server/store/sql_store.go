@@ -92,8 +92,8 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
 	}
 
-	if err := migrate(ctx, db); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
+	if err := migratePreAuto(ctx, db); err != nil {
+		return nil, fmt.Errorf("migratePreAuto: %w", err)
 	}
 	err = db.AutoMigrate(
 		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{},
@@ -102,7 +102,10 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("auto migrate: %w", err)
+		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
+	}
+	if err := migratePostAuto(ctx, db); err != nil {
+		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
 	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
@@ -967,7 +970,7 @@ func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength
 	return ips, nil
 }
 
-func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error) {
+func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string, dnsLabel string) ([]string, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -975,7 +978,7 @@ func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength Lock
 
 	var labels []string
 	result := tx.Model(&nbpeer.Peer{}).
-		Where("account_id = ?", accountID).
+		Where("account_id = ? AND dns_label LIKE ?", accountID, dnsLabel+"%").
 		Pluck("dns_label", &labels)
 
 	if result.Error != nil {
@@ -1254,7 +1257,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.NewSetupKeyNotFoundError(key)
+			return nil, status.Errorf(status.PreconditionFailed, "setup key not found")
 		}
 		log.WithContext(ctx).Errorf("failed to get setup key by secret from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get setup key by secret from store")
@@ -2544,6 +2547,27 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 	}
 
 	return &peer, nil
+}
+
+func (s *SqlStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var peerID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("id").
+		// Where(" = ?", hostname).
+		Where("account_id = ? AND dns_label = ?", accountID, hostname).
+		Limit(1).
+		Scan(&peerID)
+
+	if peerID == "" {
+		return "", gorm.ErrRecordNotFound
+	}
+
+	return peerID, result.Error
 }
 
 func (s *SqlStore) CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error) {

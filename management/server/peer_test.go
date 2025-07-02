@@ -10,7 +10,9 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -1391,7 +1394,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			name:                      "Absent setup key",
 			existingSetupKeyID:        "AAAAAAAA-38F5-4553-B31E-DD66C696CEBB",
 			expectAddPeerError:        true,
-			expectedErrorMsgSubstring: "failed adding new peer: account not found",
+			expectedErrorMsgSubstring: "failed to get setup key: setup key not found",
 		},
 	}
 
@@ -2057,10 +2060,14 @@ func Test_DeletePeer(t *testing.T) {
 		"peer1": {
 			ID:        "peer1",
 			AccountID: accountID,
+			IP:        net.IP{1, 1, 1, 1},
+			DNSLabel:  "peer1.test",
 		},
 		"peer2": {
 			ID:        "peer2",
 			AccountID: accountID,
+			IP:        net.IP{2, 2, 2, 2},
+			DNSLabel:  "peer2.test",
 		},
 	}
 	account.Groups = map[string]*types.Group{
@@ -2089,4 +2096,139 @@ func Test_DeletePeer(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotContains(t, group.Peers, "peer1")
 
+}
+
+func Test_IsUniqueConstraintError(t *testing.T) {
+	tests := []struct {
+		name   string
+		engine types.Engine
+	}{
+		{
+			name:   "PostgreSQL uniqueness error",
+			engine: types.PostgresStoreEngine,
+		},
+		{
+			name:   "MySQL uniqueness error",
+			engine: types.MysqlStoreEngine,
+		},
+		{
+			name:   "SQLite uniqueness error",
+			engine: types.SqliteStoreEngine,
+		},
+	}
+
+	peer := &nbpeer.Peer{
+		ID:        "test-peer-id",
+		AccountID: "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+		DNSLabel:  "test-peer-dns-label",
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("NETBIRD_STORE_ENGINE", string(tt.engine))
+			s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+			if err != nil {
+				t.Fatalf("Error when creating store: %s", err)
+			}
+			t.Cleanup(cleanup)
+
+			err = s.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
+			assert.NoError(t, err)
+
+			err = s.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
+			result := isUniqueConstraintError(err)
+			assert.True(t, result)
+		})
+	}
+}
+
+func Test_AddPeer(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	accountID := "testaccount"
+	userID := "testuser"
+
+	_, err = createAccount(manager, accountID, userID, "domain.com")
+	if err != nil {
+		t.Fatal("error creating account")
+		return
+	}
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), accountID, "test-key", types.SetupKeyReusable, time.Hour, nil, 10000, userID, false, false)
+	if err != nil {
+		t.Fatal("error creating setup key")
+		return
+	}
+
+	const totalPeers = 300 // totalPeers / differentHostnames should be less than 10 (due to concurrent retries)
+	const differentHostnames = 50
+
+	var wg sync.WaitGroup
+	errs := make(chan error, totalPeers+differentHostnames)
+	start := make(chan struct{})
+	for i := 0; i < totalPeers; i++ {
+		wg.Add(1)
+		hostNameID := i % differentHostnames
+
+		go func(i int) {
+			defer wg.Done()
+
+			newPeer := &nbpeer.Peer{
+				Key:  "key" + strconv.Itoa(i),
+				Meta: nbpeer.PeerSystemMeta{Hostname: "peer" + strconv.Itoa(hostNameID), GoOS: "linux"},
+			}
+
+			<-start
+
+			_, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", newPeer)
+			if err != nil {
+				errs <- fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
+				return
+			}
+
+		}(i)
+	}
+	startTime := time.Now()
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	t.Logf("time since start: %s", time.Since(startTime))
+
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	account, err := manager.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatalf("Failed to get account %s: %v", accountID, err)
+	}
+
+	assert.Equal(t, totalPeers, len(account.Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
+
+	seenIP := make(map[string]bool)
+	for _, p := range account.Peers {
+		ipStr := p.IP.String()
+		if seenIP[ipStr] {
+			t.Fatalf("Duplicate IP found in account %s: %s", accountID, ipStr)
+		}
+		seenIP[ipStr] = true
+	}
+
+	seenLabel := make(map[string]bool)
+	for _, p := range account.Peers {
+		if seenLabel[p.DNSLabel] {
+			t.Fatalf("Duplicate Label found in account %s: %s", accountID, p.DNSLabel)
+		}
+		seenLabel[p.DNSLabel] = true
+	}
+
+	assert.Equal(t, totalPeers, maps.Values(account.SetupKeys)[0].UsedTimes)
+	assert.Equal(t, uint64(totalPeers), account.Network.Serial)
 }
