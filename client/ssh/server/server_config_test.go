@@ -217,6 +217,10 @@ func TestServer_PortForwardingRestriction(t *testing.T) {
 
 func TestServer_PortConflictHandling(t *testing.T) {
 	// Test that multiple sessions requesting the same local port are handled naturally by the OS
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	// Generate host key for server
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
@@ -229,6 +233,7 @@ func TestServer_PortConflictHandling(t *testing.T) {
 
 	// Create server
 	server := New(hostKey)
+	server.SetAllowRootLogin(true) // Allow root login for testing
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
 	require.NoError(t, err)
 
@@ -249,7 +254,7 @@ func TestServer_PortConflictHandling(t *testing.T) {
 	ctx1, cancel1 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel1()
 
-	client1, err := sshclient.DialInsecure(ctx1, serverAddr, "test-user")
+	client1, err := sshclient.DialInsecure(ctx1, serverAddr, currentUser.Username)
 	require.NoError(t, err)
 	defer func() {
 		err := client1.Close()
@@ -260,7 +265,7 @@ func TestServer_PortConflictHandling(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()
 
-	client2, err := sshclient.DialInsecure(ctx2, serverAddr, "test-user")
+	client2, err := sshclient.DialInsecure(ctx2, serverAddr, currentUser.Username)
 	require.NoError(t, err)
 	defer func() {
 		err := client2.Close()

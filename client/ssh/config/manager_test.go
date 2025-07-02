@@ -19,7 +19,7 @@ func TestManager_UpdatePeerHostKeys(t *testing.T) {
 	// Create temporary directory for test
 	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { assert.NoError(t, os.RemoveAll(tempDir)) }()
 
 	// Override manager paths to use temp directory
 	manager := &Manager{
@@ -89,7 +89,7 @@ func TestManager_SetupSSHClientConfig(t *testing.T) {
 	// Create temporary directory for test
 	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { assert.NoError(t, os.RemoveAll(tempDir)) }()
 
 	// Override manager paths to use temp directory
 	manager := &Manager{
@@ -204,16 +204,17 @@ func TestManager_DirectoryFallback(t *testing.T) {
 	// Create temporary directory for test where system dirs will fail
 	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { assert.NoError(t, os.RemoveAll(tempDir)) }()
 
 	// Set HOME to temp directory to control user fallback
 	t.Setenv("HOME", tempDir)
 
 	// Create manager with non-writable system directories
+	// Use /dev/null as parent to ensure failure on all systems
 	manager := &Manager{
-		sshConfigDir:   "/root/nonexistent/ssh_config.d", // Should fail
+		sshConfigDir:   "/dev/null/ssh_config.d", // Should fail
 		sshConfigFile:  "99-netbird.conf",
-		knownHostsDir:  "/root/nonexistent/ssh_known_hosts.d", // Should fail
+		knownHostsDir:  "/dev/null/ssh_known_hosts.d", // Should fail
 		knownHostsFile: "99-netbird",
 		userKnownHosts: "known_hosts_netbird",
 	}
@@ -222,7 +223,11 @@ func TestManager_DirectoryFallback(t *testing.T) {
 	knownHostsPath, err := manager.setupKnownHostsFile()
 	require.NoError(t, err)
 
-	expectedUserPath := filepath.Join(tempDir, ".ssh", "known_hosts_netbird")
+	// Get the actual user home directory as determined by os.UserHomeDir()
+	userHome, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	expectedUserPath := filepath.Join(userHome, ".ssh", "known_hosts_netbird")
 	assert.Equal(t, expectedUserPath, knownHostsPath)
 
 	// Verify file was created
@@ -256,7 +261,7 @@ func TestManager_PeerLimit(t *testing.T) {
 	// Create temporary directory for test
 	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { assert.NoError(t, os.RemoveAll(tempDir)) }()
 
 	// Override manager paths to use temp directory
 	manager := &Manager{
@@ -309,7 +314,7 @@ func TestManager_ForcedSSHConfig(t *testing.T) {
 	// Create temporary directory for test
 	tempDir, err := os.MkdirTemp("", "netbird-ssh-config-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() { assert.NoError(t, os.RemoveAll(tempDir)) }()
 
 	// Override manager paths to use temp directory
 	manager := &Manager{

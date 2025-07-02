@@ -43,6 +43,7 @@ func TestSSHServerCompatibility(t *testing.T) {
 	require.NoError(t, err)
 
 	server := New(hostKey)
+	server.SetAllowRootLogin(true) // Allow root login for testing
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKeyOpenSSH))
 	require.NoError(t, err)
 
@@ -101,6 +102,10 @@ func testSSHCommandExecutionWithUser(t *testing.T, host, port, keyFile, username
 
 // testSSHInteractiveCommand tests interactive shell session.
 func testSSHInteractiveCommand(t *testing.T, host, port, keyFile string) {
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -110,7 +115,7 @@ func testSSHInteractiveCommand(t *testing.T, host, port, keyFile string) {
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
-		fmt.Sprintf("test-user@%s", host))
+		fmt.Sprintf("%s@%s", currentUser.Username, host))
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -163,6 +168,10 @@ func testSSHInteractiveCommand(t *testing.T, host, port, keyFile string) {
 
 // testSSHPortForwarding tests port forwarding compatibility.
 func testSSHPortForwarding(t *testing.T, host, port, keyFile string) {
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	testServer, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer testServer.Close()
@@ -213,7 +222,7 @@ func testSSHPortForwarding(t *testing.T, host, port, keyFile string) {
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
 		"-N",
-		fmt.Sprintf("test-user@%s", host))
+		fmt.Sprintf("%s@%s", currentUser.Username, host))
 
 	err = cmd.Start()
 	if err != nil {
@@ -421,6 +430,7 @@ func TestSSHServerFeatureCompatibility(t *testing.T) {
 	require.NoError(t, err)
 
 	server := New(hostKey)
+	server.SetAllowRootLogin(true) // Allow root login for testing
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
 	require.NoError(t, err)
 
@@ -445,6 +455,10 @@ func TestSSHServerFeatureCompatibility(t *testing.T) {
 
 // testCommandWithFlags tests that commands with flags work properly
 func testCommandWithFlags(t *testing.T, host, port, keyFile string) {
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	// Test ls with flags
 	cmd := exec.Command("ssh",
 		"-i", keyFile,
@@ -452,7 +466,7 @@ func testCommandWithFlags(t *testing.T, host, port, keyFile string) {
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
-		fmt.Sprintf("test-user@%s", host),
+		fmt.Sprintf("%s@%s", currentUser.Username, host),
 		"ls", "-la", "/tmp")
 
 	output, err := cmd.CombinedOutput()
@@ -469,13 +483,17 @@ func testCommandWithFlags(t *testing.T, host, port, keyFile string) {
 
 // testEnvironmentVariables tests that environment is properly set up
 func testEnvironmentVariables(t *testing.T, host, port, keyFile string) {
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	cmd := exec.Command("ssh",
 		"-i", keyFile,
 		"-p", port,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
-		fmt.Sprintf("test-user@%s", host),
+		fmt.Sprintf("%s@%s", currentUser.Username, host),
 		"echo", "$HOME")
 
 	output, err := cmd.CombinedOutput()
@@ -493,6 +511,10 @@ func testEnvironmentVariables(t *testing.T, host, port, keyFile string) {
 
 // testExitCodes tests that exit codes are properly handled
 func testExitCodes(t *testing.T, host, port, keyFile string) {
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	// Test successful command (exit code 0)
 	cmd := exec.Command("ssh",
 		"-i", keyFile,
@@ -500,10 +522,10 @@ func testExitCodes(t *testing.T, host, port, keyFile string) {
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
-		fmt.Sprintf("test-user@%s", host),
+		fmt.Sprintf("%s@%s", currentUser.Username, host),
 		"true") // always succeeds
 
-	err := cmd.Run()
+	err = cmd.Run()
 	assert.NoError(t, err, "Command with exit code 0 should succeed")
 
 	// Test failing command (exit code 1)
@@ -513,7 +535,7 @@ func testExitCodes(t *testing.T, host, port, keyFile string) {
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
-		fmt.Sprintf("test-user@%s", host),
+		fmt.Sprintf("%s@%s", currentUser.Username, host),
 		"false") // always fails
 
 	err = cmd.Run()
@@ -535,6 +557,10 @@ func TestSSHServerSecurityFeatures(t *testing.T) {
 		t.Skip("SSH client not available on this system")
 	}
 
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	// Set up SSH server with specific security settings
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
@@ -545,6 +571,7 @@ func TestSSHServerSecurityFeatures(t *testing.T) {
 	require.NoError(t, err)
 
 	server := New(hostKey)
+	server.SetAllowRootLogin(true) // Allow root login for testing
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
 	require.NoError(t, err)
 
@@ -569,7 +596,7 @@ func TestSSHServerSecurityFeatures(t *testing.T) {
 			"-o", "UserKnownHostsFile=/dev/null",
 			"-o", "ConnectTimeout=5",
 			"-o", "PasswordAuthentication=no",
-			fmt.Sprintf("test-user@%s", host),
+			fmt.Sprintf("%s@%s", currentUser.Username, host),
 			"echo", "auth_success")
 
 		output, err := cmd.CombinedOutput()
@@ -598,7 +625,7 @@ func TestSSHServerSecurityFeatures(t *testing.T) {
 			"-o", "UserKnownHostsFile=/dev/null",
 			"-o", "ConnectTimeout=5",
 			"-o", "PasswordAuthentication=no",
-			fmt.Sprintf("test-user@%s", host),
+			fmt.Sprintf("%s@%s", currentUser.Username, host),
 			"echo", "should_not_work")
 
 		err = cmd.Run()
@@ -616,6 +643,10 @@ func TestCrossPlatformCompatibility(t *testing.T) {
 		t.Skip("SSH client not available on this system")
 	}
 
+	// Get current user for SSH connection
+	currentUser, err := user.Current()
+	require.NoError(t, err, "Should be able to get current user")
+
 	// Set up SSH server
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
@@ -626,6 +657,7 @@ func TestCrossPlatformCompatibility(t *testing.T) {
 	require.NoError(t, err)
 
 	server := New(hostKey)
+	server.SetAllowRootLogin(true) // Allow root login for testing
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
 	require.NoError(t, err)
 
@@ -657,7 +689,7 @@ func TestCrossPlatformCompatibility(t *testing.T) {
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ConnectTimeout=5",
-		fmt.Sprintf("test-user@%s", host),
+		fmt.Sprintf("%s@%s", currentUser.Username, host),
 		testCommand)
 
 	output, err := cmd.CombinedOutput()
