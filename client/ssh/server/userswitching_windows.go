@@ -60,15 +60,6 @@ func validateUsername(username string) error {
 	return nil
 }
 
-// createSecureUserSwitchCommand creates a command for Windows with user switching support
-func (s *Server) createSecureUserSwitchCommand(_ []string, localUser *user.User, session ssh.Session) (*exec.Cmd, error) {
-	winCmd, err := s.createUserSwitchCommand(localUser, session, false)
-	if err != nil {
-		return nil, fmt.Errorf("Windows user switching failed for %s: %w", localUser.Username, err)
-	}
-	return winCmd, nil
-}
-
 // createExecutorCommand creates a command using Windows executor for privilege dropping
 func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
 	log.Debugf("creating Windows executor command for user %s (Pty: %v)", localUser.Username, hasPty)
@@ -84,16 +75,6 @@ func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User
 // createDirectCommand is not supported on Windows - always use user switching with token creation
 func (s *Server) createDirectCommand(session ssh.Session, localUser *user.User) (*exec.Cmd, error) {
 	return nil, fmt.Errorf("direct command execution not supported on Windows - use user switching with token creation")
-}
-
-// createPtyUserSwitchCommand creates a Pty command with user switching for Windows
-func (s *Server) createPtyUserSwitchCommand(_ []string, localUser *user.User, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
-	return s.createUserSwitchCommand(localUser, session, true)
-}
-
-// createSecurePtyUserSwitchCommand creates a Pty command with secure privilege dropping
-func (s *Server) createSecurePtyUserSwitchCommand([]string, *user.User, ssh.Pty, ssh.Session) (*exec.Cmd, error) {
-	return nil, nil
 }
 
 // createUserSwitchCommand creates a command with Windows user switching
@@ -131,45 +112,12 @@ func (s *Server) parseUsername(fullUsername string) (username, domain string) {
 	}
 
 	// Handle username@domain format
-	if idx := strings.Index(fullUsername, "@"); idx != -1 {
-		username = fullUsername[:idx]
-		domain = fullUsername[idx+1:]
+	if username, domain, ok := strings.Cut(fullUsername, "@"); ok {
 		return username, domain
 	}
 
 	// Local user (no domain)
 	return fullUsername, "."
-}
-
-// validateUserSwitchingPrivileges validates Windows-specific user switching privileges
-// This checks for SeAssignPrimaryTokenPrivilege which is required for CreateProcessWithTokenW
-func validateUserSwitchingPrivileges() error {
-	process := windows.CurrentProcess()
-
-	var token windows.Token
-	err := windows.OpenProcessToken(
-		process,
-		windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY,
-		&token,
-	)
-	if err != nil {
-		return fmt.Errorf("open process token: %w", err)
-	}
-	defer func() {
-		if err := windows.CloseHandle(windows.Handle(token)); err != nil {
-			log.Warnf("close process token: %v", err)
-		}
-	}()
-
-	hasAssignToken, err := hasPrivilege(windows.Handle(token), "SeAssignPrimaryTokenPrivilege")
-	if err != nil {
-		return fmt.Errorf("has validation: %w", err)
-	}
-	if !hasAssignToken {
-		return ErrPrivilegeRequired
-	}
-
-	return nil
 }
 
 // hasPrivilege checks if the current process has a specific privilege

@@ -77,18 +77,17 @@ func sftpMainDirect(cmd *cobra.Command) error {
 		os.Exit(sshserver.ExitCodeShellExecFail)
 	}
 
-	defer func() {
-		if err := sftpServer.Close(); err != nil {
-			log.Debugf("SFTP server close error: %v", err)
-		}
-	}()
-
 	log.Debugf("starting SFTP server")
+	exitCode := sshserver.ExitCodeSuccess
 	if err := sftpServer.Serve(); err != nil && !errors.Is(err, io.EOF) {
 		cmd.PrintErrf("SFTP server error: %v\n", err)
-		os.Exit(sshserver.ExitCodeShellExecFail)
+		exitCode = sshserver.ExitCodeShellExecFail
 	}
 
-	os.Exit(sshserver.ExitCodeSuccess)
+	if err := sftpServer.Close(); err != nil {
+		log.Debugf("SFTP server close error: %v", err)
+	}
+
+	os.Exit(exitCode)
 	return nil
 }

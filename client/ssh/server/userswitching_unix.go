@@ -243,3 +243,41 @@ func (s *Server) createDirectCommand(session ssh.Session, localUser *user.User) 
 func enableUserSwitching() error {
 	return nil
 }
+
+// createPtyCommandWithPrivileges creates the exec.Cmd for Pty execution respecting privilege check results
+func (s *Server) createPtyCommandWithPrivileges(cmd []string, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
+	localUser := privilegeResult.User
+
+	if privilegeResult.RequiresUserSwitching {
+		return s.createPtyUserSwitchCommand(cmd, localUser, ptyReq, session)
+	}
+
+	// No user switching needed - create direct Pty command
+	shell := getUserShell(localUser.Uid)
+	rawCmd := session.RawCommand()
+	args := s.getShellCommandArgs(shell, rawCmd)
+	execCmd := exec.CommandContext(session.Context(), args[0], args[1:]...)
+
+	execCmd.Dir = localUser.HomeDir
+	execCmd.Env = s.preparePtyEnv(localUser, ptyReq, session)
+	return execCmd, nil
+}
+
+// preparePtyEnv prepares environment variables for Pty execution
+func (s *Server) preparePtyEnv(localUser *user.User, ptyReq ssh.Pty, session ssh.Session) []string {
+	termType := ptyReq.Term
+	if termType == "" {
+		termType = "xterm-256color"
+	}
+
+	env := prepareUserEnv(localUser, getUserShell(localUser.Uid))
+	env = append(env, prepareSSHEnv(session)...)
+	env = append(env, fmt.Sprintf("TERM=%s", termType))
+
+	for _, v := range session.Environ() {
+		if acceptEnv(v) {
+			env = append(env, v)
+		}
+	}
+	return env
+}

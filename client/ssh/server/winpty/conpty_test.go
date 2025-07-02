@@ -5,6 +5,7 @@ package winpty
 import (
 	"testing"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
@@ -280,7 +281,9 @@ func BenchmarkConPtyCreation(b *testing.B) {
 		}
 
 		// Clean up
-		procClosePseudoConsole.Call(uintptr(hPty))
+		if ret, _, err := procClosePseudoConsole.Call(uintptr(hPty)); ret == 0 {
+			log.Debugf("ClosePseudoConsole failed: %v", err)
+		}
 		closeHandles(inputRead, inputWrite, outputRead, outputWrite)
 	}
 }

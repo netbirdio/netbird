@@ -56,7 +56,7 @@ const (
 
 	// Common error messages
 	commandFlag          = "-Command"
-	closeTokenError      = "close token error: %v"
+	closeTokenErrorMsg   = "close token error: %v"
 	convertUsernameError = "convert username to UTF16: %w"
 	convertDomainError   = "convert domain to UTF16: %w"
 )
@@ -455,34 +455,6 @@ func (pd *PrivilegeDropper) authenticateDomainUser(username, domain, fullUsernam
 	return token, nil
 }
 
-// closeUserToken safely closes a Windows user token handle
-func (pd *PrivilegeDropper) closeUserToken(token windows.Handle) {
-	if err := windows.CloseHandle(token); err != nil {
-		log.Debugf("close handle error: %v", err)
-	}
-}
-
-// buildCommandArgs constructs command arguments based on configuration
-func (pd *PrivilegeDropper) buildCommandArgs(config WindowsExecutorConfig) []string {
-	shell := config.Shell
-
-	// Use structured args if provided
-	if len(config.Args) > 0 {
-		args := []string{shell}
-		args = append(args, config.Args...)
-		return args
-	}
-
-	// Use command string if provided
-	if config.Command != "" {
-		return []string{shell, commandFlag, config.Command}
-	}
-	if config.Interactive {
-		return []string{shell, "-NoExit"}
-	}
-	return []string{shell}
-}
-
 // CreateWindowsProcessAsUserWithArgs creates a process as user with safe argument passing (for SFTP and executables)
 func (pd *PrivilegeDropper) CreateWindowsProcessAsUserWithArgs(ctx context.Context, executablePath string, args []string, username, domain, workingDir string) (*exec.Cmd, error) {
 	fullUsername := buildUserCpn(username, domain)
@@ -515,7 +487,7 @@ func (pd *PrivilegeDropper) CreateWindowsShellAsUser(ctx context.Context, shell,
 	log.Debugf("using S4U authentication for user %s", fullUsername)
 	defer func() {
 		if err := windows.CloseHandle(token); err != nil {
-			log.Debugf(closeTokenError, err)
+			log.Debugf(closeTokenErrorMsg, err)
 		}
 	}()
 
@@ -547,45 +519,6 @@ func (pd *PrivilegeDropper) createProcessWithToken(ctx context.Context, sourceTo
 	}
 
 	return cmd, nil
-}
-
-func (pd *PrivilegeDropper) validateCurrentUser(config WindowsExecutorConfig) error {
-	currentUser, err := lookupUser("")
-	if err != nil {
-		log.Errorf("failed to get current user for SSH exec security verification: %v", err)
-		return fmt.Errorf("get current user: %w", err)
-	}
-
-	log.Debugf("SSH exec process running as: %s (UID: %s, Name: %s)", currentUser.Username, currentUser.Uid, currentUser.Name)
-
-	if config.Username == "" {
-		return nil
-	}
-
-	requestedUsername := config.Username
-	if config.Domain != "" {
-		requestedUsername = fmt.Sprintf(`%s\%s`, config.Domain, config.Username)
-	}
-
-	if !isWindowsSameUser(requestedUsername, currentUser.Username) {
-		return fmt.Errorf("username mismatch: requested user %s but running as %s",
-			requestedUsername, currentUser.Username)
-	}
-
-	log.Debugf("SSH exec process verified running as correct user: %s (UID: %s)", currentUser.Username, currentUser.Uid)
-	return nil
-}
-
-func (pd *PrivilegeDropper) changeWorkingDirectory(workingDir string) error {
-	if workingDir == "" {
-		return nil
-	}
-	return os.Chdir(workingDir)
-}
-
-// parseUserCredentials extracts Windows user information
-func (s *Server) parseUserCredentials(_ *user.User) (uint32, uint32, []uint32, error) {
-	return 0, 0, []uint32{0}, nil
 }
 
 // createSuCommand creates a command using su -l -c for privilege switching (Windows stub)

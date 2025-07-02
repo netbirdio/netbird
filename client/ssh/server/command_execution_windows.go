@@ -21,23 +21,6 @@ import (
 	"github.com/netbirdio/netbird/client/ssh/server/winpty"
 )
 
-// createCommandWithUserSwitch creates a command with Windows user switching
-func (s *Server) createCommandWithUserSwitch(_ []string, localUser *user.User, session ssh.Session) (*exec.Cmd, error) {
-	username, domain := s.parseUsername(localUser.Username)
-	shell := getUserShell(localUser.Uid)
-	rawCmd := session.RawCommand()
-
-	privilegeDropper := NewPrivilegeDropper()
-	cmd, err := privilegeDropper.CreateWindowsShellAsUser(
-		session.Context(), shell, rawCmd, username, domain, localUser.HomeDir)
-	if err != nil {
-		return nil, err
-	}
-
-	log.Infof("Created Windows command with user switching for %s", localUser.Username)
-	return cmd, nil
-}
-
 // getUserEnvironment retrieves the Windows environment for the target user.
 // Follows OpenSSH's resilient approach with graceful degradation on failures.
 func (s *Server) getUserEnvironment(username, domain string) ([]string, error) {
