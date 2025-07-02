@@ -54,6 +54,7 @@ type SysOps struct {
 	// notifier is used to notify the system of route changes (also used on mobile)
 	notifier *notifier.Notifier
 	// seq is an atomic counter for generating unique sequence numbers for route messages
+	//nolint:unused // only used on BSD systems
 	seq atomic.Uint32
 }
 
@@ -64,6 +65,7 @@ func NewSysOps(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {
 	}
 }
 
+//nolint:unused // only used on BSD systems
 func (r *SysOps) getSeq() int {
 	return int(r.seq.Add(1))
 }
