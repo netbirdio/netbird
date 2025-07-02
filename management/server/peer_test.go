@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/status"
 
 	"github.com/netbirdio/netbird/management/server/util"
 
@@ -1376,6 +1377,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		existingSetupKeyID        string
 		expectedGroupIDsInAccount []string
 		expectAddPeerError        bool
+		errorType                 status.Type
 		expectedErrorMsgSubstring string
 	}{
 		{
@@ -1388,13 +1390,15 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			name:                      "Failed registration with setup key not allowing extra DNS labels",
 			existingSetupKeyID:        "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
 			expectAddPeerError:        true,
+			errorType:                 status.PreconditionFailed,
 			expectedErrorMsgSubstring: "setup key doesn't allow extra DNS labels",
 		},
 		{
 			name:                      "Absent setup key",
 			existingSetupKeyID:        "AAAAAAAA-38F5-4553-B31E-DD66C696CEBB",
 			expectAddPeerError:        true,
-			expectedErrorMsgSubstring: "failed to get setup key: setup key not found",
+			errorType:                 status.NotFound,
+			expectedErrorMsgSubstring: "couldn't add peer: setup key is invalid",
 		},
 	}
 
@@ -1419,6 +1423,11 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			if tc.expectAddPeerError {
 				require.Error(t, err, "Expected an error when adding peer with setup key: %s", tc.existingSetupKeyID)
 				assert.Contains(t, err.Error(), tc.expectedErrorMsgSubstring, "Error message mismatch")
+				e, ok := status.FromError(err)
+				if !ok {
+					t.Fatal("Failed to map error")
+				}
+				assert.Equal(t, e.Type(), tc.errorType)
 				return
 			}
 

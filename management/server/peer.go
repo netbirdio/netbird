@@ -488,7 +488,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	if addedByUser {
 		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to get user groups: %w", err)
+			return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: user not found")
 		}
 		groupsToAdd = user.AutoGroups
 		opEvent.InitiatorID = userID
@@ -498,12 +498,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		// Validate the setup key
 		sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to get setup key: %w", err)
+			return nil, nil, nil, status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
 		}
 
 		// we will check key twice for early return
 		if !sk.IsValid() {
-			return nil, nil, nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
+			return nil, nil, nil, status.Errorf(status.NotFound, "couldn't add peer: setup key is invalid")
 		}
 
 		opEvent.InitiatorID = sk.Id
