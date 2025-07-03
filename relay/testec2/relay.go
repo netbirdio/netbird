@@ -79,7 +79,7 @@ func prepareConnsSender(serverConnURL string, peerPairs int) []net.Conn {
 
 	connsSender := make([]net.Conn, 0, peerPairs)
 	for i := 0; i < len(clientsSender); i++ {
-		conn, err := clientsSender[i].OpenConn("receiver-" + fmt.Sprint(i))
+		conn, err := clientsSender[i].OpenConn(ctx, "receiver-"+fmt.Sprint(i))
 		if err != nil {
 			log.Fatalf("failed to bind channel: %s", err)
 		}
@@ -166,7 +166,7 @@ func prepareConnsReceiver(serverConnURL string, peerPairs int) []net.Conn {
 
 	connsReceiver := make([]net.Conn, 0, peerPairs)
 	for i := 0; i < len(clientsReceiver); i++ {
-		conn, err := clientsReceiver[i].OpenConn("sender-" + fmt.Sprint(i))
+		conn, err := clientsReceiver[i].OpenConn(context.Background(), "sender-"+fmt.Sprint(i))
 		if err != nil {
 			log.Fatalf("failed to bind channel: %s", err)
 		}

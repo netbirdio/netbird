@@ -10,15 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/logging"
-	"github.com/pion/turn/v3"
-	"go.opentelemetry.io/otel"
-
 	"github.com/netbirdio/netbird/relay/auth/allow"
 	"github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/util"
+	"github.com/pion/logging"
+	"github.com/pion/turn/v3"
 )
 
 var (
@@ -70,8 +68,12 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 	port := 35000 + peerPairs
 	serverAddress := fmt.Sprintf("127.0.0.1:%d", port)
 	serverConnURL := fmt.Sprintf("rel://%s", serverAddress)
-
-	srv, err := server.NewServer(otel.Meter(""), serverConnURL, false, av)
+	serverCfg := server.Config{
+		ExposedAddress: serverConnURL,
+		TLSSupport:     false,
+		AuthValidator:  &allow.Auth{},
+	}
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -119,13 +121,13 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 	connsSender := make([]net.Conn, 0, peerPairs)
 	connsReceiver := make([]net.Conn, 0, peerPairs)
 	for i := 0; i < len(clientsSender); i++ {
-		conn, err := clientsSender[i].OpenConn("receiver-" + fmt.Sprint(i))
+		conn, err := clientsSender[i].OpenConn(ctx, "receiver-"+fmt.Sprint(i))
 		if err != nil {
 			t.Fatalf("failed to bind channel: %s", err)
 		}
 		connsSender = append(connsSender, conn)
 
-		conn, err = clientsReceiver[i].OpenConn("sender-" + fmt.Sprint(i))
+		conn, err = clientsReceiver[i].OpenConn(ctx, "sender-"+fmt.Sprint(i))
 		if err != nil {
 			t.Fatalf("failed to bind channel: %s", err)
 		}

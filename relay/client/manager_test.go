@@ -5,10 +5,8 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
-
 	"github.com/netbirdio/netbird/relay/server"
+	log "github.com/sirupsen/logrus"
 )
 
 func TestEmptyURL(t *testing.T) {
@@ -25,7 +23,7 @@ func TestForeignConn(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1, err := server.NewServer(otel.Meter(""), srvCfg1.Address, false, av)
+	srv1, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -51,7 +49,7 @@ func TestForeignConn(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2, err := server.NewServer(otel.Meter(""), srvCfg2.Address, false, av)
+	srv2, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -95,11 +93,11 @@ func TestForeignConn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
 	}
-	connAliceToBob, err := clientAlice.OpenConn(bobsSrvAddr, idBob)
+	connAliceToBob, err := clientAlice.OpenConn(ctx, bobsSrvAddr, idBob)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
-	connBobToAlice, err := clientBob.OpenConn(bobsSrvAddr, idAlice)
+	connBobToAlice, err := clientBob.OpenConn(ctx, bobsSrvAddr, idAlice)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -137,7 +135,7 @@ func TestForeginConnClose(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1, err := server.NewServer(otel.Meter(""), srvCfg1.Address, false, av)
+	srv1, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -163,7 +161,7 @@ func TestForeginConnClose(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2, err := server.NewServer(otel.Meter(""), srvCfg2.Address, false, av)
+	srv2, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -195,7 +193,7 @@ func TestForeginConnClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	conn, err := mgr.OpenConn(toURL(srvCfg2)[0], "anotherpeer")
+	conn, err := mgr.OpenConn(ctx, toURL(srvCfg2)[0], "anotherpeer")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -212,7 +210,7 @@ func TestForeginAutoClose(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1, err := server.NewServer(otel.Meter(""), srvCfg1.Address, false, av)
+	srv1, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -241,7 +239,7 @@ func TestForeginAutoClose(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2, err := server.NewServer(otel.Meter(""), srvCfg2.Address, false, av)
+	srv2, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -277,7 +275,7 @@ func TestForeginAutoClose(t *testing.T) {
 	}
 
 	t.Log("open connection to another peer")
-	conn, err := mgr.OpenConn(toURL(srvCfg2)[0], "anotherpeer")
+	conn, err := mgr.OpenConn(ctx, toURL(srvCfg2)[0], "anotherpeer")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -305,7 +303,7 @@ func TestAutoReconnect(t *testing.T) {
 	srvCfg := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv, err := server.NewServer(otel.Meter(""), srvCfg.Address, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -339,7 +337,7 @@ func TestAutoReconnect(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to get relay address: %s", err)
 	}
-	conn, err := clientAlice.OpenConn(ra, "bob")
+	conn, err := clientAlice.OpenConn(ctx, ra, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -357,7 +355,7 @@ func TestAutoReconnect(t *testing.T) {
 	time.Sleep(reconnectingTimeout + 1*time.Second)
 
 	log.Infof("reopent the connection")
-	_, err = clientAlice.OpenConn(ra, "bob")
+	_, err = clientAlice.OpenConn(ctx, ra, "bob")
 	if err != nil {
 		t.Errorf("failed to open channel: %s", err)
 	}
@@ -369,7 +367,7 @@ func TestNotifierDoubleAdd(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1, err := server.NewServer(otel.Meter(""), srvCfg1.Address, false, av)
+	srv1, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -402,7 +400,7 @@ func TestNotifierDoubleAdd(t *testing.T) {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	conn1, err := clientAlice.OpenConn(clientAlice.ServerURLs()[0], "idBob")
+	conn1, err := clientAlice.OpenConn(ctx, clientAlice.ServerURLs()[0], "idBob")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}

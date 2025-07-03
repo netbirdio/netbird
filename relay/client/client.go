@@ -127,12 +127,12 @@ type Client struct {
 	parentCtx      context.Context
 	connectionURL  string
 	authTokenStore *auth.TokenStore
-	hashedID       []byte
+	hashedID       messages.PeerID
 
 	bufPool *sync.Pool
 
 	relayConn        net.Conn
-	conns            map[string]*connContainer
+	conns            map[messages.PeerID]*connContainer
 	serviceIsRunning bool
 	mu               sync.Mutex // protect serviceIsRunning and conns
 	readLoopMutex    sync.Mutex
@@ -142,13 +142,17 @@ type Client struct {
 
 	onDisconnectListener func(string)
 	listenerMutex        sync.Mutex
+
+	stateSubscription *PeersStateSubscription
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
 func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.TokenStore, peerID string) *Client {
-	hashedID, hashedStringId := messages.HashID(peerID)
+	hashedID := messages.HashID(peerID)
+	relayLog := log.WithFields(log.Fields{"relay": serverURL})
+
 	c := &Client{
-		log:            log.WithFields(log.Fields{"relay": serverURL}),
+		log:            relayLog,
 		parentCtx:      ctx,
 		connectionURL:  serverURL,
 		authTokenStore: authTokenStore,
@@ -159,9 +163,10 @@ func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.Token
 				return &buf
 			},
 		},
-		conns: make(map[string]*connContainer),
+		conns: make(map[messages.PeerID]*connContainer),
 	}
-	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedStringId)
+
+	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedID)
 	return c
 }
 
@@ -182,6 +187,8 @@ func (c *Client) Connect() error {
 		return err
 	}
 
+	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.closeConnsByPeerID)
+
 	c.log = c.log.WithField("relay", c.instanceURL.String())
 	c.log.Infof("relay connection established")
 
@@ -197,7 +204,8 @@ func (c *Client) Connect() error {
 // to the relay server, the function will block until the connection is established or timed out. Otherwise,
 // it will return immediately.
 // todo: what should happen if call with the same peerID with multiple times?
-func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
+func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, error) {
+	// todo not lock while we wait for the connection to be established
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -205,17 +213,23 @@ func (c *Client) OpenConn(dstPeerID string) (net.Conn, error) {
 		return nil, fmt.Errorf("relay connection is not established")
 	}
 
-	hashedID, hashedStringID := messages.HashID(dstPeerID)
-	_, ok := c.conns[hashedStringID]
+	peerID := messages.HashID(dstPeerID)
+	_, ok := c.conns[peerID]
 	if ok {
 		return nil, ErrConnAlreadyExists
 	}
 
-	c.log.Infof("open connection to peer: %s", hashedStringID)
-	msgChannel := make(chan Msg, 100)
-	conn := NewConn(c, hashedID, hashedStringID, msgChannel, c.instanceURL)
+	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(ctx, peerID); err != nil {
+		c.log.Errorf("peer not available: %s, %s", peerID, err)
+		return nil, err
+	}
 
-	c.conns[hashedStringID] = newConnContainer(c.log, conn, msgChannel)
+	c.log.Infof("remote peer is available, prepare the relayed conenction: %s", peerID)
+	msgChannel := make(chan Msg, 100)
+	conn := NewConn(c, peerID, msgChannel, c.instanceURL)
+
+	c.conns[peerID] = newConnContainer(c.log, conn, msgChannel)
+
 	return conn, nil
 }
 
@@ -370,6 +384,7 @@ func (c *Client) readLoop(relayConn net.Conn) {
 	c.instanceURL = nil
 	c.muInstanceURL.Unlock()
 
+	c.stateSubscription.Cleanup()
 	c.wgReadLoop.Done()
 	_ = c.close(false)
 	c.notifyDisconnected()
@@ -382,6 +397,22 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 		c.bufPool.Put(bufPtr)
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
+	case messages.MsgTypePeersOnline:
+		peersID, err := messages.UnmarshalPeersOnlineMsg(buf)
+		if err != nil {
+			c.log.Errorf("failed to unmarshal peers online msg: %s", err)
+			return true
+		}
+		c.stateSubscription.OnPeersOnline(peersID)
+		return true
+	case messages.MsgTypePeersWentOffline:
+		peersID, err := messages.UnMarshalPeersWentOffline(buf)
+		if err != nil {
+			c.log.Errorf("failed to unmarshal peers online msg: %s", err)
+			return true
+		}
+		c.stateSubscription.OnPeersWentOffline(peersID)
+		return true
 	case messages.MsgTypeClose:
 		c.log.Debugf("relay connection close by server")
 		c.bufPool.Put(bufPtr)
@@ -413,18 +444,16 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 		return true
 	}
 
-	stringID := messages.HashIDToString(peerID)
-
 	c.mu.Lock()
 	if !c.serviceIsRunning {
 		c.mu.Unlock()
 		c.bufPool.Put(bufPtr)
 		return false
 	}
-	container, ok := c.conns[stringID]
+	container, ok := c.conns[*peerID]
 	c.mu.Unlock()
 	if !ok {
-		c.log.Errorf("peer not found: %s", stringID)
+		c.log.Errorf("peer not found: %s", peerID.String())
 		c.bufPool.Put(bufPtr)
 		return true
 	}
@@ -437,9 +466,9 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 	return true
 }
 
-func (c *Client) writeTo(connReference *Conn, id string, dstID []byte, payload []byte) (int, error) {
+func (c *Client) writeTo(connReference *Conn, dstID messages.PeerID, payload []byte) (int, error) {
 	c.mu.Lock()
-	conn, ok := c.conns[id]
+	conn, ok := c.conns[dstID]
 	c.mu.Unlock()
 	if !ok {
 		return 0, net.ErrClosed
@@ -492,10 +521,32 @@ func (c *Client) closeAllConns() {
 	for _, container := range c.conns {
 		container.close()
 	}
-	c.conns = make(map[string]*connContainer)
+	c.conns = make(map[messages.PeerID]*connContainer)
 }
 
-func (c *Client) closeConn(connReference *Conn, id string) error {
+func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, peerID := range peerIDs {
+		container, ok := c.conns[peerID]
+		if !ok {
+			c.log.Warnf("can not close conenction, peer not found: %s", peerID)
+			continue
+		}
+
+		container.log.Infof("remote peer has been disconnected, free up connection: %s", peerID)
+		container.close()
+		delete(c.conns, peerID)
+	}
+
+	if err := c.stateSubscription.UnsubscribeStateChange(peerIDs); err != nil {
+		c.log.Errorf("failed to unsubscribe from peer state change: %s, %s", peerIDs, err)
+	}
+	return
+}
+
+func (c *Client) closeConn(connReference *Conn, id messages.PeerID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -507,6 +558,11 @@ func (c *Client) closeConn(connReference *Conn, id string) error {
 	if container.conn != connReference {
 		return fmt.Errorf("conn reference mismatch")
 	}
+
+	if err := c.stateSubscription.UnsubscribeStateChange([]messages.PeerID{id}); err != nil {
+		container.log.Errorf("failed to unsubscribe from peer state change: %s", err)
+	}
+
 	c.log.Infof("free up connection to peer: %s", id)
 	delete(c.conns, id)
 	container.close()

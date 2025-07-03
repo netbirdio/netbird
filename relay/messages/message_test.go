@@ -5,7 +5,7 @@ import (
 )
 
 func TestMarshalHelloMsg(t *testing.T) {
-	peerID := []byte("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
+	peerID := HashID("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
 	msg, err := MarshalHelloMsg(peerID, nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -24,13 +24,13 @@ func TestMarshalHelloMsg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if string(receivedPeerID) != string(peerID) {
+	if receivedPeerID.String() != peerID.String() {
 		t.Errorf("expected %s, got %s", peerID, receivedPeerID)
 	}
 }
 
 func TestMarshalAuthMsg(t *testing.T) {
-	peerID := []byte("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
+	peerID := HashID("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
 	msg, err := MarshalAuthMsg(peerID, []byte{})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -49,7 +49,7 @@ func TestMarshalAuthMsg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if string(receivedPeerID) != string(peerID) {
+	if receivedPeerID.String() != peerID.String() {
 		t.Errorf("expected %s, got %s", peerID, receivedPeerID)
 	}
 }
@@ -80,7 +80,7 @@ func TestMarshalAuthResponse(t *testing.T) {
 }
 
 func TestMarshalTransportMsg(t *testing.T) {
-	peerID := []byte("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
+	peerID := HashID("abdFAaBcawquEiCMzAabYosuUaGLtSNhKxz+")
 	payload := []byte("payload")
 	msg, err := MarshalTransportMsg(peerID, payload)
 	if err != nil {
@@ -101,7 +101,7 @@ func TestMarshalTransportMsg(t *testing.T) {
 		t.Fatalf("failed to unmarshal transport id: %v", err)
 	}
 
-	if string(uPeerID) != string(peerID) {
+	if uPeerID.String() != peerID.String() {
 		t.Errorf("expected %s, got %s", peerID, uPeerID)
 	}
 
@@ -110,8 +110,8 @@ func TestMarshalTransportMsg(t *testing.T) {
 		t.Fatalf("error: %v", err)
 	}
 
-	if string(id) != string(peerID) {
-		t.Errorf("expected %s, got %s", peerID, id)
+	if id.String() != peerID.String() {
+		t.Errorf("expected: '%s', got: '%s'", peerID, id)
 	}
 
 	if string(respPayload) != string(payload) {

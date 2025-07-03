@@ -18,10 +18,15 @@ import (
 )
 
 var (
-	av               = &allow.Auth{}
 	hmacTokenStore   = &hmac.TokenStore{}
 	serverListenAddr = "127.0.0.1:1234"
 	serverURL        = "rel://127.0.0.1:1234"
+	serverCfg        = server.Config{
+		Meter:          otel.Meter(""),
+		ExposedAddress: serverURL,
+		TLSSupport:     false,
+		AuthValidator:  &allow.Auth{},
+	}
 )
 
 func TestMain(m *testing.M) {
@@ -33,7 +38,7 @@ func TestMain(m *testing.M) {
 func TestClient(t *testing.T) {
 	ctx := context.Background()
 
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -82,13 +87,13 @@ func TestClient(t *testing.T) {
 	defer clientBob.Close()
 
 	t.Log("Alice open connection to Bob")
-	connAliceToBob, err := clientAlice.OpenConn("bob")
+	connAliceToBob, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
 
 	t.Log("Bob open connection to Alice")
-	connBobToAlice, err := clientBob.OpenConn("alice")
+	connBobToAlice, err := clientBob.OpenConn(ctx, "alice")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -115,7 +120,7 @@ func TestClient(t *testing.T) {
 func TestRegistration(t *testing.T) {
 	ctx := context.Background()
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -189,7 +194,7 @@ func TestEcho(t *testing.T) {
 	idAlice := "alice"
 	idBob := "bob"
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -237,12 +242,12 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	connAliceToBob, err := clientAlice.OpenConn(idBob)
+	connAliceToBob, err := clientAlice.OpenConn(ctx, idBob)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
 
-	connBobToAlice, err := clientBob.OpenConn(idAlice)
+	connBobToAlice, err := clientBob.OpenConn(ctx, idAlice)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -278,7 +283,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -308,7 +313,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
-	_, err = clientAlice.OpenConn("bob")
+	_, err = clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -324,7 +329,7 @@ func TestBindReconnect(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -355,7 +360,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	_, err = clientAlice.OpenConn("bob")
+	_, err = clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -366,7 +371,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	chBob, err := clientBob.OpenConn("alice")
+	chBob, err := clientBob.OpenConn(ctx, "alice")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -383,7 +388,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	chAlice, err := clientAlice.OpenConn("bob")
+	chAlice, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -415,7 +420,7 @@ func TestCloseConn(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -446,7 +451,7 @@ func TestCloseConn(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	conn, err := clientAlice.OpenConn("bob")
+	conn, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -472,7 +477,7 @@ func TestCloseRelayConn(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -502,7 +507,7 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 
-	conn, err := clientAlice.OpenConn("bob")
+	conn, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -514,7 +519,7 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Errorf("unexpected reading from closed connection")
 	}
 
-	_, err = clientAlice.OpenConn("bob")
+	_, err = clientAlice.OpenConn(ctx, "bob")
 	if err == nil {
 		t.Errorf("unexpected opening connection to closed server")
 	}
@@ -524,7 +529,7 @@ func TestCloseByServer(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv1, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv1, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -567,7 +572,7 @@ func TestCloseByServer(t *testing.T) {
 		log.Fatalf("timeout waiting for client to disconnect")
 	}
 
-	_, err = relayClient.OpenConn("bob")
+	_, err = relayClient.OpenConn(ctx, "bob")
 	if err == nil {
 		t.Errorf("unexpected opening connection to closed server")
 	}
@@ -577,7 +582,7 @@ func TestCloseByClient(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -607,7 +612,7 @@ func TestCloseByClient(t *testing.T) {
 		t.Errorf("failed to close client: %s", err)
 	}
 
-	_, err = relayClient.OpenConn("bob")
+	_, err = relayClient.OpenConn(ctx, "bob")
 	if err == nil {
 		t.Errorf("unexpected opening connection to closed server")
 	}
@@ -623,7 +628,7 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 	idAlice := "alice"
 	idBob := "bob"
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
-	srv, err := server.NewServer(otel.Meter(""), serverURL, false, av)
+	srv, err := server.NewServer(serverCfg)
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -671,12 +676,12 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 		}
 	}()
 
-	connAliceToBob, err := clientAlice.OpenConn(idBob)
+	connAliceToBob, err := clientAlice.OpenConn(ctx, idBob)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
 
-	connBobToAlice, err := clientBob.OpenConn(idAlice)
+	connBobToAlice, err := clientBob.OpenConn(ctx, idAlice)
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
