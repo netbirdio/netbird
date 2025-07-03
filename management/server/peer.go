@@ -857,7 +857,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		if login.UserID != "" {
 			if peer.UserID != login.UserID {
 				log.Warnf("user mismatch when logging in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, login.UserID)
-				return status.Errorf(status.Unauthenticated, "invalid user")
+				return status.NewPeerLoginMismatchError()
 			}
 
 			changed, err := am.handleUserPeer(ctx, transaction, peer, settings)
@@ -1106,7 +1106,7 @@ func checkAuth(ctx context.Context, loginUserID string, peer *nbpeer.Peer) error
 	}
 	if peer.UserID != loginUserID {
 		log.WithContext(ctx).Warnf("user mismatch when logging in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
-		return status.Errorf(status.Unauthenticated, "can't login with this credentials")
+		return status.NewPeerLoginMismatchError()
 	}
 	return nil
 }
