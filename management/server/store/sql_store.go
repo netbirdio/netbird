@@ -1327,7 +1327,10 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peer
 		return status.Errorf(status.NotFound, "group 'All' not found for account %s", accountID)
 	}
 
-	err := s.db.Create(&types.GroupPeer{
+	err := s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "group_id"}, {Name: "peer_id"}},
+		DoNothing: true,
+	}).Create(&types.GroupPeer{
 		GroupID: groupID,
 		PeerID:  peerID,
 	}).Error
