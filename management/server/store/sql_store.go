@@ -1448,25 +1448,15 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
-	var groupIDs []string
-	err := tx.
-		Table("group_peers").
-		Where("peer_id = ?", peerId).
-		Pluck("group_id", &groupIDs).Error
-	if err != nil {
-		return nil, err
-	}
-	if len(groupIDs) == 0 {
-		return []*types.Group{}, nil // no matches
-	}
-
 	var groups []*types.Group
-	err = tx.
-		Where("id IN ?", groupIDs).
-		Preload("GroupPeers").
-		Find(&groups).Error
-	if err != nil {
-		return nil, err
+	query := tx.
+		Joins("JOIN group_peers ON group_peers.group_id = groups.id").
+		Where("group_peers.peer_id = ?", peerId).
+		Preload(clause.Associations).
+		Find(&groups)
+
+	if query.Error != nil {
+		return nil, query.Error
 	}
 
 	for _, group := range groups {

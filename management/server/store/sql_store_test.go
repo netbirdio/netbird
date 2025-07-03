@@ -1367,12 +1367,14 @@ func TestSqlStore_SaveGroups(t *testing.T) {
 			AccountID: accountID,
 			Issued:    "api",
 			Peers:     []string{"peer1", "peer2"},
+			Resources: []types.Resource{},
 		},
 		{
 			ID:        "group-2",
 			AccountID: accountID,
 			Issued:    "integration",
 			Peers:     []string{"peer3", "peer4"},
+			Resources: []types.Resource{},
 		},
 	}
 	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
