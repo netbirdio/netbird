@@ -35,7 +35,6 @@ func validateUsername(username string) error {
 		return err
 	}
 
-	warnAboutProblematicCharacters(usernameToValidate)
 	return nil
 }
 
@@ -57,11 +56,11 @@ func validateUsernameLength(username string) error {
 
 // validateUsernameCharacters checks for invalid characters in Windows usernames
 func validateUsernameCharacters(username string) error {
-	invalidChars := []rune{'"', '/', '\\', '[', ']', ':', ';', '|', '=', ',', '+', '*', '?', '<', '>'}
+	invalidChars := []rune{'"', '/', '\\', '[', ']', ':', ';', '|', '=', ',', '+', '*', '?', '<', '>', ' ', '`', '&', '\n'}
 	for _, char := range username {
 		for _, invalid := range invalidChars {
 			if char == invalid {
-				return fmt.Errorf("username contains invalid character '%c'", char)
+				return fmt.Errorf("username contains invalid characters")
 			}
 		}
 		if char < 32 || char == 127 {
@@ -82,13 +81,6 @@ func validateUsernameFormat(username string) error {
 	}
 
 	return nil
-}
-
-// warnAboutProblematicCharacters warns about characters that may cause issues
-func warnAboutProblematicCharacters(username string) {
-	if strings.Contains(username, "@") {
-		log.Warnf("username '%s' contains '@' character which may cause login issues", username)
-	}
 }
 
 // createExecutorCommand creates a command using Windows executor for privilege dropping

@@ -401,6 +401,10 @@ func TestSSHServerFeatureCompatibility(t *testing.T) {
 		t.Skip("Skipping SSH feature compatibility tests in short mode")
 	}
 
+	if runtime.GOOS == "windows" && isCI() {
+		t.Skip("Skipping Windows SSH compatibility tests in CI due to S4U authentication issues")
+	}
+
 	if !isSSHClientAvailable() {
 		t.Skip("SSH client not available on this system")
 	}

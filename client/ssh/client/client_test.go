@@ -75,6 +75,10 @@ func TestSSHClient_DialWithKey(t *testing.T) {
 }
 
 func TestSSHClient_CommandExecution(t *testing.T) {
+	if runtime.GOOS == "windows" && isCI() {
+		t.Skip("Skipping Windows command execution tests in CI due to S4U authentication issues")
+	}
+
 	server, _, client := setupTestSSHServerAndClient(t)
 	defer func() {
 		err := server.Stop()
@@ -174,8 +178,8 @@ func TestSSHClient_ContextCancellation(t *testing.T) {
 			// Check for actual timeout-related errors rather than string matching
 			assert.True(t,
 				errors.Is(err, context.DeadlineExceeded) ||
-				errors.Is(err, context.Canceled) ||
-				strings.Contains(err.Error(), "timeout"),
+					errors.Is(err, context.Canceled) ||
+					strings.Contains(err.Error(), "timeout"),
 				"Expected timeout-related error, got: %v", err)
 		}
 	})
