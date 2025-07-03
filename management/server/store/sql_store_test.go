@@ -1340,11 +1340,12 @@ func TestSqlStore_SaveGroup(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
 	group := &types.Group{
-		ID:        "group-id",
-		AccountID: accountID,
-		Issued:    "api",
-		Peers:     []string{"peer1", "peer2"},
-		Resources: []types.Resource{},
+		ID:         "group-id",
+		AccountID:  accountID,
+		Issued:     "api",
+		Peers:      []string{"peer1", "peer2"},
+		Resources:  []types.Resource{},
+		GroupPeers: []types.GroupPeer{},
 	}
 	err = store.SaveGroup(context.Background(), LockingStrengthUpdate, group)
 	require.NoError(t, err)
