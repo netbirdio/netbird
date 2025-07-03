@@ -460,17 +460,6 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		for _, g := range groups {
-			g.StoreGroupPeers()
-
-			if err := tx.Model(&g).
-				Association("GroupPeers").
-				Replace(g.GroupPeers); err != nil {
-				log.WithContext(ctx).Errorf("failed to save group peers to store: %s", err)
-				return status.Errorf(status.Internal, "failed to save group peers to store")
-			}
-		}
-
 		result := tx.Session(&gorm.Session{FullSaveAssociations: true}).
 			Clauses(
 				clause.Locking{Strength: string(lockStrength)},
@@ -483,6 +472,17 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 		if result.Error != nil {
 			log.WithContext(ctx).Errorf("failed to save groups to store: %v", result.Error)
 			return status.Errorf(status.Internal, "failed to save groups to store")
+		}
+
+		for _, g := range groups {
+			g.StoreGroupPeers()
+
+			if err := tx.Model(&g).
+				Association("GroupPeers").
+				Replace(g.GroupPeers); err != nil {
+				log.WithContext(ctx).Errorf("failed to save group peers to store: %s", err)
+				return status.Errorf(status.Internal, "failed to save group peers to store")
+			}
 		}
 
 		return nil
