@@ -448,11 +448,8 @@ func TestSSHClient_PortForwardingDataTransfer(t *testing.T) {
 func getCurrentUsername() string {
 	if runtime.GOOS == "windows" {
 		if currentUser, err := user.Current(); err == nil {
-			username := currentUser.Username
-			if idx := strings.LastIndex(username, "\\"); idx != -1 {
-				username = username[idx+1:]
-			}
-			return strings.ToLower(username)
+			// On Windows, return the full domain\username for proper authentication
+			return currentUser.Username
 		}
 	}
 

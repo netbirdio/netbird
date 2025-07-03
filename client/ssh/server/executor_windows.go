@@ -430,7 +430,6 @@ func (pd *PrivilegeDropper) isLocalUser(domain string) bool {
 	}
 
 	return domain == "" || domain == "." ||
-		strings.EqualFold(domain, "localhost") ||
 		strings.EqualFold(domain, hostname)
 }
 
