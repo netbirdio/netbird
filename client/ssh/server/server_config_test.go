@@ -94,15 +94,24 @@ func TestServer_RootLoginRestriction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Mock privileged environment to test root access controls
+			// Set up mock users based on platform
+			mockUsers := map[string]*user.User{
+				"root":     createTestUser("root", "0", "0", "/root"),
+				"testuser": createTestUser("testuser", "1000", "1000", "/home/testuser"),
+			}
+
+			// Add Windows-specific users for Administrator tests
+			if runtime.GOOS == "windows" {
+				mockUsers["Administrator"] = createTestUser("Administrator", "500", "544", "C:\\Users\\Administrator")
+				mockUsers["administrator"] = createTestUser("administrator", "500", "544", "C:\\Users\\administrator")
+			}
+
 			cleanup := setupTestDependencies(
 				createTestUser("root", "0", "0", "/root"), // Running as root
 				nil,
 				runtime.GOOS,
 				0, // euid 0 (root)
-				map[string]*user.User{
-					"root":     createTestUser("root", "0", "0", "/root"),
-					"testuser": createTestUser("testuser", "1000", "1000", "/home/testuser"),
-				},
+				mockUsers,
 				nil,
 			)
 			defer cleanup()

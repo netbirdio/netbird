@@ -66,7 +66,6 @@ func (s *Server) createCommand(privilegeResult PrivilegeCheckResult, session ssh
 	return cmd, nil
 }
 
-
 // executeCommand executes the command and handles I/O and exit codes
 func (s *Server) executeCommand(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd) bool {
 	s.setupProcessGroup(execCmd)
