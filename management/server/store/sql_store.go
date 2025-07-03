@@ -1831,7 +1831,7 @@ func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, 
 	group = group.Copy()
 	group.StoreGroupPeers()
 
-	if err := s.db.Save(group).Error; err != nil {
+	if err := s.db.Omit(clause.Associations).Save(group).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
 		return status.Errorf(status.Internal, "failed to save group to store")
 	}
