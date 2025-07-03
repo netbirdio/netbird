@@ -74,8 +74,8 @@ func (r *ActivityRecorder) Remove(publicKey string) {
 	}
 }
 
-// Record updates LastActivity for the given address using atomic store
-func (r *ActivityRecorder) Record(address netip.AddrPort) {
+// record updates LastActivity for the given address using atomic store
+func (r *ActivityRecorder) record(address netip.AddrPort) {
 	r.mu.RLock()
 	record, ok := r.addrToPeer[address]
 	r.mu.RUnlock()

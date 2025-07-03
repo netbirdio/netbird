@@ -208,7 +208,7 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
 
 			if isTransportPkg(msg.Buffers, msg.N) {
-				s.activityRecorder.Record(addrPort)
+				s.activityRecorder.record(addrPort)
 			}
 
 			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
@@ -272,7 +272,7 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 
 		if isTransportPkg(buffs, sizes[0]) {
 			if ep, ok := eps[0].(*Endpoint); ok {
-				c.activityRecorder.Record(ep.AddrPort)
+				c.activityRecorder.record(ep.AddrPort)
 			}
 		}
 
