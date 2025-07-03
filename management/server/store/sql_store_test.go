@@ -2611,6 +2611,7 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 }
 
 func TestSqlStore_GetPeerGroups(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", "postgres")
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_policy_migrate.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
