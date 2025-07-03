@@ -1672,9 +1672,10 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Groups: map[string]*types.Group{
 			"group1": {
-				ID:        "group1",
-				Peers:     []string{"peer1"},
-				Resources: []types.Resource{},
+				ID:         "group1",
+				Peers:      []string{"peer1"},
+				Resources:  []types.Resource{},
+				GroupPeers: []types.GroupPeer{},
 			},
 		},
 		Policies: []*types.Policy{
