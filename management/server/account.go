@@ -1279,7 +1279,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 	var hasChanges bool
 	var user *types.User
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		user, err = transaction.GetUserByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
+		user, err = transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, userAuth.UserId)
 		if err != nil {
 			return fmt.Errorf("error getting user: %w", err)
 		}
