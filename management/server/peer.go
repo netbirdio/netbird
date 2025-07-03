@@ -1255,17 +1255,19 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
-	mu, _ := am.accountUpdateLocks.LoadOrStore(accountID, &sync.Mutex{})
-	lock := mu.(*sync.Mutex)
-
-	if !lock.TryLock() {
-		return
-	}
-
 	go func() {
-		time.Sleep(time.Duration(am.updateAccountPeersBufferInterval.Load()))
-		lock.Unlock()
-		am.UpdateAccountPeers(ctx, accountID)
+		mu, _ := am.accountUpdateLocks.LoadOrStore(accountID, &sync.Mutex{})
+		lock := mu.(*sync.Mutex)
+
+		if !lock.TryLock() {
+			return
+		}
+
+		go func() {
+			time.Sleep(time.Duration(am.updateAccountPeersBufferInterval.Load()))
+			lock.Unlock()
+			am.UpdateAccountPeers(ctx, accountID)
+		}()
 	}()
 }
 
