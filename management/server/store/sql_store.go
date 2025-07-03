@@ -1810,17 +1810,12 @@ func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, 
 
 	group.StoreGroupPeers()
 
-	tx := s.db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
-
-	if err := tx.Model(group).Association("Peers").Replace(group.Peers); err != nil {
+	if err := s.db.Model(group).Association("GroupPeers").Replace(group.GroupPeers); err != nil {
 		log.WithContext(ctx).Errorf("failed to replace peers for group %s: %v", group.ID, err)
 		return status.Errorf(status.Internal, "failed to sync group peers")
 	}
 
-	if err := tx.Save(group).Error; err != nil {
+	if err := s.db.Save(group).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
 		return status.Errorf(status.Internal, "failed to save group to store")
 	}

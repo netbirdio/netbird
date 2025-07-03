@@ -39,6 +39,11 @@ func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, f
 		return nil
 	}
 
+	if !db.Migrator().HasColumn(&model, fieldName) {
+		log.WithContext(ctx).Debugf("Table for %T does not have column %s, no migration needed", model, fieldName)
+		return nil
+	}
+
 	stmt := &gorm.Statement{DB: db}
 	err := stmt.Parse(model)
 	if err != nil {

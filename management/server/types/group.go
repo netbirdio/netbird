@@ -45,7 +45,7 @@ func (g *Group) LoadGroupPeers() {
 	for i, peer := range g.GroupPeers {
 		g.Peers[i] = peer.PeerID
 	}
-	// g.GroupPeers = nil
+	g.GroupPeers = nil
 }
 func (g *Group) StoreGroupPeers() {
 	g.GroupPeers = make([]GroupPeer, len(g.Peers))
@@ -55,7 +55,7 @@ func (g *Group) StoreGroupPeers() {
 			PeerID:  peer,
 		}
 	}
-	// g.Peers = nil
+	g.Peers = nil
 }
 
 // EventMeta returns activity event meta related to the group
