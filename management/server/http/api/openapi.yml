@@ -60,6 +60,8 @@ components:
           description: Account creator
           type: string
           example: google-oauth2|277474792786460067937
+        onboarding:
+          $ref: '#/components/schemas/AccountOnboarding'
       required:
         - id
         - settings
@@ -67,6 +69,21 @@ components:
         - domain_category
         - created_at
         - created_by
+        - onboarding
+    AccountOnboarding:
+      type: object
+      properties:
+        signup_form_pending:
+          description: Indicates whether the account signup form is pending
+          type: boolean
+          example: true
+        onboarding_flow_pending:
+          description: Indicates whether the account onboarding flow is pending
+          type: boolean
+          example: false
+      required:
+        - signup_form_pending
+        - onboarding_flow_pending
     AccountSettings:
       type: object
       properties:
@@ -153,6 +170,8 @@ components:
       properties:
         settings:
           $ref: '#/components/schemas/AccountSettings'
+        onboarding:
+          $ref: '#/components/schemas/AccountOnboarding'
       required:
         - settings
     User:

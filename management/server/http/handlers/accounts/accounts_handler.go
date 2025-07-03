@@ -59,7 +59,13 @@ func (h *handler) getAllAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(accountID, settings, meta)
+	onboarding, err := h.accountManager.GetAccountOnboarding(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	resp := toAccountResponse(accountID, settings, meta, onboarding)
 	util.WriteJSONObject(r.Context(), w, []*api.Account{resp})
 }
 
@@ -126,6 +132,20 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		settings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
 	}
 
+	var onboarding *types.AccountOnboarding
+	if req.Onboarding != nil {
+		onboarding = &types.AccountOnboarding{
+			OnboardingFlowPending: req.Onboarding.OnboardingFlowPending,
+			SignupFormPending:     req.Onboarding.SignupFormPending,
+		}
+	}
+
+	updatedOnboarding, err := h.accountManager.UpdateAccountOnboarding(r.Context(), accountID, userID, onboarding)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
 	updatedSettings, err := h.accountManager.UpdateAccountSettings(r.Context(), accountID, userID, settings)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -138,7 +158,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toAccountResponse(accountID, updatedSettings, meta)
+	resp := toAccountResponse(accountID, updatedSettings, meta, updatedOnboarding)
 
 	util.WriteJSONObject(r.Context(), w, &resp)
 }
@@ -167,7 +187,7 @@ func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
-func toAccountResponse(accountID string, settings *types.Settings, meta *types.AccountMeta) *api.Account {
+func toAccountResponse(accountID string, settings *types.Settings, meta *types.AccountMeta, onboarding *types.AccountOnboarding) *api.Account {
 	jwtAllowGroups := settings.JWTAllowGroups
 	if jwtAllowGroups == nil {
 		jwtAllowGroups = []string{}
@@ -188,6 +208,11 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		DnsDomain:                       &settings.DNSDomain,
 	}
 
+	apiOnboarding := api.AccountOnboarding{
+		OnboardingFlowPending: onboarding.OnboardingFlowPending,
+		SignupFormPending:     onboarding.SignupFormPending,
+	}
+
 	if settings.Extra != nil {
 		apiSettings.Extra = &api.AccountExtraSettings{
 			PeerApprovalEnabled:                settings.Extra.PeerApprovalEnabled,
@@ -203,5 +228,6 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		CreatedBy:      meta.CreatedBy,
 		Domain:         meta.Domain,
 		DomainCategory: meta.DomainCategory,
+		Onboarding:     apiOnboarding,
 	}
 }

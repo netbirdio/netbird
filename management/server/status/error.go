@@ -90,6 +90,11 @@ func NewAccountNotFoundError(accountKey string) error {
 	return Errorf(NotFound, "account not found: %s", accountKey)
 }
 
+// NewAccountOnboardingNotFoundError creates a new Error with NotFound type for a missing account onboarding
+func NewAccountOnboardingNotFoundError(accountKey string) error {
+	return Errorf(NotFound, "account onboarding not found: %s", accountKey)
+}
+
 // NewPeerNotPartOfAccountError creates a new Error with PermissionDenied type for a peer not being part of an account
 func NewPeerNotPartOfAccountError() error {
 	return Errorf(PermissionDenied, "peer is not part of this account")
