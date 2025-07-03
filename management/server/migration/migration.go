@@ -459,9 +459,10 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 			}
 		}
 
-		if err := tx.Migrator().DropColumn(&model, columnName); err != nil {
-			return fmt.Errorf("drop column %s: %w", columnName, err)
-		}
+		// Todo: Enable this after we are sure that every thing works as expected and we do not need to rollback anymore
+		// if err := tx.Migrator().DropColumn(&model, columnName); err != nil {
+		// 	return fmt.Errorf("drop column %s: %w", columnName, err)
+		// }
 
 		return nil
 	}); err != nil {
