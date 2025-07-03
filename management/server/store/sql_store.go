@@ -208,7 +208,7 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 
 		result = tx.
 			Session(&gorm.Session{FullSaveAssociations: true}).
-			// Clauses(clause.OnConflict{UpdateAll: true}).
+			Clauses(clause.OnConflict{UpdateAll: true}).
 			Create(account)
 		if result.Error != nil {
 			return result.Error
@@ -457,6 +457,10 @@ func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, u
 func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error {
 	if len(groups) == 0 {
 		return nil
+	}
+
+	for _, g := range groups {
+		g.StoreGroupPeers()
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
@@ -1772,6 +1776,15 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	// TODO: This fix is accepted for now, but if we need to handle this more frequently
 	// we may need to reconsider changing the types.
 	query := tx.Preload(clause.Associations)
+
+	switch s.storeEngine {
+	case types.PostgresStoreEngine:
+		query = query.Order("json_array_length(peers::json) DESC")
+	case types.MysqlStoreEngine:
+		query = query.Order("JSON_LENGTH(JSON_EXTRACT(peers, \"$\")) DESC")
+	default:
+		query = query.Order("json_array_length(peers) DESC")
+	}
 
 	result := query.First(&group, "account_id = ? AND name = ?", accountID, groupName)
 	if err := result.Error; err != nil {

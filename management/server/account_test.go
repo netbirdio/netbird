@@ -1240,9 +1240,10 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	manager, account, peer1, peer2, _ := setupNetworkMapTest(t)
 
 	group := types.Group{
-		ID:    "groupA",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID},
+		AccountID: account.Id,
+		ID:        "groupA",
+		Name:      "GroupA",
+		Peers:     []string{peer1.ID, peer2.ID},
 	}
 	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
