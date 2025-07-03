@@ -1771,9 +1771,6 @@ func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrengt
 // GetGroupByName retrieves a group by name and account ID.
 func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*types.Group, error) {
 	tx := s.db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
 
 	var group types.Group
 
@@ -1781,16 +1778,14 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	// we may need to reconsider changing the types.
 	query := tx.Preload(clause.Associations)
 
-	switch s.storeEngine {
-	case types.PostgresStoreEngine:
-		query = query.Order("json_array_length(peers::json) DESC")
-	case types.MysqlStoreEngine:
-		query = query.Order("JSON_LENGTH(JSON_EXTRACT(peers, \"$\")) DESC")
-	default:
-		query = query.Order("json_array_length(peers) DESC")
-	}
-
-	result := query.Preload(clause.Associations).First(&group, "account_id = ? AND name = ?", accountID, groupName)
+	result := query.
+		Model(&types.Group{}).
+		Joins("LEFT JOIN group_peers ON group_peers.group_id = groups.id").
+		Where("groups.account_id = ? AND groups.name = ?", accountID, groupName).
+		Group("groups.id").
+		Order("COUNT(group_peers.peer_id) DESC").
+		Limit(1).
+		First(&group)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewGroupNotFoundError(groupName)
