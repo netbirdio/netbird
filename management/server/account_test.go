@@ -2617,6 +2617,7 @@ func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
 }
 
 func TestAccount_SetJWTGroups(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", "postgres")
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 

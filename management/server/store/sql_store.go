@@ -460,7 +460,7 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Session(&gorm.Session{FullSaveAssociations: true}).
+		result := tx.
 			Clauses(
 				clause.Locking{Strength: string(lockStrength)},
 				clause.OnConflict{
@@ -475,8 +475,6 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 		}
 
 		for _, g := range groups {
-			g.StoreGroupPeers()
-
 			if err := tx.Model(&g).
 				Association("GroupPeers").
 				Replace(g.GroupPeers); err != nil {
