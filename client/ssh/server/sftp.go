@@ -46,7 +46,7 @@ func (s *Server) sftpSubsystemHandler(sess ssh.Session) {
 
 	log.Debugf("SFTP subsystem request from user %s (effective user %s)", sess.User(), result.User.Username)
 
-	if result.UsedFallback {
+	if !result.RequiresUserSwitching {
 		if err := s.executeSftpDirect(sess); err != nil {
 			log.Errorf("SFTP direct execution: %v", err)
 		}
