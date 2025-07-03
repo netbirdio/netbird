@@ -1204,6 +1204,71 @@ func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID s
 	return am.Store.GetAccountMeta(ctx, store.LockingStrengthShare, accountID)
 }
 
+// GetAccountOnboarding retrieves the onboarding information for a specific account.
+func (am *DefaultAccountManager) GetAccountOnboarding(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	onboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
+	if err != nil && err.Error() != status.NewAccountOnboardingNotFoundError(accountID).Error() {
+		log.Errorf("failed to get account onboarding for accountssssssss %s: %v", accountID, err)
+		return nil, err
+	}
+
+	if onboarding == nil {
+		onboarding = &types.AccountOnboarding{
+			AccountID: accountID,
+		}
+	}
+
+	return onboarding, nil
+}
+
+func (am *DefaultAccountManager) UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+	}
+
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	oldOnboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
+	if err != nil && err.Error() != status.NewAccountOnboardingNotFoundError(accountID).Error() {
+		return nil, fmt.Errorf("failed to get account onboarding: %w", err)
+	}
+
+	if oldOnboarding == nil {
+		oldOnboarding = &types.AccountOnboarding{
+			AccountID: accountID,
+		}
+	}
+
+	if newOnboarding == nil {
+		return oldOnboarding, nil
+	}
+
+	if oldOnboarding.IsEqual(*newOnboarding) {
+		log.WithContext(ctx).Debugf("no changes in onboarding for account %s", accountID)
+		return oldOnboarding, nil
+	}
+
+	newOnboarding.AccountID = accountID
+	err = am.Store.SaveAccountOnboarding(ctx, newOnboarding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update account onboarding: %w", err)
+	}
+
+	return newOnboarding, nil
+}
+
 func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
 	if userAuth.UserId == "" {
 		return "", "", errors.New(emptyUserID)
@@ -1725,6 +1790,10 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string, dis
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 			RoutingPeerDNSResolutionEnabled: true,
+		},
+		Onboarding: types.AccountOnboarding{
+			OnboardingFlowPending: true,
+			SignupFormPending:     true,
 		},
 	}
 
