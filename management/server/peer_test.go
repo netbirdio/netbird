@@ -2143,8 +2143,6 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 }
 
 func Test_AddPeer(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
-	t.Setenv("NB_GET_ACCOUNT_BUFFER_INTERVAL", "300ms")
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)

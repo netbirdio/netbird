@@ -871,7 +871,7 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 		return
 	}
 
-	const totalPeers = 300
+	const totalPeers = 1000
 
 	var wg sync.WaitGroup
 	errs := make(chan error, totalPeers)
