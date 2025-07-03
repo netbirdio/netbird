@@ -873,4 +873,3 @@ func createWindowsTestUser(t *testing.T, username string) bool {
 	t.Logf("Test user creation result: %s", string(output))
 	return true
 }
-

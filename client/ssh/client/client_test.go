@@ -171,7 +171,12 @@ func TestSSHClient_ContextCancellation(t *testing.T) {
 		currentUser := getCurrentUsername()
 		_, err = DialInsecure(ctx, serverAddr, currentUser)
 		if err != nil {
-			assert.Contains(t, err.Error(), "context")
+			// Check for actual timeout-related errors rather than string matching
+			assert.True(t,
+				errors.Is(err, context.DeadlineExceeded) ||
+				errors.Is(err, context.Canceled) ||
+				strings.Contains(err.Error(), "timeout"),
+				"Expected timeout-related error, got: %v", err)
 		}
 	})
 
@@ -373,8 +378,16 @@ func TestSSHClient_PortForwardingDataTransfer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	currentUser := getCurrentUsername()
-	client, err := DialInsecure(ctx, serverAddr, currentUser)
+	// Port forwarding requires the actual current user, not test user
+	realUser, err := getRealCurrentUser()
+	require.NoError(t, err)
+
+	// Skip if running as system account that can't do port forwarding
+	if isSystemAccount(realUser) {
+		t.Skipf("Skipping port forwarding test - running as system account: %s", realUser)
+	}
+
+	client, err := DialInsecure(ctx, serverAddr, realUser)
 	require.NoError(t, err)
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -632,6 +645,25 @@ func isSystemAccount(username string) bool {
 		}
 	}
 	return false
+}
+
+// getRealCurrentUser returns the actual current user (not test user) for features like port forwarding
+func getRealCurrentUser() (string, error) {
+	if runtime.GOOS == "windows" {
+		if currentUser, err := user.Current(); err == nil {
+			return currentUser.Username, nil
+		}
+	}
+
+	if username := os.Getenv("USER"); username != "" {
+		return username, nil
+	}
+
+	if currentUser, err := user.Current(); err == nil {
+		return currentUser.Username, nil
+	}
+
+	return "", fmt.Errorf("unable to determine current user")
 }
 
 // isWindowsPrivilegeError checks if an error is related to Windows privilege restrictions

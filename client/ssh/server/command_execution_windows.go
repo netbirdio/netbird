@@ -172,7 +172,18 @@ func (s *Server) expandRegistryValue(value string, valueType uint32, name string
 		log.Debugf("failed to expand environment string for %s: %v", name, err)
 		return value
 	}
-	if expandedLen > 0 {
+
+	// If buffer was too small, retry with larger buffer
+	if expandedLen > uint32(len(expandedBuffer)) {
+		expandedBuffer = make([]uint16, expandedLen)
+		expandedLen, err = windows.ExpandEnvironmentStrings(sourcePtr, &expandedBuffer[0], uint32(len(expandedBuffer)))
+		if err != nil {
+			log.Debugf("failed to expand environment string for %s on retry: %v", name, err)
+			return value
+		}
+	}
+
+	if expandedLen > 0 && expandedLen <= uint32(len(expandedBuffer)) {
 		return windows.UTF16ToString(expandedBuffer[:expandedLen-1])
 	}
 	return value
