@@ -469,6 +469,6 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 		return err
 	}
 
-	log.WithContext(ctx).Infof("Migration of JSON field %s from table %s into seperte table completed", columnName, tableName)
+	log.WithContext(ctx).Infof("Migration of JSON field %s from table %s into separate table completed", columnName, tableName)
 	return nil
 }
