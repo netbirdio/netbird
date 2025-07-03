@@ -108,7 +108,7 @@ func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Next
 		Type:    action,
 		Flags:   unix.RTF_UP,
 		Version: unix.RTM_VERSION,
-		Seq:     1,
+		Seq:     r.getSeq(),
 	}
 
 	const numAddrs = unix.RTAX_NETMASK + 1
