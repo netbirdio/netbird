@@ -967,7 +967,7 @@ func Test_IncrementNetworkSerial(t *testing.T) {
 			err = manager.Store.ExecuteInTransaction(context.Background(), func(transaction store.Store) error {
 				err = transaction.IncrementNetworkSerial(context.Background(), store.LockingStrengthNone, accountID)
 				if err != nil {
-					t.Fatalf("Failed to get account %s: %v", accountID, err)
+					return fmt.Errorf("failed to get account %s: %v", accountID, err)
 				}
 				return nil
 			})
