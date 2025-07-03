@@ -56,7 +56,7 @@ func validateUsernameLength(username string) error {
 
 // validateUsernameCharacters checks for invalid characters in Windows usernames
 func validateUsernameCharacters(username string) error {
-	invalidChars := []rune{'"', '/', '\\', '[', ']', ':', ';', '|', '=', ',', '+', '*', '?', '<', '>', ' ', '`', '&', '\n'}
+	invalidChars := []rune{'"', '/', '[', ']', ':', ';', '|', '=', ',', '+', '*', '?', '<', '>', ' ', '`', '&', '\n'}
 	for _, char := range username {
 		for _, invalid := range invalidChars {
 			if char == invalid {
@@ -72,12 +72,12 @@ func validateUsernameCharacters(username string) error {
 
 // validateUsernameFormat checks for invalid username formats and patterns
 func validateUsernameFormat(username string) error {
-	if strings.HasSuffix(username, ".") {
-		return fmt.Errorf("username cannot end with a period")
-	}
-
 	if username == "." || username == ".." {
 		return fmt.Errorf("username cannot be '.' or '..'")
+	}
+
+	if strings.HasSuffix(username, ".") {
+		return fmt.Errorf("username cannot end with a period")
 	}
 
 	return nil

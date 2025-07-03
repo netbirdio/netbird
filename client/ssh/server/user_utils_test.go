@@ -544,14 +544,18 @@ func TestIsSameUser(t *testing.T) {
 	}
 }
 
-func TestUsernameValidation(t *testing.T) {
+func TestUsernameValidation_Unix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix-specific username validation tests")
+	}
+
 	tests := []struct {
 		name     string
 		username string
 		wantErr  bool
 		errMsg   string
 	}{
-		// Valid usernames
+		// Valid usernames (Unix/POSIX)
 		{"valid_alphanumeric", "user123", false, ""},
 		{"valid_with_dots", "user.name", false, ""},
 		{"valid_with_hyphens", "user-name", false, ""},
@@ -560,29 +564,88 @@ func TestUsernameValidation(t *testing.T) {
 		{"valid_starting_with_digit", "123user", false, ""},
 		{"valid_starting_with_dot", ".hidden", false, ""},
 
-		// Invalid usernames
+		// Invalid usernames (Unix/POSIX)
 		{"empty_username", "", true, "username cannot be empty"},
 		{"username_too_long", "thisusernameiswaytoolongandexceedsthe32characterlimit", true, "username too long"},
-		{"username_starting_with_hyphen", "-user", true, "invalid characters"},
+		{"username_starting_with_hyphen", "-user", true, "invalid characters"}, // POSIX restriction
 		{"username_with_spaces", "user name", true, "invalid characters"},
 		{"username_with_shell_metacharacters", "user;rm", true, "invalid characters"},
 		{"username_with_command_injection", "user`rm -rf /`", true, "invalid characters"},
 		{"username_with_pipe", "user|rm", true, "invalid characters"},
 		{"username_with_ampersand", "user&rm", true, "invalid characters"},
 		{"username_with_quotes", "user\"name", true, "invalid characters"},
-		{"username_with_backslash", "user\\name", true, "invalid characters"},
 		{"username_with_newline", "user\nname", true, "invalid characters"},
 		{"reserved_dot", ".", true, "cannot be '.' or '..'"},
 		{"reserved_dotdot", "..", true, "cannot be '.' or '..'"},
+		{"username_with_at_symbol", "user@domain", true, "invalid characters"}, // Not allowed in bare Unix usernames
+		{"username_with_backslash", "user\\name", true, "invalid characters"},  // Not allowed in Unix usernames
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Skip hyphen test on Windows - Windows allows usernames starting with hyphens
-			if tt.name == "username_starting_with_hyphen" && runtime.GOOS == "windows" {
-				t.Skip("Windows allows usernames starting with hyphens")
+			err := validateUsername(tt.username)
+			if tt.wantErr {
+				assert.Error(t, err, "Should reject invalid username")
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg, "Error message should contain expected text")
+				}
+			} else {
+				assert.NoError(t, err, "Should accept valid username")
 			}
+		})
+	}
+}
 
+func TestUsernameValidation_Windows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-specific username validation tests")
+	}
+
+	tests := []struct {
+		name     string
+		username string
+		wantErr  bool
+		errMsg   string
+	}{
+		// Valid usernames (Windows)
+		{"valid_alphanumeric", "user123", false, ""},
+		{"valid_with_dots", "user.name", false, ""},
+		{"valid_with_hyphens", "user-name", false, ""},
+		{"valid_with_underscores", "user_name", false, ""},
+		{"valid_uppercase", "UserName", false, ""},
+		{"valid_starting_with_digit", "123user", false, ""},
+		{"valid_starting_with_dot", ".hidden", false, ""},
+		{"valid_starting_with_hyphen", "-user", false, ""},     // Windows allows this
+		{"valid_domain_username", "DOMAIN\\user", false, ""},   // Windows domain format
+		{"valid_email_username", "user@domain.com", false, ""}, // Windows email format
+		{"valid_machine_username", "MACHINE\\user", false, ""}, // Windows machine format
+
+		// Invalid usernames (Windows)
+		{"empty_username", "", true, "username cannot be empty"},
+		{"username_too_long", "thisusernameiswaytoolongandexceedsthe32characterlimit", true, "username too long"},
+		{"username_with_spaces", "user name", true, "invalid characters"},
+		{"username_with_shell_metacharacters", "user;rm", true, "invalid characters"},
+		{"username_with_command_injection", "user`rm -rf /`", true, "invalid characters"},
+		{"username_with_pipe", "user|rm", true, "invalid characters"},
+		{"username_with_ampersand", "user&rm", true, "invalid characters"},
+		{"username_with_quotes", "user\"name", true, "invalid characters"},
+		{"username_with_newline", "user\nname", true, "invalid characters"},
+		{"username_with_brackets", "user[name]", true, "invalid characters"},
+		{"username_with_colon", "user:name", true, "invalid characters"},
+		{"username_with_semicolon", "user;name", true, "invalid characters"},
+		{"username_with_equals", "user=name", true, "invalid characters"},
+		{"username_with_comma", "user,name", true, "invalid characters"},
+		{"username_with_plus", "user+name", true, "invalid characters"},
+		{"username_with_asterisk", "user*name", true, "invalid characters"},
+		{"username_with_question", "user?name", true, "invalid characters"},
+		{"username_with_angles", "user<name>", true, "invalid characters"},
+		{"reserved_dot", ".", true, "cannot be '.' or '..'"},
+		{"reserved_dotdot", "..", true, "cannot be '.' or '..'"},
+		{"username_ending_with_period", "user.", true, "cannot end with a period"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			err := validateUsername(tt.username)
 			if tt.wantErr {
 				assert.Error(t, err, "Should reject invalid username")
@@ -684,11 +747,11 @@ func TestCheckPrivileges_ActualPlatform(t *testing.T) {
 
 	switch {
 	case actualOS == "windows":
-		// Windows should deny user switching
-		assert.False(t, result.Allowed, "Windows should deny user switching")
+		// Windows supports user switching but should fail on nonexistent user
+		assert.False(t, result.Allowed, "Windows should deny nonexistent user")
 		assert.True(t, result.RequiresUserSwitching, "Should indicate switching is needed")
-		assert.Contains(t, result.Error.Error(), "user switching not supported",
-			"Should indicate user switching not supported")
+		assert.Contains(t, result.Error.Error(), "not found",
+			"Should indicate user not found")
 	case !actualIsPrivileged:
 		// Non-privileged Unix processes should fallback to current user
 		assert.True(t, result.Allowed, "Non-privileged Unix process should fallback to current user")

@@ -515,18 +515,19 @@ func getCurrentUsername() string {
 	return "test-user"
 }
 
-// isCI checks if we're running in a CI environment
+// isCI checks if we're running in GitHub Actions CI
 func isCI() bool {
-	ciEnvVars := []string{
-		"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS",
-		"GITLAB_CI", "JENKINS_URL", "BUILDKITE", "CIRCLECI",
+	// Check standard CI environment variables
+	if os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("CI") == "true" {
+		return true
 	}
 
-	for _, envVar := range ciEnvVars {
-		if os.Getenv(envVar) != "" {
-			return true
-		}
+	// Check for GitHub Actions runner hostname pattern (when running as SYSTEM)
+	hostname, err := os.Hostname()
+	if err == nil && strings.HasPrefix(hostname, "runner") {
+		return true
 	}
+
 	return false
 }
 
