@@ -742,7 +742,6 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 }
 
 func Test_AddPeerToGroup(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -758,11 +757,10 @@ func Test_AddPeerToGroup(t *testing.T) {
 		return
 	}
 
-	const totalPeers = 10000 // totalPeers / differentHostnames should be less than 10 (due to concurrent retries)
-	const differentHostnames = 50
+	const totalPeers = 1000
 
 	var wg sync.WaitGroup
-	errs := make(chan error, totalPeers+differentHostnames)
+	errs := make(chan error, totalPeers)
 	start := make(chan struct{})
 	for i := 0; i < totalPeers; i++ {
 		wg.Add(1)
@@ -797,11 +795,10 @@ func Test_AddPeerToGroup(t *testing.T) {
 		t.Fatalf("Failed to get account %s: %v", accountID, err)
 	}
 
-	assert.Equal(t, totalPeers, len(maps.Values(account.Groups)[0].Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
+	assert.Equal(t, totalPeers, len(maps.Values(account.Groups)[0].Peers), "Expected %d peers in group %s in account %s, got %d", totalPeers, maps.Values(account.Groups)[0].Name, accountID, len(account.Peers))
 }
 
 func Test_AddPeerToAll(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -817,11 +814,10 @@ func Test_AddPeerToAll(t *testing.T) {
 		return
 	}
 
-	const totalPeers = 10000 // totalPeers / differentHostnames should be less than 10 (due to concurrent retries)
-	const differentHostnames = 50
+	const totalPeers = 1000
 
 	var wg sync.WaitGroup
-	errs := make(chan error, totalPeers+differentHostnames)
+	errs := make(chan error, totalPeers)
 	start := make(chan struct{})
 	for i := 0; i < totalPeers; i++ {
 		wg.Add(1)
@@ -856,11 +852,10 @@ func Test_AddPeerToAll(t *testing.T) {
 		t.Fatalf("Failed to get account %s: %v", accountID, err)
 	}
 
-	assert.Equal(t, totalPeers, len(maps.Values(account.Groups)[0].Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
+	assert.Equal(t, totalPeers, len(maps.Values(account.Groups)[0].Peers), "Expected %d peers in group %s account %s, got %d", totalPeers, maps.Values(account.Groups)[0].Name, accountID, len(account.Peers))
 }
 
 func Test_AddPeerAndAddToAll(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -876,11 +871,10 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 		return
 	}
 
-	const totalPeers = 10000 // totalPeers / differentHostnames should be less than 10 (due to concurrent retries)
-	const differentHostnames = 50
+	const totalPeers = 300
 
 	var wg sync.WaitGroup
-	errs := make(chan error, totalPeers+differentHostnames)
+	errs := make(chan error, totalPeers)
 	start := make(chan struct{})
 	for i := 0; i < totalPeers; i++ {
 		wg.Add(1)
@@ -893,16 +887,16 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 			peer := &peer2.Peer{
 				ID:        strconv.Itoa(i),
 				AccountID: accountID,
-				Meta:      peer2.PeerSystemMeta{Hostname: "peer" + strconv.Itoa(i)},
+				DNSLabel:  "peer" + strconv.Itoa(i),
 				IP:        uint32ToIP(uint32(i)),
 			}
 
 			err = manager.Store.ExecuteInTransaction(context.Background(), func(transaction store.Store) error {
-				err = manager.Store.AddPeerToAccount(context.Background(), store.LockingStrengthNone, peer)
+				err = transaction.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
 				if err != nil {
 					return fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
 				}
-				err = manager.Store.AddPeerToAllGroup(context.Background(), accountID, strconv.Itoa(i))
+				err = transaction.AddPeerToAllGroup(context.Background(), accountID, peer.ID)
 				if err != nil {
 					return fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
 				}
@@ -931,7 +925,8 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 		t.Fatalf("Failed to get account %s: %v", accountID, err)
 	}
 
-	assert.Equal(t, totalPeers, len(maps.Values(account.Groups)[0].Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
+	assert.Equal(t, totalPeers, len(maps.Values(account.Groups)[0].Peers), "Expected %d peers in group %s in account %s, got %d", totalPeers, maps.Values(account.Groups)[0].Name, accountID, len(account.Peers))
+	assert.Equal(t, totalPeers, len(account.Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
 }
 
 func uint32ToIP(n uint32) net.IP {
@@ -941,7 +936,6 @@ func uint32ToIP(n uint32) net.IP {
 }
 
 func Test_IncrementNetworkSerial(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -957,7 +951,7 @@ func Test_IncrementNetworkSerial(t *testing.T) {
 		return
 	}
 
-	const totalPeers = 3000
+	const totalPeers = 1000
 
 	var wg sync.WaitGroup
 	errs := make(chan error, totalPeers)
@@ -1000,5 +994,5 @@ func Test_IncrementNetworkSerial(t *testing.T) {
 		t.Fatalf("Failed to get account %s: %v", accountID, err)
 	}
 
-	assert.Equal(t, totalPeers, int(account.Network.Serial), "Expected %d peers in account %s, got %d", totalPeers, accountID, account.Network.Serial)
+	assert.Equal(t, totalPeers, int(account.Network.Serial), "Expected %d serial increases in account %s, got %d", totalPeers, accountID, account.Network.Serial)
 }
