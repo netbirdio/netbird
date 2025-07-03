@@ -21,50 +21,74 @@ func validateUsername(username string) error {
 		return fmt.Errorf("username cannot be empty")
 	}
 
-	// Handle domain\username format - extract just the username part for validation
-	usernameToValidate := username
-	if idx := strings.LastIndex(username, `\`); idx != -1 {
-		usernameToValidate = username[idx+1:]
+	usernameToValidate := extractUsernameFromDomain(username)
+
+	if err := validateUsernameLength(usernameToValidate); err != nil {
+		return err
 	}
 
-	// Windows SAM Account Name limits: 20 characters for users, 16 for computers
-	// We use 20 as the general limit (applies to username part only)
-	if len(usernameToValidate) > 20 {
+	if err := validateUsernameCharacters(usernameToValidate); err != nil {
+		return err
+	}
+
+	if err := validateUsernameFormat(usernameToValidate); err != nil {
+		return err
+	}
+
+	warnAboutProblematicCharacters(usernameToValidate)
+	return nil
+}
+
+// extractUsernameFromDomain extracts the username part from domain\username format
+func extractUsernameFromDomain(username string) string {
+	if idx := strings.LastIndex(username, `\`); idx != -1 {
+		return username[idx+1:]
+	}
+	return username
+}
+
+// validateUsernameLength checks if username length is within Windows limits
+func validateUsernameLength(username string) error {
+	if len(username) > 20 {
 		return fmt.Errorf("username too long (max 20 characters for Windows)")
 	}
+	return nil
+}
 
-	// Check for Windows SAM Account Name invalid characters
-	// Prohibited: " / \ [ ] : ; | = , + * ? < >
-	// Note: backslash is allowed in full username (domain\user) but not in the user part
+// validateUsernameCharacters checks for invalid characters in Windows usernames
+func validateUsernameCharacters(username string) error {
 	invalidChars := []rune{'"', '/', '\\', '[', ']', ':', ';', '|', '=', ',', '+', '*', '?', '<', '>'}
-	for _, char := range usernameToValidate {
+	for _, char := range username {
 		for _, invalid := range invalidChars {
 			if char == invalid {
 				return fmt.Errorf("username contains invalid character '%c'", char)
 			}
 		}
-		// Check for control characters (ASCII < 32 or == 127)
 		if char < 32 || char == 127 {
 			return fmt.Errorf("username contains control characters")
 		}
 	}
+	return nil
+}
 
-	// Period cannot be the final character
-	if strings.HasSuffix(usernameToValidate, ".") {
+// validateUsernameFormat checks for invalid username formats and patterns
+func validateUsernameFormat(username string) error {
+	if strings.HasSuffix(username, ".") {
 		return fmt.Errorf("username cannot end with a period")
 	}
 
-	// Check for reserved patterns
-	if usernameToValidate == "." || usernameToValidate == ".." {
+	if username == "." || username == ".." {
 		return fmt.Errorf("username cannot be '.' or '..'")
 	}
 
-	// Warn about @ character (causes login issues) - check in username part only
-	if strings.Contains(usernameToValidate, "@") {
-		log.Warnf("username '%s' contains '@' character which may cause login issues", usernameToValidate)
-	}
-
 	return nil
+}
+
+// warnAboutProblematicCharacters warns about characters that may cause issues
+func warnAboutProblematicCharacters(username string) {
+	if strings.Contains(username, "@") {
+		log.Warnf("username '%s' contains '@' character which may cause login issues", username)
+	}
 }
 
 // createExecutorCommand creates a command using Windows executor for privilege dropping
@@ -77,19 +101,6 @@ func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User
 	}
 
 	return s.createUserSwitchCommand(localUser, session, hasPty)
-}
-
-// createDirectCommand creates a command that runs without privilege dropping
-func (s *Server) createDirectCommand(session ssh.Session, localUser *user.User) (*exec.Cmd, error) {
-	log.Debugf("creating direct command for user %s (no user switching needed)", localUser.Username)
-
-	shell := getUserShell(localUser.Uid)
-	args := s.getShellCommandArgs(shell, session.RawCommand())
-
-	cmd := exec.CommandContext(session.Context(), args[0], args[1:]...)
-	cmd.Dir = localUser.HomeDir
-
-	return cmd, nil
 }
 
 // createUserSwitchCommand creates a command with Windows user switching

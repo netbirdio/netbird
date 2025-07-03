@@ -73,22 +73,6 @@ func (s *Server) createPtyLoginCommand(localUser *user.User, ptyReq ssh.Pty, ses
 	return execCmd, nil
 }
 
-// createPrivilegedPtySuCommand creates a Pty command using su -l -c for command execution
-func (s *Server) createPrivilegedPtySuCommand(localUser *user.User, ptyReq ssh.Pty, session ssh.Session, command string) (*exec.Cmd, error) {
-	suPath, err := exec.LookPath("su")
-	if err != nil {
-		return nil, fmt.Errorf("su command not available: %w", err)
-	}
-
-	// Use su -l -c to execute the command as the target user with login environment
-	args := []string{"-l", localUser.Username, "-c", command}
-	execCmd := exec.CommandContext(session.Context(), suPath, args...)
-	execCmd.Dir = localUser.HomeDir
-	execCmd.Env = s.preparePtyEnv(localUser, ptyReq, session)
-
-	return execCmd, nil
-}
-
 // getLoginCmd returns the login command and args for privileged Pty user switching
 func (s *Server) getLoginCmd(username string, remoteAddr net.Addr) (string, []string, error) {
 	loginPath, err := exec.LookPath("login")
@@ -192,19 +176,6 @@ func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User
 	}
 
 	return privilegeDropper.CreateExecutorCommand(session.Context(), config)
-}
-
-// createDirectCommand creates a command that runs without privilege dropping
-func (s *Server) createDirectCommand(session ssh.Session, localUser *user.User) (*exec.Cmd, error) {
-	log.Debugf("creating direct command for user %s (no user switching needed)", localUser.Username)
-
-	shell := getUserShell(localUser.Uid)
-	args := s.getShellCommandArgs(shell, session.RawCommand())
-
-	cmd := exec.CommandContext(session.Context(), args[0], args[1:]...)
-	cmd.Dir = localUser.HomeDir
-
-	return cmd, nil
 }
 
 // enableUserSwitching is a no-op on Unix systems
