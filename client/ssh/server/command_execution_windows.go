@@ -264,6 +264,14 @@ func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResu
 	return true
 }
 
+// getShellCommandArgs returns the shell command and arguments for executing a command string
+func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
+	if cmdString == "" {
+		return []string{shell, "-NoLogo"}
+	}
+	return []string{shell, "-Command", cmdString}
+}
+
 func (s *Server) handlePtyWithUserSwitching(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, _ <-chan ssh.Window, _ []string) {
 	localUser := privilegeResult.User
 

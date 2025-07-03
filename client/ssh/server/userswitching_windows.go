@@ -79,9 +79,17 @@ func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User
 	return s.createUserSwitchCommand(localUser, session, hasPty)
 }
 
-// createDirectCommand is not supported on Windows - always use user switching with token creation
+// createDirectCommand creates a command that runs without privilege dropping
 func (s *Server) createDirectCommand(session ssh.Session, localUser *user.User) (*exec.Cmd, error) {
-	return nil, fmt.Errorf("direct command execution not supported on Windows - use user switching with token creation")
+	log.Debugf("creating direct command for user %s (no user switching needed)", localUser.Username)
+
+	shell := getUserShell(localUser.Uid)
+	args := s.getShellCommandArgs(shell, session.RawCommand())
+
+	cmd := exec.CommandContext(session.Context(), args[0], args[1:]...)
+	cmd.Dir = localUser.HomeDir
+
+	return cmd, nil
 }
 
 // createUserSwitchCommand creates a command with Windows user switching

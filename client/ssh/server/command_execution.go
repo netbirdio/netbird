@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"time"
 
 	"github.com/gliderlabs/ssh"
@@ -25,7 +24,7 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 
 	logger.Infof("executing %s for %s from %s: %s", commandType, localUser.Username, session.RemoteAddr(), safeLogCommand(session.Command()))
 
-	execCmd, err := s.createCommandWithPrivileges(privilegeResult, session, hasPty)
+	execCmd, err := s.createCommand(privilegeResult, session, hasPty)
 	if err != nil {
 		logger.Errorf("%s creation failed: %v", commandType, err)
 
@@ -44,38 +43,19 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 		return
 	}
 
-	var success bool
-	if hasPty {
-		success = s.handlePty(logger, session, privilegeResult, ptyReq, winCh)
-	} else {
-		success = s.executeCommand(logger, session, execCmd)
+	if s.executeCommand(logger, session, execCmd) {
+		logger.Debugf("%s execution completed", commandType)
 	}
-
-	if !success {
-		return
-	}
-
-	logger.Debugf("%s execution completed", commandType)
 }
 
-func (s *Server) createCommandWithPrivileges(privilegeResult PrivilegeCheckResult, session ssh.Session, hasPty bool) (*exec.Cmd, error) {
+func (s *Server) createCommand(privilegeResult PrivilegeCheckResult, session ssh.Session, hasPty bool) (*exec.Cmd, error) {
 	localUser := privilegeResult.User
 
-	var cmd *exec.Cmd
-	var err error
-
-	// If we used fallback (unprivileged process), skip su and use direct execution
-	if privilegeResult.UsedFallback {
-		log.Debugf("using fallback - direct execution for current user")
-		cmd, err = s.createDirectCommand(session, localUser)
-	} else {
-		// Try su first for system integration (PAM/audit) when privileged
-		cmd, err = s.createSuCommand(session, localUser)
-		if err != nil {
-			// Always fall back to executor if su fails
-			log.Debugf("su command failed, falling back to executor: %v", err)
-			cmd, err = s.createExecutorCommand(session, localUser, hasPty)
-		}
+	// Try su first for system integration (PAM/audit) when privileged
+	cmd, err := s.createSuCommand(session, localUser, hasPty)
+	if err != nil || privilegeResult.UsedFallback {
+		log.Debugf("su command failed, falling back to executor: %v", err)
+		cmd, err = s.createExecutorCommand(session, localUser, hasPty)
 	}
 
 	if err != nil {
@@ -86,20 +66,6 @@ func (s *Server) createCommandWithPrivileges(privilegeResult PrivilegeCheckResul
 	return cmd, nil
 }
 
-// getShellCommandArgs returns the shell command and arguments for executing a command string
-func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
-	if runtime.GOOS == "windows" {
-		if cmdString == "" {
-			return []string{shell, "-NoLogo"}
-		}
-		return []string{shell, "-Command", cmdString}
-	}
-
-	if cmdString == "" {
-		return []string{shell}
-	}
-	return []string{shell, "-c", cmdString}
-}
 
 // executeCommand executes the command and handles I/O and exit codes
 func (s *Server) executeCommand(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd) bool {

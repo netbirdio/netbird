@@ -99,8 +99,10 @@ func (pd *PrivilegeDropper) DropPrivileges(targetUID, targetGID uint32, suppleme
 	originalUID := os.Geteuid()
 	originalGID := os.Getegid()
 
-	if err := pd.setGroupsAndIDs(targetUID, targetGID, supplementaryGroups); err != nil {
-		return err
+	if originalUID != int(targetUID) || originalGID != int(targetGID) {
+		if err := pd.setGroupsAndIDs(targetUID, targetGID, supplementaryGroups); err != nil {
+			return fmt.Errorf("set groups and IDs: %w", err)
+		}
 	}
 
 	if err := pd.validatePrivilegeDropSuccess(targetUID, targetGID, originalUID, originalGID); err != nil {
@@ -188,8 +190,7 @@ func (pd *PrivilegeDropper) ExecuteWithPrivilegeDrop(ctx context.Context, config
 
 	// TODO: Implement Pty support for executor path
 	if config.PTY {
-		log.Warnf("Pty requested but executor does not support Pty yet - continuing without Pty")
-		config.PTY = false // Disable Pty and continue
+		config.PTY = false
 	}
 
 	if err := pd.DropPrivileges(config.UID, config.GID, config.Groups); err != nil {

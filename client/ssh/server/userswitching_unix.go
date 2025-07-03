@@ -59,41 +59,9 @@ func isFullyNumeric(username string) bool {
 	return true
 }
 
-// createSecurePtyUserSwitchCommand creates a Pty command with proper user switching
-// For privileged processes, uses login command. For non-privileged, falls back to shell.
-func (s *Server) createPtyUserSwitchCommand(_ []string, localUser *user.User, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
-	if !isCurrentProcessPrivileged() {
-		// Non-privileged process: fallback to shell with login flag
-		return s.createNonPrivilegedPtyCommand(localUser, ptyReq, session)
-	}
-
-	// Privileged process: use login command for proper user switching
-	return s.createPrivilegedPtyLoginCommand(localUser, ptyReq, session)
-}
-
-// createNonPrivilegedPtyCommand creates a Pty command for non-privileged processes
-func (s *Server) createNonPrivilegedPtyCommand(localUser *user.User, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
-	shell := getUserShell(localUser.Uid)
-	args := []string{shell, "-l"}
-
-	execCmd := exec.CommandContext(session.Context(), args[0], args[1:]...)
-	execCmd.Dir = localUser.HomeDir
-	execCmd.Env = s.preparePtyEnv(localUser, ptyReq, session)
-
-	return execCmd, nil
-}
-
-// createPrivilegedPtyLoginCommand creates a Pty command using login for privileged processes
-func (s *Server) createPrivilegedPtyLoginCommand(localUser *user.User, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
-	rawCmd := session.RawCommand()
-
-	// If there's a command to execute, use su -l -c instead of login
-	if rawCmd != "" {
-		return s.createPrivilegedPtySuCommand(localUser, ptyReq, session, rawCmd)
-	}
-
-	// For interactive sessions (no command), use login
-	loginPath, args, err := s.getRootLoginCmd(localUser.Username, session.RemoteAddr())
+// createPtyLoginCommand creates a Pty command using login for privileged processes
+func (s *Server) createPtyLoginCommand(localUser *user.User, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
+	loginPath, args, err := s.getLoginCmd(localUser.Username, session.RemoteAddr())
 	if err != nil {
 		return nil, fmt.Errorf("get login command: %w", err)
 	}
@@ -121,8 +89,8 @@ func (s *Server) createPrivilegedPtySuCommand(localUser *user.User, ptyReq ssh.P
 	return execCmd, nil
 }
 
-// getRootLoginCmd returns the login command and args for privileged Pty user switching
-func (s *Server) getRootLoginCmd(username string, remoteAddr net.Addr) (string, []string, error) {
+// getLoginCmd returns the login command and args for privileged Pty user switching
+func (s *Server) getLoginCmd(username string, remoteAddr net.Addr) (string, []string, error) {
 	loginPath, err := exec.LookPath("login")
 	if err != nil {
 		return "", nil, fmt.Errorf("login command not available: %w", err)
@@ -244,23 +212,29 @@ func enableUserSwitching() error {
 	return nil
 }
 
-// createPtyCommandWithPrivileges creates the exec.Cmd for Pty execution respecting privilege check results
-func (s *Server) createPtyCommandWithPrivileges(cmd []string, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
+// createPtyCommand creates the exec.Cmd for Pty execution respecting privilege check results
+func (s *Server) createPtyCommand(privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
 	localUser := privilegeResult.User
 
-	if privilegeResult.RequiresUserSwitching {
-		return s.createPtyUserSwitchCommand(cmd, localUser, ptyReq, session)
+	if privilegeResult.UsedFallback {
+		return s.createDirectPtyCommand(session, localUser, ptyReq), nil
 	}
 
-	// No user switching needed - create direct Pty command
-	shell := getUserShell(localUser.Uid)
-	rawCmd := session.RawCommand()
-	args := s.getShellCommandArgs(shell, rawCmd)
-	execCmd := exec.CommandContext(session.Context(), args[0], args[1:]...)
+	return s.createPtyLoginCommand(localUser, ptyReq, session)
+}
 
-	execCmd.Dir = localUser.HomeDir
-	execCmd.Env = s.preparePtyEnv(localUser, ptyReq, session)
-	return execCmd, nil
+// createDirectPtyCommand creates a direct Pty command without privilege dropping
+func (s *Server) createDirectPtyCommand(session ssh.Session, localUser *user.User, ptyReq ssh.Pty) *exec.Cmd {
+	log.Debugf("creating direct Pty command for user %s (no user switching needed)", localUser.Username)
+
+	shell := getUserShell(localUser.Uid)
+	args := s.getShellCommandArgs(shell, session.RawCommand())
+
+	cmd := exec.CommandContext(session.Context(), args[0], args[1:]...)
+	cmd.Dir = localUser.HomeDir
+	cmd.Env = s.preparePtyEnv(localUser, ptyReq, session)
+
+	return cmd
 }
 
 // preparePtyEnv prepares environment variables for Pty execution

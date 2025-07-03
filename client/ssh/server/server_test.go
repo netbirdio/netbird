@@ -475,8 +475,9 @@ func TestSSHServer_WindowsShellHandling(t *testing.T) {
 		// Test Unix shell behavior
 		args := server.getShellCommandArgs("/bin/sh", "echo test")
 		assert.Equal(t, "/bin/sh", args[0])
-		assert.Equal(t, "-c", args[1])
-		assert.Equal(t, "echo test", args[2])
+		assert.Equal(t, "-l", args[1])
+		assert.Equal(t, "-c", args[2])
+		assert.Equal(t, "echo test", args[3])
 	}
 }
 

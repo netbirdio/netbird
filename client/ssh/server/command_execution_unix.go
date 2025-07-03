@@ -19,7 +19,7 @@ import (
 )
 
 // createSuCommand creates a command using su -l -c for privilege switching
-func (s *Server) createSuCommand(session ssh.Session, localUser *user.User) (*exec.Cmd, error) {
+func (s *Server) createSuCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
 	suPath, err := exec.LookPath("su")
 	if err != nil {
 		return nil, fmt.Errorf("su command not available: %w", err)
@@ -30,13 +30,21 @@ func (s *Server) createSuCommand(session ssh.Session, localUser *user.User) (*ex
 		return nil, fmt.Errorf("no command specified for su execution")
 	}
 
-	// Use su -l -c to execute the command as the target user with login environment
+	// TODO: handle pty flag if available
 	args := []string{"-l", localUser.Username, "-c", command}
 
 	cmd := exec.CommandContext(session.Context(), suPath, args...)
 	cmd.Dir = localUser.HomeDir
 
 	return cmd, nil
+}
+
+// getShellCommandArgs returns the shell command and arguments for executing a command string
+func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
+	if cmdString == "" {
+		return []string{shell, "-l"}
+	}
+	return []string{shell, "-l", "-c", cmdString}
 }
 
 // prepareCommandEnv prepares environment variables for command execution on Unix
@@ -94,7 +102,7 @@ func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResu
 	localUser := privilegeResult.User
 	logger.Infof("executing Pty command for %s from %s: %s", localUser.Username, session.RemoteAddr(), safeLogCommand(cmd))
 
-	execCmd, err := s.createPtyCommandWithPrivileges(cmd, privilegeResult, ptyReq, session)
+	execCmd, err := s.createPtyCommand(privilegeResult, ptyReq, session)
 	if err != nil {
 		logger.Errorf("Pty command creation failed: %v", err)
 		errorMsg := "User switching failed - login command not available\r\n"
