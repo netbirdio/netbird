@@ -70,13 +70,16 @@ func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]an
 func (g *Group) Copy() *Group {
 	group := &Group{
 		ID:                   g.ID,
+		AccountID:            g.AccountID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
 		Peers:                make([]string, len(g.Peers)),
+		GroupPeers:           make([]GroupPeer, len(g.GroupPeers)),
 		Resources:            make([]Resource, len(g.Resources)),
 		IntegrationReference: g.IntegrationReference,
 	}
 	copy(group.Peers, g.Peers)
+	copy(group.GroupPeers, g.GroupPeers)
 	copy(group.Resources, g.Resources)
 	return group
 }

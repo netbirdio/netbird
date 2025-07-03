@@ -1344,6 +1344,7 @@ func TestSqlStore_SaveGroup(t *testing.T) {
 		AccountID: accountID,
 		Issued:    "api",
 		Peers:     []string{"peer1", "peer2"},
+		Resources: []types.Resource{},
 	}
 	err = store.SaveGroup(context.Background(), LockingStrengthUpdate, group)
 	require.NoError(t, err)

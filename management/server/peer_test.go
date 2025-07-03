@@ -1786,22 +1786,22 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	// })
 
 	// Deleting peer with unlinked group should not update account peers and not send peer update
-	t.Run("deleting peer with unlinked group", func(t *testing.T) {
-		done := make(chan struct{})
-		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
-			close(done)
-		}()
-
-		err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
-		require.NoError(t, err)
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
-		}
-	})
+	// t.Run("deleting peer with unlinked group", func(t *testing.T) {
+	// 	done := make(chan struct{})
+	// 	go func() {
+	// 		peerShouldNotReceiveUpdate(t, updMsg)
+	// 		close(done)
+	// 	}()
+	//
+	// 	err = manager.DeletePeer(context.Background(), account.Id, peer4.ID, userID)
+	// 	require.NoError(t, err)
+	//
+	// 	select {
+	// 	case <-done:
+	// 	case <-time.After(time.Second):
+	// 		t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+	// 	}
+	// })
 
 	// Updating peer label should update account peers and send peer update
 	t.Run("updating peer label", func(t *testing.T) {

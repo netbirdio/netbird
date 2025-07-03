@@ -1443,13 +1443,13 @@ func (s *SqlStore) RemoveResourceFromGroup(ctx context.Context, accountId string
 
 // GetPeerGroups retrieves all groups assigned to a specific peer in a given account.
 func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]*types.Group, error) {
-	tx := s.db.Debug()
+	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
 	var groupIDs []string
-	err := s.db.
+	err := tx.
 		Table("group_peers").
 		Where("peer_id = ?", peerId).
 		Pluck("group_id", &groupIDs).Error
@@ -1461,7 +1461,7 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 	}
 
 	var groups []*types.Group
-	err = s.db.
+	err = tx.
 		Where("id IN ?", groupIDs).
 		Preload("GroupPeers").
 		Find(&groups).Error
@@ -1825,6 +1825,7 @@ func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, 
 		return status.Errorf(status.InvalidArgument, "group is nil")
 	}
 
+	group = group.Copy()
 	group.StoreGroupPeers()
 
 	if err := s.db.Save(group).Error; err != nil {
