@@ -378,6 +378,10 @@ func TestCheckPrivileges_ComprehensiveMatrix(t *testing.T) {
 }
 
 func TestUsedFallback_MeansNoPrivilegeDropping(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Fallback mechanism is Unix-specific")
+	}
+
 	// Create test scenario where fallback should occur
 	server := &Server{allowRootLogin: true}
 

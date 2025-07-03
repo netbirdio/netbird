@@ -282,7 +282,8 @@ func createConPtyProcess(commandLine string, userToken windows.Handle, userEnv [
 // convertEnvironmentToUTF16 converts environment variables to Windows UTF16 format.
 func convertEnvironmentToUTF16(userEnv []string) (*uint16, error) {
 	if len(userEnv) == 0 {
-		return nil, ErrEmptyEnvironment
+		// Return nil pointer for empty environment - Windows API will inherit parent environment
+		return nil, nil //nolint:nilnil // Intentional nil,nil for empty environment
 	}
 
 	var envUTF16 []uint16
@@ -302,7 +303,8 @@ func convertEnvironmentToUTF16(userEnv []string) (*uint16, error) {
 	if len(envUTF16) > 0 {
 		return &envUTF16[0], nil
 	}
-	return nil, ErrEmptyEnvironment
+	// Return nil pointer when no valid environment variables found
+	return nil, nil //nolint:nilnil // Intentional nil,nil for empty environment
 }
 
 // duplicateToPrimaryToken converts an impersonation token to a primary token.

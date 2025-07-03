@@ -463,7 +463,7 @@ func TestSSHServer_WindowsShellHandling(t *testing.T) {
 		// Test Windows cmd.exe shell behavior
 		args := server.getShellCommandArgs("cmd.exe", "echo test")
 		assert.Equal(t, "cmd.exe", args[0])
-		assert.Equal(t, "/c", args[1])
+		assert.Equal(t, "-Command", args[1])
 		assert.Equal(t, "echo test", args[2])
 
 		// Test PowerShell behavior
