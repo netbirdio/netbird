@@ -472,7 +472,7 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 					UpdateAll: true,
 				},
 			).
-			Save(&groups)
+			Create(&groups)
 		if result.Error != nil {
 			log.WithContext(ctx).Errorf("failed to save groups to store: %v", result.Error)
 			return status.Errorf(status.Internal, "failed to save groups to store")
