@@ -480,8 +480,9 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 
 		for _, g := range groups {
 			if len(g.GroupPeers) == 0 {
-				if err := tx.Model(&g).Association("GroupPeers").Clear(); err != nil {
-					return status.Errorf(status.Internal, "failed to clear group peers: %s", err)
+				if err := tx.Where("group_id = ?", g.ID).Delete(&types.GroupPeer{}).Error; err != nil {
+					log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", g.ID, err)
+					return status.Errorf(status.Internal, "failed to delete group peers")
 				}
 			} else {
 				if err := tx.Model(&g).Association("GroupPeers").Replace(g.GroupPeers); err != nil {
@@ -1838,8 +1839,9 @@ func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, 
 	}
 
 	if len(group.GroupPeers) == 0 {
-		if err := s.db.Model(&group).Association("GroupPeers").Clear(); err != nil {
-			return status.Errorf(status.Internal, "failed to clear group peers: %s", err)
+		if err := s.db.Where("group_id = ?", group.ID).Delete(&types.GroupPeer{}).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", group.ID, err)
+			return status.Errorf(status.Internal, "failed to delete group peers")
 		}
 	} else {
 		if err := s.db.Model(&group).Association("GroupPeers").Replace(group.GroupPeers); err != nil {
