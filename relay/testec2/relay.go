@@ -70,8 +70,8 @@ func prepareConnsSender(serverConnURL string, peerPairs int) []net.Conn {
 	ctx := context.Background()
 	clientsSender := make([]*client.Client, peerPairs)
 	for i := 0; i < cap(clientsSender); i++ {
-		c := client.NewClient(ctx, serverConnURL, hmacTokenStore, "sender-"+fmt.Sprint(i))
-		if err := c.Connect(); err != nil {
+		c := client.NewClient(serverConnURL, hmacTokenStore, "sender-"+fmt.Sprint(i))
+		if err := c.Connect(ctx); err != nil {
 			log.Fatalf("failed to connect to server: %s", err)
 		}
 		clientsSender[i] = c
@@ -156,8 +156,8 @@ func runReader(conn net.Conn) time.Duration {
 func prepareConnsReceiver(serverConnURL string, peerPairs int) []net.Conn {
 	clientsReceiver := make([]*client.Client, peerPairs)
 	for i := 0; i < cap(clientsReceiver); i++ {
-		c := client.NewClient(context.Background(), serverConnURL, hmacTokenStore, "receiver-"+fmt.Sprint(i))
-		err := c.Connect()
+		c := client.NewClient(serverConnURL, hmacTokenStore, "receiver-"+fmt.Sprint(i))
+		err := c.Connect(context.Background())
 		if err != nil {
 			log.Fatalf("failed to connect to server: %s", err)
 		}

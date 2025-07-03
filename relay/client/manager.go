@@ -264,8 +264,8 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	m.relayClients[serverAddress] = rt
 	m.relayClientsMutex.Unlock()
 
-	relayClient := NewClient(m.ctx, serverAddress, m.tokenStore, m.peerID)
-	err := relayClient.Connect()
+	relayClient := NewClient(serverAddress, m.tokenStore, m.peerID)
+	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.err = err
 		rt.Unlock()

@@ -63,24 +63,24 @@ func TestClient(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 	t.Log("alice connecting to server")
-	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err = clientAlice.Connect()
+	clientAlice := NewClient(serverURL, hmacTokenStore, "alice")
+	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 	defer clientAlice.Close()
 
 	t.Log("placeholder connecting to server")
-	clientPlaceHolder := NewClient(ctx, serverURL, hmacTokenStore, "clientPlaceHolder")
-	err = clientPlaceHolder.Connect()
+	clientPlaceHolder := NewClient(serverURL, hmacTokenStore, "clientPlaceHolder")
+	err = clientPlaceHolder.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 	defer clientPlaceHolder.Close()
 
 	t.Log("Bob connecting to server")
-	clientBob := NewClient(ctx, serverURL, hmacTokenStore, "bob")
-	err = clientBob.Connect()
+	clientBob := NewClient(serverURL, hmacTokenStore, "bob")
+	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
@@ -137,8 +137,8 @@ func TestRegistration(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err = clientAlice.Connect()
+	clientAlice := NewClient(serverURL, hmacTokenStore, "alice")
+	err = clientAlice.Connect(ctx)
 	if err != nil {
 		_ = srv.Shutdown(ctx)
 		t.Fatalf("failed to connect to server: %s", err)
@@ -177,8 +177,8 @@ func TestRegistrationTimeout(t *testing.T) {
 		_ = fakeTCPListener.Close()
 	}(fakeTCPListener)
 
-	clientAlice := NewClient(ctx, "127.0.0.1:1234", hmacTokenStore, "alice")
-	err = clientAlice.Connect()
+	clientAlice := NewClient("127.0.0.1:1234", hmacTokenStore, "alice")
+	err = clientAlice.Connect(ctx)
 	if err == nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
@@ -218,8 +218,8 @@ func TestEcho(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
-	err = clientAlice.Connect()
+	clientAlice := NewClient(serverURL, hmacTokenStore, idAlice)
+	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
@@ -230,8 +230,8 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	clientBob := NewClient(ctx, serverURL, hmacTokenStore, idBob)
-	err = clientBob.Connect()
+	clientBob := NewClient(serverURL, hmacTokenStore, idBob)
+	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
@@ -308,8 +308,8 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err = clientAlice.Connect()
+	clientAlice := NewClient(serverURL, hmacTokenStore, "alice")
+	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
@@ -354,8 +354,8 @@ func TestBindReconnect(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err = clientAlice.Connect()
+	clientAlice := NewClient(serverURL, hmacTokenStore, "alice")
+	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
@@ -365,8 +365,8 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to bind channel: %s", err)
 	}
 
-	clientBob := NewClient(ctx, serverURL, hmacTokenStore, "bob")
-	err = clientBob.Connect()
+	clientBob := NewClient(serverURL, hmacTokenStore, "bob")
+	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
@@ -382,8 +382,8 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to close client: %s", err)
 	}
 
-	clientAlice = NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err = clientAlice.Connect()
+	clientAlice = NewClient(serverURL, hmacTokenStore, "alice")
+	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
@@ -445,8 +445,8 @@ func TestCloseConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err = clientAlice.Connect()
+	clientAlice := NewClient(serverURL, hmacTokenStore, "alice")
+	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
@@ -501,8 +501,8 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, "alice")
-	err = clientAlice.Connect()
+	clientAlice := NewClient(serverURL, hmacTokenStore, "alice")
+	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
@@ -549,8 +549,8 @@ func TestCloseByServer(t *testing.T) {
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
-	relayClient := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
-	err = relayClient.Connect()
+	relayClient := NewClient(serverURL, hmacTokenStore, idAlice)
+	err = relayClient.Connect(ctx)
 	if err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
 	}
@@ -601,8 +601,8 @@ func TestCloseByClient(t *testing.T) {
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
-	relayClient := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
-	err = relayClient.Connect()
+	relayClient := NewClient(serverURL, hmacTokenStore, idAlice)
+	err = relayClient.Connect(ctx)
 	if err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
 	}
@@ -652,8 +652,8 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(ctx, serverURL, hmacTokenStore, idAlice)
-	err = clientAlice.Connect()
+	clientAlice := NewClient(serverURL, hmacTokenStore, idAlice)
+	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
@@ -664,8 +664,8 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 		}
 	}()
 
-	clientBob := NewClient(ctx, serverURL, hmacTokenStore, idBob)
-	err = clientBob.Connect()
+	clientBob := NewClient(serverURL, hmacTokenStore, idBob)
+	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}

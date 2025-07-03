@@ -124,7 +124,6 @@ func (cc *connContainer) close() {
 // While the Connect is in progress, the OpenConn function will block until the connection is established with relay server.
 type Client struct {
 	log            *log.Entry
-	parentCtx      context.Context
 	connectionURL  string
 	authTokenStore *auth.TokenStore
 	hashedID       messages.PeerID
@@ -147,13 +146,12 @@ type Client struct {
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
-func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.TokenStore, peerID string) *Client {
+func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string) *Client {
 	hashedID := messages.HashID(peerID)
 	relayLog := log.WithFields(log.Fields{"relay": serverURL})
 
 	c := &Client{
 		log:            relayLog,
-		parentCtx:      ctx,
 		connectionURL:  serverURL,
 		authTokenStore: authTokenStore,
 		hashedID:       hashedID,
@@ -171,7 +169,7 @@ func NewClient(ctx context.Context, serverURL string, authTokenStore *auth.Token
 }
 
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
-func (c *Client) Connect() error {
+func (c *Client) Connect(ctx context.Context) error {
 	c.log.Infof("connecting to relay server")
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
@@ -183,7 +181,7 @@ func (c *Client) Connect() error {
 		return nil
 	}
 
-	if err := c.connect(); err != nil {
+	if err := c.connect(ctx); err != nil {
 		return err
 	}
 
@@ -194,8 +192,12 @@ func (c *Client) Connect() error {
 
 	c.serviceIsRunning = true
 
+	internallyStoppedFlag := newInternalStopFlag()
+	hc := healthcheck.NewReceiver(c.log)
+	go c.listenForStopEvents(ctx, hc, c.relayConn, internallyStoppedFlag)
+
 	c.wgReadLoop.Add(1)
-	go c.readLoop(c.relayConn)
+	go c.readLoop(hc, c.relayConn, internallyStoppedFlag)
 
 	return nil
 }
@@ -205,19 +207,19 @@ func (c *Client) Connect() error {
 // it will return immediately.
 // todo: what should happen if call with the same peerID with multiple times?
 func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, error) {
-	// todo not lock while we wait for the connection to be established
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	peerID := messages.HashID(dstPeerID)
 
+	c.mu.Lock()
 	if !c.serviceIsRunning {
+		c.mu.Unlock()
 		return nil, fmt.Errorf("relay connection is not established")
 	}
-
-	peerID := messages.HashID(dstPeerID)
 	_, ok := c.conns[peerID]
 	if ok {
+		c.mu.Unlock()
 		return nil, ErrConnAlreadyExists
 	}
+	c.mu.Unlock()
 
 	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(ctx, peerID); err != nil {
 		c.log.Errorf("peer not available: %s, %s", peerID, err)
@@ -228,8 +230,15 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 	msgChannel := make(chan Msg, 100)
 	conn := NewConn(c, peerID, msgChannel, c.instanceURL)
 
+	c.mu.Lock()
+	_, ok = c.conns[peerID]
+	if ok {
+		c.mu.Unlock()
+		_ = conn.Close()
+		return nil, ErrConnAlreadyExists
+	}
 	c.conns[peerID] = newConnContainer(c.log, conn, msgChannel)
-
+	c.mu.Unlock()
 	return conn, nil
 }
 
@@ -268,7 +277,7 @@ func (c *Client) Close() error {
 	return c.close(true)
 }
 
-func (c *Client) connect() error {
+func (c *Client) connect(ctx context.Context) error {
 	rd := dialer.NewRaceDial(c.log, c.connectionURL, quic.Dialer{}, ws.Dialer{})
 	conn, err := rd.Dial()
 	if err != nil {
@@ -276,7 +285,7 @@ func (c *Client) connect() error {
 	}
 	c.relayConn = conn
 
-	if err = c.handShake(); err != nil {
+	if err = c.handShake(ctx); err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
 			c.log.Errorf("failed to close connection: %s", cErr)
@@ -287,7 +296,7 @@ func (c *Client) connect() error {
 	return nil
 }
 
-func (c *Client) handShake() error {
+func (c *Client) handShake(ctx context.Context) error {
 	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
 	if err != nil {
 		c.log.Errorf("failed to marshal auth message: %s", err)
@@ -300,7 +309,7 @@ func (c *Client) handShake() error {
 		return err
 	}
 	buf := make([]byte, messages.MaxHandshakeRespSize)
-	n, err := c.readWithTimeout(buf)
+	n, err := c.readWithTimeout(ctx, buf)
 	if err != nil {
 		c.log.Errorf("failed to read auth response: %s", err)
 		return err
@@ -333,11 +342,7 @@ func (c *Client) handShake() error {
 	return nil
 }
 
-func (c *Client) readLoop(relayConn net.Conn) {
-	internallyStoppedFlag := newInternalStopFlag()
-	hc := healthcheck.NewReceiver(c.log)
-	go c.listenForStopEvents(hc, relayConn, internallyStoppedFlag)
-
+func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internallyStoppedFlag *internalStopFlag) {
 	var (
 		errExit error
 		n       int
@@ -493,7 +498,7 @@ func (c *Client) writeTo(connReference *Conn, dstID messages.PeerID, payload []b
 	return len(payload), err
 }
 
-func (c *Client) listenForStopEvents(hc *healthcheck.Receiver, conn net.Conn, internalStopFlag *internalStopFlag) {
+func (c *Client) listenForStopEvents(ctx context.Context, hc *healthcheck.Receiver, conn net.Conn, internalStopFlag *internalStopFlag) {
 	for {
 		select {
 		case _, ok := <-hc.OnTimeout:
@@ -507,7 +512,7 @@ func (c *Client) listenForStopEvents(hc *healthcheck.Receiver, conn net.Conn, in
 				c.log.Warnf("failed to close connection: %s", err)
 			}
 			return
-		case <-c.parentCtx.Done():
+		case <-ctx.Done():
 			err := c.close(true)
 			if err != nil {
 				c.log.Errorf("failed to teardown connection: %s", err)
@@ -615,8 +620,8 @@ func (c *Client) writeCloseMsg() {
 	}
 }
 
-func (c *Client) readWithTimeout(buf []byte) (int, error) {
-	ctx, cancel := context.WithTimeout(c.parentCtx, serverResponseTimeout)
+func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, serverResponseTimeout)
 	defer cancel()
 
 	readDone := make(chan struct{})

@@ -100,8 +100,8 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 
 	clientsSender := make([]*client.Client, peerPairs)
 	for i := 0; i < cap(clientsSender); i++ {
-		c := client.NewClient(ctx, serverConnURL, hmacTokenStore, "sender-"+fmt.Sprint(i))
-		err := c.Connect()
+		c := client.NewClient(serverConnURL, hmacTokenStore, "sender-"+fmt.Sprint(i))
+		err := c.Connect(ctx)
 		if err != nil {
 			t.Fatalf("failed to connect to server: %s", err)
 		}
@@ -110,8 +110,8 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 
 	clientsReceiver := make([]*client.Client, peerPairs)
 	for i := 0; i < cap(clientsReceiver); i++ {
-		c := client.NewClient(ctx, serverConnURL, hmacTokenStore, "receiver-"+fmt.Sprint(i))
-		err := c.Connect()
+		c := client.NewClient(serverConnURL, hmacTokenStore, "receiver-"+fmt.Sprint(i))
+		err := c.Connect(ctx)
 		if err != nil {
 			t.Fatalf("failed to connect to server: %s", err)
 		}
