@@ -2059,7 +2059,7 @@ func TestSqlStore_DeleteNameServerGroup(t *testing.T) {
 func newAccountWithId(ctx context.Context, accountID, userID, domain string) *types.Account {
 	log.WithContext(ctx).Debugf("creating new account")
 
-	network := types.NewNetwork()
+	network := types.NewNetwork(accountID)
 	peers := make(map[string]*nbpeer.Peer)
 	users := make(map[string]*types.User)
 	routes := make(map[nbroute.ID]*nbroute.Route)

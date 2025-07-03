@@ -67,7 +67,7 @@ type Account struct {
 	IsDomainPrimaryAccount bool
 	SetupKeys              map[string]*SetupKey              `gorm:"-"`
 	SetupKeysG             []SetupKey                        `json:"-" gorm:"foreignKey:AccountID;references:id"`
-	Network                *Network                          `gorm:"embedded;embeddedPrefix:network_"`
+	Network                *Network                          `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Peers                  map[string]*nbpeer.Peer           `gorm:"-"`
 	PeersG                 []nbpeer.Peer                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Users                  map[string]*User                  `gorm:"-"`

@@ -588,12 +588,12 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		newPeer.DNSLabel = freeLabel
 		newPeer.IP = freeIP
 
-		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-		defer func() {
-			if unlock != nil {
-				unlock()
-			}
-		}()
+		// unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+		// defer func() {
+		// 	if unlock != nil {
+		// 		unlock()
+		// 	}
+		// }()
 
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			err = transaction.AddPeerToAccount(ctx, store.LockingStrengthUpdate, newPeer)
@@ -646,14 +646,14 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			return nil
 		})
 		if err == nil {
-			unlock()
-			unlock = nil
+			// unlock()
+			// unlock = nil
 			break
 		}
 
 		if isUniqueConstraintError(err) {
-			unlock()
-			unlock = nil
+			// unlock()
+			// unlock = nil
 			log.WithContext(ctx).Debugf("Failed to add peer in attempt %d, retrying: %v", attempt, err)
 			continue
 		}
@@ -1255,17 +1255,19 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
-	mu, _ := am.accountUpdateLocks.LoadOrStore(accountID, &sync.Mutex{})
-	lock := mu.(*sync.Mutex)
-
-	if !lock.TryLock() {
-		return
-	}
-
 	go func() {
-		time.Sleep(time.Duration(am.updateAccountPeersBufferInterval.Load()))
-		lock.Unlock()
-		am.UpdateAccountPeers(ctx, accountID)
+		mu, _ := am.accountUpdateLocks.LoadOrStore(accountID, &sync.Mutex{})
+		lock := mu.(*sync.Mutex)
+
+		if !lock.TryLock() {
+			return
+		}
+
+		go func() {
+			time.Sleep(time.Duration(am.updateAccountPeersBufferInterval.Load()))
+			lock.Unlock()
+			am.UpdateAccountPeers(ctx, accountID)
+		}()
 	}()
 }
 

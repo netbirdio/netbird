@@ -361,6 +361,17 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 				}
 			})
 		},
+		func(db *gorm.DB) error {
+			return migration.MigrateEmbeddedToTable[types.Account, migration.LegacyAccountNetwork, types.Network](ctx, db, "id", func(obj migration.LegacyAccountNetwork) *types.Network {
+				return &types.Network{
+					AccountID:  obj.AccountID,
+					Identifier: obj.Identifier,
+					Net:        obj.Net,
+					Serial:     obj.Serial,
+					Dns:        obj.Dns,
+				}
+			})
+		},
 	}
 }
 

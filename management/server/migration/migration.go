@@ -10,12 +10,23 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
+
+type LegacyAccountNetwork struct {
+	AccountID  string    `gorm:"column:id"`
+	Identifier string    `gorm:"column:network_identifier"`
+	Net        net.IPNet `gorm:"column:network_net;serializer:json"`
+	Dns        string    `gorm:"column:network_dns"`
+	// Serial is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
+	// Used to synchronize state to the client apps.
+	Serial uint64 `gorm:"column:network_serial"`
+}
 
 func GetColumnName(db *gorm.DB, column string) string {
 	if db.Name() == "mysql" {
@@ -36,6 +47,11 @@ func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, f
 
 	if !db.Migrator().HasTable(&model) {
 		log.WithContext(ctx).Debugf("Table for %T does not exist, no migration needed", model)
+		return nil
+	}
+
+	if !db.Migrator().HasColumn(&model, oldColumnName) {
+		log.WithContext(ctx).Debugf("Column for %T does not exist, no migration needed", oldColumnName)
 		return nil
 	}
 
@@ -470,4 +486,91 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 
 	log.WithContext(ctx).Infof("Migration of JSON field %s from table %s into seperte table completed", columnName, tableName)
 	return nil
+}
+
+func MigrateEmbeddedToTable[T any, S any, U any](ctx context.Context, db *gorm.DB, pkey string, mapperFunc func(obj S) *U) error {
+	var model T
+	var u U
+
+	log.WithContext(ctx).Debugf("Migrating embedded fields from %T to separate table", model)
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no migration needed", model)
+		return nil
+	}
+	if db.Migrator().HasTable(&u) {
+		log.WithContext(ctx).Debugf("table for %T already exists, no migration needed", u)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	err := stmt.Parse(&model)
+	if err != nil {
+		return fmt.Errorf("parse model: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		var legacyRows []S
+		if err := tx.Table(tableName).Find(&legacyRows).Error; err != nil {
+			log.WithContext(ctx).Errorf("Failed to read legacy accounts: %v", err)
+			return fmt.Errorf("failed to read legacy accounts: %w", err)
+		}
+
+		for _, row := range legacyRows {
+			if err := tx.Create(
+				mapperFunc(row),
+			).Error; err != nil {
+				return fmt.Errorf("failed to insert id %v: %w", row, err)
+			}
+		}
+
+		cols, err := getColumnNamesFromStruct(new(S))
+		if err != nil {
+			return fmt.Errorf("failed to extract column names: %w", err)
+		}
+
+		for _, col := range cols {
+			if col == pkey {
+				continue
+			}
+			if err := tx.Migrator().DropColumn(&model, col); err != nil {
+				return fmt.Errorf("failed to drop column %s: %w", col, err)
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Infof("Migration of embedded fields %T from table %s into seperte table completed", new(S), tableName)
+	return nil
+}
+
+func getColumnNamesFromStruct[T any](model T) ([]string, error) {
+	val := reflect.TypeOf(model)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	var cols []string
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		if field.Name == "ID" {
+			continue // skip primary key
+		}
+		tag := field.Tag.Get("gorm")
+		if tag == "" {
+			continue
+		}
+		// Look for gorm:"column:..."
+		for _, part := range strings.Split(tag, ";") {
+			if strings.HasPrefix(part, "column:") {
+				cols = append(cols, strings.TrimPrefix(part, "column:"))
+				break
+			}
+		}
+	}
+	return cols, nil
 }
