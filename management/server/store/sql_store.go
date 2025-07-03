@@ -1790,7 +1790,7 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 		query = query.Order("json_array_length(peers) DESC")
 	}
 
-	result := query.First(&group, "account_id = ? AND name = ?", accountID, groupName)
+	result := query.Preload(clause.Associations).First(&group, "account_id = ? AND name = ?", accountID, groupName)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewGroupNotFoundError(groupName)
@@ -1798,6 +1798,9 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 		log.WithContext(ctx).Errorf("failed to get group by name from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get group by name from store")
 	}
+
+	group.LoadGroupPeers()
+
 	return &group, nil
 }
 
