@@ -772,7 +772,7 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 	}()
 
 	var account types.Account
-	result := s.db.Model(&account).
+	result := s.db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Info)}).Model(&account).
 		Preload("UsersG.PATsG").       // have to be specifies as this is nester reference
 		Preload("GroupsG.GroupPeers"). // have to be specifies as this is nester reference
 		Preload(clause.Associations).
@@ -788,7 +788,7 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 	// we have to manually preload policy rules as it seems that gorm preloading doesn't do it for us
 	for i, policy := range account.Policies {
 		var rules []*types.PolicyRule
-		err := s.db.Model(&types.PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
+		err := s.db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Info)}).Model(&types.PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
 		if err != nil {
 			return nil, status.Errorf(status.NotFound, "rule not found")
 		}
