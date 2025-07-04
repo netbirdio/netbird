@@ -87,6 +87,8 @@ func (pm *ProfileManager) RemoveProfile(profileName string) error {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
 
+	profileName = sanitazeProfileName(profileName)
+
 	if profileName == defaultProfileName {
 		return fmt.Errorf("cannot remove profile with reserved name: %s", defaultProfileName)
 	}
@@ -161,6 +163,8 @@ func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
 }
 
 func (pm *ProfileManager) SwitchProfile(profileName string) error {
+	profileName = sanitazeProfileName(profileName)
+
 	if err := pm.setActiveProfileState(profileName); err != nil {
 		return fmt.Errorf("failed to switch profile: %w", err)
 	}
