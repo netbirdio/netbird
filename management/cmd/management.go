@@ -215,7 +215,7 @@ var (
 			peersManager := peers.NewManager(store, permissionsManager)
 			proxyController := integrations.NewController(store)
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager)
+				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager, config.DisableDefaultPolicy)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
@@ -356,6 +356,13 @@ var (
 			log.WithContext(ctx).Infof("management server version %s", version.NetbirdVersion())
 			log.WithContext(ctx).Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
 			serveGRPCWithHTTP(ctx, listener, rootHandler, tlsEnabled)
+
+			update := version.NewUpdate("nb/management")
+			update.SetDaemonVersion(version.NetbirdVersion())
+			update.SetOnUpdateListener(func() {
+				log.WithContext(ctx).Infof("your management version, \"%s\", is outdated, a new management version is available. Learn more here: https://github.com/netbirdio/netbird/releases", version.NetbirdVersion())
+			})
+			defer update.StopWatch()
 
 			SetupCloseHandler()
 
