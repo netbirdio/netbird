@@ -144,6 +144,7 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 	cr := m.initialClientRoutes(config.InitialRoutes)
 
 	routesForComparison := slices.Clone(cr)
+
 	if config.DNSFeatureFlag {
 		m.fakeIPManager = fakeip.NewManager()
 
@@ -158,7 +159,7 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 		cr = append(cr, fakeIPRoute)
 	}
 
-	m.notifier.SetInitialClientRoutes(cr, routesForComparison, config.DNSFeatureFlag)
+	m.notifier.SetInitialClientRoutes(cr, routesForComparison)
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
