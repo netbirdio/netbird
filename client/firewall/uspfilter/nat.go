@@ -32,11 +32,13 @@ func ipv4Checksum(header []byte) uint16 {
 
 	var sum1, sum2 uint32
 
+	// Parallel processing - unroll and compute two sums simultaneously
 	sum1 += uint32(binary.BigEndian.Uint16(header[0:2]))
 	sum2 += uint32(binary.BigEndian.Uint16(header[2:4]))
 	sum1 += uint32(binary.BigEndian.Uint16(header[4:6]))
 	sum2 += uint32(binary.BigEndian.Uint16(header[6:8]))
 	sum1 += uint32(binary.BigEndian.Uint16(header[8:10]))
+	// Skip checksum field at [10:12]
 	sum2 += uint32(binary.BigEndian.Uint16(header[12:14]))
 	sum1 += uint32(binary.BigEndian.Uint16(header[14:16]))
 	sum2 += uint32(binary.BigEndian.Uint16(header[16:18]))
@@ -44,6 +46,7 @@ func ipv4Checksum(header []byte) uint16 {
 
 	sum := sum1 + sum2
 
+	// Handle remaining bytes for headers > 20 bytes
 	for i := 20; i < len(header)-1; i += 2 {
 		sum += uint32(binary.BigEndian.Uint16(header[i : i+2]))
 	}
@@ -52,6 +55,7 @@ func ipv4Checksum(header []byte) uint16 {
 		sum += uint32(header[len(header)-1]) << 8
 	}
 
+	// Optimized carry fold - single iteration handles most cases
 	sum = (sum & 0xFFFF) + (sum >> 16)
 	if sum > 0xFFFF {
 		sum++
@@ -65,6 +69,7 @@ func icmpChecksum(data []byte) uint16 {
 	var sum1, sum2, sum3, sum4 uint32
 	i := 0
 
+	// Process 16 bytes at once with 4 parallel accumulators
 	for i <= len(data)-16 {
 		sum1 += uint32(binary.BigEndian.Uint16(data[i : i+2]))
 		sum2 += uint32(binary.BigEndian.Uint16(data[i+2 : i+4]))
@@ -79,6 +84,7 @@ func icmpChecksum(data []byte) uint16 {
 
 	sum := sum1 + sum2 + sum3 + sum4
 
+	// Handle remaining bytes
 	for i < len(data)-1 {
 		sum += uint32(binary.BigEndian.Uint16(data[i : i+2]))
 		i += 2
@@ -255,6 +261,7 @@ func (m *Manager) AddInternalDNATMapping(originalAddr, translatedAddr netip.Addr
 	m.dnatMutex.Lock()
 	defer m.dnatMutex.Unlock()
 
+	// Initialize both maps together if either is nil
 	if m.dnatMappings == nil || m.dnatBiMap == nil {
 		m.dnatMappings = make(map[netip.Addr]netip.Addr)
 		m.dnatBiMap = newBiDNATMap()
@@ -482,12 +489,14 @@ func (m *Manager) updateICMPChecksum(packetData []byte, ipHeaderLen int) {
 func incrementalUpdate(oldChecksum uint16, oldBytes, newBytes []byte) uint16 {
 	sum := uint32(^oldChecksum)
 
+	// Fast path for IPv4 addresses (4 bytes) - most common case
 	if len(oldBytes) == 4 && len(newBytes) == 4 {
 		sum += uint32(^binary.BigEndian.Uint16(oldBytes[0:2]))
 		sum += uint32(^binary.BigEndian.Uint16(oldBytes[2:4]))
 		sum += uint32(binary.BigEndian.Uint16(newBytes[0:2]))
 		sum += uint32(binary.BigEndian.Uint16(newBytes[2:4]))
 	} else {
+		// Fallback for other lengths
 		for i := 0; i < len(oldBytes)-1; i += 2 {
 			sum += uint32(^binary.BigEndian.Uint16(oldBytes[i : i+2]))
 		}

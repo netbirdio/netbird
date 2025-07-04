@@ -52,6 +52,7 @@ type Store interface {
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
 	GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.AccountMeta, error)
+	GetAccountOnboarding(ctx context.Context, accountID string) (*types.AccountOnboarding, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
 	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
 	GetAccountByUser(ctx context.Context, userID string) (*types.Account, error)
@@ -74,6 +75,7 @@ type Store interface {
 	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.DNSSettings) error
 	SaveAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.Settings) error
 	CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error)
+	SaveAccountOnboarding(ctx context.Context, onboarding *types.AccountOnboarding) error
 
 	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types.User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
@@ -117,7 +119,7 @@ type Store interface {
 	SavePostureChecks(ctx context.Context, lockStrength LockingStrength, postureCheck *posture.Checks) error
 	DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) error
 
-	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string) ([]string, error)
+	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string, hostname string) ([]string, error)
 	AddPeerToAllGroup(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) error
 	AddPeerToGroup(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string, groupID string) error
 	GetPeerGroups(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]*types.Group, error)
@@ -193,6 +195,7 @@ type Store interface {
 	SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *resourceTypes.NetworkResource) error
 	DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error
 	GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error)
+	GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error)
 }
 
 const (
@@ -234,9 +237,9 @@ func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) type
 			if util.FileExists(jsonStoreFile) && !util.FileExists(sqliteStoreFile) {
 				log.WithContext(ctx).Warnf("unsupported store engine specified, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
 
-				// Attempt to migrate from JSON store to SQLite
+				// Attempt to migratePreAuto from JSON store to SQLite
 				if err := MigrateFileStoreToSqlite(ctx, dataDir); err != nil {
-					log.WithContext(ctx).Errorf("failed to migrate filestore to SQLite: %v", err)
+					log.WithContext(ctx).Errorf("failed to migratePreAuto filestore to SQLite: %v", err)
 					kind = types.FileStoreEngine
 				}
 			}
@@ -280,9 +283,9 @@ func checkFileStoreEngine(kind types.Engine, dataDir string) error {
 	return nil
 }
 
-// migrate migrates the SQLite database to the latest schema
-func migrate(ctx context.Context, db *gorm.DB) error {
-	migrations := getMigrations(ctx)
+// migratePreAuto migrates the SQLite database to the latest schema
+func migratePreAuto(ctx context.Context, db *gorm.DB) error {
+	migrations := getMigrationsPreAuto(ctx)
 
 	for _, m := range migrations {
 		if err := m(db); err != nil {
@@ -293,7 +296,7 @@ func migrate(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
-func getMigrations(ctx context.Context) []migrationFunc {
+func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
 		func(db *gorm.DB) error {
 			return migration.MigrateFieldFromGobToJSON[types.Account, net.IPNet](ctx, db, "network_net")
@@ -327,6 +330,28 @@ func getMigrations(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.DropIndex[routerTypes.NetworkRouter](ctx, db, "idx_network_routers_id")
+		},
+	}
+} // migratePostAuto migrates the SQLite database to the latest schema
+func migratePostAuto(ctx context.Context, db *gorm.DB) error {
+	migrations := getMigrationsPostAuto(ctx)
+
+	for _, m := range migrations {
+		if err := m(db); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
+	return []migrationFunc{
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_ip", "account_id", "ip")
+		},
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_dnslabel", "account_id", "dns_label")
 		},
 	}
 }
@@ -577,7 +602,7 @@ func MigrateFileStoreToSqlite(ctx context.Context, dataDir string) error {
 
 	sqliteStoreAccounts := len(store.GetAllAccounts(ctx))
 	if fsStoreAccounts != sqliteStoreAccounts {
-		return fmt.Errorf("failed to migrate accounts from file to sqlite. Expected accounts: %d, got: %d",
+		return fmt.Errorf("failed to migratePreAuto accounts from file to sqlite. Expected accounts: %d, got: %d",
 			fsStoreAccounts, sqliteStoreAccounts)
 	}
 

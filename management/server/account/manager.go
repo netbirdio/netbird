@@ -39,6 +39,7 @@ type Manager interface {
 	GetSetupKey(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error)
 	GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error)
 	GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error)
+	GetAccountOnboarding(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error)
 	AccountExists(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
 	GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
@@ -89,6 +90,7 @@ type Manager interface {
 	SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *types.DNSSettings) error
 	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
+	UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
 	SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) // used by peer gRPC API
 	GetAllConnectedPeers() (map[string]struct{}, error)
