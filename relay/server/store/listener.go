@@ -65,21 +65,22 @@ func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
 
 func (l *Listener) listenForEvents(ctx context.Context, onPeersComeOnline, onPeersWentOffline func([]messages.PeerID)) {
 	for {
-		peers := make([]messages.PeerID, 0)
 
 		select {
 		case <-ctx.Done():
 			return
 		case pID := <-l.onlineChan:
+			peers := make([]messages.PeerID, 0)
 			peers = append(peers, pID)
 
-			for len(l.offlineChan) > 0 {
-				pID = <-l.offlineChan
+			for len(l.onlineChan) > 0 {
+				pID = <-l.onlineChan
 				peers = append(peers, pID)
 			}
 
 			onPeersComeOnline(peers)
 		case pID := <-l.offlineChan:
+			peers := make([]messages.PeerID, 0)
 			// todo maybe check here if the peer is still interested
 			peers = append(peers, pID)
 
