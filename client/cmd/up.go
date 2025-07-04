@@ -163,7 +163,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 		return fmt.Errorf("get config file: %v", err)
 	}
 
-	config, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
 	if err != nil {
@@ -204,7 +204,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("get config file: %v", err)
 	}
 
-	config, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {

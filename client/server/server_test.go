@@ -81,10 +81,13 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	}
 
 	pm := profilemanager.ServiceManager{}
-	pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
 		Name: "test-profile",
 		Path: ic.ConfigPath,
 	})
+	if err != nil {
+		t.Fatalf("failed to set active profile state: %v", err)
+	}
 
 	s := New(ctx, "debug")
 
@@ -124,10 +127,13 @@ func TestServer_Up(t *testing.T) {
 	}
 
 	pm := profilemanager.ServiceManager{}
-	pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
 		Name: "test-profile",
 		Path: ic.ConfigPath,
 	})
+	if err != nil {
+		t.Fatalf("failed to set active profile state: %v", err)
+	}
 
 	s := New(ctx, "console")
 
@@ -144,7 +150,7 @@ func TestServer_Up(t *testing.T) {
 	defer cancel()
 
 	upReq := &daemonProto.UpRequest{}
-	_, err = s.Up(upCtx, upReq)
+	_, _ = s.Up(upCtx, upReq)
 
 	// TODO(hakan) fix this
 	//assert.Contains(t, err.Error(), "NeedsLogin")
@@ -186,10 +192,13 @@ func TestServer_SubcribeEvents(t *testing.T) {
 	}
 
 	pm := profilemanager.ServiceManager{}
-	pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
 		Name: "test-profile",
 		Path: ic.ConfigPath,
 	})
+	if err != nil {
+		t.Fatalf("failed to set active profile state: %v", err)
+	}
 
 	s := New(ctx, "console")
 

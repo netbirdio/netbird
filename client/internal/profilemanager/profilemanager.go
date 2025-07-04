@@ -196,7 +196,9 @@ func (pm *ProfileManager) getActiveProfileState() string {
 		if !os.IsNotExist(err) {
 			log.Warnf("failed to read active profile state: %v", err)
 		} else {
-			pm.setActiveProfileState(defaultProfileName)
+			if err := pm.setActiveProfileState(defaultProfileName); err != nil {
+				log.Warnf("failed to set default profile state: %v", err)
+			}
 		}
 		return defaultProfileName
 	}
@@ -229,7 +231,7 @@ func (pm *ProfileManager) setActiveProfileState(profileName string) error {
 
 	statePath := filepath.Join(configDir, activeProfileStateFilename)
 
-	err = os.WriteFile(statePath, []byte(profileName), 0644)
+	err = os.WriteFile(statePath, []byte(profileName), 0600)
 	if err != nil {
 		return fmt.Errorf("failed to write active profile state: %w", err)
 	}

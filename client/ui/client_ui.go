@@ -251,7 +251,6 @@ type serviceClient struct {
 	// input elements for settings form
 	iMngURL        *widget.Entry
 	iAdminURL      *widget.Entry
-	iConfigFile    *widget.Entry
 	iLogFile       *widget.Entry
 	iPreSharedKey  *widget.Entry
 	iInterfaceName *widget.Entry
@@ -398,8 +397,6 @@ func (s *serviceClient) showSettingsUI() {
 
 	s.iMngURL = widget.NewEntry()
 	s.iAdminURL = widget.NewEntry()
-	//s.iConfigFile = widget.NewEntry()
-	//s.iConfigFile.Disable()
 	s.iLogFile = widget.NewEntry()
 	s.iLogFile.Disable()
 	s.iPreSharedKey = widget.NewPasswordEntry()
@@ -432,7 +429,6 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			{Text: "Management URL", Widget: s.iMngURL},
 			{Text: "Admin URL", Widget: s.iAdminURL},
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
-			//{Text: "Config File", Widget: s.iConfigFile},
 			{Text: "Log File", Widget: s.iLogFile},
 			{Text: "Network Monitor", Widget: s.sNetworkMonitor},
 			{Text: "Disable DNS", Widget: s.sDisableDNS},
@@ -949,7 +945,6 @@ func (s *serviceClient) getSrvConfig() {
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iAdminURL.SetText(s.adminURL)
-		//s.iConfigFile.SetText(profPath)
 		//s.iLogFile.SetText(cfg)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
 		s.iInterfaceName.SetText(cfg.WgIface)

@@ -22,11 +22,16 @@ func TestUpDaemon(t *testing.T) {
 	profilemanager.ConfigDirOverride = tempDir
 
 	pm := profilemanager.ProfileManager{}
-	pm.AddProfile(profilemanager.Profile{
+	err := pm.AddProfile(profilemanager.Profile{
 		Name: "test1",
 	})
+	if err != nil {
+		t.Fatalf("failed to add profile: %v", err)
+		return
+	}
+
 	sm := profilemanager.ServiceManager{}
-	err := sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+	err = sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
 		Name: "test1",
 		Path: profilemanager.DefaultConfigPathDir + "/test1.json",
 	})

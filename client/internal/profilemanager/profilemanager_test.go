@@ -13,7 +13,7 @@ import (
 func withTempConfigDir(t *testing.T, testFunc func(configDir string)) {
 	t.Helper()
 	tempDir := t.TempDir()
-	os.Setenv("NETBIRD_CONFIG_DIR", tempDir)
+	t.Setenv("NETBIRD_CONFIG_DIR", tempDir)
 	defer os.Unsetenv("NETBIRD_CONFIG_DIR")
 	testFunc(tempDir)
 }
@@ -31,7 +31,7 @@ func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
 	ConfigDirOverride = configDir
 	// Clean up any files in the config dir to ensure isolation
 	os.RemoveAll(configDir)
-	os.MkdirAll(configDir, 0755)
+	os.MkdirAll(configDir, 0755) //nolint: errcheck
 	defer func() {
 		DefaultConfigPathDir = origDefaultConfigPathDir
 		defaultConfigPath = origDefaultConfigPath

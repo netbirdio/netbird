@@ -82,7 +82,7 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("update config: %v", err)
 		}
 
-		config, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+		_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 		// workaround to run without service
 		if logFile == "console" {
