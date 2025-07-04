@@ -463,7 +463,7 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 		g.StoreGroupPeers()
 	}
 
-	return s.db.Session(&gorm.Session{FullSaveAssociations: true}).Transaction(func(tx *gorm.DB) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.
 			Clauses(
 				clause.Locking{Strength: string(lockStrength)},
@@ -1831,9 +1831,20 @@ func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, 
 	group = group.Copy()
 	group.StoreGroupPeers()
 
-	if err := s.db.Session(&gorm.Session{FullSaveAssociations: true}).Save(group).Error; err != nil {
+	if err := s.db.Omit(clause.Associations).Save(group).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
 		return status.Errorf(status.Internal, "failed to save group to store")
+	}
+
+	if len(group.GroupPeers) == 0 {
+		if err := s.db.Where("group_id = ?", group.ID).Delete(&types.GroupPeer{}).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", group.ID, err)
+			return status.Errorf(status.Internal, "failed to delete group peers")
+		}
+	} else {
+		if err := s.db.Model(&group).Association("GroupPeers").Replace(group.GroupPeers); err != nil {
+			return status.Errorf(status.Internal, "failed to save group peers: %s", err)
+		}
 	}
 
 	return nil
