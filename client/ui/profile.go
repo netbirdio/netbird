@@ -22,11 +22,6 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-type profile struct {
-	name     string
-	selected bool
-}
-
 // showProfilesUI creates and displays the Profiles window with a list of existing profiles,
 // a button to add new profiles, allows removal, and lets the user switch the active profile.
 func (s *serviceClient) showProfilesUI() {
@@ -308,11 +303,9 @@ func (p *profileMenu) refresh() {
 	if err != nil {
 		log.Warnf("failed to get active profile state: %v", err)
 		p.emailMenuItem.Hide()
-	} else {
-		if activeProfState.Email != "" {
-			p.emailMenuItem.SetTitle(fmt.Sprintf("(%s)", activeProfState.Email))
-			p.emailMenuItem.Show()
-		}
+	} else if activeProfState.Email != "" {
+		p.emailMenuItem.SetTitle(fmt.Sprintf("(%s)", activeProfState.Email))
+		p.emailMenuItem.Show()
 	}
 
 	var activeProfile *profilemanager.Profile

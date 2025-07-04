@@ -35,6 +35,10 @@ func TestUpDaemon(t *testing.T) {
 		Name: "test1",
 		Path: profilemanager.DefaultConfigPathDir + "/test1.json",
 	})
+	if err != nil {
+		t.Fatalf("failed to set active profile state: %v", err)
+		return
+	}
 
 	t.Cleanup(func() {
 		profilemanager.DefaultConfigPathDir = origDefaultProfileDir

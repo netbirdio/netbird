@@ -22,6 +22,9 @@ func TestLogin(t *testing.T) {
 		Name: "default",
 		Path: profilemanager.DefaultConfigPathDir + "/default.json",
 	})
+	if err != nil {
+		t.Fatalf("failed to set active profile state: %v", err)
+	}
 
 	t.Cleanup(func() {
 		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
