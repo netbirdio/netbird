@@ -38,7 +38,6 @@ import (
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
@@ -175,8 +174,7 @@ type Engine struct {
 	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
 	sshServer     nbssh.Server
 
-	statusRecorder     *peer.Status
-	peerConnDispatcher *dispatcher.ConnectionDispatcher
+	statusRecorder *peer.Status
 
 	firewall          firewallManager.Manager
 	routeManager      routemanager.Manager
@@ -458,9 +456,7 @@ func (e *Engine) Start() error {
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
 
-	e.peerConnDispatcher = dispatcher.NewConnectionDispatcher()
-
-	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface, e.peerConnDispatcher)
+	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
 	e.connMgr.Start(e.ctx)
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
@@ -1261,7 +1257,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	}
 
 	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
-		conn.Close()
+		conn.Close(false)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 
@@ -1308,13 +1304,12 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
-		StatusRecorder:     e.statusRecorder,
-		Signaler:           e.signaler,
-		IFaceDiscover:      e.mobileDep.IFaceDiscover,
-		RelayManager:       e.relayManager,
-		SrWatcher:          e.srWatcher,
-		Semaphore:          e.connSemaphore,
-		PeerConnDispatcher: e.peerConnDispatcher,
+		StatusRecorder: e.statusRecorder,
+		Signaler:       e.signaler,
+		IFaceDiscover:  e.mobileDep.IFaceDiscover,
+		RelayManager:   e.relayManager,
+		SrWatcher:      e.srWatcher,
+		Semaphore:      e.connSemaphore,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1337,9 +1332,14 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn, ok := e.connMgr.OnSignalMsg(e.ctx, msg.Key)
+			conn, ok := e.peerStore.PeerConn(msg.Key)
 			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
+			}
+
+			msgType := msg.GetBody().GetType()
+			if msgType != sProto.Body_GO_IDLE {
+				e.connMgr.ActivatePeer(e.ctx, conn)
 			}
 
 			switch msg.GetBody().Type {
@@ -1398,6 +1398,8 @@ func (e *Engine) receiveSignalEvents() {
 
 				go conn.OnRemoteCandidate(candidate, e.routeManager.GetClientRoutes())
 			case sProto.Body_MODE:
+			case sProto.Body_GO_IDLE:
+				e.connMgr.DeactivatePeer(conn)
 			}
 
 			return nil

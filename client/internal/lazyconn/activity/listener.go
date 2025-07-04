@@ -13,7 +13,7 @@ import (
 
 // Listener it is not a thread safe implementation, do not call Close before ReadPackets. It will cause blocking
 type Listener struct {
-	wgIface  lazyconn.WGIface
+	wgIface  WgInterface
 	peerCfg  lazyconn.PeerConfig
 	conn     *net.UDPConn
 	endpoint *net.UDPAddr
@@ -22,7 +22,7 @@ type Listener struct {
 	isClosed atomic.Bool // use to avoid error log when closing the listener
 }
 
-func NewListener(wgIface lazyconn.WGIface, cfg lazyconn.PeerConfig) (*Listener, error) {
+func NewListener(wgIface WgInterface, cfg lazyconn.PeerConfig) (*Listener, error) {
 	d := &Listener{
 		wgIface: wgIface,
 		peerCfg: cfg,
