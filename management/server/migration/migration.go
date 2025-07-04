@@ -522,7 +522,9 @@ func MigrateEmbeddedToTable[T any, S any, U any](ctx context.Context, db *gorm.D
 		}
 
 		for _, row := range legacyRows {
-			if err := tx.Create(
+			if err := tx.Clauses(clause.OnConflict{
+				DoNothing: true, // this needs to be removed when the cleanup is enabled
+			}).Create(
 				mapperFunc(row),
 			).Error; err != nil {
 				return fmt.Errorf("failed to insert id %v: %w", row, err)
