@@ -107,7 +107,8 @@ func ipToBytes(ip net.IP) []byte {
 }
 
 type Network struct {
-	Identifier string    `json:"id"`
+	AccountID  string    `gorm:"primaryKey"`
+	Identifier string    `gorm:"index"`
 	Net        net.IPNet `gorm:"serializer:json"`
 	Dns        string
 	// Serial is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
@@ -117,9 +118,13 @@ type Network struct {
 	Mu sync.Mutex `json:"-" gorm:"-"`
 }
 
+func (*Network) TableName() string {
+	return "account_networks"
+}
+
 // NewNetwork creates a new Network initializing it with a Serial=0
 // It takes a random /16 subnet from 100.64.0.0/10 (64 different subnets)
-func NewNetwork() *Network {
+func NewNetwork(accountID string) *Network {
 
 	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), NetSize)
 	sub, _ := n.Subnet(SubnetSize)
@@ -129,6 +134,7 @@ func NewNetwork() *Network {
 	intn := r.Intn(len(sub))
 
 	return &Network{
+		AccountID:  accountID,
 		Identifier: xid.New().String(),
 		Net:        sub[intn].IPNet,
 		Dns:        "",
@@ -151,6 +157,7 @@ func (n *Network) CurrentSerial() uint64 {
 
 func (n *Network) Copy() *Network {
 	return &Network{
+		AccountID:  n.AccountID,
 		Identifier: n.Identifier,
 		Net:        n.Net,
 		Dns:        n.Dns,

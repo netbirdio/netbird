@@ -1688,7 +1688,7 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 func newAccountWithId(ctx context.Context, accountID, userID, domain string, disableDefaultPolicy bool) *types.Account {
 	log.WithContext(ctx).Debugf("creating new account")
 
-	network := types.NewNetwork()
+	network := types.NewNetwork(accountID)
 	peers := make(map[string]*nbpeer.Peer)
 	users := make(map[string]*types.User)
 	routes := make(map[route.ID]*route.Route)
@@ -1792,7 +1792,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 			continue
 		}
 
-		network := types.NewNetwork()
+		network := types.NewNetwork(accountId)
 		peers := make(map[string]*nbpeer.Peer)
 		users := make(map[string]*types.User)
 		routes := make(map[route.ID]*route.Route)

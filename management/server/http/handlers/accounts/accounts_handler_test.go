@@ -69,7 +69,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 	handler := initAccountsTestData(t, &types.Account{
 		Id:      accountID,
 		Domain:  "hotmail.com",
-		Network: types.NewNetwork(),
+		Network: types.NewNetwork(accountID),
 		Users: map[string]*types.User{
 			adminUser.Id: adminUser,
 		},
