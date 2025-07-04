@@ -526,10 +526,10 @@ func MigrateEmbeddedToTable[T any, S any, U any](ctx context.Context, db *gorm.D
 			}
 		}
 
-		cols, err := getColumnNamesFromStruct(new(S))
-		if err != nil {
-			return fmt.Errorf("failed to extract column names: %w", err)
-		}
+		// cols, err := getColumnNamesFromStruct(new(S))
+		// if err != nil {
+		// 	return fmt.Errorf("failed to extract column names: %w", err)
+		// }
 
 		// for _, col := range cols {
 		// 	if col == pkey {
