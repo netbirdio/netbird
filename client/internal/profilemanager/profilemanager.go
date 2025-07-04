@@ -57,11 +57,12 @@ func (pm *ProfileManager) AddProfile(profile Profile) error {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
 
+	profile.Name = sanitazeProfileName(profile.Name)
+
 	if profile.Name == defaultProfileName {
 		return fmt.Errorf("cannot create profile with reserved name: %s", defaultProfileName)
 	}
 
-	// TODO(hakan): sanitize profile name
 	profPath := filepath.Join(configDir, profile.Name+".json")
 	if fileExists(profPath) {
 		return ErrProfileAlreadyExists
@@ -166,15 +167,14 @@ func (pm *ProfileManager) SwitchProfile(profileName string) error {
 	return nil
 }
 
-// sanitazeUsername sanitizes the username by removing any invalid characters
-func sanitazeUsername(username string) string {
-	// Remove invalid characters for a username in a file path
+// sanitazeProfileName sanitizes the username by removing any invalid characters and spaces.
+func sanitazeProfileName(profileName string) string {
 	return strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' || r == ' ' {
 			return -1 // remove this character
 		}
 		return r
-	}, username)
+	}, profileName)
 }
 
 func (pm *ProfileManager) getActiveProfileState() string {
