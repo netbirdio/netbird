@@ -87,7 +87,7 @@ func (m *MockManager) SetRouteChangeListener(listener listener.NetworkChangeList
 
 }
 
-func (m *MockManager) EnableServerRouter(firewall firewall.Manager) error {
+func (m *MockManager) SetFirewall(firewall.Manager) error {
 	panic("implement me")
 }
 
