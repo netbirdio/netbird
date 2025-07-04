@@ -85,9 +85,10 @@ func (r *ActivityRecorder) record(address netip.AddrPort) {
 	}
 
 	now := monotime.Now()
-	if now-record.LastActivity.Load() < saveFrequency {
+	last := record.LastActivity.Load()
+	if now-last < saveFrequency {
 		return
 	}
 
-	record.LastActivity.Store(now)
+	_ = record.LastActivity.CompareAndSwap(last, now)
 }
