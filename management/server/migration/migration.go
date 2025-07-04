@@ -494,16 +494,11 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 
 func MigrateEmbeddedToTable[T any, S any, U any](ctx context.Context, db *gorm.DB, pkey string, mapperFunc func(obj S) *U) error {
 	var model T
-	var u U
 
 	log.WithContext(ctx).Debugf("Migrating embedded fields from %T to separate table", model)
 
 	if !db.Migrator().HasTable(&model) {
 		log.WithContext(ctx).Debugf("table for %T does not exist, no migration needed", model)
-		return nil
-	}
-	if db.Migrator().HasTable(&u) {
-		log.WithContext(ctx).Debugf("table for %T already exists, no migration needed", u)
 		return nil
 	}
 
