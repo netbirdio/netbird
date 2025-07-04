@@ -17,7 +17,26 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
+
+// addIPRules collects and adds IP rules to the archive
+func (g *BundleGenerator) addIPRules() error {
+	log.Info("Collecting IP rules")
+	ipRules, err := systemops.GetIPRules()
+	if err != nil {
+		return fmt.Errorf("get IP rules: %w", err)
+	}
+
+	rulesContent := formatIPRulesTable(ipRules, g.anonymize, g.anonymizer)
+	rulesReader := strings.NewReader(rulesContent)
+	if err := g.addFileToZip(rulesReader, "ip_rules.txt"); err != nil {
+		return fmt.Errorf("add IP rules file to zip: %w", err)
+	}
+
+	return nil
+}
 
 const (
 	maxLogEntries = 100000
@@ -136,7 +155,6 @@ func (g *BundleGenerator) addFirewallRules() error {
 func collectIPTablesRules() (string, error) {
 	var builder strings.Builder
 
-	// First try using iptables-save
 	saveOutput, err := collectIPTablesSave()
 	if err != nil {
 		log.Warnf("Failed to collect iptables rules using iptables-save: %v", err)
@@ -146,7 +164,6 @@ func collectIPTablesRules() (string, error) {
 		builder.WriteString("\n")
 	}
 
-	// Collect ipset information
 	ipsetOutput, err := collectIPSets()
 	if err != nil {
 		log.Warnf("Failed to collect ipset information: %v", err)
@@ -232,11 +249,9 @@ func getTableStatistics(table string) (string, error) {
 
 // collectNFTablesRules attempts to collect nftables rules using either nft command or netlink
 func collectNFTablesRules() (string, error) {
-	// First try using nft command
 	rules, err := collectNFTablesFromCommand()
 	if err != nil {
 		log.Debugf("Failed to collect nftables rules using nft command: %v, falling back to netlink", err)
-		// Fall back to netlink
 		rules, err = collectNFTablesFromNetlink()
 		if err != nil {
 			return "", fmt.Errorf("collect nftables rules using both nft and netlink failed: %w", err)
@@ -451,7 +466,6 @@ func formatRule(rule *nftables.Rule) string {
 func formatExprSequence(builder *strings.Builder, exprs []expr.Any, i int) int {
 	curr := exprs[i]
 
-	// Handle Meta + Cmp sequence
 	if meta, ok := curr.(*expr.Meta); ok && i+1 < len(exprs) {
 		if cmp, ok := exprs[i+1].(*expr.Cmp); ok {
 			if formatted := formatMetaWithCmp(meta, cmp); formatted != "" {
@@ -461,7 +475,6 @@ func formatExprSequence(builder *strings.Builder, exprs []expr.Any, i int) int {
 		}
 	}
 
-	// Handle Payload + Cmp sequence
 	if payload, ok := curr.(*expr.Payload); ok && i+1 < len(exprs) {
 		if cmp, ok := exprs[i+1].(*expr.Cmp); ok {
 			builder.WriteString(formatPayloadWithCmp(payload, cmp))
@@ -493,13 +506,13 @@ func formatMetaWithCmp(meta *expr.Meta, cmp *expr.Cmp) string {
 func formatPayloadWithCmp(p *expr.Payload, cmp *expr.Cmp) string {
 	if p.Base == expr.PayloadBaseNetworkHeader {
 		switch p.Offset {
-		case 12: // Source IP
+		case 12:
 			if p.Len == 4 {
 				return fmt.Sprintf("ip saddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
 			} else if p.Len == 2 {
 				return fmt.Sprintf("ip saddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
 			}
-		case 16: // Destination IP
+		case 16:
 			if p.Len == 4 {
 				return fmt.Sprintf("ip daddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
 			} else if p.Len == 2 {
@@ -580,7 +593,6 @@ func formatExpr(exp expr.Any) string {
 }
 
 func formatImmediateData(data []byte) string {
-	// For IP addresses (4 bytes)
 	if len(data) == 4 {
 		return fmt.Sprintf("%d.%d.%d.%d", data[0], data[1], data[2], data[3])
 	}
@@ -588,26 +600,21 @@ func formatImmediateData(data []byte) string {
 }
 
 func formatMeta(e *expr.Meta) string {
-	// Handle source register case first (meta mark set)
 	if e.SourceRegister {
 		return fmt.Sprintf("meta %s set reg %d", formatMetaKey(e.Key), e.Register)
 	}
 
-	// For interface names, handle register load operation
 	switch e.Key {
 	case expr.MetaKeyIIFNAME,
 		expr.MetaKeyOIFNAME,
 		expr.MetaKeyBRIIIFNAME,
 		expr.MetaKeyBRIOIFNAME:
-		// Simply the key name with no register reference
 		return formatMetaKey(e.Key)
 
 	case expr.MetaKeyMARK:
-		// For mark operations, we want just "mark"
 		return "mark"
 	}
 
-	// For other meta keys, show as loading into register
 	return fmt.Sprintf("meta %s => reg %d", formatMetaKey(e.Key), e.Register)
 }
 
