@@ -10,11 +10,10 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dnsinterceptor"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
-	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/static"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/route"
@@ -553,41 +552,16 @@ func (w *Watcher) Stop() {
 	w.currentChosenStatus = nil
 }
 
-func HandlerFromRoute(
-	rt *route.Route,
-	routeRefCounter *refcounter.RouteRefCounter,
-	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
-	dnsRouterInteval time.Duration,
-	statusRecorder *peer.Status,
-	wgInterface iface.WGIface,
-	dnsServer nbdns.Server,
-	peerStore *peerstore.Store,
-	useNewDNSRoute bool,
-) RouteHandler {
-	switch handlerType(rt, useNewDNSRoute) {
+func HandlerFromRoute(params common.HandlerParams) RouteHandler {
+	switch handlerType(params.Route, params.UseNewDNSRoute) {
 	case handlerTypeDnsInterceptor:
-		return dnsinterceptor.New(
-			rt,
-			routeRefCounter,
-			allowedIPsRefCounter,
-			statusRecorder,
-			dnsServer,
-			wgInterface,
-			peerStore,
-		)
+		return dnsinterceptor.New(params)
 	case handlerTypeDynamic:
-		dns := nbdns.NewServiceViaMemory(wgInterface)
-		return dynamic.NewRoute(
-			rt,
-			routeRefCounter,
-			allowedIPsRefCounter,
-			dnsRouterInteval,
-			statusRecorder,
-			wgInterface,
-			fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort()),
-		)
+		dns := nbdns.NewServiceViaMemory(params.WgInterface)
+		dnsAddr := fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort())
+		return dynamic.NewRoute(params, dnsAddr)
 	default:
-		return static.NewRoute(rt, routeRefCounter, allowedIPsRefCounter)
+		return static.NewRoute(params)
 	}
 }
 

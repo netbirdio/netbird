@@ -6,6 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/route"
 )
@@ -16,11 +17,11 @@ type Route struct {
 	allowedIPsRefcounter *refcounter.AllowedIPsRefCounter
 }
 
-func NewRoute(rt *route.Route, routeRefCounter *refcounter.RouteRefCounter, allowedIPsRefCounter *refcounter.AllowedIPsRefCounter) *Route {
+func NewRoute(params common.HandlerParams) *Route {
 	return &Route{
-		route:                rt,
-		routeRefCounter:      routeRefCounter,
-		allowedIPsRefcounter: allowedIPsRefCounter,
+		route:                params.Route,
+		routeRefCounter:      params.RouteRefCounter,
+		allowedIPsRefcounter: params.AllowedIPsRefCounter,
 	}
 }
 
