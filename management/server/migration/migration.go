@@ -475,16 +475,17 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 			}
 		}
 
-		if err := tx.Migrator().DropColumn(&model, columnName); err != nil {
-			return fmt.Errorf("drop column %s: %w", columnName, err)
-		}
+		// Todo: Enable this after we are sure that every thing works as expected and we do not need to rollback anymore
+		// if err := tx.Migrator().DropColumn(&model, columnName); err != nil {
+		// 	return fmt.Errorf("drop column %s: %w", columnName, err)
+		// }
 
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	log.WithContext(ctx).Infof("Migration of JSON field %s from table %s into seperte table completed", columnName, tableName)
+	log.WithContext(ctx).Infof("Migration of JSON field %s from table %s into separate table completed", columnName, tableName)
 	return nil
 }
 
@@ -530,14 +531,14 @@ func MigrateEmbeddedToTable[T any, S any, U any](ctx context.Context, db *gorm.D
 			return fmt.Errorf("failed to extract column names: %w", err)
 		}
 
-		for _, col := range cols {
-			if col == pkey {
-				continue
-			}
-			if err := tx.Migrator().DropColumn(&model, col); err != nil {
-				return fmt.Errorf("failed to drop column %s: %w", col, err)
-			}
-		}
+		// for _, col := range cols {
+		// 	if col == pkey {
+		// 		continue
+		// 	}
+		// 	if err := tx.Migrator().DropColumn(&model, col); err != nil {
+		// 		return fmt.Errorf("failed to drop column %s: %w", col, err)
+		// 	}
+		// }
 
 		return nil
 	}); err != nil {

@@ -1314,7 +1314,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthUpdate, userAuth.AccountId)
+			groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, userAuth.AccountId)
 			if err != nil {
 				return fmt.Errorf("error getting account groups: %w", err)
 			}
@@ -1899,7 +1899,7 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 // propagateUserGroupMemberships propagates all account users' group memberships to their peers.
 // Returns true if any groups were modified, true if those updates affect peers and an error.
 func propagateUserGroupMemberships(ctx context.Context, transaction store.Store, accountID string) (groupsUpdated bool, peersAffected bool, err error) {
-	groups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthUpdate, accountID)
+	groups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return false, false, err
 	}

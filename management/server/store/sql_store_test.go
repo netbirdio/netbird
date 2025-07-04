@@ -1340,10 +1340,12 @@ func TestSqlStore_SaveGroup(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
 	group := &types.Group{
-		ID:        "group-id",
-		AccountID: accountID,
-		Issued:    "api",
-		Peers:     []string{"peer1", "peer2"},
+		ID:         "group-id",
+		AccountID:  accountID,
+		Issued:     "api",
+		Peers:      []string{"peer1", "peer2"},
+		Resources:  []types.Resource{},
+		GroupPeers: []types.GroupPeer{},
 	}
 	err = store.SaveGroup(context.Background(), LockingStrengthUpdate, group)
 	require.NoError(t, err)
@@ -1362,16 +1364,19 @@ func TestSqlStore_SaveGroups(t *testing.T) {
 
 	groups := []*types.Group{
 		{
-			ID:        "group-1",
-			AccountID: accountID,
-			Issued:    "api",
-			Peers:     []string{"peer1", "peer2"},
+			ID:         "group-1",
+			AccountID:  accountID,
+			Issued:     "api",
+			Peers:      []string{"peer1", "peer2"},
+			Resources:  []types.Resource{},
+			GroupPeers: []types.GroupPeer{},
 		},
 		{
 			ID:        "group-2",
 			AccountID: accountID,
 			Issued:    "integration",
 			Peers:     []string{"peer3", "peer4"},
+			Resources: []types.Resource{},
 		},
 	}
 	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, accountID, groups)

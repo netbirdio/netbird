@@ -1240,9 +1240,10 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	manager, account, peer1, peer2, _ := setupNetworkMapTest(t)
 
 	group := types.Group{
-		ID:    "groupA",
-		Name:  "GroupA",
-		Peers: []string{peer1.ID, peer2.ID},
+		AccountID: account.Id,
+		ID:        "groupA",
+		Name:      "GroupA",
+		Peers:     []string{peer1.ID, peer2.ID},
 	}
 	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
 		t.Errorf("save group: %v", err)
@@ -1672,9 +1673,10 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Groups: map[string]*types.Group{
 			"group1": {
-				ID:        "group1",
-				Peers:     []string{"peer1"},
-				Resources: []types.Resource{},
+				ID:         "group1",
+				Peers:      []string{"peer1"},
+				Resources:  []types.Resource{},
+				GroupPeers: []types.GroupPeer{},
 			},
 		},
 		Policies: []*types.Policy{
@@ -2616,6 +2618,7 @@ func TestAccount_GetNextInactivePeerExpiration(t *testing.T) {
 }
 
 func TestAccount_SetJWTGroups(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", "postgres")
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 

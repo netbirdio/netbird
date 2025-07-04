@@ -45,7 +45,7 @@ func (g *Group) LoadGroupPeers() {
 	for i, peer := range g.GroupPeers {
 		g.Peers[i] = peer.PeerID
 	}
-	// g.GroupPeers = nil
+	g.GroupPeers = []GroupPeer{}
 }
 func (g *Group) StoreGroupPeers() {
 	g.GroupPeers = make([]GroupPeer, len(g.Peers))
@@ -55,7 +55,7 @@ func (g *Group) StoreGroupPeers() {
 			PeerID:  peer,
 		}
 	}
-	// g.Peers = nil
+	g.Peers = []string{}
 }
 
 // EventMeta returns activity event meta related to the group
@@ -70,13 +70,16 @@ func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]an
 func (g *Group) Copy() *Group {
 	group := &Group{
 		ID:                   g.ID,
+		AccountID:            g.AccountID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
 		Peers:                make([]string, len(g.Peers)),
+		GroupPeers:           make([]GroupPeer, len(g.GroupPeers)),
 		Resources:            make([]Resource, len(g.Resources)),
 		IntegrationReference: g.IntegrationReference,
 	}
 	copy(group.Peers, g.Peers)
+	copy(group.GroupPeers, g.GroupPeers)
 	copy(group.Resources, g.Resources)
 	return group
 }

@@ -186,6 +186,10 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 
 	generateAccountSQLTypes(account)
 
+	for _, group := range account.GroupsG {
+		group.StoreGroupPeers()
+	}
+
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
 		if result.Error != nil {
@@ -247,7 +251,7 @@ func generateAccountSQLTypes(account *types.Account) {
 
 	for id, group := range account.Groups {
 		group.ID = id
-		account.GroupsG = append(account.GroupsG, *group)
+		account.GroupsG = append(account.GroupsG, group)
 	}
 
 	for id, route := range account.Routes {
@@ -455,19 +459,12 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 		return nil
 	}
 
+	for _, g := range groups {
+		g.StoreGroupPeers()
+	}
+
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		for _, g := range groups {
-			g.StoreGroupPeers()
-
-			if err := tx.Model(&g).
-				Association("GroupPeers").
-				Replace(g.GroupPeers); err != nil {
-				log.WithContext(ctx).Errorf("failed to save group peers to store: %s", err)
-				return status.Errorf(status.Internal, "failed to save group peers to store")
-			}
-		}
-
-		result := tx.Session(&gorm.Session{FullSaveAssociations: true}).
+		result := tx.
 			Clauses(
 				clause.Locking{Strength: string(lockStrength)},
 				clause.OnConflict{
@@ -475,10 +472,23 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 					UpdateAll: true,
 				},
 			).
-			Save(&groups)
+			Create(&groups)
 		if result.Error != nil {
 			log.WithContext(ctx).Errorf("failed to save groups to store: %v", result.Error)
 			return status.Errorf(status.Internal, "failed to save groups to store")
+		}
+
+		for _, g := range groups {
+			if len(g.GroupPeers) == 0 {
+				if err := tx.Where("group_id = ?", g.ID).Delete(&types.GroupPeer{}).Error; err != nil {
+					log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", g.ID, err)
+					return status.Errorf(status.Internal, "failed to delete group peers")
+				}
+			} else {
+				if err := tx.Model(&g).Association("GroupPeers").Replace(g.GroupPeers); err != nil {
+					return status.Errorf(status.Internal, "failed to save group peers: %s", err)
+				}
+			}
 		}
 
 		return nil
@@ -1323,7 +1333,10 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peer
 		return status.Errorf(status.NotFound, "group 'All' not found for account %s", accountID)
 	}
 
-	err := s.db.Create(&types.GroupPeer{
+	err := s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "group_id"}, {Name: "peer_id"}},
+		DoNothing: true,
+	}).Create(&types.GroupPeer{
 		GroupID: groupID,
 		PeerID:  peerID,
 	}).Error
@@ -1758,9 +1771,6 @@ func (s *SqlStore) GetGroupByID(ctx context.Context, lockStrength LockingStrengt
 // GetGroupByName retrieves a group by name and account ID.
 func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*types.Group, error) {
 	tx := s.db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
 
 	var group types.Group
 
@@ -1768,7 +1778,14 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 	// we may need to reconsider changing the types.
 	query := tx.Preload(clause.Associations)
 
-	result := query.First(&group, "account_id = ? AND name = ?", accountID, groupName)
+	result := query.
+		Model(&types.Group{}).
+		Joins("LEFT JOIN group_peers ON group_peers.group_id = groups.id").
+		Where("groups.account_id = ? AND groups.name = ?", accountID, groupName).
+		Group("groups.id").
+		Order("COUNT(group_peers.peer_id) DESC").
+		Limit(1).
+		First(&group)
 	if err := result.Error; err != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewGroupNotFoundError(groupName)
@@ -1776,6 +1793,9 @@ func (s *SqlStore) GetGroupByName(ctx context.Context, lockStrength LockingStren
 		log.WithContext(ctx).Errorf("failed to get group by name from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get group by name from store")
 	}
+
+	group.LoadGroupPeers()
+
 	return &group, nil
 }
 
@@ -1808,21 +1828,23 @@ func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, 
 		return status.Errorf(status.InvalidArgument, "group is nil")
 	}
 
+	group = group.Copy()
 	group.StoreGroupPeers()
 
-	tx := s.db
-	if lockStrength != LockingStrengthNone {
-		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
-	}
-
-	if err := tx.Model(group).Association("Peers").Replace(group.Peers); err != nil {
-		log.WithContext(ctx).Errorf("failed to replace peers for group %s: %v", group.ID, err)
-		return status.Errorf(status.Internal, "failed to sync group peers")
-	}
-
-	if err := tx.Save(group).Error; err != nil {
+	if err := s.db.Omit(clause.Associations).Save(group).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
 		return status.Errorf(status.Internal, "failed to save group to store")
+	}
+
+	if len(group.GroupPeers) == 0 {
+		if err := s.db.Where("group_id = ?", group.ID).Delete(&types.GroupPeer{}).Error; err != nil {
+			log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", group.ID, err)
+			return status.Errorf(status.Internal, "failed to delete group peers")
+		}
+	} else {
+		if err := s.db.Model(&group).Association("GroupPeers").Replace(group.GroupPeers); err != nil {
+			return status.Errorf(status.Internal, "failed to save group peers: %s", err)
+		}
 	}
 
 	return nil
