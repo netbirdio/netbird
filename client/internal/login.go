@@ -149,7 +149,7 @@ func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.
 	)
 	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey, config.DNSLabels)
 	if err != nil {
-		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())
+		log.Errorf("failed registering peer %v", err)
 		return nil, err
 	}
 

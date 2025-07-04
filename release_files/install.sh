@@ -130,7 +130,7 @@ repo_gpgcheck=1
 EOF
 }
 
-add_aur_repo() {
+install_aur_package() {
     INSTALL_PKGS="git base-devel go"
     REMOVE_PKGS=""
 
@@ -154,8 +154,10 @@ add_aur_repo() {
         cd netbird-ui && makepkg -sri --noconfirm
     fi
 
-    # Clean up the installed packages
-    ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
+    if [ -n "$REMOVE_PKGS" ]; then
+      # Clean up the installed packages
+      ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
+    fi
 }
 
 prepare_tun_module() {
@@ -277,7 +279,9 @@ install_netbird() {
     ;;
     pacman)
         ${SUDO} pacman -Syy
-        add_aur_repo
+        install_aur_package
+        # in-line with the docs at https://wiki.archlinux.org/title/Netbird
+        ${SUDO} systemctl enable --now netbird@main.service
     ;;
     pkg)
         # Check if the package is already installed

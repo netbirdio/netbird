@@ -373,7 +373,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 	}
 
 	for _, testCase := range tt {
-		account := newAccountWithId(context.Background(), "account-1", userID, "netbird.io")
+		account := newAccountWithId(context.Background(), "account-1", userID, "netbird.io", false)
 		account.UpdateSettings(&testCase.accountSettings)
 		account.Network = network
 		account.Peers = testCase.peers
@@ -398,7 +398,7 @@ func TestNewAccount(t *testing.T) {
 	domain := "netbird.io"
 	userId := "account_creator"
 	accountID := "account_id"
-	account := newAccountWithId(context.Background(), accountID, userId, domain)
+	account := newAccountWithId(context.Background(), accountID, userId, domain, false)
 	verifyNewAccountHasDefaultFields(t, account, userId, domain, []string{userId})
 }
 
@@ -640,7 +640,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 func TestDefaultAccountManager_SyncUserJWTGroups(t *testing.T) {
 	userId := "user-id"
 	domain := "test.domain"
-	_ = newAccountWithId(context.Background(), "", userId, domain)
+	_ = newAccountWithId(context.Background(), "", userId, domain, false)
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userId, domain)
@@ -793,7 +793,7 @@ func TestAccountManager_GetAccountByUserID(t *testing.T) {
 }
 
 func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*types.Account, error) {
-	account := newAccountWithId(context.Background(), accountID, userID, domain)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, false)
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		return nil, err
@@ -1207,6 +1207,14 @@ func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+
+	// Ensure that we do not receive an update message before the policy is deleted
+	time.Sleep(time.Second)
+	select {
+	case <-updMsg:
+		t.Logf("received addPeer update message before policy deletion")
+	default:
+	}
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -2615,11 +2623,11 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	account := &types.Account{
 		Id: "accountID",
 		Peers: map[string]*nbpeer.Peer{
-			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
-			"peer2": {ID: "peer2", Key: "key2", UserID: "user1"},
-			"peer3": {ID: "peer3", Key: "key3", UserID: "user1"},
-			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
-			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
+			"peer1": {ID: "peer1", Key: "key1", UserID: "user1", IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"},
+			"peer2": {ID: "peer2", Key: "key2", UserID: "user1", IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"},
+			"peer3": {ID: "peer3", Key: "key3", UserID: "user1", IP: net.IP{3, 3, 3, 3}, DNSLabel: "peer3.domain.test"},
+			"peer4": {ID: "peer4", Key: "key4", UserID: "user2", IP: net.IP{4, 4, 4, 4}, DNSLabel: "peer4.domain.test"},
+			"peer5": {ID: "peer5", Key: "key5", UserID: "user2", IP: net.IP{5, 5, 5, 5}, DNSLabel: "peer5.domain.test"},
 		},
 		Groups: map[string]*types.Group{
 			"group1": {ID: "group1", Name: "group1", Issued: types.GroupIssuedAPI, Peers: []string{}},
@@ -2879,7 +2887,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, error) {
 
 	permissionsManager := permissions.NewManager(store)
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	if err != nil {
 		return nil, err
 	}
@@ -3139,11 +3147,11 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 7, 20, 10, 80},
+		{"Small", 50, 5, 7, 20, 5, 80},
 		{"Medium", 500, 100, 5, 40, 30, 140},
 		{"Large", 5000, 200, 80, 120, 140, 390},
-		{"Small single", 50, 10, 7, 20, 10, 80},
-		{"Medium single", 500, 10, 5, 40, 20, 85},
+		{"Small single", 50, 10, 7, 20, 6, 80},
+		{"Medium single", 500, 10, 5, 40, 15, 85},
 		{"Large 5", 5000, 15, 80, 120, 80, 200},
 	}
 
@@ -3335,11 +3343,11 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	account, err := manager.GetOrCreateAccountByUser(ctx, initiatorId, domain)
 	require.NoError(t, err)
 
-	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId}
+	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId, IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"}
 	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer1)
 	require.NoError(t, err)
 
-	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, UserID: initiatorId}
+	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, UserID: initiatorId, IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"}
 	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer2)
 	require.NoError(t, err)
 
@@ -3438,5 +3446,76 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 			assert.Contains(t, group.Peers, "peer1")
 			assert.Contains(t, group.Peers, "peer2")
 		}
+	})
+}
+
+func TestDefaultAccountManager_GetAccountOnboarding(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err)
+
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	require.NoError(t, err)
+
+	t.Run("should return account onboarding when onboarding exist", func(t *testing.T) {
+		onboarding, err := manager.GetAccountOnboarding(context.Background(), account.Id, userID)
+		require.NoError(t, err)
+		require.NotNil(t, onboarding)
+		assert.Equal(t, account.Id, onboarding.AccountID)
+		assert.Equal(t, true, onboarding.OnboardingFlowPending)
+		assert.Equal(t, true, onboarding.SignupFormPending)
+		if onboarding.UpdatedAt.IsZero() {
+			t.Errorf("Onboarding was not retrieved from the store")
+		}
+	})
+
+	t.Run("should return account onboarding when onboard don't exist", func(t *testing.T) {
+		account.Id = "with-zero-onboarding"
+		account.Onboarding = types.AccountOnboarding{}
+		err = manager.Store.SaveAccount(context.Background(), account)
+		require.NoError(t, err)
+		onboarding, err := manager.GetAccountOnboarding(context.Background(), account.Id, userID)
+		require.NoError(t, err)
+		require.NotNil(t, onboarding)
+		_, err = manager.Store.GetAccountOnboarding(context.Background(), account.Id)
+		require.Error(t, err, "should return error when onboarding is not set")
+	})
+}
+
+func TestDefaultAccountManager_UpdateAccountOnboarding(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err)
+
+	account, err := manager.GetOrCreateAccountByUser(context.Background(), userID, "")
+	require.NoError(t, err)
+
+	onboarding := &types.AccountOnboarding{
+		OnboardingFlowPending: true,
+		SignupFormPending:     true,
+	}
+
+	t.Run("update onboarding with no change", func(t *testing.T) {
+		updated, err := manager.UpdateAccountOnboarding(context.Background(), account.Id, userID, onboarding)
+		require.NoError(t, err)
+		assert.Equal(t, onboarding.OnboardingFlowPending, updated.OnboardingFlowPending)
+		assert.Equal(t, onboarding.SignupFormPending, updated.SignupFormPending)
+		if updated.UpdatedAt.IsZero() {
+			t.Errorf("Onboarding was updated in the store")
+		}
+	})
+
+	onboarding.OnboardingFlowPending = false
+	onboarding.SignupFormPending = false
+
+	t.Run("update onboarding", func(t *testing.T) {
+		updated, err := manager.UpdateAccountOnboarding(context.Background(), account.Id, userID, onboarding)
+		require.NoError(t, err)
+		require.NotNil(t, updated)
+		assert.Equal(t, onboarding.OnboardingFlowPending, updated.OnboardingFlowPending)
+		assert.Equal(t, onboarding.SignupFormPending, updated.SignupFormPending)
+	})
+
+	t.Run("update onboarding with no onboarding", func(t *testing.T) {
+		_, err = manager.UpdateAccountOnboarding(context.Background(), account.Id, userID, nil)
+		require.NoError(t, err)
 	})
 }

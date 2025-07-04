@@ -248,10 +248,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			*input.WireguardPort, config.WgPort)
 		config.WgPort = *input.WireguardPort
 		updated = true
-	} else if config.WgPort == 0 {
-		config.WgPort = iface.DefaultWgPort
-		log.Infof("using default Wireguard port %d", config.WgPort)
-		updated = true
 	}
 
 	if input.InterfaceName != nil && *input.InterfaceName != config.WgIface {

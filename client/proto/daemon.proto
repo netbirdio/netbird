@@ -166,6 +166,7 @@ message UpResponse {}
 
 message StatusRequest{
   bool getFullPeerStatus = 1;
+  bool shouldRunProbes   = 2;
 }
 
 message StatusResponse{

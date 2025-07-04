@@ -92,17 +92,20 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
 	}
 
-	if err := migrate(ctx, db); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
+	if err := migratePreAuto(ctx, db); err != nil {
+		return nil, fmt.Errorf("migratePreAuto: %w", err)
 	}
 	err = db.AutoMigrate(
 		&types.SetupKey{}, &nbpeer.Peer{}, &types.User{}, &types.PersonalAccessToken{}, &types.Group{},
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
-		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
+		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("auto migrate: %w", err)
+		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
+	}
+	if err := migratePostAuto(ctx, db); err != nil {
+		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
 	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
@@ -725,6 +728,32 @@ func (s *SqlStore) GetAccountMeta(ctx context.Context, lockStrength LockingStren
 	return &accountMeta, nil
 }
 
+// GetAccountOnboarding retrieves the onboarding information for a specific account.
+func (s *SqlStore) GetAccountOnboarding(ctx context.Context, accountID string) (*types.AccountOnboarding, error) {
+	var accountOnboarding types.AccountOnboarding
+	result := s.db.Model(&accountOnboarding).First(&accountOnboarding, accountIDCondition, accountID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewAccountOnboardingNotFoundError(accountID)
+		}
+		log.WithContext(ctx).Errorf("error when getting account onboarding %s from the store: %s", accountID, result.Error)
+		return nil, status.NewGetAccountFromStoreError(result.Error)
+	}
+
+	return &accountOnboarding, nil
+}
+
+// SaveAccountOnboarding updates the onboarding information for a specific account.
+func (s *SqlStore) SaveAccountOnboarding(ctx context.Context, onboarding *types.AccountOnboarding) error {
+	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(onboarding)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when saving account onboarding %s in the store: %s", onboarding.AccountID, result.Error)
+		return status.Errorf(status.Internal, "error when saving account onboarding %s in the store: %s", onboarding.AccountID, result.Error)
+	}
+
+	return nil
+}
+
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
 	start := time.Now()
 	defer func() {
@@ -967,7 +996,7 @@ func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength
 	return ips, nil
 }
 
-func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string) ([]string, error) {
+func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountID string, dnsLabel string) ([]string, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -975,7 +1004,7 @@ func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength Lock
 
 	var labels []string
 	result := tx.Model(&nbpeer.Peer{}).
-		Where("account_id = ?", accountID).
+		Where("account_id = ? AND dns_label LIKE ?", accountID, dnsLabel+"%").
 		Pluck("dns_label", &labels)
 
 	if result.Error != nil {
@@ -1184,7 +1213,7 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 	for _, account := range fileStore.GetAllAccounts(ctx) {
 		_, err = account.GetGroupAll()
 		if err != nil {
-			if err := account.AddAllGroup(); err != nil {
+			if err := account.AddAllGroup(false); err != nil {
 				return nil, err
 			}
 		}
@@ -1254,7 +1283,7 @@ func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength Locking
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, status.NewSetupKeyNotFoundError(key)
+			return nil, status.Errorf(status.PreconditionFailed, "setup key not found")
 		}
 		log.WithContext(ctx).Errorf("failed to get setup key by secret from store: %v", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get setup key by secret from store")
@@ -1410,7 +1439,11 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 // GetAccountPeers retrieves peers for an account.
 func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer
-	query := s.db.Clauses(clause.Locking{Strength: string(lockStrength)}).Where(accountIDCondition, accountID)
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	query := tx.Where(accountIDCondition, accountID)
 
 	if nameFilter != "" {
 		query = query.Where("name LIKE ?", "%"+nameFilter+"%")
@@ -2544,6 +2577,27 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 	}
 
 	return &peer, nil
+}
+
+func (s *SqlStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error) {
+	tx := s.db.WithContext(ctx)
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var peerID string
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("id").
+		// Where(" = ?", hostname).
+		Where("account_id = ? AND dns_label = ?", accountID, hostname).
+		Limit(1).
+		Scan(&peerID)
+
+	if peerID == "" {
+		return "", gorm.ErrRecordNotFound
+	}
+
+	return peerID, result.Error
 }
 
 func (s *SqlStore) CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error) {

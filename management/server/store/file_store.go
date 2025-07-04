@@ -156,7 +156,7 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 
 		allGroup, err := account.GetGroupAll()
 		if err != nil {
-			log.WithContext(ctx).Errorf("unable to find the All group, this should happen only when migrate from a version that didn't support groups. Error: %v", err)
+			log.WithContext(ctx).Errorf("unable to find the All group, this should happen only when migratePreAuto from a version that didn't support groups. Error: %v", err)
 			// if the All group didn't exist we probably don't have routes to update
 			continue
 		}
