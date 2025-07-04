@@ -799,6 +799,133 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	}, nil
 }
 
+// SetConfig updates daemon configuration without reconnecting
+func (s *Server) SetConfig(ctx context.Context, req *proto.SetConfigRequest) (*proto.SetConfigResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.config == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "daemon is not configured")
+	}
+
+	configChanged := false
+
+	if req.RosenpassEnabled != nil && s.config.RosenpassEnabled != *req.RosenpassEnabled {
+		s.config.RosenpassEnabled = *req.RosenpassEnabled
+		configChanged = true
+	}
+
+	if req.RosenpassPermissive != nil && s.config.RosenpassPermissive != *req.RosenpassPermissive {
+		s.config.RosenpassPermissive = *req.RosenpassPermissive
+		configChanged = true
+	}
+
+	if req.ServerSSHAllowed != nil && s.config.ServerSSHAllowed != nil && *s.config.ServerSSHAllowed != *req.ServerSSHAllowed {
+		*s.config.ServerSSHAllowed = *req.ServerSSHAllowed
+		configChanged = true
+	}
+
+	if req.DisableAutoConnect != nil && s.config.DisableAutoConnect != *req.DisableAutoConnect {
+		s.config.DisableAutoConnect = *req.DisableAutoConnect
+		configChanged = true
+	}
+
+	if req.NetworkMonitor != nil && s.config.NetworkMonitor != nil && *s.config.NetworkMonitor != *req.NetworkMonitor {
+		*s.config.NetworkMonitor = *req.NetworkMonitor
+		configChanged = true
+	}
+
+	if req.DnsRouteInterval != nil {
+		duration := req.DnsRouteInterval.AsDuration()
+		if s.config.DNSRouteInterval != duration {
+			s.config.DNSRouteInterval = duration
+			configChanged = true
+		}
+	}
+
+	if req.DisableClientRoutes != nil && s.config.DisableClientRoutes != *req.DisableClientRoutes {
+		s.config.DisableClientRoutes = *req.DisableClientRoutes
+		configChanged = true
+	}
+
+	if req.DisableServerRoutes != nil && s.config.DisableServerRoutes != *req.DisableServerRoutes {
+		s.config.DisableServerRoutes = *req.DisableServerRoutes
+		configChanged = true
+	}
+
+	if req.DisableDns != nil && s.config.DisableDNS != *req.DisableDns {
+		s.config.DisableDNS = *req.DisableDns
+		configChanged = true
+	}
+
+	if req.DisableFirewall != nil && s.config.DisableFirewall != *req.DisableFirewall {
+		s.config.DisableFirewall = *req.DisableFirewall
+		configChanged = true
+	}
+
+	if req.BlockLanAccess != nil && s.config.BlockLANAccess != *req.BlockLanAccess {
+		s.config.BlockLANAccess = *req.BlockLanAccess
+		configChanged = true
+	}
+
+	if req.LazyConnectionEnabled != nil && s.config.LazyConnectionEnabled != *req.LazyConnectionEnabled {
+		s.config.LazyConnectionEnabled = *req.LazyConnectionEnabled
+		configChanged = true
+	}
+
+	if req.BlockInbound != nil && s.config.BlockInbound != *req.BlockInbound {
+		s.config.BlockInbound = *req.BlockInbound
+		configChanged = true
+	}
+
+	if req.InterfaceName != nil && s.config.WgIface != *req.InterfaceName {
+		s.config.WgIface = *req.InterfaceName
+		configChanged = true
+	}
+
+	if req.WireguardPort != nil && s.config.WgPort != int(*req.WireguardPort) {
+		s.config.WgPort = int(*req.WireguardPort)
+		configChanged = true
+	}
+
+	if req.CustomDNSAddress != nil && s.config.CustomDNSAddress != *req.CustomDNSAddress {
+		s.config.CustomDNSAddress = *req.CustomDNSAddress
+		configChanged = true
+	}
+
+	if len(req.ExtraIFaceBlacklist) > 0 {
+		s.config.IFaceBlackList = req.ExtraIFaceBlacklist
+		configChanged = true
+	}
+
+	if len(req.DnsLabels) > 0 || (req.CleanDNSLabels != nil && *req.CleanDNSLabels) {
+		if req.CleanDNSLabels != nil && *req.CleanDNSLabels {
+			s.config.DNSLabels = domain.List{}
+		} else {
+			var err error
+			s.config.DNSLabels, err = domain.FromStringList(req.DnsLabels)
+			if err != nil {
+				return nil, gstatus.Errorf(codes.InvalidArgument, "invalid DNS labels: %v", err)
+			}
+		}
+		configChanged = true
+	}
+
+	if len(req.NatExternalIPs) > 0 || (req.CleanNATExternalIPs != nil && *req.CleanNATExternalIPs) {
+		s.config.NATExternalIPs = req.NatExternalIPs
+		configChanged = true
+	}
+
+	if configChanged {
+		if err := internal.WriteOutConfig(s.latestConfigInput.ConfigPath, s.config); err != nil {
+			return nil, gstatus.Errorf(codes.Internal, "write config: %v", err)
+		}
+		log.Debug("Configuration updated successfully")
+	}
+
+	return &proto.SetConfigResponse{}, nil
+}
+
 func (s *Server) onSessionExpire() {
 	if runtime.GOOS != "windows" {
 		isUIActive := internal.CheckUIApp()

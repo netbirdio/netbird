@@ -7,7 +7,6 @@ import (
 	"net/netip"
 	"runtime"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -15,7 +14,6 @@ import (
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
@@ -42,6 +40,7 @@ var (
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
 	noBrowser          bool
+	upFlags            = &SharedFlags{}
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -51,26 +50,12 @@ var (
 )
 
 func init() {
+	// Add shared flags to up command
+	AddSharedFlags(upCmd, upFlags)
+
+	// Add up-specific flags
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
-	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
-	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
-	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", networkMonitor,
-		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux and FreeBSD. `+
-			`E.g. --network-monitor=false to disable or --network-monitor=true to enable.`,
-	)
-	upCmd.PersistentFlags().StringSliceVar(&extraIFaceBlackList, extraIFaceBlackListFlag, nil, "Extra list of default interfaces to ignore for listening")
-	upCmd.PersistentFlags().DurationVar(&dnsRouteInterval, dnsRouteIntervalFlag, time.Minute, "DNS route update interval")
-
-	upCmd.PersistentFlags().StringSliceVar(&dnsLabels, dnsLabelsFlag, nil,
-		`Sets DNS labels`+
-			`You can specify a comma-separated list of up to 32 labels. `+
-			`An empty string "" clears the previous configuration. `+
-			`E.g. --extra-dns-labels vpc1 or --extra-dns-labels vpc1,mgmt1 `+
-			`or --extra-dns-labels ""`,
-	)
-
-	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
-
+	AddUpOnlyFlags(upCmd, upFlags)
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -118,7 +103,16 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	ic, err := setupConfig(customDNSAddressConverted, cmd)
+	// Handle DNS labels validation and assignment to SharedFlags
+	if cmd.Flag(dnsLabelsFlag).Changed {
+		var err error
+		dnsLabelsValidated, err = validateDnsLabels(upFlags.DNSLabels)
+		if err != nil {
+			return err
+		}
+	}
+
+	ic, err := BuildConfigInput(cmd, upFlags, customDNSAddressConverted)
 	if err != nil {
 		return fmt.Errorf("setup config: %v", err)
 	}
@@ -233,92 +227,6 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 	cmd.Println("Connected")
 	return nil
-}
-
-func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*internal.ConfigInput, error) {
-	ic := internal.ConfigInput{
-		ManagementURL:       managementURL,
-		AdminURL:            adminURL,
-		ConfigPath:          configPath,
-		NATExternalIPs:      natExternalIPs,
-		CustomDNSAddress:    customDNSAddressConverted,
-		ExtraIFaceBlackList: extraIFaceBlackList,
-		DNSLabels:           dnsLabelsValidated,
-	}
-
-	if cmd.Flag(enableRosenpassFlag).Changed {
-		ic.RosenpassEnabled = &rosenpassEnabled
-	}
-
-	if cmd.Flag(rosenpassPermissiveFlag).Changed {
-		ic.RosenpassPermissive = &rosenpassPermissive
-	}
-
-	if cmd.Flag(serverSSHAllowedFlag).Changed {
-		ic.ServerSSHAllowed = &serverSSHAllowed
-	}
-
-	if cmd.Flag(interfaceNameFlag).Changed {
-		if err := parseInterfaceName(interfaceName); err != nil {
-			return nil, err
-		}
-		ic.InterfaceName = &interfaceName
-	}
-
-	if cmd.Flag(wireguardPortFlag).Changed {
-		p := int(wireguardPort)
-		ic.WireguardPort = &p
-	}
-
-	if cmd.Flag(networkMonitorFlag).Changed {
-		ic.NetworkMonitor = &networkMonitor
-	}
-
-	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
-		ic.PreSharedKey = &preSharedKey
-	}
-
-	if cmd.Flag(disableAutoConnectFlag).Changed {
-		ic.DisableAutoConnect = &autoConnectDisabled
-
-		if autoConnectDisabled {
-			cmd.Println("Autoconnect has been disabled. The client won't connect automatically when the service starts.")
-		}
-
-		if !autoConnectDisabled {
-			cmd.Println("Autoconnect has been enabled. The client will connect automatically when the service starts.")
-		}
-	}
-
-	if cmd.Flag(dnsRouteIntervalFlag).Changed {
-		ic.DNSRouteInterval = &dnsRouteInterval
-	}
-
-	if cmd.Flag(disableClientRoutesFlag).Changed {
-		ic.DisableClientRoutes = &disableClientRoutes
-	}
-	if cmd.Flag(disableServerRoutesFlag).Changed {
-		ic.DisableServerRoutes = &disableServerRoutes
-	}
-	if cmd.Flag(disableDNSFlag).Changed {
-		ic.DisableDNS = &disableDNS
-	}
-	if cmd.Flag(disableFirewallFlag).Changed {
-		ic.DisableFirewall = &disableFirewall
-	}
-
-	if cmd.Flag(blockLANAccessFlag).Changed {
-		ic.BlockLANAccess = &blockLANAccess
-	}
-
-	if cmd.Flag(blockInboundFlag).Changed {
-		ic.BlockInbound = &blockInbound
-	}
-
-	if cmd.Flag(enableLazyConnectionFlag).Changed {
-		ic.LazyConnectionEnabled = &lazyConnEnabled
-	}
-	return &ic, nil
 }
 
 func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte, cmd *cobra.Command) (*proto.LoginRequest, error) {
