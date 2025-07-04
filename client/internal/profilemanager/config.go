@@ -144,11 +144,11 @@ type Config struct {
 	LazyConnectionEnabled bool
 }
 
-var configDirOverride string
+var ConfigDirOverride string
 
 func getConfigDir() (string, error) {
-	if configDirOverride != "" {
-		return configDirOverride, nil
+	if ConfigDirOverride != "" {
+		return ConfigDirOverride, nil
 	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {

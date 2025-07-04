@@ -7,14 +7,38 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 var cliAddr string
 
 func TestUpDaemon(t *testing.T) {
-	mgmAddr := startTestingServices(t)
 
 	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.ConfigDirOverride = tempDir
+
+	pm := profilemanager.ProfileManager{}
+	pm.AddProfile(profilemanager.Profile{
+		Name: "test1",
+	})
+	sm := profilemanager.ServiceManager{}
+	err := sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name: "test1",
+		Path: profilemanager.DefaultConfigPathDir + "/test1.json",
+	})
+
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.ConfigDirOverride = ""
+	})
+
+	mgmAddr := startTestingServices(t)
+
 	confPath := tempDir + "/config.json"
 
 	ctx := internal.CtxInitState(context.Background())

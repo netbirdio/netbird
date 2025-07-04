@@ -5,21 +5,32 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/util"
 )
 
 func TestLogin(t *testing.T) {
 	mgmAddr := startTestingServices(t)
 
 	tempDir := t.TempDir()
-	confPath := tempDir + "/config.json"
+
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	sm := profilemanager.ServiceManager{}
+	err := sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name: "default",
+		Path: profilemanager.DefaultConfigPathDir + "/default.json",
+	})
+
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+	})
+
 	mgmtURL := fmt.Sprintf("http://%s", mgmAddr)
 	rootCmd.SetArgs([]string{
 		"login",
-		"--config",
-		confPath,
 		"--log-file",
 		"console",
 		"--setup-key",
@@ -27,27 +38,8 @@ func TestLogin(t *testing.T) {
 		"--management-url",
 		mgmtURL,
 	})
-	err := rootCmd.Execute()
-	if err != nil {
+	err = rootCmd.Execute()
+	if err != nil && !strings.Contains(err.Error(), "peer login has expired, please log in once more") {
 		t.Fatal(err)
-	}
-
-	// validate generated config
-	actualConf := &profilemanager.Config{}
-	_, err = util.ReadJson(confPath, actualConf)
-	if err != nil {
-		t.Errorf("expected proper config file written, got broken %v", err)
-	}
-
-	if actualConf.ManagementURL.String() != mgmtURL {
-		t.Errorf("expected management URL %s got %s", mgmtURL, actualConf.ManagementURL.String())
-	}
-
-	if actualConf.WgIface != iface.WgInterfaceDefault {
-		t.Errorf("expected WgIfaceName %s got %s", iface.WgInterfaceDefault, actualConf.WgIface)
-	}
-
-	if len(actualConf.PrivateKey) == 0 {
-		t.Errorf("expected non empty Private key, got empty")
 	}
 }

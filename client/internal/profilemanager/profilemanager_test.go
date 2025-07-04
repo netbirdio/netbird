@@ -5,8 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/netbirdio/netbird/util"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 func withTempConfigDir(t *testing.T, testFunc func(configDir string)) {
@@ -22,12 +23,12 @@ func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
 	origDefaultConfigPath := defaultConfigPath
 	origActiveProfileStatePath := ActiveProfileStatePath
 	origOldDefaultConfigPath := oldDefaultConfigPath
-	origConfigDirOverride := configDirOverride
+	origConfigDirOverride := ConfigDirOverride
 	DefaultConfigPathDir = configDir
 	defaultConfigPath = filepath.Join(configDir, "default.json")
 	ActiveProfileStatePath = filepath.Join(configDir, "active_profile.json")
 	oldDefaultConfigPath = filepath.Join(configDir, "old_config.json")
-	configDirOverride = configDir
+	ConfigDirOverride = configDir
 	// Clean up any files in the config dir to ensure isolation
 	os.RemoveAll(configDir)
 	os.MkdirAll(configDir, 0755)
@@ -36,7 +37,7 @@ func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
 		defaultConfigPath = origDefaultConfigPath
 		ActiveProfileStatePath = origActiveProfileStatePath
 		oldDefaultConfigPath = origOldDefaultConfigPath
-		configDirOverride = origConfigDirOverride
+		ConfigDirOverride = origConfigDirOverride
 	}()
 	testFunc()
 }
