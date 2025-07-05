@@ -22,8 +22,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -50,14 +50,12 @@ type Server struct {
 	rootCtx   context.Context
 	actCancel context.CancelFunc
 
-	latestConfigInput internal.ConfigInput
-
 	logFile string
 
 	oauthAuthFlow oauthAuthFlow
 
 	mutex  sync.Mutex
-	config *internal.Config
+	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
 
 	connectClient *internal.ConnectClient
@@ -68,6 +66,8 @@ type Server struct {
 	lastProbe         time.Time
 	persistNetworkMap bool
 	isSessionActive   atomic.Bool
+
+	profileManager profilemanager.ServiceManager
 }
 
 type oauthAuthFlow struct {
@@ -78,15 +78,13 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, configPath, logFile string) *Server {
+func New(ctx context.Context, logFile string) *Server {
 	return &Server{
-		rootCtx: ctx,
-		latestConfigInput: internal.ConfigInput{
-			ConfigPath: configPath,
-		},
+		rootCtx:           ctx,
 		logFile:           logFile,
 		persistNetworkMap: true,
 		statusRecorder:    peer.NewRecorder(""),
+		profileManager:    profilemanager.ServiceManager{},
 	}
 }
 
@@ -118,25 +116,49 @@ func (s *Server) Start() error {
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
 
-	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
-	// on failure we return error to retry
-	config, err := internal.UpdateConfig(s.latestConfigInput)
-	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
-		s.config, err = internal.UpdateOrCreateConfig(s.latestConfigInput)
-		if err != nil {
-			log.Warnf("unable to create configuration file: %v", err)
-			return err
+	// set the default config if not exists
+	ok, err := s.profileManager.CopyDefaultProfileIfNotExists()
+	if err != nil {
+		if err := s.profileManager.CreateDefaultProfile(); err != nil {
+			log.Errorf("failed to create default profile: %v", err)
+			return fmt.Errorf("failed to create default profile: %w", err)
 		}
+
+		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+			Name: "default",
+			Path: s.profileManager.DefaultProfilePath(),
+		}); err != nil {
+			log.Errorf("failed to set active profile state: %v", err)
+			return fmt.Errorf("failed to set active profile state: %w", err)
+		}
+	}
+	if ok {
 		state.Set(internal.StatusNeedsLogin)
-		return nil
-	} else if err != nil {
-		log.Warnf("unable to create configuration file: %v", err)
-		return err
 	}
 
-	// if configuration exists, we just start connections.
-	config, _ = internal.UpdateOldManagementURL(ctx, config, s.latestConfigInput.ConfigPath)
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		return fmt.Errorf("failed to get active profile state: %w", err)
+	}
 
+	config, err := profilemanager.GetConfig(activeProf.Path)
+	if err != nil {
+		log.Errorf("failed to get active profile config: %v", err)
+
+		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+			Name: "default",
+			Path: s.profileManager.DefaultProfilePath(),
+		}); err != nil {
+			log.Errorf("failed to set active profile state: %v", err)
+			return fmt.Errorf("failed to set active profile state: %w", err)
+		}
+
+		config, err = profilemanager.GetConfig(s.profileManager.DefaultProfilePath())
+		if err != nil {
+			log.Errorf("failed to get default profile config: %v", err)
+			return fmt.Errorf("failed to get default profile config: %w", err)
+		}
+	}
 	s.config = config
 
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
@@ -160,7 +182,7 @@ func (s *Server) Start() error {
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
-func (s *Server) connectWithRetryRuns(ctx context.Context, config *internal.Config, statusRecorder *peer.Status,
+func (s *Server) connectWithRetryRuns(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status,
 	runningChan chan struct{},
 ) {
 	backOff := getConnectWithBackoff(ctx)
@@ -304,147 +326,46 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 	}()
 
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	if msg.ProfileName != nil && msg.ProfilePath != nil {
+		if *msg.ProfileName != activeProf.Name && *msg.ProfilePath != activeProf.Path {
+			log.Infof("switching to profile %s at %s", *msg.ProfileName, *msg.ProfilePath)
+			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+				Name: *msg.ProfileName,
+				Path: *msg.ProfilePath,
+			}); err != nil {
+				log.Errorf("failed to set active profile state: %v", err)
+				return nil, fmt.Errorf("failed to set active profile state: %w", err)
+			}
+		}
+	}
+
+	activeProf, err = s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	log.Infof("active profile: %s at %s", activeProf.Name, activeProf.Path)
+
 	s.mutex.Lock()
-	inputConfig := s.latestConfigInput
-
-	if msg.ManagementUrl != "" {
-		inputConfig.ManagementURL = msg.ManagementUrl
-		s.latestConfigInput.ManagementURL = msg.ManagementUrl
-	}
-
-	if msg.AdminURL != "" {
-		inputConfig.AdminURL = msg.AdminURL
-		s.latestConfigInput.AdminURL = msg.AdminURL
-	}
-
-	if msg.CleanNATExternalIPs {
-		inputConfig.NATExternalIPs = make([]string, 0)
-		s.latestConfigInput.NATExternalIPs = nil
-	} else if msg.NatExternalIPs != nil {
-		inputConfig.NATExternalIPs = msg.NatExternalIPs
-		s.latestConfigInput.NATExternalIPs = msg.NatExternalIPs
-	}
-
-	inputConfig.CustomDNSAddress = msg.CustomDNSAddress
-	s.latestConfigInput.CustomDNSAddress = msg.CustomDNSAddress
-	if string(msg.CustomDNSAddress) == "empty" {
-		inputConfig.CustomDNSAddress = []byte{}
-		s.latestConfigInput.CustomDNSAddress = []byte{}
-	}
 
 	if msg.Hostname != "" {
 		// nolint
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, msg.Hostname)
 	}
-
-	if msg.RosenpassEnabled != nil {
-		inputConfig.RosenpassEnabled = msg.RosenpassEnabled
-		s.latestConfigInput.RosenpassEnabled = msg.RosenpassEnabled
-	}
-
-	if msg.RosenpassPermissive != nil {
-		inputConfig.RosenpassPermissive = msg.RosenpassPermissive
-		s.latestConfigInput.RosenpassPermissive = msg.RosenpassPermissive
-	}
-
-	if msg.ServerSSHAllowed != nil {
-		inputConfig.ServerSSHAllowed = msg.ServerSSHAllowed
-		s.latestConfigInput.ServerSSHAllowed = msg.ServerSSHAllowed
-	}
-
-	if msg.DisableAutoConnect != nil {
-		inputConfig.DisableAutoConnect = msg.DisableAutoConnect
-		s.latestConfigInput.DisableAutoConnect = msg.DisableAutoConnect
-	}
-
-	if msg.InterfaceName != nil {
-		inputConfig.InterfaceName = msg.InterfaceName
-		s.latestConfigInput.InterfaceName = msg.InterfaceName
-	}
-
-	if msg.WireguardPort != nil {
-		port := int(*msg.WireguardPort)
-		inputConfig.WireguardPort = &port
-		s.latestConfigInput.WireguardPort = &port
-	}
-
-	if msg.NetworkMonitor != nil {
-		inputConfig.NetworkMonitor = msg.NetworkMonitor
-		s.latestConfigInput.NetworkMonitor = msg.NetworkMonitor
-	}
-
-	if len(msg.ExtraIFaceBlacklist) > 0 {
-		inputConfig.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
-		s.latestConfigInput.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
-	}
-
-	if msg.DnsRouteInterval != nil {
-		duration := msg.DnsRouteInterval.AsDuration()
-		inputConfig.DNSRouteInterval = &duration
-		s.latestConfigInput.DNSRouteInterval = &duration
-	}
-
-	if msg.DisableClientRoutes != nil {
-		inputConfig.DisableClientRoutes = msg.DisableClientRoutes
-		s.latestConfigInput.DisableClientRoutes = msg.DisableClientRoutes
-	}
-	if msg.DisableServerRoutes != nil {
-		inputConfig.DisableServerRoutes = msg.DisableServerRoutes
-		s.latestConfigInput.DisableServerRoutes = msg.DisableServerRoutes
-	}
-	if msg.DisableDns != nil {
-		inputConfig.DisableDNS = msg.DisableDns
-		s.latestConfigInput.DisableDNS = msg.DisableDns
-	}
-	if msg.DisableFirewall != nil {
-		inputConfig.DisableFirewall = msg.DisableFirewall
-		s.latestConfigInput.DisableFirewall = msg.DisableFirewall
-	}
-	if msg.BlockLanAccess != nil {
-		inputConfig.BlockLANAccess = msg.BlockLanAccess
-		s.latestConfigInput.BlockLANAccess = msg.BlockLanAccess
-	}
-	if msg.BlockInbound != nil {
-		inputConfig.BlockInbound = msg.BlockInbound
-		s.latestConfigInput.BlockInbound = msg.BlockInbound
-	}
-
-	if msg.CleanDNSLabels {
-		inputConfig.DNSLabels = domain.List{}
-		s.latestConfigInput.DNSLabels = nil
-	} else if msg.DnsLabels != nil {
-		dnsLabels := domain.FromPunycodeList(msg.DnsLabels)
-		inputConfig.DNSLabels = dnsLabels
-		s.latestConfigInput.DNSLabels = dnsLabels
-	}
-
-	if msg.DisableNotifications != nil {
-		inputConfig.DisableNotifications = msg.DisableNotifications
-		s.latestConfigInput.DisableNotifications = msg.DisableNotifications
-	}
-
-	if msg.LazyConnectionEnabled != nil {
-		inputConfig.LazyConnectionEnabled = msg.LazyConnectionEnabled
-		s.latestConfigInput.LazyConnectionEnabled = msg.LazyConnectionEnabled
-	}
-
 	s.mutex.Unlock()
 
-	if msg.OptionalPreSharedKey != nil {
-		inputConfig.PreSharedKey = msg.OptionalPreSharedKey
-	}
-
-	config, err := internal.UpdateOrCreateConfig(inputConfig)
+	config, err := profilemanager.GetConfig(activeProf.Path)
 	if err != nil {
-		return nil, err
+		log.Errorf("failed to get active profile config: %v", err)
+		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
-
-	if msg.ManagementUrl == "" {
-		config, _ = internal.UpdateOldManagementURL(ctx, config, s.latestConfigInput.ConfigPath)
-		s.config = config
-		s.latestConfigInput.ManagementURL = config.ManagementURL.String()
-	}
-
 	s.mutex.Lock()
 	s.config = config
 	s.mutex.Unlock()
@@ -586,11 +507,13 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
-	return &proto.WaitSSOLoginResponse{}, nil
+	return &proto.WaitSSOLoginResponse{
+		Email: tokenInfo.Email,
+	}, nil
 }
 
 // Up starts engine work in the daemon.
-func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpResponse, error) {
+func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -627,6 +550,40 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	if s.config == nil {
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
+
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	if msg.ProfileName != nil && msg.ProfilePath != nil {
+		if *msg.ProfileName != activeProf.Name && *msg.ProfilePath != activeProf.Path {
+			log.Infof("switching to profile %s at %s", *msg.ProfileName, *msg.ProfilePath)
+			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+				Name: *msg.ProfileName,
+				Path: *msg.ProfilePath,
+			}); err != nil {
+				log.Errorf("failed to set active profile state: %v", err)
+				return nil, fmt.Errorf("failed to set active profile state: %w", err)
+			}
+		}
+	}
+
+	activeProf, err = s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	log.Infof("active profile: %s at %s", activeProf.Name, activeProf.Path)
+
+	config, err := profilemanager.GetConfig(activeProf.Path)
+	if err != nil {
+		log.Errorf("failed to get active profile config: %v", err)
+		return nil, fmt.Errorf("failed to get active profile config: %w", err)
+	}
+	s.config = config
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
@@ -742,19 +699,11 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	managementURL := s.latestConfigInput.ManagementURL
-	adminURL := s.latestConfigInput.AdminURL
+	managementURL := s.config.ManagementURL
+	adminURL := s.config.AdminURL
 	preSharedKey := ""
 
 	if s.config != nil {
-		if managementURL == "" && s.config.ManagementURL != nil {
-			managementURL = s.config.ManagementURL.String()
-		}
-
-		if s.config.AdminURL != nil {
-			adminURL = s.config.AdminURL.String()
-		}
-
 		preSharedKey = s.config.PreSharedKey
 		if preSharedKey != "" {
 			preSharedKey = "**********"
@@ -777,11 +726,11 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	blockLANAccess := s.config.BlockLANAccess
 
 	return &proto.GetConfigResponse{
-		ManagementUrl:         managementURL,
-		ConfigFile:            s.latestConfigInput.ConfigPath,
-		LogFile:               s.logFile,
+		ManagementUrl: managementURL.String(),
+		//ConfigFile:            s.latestConfigInput.ConfigPath,
+		//LogFile:               s.logFile,
 		PreSharedKey:          preSharedKey,
-		AdminURL:              adminURL,
+		AdminURL:              adminURL.String(),
 		InterfaceName:         s.config.WgIface,
 		WireguardPort:         int64(s.config.WgPort),
 		DisableAutoConnect:    s.config.DisableAutoConnect,

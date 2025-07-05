@@ -35,10 +35,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/client/ui/process"
+
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/version"
@@ -54,11 +56,11 @@ const (
 )
 
 func main() {
-	daemonAddr, showSettings, showNetworks, showLoginURL, showDebug, errorMsg, saveLogsInFile := parseFlags()
+	flags := parseFlags()
 
 	// Initialize file logging if needed.
 	var logFile string
-	if saveLogsInFile {
+	if flags.saveLogsInFile {
 		file, err := initLogFile()
 		if err != nil {
 			log.Errorf("error while initializing log: %v", err)
@@ -74,19 +76,28 @@ func main() {
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnected))
 
 	// Show error message window if needed.
-	if errorMsg != "" {
-		showErrorMessage(errorMsg)
+	if flags.errorMsg != "" {
+		showErrorMessage(flags.errorMsg)
 		return
 	}
 
 	// Create the service client (this also builds the settings or networks UI if requested).
-	client := newServiceClient(daemonAddr, logFile, a, showSettings, showNetworks, showLoginURL, showDebug)
+	client := newServiceClient(&newServiceClientArgs{
+		addr:         flags.daemonAddr,
+		logFile:      logFile,
+		app:          a,
+		showSettings: flags.showSettings,
+		showNetworks: flags.showNetworks,
+		showLoginURL: flags.showLoginURL,
+		showDebug:    flags.showDebug,
+		showProfiles: flags.showProfiles,
+	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if showSettings || showNetworks || showDebug || showLoginURL {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles {
 		a.Run()
 		return
 	}
@@ -106,21 +117,35 @@ func main() {
 	systray.Run(client.onTrayReady, client.onTrayExit)
 }
 
+type cliFlags struct {
+	daemonAddr     string
+	showSettings   bool
+	showNetworks   bool
+	showProfiles   bool
+	showDebug      bool
+	showLoginURL   bool
+	errorMsg       string
+	saveLogsInFile bool
+}
+
 // parseFlags reads and returns all needed command-line flags.
-func parseFlags() (daemonAddr string, showSettings, showNetworks, showLoginURL, showDebug bool, errorMsg string, saveLogsInFile bool) {
+func parseFlags() *cliFlags {
+	var flags cliFlags
+
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
-	flag.StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
-	flag.BoolVar(&showSettings, "settings", false, "run settings window")
-	flag.BoolVar(&showNetworks, "networks", false, "run networks window")
-	flag.BoolVar(&showLoginURL, "login-url", false, "show login URL in a popup window")
-	flag.BoolVar(&showDebug, "debug", false, "run debug window")
-	flag.StringVar(&errorMsg, "error-msg", "", "displays an error message window")
-	flag.BoolVar(&saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
+	flag.StringVar(&flags.daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
+	flag.BoolVar(&flags.showSettings, "settings", false, "run settings window")
+	flag.BoolVar(&flags.showNetworks, "networks", false, "run networks window")
+	flag.BoolVar(&flags.showProfiles, "profiles", false, "run profiles window")
+	flag.BoolVar(&flags.showDebug, "debug", false, "run debug window")
+	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
+	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
+	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
 	flag.Parse()
-	return
+	return &flags
 }
 
 // initLogFile initializes logging into a file.
@@ -168,6 +193,12 @@ var iconConnectingMacOS []byte
 //go:embed assets/netbird-systemtray-error-macos.png
 var iconErrorMacOS []byte
 
+//go:embed assets/connected.png
+var iconConnectedDot []byte
+
+//go:embed assets/disconnected.png
+var iconDisconnectedDot []byte
+
 type serviceClient struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -176,9 +207,13 @@ type serviceClient struct {
 
 	eventHandler *eventHandler
 
+	profileManager *profilemanager.ProfileManager
+
 	icAbout              []byte
 	icConnected          []byte
+	icConnectedDot       []byte
 	icDisconnected       []byte
+	icDisconnectedDot    []byte
 	icUpdateConnected    []byte
 	icUpdateDisconnected []byte
 	icConnecting         []byte
@@ -189,6 +224,7 @@ type serviceClient struct {
 	mUp                *systray.MenuItem
 	mDown              *systray.MenuItem
 	mSettings          *systray.MenuItem
+	mProfile           *profileMenu
 	mAbout             *systray.MenuItem
 	mGitHub            *systray.MenuItem
 	mVersionUI         *systray.MenuItem
@@ -215,7 +251,6 @@ type serviceClient struct {
 	// input elements for settings form
 	iMngURL        *widget.Entry
 	iAdminURL      *widget.Entry
-	iConfigFile    *widget.Entry
 	iLogFile       *widget.Entry
 	iPreSharedKey  *widget.Entry
 	iInterfaceName *widget.Entry
@@ -249,6 +284,7 @@ type serviceClient struct {
 	isUpdateIconActive   bool
 	showNetworks         bool
 	wNetworks            fyne.Window
+	wProfiles            fyne.Window
 
 	eventManager *event.Manager
 
@@ -265,36 +301,50 @@ type menuHandler struct {
 	cancel context.CancelFunc
 }
 
+type newServiceClientArgs struct {
+	addr         string
+	logFile      string
+	app          fyne.App
+	showSettings bool
+	showNetworks bool
+	showDebug    bool
+	showLoginURL bool
+	showProfiles bool
+}
+
 // newServiceClient instance constructor
 //
 // This constructor also builds the UI elements for the settings window.
-func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool, showNetworks bool, showLoginURL bool, showDebug bool) *serviceClient {
+func newServiceClient(args *newServiceClientArgs) *serviceClient {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &serviceClient{
 		ctx:              ctx,
 		cancel:           cancel,
-		addr:             addr,
-		app:              a,
-		logFile:          logFile,
+		addr:             args.addr,
+		app:              args.app,
+		logFile:          args.logFile,
 		sendNotification: false,
 
-		showAdvancedSettings: showSettings,
-		showNetworks:         showNetworks,
+		showAdvancedSettings: args.showSettings,
+		showNetworks:         args.showNetworks,
 		update:               version.NewUpdate("nb/client-ui"),
 	}
 
 	s.eventHandler = newEventHandler(s)
+	s.profileManager = profilemanager.NewProfileManager()
 	s.setNewIcons()
 
 	switch {
-	case showSettings:
+	case args.showSettings:
 		s.showSettingsUI()
-	case showNetworks:
+	case args.showNetworks:
 		s.showNetworksUI()
-	case showLoginURL:
+	case args.showLoginURL:
 		s.showLoginURL()
-	case showDebug:
+	case args.showDebug:
 		s.showDebugUI()
+	case args.showProfiles:
+		s.showProfilesUI()
 	}
 
 	return s
@@ -302,6 +352,8 @@ func newServiceClient(addr string, logFile string, a fyne.App, showSettings bool
 
 func (s *serviceClient) setNewIcons() {
 	s.icAbout = iconAbout
+	s.icConnectedDot = iconConnectedDot
+	s.icDisconnectedDot = iconDisconnectedDot
 	if s.app.Settings().ThemeVariant() == theme.VariantDark {
 		s.icConnected = iconConnectedDark
 		s.icDisconnected = iconDisconnected
@@ -345,8 +397,6 @@ func (s *serviceClient) showSettingsUI() {
 
 	s.iMngURL = widget.NewEntry()
 	s.iAdminURL = widget.NewEntry()
-	s.iConfigFile = widget.NewEntry()
-	s.iConfigFile.Disable()
 	s.iLogFile = widget.NewEntry()
 	s.iLogFile.Disable()
 	s.iPreSharedKey = widget.NewPasswordEntry()
@@ -379,7 +429,6 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			{Text: "Management URL", Widget: s.iMngURL},
 			{Text: "Admin URL", Widget: s.iAdminURL},
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
-			{Text: "Config File", Widget: s.iConfigFile},
 			{Text: "Log File", Widget: s.iLogFile},
 			{Text: "Network Monitor", Widget: s.sNetworkMonitor},
 			{Text: "Disable DNS", Widget: s.sDisableDNS},
@@ -402,6 +451,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
 				return
 			}
+			portInt := int(port)
 
 			iAdminURL := strings.TrimSpace(s.iAdminURL.Text)
 			iMngURL := strings.TrimSpace(s.iMngURL.Text)
@@ -422,25 +472,48 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				s.preSharedKey = s.iPreSharedKey.Text
 				s.adminURL = iAdminURL
 
-				loginRequest := proto.LoginRequest{
-					ManagementUrl:       iMngURL,
-					AdminURL:            iAdminURL,
-					IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-					RosenpassPermissive: &s.sRosenpassPermissive.Checked,
-					InterfaceName:       &s.iInterfaceName.Text,
-					WireguardPort:       &port,
-					NetworkMonitor:      &s.sNetworkMonitor.Checked,
-					DisableDns:          &s.sDisableDNS.Checked,
-					DisableClientRoutes: &s.sDisableClientRoutes.Checked,
-					DisableServerRoutes: &s.sDisableServerRoutes.Checked,
-					BlockLanAccess:      &s.sBlockLANAccess.Checked,
+				activeProf, err := s.profileManager.GetActiveProfile()
+				if err != nil {
+					log.Errorf("get active profile: %v", err)
+					return
 				}
+
+				profilePath, err := activeProf.FilePath()
+				if err != nil {
+					log.Errorf("get active profile file path: %v", err)
+					return
+				}
+
+				cfgInput := profilemanager.ConfigInput{
+					ConfigPath: profilePath,
+				}
+
+				if iMngURL != "" {
+					cfgInput.ManagementURL = iMngURL
+				}
+
+				if iAdminURL != "" {
+					cfgInput.AdminURL = iAdminURL
+				}
+
+				cfgInput.RosenpassPermissive = &s.sRosenpassPermissive.Checked
+				cfgInput.InterfaceName = &s.iInterfaceName.Text
+				cfgInput.WireguardPort = &portInt
+				cfgInput.NetworkMonitor = &s.sNetworkMonitor.Checked
+				cfgInput.DisableDNS = &s.sDisableDNS.Checked
+				cfgInput.DisableClientRoutes = &s.sDisableClientRoutes.Checked
+				cfgInput.DisableServerRoutes = &s.sDisableServerRoutes.Checked
+				cfgInput.BlockLANAccess = &s.sBlockLANAccess.Checked
 
 				if s.iPreSharedKey.Text != censoredPreSharedKey {
-					loginRequest.OptionalPreSharedKey = &s.iPreSharedKey.Text
+					cfgInput.PreSharedKey = &s.iPreSharedKey.Text
 				}
 
-				if err := s.restartClient(&loginRequest); err != nil {
+				if _, err := profilemanager.UpdateConfig(cfgInput); err != nil {
+					log.Errorf("set active profile config: %v", err)
+				}
+
+				if err := s.restartClient(); err != nil {
 					log.Errorf("restarting client connection: %v", err)
 					return
 				}
@@ -459,8 +532,22 @@ func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
 		return nil, err
 	}
 
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Errorf("get active profile: %v", err)
+		return nil, err
+	}
+
+	filePath, err := activeProf.FilePath()
+	if err != nil {
+		log.Errorf("get active profile file path: %v", err)
+		return nil, err
+	}
+
 	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{
 		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+		ProfileName:         &activeProf.Name,
+		ProfilePath:         &filePath,
 	})
 	if err != nil {
 		log.Errorf("login to management URL with: %v", err)
@@ -474,10 +561,22 @@ func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
 			return nil, err
 		}
 
-		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+		resp, err := conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 		if err != nil {
 			log.Errorf("waiting sso login failed with: %v", err)
 			return nil, err
+		}
+
+		if resp.Email != "" {
+			err := s.profileManager.SetActiveProfileState(&profilemanager.ProfileState{
+				Email: resp.Email,
+			})
+			if err != nil {
+				log.Warnf("failed to set profile state: %v", err)
+			} else {
+				s.mProfile.refresh()
+			}
+
 		}
 	}
 
@@ -582,6 +681,7 @@ func (s *serviceClient) updateStatus() error {
 			}
 			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
+			s.mStatus.SetIcon(s.icConnectedDot)
 			s.mUp.Disable()
 			s.mDown.Enable()
 			s.mNetworks.Enable()
@@ -641,6 +741,7 @@ func (s *serviceClient) setDisconnectedStatus() {
 	}
 	systray.SetTooltip("NetBird (Disconnected)")
 	s.mStatus.SetTitle("Disconnected")
+	s.mStatus.SetIcon(s.icDisconnectedDot)
 	s.mDown.Disable()
 	s.mUp.Enable()
 	s.mNetworks.Disable()
@@ -665,7 +766,13 @@ func (s *serviceClient) onTrayReady() {
 
 	// setup systray menu items
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
+	s.mStatus.SetIcon(s.icDisconnectedDot)
 	s.mStatus.Disable()
+
+	profileMenuItem := systray.AddMenuItem("", "")
+	emailMenuItem := systray.AddMenuItem("", "")
+	s.mProfile = newProfileMenu(s.ctx, s.profileManager, *s.eventHandler, profileMenuItem, emailMenuItem, s.menuDownClick, s.menuUpClick, s.getSrvClient)
+
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
@@ -797,61 +904,66 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 // getSrvConfig from the service to show it in the settings window.
 func (s *serviceClient) getSrvConfig() {
-	s.managementURL = internal.DefaultManagementURL
-	s.adminURL = internal.DefaultAdminURL
+	s.managementURL = profilemanager.DefaultManagementURL
+	s.adminURL = profilemanager.DefaultAdminURL
 
-	conn, err := s.getSrvClient(failFastTimeout)
+	activeProf, err := s.profileManager.GetActiveProfile()
 	if err != nil {
-		log.Errorf("get client: %v", err)
+		log.Errorf("get active profile: %v", err)
 		return
 	}
 
-	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
+	profPath, err := activeProf.FilePath()
 	if err != nil {
-		log.Errorf("get config settings from server: %v", err)
+		log.Errorf("get active profile file path: %v", err)
 		return
 	}
 
-	if cfg.ManagementUrl != "" {
-		s.managementURL = cfg.ManagementUrl
+	cfg, err := profilemanager.GetConfig(profPath)
+	if err != nil {
+		log.Errorf("get config from profile: %v", err)
+		return
 	}
-	if cfg.AdminURL != "" {
-		s.adminURL = cfg.AdminURL
+
+	if cfg.ManagementURL.String() != "" {
+		s.managementURL = cfg.ManagementURL.String()
+	}
+	if cfg.AdminURL.String() != "" {
+		s.adminURL = cfg.AdminURL.String()
 	}
 	s.preSharedKey = cfg.PreSharedKey
 	s.RosenpassPermissive = cfg.RosenpassPermissive
-	s.interfaceName = cfg.InterfaceName
-	s.interfacePort = int(cfg.WireguardPort)
+	s.interfaceName = cfg.WgIface
+	s.interfacePort = cfg.WgPort
 
-	s.networkMonitor = cfg.NetworkMonitor
-	s.disableDNS = cfg.DisableDns
+	s.networkMonitor = *cfg.NetworkMonitor
+	s.disableDNS = cfg.DisableDNS
 	s.disableClientRoutes = cfg.DisableClientRoutes
 	s.disableServerRoutes = cfg.DisableServerRoutes
-	s.blockLANAccess = cfg.BlockLanAccess
+	s.blockLANAccess = cfg.BlockLANAccess
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iAdminURL.SetText(s.adminURL)
-		s.iConfigFile.SetText(cfg.ConfigFile)
-		s.iLogFile.SetText(cfg.LogFile)
+		//s.iLogFile.SetText(cfg)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
-		s.iInterfaceName.SetText(cfg.InterfaceName)
-		s.iInterfacePort.SetText(strconv.Itoa(int(cfg.WireguardPort)))
+		s.iInterfaceName.SetText(cfg.WgIface)
+		s.iInterfacePort.SetText(strconv.Itoa(cfg.WgPort))
 		s.sRosenpassPermissive.SetChecked(cfg.RosenpassPermissive)
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()
 		}
-		s.sNetworkMonitor.SetChecked(cfg.NetworkMonitor)
-		s.sDisableDNS.SetChecked(cfg.DisableDns)
+		s.sNetworkMonitor.SetChecked(*cfg.NetworkMonitor)
+		s.sDisableDNS.SetChecked(cfg.DisableDNS)
 		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
 		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
-		s.sBlockLANAccess.SetChecked(cfg.BlockLanAccess)
+		s.sBlockLANAccess.SetChecked(cfg.BlockLANAccess)
 	}
 
 	if s.mNotifications == nil {
 		return
 	}
-	if cfg.DisableNotifications {
+	if cfg.DisableNotifications != nil && *cfg.DisableNotifications {
 		s.mNotifications.Uncheck()
 	} else {
 		s.mNotifications.Check()
@@ -948,17 +1060,34 @@ func (s *serviceClient) updateConfig() error {
 	blockInbound := s.mBlockInbound.Checked()
 	notificationsDisabled := !s.mNotifications.Checked()
 
-	loginRequest := proto.LoginRequest{
-		IsUnixDesktopClient:   runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-		ServerSSHAllowed:      &sshAllowed,
-		RosenpassEnabled:      &rosenpassEnabled,
-		DisableAutoConnect:    &disableAutoStart,
-		DisableNotifications:  &notificationsDisabled,
-		LazyConnectionEnabled: &lazyConnectionEnabled,
-		BlockInbound:          &blockInbound,
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Errorf("get active profile: %v", err)
+		return err
 	}
 
-	if err := s.restartClient(&loginRequest); err != nil {
+	profilePath, err := activeProf.FilePath()
+	if err != nil {
+		log.Errorf("get active profile file path: %v", err)
+		return err
+	}
+
+	cfgInput := profilemanager.ConfigInput{
+		ConfigPath: profilePath,
+	}
+
+	cfgInput.ServerSSHAllowed = &sshAllowed
+	cfgInput.RosenpassEnabled = &rosenpassEnabled
+	cfgInput.DisableAutoConnect = &disableAutoStart
+	cfgInput.DisableNotifications = &notificationsDisabled
+	cfgInput.LazyConnectionEnabled = &lazyConnectionEnabled
+	cfgInput.BlockInbound = &blockInbound
+
+	if _, err := profilemanager.UpdateConfig(cfgInput); err != nil {
+		log.Errorf("set active profile config: %v", err)
+	}
+
+	if err := s.restartClient(); err != nil {
 		log.Errorf("restarting client connection: %v", err)
 		return err
 	}
@@ -967,16 +1096,11 @@ func (s *serviceClient) updateConfig() error {
 }
 
 // restartClient restarts the client connection.
-func (s *serviceClient) restartClient(loginRequest *proto.LoginRequest) error {
+func (s *serviceClient) restartClient() error {
 	ctx, cancel := context.WithTimeout(s.ctx, defaultFailTimeout)
 	defer cancel()
 
 	client, err := s.getSrvClient(failFastTimeout)
-	if err != nil {
-		return err
-	}
-
-	_, err = client.Login(ctx, loginRequest)
 	if err != nil {
 		return err
 	}

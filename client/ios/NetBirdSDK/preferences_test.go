@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 func TestPreferences_DefaultValues(t *testing.T) {
@@ -16,7 +16,7 @@ func TestPreferences_DefaultValues(t *testing.T) {
 		t.Fatalf("failed to read default value: %s", err)
 	}
 
-	if defaultVar != internal.DefaultAdminURL {
+	if defaultVar != profilemanager.DefaultAdminURL {
 		t.Errorf("invalid default admin url: %s", defaultVar)
 	}
 
@@ -25,7 +25,7 @@ func TestPreferences_DefaultValues(t *testing.T) {
 		t.Fatalf("failed to read default management URL: %s", err)
 	}
 
-	if defaultVar != internal.DefaultManagementURL {
+	if defaultVar != profilemanager.DefaultManagementURL {
 		t.Errorf("invalid default management url: %s", defaultVar)
 	}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/management/domain"
@@ -35,6 +36,9 @@ const (
 
 	noBrowserFlag = "no-browser"
 	noBrowserDesc = "do not open the browser for SSO login"
+
+	profileNameFlag = "profile"
+	profileNameDesc = "profile name to use for the login. If not specified, the last used profile will be used."
 )
 
 var (
@@ -42,6 +46,7 @@ var (
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
 	noBrowser          bool
+	profileName        string
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -70,6 +75,7 @@ func init() {
 	)
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 
 }
 
@@ -101,14 +107,33 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 	}
 
-	if foregroundMode {
-		return runInForegroundMode(ctx, cmd)
+	pm := profilemanager.NewProfileManager()
+	activeProf, err := pm.GetActiveProfile()
+	if err != nil {
+		return fmt.Errorf("get active profile: %v", err)
 	}
-	return runInDaemonMode(ctx, cmd)
+
+	// switch profile if provided
+	if profileName != "" && activeProf.Name != profileName {
+		err = pm.SwitchProfile(profileName)
+		if err != nil {
+			return fmt.Errorf("switch profile: %v", err)
+		}
+	}
+
+	activeProf, err = pm.GetActiveProfile()
+	if err != nil {
+		return fmt.Errorf("get active profile: %v", err)
+	}
+
+	if foregroundMode {
+		return runInForegroundMode(ctx, cmd, activeProf)
+	}
+	return runInDaemonMode(ctx, cmd, pm, activeProf)
 }
 
-func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
-	err := handleRebrand(cmd)
+func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
+	err := handleRebrand(cmd, activeProf)
 	if err != nil {
 		return err
 	}
@@ -118,7 +143,12 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	ic, err := setupConfig(customDNSAddressConverted, cmd)
+	configPath, err := activeProf.FilePath()
+	if err != nil {
+		return fmt.Errorf("get active profile path: %v", err)
+	}
+
+	ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
 	if err != nil {
 		return fmt.Errorf("setup config: %v", err)
 	}
@@ -128,12 +158,12 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	config, err := internal.UpdateOrCreateConfig(*ic)
+	config, err := profilemanager.UpdateOrCreateConfig(*ic)
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
 	}
 
-	config, _ = internal.UpdateOldManagementURL(ctx, config, configPath)
+	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
 	if err != nil {
@@ -153,11 +183,28 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	return connectClient.Run(nil)
 }
 
-func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile) error {
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
 	if err != nil {
 		return err
 	}
+
+	configPath, err := activeProf.FilePath()
+	if err != nil {
+		return fmt.Errorf("get active profile path: %v", err)
+	}
+
+	ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
+	if err != nil {
+		return fmt.Errorf("setup config: %v", err)
+	}
+
+	config, err := profilemanager.UpdateOrCreateConfig(*ic)
+	if err != nil {
+		return fmt.Errorf("get config file: %v", err)
+	}
+
+	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
@@ -222,21 +269,33 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
 
-		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
+		resp, err := client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 		if err != nil {
 			return fmt.Errorf("waiting sso login failed with: %v", err)
 		}
+
+		if resp.Email != "" {
+			err = pm.SetActiveProfileState(&profilemanager.ProfileState{
+				Email: resp.Email,
+			})
+			if err != nil {
+				log.Warnf("failed to set active profile email: %v", err)
+			}
+		}
 	}
 
-	if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
+	if _, err := client.Up(ctx, &proto.UpRequest{
+		ProfileName: &activeProf.Name,
+		ProfilePath: &configPath,
+	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)
 	}
 	cmd.Println("Connected")
 	return nil
 }
 
-func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*internal.ConfigInput, error) {
-	ic := internal.ConfigInput{
+func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configPath string) (*profilemanager.ConfigInput, error) {
+	ic := profilemanager.ConfigInput{
 		ManagementURL:       managementURL,
 		AdminURL:            adminURL,
 		ConfigPath:          configPath,
