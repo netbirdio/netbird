@@ -73,7 +73,7 @@ type Account struct {
 	Users                  map[string]*User                  `gorm:"-"`
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
-	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	GroupsG                []*Group                          `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[route.ID]*route.Route         `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`

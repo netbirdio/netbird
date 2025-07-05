@@ -1356,10 +1356,12 @@ func TestSqlStore_SaveGroup(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
 	group := &types.Group{
-		ID:        "group-id",
-		AccountID: accountID,
-		Issued:    "api",
-		Peers:     []string{"peer1", "peer2"},
+		ID:         "group-id",
+		AccountID:  accountID,
+		Issued:     "api",
+		Peers:      []string{"peer1", "peer2"},
+		Resources:  []types.Resource{},
+		GroupPeers: []types.GroupPeer{},
 	}
 	err = store.SaveGroup(context.Background(), LockingStrengthUpdate, group)
 	require.NoError(t, err)
@@ -1378,16 +1380,19 @@ func TestSqlStore_SaveGroups(t *testing.T) {
 
 	groups := []*types.Group{
 		{
-			ID:        "group-1",
-			AccountID: accountID,
-			Issued:    "api",
-			Peers:     []string{"peer1", "peer2"},
+			ID:         "group-1",
+			AccountID:  accountID,
+			Issued:     "api",
+			Peers:      []string{"peer1", "peer2"},
+			Resources:  []types.Resource{},
+			GroupPeers: []types.GroupPeer{},
 		},
 		{
 			ID:        "group-2",
 			AccountID: accountID,
 			Issued:    "integration",
 			Peers:     []string{"peer3", "peer4"},
+			Resources: []types.Resource{},
 		},
 	}
 	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
@@ -2523,7 +2528,7 @@ func TestSqlStore_AddPeerToGroup(t *testing.T) {
 	require.NoError(t, err, "failed to get group")
 	require.Len(t, group.Peers, 0, "group should have 0 peers")
 
-	err = store.AddPeerToGroup(context.Background(), LockingStrengthUpdate, accountID, peerID, groupID)
+	err = store.AddPeerToGroup(context.Background(), peerID, groupID)
 	require.NoError(t, err, "failed to add peer to group")
 
 	group, err = store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
@@ -2554,7 +2559,7 @@ func TestSqlStore_AddPeerToAllGroup(t *testing.T) {
 	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer)
 	require.NoError(t, err, "failed to add peer to account")
 
-	err = store.AddPeerToAllGroup(context.Background(), LockingStrengthUpdate, accountID, peer.ID)
+	err = store.AddPeerToAllGroup(context.Background(), accountID, peer.ID)
 	require.NoError(t, err, "failed to add peer to all group")
 
 	group, err = store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
@@ -2640,7 +2645,7 @@ func TestSqlStore_GetPeerGroups(t *testing.T) {
 	assert.Len(t, groups, 1)
 	assert.Equal(t, groups[0].Name, "All")
 
-	err = store.AddPeerToGroup(context.Background(), LockingStrengthUpdate, accountID, peerID, "cfefqs706sqkneg59g4h")
+	err = store.AddPeerToGroup(context.Background(), peerID, "cfefqs706sqkneg59g4h")
 	require.NoError(t, err)
 
 	groups, err = store.GetPeerGroups(context.Background(), LockingStrengthShare, accountID, peerID)

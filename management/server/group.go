@@ -265,20 +265,10 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	var group *types.Group
 	var updateAccountPeers bool
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		group, err = transaction.GetGroupByID(context.Background(), store.LockingStrengthUpdate, accountID, groupID)
-		if err != nil {
-			return err
-		}
-
-		if updated := group.AddPeer(peerID); !updated {
-			return nil
-		}
-
 		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
 		if err != nil {
 			return err
@@ -288,7 +278,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 			return err
 		}
 
-		return transaction.SaveGroup(ctx, store.LockingStrengthUpdate, group)
+		return transaction.AddPeerToGroup(ctx, peerID, groupID)
 	})
 	if err != nil {
 		return err
@@ -347,20 +337,10 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	var group *types.Group
 	var updateAccountPeers bool
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		group, err = transaction.GetGroupByID(context.Background(), store.LockingStrengthUpdate, accountID, groupID)
-		if err != nil {
-			return err
-		}
-
-		if updated := group.RemovePeer(peerID); !updated {
-			return nil
-		}
-
 		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
 		if err != nil {
 			return err
@@ -370,7 +350,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 			return err
 		}
 
-		return transaction.SaveGroup(ctx, store.LockingStrengthUpdate, group)
+		return transaction.RemovePeerFromGroup(ctx, peerID, groupID)
 	})
 	if err != nil {
 		return err
