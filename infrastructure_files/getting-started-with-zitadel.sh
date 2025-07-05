@@ -780,7 +780,6 @@ EOF
 
 renderDockerCompose() {
   cat <<EOF
-version: "3.4"
 services:
   # Caddy reverse proxy
   caddy:
