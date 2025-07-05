@@ -67,6 +67,7 @@ type State struct {
 	BytesRx                    int64
 	Latency                    time.Duration
 	RosenpassEnabled           bool
+	SSHHostKey                 []byte
 	routes                     map[string]struct{}
 }
 
@@ -567,6 +568,22 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 	}
 
 	peerState.FQDN = fqdn
+	d.peers[peerPubKey] = peerState
+
+	return nil
+}
+
+// UpdatePeerSSHHostKey updates peer's SSH host key
+func (d *Status) UpdatePeerSSHHostKey(peerPubKey string, sshHostKey []byte) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peerPubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	peerState.SSHHostKey = sshHostKey
 	d.peers[peerPubKey] = peerState
 
 	return nil
