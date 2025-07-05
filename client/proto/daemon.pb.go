@@ -2290,6 +2290,7 @@ type DebugBundleRequest struct {
 	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	SystemInfo    bool                   `protobuf:"varint,3,opt,name=systemInfo,proto3" json:"systemInfo,omitempty"`
 	UploadURL     string                 `protobuf:"bytes,4,opt,name=uploadURL,proto3" json:"uploadURL,omitempty"`
+	LogFileCount  uint32                 `protobuf:"varint,5,opt,name=logFileCount,proto3" json:"logFileCount,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2350,6 +2351,13 @@ func (x *DebugBundleRequest) GetUploadURL() string {
 		return x.UploadURL
 	}
 	return ""
+}
+
+func (x *DebugBundleRequest) GetLogFileCount() uint32 {
+	if x != nil {
+		return x.LogFileCount
+	}
+	return 0
 }
 
 type DebugBundleResponse struct {
@@ -3746,14 +3754,15 @@ const file_daemon_proto_rawDesc = "" +
 	"\x12translatedHostname\x18\x04 \x01(\tR\x12translatedHostname\x128\n" +
 	"\x0etranslatedPort\x18\x05 \x01(\v2\x10.daemon.PortInfoR\x0etranslatedPort\"G\n" +
 	"\x17ForwardingRulesResponse\x12,\n" +
-	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules\"\x88\x01\n" +
+	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules\"\xac\x01\n" +
 	"\x12DebugBundleRequest\x12\x1c\n" +
 	"\tanonymize\x18\x01 \x01(\bR\tanonymize\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1e\n" +
 	"\n" +
 	"systemInfo\x18\x03 \x01(\bR\n" +
 	"systemInfo\x12\x1c\n" +
-	"\tuploadURL\x18\x04 \x01(\tR\tuploadURL\"}\n" +
+	"\tuploadURL\x18\x04 \x01(\tR\tuploadURL\x12\"\n" +
+	"\flogFileCount\x18\x05 \x01(\rR\flogFileCount\"}\n" +
 	"\x13DebugBundleResponse\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12 \n" +
 	"\vuploadedKey\x18\x02 \x01(\tR\vuploadedKey\x120\n" +
