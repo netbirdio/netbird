@@ -43,7 +43,6 @@ type Config struct {
 type Manager struct {
 	engineCtx           context.Context
 	peerStore           *peerstore.Store
-	connStateDispatcher *dispatcher.ConnectionDispatcher
 	inactivityThreshold time.Duration
 
 	connStateListener    *dispatcher.ConnectionListener
@@ -453,7 +452,6 @@ func (m *Manager) close() {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	m.connStateDispatcher.RemoveListener(m.connStateListener)
 	m.activityManager.Close()
 
 	m.managedPeers = make(map[string]*lazyconn.PeerConfig)
