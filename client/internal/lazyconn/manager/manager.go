@@ -11,7 +11,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/activity"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/inactivity"
-	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/route"
@@ -43,10 +42,8 @@ type Config struct {
 type Manager struct {
 	engineCtx           context.Context
 	peerStore           *peerstore.Store
-	connStateDispatcher *dispatcher.ConnectionDispatcher
 	inactivityThreshold time.Duration
 
-	connStateListener    *dispatcher.ConnectionListener
 	managedPeers         map[string]*lazyconn.PeerConfig
 	managedPeersByConnID map[peerid.ConnID]*managedPeer
 	excludes             map[string]lazyconn.PeerConfig
@@ -453,7 +450,6 @@ func (m *Manager) close() {
 	m.managedPeersMu.Lock()
 	defer m.managedPeersMu.Unlock()
 
-	m.connStateDispatcher.RemoveListener(m.connStateListener)
 	m.activityManager.Close()
 
 	m.managedPeers = make(map[string]*lazyconn.PeerConfig)
