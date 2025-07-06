@@ -11,7 +11,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/activity"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/inactivity"
-	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/route"
@@ -45,7 +44,6 @@ type Manager struct {
 	peerStore           *peerstore.Store
 	inactivityThreshold time.Duration
 
-	connStateListener    *dispatcher.ConnectionListener
 	managedPeers         map[string]*lazyconn.PeerConfig
 	managedPeersByConnID map[peerid.ConnID]*managedPeer
 	excludes             map[string]lazyconn.PeerConfig
