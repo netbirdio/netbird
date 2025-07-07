@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	OpenConnectionTimeout = 30 * time.Second
+	OpenConnectionTimeout = 5 * time.Second
 )
 
 type relayedConnWriter interface {
@@ -105,7 +105,7 @@ func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context,
 		if err := s.unsubscribeStateChange([]messages.PeerID{peerID}); err != nil {
 			s.log.Errorf("failed to unsubscribe from peer state: %s", err)
 		}
-		return ctx.Err()
+		return timeoutCtx.Err()
 	}
 }
 
