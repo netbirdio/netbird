@@ -557,7 +557,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	if msg.ProfileName != nil && msg.ProfilePath != nil {
+	if msg != nil && msg.ProfileName != nil && msg.ProfilePath != nil {
 		if *msg.ProfileName != activeProf.Name && *msg.ProfilePath != activeProf.Path {
 			log.Infof("switching to profile %s at %s", *msg.ProfileName, *msg.ProfilePath)
 			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
