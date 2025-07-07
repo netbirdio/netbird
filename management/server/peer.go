@@ -473,6 +473,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		accountID, err = am.Store.GetAccountIDBySetupKey(ctx, encodedHashedKey)
 	}
 	if err != nil {
+		log.WithContext(ctx).Errorf("failed login: sk - %s, userId - %s, dnsLabel - %s, meta - %v", setupKey, userID, peer.DNSLabel, peer.Meta)
 		return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
 	}
 
