@@ -245,6 +245,7 @@ func (p *Peer) handleSubscribePeerState(msg []byte) {
 	if len(onlinePeers) == 0 {
 		return
 	}
+	p.log.Debugf("response with %d online peers", len(onlinePeers))
 	p.sendPeersOnline(onlinePeers)
 }
 
