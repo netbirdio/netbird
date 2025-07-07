@@ -72,7 +72,7 @@ func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context,
 	}
 
 	// Create a channel to wait for the peer to come online
-	waitCh := make(chan struct{}, 0)
+	waitCh := make(chan struct{})
 	s.waitingPeers[peerID] = waitCh
 
 	if err := s.subscribeStateChange([]messages.PeerID{peerID}); err != nil {

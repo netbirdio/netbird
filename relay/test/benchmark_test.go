@@ -20,7 +20,6 @@ import (
 )
 
 var (
-	av             = &allow.Auth{}
 	hmacTokenStore = &hmac.TokenStore{}
 	pairs          = []int{1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
 	dataSize       = 1024 * 1024 * 10

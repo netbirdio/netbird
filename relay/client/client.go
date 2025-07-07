@@ -540,7 +540,6 @@ func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
 	if err := c.stateSubscription.UnsubscribeStateChange(peerIDs); err != nil {
 		c.log.Errorf("failed to unsubscribe from peer state change: %s, %s", peerIDs, err)
 	}
-	return
 }
 
 func (c *Client) closeConn(connReference *Conn, id messages.PeerID) error {
