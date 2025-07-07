@@ -30,7 +30,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("error", "console")
+	_ = util.InitLog("debug", "console")
 	code := m.Run()
 	os.Exit(code)
 }
@@ -314,8 +314,8 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 	_, err = clientAlice.OpenConn(ctx, "bob")
-	if err != nil {
-		t.Errorf("failed to bind channel: %s", err)
+	if err == nil {
+		t.Errorf("expected error when binding to unavailable peer, got nil")
 	}
 
 	log.Infof("closing client")
@@ -357,18 +357,18 @@ func TestBindReconnect(t *testing.T) {
 	clientAlice := NewClient(serverURL, hmacTokenStore, "alice")
 	err = clientAlice.Connect(ctx)
 	if err != nil {
-		t.Errorf("failed to connect to server: %s", err)
-	}
-
-	_, err = clientAlice.OpenConn(ctx, "bob")
-	if err != nil {
-		t.Errorf("failed to bind channel: %s", err)
+		t.Fatalf("failed to connect to server: %s", err)
 	}
 
 	clientBob := NewClient(serverURL, hmacTokenStore, "bob")
 	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
+	}
+
+	_, err = clientAlice.OpenConn(ctx, "bob")
+	if err != nil {
+		t.Fatalf("failed to bind channel: %s", err)
 	}
 
 	chBob, err := clientBob.OpenConn(ctx, "alice")
@@ -394,6 +394,16 @@ func TestBindReconnect(t *testing.T) {
 	}
 
 	testString := "hello alice, I am bob"
+	_, err = chBob.Write([]byte(testString))
+	if err == nil {
+		t.Errorf("expected error when writing to channel, got nil")
+	}
+
+	chBob, err = clientBob.OpenConn(ctx, "alice")
+	if err != nil {
+		t.Errorf("failed to bind channel: %s", err)
+	}
+
 	_, err = chBob.Write([]byte(testString))
 	if err != nil {
 		t.Errorf("failed to write to channel: %s", err)
@@ -443,6 +453,12 @@ func TestCloseConn(t *testing.T) {
 	// wait for servers to start
 	if err := waitForServerToStart(errChan); err != nil {
 		t.Fatalf("failed to start server: %s", err)
+	}
+
+	bob := NewClient(serverURL, hmacTokenStore, "bob")
+	err = bob.Connect(ctx)
+	if err != nil {
+		t.Errorf("failed to connect to server: %s", err)
 	}
 
 	clientAlice := NewClient(serverURL, hmacTokenStore, "alice")
@@ -499,6 +515,12 @@ func TestCloseRelayConn(t *testing.T) {
 	// wait for servers to start
 	if err := waitForServerToStart(errChan); err != nil {
 		t.Fatalf("failed to start server: %s", err)
+	}
+
+	bob := NewClient(serverURL, hmacTokenStore, "bob")
+	err = bob.Connect(ctx)
+	if err != nil {
+		t.Fatalf("failed to connect to server: %s", err)
 	}
 
 	clientAlice := NewClient(serverURL, hmacTokenStore, "alice")
