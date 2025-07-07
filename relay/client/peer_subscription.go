@@ -18,6 +18,9 @@ type relayedConnWriter interface {
 	Write(p []byte) (n int, err error)
 }
 
+// PeersStateSubscription manages subscriptions to peer state changes (online/offline)
+// over a relay connection. It allows tracking peers' availability and handling offline
+// events via a callback. We get online notification from the server only once.
 type PeersStateSubscription struct {
 	log             *log.Entry
 	relayConn       relayedConnWriter
@@ -37,6 +40,8 @@ func NewPeersStateSubscription(log *log.Entry, relayConn relayedConnWriter, offl
 	}
 }
 
+// OnPeersOnline should be called when a notification is received that certain peers have come online.
+// It checks if any of the peers are being waited on and signals their availability.
 func (s *PeersStateSubscription) OnPeersOnline(peersID []messages.PeerID) {
 	for _, peerID := range peersID {
 		waitCh, ok := s.waitingPeers[peerID]
@@ -62,7 +67,7 @@ func (s *PeersStateSubscription) OnPeersWentOffline(peersID []messages.PeerID) {
 	}
 }
 
-// WaitToBeOnlineAndSubscribe
+// WaitToBeOnlineAndSubscribe waits for a specific peer to come online and subscribes to its state changes.
 // todo: when we unsubscribe while this is running, this will not return with error
 // todo: unsubscribe should be called in case of error or context cancellation
 func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context, peerID messages.PeerID) error {
@@ -126,6 +131,15 @@ func (s *PeersStateSubscription) UnsubscribeStateChange(peerIDs []messages.PeerI
 	return connWriteErr
 }
 
+func (s *PeersStateSubscription) Cleanup() {
+	for _, waitCh := range s.waitingPeers {
+		close(waitCh)
+	}
+
+	s.waitingPeers = make(map[messages.PeerID]chan struct{})
+	s.listenForOfflinePeers = make(map[messages.PeerID]struct{})
+}
+
 func (s *PeersStateSubscription) subscribeStateChange(peerIDs []messages.PeerID) error {
 	msgs, err := messages.MarshalSubPeerStateMsg(peerIDs)
 	if err != nil {
@@ -143,13 +157,4 @@ func (s *PeersStateSubscription) subscribeStateChange(peerIDs []messages.PeerID)
 
 	}
 	return nil
-}
-
-func (s *PeersStateSubscription) Cleanup() {
-	for _, waitCh := range s.waitingPeers {
-		close(waitCh)
-	}
-
-	s.waitingPeers = make(map[messages.PeerID]chan struct{})
-	s.listenForOfflinePeers = make(map[messages.PeerID]struct{})
 }

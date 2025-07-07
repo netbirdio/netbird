@@ -205,6 +205,7 @@ func (c *Client) Connect(ctx context.Context) error {
 // OpenConn create a new net.Conn for the destination peer ID. In case if the connection is in progress
 // to the relay server, the function will block until the connection is established or timed out. Otherwise,
 // it will return immediately.
+// It block until the server confirm the peer is online.
 // todo: what should happen if call with the same peerID with multiple times?
 func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, error) {
 	peerID := messages.HashID(dstPeerID)
