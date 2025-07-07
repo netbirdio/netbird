@@ -24,7 +24,6 @@ func NewPeerNotifier(store *Store) *PeerNotifier {
 
 func (pn *PeerNotifier) NewListener(onPeersComeOnline, onPeersWentOffline func([]messages.PeerID)) *Listener {
 	ctx, cancel := context.WithCancel(context.Background())
-	// todo: review context cancellation handling. Maybe would be better to wait for exit from the function
 	listener := newListener(pn.store)
 	go listener.listenForEvents(ctx, onPeersComeOnline, onPeersWentOffline)
 

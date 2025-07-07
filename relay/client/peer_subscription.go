@@ -69,7 +69,6 @@ func (s *PeersStateSubscription) OnPeersWentOffline(peersID []messages.PeerID) {
 
 // WaitToBeOnlineAndSubscribe waits for a specific peer to come online and subscribes to its state changes.
 // todo: when we unsubscribe while this is running, this will not return with error
-// todo: unsubscribe should be called in case of error or context cancellation
 func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context, peerID messages.PeerID) error {
 	// Check if already waiting for this peer
 	if _, exists := s.waitingPeers[peerID]; exists {
@@ -94,7 +93,6 @@ func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context,
 		}
 	}()
 
-	log.Debugf("peer %s wait for ", peerID)
 	// Wait for peer to come online or context to be cancelled
 	timeoutCtx, cancel := context.WithTimeout(ctx, OpenConnectionTimeout)
 	defer cancel()
@@ -104,20 +102,15 @@ func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context,
 		return nil
 	case <-timeoutCtx.Done():
 		s.log.Debugf("context timed out while waiting for peer %s to come online", peerID)
+		if err := s.unsubscribeStateChange([]messages.PeerID{peerID}); err != nil {
+			s.log.Errorf("failed to unsubscribe from peer state: %s", err)
+		}
 		return ctx.Err()
 	}
 }
 
 func (s *PeersStateSubscription) UnsubscribeStateChange(peerIDs []messages.PeerID) error {
-	msgs, err := messages.MarshalUnsubPeerStateMsg(peerIDs)
-	if err != nil {
-		return err
-	}
-
-	var connWriteErr error
-	for _, msg := range msgs {
-		_, connWriteErr = s.relayConn.Write(msg)
-	}
+	msgErr := s.unsubscribeStateChange(peerIDs)
 
 	for _, peerID := range peerIDs {
 		if wch, ok := s.waitingPeers[peerID]; ok {
@@ -128,7 +121,7 @@ func (s *PeersStateSubscription) UnsubscribeStateChange(peerIDs []messages.PeerI
 		delete(s.listenForOfflinePeers, peerID)
 	}
 
-	return connWriteErr
+	return msgErr
 }
 
 func (s *PeersStateSubscription) Cleanup() {
@@ -157,4 +150,19 @@ func (s *PeersStateSubscription) subscribeStateChange(peerIDs []messages.PeerID)
 
 	}
 	return nil
+}
+
+func (s *PeersStateSubscription) unsubscribeStateChange(peerIDs []messages.PeerID) error {
+	msgs, err := messages.MarshalUnsubPeerStateMsg(peerIDs)
+	if err != nil {
+		return err
+	}
+
+	var connWriteErr error
+	for _, msg := range msgs {
+		if _, err := s.relayConn.Write(msg); err != nil {
+			connWriteErr = err
+		}
+	}
+	return connWriteErr
 }
