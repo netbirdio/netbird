@@ -72,7 +72,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	// create new server
 	ic := profilemanager.ConfigInput{
 		ManagementURL: "http://" + mgmtAddr,
-		ConfigPath:    t.TempDir() + "/config.json",
+		ConfigPath:    t.TempDir() + "/test-profile.json",
 	}
 
 	config, err := profilemanager.UpdateOrCreateConfig(ic)
@@ -117,8 +117,10 @@ func TestServer_Up(t *testing.T) {
 
 	ctx := internal.CtxInitState(context.Background())
 
+	profName := "test-profile"
+
 	ic := profilemanager.ConfigInput{
-		ConfigPath: t.TempDir() + "/config.json",
+		ConfigPath: t.TempDir() + "/" + profName + ".json",
 	}
 
 	_, err := profilemanager.UpdateOrCreateConfig(ic)
@@ -128,7 +130,7 @@ func TestServer_Up(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name: "test-profile",
+		Name: profName,
 		Path: ic.ConfigPath,
 	})
 	if err != nil {
@@ -149,11 +151,13 @@ func TestServer_Up(t *testing.T) {
 	upCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
-	upReq := &daemonProto.UpRequest{}
-	_, _ = s.Up(upCtx, upReq)
+	upReq := &daemonProto.UpRequest{
+		ProfileName: &profName,
+		ProfilePath: &ic.ConfigPath,
+	}
+	_, err = s.Up(upCtx, upReq)
 
-	// TODO(hakan) fix this
-	//assert.Contains(t, err.Error(), "NeedsLogin")
+	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
 
 type mockSubscribeEventsServer struct {
@@ -183,7 +187,7 @@ func TestServer_SubcribeEvents(t *testing.T) {
 
 	ctx := internal.CtxInitState(context.Background())
 	ic := profilemanager.ConfigInput{
-		ConfigPath: t.TempDir() + "/config.json",
+		ConfigPath: t.TempDir() + "/test-profile.json",
 	}
 
 	_, err := profilemanager.UpdateOrCreateConfig(ic)
