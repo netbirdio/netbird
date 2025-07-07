@@ -164,12 +164,19 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 
 	e.peersLock.Unlock()
 
+	bufferAccountCall := make(map[string]struct{})
+
 	for id, p := range deletePeers {
 		log.WithContext(ctx).Debugf("delete ephemeral peer: %s", id)
 		err := e.accountManager.DeletePeer(ctx, p.accountID, id, activity.SystemInitiator)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to delete ephemeral peer: %s", err)
+		} else {
+			bufferAccountCall[p.accountID] = struct{}{}
 		}
+	}
+	for accountID := range bufferAccountCall {
+		e.accountManager.BufferUpdateAccountPeers(ctx, accountID)
 	}
 }
 
