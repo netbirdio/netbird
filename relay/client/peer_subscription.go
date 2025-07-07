@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	OpenConnectionTimeout = 5 * time.Second
+	OpenConnectionTimeout = 30 * time.Second
 )
 
 type relayedConnWriter interface {
