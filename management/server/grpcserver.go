@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
 	"net"
 	"net/netip"
 	"os"
@@ -179,7 +178,6 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 
 	if !s.syncLimiter.Allow() {
-		time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
 		log.Warnf("sync rate limit exceeded for peer %s", req.WgPubKey)
 		return status.Errorf(codes.Internal, "temp rate limit reached")
 	}
@@ -492,7 +490,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		s.loginLimiterStore.Store(req.WgPubKey, newLimiter)
 
 		if !newLimiter.Allow() {
-			time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
+			//time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
 			log.WithContext(ctx).Warnf("rate limit exceeded for peer %s", req.WgPubKey)
 			return nil, fmt.Errorf("temp rate limit reached (new peer limit)")
 		}
@@ -500,7 +498,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		// Use existing limiter for this peer
 		limiter := limiterIface.(*rate.Limiter)
 		if !limiter.Allow() {
-			time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
+			//time.Sleep(time.Second + (time.Millisecond * time.Duration(rand.IntN(20)*100)))
 			log.WithContext(ctx).Warnf("rate limit exceeded for peer %s", req.WgPubKey)
 			return nil, fmt.Errorf("temp rate limit reached (peer limit)")
 		}
