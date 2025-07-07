@@ -226,7 +226,7 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 		return nil, err
 	}
 
-	c.log.Infof("remote peer is available, prepare the relayed conenction: %s", peerID)
+	c.log.Infof("remote peer is available, prepare the relayed connection: %s", peerID)
 	msgChannel := make(chan Msg, 100)
 	conn := NewConn(c, peerID, msgChannel, c.instanceURL)
 
@@ -528,7 +528,7 @@ func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
 	for _, peerID := range peerIDs {
 		container, ok := c.conns[peerID]
 		if !ok {
-			c.log.Warnf("can not close conenction, peer not found: %s", peerID)
+			c.log.Warnf("can not close connection, peer not found: %s", peerID)
 			continue
 		}
 
