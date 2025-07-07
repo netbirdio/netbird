@@ -242,6 +242,9 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("setup login request: %v", err)
 	}
 
+	loginRequest.ProfileName = &activeProf.Name
+	loginRequest.ProfilePath = &configPath
+
 	var loginErr error
 	var loginResp *proto.LoginResponse
 
