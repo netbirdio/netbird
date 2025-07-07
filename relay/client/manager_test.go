@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/relay/server"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/relay/server"
 )
 
 func TestEmptyURL(t *testing.T) {
