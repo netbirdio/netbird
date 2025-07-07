@@ -15,6 +15,8 @@ type Listener struct {
 	interestedPeersForOffline map[messages.PeerID]struct{}
 	interestedPeersForOnline  map[messages.PeerID]struct{}
 	mu                        sync.RWMutex
+
+	listenerCtx context.Context
 }
 
 func newListener(store *Store) *Listener {
@@ -64,8 +66,8 @@ func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
 }
 
 func (l *Listener) listenForEvents(ctx context.Context, onPeersComeOnline, onPeersWentOffline func([]messages.PeerID)) {
+	l.listenerCtx = ctx
 	for {
-
 		select {
 		case <-ctx.Done():
 			return
@@ -81,7 +83,6 @@ func (l *Listener) listenForEvents(ctx context.Context, onPeersComeOnline, onPee
 			onPeersComeOnline(peers)
 		case pID := <-l.offlineChan:
 			peers := make([]messages.PeerID, 0)
-			// todo maybe check here if the peer is still interested
 			peers = append(peers, pID)
 
 			for len(l.offlineChan) > 0 {
@@ -94,24 +95,27 @@ func (l *Listener) listenForEvents(ctx context.Context, onPeersComeOnline, onPee
 	}
 }
 
-// todo handle context cancellation properly
 func (l *Listener) peerWentOffline(peerID messages.PeerID) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
 	if _, ok := l.interestedPeersForOffline[peerID]; ok {
-		// todo: if the listener cancelled and the notifier write to here then will be blocked fore
-		l.offlineChan <- peerID
+		select {
+		case l.offlineChan <- peerID:
+		case <-l.listenerCtx.Done():
+		}
 	}
 }
 
-// todo handle context cancellation properly
 func (l *Listener) peerComeOnline(peerID messages.PeerID) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	if _, ok := l.interestedPeersForOnline[peerID]; ok {
-		l.onlineChan <- peerID
+		select {
+		case l.onlineChan <- peerID:
+		case <-l.listenerCtx.Done():
+		}
 		delete(l.interestedPeersForOnline, peerID)
 	}
 }

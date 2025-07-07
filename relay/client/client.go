@@ -403,20 +403,12 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
 	case messages.MsgTypePeersOnline:
-		peersID, err := messages.UnmarshalPeersOnlineMsg(buf)
-		if err != nil {
-			c.log.Errorf("failed to unmarshal peers online msg: %s", err)
-			return true
-		}
-		c.stateSubscription.OnPeersOnline(peersID)
+		c.handlePeersOnlineMsg(buf)
+		c.bufPool.Put(bufPtr)
 		return true
 	case messages.MsgTypePeersWentOffline:
-		peersID, err := messages.UnMarshalPeersWentOffline(buf)
-		if err != nil {
-			c.log.Errorf("failed to unmarshal peers online msg: %s", err)
-			return true
-		}
-		c.stateSubscription.OnPeersWentOffline(peersID)
+		c.handlePeersWentOfflineMsg(buf)
+		c.bufPool.Put(bufPtr)
 		return true
 	case messages.MsgTypeClose:
 		c.log.Debugf("relay connection close by server")
@@ -641,4 +633,22 @@ func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
 	case <-readDone:
 		return n, err
 	}
+}
+
+func (c *Client) handlePeersOnlineMsg(buf []byte) {
+	peersID, err := messages.UnmarshalPeersOnlineMsg(buf)
+	if err != nil {
+		c.log.Errorf("failed to unmarshal peers online msg: %s", err)
+		return
+	}
+	c.stateSubscription.OnPeersOnline(peersID)
+}
+
+func (c *Client) handlePeersWentOfflineMsg(buf []byte) {
+	peersID, err := messages.UnMarshalPeersWentOffline(buf)
+	if err != nil {
+		c.log.Errorf("failed to unmarshal peers went offline msg: %s", err)
+		return
+	}
+	c.stateSubscription.OnPeersWentOffline(peersID)
 }
