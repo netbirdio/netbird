@@ -10,13 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/logging"
+	"github.com/pion/turn/v3"
+
 	"github.com/netbirdio/netbird/relay/auth/allow"
 	"github.com/netbirdio/netbird/relay/auth/hmac"
 	"github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/util"
-	"github.com/pion/logging"
-	"github.com/pion/turn/v3"
 )
 
 var (
