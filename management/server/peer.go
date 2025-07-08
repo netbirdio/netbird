@@ -1198,6 +1198,12 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		return
 	}
 
+	extraSetting, err := am.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get flow enabled status: %v", err)
+		return
+	}
+
 	for _, peer := range account.Peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -1231,12 +1237,6 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 				remotePeerNetworkMap.Merge(proxyNetworkMap)
 			}
 			am.metrics.UpdateChannelMetrics().CountMergeNetworkMapDuration(time.Since(start))
-
-			extraSetting, err := am.settingsManager.GetExtraSettings(ctx, accountID)
-			if err != nil {
-				log.WithContext(ctx).Errorf("failed to get flow enabled status: %v", err)
-				return
-			}
 
 			start = time.Now()
 			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting)
