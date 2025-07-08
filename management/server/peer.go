@@ -1188,7 +1188,26 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		return
 	}
 
-	globalStart := time.Now()
+	if am.metrics != nil {
+		globalStart := time.Now()
+		defer func() {
+			am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(globalStart))
+		}()
+	}
+
+	peersToUpdate := []*nbpeer.Peer{}
+	for _, peer := range account.Peers {
+		if !am.peersUpdateManager.HasChannel(peer.ID) {
+			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
+			continue
+		}
+
+		peersToUpdate = append(peersToUpdate, peer)
+	}
+
+	if len(peersToUpdate) == 0 {
+		return
+	}
 
 	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
@@ -1217,12 +1236,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		return
 	}
 
-	for _, peer := range account.Peers {
-		if !am.peersUpdateManager.HasChannel(peer.ID) {
-			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
-			continue
-		}
-
+	for _, peer := range peersToUpdate {
 		wg.Add(1)
 		semaphore <- struct{}{}
 		go func(p *nbpeer.Peer) {
@@ -1259,12 +1273,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		}(peer)
 	}
 
-	//
-
 	wg.Wait()
-	if am.metrics != nil {
-		am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(globalStart))
-	}
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
