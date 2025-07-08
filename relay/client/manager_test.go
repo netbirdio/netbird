@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/relay/auth/allow"
+	"go.opentelemetry.io/otel"
 	"testing"
 	"time"
 
@@ -24,7 +26,13 @@ func TestForeignConn(t *testing.T) {
 	srvCfg1 := server.ListenerConfig{
 		Address: "localhost:1234",
 	}
-	srv1, err := server.NewServer(serverCfg)
+
+	srv1, err := server.NewServer(server.Config{
+		Meter:          otel.Meter(""),
+		ExposedAddress: srvCfg1.Address,
+		TLSSupport:     false,
+		AuthValidator:  &allow.Auth{},
+	})
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -50,7 +58,12 @@ func TestForeignConn(t *testing.T) {
 	srvCfg2 := server.ListenerConfig{
 		Address: "localhost:2234",
 	}
-	srv2, err := server.NewServer(serverCfg)
+	srv2, err := server.NewServer(server.Config{
+		Meter:          otel.Meter(""),
+		ExposedAddress: srvCfg2.Address,
+		TLSSupport:     false,
+		AuthValidator:  &allow.Auth{},
+	})
 	if err != nil {
 		t.Fatalf("failed to create server: %s", err)
 	}
@@ -73,32 +86,26 @@ func TestForeignConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	idAlice := "alice"
-	log.Debugf("connect by alice")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	clientAlice := NewManager(mCtx, toURL(srvCfg1), idAlice)
-	err = clientAlice.Serve()
-	if err != nil {
+	clientAlice := NewManager(mCtx, toURL(srvCfg1), "alice")
+	if err := clientAlice.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	idBob := "bob"
-	log.Debugf("connect by bob")
-	clientBob := NewManager(mCtx, toURL(srvCfg2), idBob)
-	err = clientBob.Serve()
-	if err != nil {
+	clientBob := NewManager(mCtx, toURL(srvCfg2), "bob")
+	if err := clientBob.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 	bobsSrvAddr, err := clientBob.RelayInstanceAddress()
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
 	}
-	connAliceToBob, err := clientAlice.OpenConn(ctx, bobsSrvAddr, idBob)
+	connAliceToBob, err := clientAlice.OpenConn(ctx, bobsSrvAddr, "bob")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
-	connBobToAlice, err := clientBob.OpenConn(ctx, bobsSrvAddr, idAlice)
+	connBobToAlice, err := clientBob.OpenConn(ctx, bobsSrvAddr, "alice")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -185,16 +192,20 @@ func TestForeginConnClose(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	idAlice := "alice"
-	log.Debugf("connect by alice")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	mgr := NewManager(mCtx, toURL(srvCfg1), idAlice)
+
+	mgrBob := NewManager(mCtx, toURL(srvCfg2), "bob")
+	if err := mgrBob.Serve(); err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
+
+	mgr := NewManager(mCtx, toURL(srvCfg1), "alice")
 	err = mgr.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	conn, err := mgr.OpenConn(ctx, toURL(srvCfg2)[0], "anotherpeer")
+	conn, err := mgr.OpenConn(ctx, toURL(srvCfg2)[0], "bob")
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -329,6 +340,13 @@ func TestAutoReconnect(t *testing.T) {
 
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	clientBob := NewManager(mCtx, toURL(srvCfg), "bob")
+	err = clientBob.Serve()
+	if err != nil {
+		t.Fatalf("failed to serve manager: %s", err)
+	}
+
 	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice")
 	err = clientAlice.Serve()
 	if err != nil {
