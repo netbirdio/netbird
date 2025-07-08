@@ -5,10 +5,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 )
@@ -138,6 +140,9 @@ func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
 
 func (e *EphemeralManager) cleanup(ctx context.Context) {
 	log.Tracef("on ephemeral cleanup")
+	reqID := uuid.New().String()
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
 	deletePeers := make(map[string]*ephemeralPeer)
 
 	e.peersLock.Lock()
@@ -176,6 +181,7 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 		}
 	}
 	for accountID := range bufferAccountCall {
+		log.WithContext(ctx).Debugf("ephemeral - buffer update account peers for account: %s", accountID)
 		e.accountManager.BufferUpdateAccountPeers(ctx, accountID)
 	}
 }
