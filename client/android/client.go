@@ -203,8 +203,10 @@ func (c *Client) Networks() *NetworkArray {
 			continue
 		}
 
-		if routes[0].IsDynamic() {
-			continue
+		r := routes[0]
+		netStr := r.Network.String()
+		if r.IsDynamic() {
+			netStr = r.Domains.SafeString()
 		}
 
 		peer, err := c.recorder.GetPeer(routes[0].Peer)
@@ -214,7 +216,7 @@ func (c *Client) Networks() *NetworkArray {
 		}
 		network := Network{
 			Name:    string(id),
-			Network: routes[0].Network.String(),
+			Network: netStr,
 			Peer:    peer.FQDN,
 			Status:  peer.ConnStatus.String(),
 		}

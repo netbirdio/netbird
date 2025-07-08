@@ -102,6 +102,20 @@ type DefaultAccountManager struct {
 
 	accountUpdateLocks               sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
+
+	disableDefaultPolicy bool
+}
+
+func isUniqueConstraintError(err error) bool {
+	switch {
+	case strings.Contains(err.Error(), "(SQLSTATE 23505)"),
+		strings.Contains(err.Error(), "Error 1062 (23000)"),
+		strings.Contains(err.Error(), "UNIQUE constraint failed"):
+		return true
+
+	default:
+		return false
+	}
 }
 
 // getJWTGroupsChanges calculates the changes needed to sync a user's JWT groups.
@@ -170,6 +184,7 @@ func BuildManager(
 	proxyController port_forwarding.Controller,
 	settingsManager settings.Manager,
 	permissionsManager permissions.Manager,
+	disableDefaultPolicy bool,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -195,6 +210,7 @@ func BuildManager(
 		proxyController:          proxyController,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
+		disableDefaultPolicy:     disableDefaultPolicy,
 	}
 
 	am.startWarmup(ctx)
@@ -543,7 +559,7 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
 			continue
 		case statusErr.Type() == status.NotFound:
-			newAccount := newAccountWithId(ctx, accountId, userID, domain)
+			newAccount := newAccountWithId(ctx, accountId, userID, domain, am.disableDefaultPolicy)
 			am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 			return newAccount, nil
 		default:
@@ -1188,6 +1204,71 @@ func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID s
 	return am.Store.GetAccountMeta(ctx, store.LockingStrengthShare, accountID)
 }
 
+// GetAccountOnboarding retrieves the onboarding information for a specific account.
+func (am *DefaultAccountManager) GetAccountOnboarding(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	onboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
+	if err != nil && err.Error() != status.NewAccountOnboardingNotFoundError(accountID).Error() {
+		log.Errorf("failed to get account onboarding for accountssssssss %s: %v", accountID, err)
+		return nil, err
+	}
+
+	if onboarding == nil {
+		onboarding = &types.AccountOnboarding{
+			AccountID: accountID,
+		}
+	}
+
+	return onboarding, nil
+}
+
+func (am *DefaultAccountManager) UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
+	}
+
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	oldOnboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
+	if err != nil && err.Error() != status.NewAccountOnboardingNotFoundError(accountID).Error() {
+		return nil, fmt.Errorf("failed to get account onboarding: %w", err)
+	}
+
+	if oldOnboarding == nil {
+		oldOnboarding = &types.AccountOnboarding{
+			AccountID: accountID,
+		}
+	}
+
+	if newOnboarding == nil {
+		return oldOnboarding, nil
+	}
+
+	if oldOnboarding.IsEqual(*newOnboarding) {
+		log.WithContext(ctx).Debugf("no changes in onboarding for account %s", accountID)
+		return oldOnboarding, nil
+	}
+
+	newOnboarding.AccountID = accountID
+	err = am.Store.SaveAccountOnboarding(ctx, newOnboarding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update account onboarding: %w", err)
+	}
+
+	return newOnboarding, nil
+}
+
 func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
 	if userAuth.UserId == "" {
 		return "", "", errors.New(emptyUserID)
@@ -1657,25 +1738,6 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction
 	return false, nil
 }
 
-func (am *DefaultAccountManager) getFreeDNSLabel(ctx context.Context, s store.Store, accountID string, peerHostName string) (string, error) {
-	existingLabels, err := s.GetPeerLabelsInAccount(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get peer dns labels: %w", err)
-	}
-
-	labelMap := ConvertSliceToMap(existingLabels)
-	newLabel, err := types.GetPeerHostLabel(peerHostName, labelMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to get new host label: %w", err)
-	}
-
-	if newLabel == "" {
-		return "", fmt.Errorf("failed to get new host label: %w", err)
-	}
-
-	return newLabel, nil
-}
-
 func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
 	if err != nil {
@@ -1688,7 +1750,7 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(ctx context.Context, accountID, userID, domain string) *types.Account {
+func newAccountWithId(ctx context.Context, accountID, userID, domain string, disableDefaultPolicy bool) *types.Account {
 	log.WithContext(ctx).Debugf("creating new account")
 
 	network := types.NewNetwork()
@@ -1729,9 +1791,13 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 			RoutingPeerDNSResolutionEnabled: true,
 		},
+		Onboarding: types.AccountOnboarding{
+			OnboardingFlowPending: true,
+			SignupFormPending:     true,
+		},
 	}
 
-	if err := acc.AddAllGroup(); err != nil {
+	if err := acc.AddAllGroup(disableDefaultPolicy); err != nil {
 		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
@@ -1833,7 +1899,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 			},
 		}
 
-		if err := newAccount.AddAllGroup(); err != nil {
+		if err := newAccount.AddAllGroup(am.disableDefaultPolicy); err != nil {
 			return nil, false, status.Errorf(status.Internal, "failed to add all group to new account by private domain")
 		}
 

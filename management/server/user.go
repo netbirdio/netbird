@@ -550,7 +550,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to process user update: %w", err)
+				return fmt.Errorf("failed to process update for user %s: %w", update.Id, err)
 			}
 			usersToSave = append(usersToSave, updatedUser)
 			addUserEvents = append(addUserEvents, userEvents...)
