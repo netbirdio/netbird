@@ -83,6 +83,10 @@ func (m MsgType) String() string {
 		return "subscribe peer state"
 	case MsgTypeUnsubscribePeerState:
 		return "unsubscribe peer state"
+	case MsgTypePeersOnline:
+		return "peers online"
+	case MsgTypePeersWentOffline:
+		return "peers went offline"
 	default:
 		return "unknown"
 	}
