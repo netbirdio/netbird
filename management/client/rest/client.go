@@ -117,7 +117,7 @@ func (c *Client) initialize() {
 }
 
 // NewRequest creates and executes new management API request
-func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader, query map[string]string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.managementURL+path, body)
 	if err != nil {
 		return nil, err
@@ -127,6 +127,14 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	req.Header.Add("Accept", "application/json")
 	if body != nil {
 		req.Header.Add("Content-Type", "application/json")
+	}
+
+	if len(query) != 0 {
+		q := req.URL.Query()
+		for k, v := range query {
+			q.Add(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
 	}
 
 	resp, err := c.httpClient.Do(req)

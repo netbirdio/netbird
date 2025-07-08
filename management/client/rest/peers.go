@@ -13,10 +13,30 @@ type PeersAPI struct {
 	c *Client
 }
 
+// PeersListOption options for Peers List API
+type PeersListOption func() (string, string)
+
+func PeerNameFilter(name string) PeersListOption {
+	return func() (string, string) {
+		return "name", name
+	}
+}
+
+func PeerIPFilter(ip string) PeersListOption {
+	return func() (string, string) {
+		return "ip", ip
+	}
+}
+
 // List list all peers
 // See more: https://docs.netbird.io/api/resources/peers#list-all-peers
-func (a *PeersAPI) List(ctx context.Context) ([]api.Peer, error) {
-	resp, err := a.c.NewRequest(ctx, "GET", "/api/peers", nil)
+func (a *PeersAPI) List(ctx context.Context, opts ...PeersListOption) ([]api.Peer, error) {
+	query := make(map[string]string)
+	for _, o := range opts {
+		k, v := o()
+		query[k] = v
+	}
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/peers", nil, query)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +50,7 @@ func (a *PeersAPI) List(ctx context.Context) ([]api.Peer, error) {
 // Get retrieve a peer
 // See more: https://docs.netbird.io/api/resources/peers#retrieve-a-peer
 func (a *PeersAPI) Get(ctx context.Context, peerID string) (*api.Peer, error) {
-	resp, err := a.c.NewRequest(ctx, "GET", "/api/peers/"+peerID, nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/peers/"+peerID, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +68,7 @@ func (a *PeersAPI) Update(ctx context.Context, peerID string, request api.PutApi
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.NewRequest(ctx, "PUT", "/api/peers/"+peerID, bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/peers/"+peerID, bytes.NewReader(requestBytes), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +82,7 @@ func (a *PeersAPI) Update(ctx context.Context, peerID string, request api.PutApi
 // Delete delete a peer
 // See more: https://docs.netbird.io/api/resources/peers#delete-a-peer
 func (a *PeersAPI) Delete(ctx context.Context, peerID string) error {
-	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/peers/"+peerID, nil)
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/peers/"+peerID, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -76,7 +96,7 @@ func (a *PeersAPI) Delete(ctx context.Context, peerID string) error {
 // ListAccessiblePeers list all peers that the specified peer can connect to within the network
 // See more: https://docs.netbird.io/api/resources/peers#list-accessible-peers
 func (a *PeersAPI) ListAccessiblePeers(ctx context.Context, peerID string) ([]api.Peer, error) {
-	resp, err := a.c.NewRequest(ctx, "GET", "/api/peers/"+peerID+"/accessible-peers", nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/peers/"+peerID+"/accessible-peers", nil, nil)
 	if err != nil {
 		return nil, err
 	}
