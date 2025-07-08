@@ -1504,6 +1504,11 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 	}
 	dnsDomain := am.GetDNSDomain(settings)
 
+	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, peer := range peers {
 		groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthUpdate, accountID, peer.ID)
 		if err != nil {
@@ -1519,11 +1524,6 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 		}
 
 		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID); err != nil {
-			return nil, err
-		}
-
-		network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
 			return nil, err
 		}
 
