@@ -215,6 +215,15 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return nil
 	}
 
+	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, configPath, customDNSAddressConverted); err != nil {
+		return fmt.Errorf("daemon up failed: %v", err)
+	}
+	cmd.Println("Connected")
+	return nil
+}
+
+func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, configPath string, customDNSAddressConverted []byte) error {
+
 	providedSetupKey, err := getSetupKey()
 	if err != nil {
 		return fmt.Errorf("get setup key: %v", err)
@@ -263,7 +272,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)
 	}
-	cmd.Println("Connected")
+
 	return nil
 }
 
