@@ -1261,14 +1261,20 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 	mu, _ := am.accountUpdateLocks.LoadOrStore(accountID, &sync.Mutex{})
 	lock := mu.(*sync.Mutex)
 
+	log.WithContext(ctx).Debugf("try to BufferUpdateAccountPeers for account %s", accountID)
+
 	if !lock.TryLock() {
+		log.WithContext(ctx).Debugf("BufferUpdateAccountPeers for an account %s locked - returning", accountID)
 		return
 	}
 
 	go func() {
 		time.Sleep(time.Duration(am.updateAccountPeersBufferInterval.Load()))
 		lock.Unlock()
+		log.WithContext(ctx).Debugf("BufferUpdateAccountPeers for an account %s - in progress", accountID)
+		tn := time.Now()
 		am.UpdateAccountPeers(ctx, accountID)
+		log.WithContext(ctx).Debugf("BufferUpdateAccountPeers for an account %s - took %dms", accountID, time.Since(tn).Milliseconds())
 	}()
 }
 
