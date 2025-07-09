@@ -1,0 +1,5 @@
+*
+!Dockerfile
+!Dockerfile-rootless
+!netbird
+!netbird-entrypoint.sh

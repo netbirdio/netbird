@@ -1,18 +1,28 @@
-FROM alpine:3.21.0
+FROM alpine:3.22.0
 
-ARG NETBIRD_BINARY=netbird
-COPY ${NETBIRD_BINARY} /usr/local/bin/netbird
-
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache \
+      bash \
+      ca-certificates \
     && adduser -D -h /var/lib/netbird netbird
+
 WORKDIR /var/lib/netbird
 USER netbird:netbird
 
-ENV NB_FOREGROUND_MODE=true
-ENV NB_USE_NETSTACK_MODE=true
-ENV NB_ENABLE_NETSTACK_LOCAL_FORWARDING=true
-ENV NB_CONFIG=config.json
-ENV NB_DAEMON_ADDR=unix://netbird.sock
-ENV NB_DISABLE_DNS=true
+ENV \
+    NETBIRD_BIN="/usr/local/bin/netbird" \
+    NB_USE_NETSTACK_MODE="true" \
+    NB_ENABLE_NETSTACK_LOCAL_FORWARDING="true" \
+    NB_CONFIG="/var/lib/netbird/config.json" \
+    NB_STATE_DIR="/var/lib/netbird" \
+    NB_DAEMON_ADDR="unix:///var/lib/netbird/netbird.sock" \
+    NB_LOG_FILE="/var/lib/netbird/client.log" \
+    NB_DISABLE_DNS="true" \
+    NB_ENTRYPOINT_SERVICE_TIMEOUT="5" \
+    NB_ENTRYPOINT_LOGIN_TIMEOUT="1" \
+    NB_ENTRYPOINT_TAIL_LOG_FILE="1"
 
-ENTRYPOINT [ "/usr/local/bin/netbird", "up" ]
+ENTRYPOINT [ "/usr/local/bin/netbird-entrypoint.sh" ]
+
+ARG NETBIRD_BINARY=netbird
+COPY netbird-entrypoint.sh /usr/local/bin/netbird-entrypoint.sh
+COPY "${NETBIRD_BINARY}"  /usr/local/bin/netbird
