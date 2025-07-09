@@ -376,19 +376,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthUpdate, accountID, peerID)
-		if err != nil {
-			return fmt.Errorf("failed to get peer groups: %w", err)
-		}
-
-		for _, group := range groups {
-			group.RemovePeer(peerID)
-			err = transaction.SaveGroup(ctx, store.LockingStrengthUpdate, group)
-			if err != nil {
-				return fmt.Errorf("failed to save group: %w", err)
-			}
-		}
-
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
 		return err
 	})
@@ -1539,13 +1526,26 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 	}
 	dnsDomain := am.GetDNSDomain(settings)
 
+	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, peer := range peers {
-		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID); err != nil {
-			return nil, err
+		groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthUpdate, accountID, peer.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get peer groups: %w", err)
 		}
 
-		network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
+		for _, group := range groups {
+			group.RemovePeer(peer.ID)
+			err = transaction.SaveGroup(ctx, store.LockingStrengthUpdate, group)
+			if err != nil {
+				return nil, fmt.Errorf("failed to save group: %w", err)
+			}
+		}
+
+		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID); err != nil {
 			return nil, err
 		}
 
