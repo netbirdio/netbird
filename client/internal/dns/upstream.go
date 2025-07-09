@@ -27,6 +27,9 @@ import (
 
 const (
 	UpstreamTimeout = 15 * time.Second
+	// ClientTimeout is the timeout for the dns.Client.
+	// Set longer than UpstreamTimeout to ensure context timeout takes precedence
+	ClientTimeout = 30 * time.Second
 
 	reactivatePeriod = 30 * time.Second
 	probeTimeout     = 2 * time.Second
