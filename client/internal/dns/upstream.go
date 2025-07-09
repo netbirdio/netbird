@@ -28,7 +28,6 @@ import (
 const (
 	UpstreamTimeout = 15 * time.Second
 
-	failsTillDeact   = int32(5)
 	reactivatePeriod = 30 * time.Second
 	probeTimeout     = 2 * time.Second
 )
@@ -51,9 +50,7 @@ type upstreamResolverBase struct {
 	upstreamServers  []string
 	domain           string
 	disabled         bool
-	failsCount       atomic.Int32
 	successCount     atomic.Int32
-	failsTillDeact   int32
 	mutex            sync.Mutex
 	reactivatePeriod time.Duration
 	upstreamTimeout  time.Duration
@@ -72,7 +69,6 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, d
 		domain:           domain,
 		upstreamTimeout:  UpstreamTimeout,
 		reactivatePeriod: reactivatePeriod,
-		failsTillDeact:   failsTillDeact,
 		statusRecorder:   statusRecorder,
 	}
 }
@@ -107,9 +103,6 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	requestID := GenerateRequestID()
 	logger := log.WithField("request_id", requestID)
 	var err error
-	defer func() {
-		u.checkUpstreamFails(err)
-	}()
 
 	logger.Tracef("received upstream question: domain=%s type=%v class=%v", r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
 	if r.Extra == nil {
@@ -153,11 +146,8 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		if err = w.WriteMsg(rm); err != nil {
 			logger.Errorf("failed to write DNS response for question domain=%s: %s", r.Question[0].Name, err)
 		}
-		// count the fails only if they happen sequentially
-		u.failsCount.Store(0)
 		return
 	}
-	u.failsCount.Add(1)
 	logger.Errorf("all queries to the %s failed for question domain=%s", u, r.Question[0].Name)
 
 	m := new(dns.Msg)
@@ -165,41 +155,6 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	if err := w.WriteMsg(m); err != nil {
 		logger.Errorf("failed to write error response for %s for question domain=%s: %s", u, r.Question[0].Name, err)
 	}
-}
-
-// checkUpstreamFails counts fails and disables or enables upstream resolving
-//
-// If fails count is greater that failsTillDeact, upstream resolving
-// will be disabled for reactivatePeriod, after that time period fails counter
-// will be reset and upstream will be reactivated.
-func (u *upstreamResolverBase) checkUpstreamFails(err error) {
-	u.mutex.Lock()
-	defer u.mutex.Unlock()
-
-	if u.failsCount.Load() < u.failsTillDeact || u.disabled {
-		return
-	}
-
-	select {
-	case <-u.ctx.Done():
-		return
-	default:
-	}
-
-	u.disable(err)
-
-	if u.statusRecorder == nil {
-		return
-	}
-
-	u.statusRecorder.PublishEvent(
-		proto.SystemEvent_WARNING,
-		proto.SystemEvent_DNS,
-		"All upstream servers failed (fail count exceeded)",
-		"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
-		map[string]string{"upstreams": strings.Join(u.upstreamServers, ", ")},
-		// TODO add domain meta
-	)
 }
 
 // ProbeAvailability tests all upstream servers simultaneously and
@@ -214,8 +169,8 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 	default:
 	}
 
-	// avoid probe if upstreams could resolve at least one query and fails count is less than failsTillDeact
-	if u.successCount.Load() > 0 && u.failsCount.Load() < u.failsTillDeact {
+	// avoid probe if upstreams could resolve at least one query
+	if u.successCount.Load() > 0 {
 		return
 	}
 
@@ -302,7 +257,6 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 	}
 
 	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
-	u.failsCount.Store(0)
 	u.successCount.Add(1)
 	u.reactivate()
 	u.disabled = false
