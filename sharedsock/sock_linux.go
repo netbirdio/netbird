@@ -146,9 +146,26 @@ func (s *SharedSocket) updateRouter() {
 	}
 }
 
-// LocalAddr returns an IPv4 address using the supplied port
+// LocalAddr returns the local address that can handle both IPv4 and IPv6 connections
 func (s *SharedSocket) LocalAddr() net.Addr {
-	// todo check impact on ipv6 discovery
+	if s.conn4 != nil && s.conn6 != nil {
+		return &net.UDPAddr{
+			IP:   net.IPv6unspecified,
+			Port: s.port,
+		}
+	}
+	if s.conn4 != nil {
+		return &net.UDPAddr{
+			IP:   net.IPv4zero,
+			Port: s.port,
+		}
+	}
+	if s.conn6 != nil {
+		return &net.UDPAddr{
+			IP:   net.IPv6zero,
+			Port: s.port,
+		}
+	}
 	return &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: s.port,

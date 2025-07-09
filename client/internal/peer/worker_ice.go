@@ -146,8 +146,8 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		RosenpassAddr:              remoteOfferAnswer.RosenpassAddr,
 		LocalIceCandidateType:      pair.Local.Type().String(),
 		RemoteIceCandidateType:     pair.Remote.Type().String(),
-		LocalIceCandidateEndpoint:  fmt.Sprintf("%s:%d", pair.Local.Address(), pair.Local.Port()),
-		RemoteIceCandidateEndpoint: fmt.Sprintf("%s:%d", pair.Remote.Address(), pair.Remote.Port()),
+		LocalIceCandidateEndpoint:  formatEndpoint(pair.Local.Address(), pair.Local.Port()),
+		RemoteIceCandidateEndpoint: formatEndpoint(pair.Remote.Address(), pair.Remote.Port()),
 		Relayed:                    isRelayed(pair),
 		RelayedOnLocal:             isRelayCandidate(pair.Local),
 	}
@@ -404,4 +404,13 @@ func selectedPriority(pair *ice.CandidatePair) conntype.ConnPriority {
 	} else {
 		return conntype.ICEP2P
 	}
+}
+
+// formatEndpoint formats an IP address and port for display, adding brackets around IPv6 addresses
+func formatEndpoint(addr string, port int) string {
+	parsed, err := netip.ParseAddr(addr)
+	if err == nil && parsed.Is6() {
+		return fmt.Sprintf("[%s]:%d", addr, port)
+	}
+	return fmt.Sprintf("%s:%d", addr, port)
 }

@@ -342,6 +342,9 @@ func (m *UDPMuxDefault) Close() error {
 }
 
 func (m *UDPMuxDefault) writeTo(buf []byte, rAddr net.Addr) (n int, err error) {
+	if dualStackConn, ok := m.params.UDPConn.(*DualStackPacketConn); ok {
+		return dualStackConn.WriteTo(buf, rAddr)
+	}
 	return m.params.UDPConn.WriteTo(buf, rAddr)
 }
 

@@ -2,7 +2,7 @@ package bind
 
 import (
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"net"
 	"net/netip"
 	"runtime"
@@ -26,7 +26,7 @@ type receiverCreator struct {
 	iceBind *ICEBind
 }
 
-func (rc receiverCreator) CreateReceiverFn(pc wgConn.PacketReader, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgConn.ReceiveFunc {
+func (rc receiverCreator) CreateReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxOffload bool, msgPool *sync.Pool) wgConn.ReceiveFunc {
 	return rc.iceBind.createReceiverFn(pc, conn, rxOffload, msgPool)
 }
 
@@ -53,6 +53,8 @@ type ICEBind struct {
 
 	muUDPMux         sync.Mutex
 	udpMux           *UniversalUDPMuxDefault
+	ipv4Conn         *net.UDPConn
+	ipv6Conn         *net.UDPConn
 	address          wgaddr.Address
 	activityRecorder *ActivityRecorder
 }
@@ -110,11 +112,11 @@ func (s *ICEBind) ActivityRecorder() *ActivityRecorder {
 func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
-	if s.udpMux == nil {
-		return nil, fmt.Errorf("ICEBind has not been initialized yet")
-	}
 
-	return s.udpMux, nil
+	if s.udpMux != nil {
+		return s.udpMux, nil
+	}
+	return nil, errors.New("ICEBind has not been initialized yet")
 }
 
 func (b *ICEBind) SetEndpoint(fakeIP netip.Addr, conn net.Conn) {
@@ -146,14 +148,40 @@ func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
 	return nil
 }
 
-func (s *ICEBind) createReceiverFn(pc wgConn.PacketReader, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
+func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
 
-	if s.udpMux == nil {
+	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		log.Errorf("ICEBind: unexpected address type: %T", conn.LocalAddr())
+		return nil
+	}
+	isIPv6 := localAddr.IP.To4() == nil
+
+	if isIPv6 {
+		s.ipv6Conn = conn
+	} else {
+		s.ipv4Conn = conn
+	}
+
+	needsNewMux := s.udpMux == nil && (s.ipv4Conn != nil || s.ipv6Conn != nil)
+	needsUpgrade := s.udpMux != nil && s.ipv4Conn != nil && s.ipv6Conn != nil
+
+	if needsNewMux || needsUpgrade {
+		var iceMuxConn net.PacketConn
+		switch {
+		case s.ipv4Conn != nil && s.ipv6Conn != nil:
+			iceMuxConn = NewDualStackPacketConn(s.ipv4Conn, s.ipv6Conn)
+		case s.ipv4Conn != nil:
+			iceMuxConn = s.ipv4Conn
+		default:
+			iceMuxConn = s.ipv6Conn
+		}
+
 		s.udpMux = NewUniversalUDPMuxDefault(
 			UniversalUDPMuxParams{
-				UDPConn:   conn,
+				UDPConn:   iceMuxConn,
 				Net:       s.transportNet,
 				FilterFn:  s.filterFn,
 				WGAddress: s.address,
@@ -198,7 +226,7 @@ func (s *ICEBind) createReceiverFn(pc wgConn.PacketReader, conn *net.UDPConn, rx
 			msg := &(*msgs)[i]
 
 			// todo: handle err
-			ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
+			ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr, isIPv6)
 			if ok {
 				continue
 			}
@@ -206,7 +234,12 @@ func (s *ICEBind) createReceiverFn(pc wgConn.PacketReader, conn *net.UDPConn, rx
 			if sizes[i] == 0 {
 				continue
 			}
-			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
+			udpAddr, ok := msg.Addr.(*net.UDPAddr)
+			if !ok {
+				log.Errorf("ICEBind: unexpected address type: %T", msg.Addr)
+				continue
+			}
+			addrPort := udpAddr.AddrPort()
 
 			if isTransportPkg(msg.Buffers, msg.N) {
 				s.activityRecorder.record(addrPort)
@@ -220,7 +253,7 @@ func (s *ICEBind) createReceiverFn(pc wgConn.PacketReader, conn *net.UDPConn, rx
 	}
 }
 
-func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) (bool, error) {
+func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr, isIPv6 bool) (bool, error) {
 	for i := range buffers {
 		if !stun.IsMessage(buffers[i]) {
 			continue
@@ -232,9 +265,10 @@ func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) 
 			return true, err
 		}
 
-		muxErr := s.udpMux.HandleSTUNMessage(msg, addr)
-		if muxErr != nil {
-			log.Warnf("failed to handle STUN packet")
+		if s.udpMux != nil {
+			if err := s.udpMux.HandleSTUNMessage(msg, addr); err != nil {
+				log.Warnf("failed to handle STUN packet: %v", err)
+			}
 		}
 
 		buffers[i] = []byte{}
