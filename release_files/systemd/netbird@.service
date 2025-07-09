@@ -9,7 +9,7 @@ Type=simple
 Environment=NB_CONFIG=/etc/netbird/%i.json
 Environment=NB_STATE_DIR=/var/lib/netbird/%i
 Environment=NB_LOG_FILE=/var/log/netbird/%i/client.log
-Environment=NB_DAEMON_ADDR=unix:///var/run/netbird/%i.sock
+Environment=NB_DAEMON_ADDR=unix://var/run/netbird.sock
 Environment=NB_SERVICE=%N
 # for compatibility with older versions
 Environment=SYSTEMD_UNIT=%N
