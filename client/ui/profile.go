@@ -287,19 +287,7 @@ func (p *profileMenu) refresh() {
 	}
 
 	// Clear existing profile items
-	for _, item := range p.profileSubItems {
-		item.Remove()
-		item.cancel()
-	}
-	p.profileSubItems = make([]*subItem, 0, len(profiles))
-	p.profilesState = profiles
-
-	if p.manageProfilesSubItem != nil {
-		// Remove the manage profiles item if it exists
-		p.manageProfilesSubItem.Remove()
-		p.manageProfilesSubItem.cancel()
-		p.manageProfilesSubItem = nil
-	}
+	p.clear(profiles)
 
 	activeProfState, err := p.profileManager.GetActiveProfileState()
 	if err != nil {
@@ -397,6 +385,23 @@ func (p *profileMenu) refresh() {
 		p.emailMenuItem.Hide()
 	}
 
+}
+
+func (p *profileMenu) clear(profiles []profilemanager.Profile) {
+	// Clear existing profile items
+	for _, item := range p.profileSubItems {
+		item.Remove()
+		item.cancel()
+	}
+	p.profileSubItems = make([]*subItem, 0, len(profiles))
+	p.profilesState = profiles
+
+	if p.manageProfilesSubItem != nil {
+		// Remove the manage profiles item if it exists
+		p.manageProfilesSubItem.Remove()
+		p.manageProfilesSubItem.cancel()
+		p.manageProfilesSubItem = nil
+	}
 }
 
 func (p *profileMenu) updateMenu() {

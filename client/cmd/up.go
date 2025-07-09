@@ -184,27 +184,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile) error {
-	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	customDNSAddressConverted, configPath, err := prepareConfig(ctx, cmd, activeProf)
 	if err != nil {
-		return err
+		return fmt.Errorf("prepare config: %v", err)
 	}
-
-	configPath, err := activeProf.FilePath()
-	if err != nil {
-		return fmt.Errorf("get active profile path: %v", err)
-	}
-
-	ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
-	if err != nil {
-		return fmt.Errorf("setup config: %v", err)
-	}
-
-	config, err := profilemanager.UpdateOrCreateConfig(*ic)
-	if err != nil {
-		return fmt.Errorf("get config file: %v", err)
-	}
-
-	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
@@ -269,21 +252,8 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 
 	if loginResp.NeedsSSOLogin {
-
-		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
-
-		resp, err := client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
-		if err != nil {
-			return fmt.Errorf("waiting sso login failed with: %v", err)
-		}
-
-		if resp.Email != "" {
-			err = pm.SetActiveProfileState(&profilemanager.ProfileState{
-				Email: resp.Email,
-			})
-			if err != nil {
-				log.Warnf("failed to set active profile email: %v", err)
-			}
+		if err := handleSSOLogin(ctx, cmd, loginResp, client, pm); err != nil {
+			return fmt.Errorf("sso login failed: %v", err)
 		}
 	}
 
@@ -295,6 +265,33 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 	cmd.Println("Connected")
 	return nil
+}
+
+func prepareConfig(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) ([]byte, string, error) {
+	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	if err != nil {
+		return []byte{}, "", fmt.Errorf("parse custom DNS address: %v", err)
+	}
+
+	configPath, err := activeProf.FilePath()
+	if err != nil {
+		return nil, "", fmt.Errorf("get active profile path: %v", err)
+	}
+
+	ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("setup config: %v", err)
+	}
+
+	config, err := profilemanager.UpdateOrCreateConfig(*ic)
+	if err != nil {
+		return nil, "", fmt.Errorf("get config file: %v", err)
+	}
+
+	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+
+	return customDNSAddressConverted, configPath, nil
+
 }
 
 func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configPath string) (*profilemanager.ConfigInput, error) {
