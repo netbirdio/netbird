@@ -33,6 +33,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
+// Declare sqlStore and ok at the top so they are in scope for all usages
+var sqlStore *store.SqlStore
+var ok bool
+
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
@@ -407,6 +411,24 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
+	// Try to serve precomputed network map from DB if up-to-date
+	sqlStore, ok = am.Store.(*store.SqlStore)
+	if ok {
+		db := sqlStore.GetDB()
+		var record *types.NetworkMapRecord
+		var err error
+		record, err = types.GetNetworkMapRecord(db, peer.ID)
+		if err == nil && record.Serial == account.Network.CurrentSerial() {
+			var nm *types.NetworkMap
+			nm, err = types.DeserializeNetworkMap(record.MapJSON)
+			if err == nil {
+				log.WithContext(ctx).Debugf("serving precomputed network map for peer %s from DB", peer.ID)
+				return nm, nil
+			}
+			log.WithContext(ctx).Warnf("failed to deserialize precomputed network map for peer %s: %v", peer.ID, err)
+		}
+	}
+
 	groups := make(map[string][]string)
 	for groupID, group := range account.Groups {
 		groups[groupID] = group.Peers
@@ -424,13 +446,34 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		return nil, err
 	}
 
-	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
-
-	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	var proxyNetworkMap *types.NetworkMap
+	networkMap := account.GetPeerNetworkMap(ctx, peerID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+	proxyNetworkMap, ok = proxyNetworkMaps[peerID]
 	if ok {
 		networkMap.Merge(proxyNetworkMap)
 	}
 
+	// After generating the network map, store it as a precomputed blob in the DB
+	sqlStore, ok = am.Store.(*store.SqlStore)
+	if ok {
+		db := sqlStore.GetDB()
+		data, err := types.SerializeNetworkMap(networkMap)
+		if err == nil {
+			record := &types.NetworkMapRecord{
+				PeerID:    peer.ID,
+				AccountID: account.Id,
+				MapJSON:   data,
+				Serial:    networkMap.Network.CurrentSerial(),
+				UpdatedAt: time.Now(),
+			}
+			err = types.SaveNetworkMapRecord(db, record)
+			if err != nil {
+				log.WithContext(ctx).Warnf("failed to store precomputed network map for peer %s: %v", peer.ID, err)
+			}
+		} else {
+			log.WithContext(ctx).Warnf("failed to serialize network map for peer %s: %v", peer.ID, err)
+		}
+	}
 	return networkMap, nil
 }
 
@@ -1053,12 +1096,46 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
-	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics())
-
-	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	var proxyNetworkMap *types.NetworkMap
+	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+	proxyNetworkMap, ok = proxyNetworkMaps[peer.ID]
 	if ok {
 		networkMap.Merge(proxyNetworkMap)
 	}
+
+	// After generating the network map, store it as a precomputed blob in the DB
+	sqlStore, ok = am.Store.(*store.SqlStore)
+	if ok {
+		db := sqlStore.GetDB()
+		data, err := types.SerializeNetworkMap(networkMap)
+		if err == nil {
+			record := &types.NetworkMapRecord{
+				PeerID:    peer.ID,
+				AccountID: account.Id,
+				MapJSON:   data,
+				Serial:    networkMap.Network.CurrentSerial(),
+				UpdatedAt: time.Now(),
+			}
+			err = types.SaveNetworkMapRecord(db, record)
+			if err != nil {
+				log.WithContext(ctx).Warnf("failed to store precomputed network map for peer %s: %v", peer.ID, err)
+			}
+		} else {
+			log.WithContext(ctx).Warnf("failed to serialize network map for peer %s: %v", peer.ID, err)
+		}
+	}
+
+	extraSetting, err := am.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get flow enabled status: %v", err)
+		return nil, nil, nil, err
+	}
+
+	start = time.Now()
+	update := toSyncResponse(ctx, nil, peer, nil, nil, networkMap, am.GetDNSDomain(account.Settings), postureChecks, nil, account.Settings, extraSetting)
+	am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
+
+	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: networkMap})
 
 	return peer, networkMap, postureChecks, nil
 }
@@ -1239,11 +1316,34 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			am.metrics.UpdateChannelMetrics().CountCalcPeerNetworkMapDuration(time.Since(start))
 			start = time.Now()
 
-			proxyNetworkMap, ok := proxyNetworkMaps[p.ID]
+			var proxyNetworkMap *types.NetworkMap
+			proxyNetworkMap, ok = proxyNetworkMaps[p.ID]
 			if ok {
 				remotePeerNetworkMap.Merge(proxyNetworkMap)
 			}
 			am.metrics.UpdateChannelMetrics().CountMergeNetworkMapDuration(time.Since(start))
+
+			// Store the precomputed network map in the DB
+			sqlStore, ok = am.Store.(*store.SqlStore)
+			if ok {
+				db := sqlStore.GetDB()
+				data, err := types.SerializeNetworkMap(remotePeerNetworkMap)
+				if err == nil {
+					record := &types.NetworkMapRecord{
+						PeerID:    p.ID,
+						AccountID: account.Id,
+						MapJSON:   data,
+						Serial:    remotePeerNetworkMap.Network.CurrentSerial(),
+						UpdatedAt: time.Now(),
+					}
+					err = types.SaveNetworkMapRecord(db, record)
+					if err != nil {
+						log.WithContext(ctx).Warnf("failed to store precomputed network map for peer %s: %v", p.ID, err)
+					}
+				} else {
+					log.WithContext(ctx).Warnf("failed to serialize network map for peer %s: %v", p.ID, err)
+				}
+			}
 
 			extraSetting, err := am.settingsManager.GetExtraSettings(ctx, accountID)
 			if err != nil {
@@ -1258,8 +1358,6 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 		}(peer)
 	}
-
-	//
 
 	wg.Wait()
 	if am.metrics != nil {
@@ -1326,21 +1424,43 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
-
-	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	var proxyNetworkMap *types.NetworkMap
+	proxyNetworkMap, ok = proxyNetworkMaps[peer.ID]
 	if ok {
+		remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
 		remotePeerNetworkMap.Merge(proxyNetworkMap)
-	}
 
-	extraSettings, err := am.settingsManager.GetExtraSettings(ctx, peer.AccountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
-		return
-	}
+		// Store the precomputed network map in the DB
+		sqlStore, ok = am.Store.(*store.SqlStore)
+		if ok {
+			db := sqlStore.GetDB()
+			data, err := types.SerializeNetworkMap(remotePeerNetworkMap)
+			if err == nil {
+				record := &types.NetworkMapRecord{
+					PeerID:    peer.ID,
+					AccountID: account.Id,
+					MapJSON:   data,
+					Serial:    remotePeerNetworkMap.Network.CurrentSerial(),
+					UpdatedAt: time.Now(),
+				}
+				err = types.SaveNetworkMapRecord(db, record)
+				if err != nil {
+					log.WithContext(ctx).Warnf("failed to store precomputed network map for peer %s: %v", peer.ID, err)
+				}
+			} else {
+				log.WithContext(ctx).Warnf("failed to serialize network map for peer %s: %v", peer.ID, err)
+			}
+		}
 
-	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings)
-	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
+		extraSettings, err := am.settingsManager.GetExtraSettings(ctx, peer.AccountID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
+			return
+		}
+
+		update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings)
+		am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
+	}
 }
 
 // getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
