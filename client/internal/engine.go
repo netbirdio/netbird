@@ -33,6 +33,7 @@ import (
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/netflow"
@@ -694,6 +695,13 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		err = e.handleFlowUpdate(wCfg.GetFlow())
 		if err != nil {
 			return fmt.Errorf("handle the flow configuration: %w", err)
+		}
+
+		if e.dnsServer != nil {
+			serverDomains := config.ExtractFromNetbirdConfig(wCfg)
+			if err := e.dnsServer.UpdateServerConfig(serverDomains); err != nil {
+				log.Warnf("Failed to update DNS server config: %v", err)
+			}
 		}
 
 		// todo update signal
@@ -1604,7 +1612,19 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config, mgmtURL *url.URL, netbird
 		return dnsServer, nil
 
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager, e.config.DisableDNS, mgmtURL, netbirdConfig)
+		// Extract domains from NetBird configuration
+		serverDomains := config.ExtractFromNetbirdConfig(netbirdConfig)
+		
+		dnsServer, err := dns.NewDefaultServer(dns.DefaultServerConfig{
+			Ctx:            e.ctx,
+			WgInterface:    e.wgInterface,
+			CustomAddress:  e.config.CustomDNSAddress,
+			StatusRecorder: e.statusRecorder,
+			StateManager:   e.stateManager,
+			DisableSys:     e.config.DisableDNS,
+			MgmtURL:        mgmtURL,
+			ServerDomains:  serverDomains,
+		})
 		if err != nil {
 			return nil, err
 		}

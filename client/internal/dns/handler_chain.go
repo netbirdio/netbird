@@ -182,7 +182,10 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 			// If handler wants to continue, try next handler
 			if chainWriter.shouldContinue {
-				log.Tracef("handler requested continue to next handler for domain=%s", qname)
+				// Only log continue for non-management cache handlers to reduce noise
+				if entry.Priority != PriorityMgmtCache {
+					log.Tracef("handler requested continue to next handler for domain=%s", qname)
+				}
 				continue
 			}
 			return

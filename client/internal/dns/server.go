@@ -16,6 +16,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dns/local"
 	"github.com/netbirdio/netbird/client/internal/dns/mgmt"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
@@ -25,7 +26,6 @@ import (
 	cProto "github.com/netbirdio/netbird/client/proto"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
 // ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
@@ -49,6 +49,7 @@ type Server interface {
 	OnUpdatedHostDNSServer(strings []string)
 	SearchDomains() []string
 	ProbeAvailability()
+	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 }
 
 type nsGroupsByDomain struct {
@@ -103,20 +104,23 @@ type handlerWrapper struct {
 
 type registeredHandlerMap map[types.HandlerID]handlerWrapper
 
+// DefaultServerConfig holds configuration parameters for NewDefaultServer
+type DefaultServerConfig struct {
+	Ctx            context.Context
+	WgInterface    WGIface
+	CustomAddress  string
+	StatusRecorder *peer.Status
+	StateManager   *statemanager.Manager
+	DisableSys     bool
+	MgmtURL        *url.URL
+	ServerDomains  dnsconfig.ServerDomains
+}
+
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(
-	ctx context.Context,
-	wgInterface WGIface,
-	customAddress string,
-	statusRecorder *peer.Status,
-	stateManager *statemanager.Manager,
-	disableSys bool,
-	mgmtURL *url.URL,
-	netbirdConfig *mgmProto.NetbirdConfig,
-) (*DefaultServer, error) {
+func NewDefaultServer(config DefaultServerConfig) (*DefaultServer, error) {
 	var addrPort *netip.AddrPort
-	if customAddress != "" {
-		parsedAddrPort, err := netip.ParseAddrPort(customAddress)
+	if config.CustomAddress != "" {
+		parsedAddrPort, err := netip.ParseAddrPort(config.CustomAddress)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse the custom dns address, got error: %s", err)
 		}
@@ -124,31 +128,23 @@ func NewDefaultServer(
 	}
 
 	var dnsService service
-	if wgInterface.IsUserspaceBind() {
-		dnsService = NewServiceViaMemory(wgInterface)
+	if config.WgInterface.IsUserspaceBind() {
+		dnsService = NewServiceViaMemory(config.WgInterface)
 	} else {
-		dnsService = newServiceViaListener(wgInterface, addrPort)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort)
 	}
 
-	server := newDefaultServer(ctx, wgInterface, dnsService, statusRecorder, stateManager, disableSys)
+	server := newDefaultServer(config.Ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
 
-	// Pre-populate management cache with management URL
-	if mgmtURL != nil && server.mgmtCacheResolver != nil {
-		if err := server.mgmtCacheResolver.PopulateFromConfig(ctx, mgmtURL); err != nil {
+	if config.MgmtURL != nil && server.mgmtCacheResolver != nil {
+		if err := server.mgmtCacheResolver.PopulateFromConfig(config.Ctx, config.MgmtURL); err != nil {
 			log.Warnf("Failed to populate management cache from management URL: %v", err)
 		}
 	}
 
-	// Pre-populate management cache with NetbirdConfig domains
-	if netbirdConfig != nil && server.mgmtCacheResolver != nil {
-		if err := server.mgmtCacheResolver.PopulateFromNetbirdConfig(ctx, netbirdConfig); err != nil {
-			log.Warnf("Failed to populate management cache from NetbirdConfig: %v", err)
-		}
-		
-		// Register newly populated domains
-		domains := server.mgmtCacheResolver.GetCachedDomains()
-		if len(domains) > 0 {
-			server.RegisterHandler(domains, server.mgmtCacheResolver, PriorityMgmtCache)
+	if server.mgmtCacheResolver != nil {
+		if err := server.UpdateServerConfig(config.ServerDomains); err != nil {
+			log.Warnf("Failed to populate management cache from ServerDomains: %v", err)
 		}
 	}
 
@@ -220,18 +216,10 @@ func newDefaultServer(
 		mgmtCacheResolver: mgmtCacheResolver,
 	}
 
-	// Register cached domains with the handler chain
-	registerMgmtCacheDomains := func() {
-		domains := mgmtCacheResolver.GetCachedDomains()
-		if len(domains) > 0 {
-			defaultServer.RegisterHandler(domains, mgmtCacheResolver, PriorityMgmtCache)
-		}
+	domains := mgmtCacheResolver.GetCachedDomains()
+	if len(domains) > 0 {
+		defaultServer.RegisterHandler(domains, mgmtCacheResolver, PriorityMgmtCache)
 	}
-
-	// Register any pre-populated domains from management cache
-	registerMgmtCacheDomains()
-
-	// Management cache resolver will be registered for specific domains when they are added
 
 	// register with root zone, handler chain takes care of the routing
 	dnsService.RegisterMux(".", handlerChain)
@@ -352,7 +340,6 @@ func (s *DefaultServer) Stop() {
 		}
 	}
 
-
 	s.service.Stop()
 
 	maps.Clear(s.extraDomains)
@@ -368,15 +355,6 @@ func (s *DefaultServer) PopulateMgmtCacheFromConfig(mgmtURL *url.URL) error {
 	return s.mgmtCacheResolver.PopulateFromConfig(s.ctx, mgmtURL)
 }
 
-// PopulateMgmtCacheFromNetbirdConfig populates the management cache with domains from the netbird configuration
-func (s *DefaultServer) PopulateMgmtCacheFromNetbirdConfig(config *mgmProto.NetbirdConfig) error {
-	if s.mgmtCacheResolver == nil {
-		return fmt.Errorf("management cache resolver not initialized")
-	}
-
-	log.Debug("populating management cache from netbird configuration")
-	return s.mgmtCacheResolver.PopulateFromNetbirdConfig(s.ctx, config)
-}
 
 // OnUpdatedHostDNSServer update the DNS servers addresses for root zones
 // It will be applied if the mgm server do not enforce DNS settings for root zone
@@ -474,6 +452,29 @@ func (s *DefaultServer) ProbeAvailability() {
 		}(mux.handler)
 	}
 	wg.Wait()
+}
+
+func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if s.mgmtCacheResolver != nil {
+		removedDomains, err := s.mgmtCacheResolver.UpdateFromServerDomains(s.ctx, domains)
+		if err != nil {
+			return fmt.Errorf("update management cache resolver: %w", err)
+		}
+
+		if len(removedDomains) > 0 {
+			s.DeregisterHandler(removedDomains, PriorityMgmtCache)
+		}
+
+		newDomains := s.mgmtCacheResolver.GetCachedDomains()
+		if len(newDomains) > 0 {
+			s.RegisterHandler(newDomains, s.mgmtCacheResolver, PriorityMgmtCache)
+		}
+	}
+
+	return nil
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {

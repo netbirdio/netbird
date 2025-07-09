@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
@@ -114,16 +113,15 @@ func TestResolver_PopulateFromConfig(t *testing.T) {
 
 	resolver := NewResolver()
 
-	mgmtURL, _ := url.Parse("https://api.netbird.io")
+	// Use IP address to avoid DNS resolution timeout
+	mgmtURL, _ := url.Parse("https://127.0.0.1")
 
 	err := resolver.PopulateFromConfig(ctx, mgmtURL)
 	assert.NoError(t, err)
 
-	// Give some time for async population
-	time.Sleep(100 * time.Millisecond)
-
+	// IP addresses are rejected, so no domains should be cached
 	domains := resolver.GetCachedDomains()
-	assert.GreaterOrEqual(t, len(domains), 0) // Domains might not be cached yet due to async nature
+	assert.Equal(t, 0, len(domains), "No domains should be cached when using IP addresses")
 }
 
 func TestResolver_PopulateFromNetbirdConfig(t *testing.T) {
@@ -132,32 +130,33 @@ func TestResolver_PopulateFromNetbirdConfig(t *testing.T) {
 
 	resolver := NewResolver()
 
+	// Use IP addresses to avoid DNS resolution timeouts
 	netbirdConfig := &mgmProto.NetbirdConfig{
 		Signal: &mgmProto.HostConfig{
-			Uri: "https://signal.netbird.io",
+			Uri: "https://10.0.0.1",
 		},
 		Relay: &mgmProto.RelayConfig{
 			Urls: []string{
-				"https://relay1.netbird.io:443",
-				"https://relay2.netbird.io:443",
+				"https://10.0.0.2:443",
+				"https://10.0.0.3:443",
 			},
 		},
 		Flow: &mgmProto.FlowConfig{
-			Url: "https://flow.netbird.io:80",
+			Url: "https://10.0.0.4:80",
 		},
 		Stuns: []*mgmProto.HostConfig{
-			{Uri: "stun:stun1.netbird.io:3478"},
-			{Uri: "stun:stun2.netbird.io:3478"},
+			{Uri: "stun:10.0.0.5:3478"},
+			{Uri: "stun:10.0.0.6:3478"},
 		},
 		Turns: []*mgmProto.ProtectedHostConfig{
 			{
 				HostConfig: &mgmProto.HostConfig{
-					Uri: "turn:turn1.netbird.io:3478",
+					Uri: "turn:10.0.0.7:3478",
 				},
 			},
 			{
 				HostConfig: &mgmProto.HostConfig{
-					Uri: "turn:turn2.netbird.io:3478",
+					Uri: "turn:10.0.0.8:3478",
 				},
 			},
 		},
@@ -166,11 +165,42 @@ func TestResolver_PopulateFromNetbirdConfig(t *testing.T) {
 	err := resolver.PopulateFromNetbirdConfig(ctx, netbirdConfig)
 	assert.NoError(t, err)
 
-	// Give some time for async population
-	time.Sleep(100 * time.Millisecond)
-
+	// IP addresses are rejected, so no domains should be cached
 	domains := resolver.GetCachedDomains()
-	assert.GreaterOrEqual(t, len(domains), 0) // Domains might not be cached yet due to async nature
+	assert.Equal(t, 0, len(domains), "No domains should be cached when using IP addresses")
+}
+
+func TestResolver_UpdateFromNetbirdConfig(t *testing.T) {
+	resolver := NewResolver()
+
+	// Test with empty initial config and then add domains
+	initialConfig := &mgmProto.NetbirdConfig{}
+
+	// Start with empty config
+	removedDomains, err := resolver.UpdateFromNetbirdConfig(context.Background(), initialConfig)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(removedDomains), "No domains should be removed from empty cache")
+
+	// Update to config with IP addresses instead of domains to avoid DNS resolution
+	// IP addresses will be rejected by extractDomainFromURL so no actual resolution happens
+	updatedConfig := &mgmProto.NetbirdConfig{
+		Signal: &mgmProto.HostConfig{
+			Uri: "https://127.0.0.1",
+		},
+		Flow: &mgmProto.FlowConfig{
+			Url: "https://192.168.1.1:80",
+		},
+	}
+
+	removedDomains, err = resolver.UpdateFromNetbirdConfig(context.Background(), updatedConfig)
+	assert.NoError(t, err)
+
+	// Verify the method completes successfully without DNS timeouts
+	assert.GreaterOrEqual(t, len(removedDomains), 0, "Should not error on config update")
+
+	// Verify no domains were actually added since IPs are rejected
+	domains := resolver.GetCachedDomains()
+	assert.Equal(t, 0, len(domains), "No domains should be cached when using IP addresses")
 }
 
 func TestResolver_ContinueToNext(t *testing.T) {

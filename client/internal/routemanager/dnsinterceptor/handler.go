@@ -2,11 +2,13 @@ package dnsinterceptor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
@@ -25,6 +27,8 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
+
+const dnsTimeout = 8 * time.Second
 
 type domainMap map[domain.Domain][]netip.Prefix
 
@@ -243,7 +247,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	client, err := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), nbdns.UpstreamTimeout)
+	client, err := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), dnsTimeout)
 	if err != nil {
 		d.writeDNSError(w, r, logger, fmt.Sprintf("create DNS client: %v", err))
 		return
@@ -254,9 +258,20 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
-	reply, _, err := nbdns.ExchangeWithFallback(context.TODO(), client, r, upstream)
+	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
+	defer cancel()
+
+	startTime := time.Now()
+	reply, _, err := nbdns.ExchangeWithFallback(ctx, client, r, upstream)
 	if err != nil {
-		logger.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			elapsed := time.Since(startTime)
+			peerInfo := d.debugPeerTimeout(upstreamIP, peerKey)
+			logger.Errorf("peer DNS timeout after %v (timeout=%v) for domain=%s to peer %s (%s)%s - error: %v",
+				elapsed.Truncate(time.Millisecond), dnsTimeout, r.Question[0].Name, upstreamIP.String(), peerKey, peerInfo, err)
+		} else {
+			logger.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
+		}
 		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
 			logger.Errorf("failed writing DNS response: %v", err)
 		}
@@ -567,4 +582,17 @@ func determinePrefixChanges(oldPrefixes, newPrefixes []netip.Prefix) (toAdd, toR
 		}
 	}
 	return
+}
+
+func (d *DnsInterceptor) debugPeerTimeout(peerIP netip.Addr, peerKey string) string {
+	if d.statusRecorder == nil {
+		return ""
+	}
+
+	peerState, err := d.statusRecorder.GetPeer(peerKey)
+	if err != nil {
+		return fmt.Sprintf(" (peer %s state error: %v)", peerKey[:8], err)
+	}
+
+	return fmt.Sprintf(" (peer %s)", nbdns.FormatPeerStatus(&peerState))
 }

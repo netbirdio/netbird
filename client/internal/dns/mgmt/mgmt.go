@@ -3,6 +3,7 @@ package mgmt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
+	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
@@ -27,14 +29,12 @@ type CacheEntry struct {
 type Resolver struct {
 	cache          map[domain.Domain]CacheEntry
 	mutex          sync.RWMutex
-	systemResolver *net.Resolver
 }
 
 // NewResolver creates a new management domains cache resolver.
 func NewResolver() *Resolver {
 	return &Resolver{
 		cache:          make(map[domain.Domain]CacheEntry),
-		systemResolver: net.DefaultResolver,
 	}
 }
 
@@ -58,22 +58,12 @@ func (m *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	log.Tracef("MgmtCache: checking cache for domain=%s type=%s", qname, dns.TypeToString[question.Qtype])
-
 	m.mutex.RLock()
-	parsedDomain, err := domain.FromString(qname)
-	if err != nil {
-		log.Tracef("MgmtCache: invalid domain format: %s", qname)
-		m.mutex.RUnlock()
-		m.continueToNext(w, r)
-		return
-	}
-
-	entry, found := m.cache[parsedDomain]
+	domainKey := domain.Domain(qname)
+	entry, found := m.cache[domainKey]
 	m.mutex.RUnlock()
 
 	if !found {
-		log.Tracef("MgmtCache: no cache entry found for domain=%s", qname)
 		m.continueToNext(w, r)
 		return
 	}
@@ -91,7 +81,6 @@ func (m *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	if len(records) == 0 {
-		log.Tracef("MgmtCache: no %s records for domain=%s", dns.TypeToString[question.Qtype], parsedDomain.SafeString())
 		m.continueToNext(w, r)
 		return
 	}
@@ -102,10 +91,10 @@ func (m *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		resp.Answer = append(resp.Answer, rrCopy)
 	}
 
-	log.Tracef("MgmtCache: serving %d cached records for domain=%s", len(resp.Answer), parsedDomain.SafeString())
+	log.Debugf("serving %d cached records for domain=%s", len(resp.Answer), domainKey.SafeString())
 
 	if err := w.WriteMsg(resp); err != nil {
-		log.Errorf("MgmtCache: failed to write response: %v", err)
+		log.Errorf("failed to write response: %v", err)
 	}
 }
 
@@ -120,59 +109,58 @@ func (m *Resolver) continueToNext(w dns.ResponseWriter, r *dns.Msg) {
 	resp.SetRcode(r, dns.RcodeNameError)
 	resp.MsgHdr.Zero = true
 	if err := w.WriteMsg(resp); err != nil {
-		log.Errorf("MgmtCache: failed to write continue signal: %v", err)
+		log.Errorf("failed to write continue signal: %v", err)
 	}
 }
 
 // AddDomain manually adds a domain to cache by resolving it.
 func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
-	log.Debugf("MgmtCache: adding domain=%s to cache", d.SafeString())
+	log.Debugf("adding domain=%s to cache", d.SafeString())
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	var aRecords, aaaaRecords []dns.RR
-
-	if ips, err := m.systemResolver.LookupNetIP(ctx, "ip", d.PunycodeString()); err == nil {
-		for _, ip := range ips {
-			if ip.Is4() {
-				rr := &dns.A{
-					Hdr: dns.RR_Header{
-						Name:   d.PunycodeString() + ".",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
-						Ttl:    300,
-					},
-					A: ip.AsSlice(),
-				}
-				aRecords = append(aRecords, rr)
-			} else if ip.Is6() {
-				rr := &dns.AAAA{
-					Hdr: dns.RR_Header{
-						Name:   d.PunycodeString() + ".",
-						Rrtype: dns.TypeAAAA,
-						Class:  dns.ClassINET,
-						Ttl:    300,
-					},
-					AAAA: ip.AsSlice(),
-				}
-				aaaaRecords = append(aaaaRecords, rr)
-			}
-		}
-
-		m.mutex.Lock()
-		m.cache[d] = CacheEntry{
-			ARecords:    aRecords,
-			AAAARecords: aaaaRecords,
-		}
-		m.mutex.Unlock()
-
-		log.Debugf("MgmtCache: added domain=%s with %d A records and %d AAAA records",
-			d.SafeString(), len(aRecords), len(aaaaRecords))
-	} else {
-		log.Warnf("MgmtCache: failed to resolve domain=%s: %v", d.SafeString(), err)
-		return err
+	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", d.PunycodeString())
+	if err != nil {
+		return fmt.Errorf("resolve domain %s: %w", d.SafeString(), err)
 	}
+
+	var aRecords, aaaaRecords []dns.RR
+	for _, ip := range ips {
+		if ip.Is4() {
+			rr := &dns.A{
+				Hdr: dns.RR_Header{
+					Name:   d.PunycodeString() + ".",
+					Rrtype: dns.TypeA,
+					Class:  dns.ClassINET,
+					Ttl:    300,
+				},
+				A: ip.AsSlice(),
+			}
+			aRecords = append(aRecords, rr)
+		} else if ip.Is6() {
+			rr := &dns.AAAA{
+				Hdr: dns.RR_Header{
+					Name:   d.PunycodeString() + ".",
+					Rrtype: dns.TypeAAAA,
+					Class:  dns.ClassINET,
+					Ttl:    300,
+				},
+				AAAA: ip.AsSlice(),
+			}
+			aaaaRecords = append(aaaaRecords, rr)
+		}
+	}
+
+	m.mutex.Lock()
+	m.cache[d] = CacheEntry{
+		ARecords:    aRecords,
+		AAAARecords: aaaaRecords,
+	}
+	m.mutex.Unlock()
+
+	log.Debugf("added domain=%s with %d A records and %d AAAA records",
+		d.SafeString(), len(aRecords), len(aaaaRecords))
 
 	return nil
 }
@@ -182,11 +170,21 @@ func (m *Resolver) PopulateFromConfig(ctx context.Context, mgmtURL *url.URL) err
 	if mgmtURL != nil {
 		if d, err := extractDomainFromURL(mgmtURL); err == nil {
 			if err := m.AddDomain(ctx, d); err != nil {
-				log.Warnf("MgmtCache: failed to add management domain: %v", err)
+				log.Warnf("failed to add management domain: %v", err)
 			}
 		}
 	}
 
+	return nil
+}
+
+// RemoveDomain removes a domain from the cache.
+func (m *Resolver) RemoveDomain(d domain.Domain) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	delete(m.cache, d)
+	log.Debugf("removed domain=%s from cache", d.SafeString())
 	return nil
 }
 
@@ -216,19 +214,19 @@ func (m *Resolver) addSignalDomain(ctx context.Context, signal *mgmProto.HostCon
 		// If parsing fails, it might be a raw host:port, try adding a scheme
 		signalURL, err = url.Parse("https://" + signal.Uri)
 		if err != nil {
-			log.Warnf("MgmtCache: failed to parse signal URL: %v", err)
+			log.Warnf("failed to parse signal URL: %v", err)
 			return
 		}
 	}
 
 	d, err := extractDomainFromURL(signalURL)
 	if err != nil {
-		log.Warnf("MgmtCache: failed to extract signal domain: %v", err)
+		log.Warnf("failed to extract signal domain: %v", err)
 		return
 	}
 
 	if err := m.AddDomain(ctx, d); err != nil {
-		log.Warnf("MgmtCache: failed to add signal domain: %v", err)
+		log.Warnf("failed to add signal domain: %v", err)
 	}
 }
 
@@ -241,18 +239,18 @@ func (m *Resolver) addRelayDomains(ctx context.Context, relay *mgmProto.RelayCon
 	for _, relayAddr := range relay.Urls {
 		relayURL, err := url.Parse(relayAddr)
 		if err != nil {
-			log.Warnf("MgmtCache: failed to parse relay URL %s: %v", relayAddr, err)
+			log.Warnf("failed to parse relay URL %s: %v", relayAddr, err)
 			continue
 		}
 
 		d, err := extractDomainFromURL(relayURL)
 		if err != nil {
-			log.Warnf("MgmtCache: failed to extract relay domain from %s: %v", relayAddr, err)
+			log.Warnf("failed to extract relay domain from %s: %v", relayAddr, err)
 			continue
 		}
 
 		if err := m.AddDomain(ctx, d); err != nil {
-			log.Warnf("MgmtCache: failed to add relay domain: %v", err)
+			log.Warnf("failed to add relay domain: %v", err)
 		}
 	}
 }
@@ -265,18 +263,18 @@ func (m *Resolver) addFlowDomain(ctx context.Context, flow *mgmProto.FlowConfig)
 
 	flowURL, err := url.Parse(flow.Url)
 	if err != nil {
-		log.Warnf("MgmtCache: failed to parse flow URL: %v", err)
+		log.Warnf("failed to parse flow URL: %v", err)
 		return
 	}
 
 	d, err := extractDomainFromURL(flowURL)
 	if err != nil {
-		log.Warnf("MgmtCache: failed to extract flow domain: %v", err)
+		log.Warnf("failed to extract flow domain: %v", err)
 		return
 	}
 
 	if err := m.AddDomain(ctx, d); err != nil {
-		log.Warnf("MgmtCache: failed to add flow domain: %v", err)
+		log.Warnf("failed to add flow domain: %v", err)
 	}
 }
 
@@ -303,7 +301,7 @@ func (m *Resolver) ClearCache() []domain.Domain {
 	}
 
 	m.cache = make(map[domain.Domain]CacheEntry)
-	log.Debugf("MgmtCache: cleared %d cached domains", len(domains))
+	log.Debugf("cleared %d cached domains", len(domains))
 
 	return domains
 }
@@ -311,7 +309,7 @@ func (m *Resolver) ClearCache() []domain.Domain {
 // UpdateFromNetbirdConfig updates the cache intelligently by comparing current and new configurations.
 // Returns domains that were removed for external deregistration.
 func (m *Resolver) UpdateFromNetbirdConfig(ctx context.Context, config *mgmProto.NetbirdConfig) ([]domain.Domain, error) {
-	log.Debugf("MgmtCache: updating cache from NetbirdConfig")
+	log.Debugf("updating cache from NetbirdConfig")
 
 	currentDomains := m.GetCachedDomains()
 	newDomains := m.extractDomainsFromConfig(config)
@@ -333,17 +331,84 @@ func (m *Resolver) UpdateFromNetbirdConfig(ctx context.Context, config *mgmProto
 	m.mutex.Lock()
 	for _, domainToRemove := range removedDomains {
 		delete(m.cache, domainToRemove)
-		log.Debugf("MgmtCache: removed domain=%s from cache", domainToRemove.SafeString())
+		log.Debugf("removed domain=%s from cache", domainToRemove.SafeString())
 	}
 	m.mutex.Unlock()
 
 	for _, newDomain := range newDomains {
 		if err := m.AddDomain(ctx, newDomain); err != nil {
-			log.Warnf("MgmtCache: failed to add/update domain=%s: %v", newDomain.SafeString(), err)
+			log.Warnf("failed to add/update domain=%s: %v", newDomain.SafeString(), err)
 		}
 	}
 
 	return removedDomains, nil
+}
+
+// UpdateFromServerDomains updates the cache using the simplified ServerDomains struct
+func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dnsconfig.ServerDomains) ([]domain.Domain, error) {
+	log.Debugf("updating cache from ServerDomains")
+
+	currentDomains := m.GetCachedDomains()
+	newDomains := m.extractDomainsFromServerDomains(serverDomains)
+
+	var removedDomains []domain.Domain
+	for _, currentDomain := range currentDomains {
+		found := false
+		for _, newDomain := range newDomains {
+			if currentDomain.SafeString() == newDomain.SafeString() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			removedDomains = append(removedDomains, currentDomain)
+			if err := m.RemoveDomain(currentDomain); err != nil {
+				log.Warnf("failed to remove domain=%s: %v", currentDomain.SafeString(), err)
+			}
+		}
+	}
+
+	for _, newDomain := range newDomains {
+		if err := m.AddDomain(ctx, newDomain); err != nil {
+			log.Warnf("failed to add/update domain=%s: %v", newDomain.SafeString(), err)
+		} else {
+			log.Debugf("added/updated management cache domain=%s", newDomain.SafeString())
+		}
+	}
+
+	return removedDomains, nil
+}
+
+func (m *Resolver) extractDomainsFromServerDomains(serverDomains dnsconfig.ServerDomains) []domain.Domain {
+	var domains []domain.Domain
+
+	if serverDomains.Signal != "" {
+		domains = append(domains, serverDomains.Signal)
+	}
+
+	for _, relay := range serverDomains.Relay {
+		if relay != "" {
+			domains = append(domains, relay)
+		}
+	}
+
+	if serverDomains.Flow != "" {
+		domains = append(domains, serverDomains.Flow)
+	}
+
+	for _, stun := range serverDomains.Stuns {
+		if stun != "" {
+			domains = append(domains, stun)
+		}
+	}
+
+	for _, turn := range serverDomains.Turns {
+		if turn != "" {
+			domains = append(domains, turn)
+		}
+	}
+
+	return domains
 }
 
 // extractDomainsFromConfig extracts all domains from a NetbirdConfig.
@@ -354,26 +419,62 @@ func (m *Resolver) extractDomainsFromConfig(config *mgmProto.NetbirdConfig) []do
 
 	var domains []domain.Domain
 
-	if config.Signal != nil && config.Signal.Uri != "" {
-		if d, err := m.extractDomainFromSignalConfig(config.Signal); err == nil {
+	// Extract signal domain
+	domains = append(domains, m.extractSignalDomain(config)...)
+
+	// Extract relay domains
+	domains = append(domains, m.extractRelayDomains(config)...)
+
+	// Extract flow domain
+	domains = append(domains, m.extractFlowDomain(config)...)
+
+	// Extract STUN domains
+	domains = append(domains, m.extractSTUNDomains(config)...)
+
+	// Extract TURN domains
+	domains = append(domains, m.extractTURNDomains(config)...)
+
+	return domains
+}
+
+func (m *Resolver) extractSignalDomain(config *mgmProto.NetbirdConfig) []domain.Domain {
+	if config.Signal == nil || config.Signal.Uri == "" {
+		return nil
+	}
+
+	if d, err := m.extractDomainFromSignalConfig(config.Signal); err == nil {
+		return []domain.Domain{d}
+	}
+	return nil
+}
+
+func (m *Resolver) extractRelayDomains(config *mgmProto.NetbirdConfig) []domain.Domain {
+	if config.Relay == nil {
+		return nil
+	}
+
+	var domains []domain.Domain
+	for _, relayURL := range config.Relay.Urls {
+		if d, err := m.extractDomainFromURL(relayURL); err == nil {
 			domains = append(domains, d)
 		}
 	}
+	return domains
+}
 
-	if config.Relay != nil {
-		for _, relayURL := range config.Relay.Urls {
-			if d, err := m.extractDomainFromURL(relayURL); err == nil {
-				domains = append(domains, d)
-			}
-		}
+func (m *Resolver) extractFlowDomain(config *mgmProto.NetbirdConfig) []domain.Domain {
+	if config.Flow == nil || config.Flow.Url == "" {
+		return nil
 	}
 
-	if config.Flow != nil && config.Flow.Url != "" {
-		if d, err := m.extractDomainFromURL(config.Flow.Url); err == nil {
-			domains = append(domains, d)
-		}
+	if d, err := m.extractDomainFromURL(config.Flow.Url); err == nil {
+		return []domain.Domain{d}
 	}
+	return nil
+}
 
+func (m *Resolver) extractSTUNDomains(config *mgmProto.NetbirdConfig) []domain.Domain {
+	var domains []domain.Domain
 	for _, stun := range config.Stuns {
 		if stun != nil && stun.Uri != "" {
 			if d, err := m.extractDomainFromURL(stun.Uri); err == nil {
@@ -381,7 +482,11 @@ func (m *Resolver) extractDomainsFromConfig(config *mgmProto.NetbirdConfig) []do
 			}
 		}
 	}
+	return domains
+}
 
+func (m *Resolver) extractTURNDomains(config *mgmProto.NetbirdConfig) []domain.Domain {
+	var domains []domain.Domain
 	for _, turn := range config.Turns {
 		if turn != nil && turn.HostConfig != nil && turn.HostConfig.Uri != "" {
 			if d, err := m.extractDomainFromURL(turn.HostConfig.Uri); err == nil {
@@ -389,7 +494,6 @@ func (m *Resolver) extractDomainsFromConfig(config *mgmProto.NetbirdConfig) []do
 			}
 		}
 	}
-
 	return domains
 }
 
@@ -424,18 +528,18 @@ func (m *Resolver) addStunDomains(ctx context.Context, stuns []*mgmProto.HostCon
 
 		stunURL, err := url.Parse(stun.Uri)
 		if err != nil {
-			log.Warnf("MgmtCache: failed to parse STUN URL %s: %v", stun.Uri, err)
+			log.Warnf("failed to parse STUN URL %s: %v", stun.Uri, err)
 			continue
 		}
 
 		d, err := extractDomainFromURL(stunURL)
 		if err != nil {
-			log.Warnf("MgmtCache: failed to extract STUN domain from %s: %v", stun.Uri, err)
+			log.Warnf("failed to extract STUN domain from %s: %v", stun.Uri, err)
 			continue
 		}
 
 		if err := m.AddDomain(ctx, d); err != nil {
-			log.Warnf("MgmtCache: failed to add STUN domain: %v", err)
+			log.Warnf("failed to add STUN domain: %v", err)
 		}
 	}
 }
@@ -449,18 +553,18 @@ func (m *Resolver) addTurnDomains(ctx context.Context, turns []*mgmProto.Protect
 
 		turnURL, err := url.Parse(turn.HostConfig.Uri)
 		if err != nil {
-			log.Warnf("MgmtCache: failed to parse TURN URL %s: %v", turn.HostConfig.Uri, err)
+			log.Warnf("failed to parse TURN URL %s: %v", turn.HostConfig.Uri, err)
 			continue
 		}
 
 		d, err := extractDomainFromURL(turnURL)
 		if err != nil {
-			log.Warnf("MgmtCache: failed to extract TURN domain from %s: %v", turn.HostConfig.Uri, err)
+			log.Warnf("failed to extract TURN domain from %s: %v", turn.HostConfig.Uri, err)
 			continue
 		}
 
 		if err := m.AddDomain(ctx, d); err != nil {
-			log.Warnf("MgmtCache: failed to add TURN domain: %v", err)
+			log.Warnf("failed to add TURN domain: %v", err)
 		}
 	}
 }
