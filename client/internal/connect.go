@@ -259,7 +259,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, loginResp.GetNetbirdConfig())
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -413,7 +413,7 @@ func (c *ConnectClient) SetNetworkMapPersistence(enabled bool) {
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig, netbirdConfig *mgmProto.NetbirdConfig) (*EngineConfig, error) {
 	nm := false
 	if config.NetworkMonitor != nil {
 		nm = *config.NetworkMonitor
@@ -442,6 +442,8 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		BlockInbound:        config.BlockInbound,
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
+		ManagementURL:         config.ManagementURL,
+		NetbirdConfig:         netbirdConfig,
 	}
 
 	if config.PreSharedKey != "" {

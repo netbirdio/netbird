@@ -75,7 +75,7 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, d
 
 // String returns a string representation of the upstream resolver
 func (u *upstreamResolverBase) String() string {
-	return fmt.Sprintf("upstream %v", u.upstreamServers)
+	return fmt.Sprintf("Upstream %v", u.upstreamServers)
 }
 
 // ID returns the unique handler ID

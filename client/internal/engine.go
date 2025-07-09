@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"net/url"
 	"reflect"
 	"runtime"
 	"slices"
@@ -124,6 +125,12 @@ type EngineConfig struct {
 	BlockInbound        bool
 
 	LazyConnectionEnabled bool
+
+	// ManagementURL is the URL of the management server for DNS cache
+	ManagementURL *url.URL
+
+	// NetbirdConfig contains signal, relay, and flow server configuration
+	NetbirdConfig *mgmProto.NetbirdConfig
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -387,7 +394,7 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("read initial settings: %w", err)
 	}
 
-	dnsServer, err := e.newDnsServer(dnsConfig)
+	dnsServer, err := e.newDnsServer(dnsConfig, e.config.ManagementURL, e.config.NetbirdConfig)
 	if err != nil {
 		e.close()
 		return fmt.Errorf("create dns server: %w", err)
@@ -1572,7 +1579,7 @@ func (e *Engine) wgInterfaceCreate() (err error) {
 	return err
 }
 
-func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
+func (e *Engine) newDnsServer(dnsConfig *nbdns.Config, mgmtURL *url.URL, netbirdConfig *mgmProto.NetbirdConfig) (dns.Server, error) {
 	// due to tests where we are using a mocked version of the DNS server
 	if e.dnsServer != nil {
 		return e.dnsServer, nil
@@ -1597,7 +1604,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 		return dnsServer, nil
 
 	default:
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager, e.config.DisableDNS)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager, e.config.DisableDNS, mgmtURL, netbirdConfig)
 		if err != nil {
 			return nil, err
 		}
@@ -1614,6 +1621,11 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 // GetFirewallManager returns the firewall manager
 func (e *Engine) GetFirewallManager() firewallManager.Manager {
 	return e.firewall
+}
+
+// GetDNSServer returns the DNS server
+func (e *Engine) GetDNSServer() dns.Server {
+	return e.dnsServer
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
