@@ -1,21 +1,29 @@
 [Unit]
 Description=Netbird Client (%i)
 Documentation=https://netbird.io/docs
-After=network-online.target syslog.target NetworkManager.service
+After=network-online.target syslog.target
 Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=NB_CONFIG=/etc/netbird/%i.json
+Environment=NB_STATE_DIR=/var/lib/netbird/%i
+Environment=NB_LOG_FILE=/var/log/netbird/%i/client.log
+Environment=NB_DAEMON_ADDR=unix:///var/run/netbird/%i.sock
+Environment=NB_SERVICE=%N
+# for compatibility with older versions
+Environment=SYSTEMD_UNIT=%N
 EnvironmentFile=-/etc/default/netbird
-ExecStart=/usr/bin/netbird service run --log-file /var/log/netbird/client-%i.log --config /etc/netbird/%i.json --daemon-addr unix:///var/run/netbird/%i.sock $FLAGS
+EnvironmentFile=-/etc/default/netbird-%i
+ExecStart=/usr/bin/netbird service run $FLAGS
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=10
-CacheDirectory=netbird
+CacheDirectory=netbird/%i
 ConfigurationDirectory=netbird
-LogsDirectory=netbird
+LogsDirectory=netbird/%i
 RuntimeDirectory=netbird
-StateDirectory=netbird
+StateDirectory=netbird/%i
 
 # sandboxing
 LockPersonality=yes
