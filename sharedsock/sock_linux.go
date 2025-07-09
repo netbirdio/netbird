@@ -162,7 +162,7 @@ func (s *SharedSocket) LocalAddr() net.Addr {
 	}
 	if s.conn6 != nil {
 		return &net.UDPAddr{
-			IP:   net.IPv6zero,
+			IP:   net.IPv6unspecified,
 			Port: s.port,
 		}
 	}

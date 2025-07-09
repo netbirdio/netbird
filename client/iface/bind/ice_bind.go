@@ -226,7 +226,7 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 			msg := &(*msgs)[i]
 
 			// todo: handle err
-			ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr, isIPv6)
+			ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
 			if ok {
 				continue
 			}
@@ -253,7 +253,7 @@ func (s *ICEBind) createReceiverFn(pc wgConn.BatchReader, conn *net.UDPConn, rxO
 	}
 }
 
-func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr, isIPv6 bool) (bool, error) {
+func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) (bool, error) {
 	for i := range buffers {
 		if !stun.IsMessage(buffers[i]) {
 			continue
