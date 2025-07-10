@@ -113,6 +113,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get active profile: %v", err)
 	}
 
+	var profileSwitched bool
 	// switch profile if provided
 	if profileName != "" && activeProf.Name != profileName {
 		err = pm.SwitchProfile(profileName)
@@ -124,6 +125,8 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
+
+		profileSwitched = true
 	}
 
 	activeProf, err = pm.GetActiveProfile()
@@ -134,7 +137,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	if foregroundMode {
 		return runInForegroundMode(ctx, cmd, activeProf)
 	}
-	return runInDaemonMode(ctx, cmd, pm, activeProf)
+	return runInDaemonMode(ctx, cmd, pm, activeProf, profileSwitched)
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
@@ -188,7 +191,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	return connectClient.Run(nil)
 }
 
-func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile) error {
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
 	customDNSAddressConverted, configPath, err := prepareConfig(ctx, cmd, activeProf)
 	if err != nil {
 		return fmt.Errorf("prepare config: %v", err)
@@ -216,8 +219,15 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 
 	if status.Status == string(internal.StatusConnected) {
-		cmd.Println("Already connected")
-		return nil
+		if !profileSwitched {
+			cmd.Println("Already connected")
+			return nil
+		}
+
+		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
+			log.Errorf("call service down method: %v", err)
+			return err
+		}
 	}
 
 	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, configPath, customDNSAddressConverted); err != nil {

@@ -96,6 +96,25 @@ func (s *serviceClient) showProfilesUI() {
 							fmt.Sprintf("Profile '%s' switched successfully", profile.Name),
 							s.wProfiles,
 						)
+
+						conn, err := s.getSrvClient(defaultFailTimeout)
+						if err != nil {
+							log.Errorf("failed to get daemon client: %v", err)
+							return
+						}
+
+						status, err := conn.Status(context.Background(), &proto.StatusRequest{})
+						if err != nil {
+							log.Errorf("failed to get status after switching profile: %v", err)
+							return
+						}
+
+						if status.Status == string(internal.StatusConnected) {
+							if err := s.menuDownClick(); err != nil {
+								dialog.ShowError(fmt.Errorf("failed to handle down click: %w", err), s.wProfiles)
+								return
+							}
+						}
 						// update slice flags
 						refresh()
 					},
@@ -392,9 +411,6 @@ func (p *profileMenu) refresh() {
 						}
 					}
 
-					if err := p.upClickCallback(); err != nil {
-						log.Errorf("failed to handle up click after switching profile: %v", err)
-					}
 					p.refresh()
 				}
 			}

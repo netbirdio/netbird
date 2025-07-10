@@ -1,9 +1,15 @@
 package cmd
 
 import (
+	"context"
+	"time"
+
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -149,6 +155,31 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 
 	if err := switchProfile(cmd.Context(), prof); err != nil {
 		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*7)
+	defer cancel()
+
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		log.Errorf("failed to connect to service CLI interface %v", err)
+		return err
+	}
+	defer conn.Close()
+
+	daemonClient := proto.NewDaemonServiceClient(conn)
+
+	status, err := daemonClient.Status(ctx, &proto.StatusRequest{})
+	if err != nil {
+		log.Errorf("call service status method: %v", err)
+		return err
+	}
+
+	if status.Status == string(internal.StatusConnected) {
+		if _, err := daemonClient.Down(ctx, &proto.DownRequest{}); err != nil {
+			log.Errorf("call service down method: %v", err)
+			return err
+		}
 	}
 
 	cmd.Println("Profile switched successfully to:", profileName)

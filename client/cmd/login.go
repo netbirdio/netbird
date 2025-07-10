@@ -44,7 +44,7 @@ var loginCmd = &cobra.Command{
 
 		pm := profilemanager.NewProfileManager()
 
-		activeProf, err := getActiveProfile(pm, profileName)
+		activeProf, err := getActiveProfile(cmd.Context(), pm, profileName)
 		if err != nil {
 			return fmt.Errorf("get active profile: %v", err)
 		}
@@ -140,7 +140,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	return nil
 }
 
-func getActiveProfile(pm *profilemanager.ProfileManager, profileName string) (*profilemanager.Profile, error) {
+func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, profileName string) (*profilemanager.Profile, error) {
 	activeProf, err := pm.GetActiveProfile()
 	if err != nil {
 		return nil, fmt.Errorf("get active profile: %v", err)
@@ -154,6 +154,30 @@ func getActiveProfile(pm *profilemanager.ProfileManager, profileName string) (*p
 		}
 
 		err = switchProfile(context.Background(), activeProf)
+		if err != nil {
+			return nil, fmt.Errorf("switch profile on daemon: %v", err)
+		}
+
+		conn, err := DialClientGRPCServer(ctx, daemonAddr)
+		if err != nil {
+			log.Errorf("failed to connect to service CLI interface %v", err)
+			return nil, err
+		}
+		defer conn.Close()
+
+		client := proto.NewDaemonServiceClient(conn)
+
+		status, err := client.Status(ctx, &proto.StatusRequest{})
+		if err != nil {
+			return nil, fmt.Errorf("unable to get daemon status: %v", err)
+		}
+
+		if status.Status == string(internal.StatusConnected) {
+			if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
+				log.Errorf("call service down method: %v", err)
+				return nil, err
+			}
+		}
 	}
 
 	activeProf, err = pm.GetActiveProfile()
