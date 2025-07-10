@@ -287,17 +287,19 @@ func prepareConfig(ctx context.Context, cmd *cobra.Command, activeProf *profilem
 		return nil, "", fmt.Errorf("get active profile path: %v", err)
 	}
 
-	ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("setup config: %v", err)
-	}
+	if activeProf.Name != "default" {
+		ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
+		if err != nil {
+			return nil, "", fmt.Errorf("setup config: %v", err)
+		}
 
-	config, err := profilemanager.UpdateOrCreateConfig(*ic)
-	if err != nil {
-		return nil, "", fmt.Errorf("get config file: %v", err)
-	}
+		config, err := profilemanager.UpdateOrCreateConfig(*ic)
+		if err != nil {
+			return nil, "", fmt.Errorf("get config file: %v", err)
+		}
 
-	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+		_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+	}
 
 	return customDNSAddressConverted, configPath, nil
 

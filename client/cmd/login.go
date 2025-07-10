@@ -59,16 +59,9 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 
-		config, err := profilemanager.ReadConfig(configPath)
-		if err != nil {
-			return fmt.Errorf("update config: %v", err)
-		}
-
-		_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
-
 		// workaround to run without service
 		if logFile == "console" {
-			if err := doForegroundLogin(ctx, cmd, config, providedSetupKey, activeProf); err != nil {
+			if err := doForegroundLogin(ctx, cmd, configPath, providedSetupKey, activeProf); err != nil {
 				return fmt.Errorf("foreground login failed: %v", err)
 			}
 			return nil
@@ -172,8 +165,15 @@ func getActiveProfile(pm *profilemanager.ProfileManager, profileName string) (*p
 	return activeProf, nil
 }
 
-func doForegroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey string, activeProf *profilemanager.Profile) error {
-	err := handleRebrand(cmd, activeProf)
+func doForegroundLogin(ctx context.Context, cmd *cobra.Command, configPath string, setupKey string, activeProf *profilemanager.Profile) error {
+	config, err := profilemanager.ReadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("update config: %v", err)
+	}
+
+	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+
+	err = handleRebrand(cmd, activeProf)
 	if err != nil {
 		return err
 	}
