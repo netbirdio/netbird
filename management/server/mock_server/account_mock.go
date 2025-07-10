@@ -126,6 +126,10 @@ func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID 
 	// do nothing
 }
 
+func (am *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+	// do nothing
+}
+
 func (am *MockAccountManager) DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error {
 	if am.DeleteSetupKeyFunc != nil {
 		return am.DeleteSetupKeyFunc(ctx, accountID, userID, keyID)

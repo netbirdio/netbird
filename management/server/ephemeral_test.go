@@ -37,6 +37,10 @@ func (a MocAccountManager) DeletePeer(_ context.Context, accountID, peerID, user
 	return nil //nolint:nil
 }
 
+func (a MocAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+	// noop
+}
+
 func (a MocAccountManager) GetStore() store.Store {
 	return a.store
 }
