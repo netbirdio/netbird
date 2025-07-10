@@ -375,7 +375,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		storeEvent()
 	}
 
-	if updateAccountPeers {
+	if updateAccountPeers && userID != activity.SystemInitiator {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -1177,6 +1177,19 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 
 	globalStart := time.Now()
 
+	hasPeersConnected := false
+	for _, peer := range account.Peers {
+		if am.peersUpdateManager.HasChannel(peer.ID) {
+			hasPeersConnected = true
+			break
+		}
+
+	}
+
+	if !hasPeersConnected {
+		return
+	}
+
 	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to get validate peers: %v", err)
@@ -1195,6 +1208,12 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return
+	}
+
+	extraSetting, err := am.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get flow enabled status: %v", err)
 		return
 	}
 
@@ -1231,12 +1250,6 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 				remotePeerNetworkMap.Merge(proxyNetworkMap)
 			}
 			am.metrics.UpdateChannelMetrics().CountMergeNetworkMapDuration(time.Since(start))
-
-			extraSetting, err := am.settingsManager.GetExtraSettings(ctx, accountID)
-			if err != nil {
-				log.WithContext(ctx).Errorf("failed to get flow enabled status: %v", err)
-				return
-			}
 
 			start = time.Now()
 			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting)
