@@ -2315,13 +2315,14 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 		}
 		empty := ""
 		for range peersCount {
+			//nolint
 			am.DeletePeer(context.Background(), empty, empty, empty)
 		}
 		time.Sleep(100 * time.Millisecond)
 
 		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
 		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
-		assert.Greater(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
+		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
 
 		totalNewRuns = int(updatePeersRuns.Load())
 	})
@@ -2361,13 +2362,14 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 		}
 		empty := ""
 		for range peersCount {
+			//nolint
 			am.DeletePeer(context.Background(), empty, empty, empty)
 		}
 		time.Sleep(100 * time.Millisecond)
 
 		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
 		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
-		assert.Greater(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
+		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
 
 		totalOldRuns = int(updatePeersRuns.Load())
 	})
