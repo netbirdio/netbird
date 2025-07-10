@@ -2285,6 +2285,7 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 			b := mu.(*bufferUpdate)
 
 			if !b.mu.TryLock() {
+				b.update.Store(true)
 				return
 			}
 
@@ -2295,6 +2296,10 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 			go func() {
 				defer b.mu.Unlock()
 				uap(ctx, accountID)
+				if !b.update.Load() {
+					return
+				}
+				b.update.Store(false)
 				b.next = time.AfterFunc(updateAccountInterval, func() {
 					uap(ctx, accountID)
 				})

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/xid"
@@ -1268,8 +1269,9 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 }
 
 type bufferUpdate struct {
-	mu   sync.Mutex
-	next *time.Timer
+	mu     sync.Mutex
+	next   *time.Timer
+	update atomic.Bool
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
@@ -1277,6 +1279,7 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 	b := bufUpd.(*bufferUpdate)
 
 	if !b.mu.TryLock() {
+		b.update.Store(true)
 		return
 	}
 
@@ -1287,6 +1290,10 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 	go func() {
 		defer b.mu.Unlock()
 		am.UpdateAccountPeers(ctx, accountID)
+		if !b.update.Load() {
+			return
+		}
+		b.update.Store(false)
 		if b.next == nil {
 			b.next = time.AfterFunc(time.Duration(am.updateAccountPeersBufferInterval.Load()), func() {
 				am.UpdateAccountPeers(ctx, accountID)
