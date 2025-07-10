@@ -11,7 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-// UpdateIntegratedValidatorGroups updates the integrated validator groups for a specified account.
+// UpdateIntegratedValidator updates the integrated validator groups for a specified account.
 // It retrieves the account associated with the provided userID, then updates the integrated validator groups
 // with the provided list of group ids. The updated account is then saved.
 //
@@ -22,7 +22,11 @@ import (
 //
 // Returns:
 //   - error: An error if any occurred during the process, otherwise returns nil
-func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error {
+func (am *DefaultAccountManager) UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error {
+	if validator == "" {
+		return errors.New("validator cannot be empty")
+	}
+
 	ok, err := am.GroupValidation(ctx, accountID, groups)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error validating groups: %s", err.Error())
@@ -51,6 +55,8 @@ func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(ctx context.Con
 			extra = &types.ExtraSettings{}
 			a.Settings.Extra = extra
 		}
+
+		extra.IntegratedValidator = validator
 		extra.IntegratedValidatorGroups = groups
 		return transaction.SaveAccount(ctx, a)
 	})

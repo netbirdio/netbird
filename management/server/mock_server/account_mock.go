@@ -102,7 +102,7 @@ type MockAccountManager struct {
 	DeletePostureChecksFunc               func(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc                 func(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManagerFunc                     func() idp.Manager
-	UpdateIntegratedValidatorGroupsFunc   func(ctx context.Context, accountID string, userID string, groups []string) error
+	UpdateIntegratedValidatorFunc         func(ctx context.Context, accountID, userID, validator string, groups []string) error
 	GroupValidationFunc                   func(ctx context.Context, accountId string, groups []string) (bool, error)
 	SyncPeerMetaFunc                      func(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheckFunc          func(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
@@ -763,10 +763,10 @@ func (am *MockAccountManager) GetIdpManager() idp.Manager {
 	return nil
 }
 
-// UpdateIntegratedValidatorGroups mocks UpdateIntegratedApprovalGroups of the AccountManager interface
-func (am *MockAccountManager) UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error {
-	if am.UpdateIntegratedValidatorGroupsFunc != nil {
-		return am.UpdateIntegratedValidatorGroupsFunc(ctx, accountID, userID, groups)
+// UpdateIntegratedValidator mocks UpdateIntegratedApprovalGroups of the AccountManager interface
+func (am *MockAccountManager) UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error {
+	if am.UpdateIntegratedValidatorFunc != nil {
+		return am.UpdateIntegratedValidatorFunc(ctx, accountID, userID, validator, groups)
 	}
 	return status.Errorf(codes.Unimplemented, "method UpdateIntegratedValidatorGroups is not implemented")
 }
