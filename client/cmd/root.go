@@ -22,7 +22,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/upload-server/types"
 )
 
 const (
@@ -38,10 +37,7 @@ const (
 	serverSSHAllowedFlag     = "allow-server-ssh"
 	extraIFaceBlackListFlag  = "extra-iface-blacklist"
 	dnsRouteIntervalFlag     = "dns-router-interval"
-	systemInfoFlag           = "system-info"
 	enableLazyConnectionFlag = "enable-lazy-connection"
-	uploadBundle             = "upload-bundle"
-	uploadBundleURL          = "upload-bundle-url"
 )
 
 var (
@@ -75,10 +71,7 @@ var (
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
-	debugSystemInfoFlag     bool
 	dnsRouteInterval        time.Duration
-	debugUploadBundle       bool
-	debugUploadBundleURL    string
 	lazyConnEnabled         bool
 
 	rootCmd = &cobra.Command{
@@ -186,9 +179,6 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
 	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "[Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand. Note: this setting may be overridden by management configuration.")
 
-	debugCmd.PersistentFlags().BoolVarP(&debugSystemInfoFlag, systemInfoFlag, "S", true, "Adds system information to the debug bundle")
-	debugCmd.PersistentFlags().BoolVarP(&debugUploadBundle, uploadBundle, "U", false, fmt.Sprintf("Uploads the debug bundle to a server from URL defined by %s", uploadBundleURL))
-	debugCmd.PersistentFlags().StringVar(&debugUploadBundleURL, uploadBundleURL, types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
