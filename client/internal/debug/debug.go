@@ -167,6 +167,7 @@ type BundleGenerator struct {
 	anonymize         bool
 	clientStatus      string
 	includeSystemInfo bool
+	logFileCount      uint32
 
 	archive *zip.Writer
 }
@@ -175,6 +176,7 @@ type BundleConfig struct {
 	Anonymize         bool
 	ClientStatus      string
 	IncludeSystemInfo bool
+	LogFileCount      uint32
 }
 
 type GeneratorDependencies struct {
@@ -185,6 +187,12 @@ type GeneratorDependencies struct {
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
+	// Default to 1 log file for backward compatibility when 0 is provided
+	logFileCount := cfg.LogFileCount
+	if logFileCount == 0 {
+		logFileCount = 1
+	}
+
 	return &BundleGenerator{
 		anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
 
@@ -196,6 +204,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		anonymize:         cfg.Anonymize,
 		clientStatus:      cfg.ClientStatus,
 		includeSystemInfo: cfg.IncludeSystemInfo,
+		logFileCount:      logFileCount,
 	}
 }
 
@@ -561,32 +570,8 @@ func (g *BundleGenerator) addLogfile() error {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 
-	// add latest rotated log file
-	pattern := filepath.Join(logDir, "client-*.log.gz")
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		log.Warnf("failed to glob rotated logs: %v", err)
-	} else if len(files) > 0 {
-		// pick the file with the latest ModTime
-		sort.Slice(files, func(i, j int) bool {
-			fi, err := os.Stat(files[i])
-			if err != nil {
-				log.Warnf("failed to stat rotated log %s: %v", files[i], err)
-				return false
-			}
-			fj, err := os.Stat(files[j])
-			if err != nil {
-				log.Warnf("failed to stat rotated log %s: %v", files[j], err)
-				return false
-			}
-			return fi.ModTime().Before(fj.ModTime())
-		})
-		latest := files[len(files)-1]
-		name := filepath.Base(latest)
-		if err := g.addSingleLogFileGz(latest, name); err != nil {
-			log.Warnf("failed to add rotated log %s: %v", name, err)
-		}
-	}
+	// add rotated log files based on logFileCount
+	g.addRotatedLogFiles(logDir)
 
 	stdErrLogPath := filepath.Join(logDir, errorLogFile)
 	stdoutLogPath := filepath.Join(logDir, stdoutLogFile)
@@ -668,6 +653,52 @@ func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
 	}
 
 	return nil
+}
+
+// addRotatedLogFiles adds rotated log files to the bundle based on logFileCount
+func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
+	if g.logFileCount == 0 {
+		return
+	}
+
+	pattern := filepath.Join(logDir, "client-*.log.gz")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		log.Warnf("failed to glob rotated logs: %v", err)
+		return
+	}
+
+	if len(files) == 0 {
+		return
+	}
+
+	// sort files by modification time (newest first)
+	sort.Slice(files, func(i, j int) bool {
+		fi, err := os.Stat(files[i])
+		if err != nil {
+			log.Warnf("failed to stat rotated log %s: %v", files[i], err)
+			return false
+		}
+		fj, err := os.Stat(files[j])
+		if err != nil {
+			log.Warnf("failed to stat rotated log %s: %v", files[j], err)
+			return false
+		}
+		return fi.ModTime().After(fj.ModTime())
+	})
+
+	// include up to logFileCount rotated files
+	maxFiles := int(g.logFileCount)
+	if maxFiles > len(files) {
+		maxFiles = len(files)
+	}
+
+	for i := 0; i < maxFiles; i++ {
+		name := filepath.Base(files[i])
+		if err := g.addSingleLogFileGz(files[i], name); err != nil {
+			log.Warnf("failed to add rotated log %s: %v", name, err)
+		}
+	}
 }
 
 func (g *BundleGenerator) addFileToZip(reader io.Reader, filename string) error {
