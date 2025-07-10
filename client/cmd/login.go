@@ -152,6 +152,8 @@ func getActiveProfile(pm *profilemanager.ProfileManager, profileName string) (*p
 		if err != nil {
 			return nil, fmt.Errorf("switch profile: %v", err)
 		}
+
+		err = switchProfile(context.Background(), activeProf)
 	}
 
 	activeProf, err = pm.GetActiveProfile()
@@ -163,6 +165,33 @@ func getActiveProfile(pm *profilemanager.ProfileManager, profileName string) (*p
 		return nil, fmt.Errorf("active profile not found, please run 'netbird profile create' first")
 	}
 	return activeProf, nil
+}
+
+func switchProfile(ctx context.Context, prof *profilemanager.Profile) error {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer conn.Close()
+
+	profPath, err := prof.FilePath()
+	if err != nil {
+		return fmt.Errorf("get profile path: %v", err)
+	}
+
+	client := proto.NewDaemonServiceClient(conn)
+
+	_, err = client.SwitchProfile(ctx, &proto.SwitchProfileRequest{
+		ProfileName: &prof.Name,
+		ProfilePath: &profPath,
+	})
+	if err != nil {
+		return fmt.Errorf("switch profile failed: %v", err)
+	}
+
+	return nil
 }
 
 func doForegroundLogin(ctx context.Context, cmd *cobra.Command, configPath string, setupKey string, activeProf *profilemanager.Profile) error {

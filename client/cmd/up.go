@@ -119,6 +119,11 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
+
+		err = switchProfile(cmd.Context(), activeProf)
+		if err != nil {
+			return fmt.Errorf("switch profile: %v", err)
+		}
 	}
 
 	activeProf, err = pm.GetActiveProfile()

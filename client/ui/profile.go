@@ -212,6 +212,29 @@ func (s *serviceClient) switchProfile(profileName string) error {
 	if err != nil {
 		return fmt.Errorf("switch profile: %w", err)
 	}
+
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		return fmt.Errorf(getClientFMT, err)
+	}
+
+	prof, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		return fmt.Errorf("get active profile: %w", err)
+	}
+
+	profPath, err := prof.FilePath()
+	if err != nil {
+		return fmt.Errorf("get profile path: %w", err)
+	}
+
+	if _, err := conn.SwitchProfile(context.Background(), &proto.SwitchProfileRequest{
+		ProfileName: &prof.Name,
+		ProfilePath: &profPath,
+	}); err != nil {
+		return fmt.Errorf("switch profile failed: %w", err)
+	}
+
 	return nil
 }
 
@@ -324,17 +347,38 @@ func (p *profileMenu) refresh() {
 						log.Infof("Profile '%s' is already active", profile.Name)
 						return
 					}
-					err := p.profileManager.SwitchProfile(profile.Name)
-					if err != nil {
-						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
-						return
-					}
-					log.Infof("Switched to profile '%s'", profile.Name)
 					conn, err := p.getSrvClientCallback(defaultFailTimeout)
 					if err != nil {
 						log.Errorf("failed to get daemon client: %v", err)
 						return
 					}
+
+					err = p.profileManager.SwitchProfile(profile.Name)
+					if err != nil {
+						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
+						return
+					}
+					prof, err := p.profileManager.GetActiveProfile()
+					if err != nil {
+						log.Errorf("failed to get active profile after switching: %v", err)
+						return
+					}
+					profPath, err := prof.FilePath()
+					if err != nil {
+						log.Errorf("failed to get profile path after switching: %v", err)
+						return
+					}
+
+					_, err = conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{
+						ProfileName: &prof.Name,
+						ProfilePath: &profPath,
+					})
+					if err != nil {
+						log.Errorf("failed to switch profile: %v", err)
+						return
+					}
+
+					log.Infof("Switched to profile '%s'", profile.Name)
 
 					status, err := conn.Status(ctx, &proto.StatusRequest{})
 					if err != nil {

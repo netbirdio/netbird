@@ -608,6 +608,37 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 }
 
+// Up starts engine work in the daemon.
+func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfileRequest) (*proto.SwitchProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if err := restoreResidualState(callerCtx); err != nil {
+		log.Warnf(errRestoreResidualState, err)
+	}
+
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	if msg != nil && msg.ProfileName != nil && msg.ProfilePath != nil {
+		if *msg.ProfileName != activeProf.Name && *msg.ProfilePath != activeProf.Path {
+			log.Infof("switching to profile %s at %s", *msg.ProfileName, *msg.ProfilePath)
+			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+				Name: *msg.ProfileName,
+				Path: *msg.ProfilePath,
+			}); err != nil {
+				log.Errorf("failed to set active profile state: %v", err)
+				return nil, fmt.Errorf("failed to set active profile state: %w", err)
+			}
+		}
+	}
+
+	return &proto.SwitchProfileResponse{}, nil
+}
+
 // Down engine work in the daemon.
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()

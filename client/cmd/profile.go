@@ -142,6 +142,15 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	prof, err := profileManager.GetActiveProfile()
+	if err != nil {
+		return err
+	}
+
+	if err := switchProfile(cmd.Context(), prof); err != nil {
+		return err
+	}
+
 	cmd.Println("Profile switched successfully to:", profileName)
 	return nil
 }

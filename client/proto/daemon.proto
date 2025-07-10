@@ -67,6 +67,8 @@ service DaemonService {
   rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
+
+  rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
 }
 
 
@@ -504,3 +506,10 @@ message GetEventsRequest {}
 message GetEventsResponse {
   repeated SystemEvent events = 1;
 }
+
+message SwitchProfileRequest {
+  optional string profileName = 1;
+  optional string profilePath = 2;
+}
+
+message SwitchProfileResponse {}
