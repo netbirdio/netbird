@@ -136,6 +136,9 @@ message LoginRequest {
   optional bool lazyConnectionEnabled = 28;
 
   optional bool block_inbound = 29;
+
+  optional string profileName = 30;
+  optional string profilePath = 31;
 }
 
 message LoginResponse {
@@ -150,9 +153,14 @@ message WaitSSOLoginRequest {
   string hostname = 2;
 }
 
-message WaitSSOLoginResponse {}
+message WaitSSOLoginResponse {
+  string email = 1;
+}
 
-message UpRequest {}
+message UpRequest {
+  optional string profileName = 1;
+  optional string profilePath = 2;
+}
 
 message UpResponse {}
 

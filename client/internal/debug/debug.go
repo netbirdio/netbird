@@ -24,8 +24,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
@@ -158,7 +158,7 @@ type BundleGenerator struct {
 	anonymizer *anonymize.Anonymizer
 
 	// deps
-	internalConfig *internal.Config
+	internalConfig *profilemanager.Config
 	statusRecorder *peer.Status
 	networkMap     *mgmProto.NetworkMap
 	logFile        string
@@ -178,7 +178,7 @@ type BundleConfig struct {
 }
 
 type GeneratorDependencies struct {
-	InternalConfig *internal.Config
+	InternalConfig *profilemanager.Config
 	StatusRecorder *peer.Status
 	NetworkMap     *mgmProto.NetworkMap
 	LogFile        string
