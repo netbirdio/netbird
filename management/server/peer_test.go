@@ -2280,7 +2280,7 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 		deletedPeers.Store(0)
 
 		var mustore sync.Map
-		bu := func(ctx context.Context, accountID string) {
+		bufupd := func(ctx context.Context, accountID string) {
 			mu, _ := mustore.LoadOrStore(accountID, &bufferUpdate{})
 			b := mu.(*bufferUpdate)
 
@@ -2309,13 +2309,13 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 			deletedPeers.Add(1)
 			dpLastRun.Store(time.Now().UnixMilli())
 			time.Sleep(10 * time.Millisecond)
-			bu(ctx, accountID)
+			bufupd(ctx, accountID)
 			return nil
 		}
 
 		am := mock_server.MockAccountManager{
 			UpdateAccountPeersFunc:       uap,
-			BufferUpdateAccountPeersFunc: bu,
+			BufferUpdateAccountPeersFunc: bufupd,
 			DeletePeerFunc:               dp,
 		}
 		empty := ""
@@ -2338,17 +2338,17 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 		deletedPeers.Store(0)
 
 		var mustore sync.Map
-		bu := func(ctx context.Context, accountID string) {
+		bufupd := func(ctx context.Context, accountID string) {
 			mu, _ := mustore.LoadOrStore(accountID, &sync.Mutex{})
-			bu := mu.(*sync.Mutex)
+			b := mu.(*sync.Mutex)
 
-			if !bu.TryLock() {
+			if !b.TryLock() {
 				return
 			}
 
 			go func() {
 				time.Sleep(updateAccountInterval)
-				bu.Unlock()
+				b.Unlock()
 				uap(ctx, accountID)
 			}()
 		}
@@ -2356,13 +2356,13 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 			deletedPeers.Add(1)
 			dpLastRun.Store(time.Now().UnixMilli())
 			time.Sleep(10 * time.Millisecond)
-			bu(ctx, accountID)
+			bufupd(ctx, accountID)
 			return nil
 		}
 
 		am := mock_server.MockAccountManager{
 			UpdateAccountPeersFunc:       uap,
-			BufferUpdateAccountPeersFunc: bu,
+			BufferUpdateAccountPeersFunc: bufupd,
 			DeletePeerFunc:               dp,
 		}
 		empty := ""
