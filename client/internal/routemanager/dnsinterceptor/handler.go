@@ -2,11 +2,13 @@ package dnsinterceptor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
@@ -254,9 +256,21 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), dnsfwd.ListenPort)
-	reply, _, err := nbdns.ExchangeWithFallback(context.TODO(), client, r, upstream)
+	// Create context with timeout for DNS exchange
+	ctx, cancel := context.WithTimeout(context.Background(), nbdns.UpstreamTimeout)
+	defer cancel()
+
+	startTime := time.Now()
+	reply, _, err := nbdns.ExchangeWithFallback(ctx, client, r, upstream)
 	if err != nil {
-		logger.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			elapsed := time.Since(startTime)
+			peerInfo := d.debugPeerTimeout(upstreamIP, peerKey)
+			logger.Errorf("peer DNS timeout after %v (timeout=%v) for domain=%s to peer %s (%s)%s - error: %v",
+				elapsed.Truncate(time.Millisecond), nbdns.UpstreamTimeout, r.Question[0].Name, upstreamIP.String(), peerKey, peerInfo, err)
+		} else {
+			logger.Errorf("failed to exchange DNS request with %s (%s) for domain=%s: %v", upstreamIP.String(), peerKey, r.Question[0].Name, err)
+		}
 		if err := w.WriteMsg(&dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure, Id: r.Id}}); err != nil {
 			logger.Errorf("failed writing DNS response: %v", err)
 		}
@@ -567,4 +581,52 @@ func determinePrefixChanges(oldPrefixes, newPrefixes []netip.Prefix) (toAdd, toR
 		}
 	}
 	return
+}
+
+// debugPeerTimeout provides debugging information when a peer DNS request times out.
+func (d *DnsInterceptor) debugPeerTimeout(peerIP netip.Addr, peerKey string) string {
+	if d.statusRecorder == nil {
+		return ""
+	}
+
+	// Get peer state from status recorder
+	peerState, err := d.statusRecorder.GetPeer(peerKey)
+	if err != nil {
+		return fmt.Sprintf(" (peer %s state error: %v)", peerKey[:8], err)
+	}
+
+	// Check peer connection status
+	isConnected := peerState.ConnStatus == peer.StatusConnected
+	hasRecentHandshake := !peerState.LastWireguardHandshake.IsZero() &&
+		time.Since(peerState.LastWireguardHandshake) < 3*time.Minute
+
+	// Build concise status info
+	statusInfo := fmt.Sprintf(" (peer %s:%s", peerState.FQDN, peerState.IP)
+
+	if !isConnected {
+		statusInfo += " DISCONNECTED"
+	} else if !hasRecentHandshake {
+		statusInfo += " NO_RECENT_HANDSHAKE"
+	} else {
+		statusInfo += " connected"
+	}
+
+	// Add handshake timing information
+	if !peerState.LastWireguardHandshake.IsZero() {
+		timeSinceHandshake := time.Since(peerState.LastWireguardHandshake)
+		statusInfo += fmt.Sprintf(" last_handshake=%v_ago", timeSinceHandshake.Truncate(time.Second))
+	} else {
+		statusInfo += " no_handshake"
+	}
+
+	if peerState.Relayed {
+		statusInfo += " via_relay"
+	}
+
+	if peerState.Latency > 0 {
+		statusInfo += fmt.Sprintf(" latency=%v", peerState.Latency)
+	}
+
+	statusInfo += ")"
+	return statusInfo
 }
