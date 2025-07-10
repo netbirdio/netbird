@@ -107,8 +107,19 @@ func (s *ServiceManager) CreateDefaultProfile() error {
 }
 
 func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
-	if _, err := os.Stat(ActiveProfileStatePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("no active profile found: %w", err)
+	_, err := os.Stat(ActiveProfileStatePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if err := s.SetActiveProfileStateToDefault(); err != nil {
+				return nil, fmt.Errorf("failed to set active profile to default: %w", err)
+			}
+			return &ActiveProfileState{
+				Name: "default",
+				Path: defaultConfigPath,
+			}, nil
+		} else {
+			return nil, fmt.Errorf("failed to stat active profile state path %s: %w", ActiveProfileStatePath, err)
+		}
 	}
 
 	var activeProfile ActiveProfileState
