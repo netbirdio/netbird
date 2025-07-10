@@ -2282,20 +2282,20 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 		var mustore sync.Map
 		bu := func(ctx context.Context, accountID string) {
 			mu, _ := mustore.LoadOrStore(accountID, &bufferUpdate{})
-			bu := mu.(*bufferUpdate)
+			b := mu.(*bufferUpdate)
 
-			if !bu.mu.TryLock() {
+			if !b.mu.TryLock() {
 				return
 			}
 
-			if bu.next != nil {
-				bu.next.Stop()
+			if b.next != nil {
+				b.next.Stop()
 			}
 
 			go func() {
-				defer bu.mu.Unlock()
+				defer b.mu.Unlock()
 				uap(ctx, accountID)
-				bu.next = time.AfterFunc(updateAccountInterval, func() {
+				b.next = time.AfterFunc(updateAccountInterval, func() {
 					uap(ctx, accountID)
 				})
 			}()
