@@ -199,7 +199,7 @@ func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 	mockAM.wg.Wait()
 	assert.Len(t, mockStore.account.Peers, 0, "all ephemeral peers should be cleaned up after the lifetime")
 	assert.Equal(t, 1, mockAM.GetBufferUpdateCalls(account.Id), "buffer update should be called once")
-	assert.Equal(t, ephemeralPeers, mockAM.GetDeletePeerCalls(), "should have deleted only the first peer")
+	assert.Equal(t, ephemeralPeers, mockAM.GetDeletePeerCalls(), "should have deleted all peers")
 }
 
 func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) {
