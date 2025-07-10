@@ -636,6 +636,14 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 		}
 	}
 
+	config, err := profilemanager.GetConfig(s.profileManager.DefaultProfilePath())
+	if err != nil {
+		log.Errorf("failed to get default profile config: %v", err)
+		return nil, fmt.Errorf("failed to get default profile config: %w", err)
+	}
+
+	s.config = config
+
 	return &proto.SwitchProfileResponse{}, nil
 }
 

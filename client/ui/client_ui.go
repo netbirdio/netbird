@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -34,6 +35,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
@@ -929,10 +931,29 @@ func (s *serviceClient) getSrvConfig() {
 		return
 	}
 
-	cfg, err := profilemanager.GetConfig(profPath)
-	if err != nil {
-		log.Errorf("get config from profile: %v", err)
-		return
+	var cfg *profilemanager.Config
+
+	if activeProf.Name == "default" {
+		conn, err := s.getSrvClient(failFastTimeout)
+		if err != nil {
+			log.Errorf("get client: %v", err)
+			return
+		}
+
+		srvCfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
+		if err != nil {
+			log.Errorf("get config settings from server: %v", err)
+			return
+		}
+
+		cfg = protoConfigToConfig(srvCfg)
+
+	} else {
+		cfg, err = profilemanager.GetConfig(profPath)
+		if err != nil {
+			log.Errorf("get config from profile: %v", err)
+			return
+		}
 	}
 
 	if cfg.ManagementURL.String() != "" {
@@ -981,6 +1002,58 @@ func (s *serviceClient) getSrvConfig() {
 	if s.eventManager != nil {
 		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 	}
+}
+
+func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
+
+	var config profilemanager.Config
+
+	if cfg.ManagementUrl != "" {
+		parsed, err := url.Parse(cfg.ManagementUrl)
+		if err != nil {
+			log.Errorf("parse management URL: %v", err)
+		} else {
+			config.ManagementURL = parsed
+		}
+	}
+
+	if cfg.PreSharedKey != "" {
+		if cfg.PreSharedKey != censoredPreSharedKey {
+			config.PreSharedKey = cfg.PreSharedKey
+		} else {
+			config.PreSharedKey = ""
+		}
+	}
+	if cfg.AdminURL != "" {
+		parsed, err := url.Parse(cfg.AdminURL)
+		if err != nil {
+			log.Errorf("parse admin URL: %v", err)
+		} else {
+			config.AdminURL = parsed
+		}
+	}
+
+	config.WgIface = cfg.InterfaceName
+	if cfg.WireguardPort != 0 {
+		config.WgPort = int(cfg.WireguardPort)
+	} else {
+		config.WgPort = iface.DefaultWgPort
+	}
+
+	config.DisableAutoConnect = cfg.DisableAutoConnect
+	config.ServerSSHAllowed = &cfg.ServerSSHAllowed
+	config.RosenpassEnabled = cfg.RosenpassEnabled
+	config.RosenpassPermissive = cfg.RosenpassPermissive
+	config.DisableNotifications = &cfg.DisableNotifications
+	config.LazyConnectionEnabled = cfg.LazyConnectionEnabled
+	config.BlockInbound = cfg.BlockInbound
+	config.NetworkMonitor = &cfg.NetworkMonitor
+	config.DisableDNS = cfg.DisableDns
+	config.DisableClientRoutes = cfg.DisableClientRoutes
+	config.DisableServerRoutes = cfg.DisableServerRoutes
+	config.BlockLANAccess = cfg.BlockLanAccess
+
+	return &config
 }
 
 func (s *serviceClient) onUpdateAvailable() {
