@@ -192,7 +192,6 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 		}
 	}
 	for accountID := range bufferAccountCall {
-		log.WithContext(ctx).Debugf("buffer update account peers for: %s", accountID)
 		e.accountManager.BufferUpdateAccountPeers(ctx, accountID)
 	}
 }
