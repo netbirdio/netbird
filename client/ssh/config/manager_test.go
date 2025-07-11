@@ -144,27 +144,6 @@ func TestManager_GetHostnameVariants(t *testing.T) {
 	assert.ElementsMatch(t, expectedVariants, variants)
 }
 
-func TestManager_IsNetBirdEntry(t *testing.T) {
-	manager := NewManager()
-
-	tests := []struct {
-		entry    string
-		expected bool
-	}{
-		{"100.125.1.1 ssh-ed25519 AAAAC3...", true},
-		{"peer.nb.internal ssh-rsa AAAAB3...", true},
-		{"test.netbird.com ssh-ed25519 AAAAC3...", true},
-		{"github.com ssh-rsa AAAAB3...", false},
-		{"192.168.1.1 ssh-ed25519 AAAAC3...", false},
-		{"example.com ssh-rsa AAAAB3...", false},
-	}
-
-	for _, test := range tests {
-		result := manager.isNetBirdEntry(test.entry)
-		assert.Equal(t, test.expected, result, "Entry: %s", test.entry)
-	}
-}
-
 func TestManager_FormatKnownHostsEntry(t *testing.T) {
 	manager := NewManager()
 

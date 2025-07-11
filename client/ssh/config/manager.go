@@ -434,12 +434,6 @@ func (m *Manager) UpdatePeerHostKeys(peerKeys []PeerHostKey) error {
 		return fmt.Errorf("setup known_hosts file: %w", err)
 	}
 
-	// Read existing entries
-	existingEntries, err := m.readKnownHosts(knownHostsPath)
-	if err != nil {
-		return fmt.Errorf("read existing known_hosts: %w", err)
-	}
-
 	// Build new entries map for efficient lookup
 	newEntries := make(map[string]string)
 	for _, peerKey := range peerKeys {
@@ -469,29 +463,6 @@ func (m *Manager) UpdatePeerHostKeys(peerKeys []PeerHostKey) error {
 
 	log.Debugf("Updated NetBird known_hosts with %d peer keys: %s", len(peerKeys), knownHostsPath)
 	return nil
-}
-
-// readKnownHosts reads and returns all entries from the known_hosts file
-func (m *Manager) readKnownHosts(knownHostsPath string) ([]string, error) {
-	file, err := os.Open(knownHostsPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, fmt.Errorf("open known_hosts file: %w", err)
-	}
-	defer file.Close()
-
-	var entries []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" && !strings.HasPrefix(line, "#") {
-			entries = append(entries, line)
-		}
-	}
-
-	return entries, scanner.Err()
 }
 
 // formatKnownHostsEntry formats a peer host key as a known_hosts entry
