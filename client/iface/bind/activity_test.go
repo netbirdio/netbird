@@ -4,6 +4,8 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+
+	"github.com/netbirdio/netbird/monotime"
 )
 
 func TestActivityRecorder_GetLastActivities(t *testing.T) {
@@ -17,11 +19,7 @@ func TestActivityRecorder_GetLastActivities(t *testing.T) {
 		t.Fatalf("Expected activity for peer %s, but got none", peer)
 	}
 
-	if p.IsZero() {
-		t.Fatalf("Expected activity for peer %s, but got zero", peer)
-	}
-
-	if p.Before(time.Now().Add(-2 * time.Minute)) {
+	if monotime.Since(p) > 5*time.Second {
 		t.Fatalf("Expected activity for peer %s to be recent, but got %v", peer, p)
 	}
 }
