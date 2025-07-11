@@ -126,6 +126,11 @@ type udpConn struct {
 }
 
 func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	// Check if this is a dual-stack connection and handle IPv6 addresses properly
+	if dualStackConn, ok := u.PacketConn.(*DualStackPacketConn); ok {
+		return dualStackConn.WriteTo(b, addr)
+	}
+
 	if u.filterFn == nil {
 		return u.PacketConn.WriteTo(b, addr)
 	}
@@ -141,6 +146,11 @@ func (u *udpConn) handleCachedAddress(isRouted bool, b []byte, addr net.Addr) (i
 	if isRouted {
 		return 0, fmt.Errorf("address %s is part of a routed network, refusing to write", addr)
 	}
+
+	if dualStackConn, ok := u.PacketConn.(*DualStackPacketConn); ok {
+		return dualStackConn.WriteTo(b, addr)
+	}
+
 	return u.PacketConn.WriteTo(b, addr)
 }
 
@@ -148,6 +158,11 @@ func (u *udpConn) handleUncachedAddress(b []byte, addr net.Addr) (int, error) {
 	if err := u.performFilterCheck(addr); err != nil {
 		return 0, err
 	}
+
+	if dualStackConn, ok := u.PacketConn.(*DualStackPacketConn); ok {
+		return dualStackConn.WriteTo(b, addr)
+	}
+
 	return u.PacketConn.WriteTo(b, addr)
 }
 
