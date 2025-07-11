@@ -199,11 +199,6 @@ func newDefaultServer(
 		mgmtCacheResolver: mgmtCacheResolver,
 	}
 
-	domains := mgmtCacheResolver.GetCachedDomains()
-	if len(domains) > 0 {
-		defaultServer.RegisterHandler(domains, mgmtCacheResolver, PriorityMgmtCache)
-	}
-
 	// register with root zone, handler chain takes care of the routing
 	dnsService.RegisterMux(".", handlerChain)
 

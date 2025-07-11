@@ -79,6 +79,71 @@ func TestExtractValidDomain(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name:        "HTTP URL with IPv4 should be rejected",
+			url:         "http://192.168.1.1:8080",
+			expectError: true,
+		},
+		{
+			name:        "HTTPS URL with IPv4 should be rejected",
+			url:         "https://10.0.0.1:443",
+			expectError: true,
+		},
+		{
+			name:        "STUN URL with IPv4 should be rejected",
+			url:         "stun:192.168.1.1:3478",
+			expectError: true,
+		},
+		{
+			name:        "TURN URL with IPv4 should be rejected",
+			url:         "turn:10.0.0.1:3478",
+			expectError: true,
+		},
+		{
+			name:        "TURNS URL with IPv4 should be rejected",
+			url:         "turns:172.16.0.1:5349",
+			expectError: true,
+		},
+		{
+			name:        "HTTP URL with IPv6 should be rejected",
+			url:         "http://[2001:db8::1]:8080",
+			expectError: true,
+		},
+		{
+			name:        "HTTPS URL with IPv6 should be rejected",
+			url:         "https://[::1]:443",
+			expectError: true,
+		},
+		{
+			name:        "STUN URL with IPv6 should be rejected",
+			url:         "stun:[2001:db8::1]:3478",
+			expectError: true,
+		},
+		{
+			name:        "IPv6 with port should be rejected",
+			url:         "[2001:db8::1]:443",
+			expectError: true,
+		},
+		{
+			name:        "Localhost IPv4 should be rejected",
+			url:         "127.0.0.1:8080",
+			expectError: true,
+		},
+		{
+			name:        "Localhost IPv6 should be rejected",
+			url:         "[::1]:443",
+			expectError: true,
+		},
+		{
+			name:        "REL URL with IPv4 should be rejected",
+			url:         "rel://192.168.1.1:443",
+			expectError: true,
+		},
+		{
+			name:        "RELS URL with IPv4 should be rejected",
+			url:         "rels://10.0.0.1:443",
+			expectError: true,
+		},
+		{
 			name:        "Empty URL",
 			url:         "",
 			expectError: true,

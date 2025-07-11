@@ -111,7 +111,8 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	u.prepareRequest(r)
 
-	if u.isContextDone(logger) {
+	if u.ctx.Err() != nil {
+		logger.Tracef("%s has been stopped", u)
 		return
 	}
 
@@ -128,15 +129,6 @@ func (u *upstreamResolverBase) prepareRequest(r *dns.Msg) {
 	}
 }
 
-func (u *upstreamResolverBase) isContextDone(logger *log.Entry) bool {
-	select {
-	case <-u.ctx.Done():
-		logger.Tracef("%s has been stopped", u)
-		return true
-	default:
-		return false
-	}
-}
 
 func (u *upstreamResolverBase) tryUpstreamServers(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) bool {
 	timeout := u.upstreamTimeout

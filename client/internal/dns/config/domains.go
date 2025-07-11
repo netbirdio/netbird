@@ -52,33 +52,48 @@ func ExtractValidDomain(rawURL string) (domain.Domain, error) {
 		return "", ErrEmptyURL
 	}
 
-	// Try standard URL parsing first (handles https://, http://, rels://, etc.)
-	if parsedURL, err := url.Parse(rawURL); err == nil && parsedURL.Hostname() != "" {
-		return extractDomainFromHost(parsedURL.Hostname())
+	// Parse as URL first
+	parsedURL, err := url.Parse(rawURL)
+	if err == nil {
+		// If URL has a hostname, use it (proper URL with scheme like https://)
+		if parsedURL.Hostname() != "" {
+			return extractDomainFromHost(parsedURL.Hostname())
+		}
+		
+		// If URL has opaque content and a known scheme, extract the host from the opaque part
+		if parsedURL.Opaque != "" && parsedURL.Scheme != "" {
+			// Check if the scheme looks like a domain (contains dots) - if so, it's likely host:port misinterpreted
+			if strings.Contains(parsedURL.Scheme, ".") {
+				// This is likely "domain.com:port" being parsed as scheme:opaque
+				// Reconstruct the original and try as host:port
+				reconstructed := parsedURL.Scheme + ":" + parsedURL.Opaque
+				if host, _, err := net.SplitHostPort(reconstructed); err == nil {
+					return extractDomainFromHost(host)
+				}
+				return extractDomainFromHost(parsedURL.Scheme)
+			}
+			
+			// Valid scheme with opaque content (e.g., stun:host:port)
+			host := parsedURL.Opaque
+			// Remove query parameters if any
+			if queryIndex := strings.Index(host, "?"); queryIndex > 0 {
+				host = host[:queryIndex]
+			}
+			// Try as host:port format
+			if hostOnly, _, err := net.SplitHostPort(host); err == nil {
+				return extractDomainFromHost(hostOnly)
+			}
+			return extractDomainFromHost(host)
+		}
 	}
 
-	// Extract domain from various formats:
-	// - stun:domain:port -> domain
-	// - turns:domain:port?params -> domain
-	// - domain:port -> domain
-	host := rawURL
-
-	// Remove scheme prefix (stun:, turn:, turns:)
-	if colonIndex := strings.Index(host, ":"); colonIndex > 0 && colonIndex < 10 && !strings.Contains(host[:colonIndex], ".") {
-		host = host[colonIndex+1:]
+	// If URL parsing fails or has no hostname/opaque, try as host:port format
+	if host, _, err := net.SplitHostPort(rawURL); err == nil {
+		return extractDomainFromHost(host)
 	}
 
-	// Remove port suffix
-	if hostOnly, _, err := net.SplitHostPort(host); err == nil {
-		host = hostOnly
-	}
-
-	// Remove query parameters
-	if queryIndex := strings.Index(host, "?"); queryIndex > 0 {
-		host = host[:queryIndex]
-	}
-
-	return extractDomainFromHost(host)
+	// If all else fails, treat as plain hostname
+	return extractDomainFromHost(rawURL)
 }
 
 // extractDomainFromHost extracts domain from a host string, filtering out IP addresses
