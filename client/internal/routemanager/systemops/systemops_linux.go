@@ -23,8 +23,6 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-// DetailedRoute contains comprehensive route information for debugging
-
 // IPRule contains IP rule information for debugging
 type IPRule struct {
 	Priority     int
@@ -368,7 +366,7 @@ func processRouteDestination(detailed *DetailedRoute, route netlink.Route, famil
 	if route.Dst != nil {
 		addr, ok := netip.AddrFromSlice(route.Dst.IP)
 		if !ok {
-			return false // Skip invalid destinations
+			return false
 		}
 		ones, _ := route.Dst.Mask.Size()
 		prefix := netip.PrefixFrom(addr.Unmap(), ones)

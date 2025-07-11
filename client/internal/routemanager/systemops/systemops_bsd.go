@@ -114,7 +114,7 @@ func buildDetailedRouteFromMessage(m *route.RouteMessage) (*DetailedRoute, error
 	}
 
 	if !routeMsg.Dst.IsValid() {
-		return nil, nil // Skip invalid destinations
+		return nil, errors.New("invalid destination")
 	}
 
 	detailed := DetailedRoute{
@@ -132,6 +132,17 @@ func buildDetailedRouteFromMessage(m *route.RouteMessage) (*DetailedRoute, error
 	}
 
 	return &detailed, nil
+}
+
+func buildLinkInterface(t *route.LinkAddr) *net.Interface {
+	interfaceName := fmt.Sprintf("link#%d", t.Index)
+	if t.Name != "" {
+		interfaceName = t.Name
+	}
+	return &net.Interface{
+		Index: t.Index,
+		Name:  interfaceName,
+	}
 }
 
 func extractBSDMetric(m *route.RouteMessage) int {
@@ -217,15 +228,7 @@ func MsgToRoute(msg *route.RouteMessage) (*Route, error) {
 	case *route.Inet4Addr, *route.Inet6Addr:
 		nexthopAddr = toNetIP(t)
 	case *route.LinkAddr:
-		// Format as link#N for BSD compatibility
-		interfaceName := fmt.Sprintf("link#%d", t.Index)
-		if t.Name != "" {
-			interfaceName = t.Name
-		}
-		nexthopIntf = &net.Interface{
-			Index: t.Index,
-			Name:  interfaceName,
-		}
+		nexthopIntf = buildLinkInterface(t)
 	default:
 		return nil, fmt.Errorf("unexpected next hop type: %T", t)
 	}
