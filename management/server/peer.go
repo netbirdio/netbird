@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/xid"
@@ -1280,18 +1281,39 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	}
 }
 
-func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
-	mu, _ := am.accountUpdateLocks.LoadOrStore(accountID, &sync.Mutex{})
-	lock := mu.(*sync.Mutex)
+type bufferUpdate struct {
+	mu     sync.Mutex
+	next   *time.Timer
+	update atomic.Bool
+}
 
-	if !lock.TryLock() {
+func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+	bufUpd, _ := am.accountUpdateLocks.LoadOrStore(accountID, &bufferUpdate{})
+	b := bufUpd.(*bufferUpdate)
+
+	if !b.mu.TryLock() {
+		b.update.Store(true)
 		return
 	}
 
+	if b.next != nil {
+		b.next.Stop()
+	}
+
 	go func() {
-		time.Sleep(time.Duration(am.updateAccountPeersBufferInterval.Load()))
-		lock.Unlock()
+		defer b.mu.Unlock()
 		am.UpdateAccountPeers(ctx, accountID)
+		if !b.update.Load() {
+			return
+		}
+		b.update.Store(false)
+		if b.next == nil {
+			b.next = time.AfterFunc(time.Duration(am.updateAccountPeersBufferInterval.Load()), func() {
+				am.UpdateAccountPeers(ctx, accountID)
+			})
+			return
+		}
+		b.next.Reset(time.Duration(am.updateAccountPeersBufferInterval.Load()))
 	}()
 }
 
