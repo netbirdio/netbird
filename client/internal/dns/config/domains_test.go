@@ -87,7 +87,7 @@ func TestExtractValidDomain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := extractValidDomain(tt.url)
+			result, err := ExtractValidDomain(tt.url)
 
 			if tt.expectError {
 				assert.Error(t, err, "Expected error for URL: %s", tt.url)

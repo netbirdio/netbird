@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -11,6 +12,12 @@ import (
 
 	"github.com/netbirdio/netbird/management/domain"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+)
+
+var (
+	ErrEmptyURL     = errors.New("empty URL")
+	ErrEmptyHost    = errors.New("empty host")
+	ErrIPNotAllowed = errors.New("IP address not allowed")
 )
 
 // ServerDomains represents the management server domains extracted from NetBird configuration
@@ -39,10 +46,10 @@ func ExtractFromNetbirdConfig(config *mgmProto.NetbirdConfig) ServerDomains {
 	return domains
 }
 
-// extractValidDomain extracts a valid domain from a URL, filtering out IP addresses
-func extractValidDomain(rawURL string) (domain.Domain, error) {
+// ExtractValidDomain extracts a valid domain from a URL, filtering out IP addresses
+func ExtractValidDomain(rawURL string) (domain.Domain, error) {
 	if rawURL == "" {
-		return "", fmt.Errorf("empty URL")
+		return "", ErrEmptyURL
 	}
 
 	// Try standard URL parsing first (handles https://, http://, rels://, etc.)
@@ -77,11 +84,11 @@ func extractValidDomain(rawURL string) (domain.Domain, error) {
 // extractDomainFromHost extracts domain from a host string, filtering out IP addresses
 func extractDomainFromHost(host string) (domain.Domain, error) {
 	if host == "" {
-		return "", fmt.Errorf("empty host")
+		return "", ErrEmptyHost
 	}
 
 	if _, err := netip.ParseAddr(host); err == nil {
-		return "", fmt.Errorf("IP address not allowed: %s", host)
+		return "", fmt.Errorf("%w: %s", ErrIPNotAllowed, host)
 	}
 
 	d, err := domain.FromString(host)
@@ -98,7 +105,7 @@ func extractSingleDomain(url, serviceType string) domain.Domain {
 		return ""
 	}
 
-	d, err := extractValidDomain(url)
+	d, err := ExtractValidDomain(url)
 	if err != nil {
 		log.Debugf("Skipping %s: %v", serviceType, err)
 		return ""
@@ -114,7 +121,7 @@ func extractMultipleDomains(urls []string, serviceType string) []domain.Domain {
 		if url == "" {
 			continue
 		}
-		d, err := extractValidDomain(url)
+		d, err := ExtractValidDomain(url)
 		if err != nil {
 			log.Debugf("Skipping %s: %v", serviceType, err)
 			continue

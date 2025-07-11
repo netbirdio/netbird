@@ -2,10 +2,8 @@ package mgmt
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -162,7 +160,7 @@ func (m *Resolver) PopulateFromConfig(ctx context.Context, mgmtURL *url.URL) err
 		return nil
 	}
 
-	d, err := extractDomainFromURL(mgmtURL)
+	d, err := dnsconfig.ExtractValidDomain(mgmtURL.String())
 	if err != nil {
 		return fmt.Errorf("extract domain from URL: %w", err)
 	}
@@ -313,40 +311,3 @@ func (m *Resolver) extractDomainsFromServerDomains(serverDomains dnsconfig.Serve
 	return domains
 }
 
-// extractDomainFromURL extracts the domain from a URL.
-func extractDomainFromURL(u *url.URL) (domain.Domain, error) {
-	if u == nil {
-		return "", errors.New("invalid URL")
-	}
-
-	host := u.Host
-	// If Host is empty, try to extract from Opaque (for schemes like stun:domain:port)
-	if host == "" && u.Opaque != "" {
-		host = u.Opaque
-	}
-	if host == "" && u.Path != "" {
-		host = strings.TrimPrefix(u.Path, "/")
-	}
-
-	if host == "" {
-		return "", errors.New("empty host")
-	}
-
-	host, _, err := net.SplitHostPort(host)
-	if err != nil {
-		switch {
-		case u.Host != "":
-			host = u.Host
-		case u.Opaque != "":
-			host = u.Opaque
-		default:
-			host = strings.TrimPrefix(u.Path, "/")
-		}
-	}
-
-	if _, err := netip.ParseAddr(host); err == nil {
-		return "", errors.New("host is an IP address, skipping")
-	}
-
-	return domain.FromString(host)
-}

@@ -2,6 +2,7 @@ package mgmt
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -120,7 +121,7 @@ func TestResolver_PopulateFromConfig(t *testing.T) {
 
 	err := resolver.PopulateFromConfig(ctx, mgmtURL)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "host is an IP address")
+	assert.ErrorIs(t, err, dnsconfig.ErrIPNotAllowed)
 
 	// No domains should be cached when using IP addresses
 	domains := resolver.GetCachedDomains()
@@ -284,4 +285,12 @@ func TestResolver_ManagementDomainProtection(t *testing.T) {
 		}
 	}
 	assert.True(t, managementStillCached, "Management domain should never be removed")
+}
+
+// extractDomainFromURL extracts a domain from a URL - test helper function
+func extractDomainFromURL(u *url.URL) (domain.Domain, error) {
+	if u == nil {
+		return "", fmt.Errorf("URL is nil")
+	}
+	return dnsconfig.ExtractValidDomain(u.String())
 }

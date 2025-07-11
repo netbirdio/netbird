@@ -673,10 +673,8 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 
 	// Populate management URL if provided
 	if mgmtURL != nil {
-		if defaultServer, ok := e.dnsServer.(*dns.DefaultServer); ok {
-			if err := defaultServer.PopulateManagementDomain(e.ctx, mgmtURL); err != nil {
-				log.Warnf("failed to populate DNS cache with management URL: %v", err)
-			}
+		if err := e.dnsServer.PopulateManagementDomain(mgmtURL); err != nil {
+			log.Warnf("failed to populate DNS cache with management URL: %v", err)
 		}
 	}
 

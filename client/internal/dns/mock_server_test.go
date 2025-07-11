@@ -2,6 +2,7 @@ package dns
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/miekg/dns"
 
@@ -76,5 +77,9 @@ func (m *MockServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
 	if m.UpdateServerConfigFunc != nil {
 		return m.UpdateServerConfigFunc(domains)
 	}
+	return nil
+}
+
+func (m *MockServer) PopulateManagementDomain(mgmtURL *url.URL) error {
 	return nil
 }
