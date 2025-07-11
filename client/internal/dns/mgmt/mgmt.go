@@ -20,9 +20,10 @@ const dnsTimeout = 5 * time.Second
 
 // Resolver caches critical NetBird infrastructure domains
 type Resolver struct {
-	records    map[dns.Question][]dns.RR
-	mgmtDomain *domain.Domain
-	mutex      sync.RWMutex
+	records       map[dns.Question][]dns.RR
+	mgmtDomain    *domain.Domain
+	serverDomains *dnsconfig.ServerDomains
+	mutex         sync.RWMutex
 }
 
 // NewResolver creates a new management domains cache resolver.
@@ -94,7 +95,7 @@ func (m *Resolver) continueToNext(w dns.ResponseWriter, r *dns.Msg) {
 // AddDomain manually adds a domain to cache by resolving it.
 func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 	dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
-	
+
 	ctx, cancel := context.WithTimeout(ctx, dnsTimeout)
 	defer cancel()
 
@@ -183,7 +184,7 @@ func (m *Resolver) PopulateFromConfig(ctx context.Context, mgmtURL *url.URL) err
 // RemoveDomain removes a domain from the cache.
 func (m *Resolver) RemoveDomain(d domain.Domain) error {
 	dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
-	
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -224,19 +225,35 @@ func (m *Resolver) GetCachedDomains() domain.List {
 	return domains
 }
 
-// UpdateFromServerDomains updates the cache using the simplified ServerDomains struct
+// UpdateFromServerDomains updates the cache with server domains from network configuration.
+// It merges new domains with existing ones, replacing entire domain types when updated.
+// Empty updates are ignored to prevent clearing infrastructure domains during partial updates.
 func (m *Resolver) UpdateFromServerDomains(ctx context.Context, serverDomains dnsconfig.ServerDomains) (domain.List, error) {
-	currentDomains := m.GetCachedDomains()
 	newDomains := m.extractDomainsFromServerDomains(serverDomains)
+	var removedDomains domain.List
 
-	removedDomains := m.removeStaleDomainsExceptManagement(currentDomains, newDomains)
+	if len(newDomains) > 0 {
+		m.mutex.Lock()
+		if m.serverDomains == nil {
+			m.serverDomains = &dnsconfig.ServerDomains{}
+		}
+		updatedServerDomains := m.mergeServerDomains(*m.serverDomains, serverDomains)
+		m.serverDomains = &updatedServerDomains
+		m.mutex.Unlock()
+
+		allDomains := m.extractDomainsFromServerDomains(updatedServerDomains)
+		currentDomains := m.GetCachedDomains()
+		removedDomains = m.removeStaleDomains(currentDomains, allDomains)
+	}
+
 	m.addNewDomains(ctx, newDomains)
 
 	return removedDomains, nil
 }
 
-// removeStaleDomainsExceptManagement removes domains not in newDomains, except management domain
-func (m *Resolver) removeStaleDomainsExceptManagement(currentDomains, newDomains domain.List) domain.List {
+// removeStaleDomains removes cached domains not present in the target domain list.
+// Management domains are preserved and never removed during server domain updates.
+func (m *Resolver) removeStaleDomains(currentDomains, newDomains domain.List) domain.List {
 	var removedDomains domain.List
 
 	for _, currentDomain := range currentDomains {
@@ -257,6 +274,30 @@ func (m *Resolver) removeStaleDomainsExceptManagement(currentDomains, newDomains
 	return removedDomains
 }
 
+// mergeServerDomains merges new server domains with existing ones.
+// When a domain type is provided in the new domains, it completely replaces that type.
+func (m *Resolver) mergeServerDomains(existing, new dnsconfig.ServerDomains) dnsconfig.ServerDomains {
+	merged := existing
+
+	if new.Signal != "" {
+		merged.Signal = new.Signal
+	}
+	if len(new.Relay) > 0 {
+		merged.Relay = new.Relay
+	}
+	if new.Flow != "" {
+		merged.Flow = new.Flow
+	}
+	if len(new.Stuns) > 0 {
+		merged.Stuns = new.Stuns
+	}
+	if len(new.Turns) > 0 {
+		merged.Turns = new.Turns
+	}
+
+	return merged
+}
+
 // isDomainInList checks if domain exists in the list
 func (m *Resolver) isDomainInList(domain domain.Domain, list domain.List) bool {
 	for _, d := range list {
@@ -271,11 +312,11 @@ func (m *Resolver) isDomainInList(domain domain.Domain, list domain.List) bool {
 func (m *Resolver) isManagementDomain(domain domain.Domain) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	return m.mgmtDomain != nil && domain == *m.mgmtDomain
 }
 
-// addNewDomains adds all new domains to the cache
+// addNewDomains resolves and caches all domains from the update
 func (m *Resolver) addNewDomains(ctx context.Context, newDomains domain.List) {
 	for _, newDomain := range newDomains {
 		if err := m.AddDomain(ctx, newDomain); err != nil {

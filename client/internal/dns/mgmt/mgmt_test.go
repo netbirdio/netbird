@@ -294,3 +294,123 @@ func extractDomainFromURL(u *url.URL) (domain.Domain, error) {
 	}
 	return dnsconfig.ExtractValidDomain(u.String())
 }
+
+func TestResolver_EmptyUpdateDoesNotRemoveDomains(t *testing.T) {
+	resolver := NewResolver()
+	ctx := context.Background()
+
+	// Set up initial domains using resolvable domains
+	initialDomains := dnsconfig.ServerDomains{
+		Signal: "example.org",
+		Stuns:  []domain.Domain{"google.com"},
+		Turns:  []domain.Domain{"cloudflare.com"},
+	}
+
+	// Add initial domains
+	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains)
+	if err != nil {
+		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
+	}
+
+	// Verify domains were added
+	cachedDomains := resolver.GetCachedDomains()
+	assert.Len(t, cachedDomains, 3)
+
+	// Update with empty ServerDomains (simulating partial network map update)
+	emptyDomains := dnsconfig.ServerDomains{}
+	removedDomains, err := resolver.UpdateFromServerDomains(ctx, emptyDomains)
+	assert.NoError(t, err)
+
+	// Verify no domains were removed
+	assert.Len(t, removedDomains, 0, "No domains should be removed when update is empty")
+
+	// Verify all original domains are still cached
+	finalDomains := resolver.GetCachedDomains()
+	assert.Len(t, finalDomains, 3, "All original domains should still be cached")
+}
+
+func TestResolver_PartialUpdateReplacesOnlyUpdatedTypes(t *testing.T) {
+	resolver := NewResolver()
+	ctx := context.Background()
+
+	// Set up initial complete domains using resolvable domains
+	initialDomains := dnsconfig.ServerDomains{
+		Signal: "example.org",
+		Stuns:  []domain.Domain{"google.com"},
+		Turns:  []domain.Domain{"cloudflare.com"},
+	}
+
+	// Add initial domains
+	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains)
+	if err != nil {
+		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
+	}
+	assert.Len(t, resolver.GetCachedDomains(), 3)
+
+	// Update with partial ServerDomains (only signal domain - this should replace signal but preserve stun/turn)
+	partialDomains := dnsconfig.ServerDomains{
+		Signal: "github.com",
+	}
+	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains)
+	if err != nil {
+		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
+	}
+
+	// Should remove only the old signal domain
+	assert.Len(t, removedDomains, 1, "Should remove only the old signal domain")
+	assert.Equal(t, "example.org", removedDomains[0].SafeString())
+
+	finalDomains := resolver.GetCachedDomains()
+	assert.Len(t, finalDomains, 3, "Should have new signal plus preserved stun/turn domains")
+
+	domainStrings := make([]string, len(finalDomains))
+	for i, d := range finalDomains {
+		domainStrings[i] = d.SafeString()
+	}
+	assert.Contains(t, domainStrings, "github.com")
+	assert.Contains(t, domainStrings, "google.com")
+	assert.Contains(t, domainStrings, "cloudflare.com")
+	assert.NotContains(t, domainStrings, "example.org")
+}
+
+func TestResolver_PartialUpdateAddsNewTypePreservesExisting(t *testing.T) {
+	resolver := NewResolver()
+	ctx := context.Background()
+
+	// Set up initial complete domains using resolvable domains
+	initialDomains := dnsconfig.ServerDomains{
+		Signal: "example.org",
+		Stuns:  []domain.Domain{"google.com"},
+		Turns:  []domain.Domain{"cloudflare.com"},
+	}
+
+	// Add initial domains
+	_, err := resolver.UpdateFromServerDomains(ctx, initialDomains)
+	if err != nil {
+		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
+	}
+	assert.Len(t, resolver.GetCachedDomains(), 3)
+
+	// Update with partial ServerDomains (only flow domain - new type, should preserve all existing)
+	partialDomains := dnsconfig.ServerDomains{
+		Flow: "github.com",
+	}
+	removedDomains, err := resolver.UpdateFromServerDomains(ctx, partialDomains)
+	if err != nil {
+		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
+	}
+
+	assert.Len(t, removedDomains, 0, "Should not remove any domains when adding new type")
+
+	finalDomains := resolver.GetCachedDomains()
+	assert.Len(t, finalDomains, 4, "Should have all original domains plus new flow domain")
+
+	domainStrings := make([]string, len(finalDomains))
+	for i, d := range finalDomains {
+		domainStrings[i] = d.SafeString()
+	}
+	assert.Contains(t, domainStrings, "example.org")
+	assert.Contains(t, domainStrings, "google.com")
+	assert.Contains(t, domainStrings, "cloudflare.com")
+	assert.Contains(t, domainStrings, "github.com")
+}
