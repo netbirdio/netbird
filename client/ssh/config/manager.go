@@ -451,18 +451,10 @@ func (m *Manager) UpdatePeerHostKeys(peerKeys []PeerHostKey) error {
 		}
 	}
 
-	// Create updated known_hosts content
+	// Create updated known_hosts content - NetBird file should only contain NetBird entries
 	var updatedContent strings.Builder
 	updatedContent.WriteString("# NetBird SSH known hosts\n")
 	updatedContent.WriteString("# Generated automatically - do not edit manually\n\n")
-
-	// Add existing non-NetBird entries
-	for _, entry := range existingEntries {
-		if !m.isNetBirdEntry(entry) {
-			updatedContent.WriteString(entry)
-			updatedContent.WriteString("\n")
-		}
-	}
 
 	// Add new NetBird entries
 	for _, entry := range newEntries {
@@ -537,14 +529,6 @@ func (m *Manager) getHostnameVariants(peerKey PeerHostKey) []string {
 	}
 
 	return hostnames
-}
-
-// isNetBirdEntry checks if a known_hosts entry appears to be NetBird-managed
-func (m *Manager) isNetBirdEntry(entry string) bool {
-	// Check if entry contains NetBird IP ranges or domains
-	return strings.Contains(entry, "100.125.") ||
-		strings.Contains(entry, ".nb.internal") ||
-		strings.Contains(entry, "netbird")
 }
 
 // GetKnownHostsPath returns the path to the NetBird known_hosts file
