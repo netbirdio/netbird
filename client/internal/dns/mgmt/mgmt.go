@@ -276,23 +276,23 @@ func (m *Resolver) removeStaleDomains(currentDomains, newDomains domain.List) do
 
 // mergeServerDomains merges new server domains with existing ones.
 // When a domain type is provided in the new domains, it completely replaces that type.
-func (m *Resolver) mergeServerDomains(existing, new dnsconfig.ServerDomains) dnsconfig.ServerDomains {
+func (m *Resolver) mergeServerDomains(existing, incoming dnsconfig.ServerDomains) dnsconfig.ServerDomains {
 	merged := existing
 
-	if new.Signal != "" {
-		merged.Signal = new.Signal
+	if incoming.Signal != "" {
+		merged.Signal = incoming.Signal
 	}
-	if len(new.Relay) > 0 {
-		merged.Relay = new.Relay
+	if len(incoming.Relay) > 0 {
+		merged.Relay = incoming.Relay
 	}
-	if new.Flow != "" {
-		merged.Flow = new.Flow
+	if incoming.Flow != "" {
+		merged.Flow = incoming.Flow
 	}
-	if len(new.Stuns) > 0 {
-		merged.Stuns = new.Stuns
+	if len(incoming.Stuns) > 0 {
+		merged.Stuns = incoming.Stuns
 	}
-	if len(new.Turns) > 0 {
-		merged.Turns = new.Turns
+	if len(incoming.Turns) > 0 {
+		merged.Turns = incoming.Turns
 	}
 
 	return merged

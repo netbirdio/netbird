@@ -52,47 +52,55 @@ func ExtractValidDomain(rawURL string) (domain.Domain, error) {
 		return "", ErrEmptyURL
 	}
 
-	// Parse as URL first
 	parsedURL, err := url.Parse(rawURL)
 	if err == nil {
-		// If URL has a hostname, use it (proper URL with scheme like https://)
-		if parsedURL.Hostname() != "" {
-			return extractDomainFromHost(parsedURL.Hostname())
-		}
-		
-		// If URL has opaque content and a known scheme, extract the host from the opaque part
-		if parsedURL.Opaque != "" && parsedURL.Scheme != "" {
-			// Check if the scheme looks like a domain (contains dots) - if so, it's likely host:port misinterpreted
-			if strings.Contains(parsedURL.Scheme, ".") {
-				// This is likely "domain.com:port" being parsed as scheme:opaque
-				// Reconstruct the original and try as host:port
-				reconstructed := parsedURL.Scheme + ":" + parsedURL.Opaque
-				if host, _, err := net.SplitHostPort(reconstructed); err == nil {
-					return extractDomainFromHost(host)
-				}
-				return extractDomainFromHost(parsedURL.Scheme)
-			}
-			
-			// Valid scheme with opaque content (e.g., stun:host:port)
-			host := parsedURL.Opaque
-			// Remove query parameters if any
-			if queryIndex := strings.Index(host, "?"); queryIndex > 0 {
-				host = host[:queryIndex]
-			}
-			// Try as host:port format
-			if hostOnly, _, err := net.SplitHostPort(host); err == nil {
-				return extractDomainFromHost(hostOnly)
-			}
-			return extractDomainFromHost(host)
+		if domain, err := extractFromParsedURL(parsedURL); err != nil || domain != "" {
+			return domain, err
 		}
 	}
 
-	// If URL parsing fails or has no hostname/opaque, try as host:port format
+	return extractFromRawString(rawURL)
+}
+
+// extractFromParsedURL handles domain extraction from successfully parsed URLs
+func extractFromParsedURL(parsedURL *url.URL) (domain.Domain, error) {
+	if parsedURL.Hostname() != "" {
+		return extractDomainFromHost(parsedURL.Hostname())
+	}
+
+	if parsedURL.Opaque == "" || parsedURL.Scheme == "" {
+		return "", nil
+	}
+
+	// Handle URLs with opaque content (e.g., stun:host:port)
+	if strings.Contains(parsedURL.Scheme, ".") {
+		// This is likely "domain.com:port" being parsed as scheme:opaque
+		reconstructed := parsedURL.Scheme + ":" + parsedURL.Opaque
+		if host, _, err := net.SplitHostPort(reconstructed); err == nil {
+			return extractDomainFromHost(host)
+		}
+		return extractDomainFromHost(parsedURL.Scheme)
+	}
+
+	// Valid scheme with opaque content (e.g., stun:host:port)
+	host := parsedURL.Opaque
+	if queryIndex := strings.Index(host, "?"); queryIndex > 0 {
+		host = host[:queryIndex]
+	}
+
+	if hostOnly, _, err := net.SplitHostPort(host); err == nil {
+		return extractDomainFromHost(hostOnly)
+	}
+
+	return extractDomainFromHost(host)
+}
+
+// extractFromRawString handles domain extraction when URL parsing fails or returns no results
+func extractFromRawString(rawURL string) (domain.Domain, error) {
 	if host, _, err := net.SplitHostPort(rawURL); err == nil {
 		return extractDomainFromHost(host)
 	}
 
-	// If all else fails, treat as plain hostname
 	return extractDomainFromHost(rawURL)
 }
 
