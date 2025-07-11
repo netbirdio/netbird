@@ -1,3 +1,8 @@
+# build locally with:
+#   cd "$(git rev-parse --show-toplevel)"
+#   CGO_ENABLED=0 go build -o netbird ./client
+#   podman build -t localhost/netbird:latest -f client/Dockerfile --ignorefile .dockerignore-client .
+
 FROM alpine:3.22.0
 
 RUN apk add --no-cache \
