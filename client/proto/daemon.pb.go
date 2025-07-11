@@ -2430,7 +2430,17 @@ func (x *ForwardingRulesResponse) GetRules() []*ForwardingRule {
 
 // DebugBundler
 type DebugBundleRequest struct {
+<<<<<<< HEAD
 	state         protoimpl.MessageState
+=======
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Anonymize     bool                   `protobuf:"varint,1,opt,name=anonymize,proto3" json:"anonymize,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	SystemInfo    bool                   `protobuf:"varint,3,opt,name=systemInfo,proto3" json:"systemInfo,omitempty"`
+	UploadURL     string                 `protobuf:"bytes,4,opt,name=uploadURL,proto3" json:"uploadURL,omitempty"`
+	LogFileCount  uint32                 `protobuf:"varint,5,opt,name=logFileCount,proto3" json:"logFileCount,omitempty"`
+	unknownFields protoimpl.UnknownFields
+>>>>>>> main
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
@@ -2498,6 +2508,13 @@ func (x *DebugBundleRequest) GetUploadURL() string {
 		return x.UploadURL
 	}
 	return ""
+}
+
+func (x *DebugBundleRequest) GetLogFileCount() uint32 {
+	if x != nil {
+		return x.LogFileCount
+	}
+	return 0
 }
 
 type DebugBundleResponse struct {
@@ -3885,6 +3902,7 @@ func (x *PortInfo_Range) GetEnd() uint32 {
 
 var File_daemon_proto protoreflect.FileDescriptor
 
+<<<<<<< HEAD
 var file_daemon_proto_rawDesc = []byte{
 	0x0a, 0x0c, 0x64, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x06,
 	0x64, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x1a, 0x20, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2f, 0x70,
@@ -4568,6 +4586,337 @@ var file_daemon_proto_rawDesc = []byte{
 	0x22, 0x00, 0x42, 0x08, 0x5a, 0x06, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06, 0x70, 0x72,
 	0x6f, 0x74, 0x6f, 0x33,
 }
+=======
+const file_daemon_proto_rawDesc = "" +
+	"\n" +
+	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
+	"\fEmptyRequest\"\xbf\r\n" +
+	"\fLoginRequest\x12\x1a\n" +
+	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
+	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
+	"\rmanagementUrl\x18\x03 \x01(\tR\rmanagementUrl\x12\x1a\n" +
+	"\badminURL\x18\x04 \x01(\tR\badminURL\x12&\n" +
+	"\x0enatExternalIPs\x18\x05 \x03(\tR\x0enatExternalIPs\x120\n" +
+	"\x13cleanNATExternalIPs\x18\x06 \x01(\bR\x13cleanNATExternalIPs\x12*\n" +
+	"\x10customDNSAddress\x18\a \x01(\fR\x10customDNSAddress\x120\n" +
+	"\x13isUnixDesktopClient\x18\b \x01(\bR\x13isUnixDesktopClient\x12\x1a\n" +
+	"\bhostname\x18\t \x01(\tR\bhostname\x12/\n" +
+	"\x10rosenpassEnabled\x18\n" +
+	" \x01(\bH\x00R\x10rosenpassEnabled\x88\x01\x01\x12)\n" +
+	"\rinterfaceName\x18\v \x01(\tH\x01R\rinterfaceName\x88\x01\x01\x12)\n" +
+	"\rwireguardPort\x18\f \x01(\x03H\x02R\rwireguardPort\x88\x01\x01\x127\n" +
+	"\x14optionalPreSharedKey\x18\r \x01(\tH\x03R\x14optionalPreSharedKey\x88\x01\x01\x123\n" +
+	"\x12disableAutoConnect\x18\x0e \x01(\bH\x04R\x12disableAutoConnect\x88\x01\x01\x12/\n" +
+	"\x10serverSSHAllowed\x18\x0f \x01(\bH\x05R\x10serverSSHAllowed\x88\x01\x01\x125\n" +
+	"\x13rosenpassPermissive\x18\x10 \x01(\bH\x06R\x13rosenpassPermissive\x88\x01\x01\x120\n" +
+	"\x13extraIFaceBlacklist\x18\x11 \x03(\tR\x13extraIFaceBlacklist\x12+\n" +
+	"\x0enetworkMonitor\x18\x12 \x01(\bH\aR\x0enetworkMonitor\x88\x01\x01\x12J\n" +
+	"\x10dnsRouteInterval\x18\x13 \x01(\v2\x19.google.protobuf.DurationH\bR\x10dnsRouteInterval\x88\x01\x01\x127\n" +
+	"\x15disable_client_routes\x18\x14 \x01(\bH\tR\x13disableClientRoutes\x88\x01\x01\x127\n" +
+	"\x15disable_server_routes\x18\x15 \x01(\bH\n" +
+	"R\x13disableServerRoutes\x88\x01\x01\x12$\n" +
+	"\vdisable_dns\x18\x16 \x01(\bH\vR\n" +
+	"disableDns\x88\x01\x01\x12.\n" +
+	"\x10disable_firewall\x18\x17 \x01(\bH\fR\x0fdisableFirewall\x88\x01\x01\x12-\n" +
+	"\x10block_lan_access\x18\x18 \x01(\bH\rR\x0eblockLanAccess\x88\x01\x01\x128\n" +
+	"\x15disable_notifications\x18\x19 \x01(\bH\x0eR\x14disableNotifications\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"dns_labels\x18\x1a \x03(\tR\tdnsLabels\x12&\n" +
+	"\x0ecleanDNSLabels\x18\x1b \x01(\bR\x0ecleanDNSLabels\x129\n" +
+	"\x15lazyConnectionEnabled\x18\x1c \x01(\bH\x0fR\x15lazyConnectionEnabled\x88\x01\x01\x12(\n" +
+	"\rblock_inbound\x18\x1d \x01(\bH\x10R\fblockInbound\x88\x01\x01B\x13\n" +
+	"\x11_rosenpassEnabledB\x10\n" +
+	"\x0e_interfaceNameB\x10\n" +
+	"\x0e_wireguardPortB\x17\n" +
+	"\x15_optionalPreSharedKeyB\x15\n" +
+	"\x13_disableAutoConnectB\x13\n" +
+	"\x11_serverSSHAllowedB\x16\n" +
+	"\x14_rosenpassPermissiveB\x11\n" +
+	"\x0f_networkMonitorB\x13\n" +
+	"\x11_dnsRouteIntervalB\x18\n" +
+	"\x16_disable_client_routesB\x18\n" +
+	"\x16_disable_server_routesB\x0e\n" +
+	"\f_disable_dnsB\x13\n" +
+	"\x11_disable_firewallB\x13\n" +
+	"\x11_block_lan_accessB\x18\n" +
+	"\x16_disable_notificationsB\x18\n" +
+	"\x16_lazyConnectionEnabledB\x10\n" +
+	"\x0e_block_inbound\"\xb5\x01\n" +
+	"\rLoginResponse\x12$\n" +
+	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
+	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
+	"\x0fverificationURI\x18\x03 \x01(\tR\x0fverificationURI\x128\n" +
+	"\x17verificationURIComplete\x18\x04 \x01(\tR\x17verificationURIComplete\"M\n" +
+	"\x13WaitSSOLoginRequest\x12\x1a\n" +
+	"\buserCode\x18\x01 \x01(\tR\buserCode\x12\x1a\n" +
+	"\bhostname\x18\x02 \x01(\tR\bhostname\"\x16\n" +
+	"\x14WaitSSOLoginResponse\"\v\n" +
+	"\tUpRequest\"\f\n" +
+	"\n" +
+	"UpResponse\"g\n" +
+	"\rStatusRequest\x12,\n" +
+	"\x11getFullPeerStatus\x18\x01 \x01(\bR\x11getFullPeerStatus\x12(\n" +
+	"\x0fshouldRunProbes\x18\x02 \x01(\bR\x0fshouldRunProbes\"\x82\x01\n" +
+	"\x0eStatusResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x122\n" +
+	"\n" +
+	"fullStatus\x18\x02 \x01(\v2\x12.daemon.FullStatusR\n" +
+	"fullStatus\x12$\n" +
+	"\rdaemonVersion\x18\x03 \x01(\tR\rdaemonVersion\"\r\n" +
+	"\vDownRequest\"\x0e\n" +
+	"\fDownResponse\"\x12\n" +
+	"\x10GetConfigRequest\"\xa3\x06\n" +
+	"\x11GetConfigResponse\x12$\n" +
+	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
+	"\n" +
+	"configFile\x18\x02 \x01(\tR\n" +
+	"configFile\x12\x18\n" +
+	"\alogFile\x18\x03 \x01(\tR\alogFile\x12\"\n" +
+	"\fpreSharedKey\x18\x04 \x01(\tR\fpreSharedKey\x12\x1a\n" +
+	"\badminURL\x18\x05 \x01(\tR\badminURL\x12$\n" +
+	"\rinterfaceName\x18\x06 \x01(\tR\rinterfaceName\x12$\n" +
+	"\rwireguardPort\x18\a \x01(\x03R\rwireguardPort\x12.\n" +
+	"\x12disableAutoConnect\x18\t \x01(\bR\x12disableAutoConnect\x12*\n" +
+	"\x10serverSSHAllowed\x18\n" +
+	" \x01(\bR\x10serverSSHAllowed\x12*\n" +
+	"\x10rosenpassEnabled\x18\v \x01(\bR\x10rosenpassEnabled\x120\n" +
+	"\x13rosenpassPermissive\x18\f \x01(\bR\x13rosenpassPermissive\x123\n" +
+	"\x15disable_notifications\x18\r \x01(\bR\x14disableNotifications\x124\n" +
+	"\x15lazyConnectionEnabled\x18\x0e \x01(\bR\x15lazyConnectionEnabled\x12\"\n" +
+	"\fblockInbound\x18\x0f \x01(\bR\fblockInbound\x12&\n" +
+	"\x0enetworkMonitor\x18\x10 \x01(\bR\x0enetworkMonitor\x12\x1f\n" +
+	"\vdisable_dns\x18\x11 \x01(\bR\n" +
+	"disableDns\x122\n" +
+	"\x15disable_client_routes\x18\x12 \x01(\bR\x13disableClientRoutes\x122\n" +
+	"\x15disable_server_routes\x18\x13 \x01(\bR\x13disableServerRoutes\x12(\n" +
+	"\x10block_lan_access\x18\x14 \x01(\bR\x0eblockLanAccess\"\xde\x05\n" +
+	"\tPeerState\x12\x0e\n" +
+	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
+	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
+	"\n" +
+	"connStatus\x18\x03 \x01(\tR\n" +
+	"connStatus\x12F\n" +
+	"\x10connStatusUpdate\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x10connStatusUpdate\x12\x18\n" +
+	"\arelayed\x18\x05 \x01(\bR\arelayed\x124\n" +
+	"\x15localIceCandidateType\x18\a \x01(\tR\x15localIceCandidateType\x126\n" +
+	"\x16remoteIceCandidateType\x18\b \x01(\tR\x16remoteIceCandidateType\x12\x12\n" +
+	"\x04fqdn\x18\t \x01(\tR\x04fqdn\x12<\n" +
+	"\x19localIceCandidateEndpoint\x18\n" +
+	" \x01(\tR\x19localIceCandidateEndpoint\x12>\n" +
+	"\x1aremoteIceCandidateEndpoint\x18\v \x01(\tR\x1aremoteIceCandidateEndpoint\x12R\n" +
+	"\x16lastWireguardHandshake\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\x16lastWireguardHandshake\x12\x18\n" +
+	"\abytesRx\x18\r \x01(\x03R\abytesRx\x12\x18\n" +
+	"\abytesTx\x18\x0e \x01(\x03R\abytesTx\x12*\n" +
+	"\x10rosenpassEnabled\x18\x0f \x01(\bR\x10rosenpassEnabled\x12\x1a\n" +
+	"\bnetworks\x18\x10 \x03(\tR\bnetworks\x123\n" +
+	"\alatency\x18\x11 \x01(\v2\x19.google.protobuf.DurationR\alatency\x12\"\n" +
+	"\frelayAddress\x18\x12 \x01(\tR\frelayAddress\"\xf0\x01\n" +
+	"\x0eLocalPeerState\x12\x0e\n" +
+	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
+	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +
+	"\x0fkernelInterface\x18\x03 \x01(\bR\x0fkernelInterface\x12\x12\n" +
+	"\x04fqdn\x18\x04 \x01(\tR\x04fqdn\x12*\n" +
+	"\x10rosenpassEnabled\x18\x05 \x01(\bR\x10rosenpassEnabled\x120\n" +
+	"\x13rosenpassPermissive\x18\x06 \x01(\bR\x13rosenpassPermissive\x12\x1a\n" +
+	"\bnetworks\x18\a \x03(\tR\bnetworks\"S\n" +
+	"\vSignalState\x12\x10\n" +
+	"\x03URL\x18\x01 \x01(\tR\x03URL\x12\x1c\n" +
+	"\tconnected\x18\x02 \x01(\bR\tconnected\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"W\n" +
+	"\x0fManagementState\x12\x10\n" +
+	"\x03URL\x18\x01 \x01(\tR\x03URL\x12\x1c\n" +
+	"\tconnected\x18\x02 \x01(\bR\tconnected\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"R\n" +
+	"\n" +
+	"RelayState\x12\x10\n" +
+	"\x03URI\x18\x01 \x01(\tR\x03URI\x12\x1c\n" +
+	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"r\n" +
+	"\fNSGroupState\x12\x18\n" +
+	"\aservers\x18\x01 \x03(\tR\aservers\x12\x18\n" +
+	"\adomains\x18\x02 \x03(\tR\adomains\x12\x18\n" +
+	"\aenabled\x18\x03 \x01(\bR\aenabled\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\"\xef\x03\n" +
+	"\n" +
+	"FullStatus\x12A\n" +
+	"\x0fmanagementState\x18\x01 \x01(\v2\x17.daemon.ManagementStateR\x0fmanagementState\x125\n" +
+	"\vsignalState\x18\x02 \x01(\v2\x13.daemon.SignalStateR\vsignalState\x12>\n" +
+	"\x0elocalPeerState\x18\x03 \x01(\v2\x16.daemon.LocalPeerStateR\x0elocalPeerState\x12'\n" +
+	"\x05peers\x18\x04 \x03(\v2\x11.daemon.PeerStateR\x05peers\x12*\n" +
+	"\x06relays\x18\x05 \x03(\v2\x12.daemon.RelayStateR\x06relays\x125\n" +
+	"\vdns_servers\x18\x06 \x03(\v2\x14.daemon.NSGroupStateR\n" +
+	"dnsServers\x128\n" +
+	"\x17NumberOfForwardingRules\x18\b \x01(\x05R\x17NumberOfForwardingRules\x12+\n" +
+	"\x06events\x18\a \x03(\v2\x13.daemon.SystemEventR\x06events\x124\n" +
+	"\x15lazyConnectionEnabled\x18\t \x01(\bR\x15lazyConnectionEnabled\"\x15\n" +
+	"\x13ListNetworksRequest\"?\n" +
+	"\x14ListNetworksResponse\x12'\n" +
+	"\x06routes\x18\x01 \x03(\v2\x0f.daemon.NetworkR\x06routes\"a\n" +
+	"\x15SelectNetworksRequest\x12\x1e\n" +
+	"\n" +
+	"networkIDs\x18\x01 \x03(\tR\n" +
+	"networkIDs\x12\x16\n" +
+	"\x06append\x18\x02 \x01(\bR\x06append\x12\x10\n" +
+	"\x03all\x18\x03 \x01(\bR\x03all\"\x18\n" +
+	"\x16SelectNetworksResponse\"\x1a\n" +
+	"\x06IPList\x12\x10\n" +
+	"\x03ips\x18\x01 \x03(\tR\x03ips\"\xf9\x01\n" +
+	"\aNetwork\x12\x0e\n" +
+	"\x02ID\x18\x01 \x01(\tR\x02ID\x12\x14\n" +
+	"\x05range\x18\x02 \x01(\tR\x05range\x12\x1a\n" +
+	"\bselected\x18\x03 \x01(\bR\bselected\x12\x18\n" +
+	"\adomains\x18\x04 \x03(\tR\adomains\x12B\n" +
+	"\vresolvedIPs\x18\x05 \x03(\v2 .daemon.Network.ResolvedIPsEntryR\vresolvedIPs\x1aN\n" +
+	"\x10ResolvedIPsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12$\n" +
+	"\x05value\x18\x02 \x01(\v2\x0e.daemon.IPListR\x05value:\x028\x01\"\x92\x01\n" +
+	"\bPortInfo\x12\x14\n" +
+	"\x04port\x18\x01 \x01(\rH\x00R\x04port\x12.\n" +
+	"\x05range\x18\x02 \x01(\v2\x16.daemon.PortInfo.RangeH\x00R\x05range\x1a/\n" +
+	"\x05Range\x12\x14\n" +
+	"\x05start\x18\x01 \x01(\rR\x05start\x12\x10\n" +
+	"\x03end\x18\x02 \x01(\rR\x03endB\x0f\n" +
+	"\rportSelection\"\x80\x02\n" +
+	"\x0eForwardingRule\x12\x1a\n" +
+	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12:\n" +
+	"\x0fdestinationPort\x18\x02 \x01(\v2\x10.daemon.PortInfoR\x0fdestinationPort\x12,\n" +
+	"\x11translatedAddress\x18\x03 \x01(\tR\x11translatedAddress\x12.\n" +
+	"\x12translatedHostname\x18\x04 \x01(\tR\x12translatedHostname\x128\n" +
+	"\x0etranslatedPort\x18\x05 \x01(\v2\x10.daemon.PortInfoR\x0etranslatedPort\"G\n" +
+	"\x17ForwardingRulesResponse\x12,\n" +
+	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules\"\xac\x01\n" +
+	"\x12DebugBundleRequest\x12\x1c\n" +
+	"\tanonymize\x18\x01 \x01(\bR\tanonymize\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1e\n" +
+	"\n" +
+	"systemInfo\x18\x03 \x01(\bR\n" +
+	"systemInfo\x12\x1c\n" +
+	"\tuploadURL\x18\x04 \x01(\tR\tuploadURL\x12\"\n" +
+	"\flogFileCount\x18\x05 \x01(\rR\flogFileCount\"}\n" +
+	"\x13DebugBundleResponse\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12 \n" +
+	"\vuploadedKey\x18\x02 \x01(\tR\vuploadedKey\x120\n" +
+	"\x13uploadFailureReason\x18\x03 \x01(\tR\x13uploadFailureReason\"\x14\n" +
+	"\x12GetLogLevelRequest\"=\n" +
+	"\x13GetLogLevelResponse\x12&\n" +
+	"\x05level\x18\x01 \x01(\x0e2\x10.daemon.LogLevelR\x05level\"<\n" +
+	"\x12SetLogLevelRequest\x12&\n" +
+	"\x05level\x18\x01 \x01(\x0e2\x10.daemon.LogLevelR\x05level\"\x15\n" +
+	"\x13SetLogLevelResponse\"\x1b\n" +
+	"\x05State\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"\x13\n" +
+	"\x11ListStatesRequest\";\n" +
+	"\x12ListStatesResponse\x12%\n" +
+	"\x06states\x18\x01 \x03(\v2\r.daemon.StateR\x06states\"D\n" +
+	"\x11CleanStateRequest\x12\x1d\n" +
+	"\n" +
+	"state_name\x18\x01 \x01(\tR\tstateName\x12\x10\n" +
+	"\x03all\x18\x02 \x01(\bR\x03all\";\n" +
+	"\x12CleanStateResponse\x12%\n" +
+	"\x0ecleaned_states\x18\x01 \x01(\x05R\rcleanedStates\"E\n" +
+	"\x12DeleteStateRequest\x12\x1d\n" +
+	"\n" +
+	"state_name\x18\x01 \x01(\tR\tstateName\x12\x10\n" +
+	"\x03all\x18\x02 \x01(\bR\x03all\"<\n" +
+	"\x13DeleteStateResponse\x12%\n" +
+	"\x0edeleted_states\x18\x01 \x01(\x05R\rdeletedStates\";\n" +
+	"\x1fSetNetworkMapPersistenceRequest\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\"\"\n" +
+	" SetNetworkMapPersistenceResponse\"v\n" +
+	"\bTCPFlags\x12\x10\n" +
+	"\x03syn\x18\x01 \x01(\bR\x03syn\x12\x10\n" +
+	"\x03ack\x18\x02 \x01(\bR\x03ack\x12\x10\n" +
+	"\x03fin\x18\x03 \x01(\bR\x03fin\x12\x10\n" +
+	"\x03rst\x18\x04 \x01(\bR\x03rst\x12\x10\n" +
+	"\x03psh\x18\x05 \x01(\bR\x03psh\x12\x10\n" +
+	"\x03urg\x18\x06 \x01(\bR\x03urg\"\x80\x03\n" +
+	"\x12TracePacketRequest\x12\x1b\n" +
+	"\tsource_ip\x18\x01 \x01(\tR\bsourceIp\x12%\n" +
+	"\x0edestination_ip\x18\x02 \x01(\tR\rdestinationIp\x12\x1a\n" +
+	"\bprotocol\x18\x03 \x01(\tR\bprotocol\x12\x1f\n" +
+	"\vsource_port\x18\x04 \x01(\rR\n" +
+	"sourcePort\x12)\n" +
+	"\x10destination_port\x18\x05 \x01(\rR\x0fdestinationPort\x12\x1c\n" +
+	"\tdirection\x18\x06 \x01(\tR\tdirection\x122\n" +
+	"\ttcp_flags\x18\a \x01(\v2\x10.daemon.TCPFlagsH\x00R\btcpFlags\x88\x01\x01\x12 \n" +
+	"\ticmp_type\x18\b \x01(\rH\x01R\bicmpType\x88\x01\x01\x12 \n" +
+	"\ticmp_code\x18\t \x01(\rH\x02R\bicmpCode\x88\x01\x01B\f\n" +
+	"\n" +
+	"_tcp_flagsB\f\n" +
+	"\n" +
+	"_icmp_typeB\f\n" +
+	"\n" +
+	"_icmp_code\"\x9f\x01\n" +
+	"\n" +
+	"TraceStage\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x18\n" +
+	"\aallowed\x18\x03 \x01(\bR\aallowed\x122\n" +
+	"\x12forwarding_details\x18\x04 \x01(\tH\x00R\x11forwardingDetails\x88\x01\x01B\x15\n" +
+	"\x13_forwarding_details\"n\n" +
+	"\x13TracePacketResponse\x12*\n" +
+	"\x06stages\x18\x01 \x03(\v2\x12.daemon.TraceStageR\x06stages\x12+\n" +
+	"\x11final_disposition\x18\x02 \x01(\bR\x10finalDisposition\"\x12\n" +
+	"\x10SubscribeRequest\"\x93\x04\n" +
+	"\vSystemEvent\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x128\n" +
+	"\bseverity\x18\x02 \x01(\x0e2\x1c.daemon.SystemEvent.SeverityR\bseverity\x128\n" +
+	"\bcategory\x18\x03 \x01(\x0e2\x1c.daemon.SystemEvent.CategoryR\bcategory\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12 \n" +
+	"\vuserMessage\x18\x05 \x01(\tR\vuserMessage\x128\n" +
+	"\ttimestamp\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12=\n" +
+	"\bmetadata\x18\a \x03(\v2!.daemon.SystemEvent.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\":\n" +
+	"\bSeverity\x12\b\n" +
+	"\x04INFO\x10\x00\x12\v\n" +
+	"\aWARNING\x10\x01\x12\t\n" +
+	"\x05ERROR\x10\x02\x12\f\n" +
+	"\bCRITICAL\x10\x03\"R\n" +
+	"\bCategory\x12\v\n" +
+	"\aNETWORK\x10\x00\x12\a\n" +
+	"\x03DNS\x10\x01\x12\x12\n" +
+	"\x0eAUTHENTICATION\x10\x02\x12\x10\n" +
+	"\fCONNECTIVITY\x10\x03\x12\n" +
+	"\n" +
+	"\x06SYSTEM\x10\x04\"\x12\n" +
+	"\x10GetEventsRequest\"@\n" +
+	"\x11GetEventsResponse\x12+\n" +
+	"\x06events\x18\x01 \x03(\v2\x13.daemon.SystemEventR\x06events*b\n" +
+	"\bLogLevel\x12\v\n" +
+	"\aUNKNOWN\x10\x00\x12\t\n" +
+	"\x05PANIC\x10\x01\x12\t\n" +
+	"\x05FATAL\x10\x02\x12\t\n" +
+	"\x05ERROR\x10\x03\x12\b\n" +
+	"\x04WARN\x10\x04\x12\b\n" +
+	"\x04INFO\x10\x05\x12\t\n" +
+	"\x05DEBUG\x10\x06\x12\t\n" +
+	"\x05TRACE\x10\a2\xb3\v\n" +
+	"\rDaemonService\x126\n" +
+	"\x05Login\x12\x14.daemon.LoginRequest\x1a\x15.daemon.LoginResponse\"\x00\x12K\n" +
+	"\fWaitSSOLogin\x12\x1b.daemon.WaitSSOLoginRequest\x1a\x1c.daemon.WaitSSOLoginResponse\"\x00\x12-\n" +
+	"\x02Up\x12\x11.daemon.UpRequest\x1a\x12.daemon.UpResponse\"\x00\x129\n" +
+	"\x06Status\x12\x15.daemon.StatusRequest\x1a\x16.daemon.StatusResponse\"\x00\x123\n" +
+	"\x04Down\x12\x13.daemon.DownRequest\x1a\x14.daemon.DownResponse\"\x00\x12B\n" +
+	"\tGetConfig\x12\x18.daemon.GetConfigRequest\x1a\x19.daemon.GetConfigResponse\"\x00\x12K\n" +
+	"\fListNetworks\x12\x1b.daemon.ListNetworksRequest\x1a\x1c.daemon.ListNetworksResponse\"\x00\x12Q\n" +
+	"\x0eSelectNetworks\x12\x1d.daemon.SelectNetworksRequest\x1a\x1e.daemon.SelectNetworksResponse\"\x00\x12S\n" +
+	"\x10DeselectNetworks\x12\x1d.daemon.SelectNetworksRequest\x1a\x1e.daemon.SelectNetworksResponse\"\x00\x12J\n" +
+	"\x0fForwardingRules\x12\x14.daemon.EmptyRequest\x1a\x1f.daemon.ForwardingRulesResponse\"\x00\x12H\n" +
+	"\vDebugBundle\x12\x1a.daemon.DebugBundleRequest\x1a\x1b.daemon.DebugBundleResponse\"\x00\x12H\n" +
+	"\vGetLogLevel\x12\x1a.daemon.GetLogLevelRequest\x1a\x1b.daemon.GetLogLevelResponse\"\x00\x12H\n" +
+	"\vSetLogLevel\x12\x1a.daemon.SetLogLevelRequest\x1a\x1b.daemon.SetLogLevelResponse\"\x00\x12E\n" +
+	"\n" +
+	"ListStates\x12\x19.daemon.ListStatesRequest\x1a\x1a.daemon.ListStatesResponse\"\x00\x12E\n" +
+	"\n" +
+	"CleanState\x12\x19.daemon.CleanStateRequest\x1a\x1a.daemon.CleanStateResponse\"\x00\x12H\n" +
+	"\vDeleteState\x12\x1a.daemon.DeleteStateRequest\x1a\x1b.daemon.DeleteStateResponse\"\x00\x12o\n" +
+	"\x18SetNetworkMapPersistence\x12'.daemon.SetNetworkMapPersistenceRequest\x1a(.daemon.SetNetworkMapPersistenceResponse\"\x00\x12H\n" +
+	"\vTracePacket\x12\x1a.daemon.TracePacketRequest\x1a\x1b.daemon.TracePacketResponse\"\x00\x12D\n" +
+	"\x0fSubscribeEvents\x12\x18.daemon.SubscribeRequest\x1a\x13.daemon.SystemEvent\"\x000\x01\x12B\n" +
+	"\tGetEvents\x12\x18.daemon.GetEventsRequest\x1a\x19.daemon.GetEventsResponse\"\x00B\bZ\x06/protob\x06proto3"
+>>>>>>> main
 
 var (
 	file_daemon_proto_rawDescOnce sync.Once

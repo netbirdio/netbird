@@ -94,7 +94,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()

@@ -3,8 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -27,28 +30,65 @@ func (s *MockStore) GetAllEphemeralPeers(_ context.Context, _ store.LockingStren
 	return peers, nil
 }
 
-type MocAccountManager struct {
+type MockAccountManager struct {
+	mu sync.Mutex
 	nbAccount.Manager
-	store *MockStore
+	store             *MockStore
+	deletePeerCalls   int
+	bufferUpdateCalls map[string]int
+	wg                *sync.WaitGroup
 }
 
-func (a MocAccountManager) DeletePeer(_ context.Context, accountID, peerID, userID string) error {
+func (a *MockAccountManager) DeletePeer(_ context.Context, accountID, peerID, userID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.deletePeerCalls++
+	if a.wg != nil {
+		a.wg.Done()
+	}
 	delete(a.store.account.Peers, peerID)
-	return nil //nolint:nil
+	return nil
 }
 
-func (a MocAccountManager) GetStore() store.Store {
+func (a *MockAccountManager) GetDeletePeerCalls() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.deletePeerCalls
+}
+
+func (a *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.bufferUpdateCalls == nil {
+		a.bufferUpdateCalls = make(map[string]int)
+	}
+	a.bufferUpdateCalls[accountID]++
+}
+
+func (a *MockAccountManager) GetBufferUpdateCalls(accountID string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.bufferUpdateCalls == nil {
+		return 0
+	}
+	return a.bufferUpdateCalls[accountID]
+}
+
+func (a *MockAccountManager) GetStore() store.Store {
 	return a.store
 }
 
 func TestNewManager(t *testing.T) {
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
 	startTime := time.Now()
 	timeNow = func() time.Time {
 		return startTime
 	}
 
 	store := &MockStore{}
-	am := MocAccountManager{
+	am := MockAccountManager{
 		store: store,
 	}
 
@@ -56,7 +96,7 @@ func TestNewManager(t *testing.T) {
 	numberOfEphemeralPeers := 3
 	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
 
-	mgr := NewEphemeralManager(store, am)
+	mgr := NewEphemeralManager(store, &am)
 	mgr.loadEphemeralPeers(context.Background())
 	startTime = startTime.Add(ephemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
@@ -67,13 +107,16 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestNewManagerPeerConnected(t *testing.T) {
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
 	startTime := time.Now()
 	timeNow = func() time.Time {
 		return startTime
 	}
 
 	store := &MockStore{}
-	am := MocAccountManager{
+	am := MockAccountManager{
 		store: store,
 	}
 
@@ -81,7 +124,7 @@ func TestNewManagerPeerConnected(t *testing.T) {
 	numberOfEphemeralPeers := 3
 	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
 
-	mgr := NewEphemeralManager(store, am)
+	mgr := NewEphemeralManager(store, &am)
 	mgr.loadEphemeralPeers(context.Background())
 	mgr.OnPeerConnected(context.Background(), store.account.Peers["ephemeral_peer_0"])
 
@@ -95,13 +138,16 @@ func TestNewManagerPeerConnected(t *testing.T) {
 }
 
 func TestNewManagerPeerDisconnected(t *testing.T) {
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
 	startTime := time.Now()
 	timeNow = func() time.Time {
 		return startTime
 	}
 
 	store := &MockStore{}
-	am := MocAccountManager{
+	am := MockAccountManager{
 		store: store,
 	}
 
@@ -109,7 +155,7 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 	numberOfEphemeralPeers := 3
 	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
 
-	mgr := NewEphemeralManager(store, am)
+	mgr := NewEphemeralManager(store, &am)
 	mgr.loadEphemeralPeers(context.Background())
 	for _, v := range store.account.Peers {
 		mgr.OnPeerConnected(context.Background(), v)
@@ -124,6 +170,36 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 	if len(store.account.Peers) != expected {
 		t.Errorf("failed to cleanup ephemeral peers, expected: %d, result: %d", expected, len(store.account.Peers))
 	}
+}
+
+func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
+	const (
+		ephemeralPeers    = 10
+		testLifeTime      = 1 * time.Second
+		testCleanupWindow = 100 * time.Millisecond
+	)
+	mockStore := &MockStore{}
+	mockAM := &MockAccountManager{
+		store: mockStore,
+	}
+	mockAM.wg = &sync.WaitGroup{}
+	mockAM.wg.Add(ephemeralPeers)
+	mgr := NewEphemeralManager(mockStore, mockAM)
+	mgr.lifeTime = testLifeTime
+	mgr.cleanupWindow = testCleanupWindow
+
+	account := newAccountWithId(context.Background(), "account", "", "", false)
+	mockStore.account = account
+	for i := range ephemeralPeers {
+		p := &nbpeer.Peer{ID: fmt.Sprintf("peer-%d", i), AccountID: account.Id, Ephemeral: true}
+		mockStore.account.Peers[p.ID] = p
+		time.Sleep(testCleanupWindow / ephemeralPeers)
+		mgr.OnPeerDisconnected(context.Background(), p)
+	}
+	mockAM.wg.Wait()
+	assert.Len(t, mockStore.account.Peers, 0, "all ephemeral peers should be cleaned up after the lifetime")
+	assert.Equal(t, 1, mockAM.GetBufferUpdateCalls(account.Id), "buffer update should be called once")
+	assert.Equal(t, ephemeralPeers, mockAM.GetDeletePeerCalls(), "should have deleted all peers")
 }
 
 func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) {

@@ -184,6 +184,10 @@ func TestPeers_Integration(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, peers)
 
+		filteredPeers, err := c.Peers.List(context.Background(), rest.PeerIPFilter("192.168.10.0"))
+		require.NoError(t, err)
+		require.Empty(t, filteredPeers)
+
 		peer, err := c.Peers.Get(context.Background(), peers[0].Id)
 		require.NoError(t, err)
 		assert.Equal(t, peers[0].Id, peer.Id)

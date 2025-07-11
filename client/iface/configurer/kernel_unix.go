@@ -276,3 +276,7 @@ func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
 	}
 	return stats, nil
 }
+
+func (c *KernelConfigurer) LastActivities() map[string]time.Time {
+	return nil
+}

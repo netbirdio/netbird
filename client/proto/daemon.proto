@@ -372,6 +372,7 @@ message DebugBundleRequest {
   string status = 2;
   bool systemInfo = 3;
   string uploadURL = 4;
+  uint32 logFileCount = 5;
 }
 
 message DebugBundleResponse {
