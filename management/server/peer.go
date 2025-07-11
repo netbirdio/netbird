@@ -1301,6 +1301,7 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 		b.update.Store(false)
 		if b.next == nil {
 			b.next = time.AfterFunc(time.Duration(am.updateAccountPeersBufferInterval.Load()), func() {
+				log.WithContext(ctx).Debugf("BufferUpdateAccountPeers for account %s, UpdateAccountPeers started by timeout", accountID)
 				am.UpdateAccountPeers(ctx, accountID)
 			})
 			return
