@@ -104,7 +104,7 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 		return nil, err
 	}
 
-	return am.integratedPeerValidator.GetValidatedPeers(accountID, groups, peers, settings.Extra)
+	return am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, groups, peers, settings.Extra)
 }
 
 type MocIntegratedValidator struct {
@@ -122,7 +122,7 @@ func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.P
 	return update, false, nil
 }
 
-func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
+func (a MocIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
 		validatedPeers[peer.ID] = struct{}{}
@@ -138,7 +138,7 @@ func (MocIntegratedValidator) IsNotValidPeer(_ context.Context, accountID string
 	return false, false, nil
 }
 
-func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string) error {
+func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string, extraSettings *types.ExtraSettings) error {
 	return nil
 }
 
