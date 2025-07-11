@@ -13,7 +13,7 @@ ENV \
     NB_DAEMON_ADDR="unix:///var/run/netbird.sock" \
     NB_ENTRYPOINT_SERVICE_TIMEOUT="5" \
     NB_ENTRYPOINT_LOGIN_TIMEOUT="1" \
-    NB_ENTRYPOINT_TAIL_LOG_FILE="1"
+    NB_ENTRYPOINT_TAIL_LOG_FILE="true"
 
 ENTRYPOINT [ "/usr/local/bin/netbird-entrypoint.sh" ]
 

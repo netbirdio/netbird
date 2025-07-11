@@ -3,7 +3,7 @@ set -eEuo pipefail
 
 : ${NB_ENTRYPOINT_SERVICE_TIMEOUT:="5"}
 : ${NB_ENTRYPOINT_LOGIN_TIMEOUT:="1"}
-: ${NB_ENTRYPOINT_TAIL_LOG_FILE:="1"}
+: ${NB_ENTRYPOINT_TAIL_LOG_FILE:="true"}
 NETBIRD_BIN="${NETBIRD_BIN:-"netbird"}"
 export NB_LOG_FILE="${NB_LOG_FILE:-"/var/log/netbird/client.log"}"
 pids=()
@@ -41,9 +41,9 @@ signal_propagate() {
 
 wait_for_message() {
   local timeout="${1}" message="${2}"
-  if test "${timeout}" == 0; then
+  if test "${timeout}" -eq 0; then
     info "not waiting for info message '${message}' due to zero timeout."
-  elif test "${has_logfile}" = 1; then
+  elif test "${has_logfile}" = "true"; then
     info "waiting for info message '${message}' for ${timeout} seconds..."
     timeout "${timeout}" grep -q "${message}" <(tail -F "${NB_LOG_FILE}" 2>/dev/null)
   else
@@ -53,7 +53,7 @@ wait_for_message() {
 }
 
 main() {
-  has_logfile="0"
+  has_logfile="false"
   "${NETBIRD_BIN}" service run &
   SERVICE_PID="$!"
   pids+=("${SERVICE_PID}")
@@ -65,13 +65,13 @@ main() {
 
   case "${NB_LOG_FILE}" in
   console | syslog)
-    warn "\$NB_LOG_FILE=='${NB_LOG_FILE}' parsing is not supported, sleeping for ${NB_ENTRYPOINT_SERVICE_TIMEOUT} instead."
-    warn "please consider removing the \$NB_LOG_FILE to before gathering debug bundles."
+    warn "\$NB_LOG_FILE='${NB_LOG_FILE}' parsing is not supported, sleeping for ${NB_ENTRYPOINT_SERVICE_TIMEOUT} instead."
+    warn "please consider removing the \$NB_LOG_FILE or setting it to real file, before gathering debug bundles."
     sleep "${NB_ENTRYPOINT_SERVICE_TIMEOUT}"
     ;;
   *)
-    has_logfile=1
-    if test "${NB_ENTRYPOINT_TAIL_LOG_FILE}" == 1; then
+    has_logfile="true"
+    if test "${NB_ENTRYPOINT_TAIL_LOG_FILE}" = "true"; then
       info "tailing ${NB_LOG_FILE}..."
       tail -F "${NB_LOG_FILE}" >&2 &
       pids+=("$!")
@@ -85,7 +85,7 @@ main() {
     ;;
   esac
 
-  if test "${has_logfile}" = 1 && wait_for_message "${NB_ENTRYPOINT_LOGIN_TIMEOUT}" 'peer has been successfully registered'; then
+  if test "${has_logfile}" = "true" && wait_for_message "${NB_ENTRYPOINT_LOGIN_TIMEOUT}" 'peer has been successfully registered'; then
     info "already logged in, skipping 'netbird up'..."
   else
     info "logging in..."
