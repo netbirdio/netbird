@@ -250,8 +250,9 @@ type Account struct {
 	DomainCategory string `json:"domain_category"`
 
 	// Id Account ID
-	Id       string          `json:"id"`
-	Settings AccountSettings `json:"settings"`
+	Id         string            `json:"id"`
+	Onboarding AccountOnboarding `json:"onboarding"`
+	Settings   AccountSettings   `json:"settings"`
 }
 
 // AccountExtraSettings defines model for AccountExtraSettings.
@@ -266,9 +267,19 @@ type AccountExtraSettings struct {
 	PeerApprovalEnabled bool `json:"peer_approval_enabled"`
 }
 
+// AccountOnboarding defines model for AccountOnboarding.
+type AccountOnboarding struct {
+	// OnboardingFlowPending Indicates whether the account onboarding flow is pending
+	OnboardingFlowPending bool `json:"onboarding_flow_pending"`
+
+	// SignupFormPending Indicates whether the account signup form is pending
+	SignupFormPending bool `json:"signup_form_pending"`
+}
+
 // AccountRequest defines model for AccountRequest.
 type AccountRequest struct {
-	Settings AccountSettings `json:"settings"`
+	Onboarding *AccountOnboarding `json:"onboarding,omitempty"`
+	Settings   AccountSettings    `json:"settings"`
 }
 
 // AccountSettings defines model for AccountSettings.
@@ -1016,6 +1027,9 @@ type Peer struct {
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
+	// Ephemeral Indicates whether the peer is ephemeral or not
+	Ephemeral bool `json:"ephemeral"`
+
 	// ExtraDnsLabels Extra DNS labels added to the peer
 	ExtraDnsLabels []string `json:"extra_dns_labels"`
 
@@ -1096,6 +1110,9 @@ type PeerBatch struct {
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
+
+	// Ephemeral Indicates whether the peer is ephemeral or not
+	Ephemeral bool `json:"ephemeral"`
 
 	// ExtraDnsLabels Extra DNS labels added to the peer
 	ExtraDnsLabels []string `json:"extra_dns_labels"`

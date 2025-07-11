@@ -489,7 +489,7 @@ func (s *DefaultServer) applyHostConfig() {
 		}
 	}
 
-	log.Debugf("extra match domains: %v", s.extraDomains)
+	log.Debugf("extra match domains: %v", maps.Keys(s.extraDomains))
 
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
@@ -527,7 +527,7 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 		muxUpdates = append(muxUpdates, handlerWrapper{
 			domain:   customZone.Domain,
 			handler:  s.localResolver,
-			priority: PriorityMatchDomain,
+			priority: PriorityLocal,
 		})
 
 		for _, record := range customZone.Records {
@@ -566,7 +566,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	groupedNS := groupNSGroupsByDomain(nameServerGroups)
 
 	for _, domainGroup := range groupedNS {
-		basePriority := PriorityMatchDomain
+		basePriority := PriorityUpstream
 		if domainGroup.domain == nbdns.RootZone {
 			basePriority = PriorityDefault
 		}
@@ -588,10 +588,14 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		// Decrement priority by handler index (0, 1, 2, ...) to avoid conflicts
 		priority := basePriority - i
 
-		// Check if we're about to overlap with the next priority tier
-		if basePriority == PriorityMatchDomain && priority <= PriorityDefault {
+		// Check if we're about to overlap with the next priority tier.
+		// This boundary check ensures that the priority of upstream handlers does not conflict
+		// with the default priority tier. By decrementing the priority for each handler, we avoid
+		// overlaps, but if the calculated priority falls into the default tier, we skip the remaining
+		// handlers to maintain the integrity of the priority system.
+		if basePriority == PriorityUpstream && priority <= PriorityDefault {
 			log.Warnf("too many handlers for domain=%s, would overlap with default priority tier (diff=%d). Skipping remaining handlers",
-				domainGroup.domain, PriorityMatchDomain-PriorityDefault)
+				domainGroup.domain, PriorityUpstream-PriorityDefault)
 			break
 		}
 

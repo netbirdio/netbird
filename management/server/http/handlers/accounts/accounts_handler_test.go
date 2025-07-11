@@ -36,7 +36,7 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 				return account.Settings, nil
 			},
-			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error) {
+			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error) {
 				halfYearLimit := 180 * 24 * time.Hour
 				if newSettings.PeerLoginExpiration > halfYearLimit {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -46,15 +46,25 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 				}
 
-				accCopy := account.Copy()
-				accCopy.UpdateSettings(newSettings)
-				return accCopy, nil
+				return newSettings, nil
 			},
 			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
 				return account.Copy(), nil
 			},
 			GetAccountMetaFunc: func(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
 				return account.GetMeta(), nil
+			},
+			GetAccountOnboardingFunc: func(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error) {
+				return &types.AccountOnboarding{
+					OnboardingFlowPending: true,
+					SignupFormPending:     true,
+				}, nil
+			},
+			UpdateAccountOnboardingFunc: func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error) {
+				return &types.AccountOnboarding{
+					OnboardingFlowPending: true,
+					SignupFormPending:     true,
+				}, nil
 			},
 		},
 		settingsManager: settingsMockManager,
@@ -119,7 +129,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
-			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true}}"),
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
 				PeerLoginExpiration:             15552000,
@@ -141,7 +151,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
-			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": false,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"roles\",\"jwt_allow_groups\":[\"test\"],\"regular_users_view_blocked\":true}}"),
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": false,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"roles\",\"jwt_allow_groups\":[\"test\"],\"regular_users_view_blocked\":true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
 				PeerLoginExpiration:             15552000,
@@ -163,7 +173,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
-			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 554400,\"peer_login_expiration_enabled\": true,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"groups\",\"groups_propagation_enabled\":true,\"regular_users_view_blocked\":true}}"),
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 554400,\"peer_login_expiration_enabled\": true,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"groups\",\"groups_propagation_enabled\":true,\"regular_users_view_blocked\":true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
 				PeerLoginExpiration:             554400,
@@ -181,11 +191,33 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedID:    accountID,
 		},
 		{
+			name:           "PutAccount OK without onboarding",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": false,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"roles\",\"jwt_allow_groups\":[\"test\"],\"regular_users_view_blocked\":true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      false,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr("roles"),
+				JwtGroupsEnabled:                br(true),
+				JwtAllowGroups:                  &[]string{"test"},
+				RegularUsersViewBlocked:         true,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
 			name:           "Update account failure with high peer_login_expiration more than 180 days",
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
-			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552001,\"peer_login_expiration_enabled\": true}}"),
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552001,\"peer_login_expiration_enabled\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedArray:  false,
 		},
@@ -194,7 +226,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
-			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 3599,\"peer_login_expiration_enabled\": true}}"),
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 3599,\"peer_login_expiration_enabled\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedArray:  false,
 		},

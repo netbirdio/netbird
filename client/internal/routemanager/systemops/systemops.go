@@ -5,10 +5,12 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 
-	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 )
 
 type Nexthop struct {
@@ -27,14 +29,22 @@ func (n Nexthop) String() string {
 	if n.Intf == nil {
 		return n.IP.String()
 	}
-	return fmt.Sprintf("%s @ %d (%s)", n.IP.String(), n.Intf.Index, n.Intf.Name)
+	if n.IP.IsValid() {
+		return fmt.Sprintf("%s @ %d (%s)", n.IP.String(), n.Intf.Index, n.Intf.Name)
+	}
+	return fmt.Sprintf("no-ip @ %d (%s)", n.Intf.Index, n.Intf.Name)
+}
+
+type wgIface interface {
+	Address() wgaddr.Address
+	Name() string
 }
 
 type ExclusionCounter = refcounter.Counter[netip.Prefix, struct{}, Nexthop]
 
 type SysOps struct {
 	refCounter  *ExclusionCounter
-	wgInterface iface.WGIface
+	wgInterface wgIface
 	// prefixes is tracking all the current added prefixes im memory
 	// (this is used in iOS as all route updates require a full table update)
 	//nolint
@@ -43,11 +53,37 @@ type SysOps struct {
 	mu sync.Mutex
 	// notifier is used to notify the system of route changes (also used on mobile)
 	notifier *notifier.Notifier
+	// seq is an atomic counter for generating unique sequence numbers for route messages
+	//nolint:unused // only used on BSD systems
+	seq atomic.Uint32
 }
 
-func NewSysOps(wgInterface iface.WGIface, notifier *notifier.Notifier) *SysOps {
+func NewSysOps(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {
 	return &SysOps{
 		wgInterface: wgInterface,
 		notifier:    notifier,
 	}
+}
+
+//nolint:unused // only used on BSD systems
+func (r *SysOps) getSeq() int {
+	return int(r.seq.Add(1))
+}
+
+func (r *SysOps) validateRoute(prefix netip.Prefix) error {
+	addr := prefix.Addr()
+
+	switch {
+	case
+		!addr.IsValid(),
+		addr.IsLoopback(),
+		addr.IsLinkLocalUnicast(),
+		addr.IsLinkLocalMulticast(),
+		addr.IsInterfaceLocalMulticast(),
+		addr.IsMulticast(),
+		addr.IsUnspecified() && prefix.Bits() != 0,
+		r.wgInterface.Address().Network.Contains(addr):
+		return vars.ErrRouteNotAllowed
+	}
+	return nil
 }

@@ -111,12 +111,12 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 
 	if errInToOut != nil {
 		if !isClosedError(errInToOut) {
-			f.logger.Error("proxyTCP: copy error (in -> out): %v", errInToOut)
+			f.logger.Error("proxyTCP: copy error (in → out) for %s: %v", epID(id), errInToOut)
 		}
 	}
 	if errOutToIn != nil {
 		if !isClosedError(errOutToIn) {
-			f.logger.Error("proxyTCP: copy error (out -> in): %v", errOutToIn)
+			f.logger.Error("proxyTCP: copy error (out → in) for %s: %v", epID(id), errOutToIn)
 		}
 	}
 

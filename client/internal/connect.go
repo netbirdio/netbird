@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -436,11 +435,12 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		DNSRouteInterval:     config.DNSRouteInterval,
 
 		DisableClientRoutes: config.DisableClientRoutes,
-		DisableServerRoutes: config.DisableServerRoutes,
+		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
 		DisableDNS:          config.DisableDNS,
 		DisableFirewall:     config.DisableFirewall,
+		BlockLANAccess:      config.BlockLANAccess,
+		BlockInbound:        config.BlockInbound,
 
-		BlockLANAccess:        config.BlockLANAccess,
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 	}
 
@@ -499,6 +499,9 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.DisableServerRoutes,
 		config.DisableDNS,
 		config.DisableFirewall,
+		config.BlockLANAccess,
+		config.BlockInbound,
+		config.LazyConnectionEnabled,
 	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {
@@ -522,17 +525,13 @@ func statusRecorderToSignalConnStateNotifier(statusRecorder *peer.Status) signal
 
 // freePort attempts to determine if the provided port is available, if not it will ask the system for a free port.
 func freePort(initPort int) (int, error) {
-	addr := net.UDPAddr{}
-	if initPort == 0 {
-		initPort = iface.DefaultWgPort
-	}
-
-	addr.Port = initPort
+	addr := net.UDPAddr{Port: initPort}
 
 	conn, err := net.ListenUDP("udp", &addr)
 	if err == nil {
+		returnPort := conn.LocalAddr().(*net.UDPAddr).Port
 		closeConnWithLog(conn)
-		return initPort, nil
+		return returnPort, nil
 	}
 
 	// if the port is already in use, ask the system for a free port

@@ -271,11 +271,8 @@ func TestNotMatchByIP(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("100.10.0.100"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("100.10.0.0"),
-					Mask: net.CIDRMask(16, 32),
-				},
+				IP:      netip.MustParseAddr("100.10.0.100"),
+				Network: netip.MustParsePrefix("100.10.0.0/16"),
 			}
 		},
 	}
@@ -284,10 +281,6 @@ func TestNotMatchByIP(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to create Manager: %v", err)
 		return
-	}
-	m.wgNetwork = &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
 	}
 
 	ip := net.ParseIP("0.0.0.0")
@@ -328,7 +321,7 @@ func TestNotMatchByIP(t *testing.T) {
 		return
 	}
 
-	if m.dropFilter(buf.Bytes(), 0) {
+	if m.filterInbound(buf.Bytes(), 0) {
 		t.Errorf("expected packet to be accepted")
 		return
 	}
@@ -396,10 +389,6 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	}, false, flowLogger)
 	require.NoError(t, err)
 
-	manager.wgNetwork = &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
-	}
 	manager.udpTracker.Close()
 	manager.udpTracker = conntrack.NewUDPTracker(100*time.Millisecond, logger, flowLogger)
 	defer func() {
@@ -458,7 +447,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test hook gets called
-	result := manager.processOutgoingHooks(buf.Bytes(), 0)
+	result := manager.filterOutbound(buf.Bytes(), 0)
 	require.True(t, result)
 	require.True(t, hookCalled)
 
@@ -468,7 +457,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	err = gopacket.SerializeLayers(buf, opts, ipv4)
 	require.NoError(t, err)
 
-	result = manager.processOutgoingHooks(buf.Bytes(), 0)
+	result = manager.filterOutbound(buf.Bytes(), 0)
 	require.False(t, result)
 }
 
@@ -508,11 +497,6 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 	}, false, flowLogger)
 	require.NoError(t, err)
-
-	manager.wgNetwork = &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
-	}
 
 	manager.udpTracker.Close() // Close the existing tracker
 	manager.udpTracker = conntrack.NewUDPTracker(200*time.Millisecond, logger, flowLogger)
@@ -569,7 +553,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	require.NoError(t, err)
 
 	// Process outbound packet and verify connection tracking
-	drop := manager.DropOutgoing(outboundBuf.Bytes(), 0)
+	drop := manager.FilterOutbound(outboundBuf.Bytes(), 0)
 	require.False(t, drop, "Initial outbound packet should not be dropped")
 
 	// Verify connection was tracked
@@ -636,7 +620,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	for _, cp := range checkPoints {
 		time.Sleep(cp.sleep)
 
-		drop = manager.dropFilter(inboundBuf.Bytes(), 0)
+		drop = manager.filterInbound(inboundBuf.Bytes(), 0)
 		require.Equal(t, cp.shouldAllow, !drop, cp.description)
 
 		// If the connection should still be valid, verify it exists
@@ -685,7 +669,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 	}
 
 	// Create a new outbound connection for invalid tests
-	drop = manager.processOutgoingHooks(outboundBuf.Bytes(), 0)
+	drop = manager.filterOutbound(outboundBuf.Bytes(), 0)
 	require.False(t, drop, "Second outbound packet should not be dropped")
 
 	for _, tc := range invalidCases {
@@ -707,7 +691,7 @@ func TestStatefulFirewall_UDPTracking(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the invalid packet is dropped
-			drop = manager.dropFilter(testBuf.Bytes(), 0)
+			drop = manager.filterInbound(testBuf.Bytes(), 0)
 			require.True(t, drop, tc.description)
 		})
 	}

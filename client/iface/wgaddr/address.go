@@ -2,28 +2,27 @@ package wgaddr
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 )
 
 // Address WireGuard parsed address
 type Address struct {
-	IP      net.IP
-	Network *net.IPNet
+	IP      netip.Addr
+	Network netip.Prefix
 }
 
 // ParseWGAddress parse a string ("1.2.3.4/24") address to WG Address
 func ParseWGAddress(address string) (Address, error) {
-	ip, network, err := net.ParseCIDR(address)
+	prefix, err := netip.ParsePrefix(address)
 	if err != nil {
 		return Address{}, err
 	}
 	return Address{
-		IP:      ip,
-		Network: network,
+		IP:      prefix.Addr().Unmap(),
+		Network: prefix.Masked(),
 	}, nil
 }
 
 func (addr Address) String() string {
-	maskSize, _ := addr.Network.Mask.Size()
-	return fmt.Sprintf("%s/%d", addr.IP.String(), maskSize)
+	return fmt.Sprintf("%s/%d", addr.IP.String(), addr.Network.Bits())
 }

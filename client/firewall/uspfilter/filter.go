@@ -39,8 +39,12 @@ const (
 	// EnvForceUserspaceRouter forces userspace routing even if native routing is available.
 	EnvForceUserspaceRouter = "NB_FORCE_USERSPACE_ROUTER"
 
-	// EnvEnableNetstackLocalForwarding enables forwarding of local traffic to the native stack when running netstack
-	// Leaving this on by default introduces a security risk as sockets on listening on localhost only will be accessible
+	// EnvEnableLocalForwarding enables forwarding of local traffic to the native stack for internal (non-NetBird) interfaces.
+	// Default off as it might be security risk because sockets listening on localhost only will become accessible.
+	EnvEnableLocalForwarding = "NB_ENABLE_LOCAL_FORWARDING"
+
+	// EnvEnableNetstackLocalForwarding is an alias for EnvEnableLocalForwarding.
+	// In netstack mode, it enables forwarding of local traffic to the native stack for all interfaces.
 	EnvEnableNetstackLocalForwarding = "NB_ENABLE_NETSTACK_LOCAL_FORWARDING"
 )
 
@@ -71,7 +75,6 @@ type Manager struct {
 	// incomingRules is used for filtering and hooks
 	incomingRules  map[netip.Addr]RuleSet
 	routeRules     RouteRules
-	wgNetwork      *net.IPNet
 	decoders       sync.Pool
 	wgIface        common.IFaceMapper
 	nativeFirewall firewall.Manager
@@ -101,6 +104,12 @@ type Manager struct {
 	flowLogger  nftypes.FlowLogger
 
 	blockRule firewall.Rule
+
+	// Internal 1:1 DNAT
+	dnatEnabled  atomic.Bool
+	dnatMappings map[netip.Addr]netip.Addr
+	dnatMutex    sync.RWMutex
+	dnatBiMap    *biDNATMap
 }
 
 // decoder for packages
@@ -148,6 +157,11 @@ func parseCreateEnv() (bool, bool) {
 		if err != nil {
 			log.Warnf("failed to parse %s: %v", EnvEnableNetstackLocalForwarding, err)
 		}
+	} else if val := os.Getenv(EnvEnableLocalForwarding); val != "" {
+		enableLocalForwarding, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", EnvEnableLocalForwarding, err)
+		}
 	}
 
 	return disableConntrack, enableLocalForwarding
@@ -181,6 +195,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		flowLogger:          flowLogger,
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
+		dnatMappings:        make(map[netip.Addr]netip.Addr),
 	}
 	m.routingEnabled.Store(false)
 
@@ -269,7 +284,7 @@ func (m *Manager) determineRouting() error {
 
 		log.Info("userspace routing is forced")
 
-	case !m.netstack && m.nativeFirewall != nil && m.nativeFirewall.IsServerRouteSupported():
+	case !m.netstack && m.nativeFirewall != nil:
 		// if the OS supports routing natively, then we don't need to filter/route ourselves
 		// netstack mode won't support native routing as there is no interface
 
@@ -324,6 +339,10 @@ func (m *Manager) Init(*statemanager.Manager) error {
 
 func (m *Manager) IsServerRouteSupported() bool {
 	return true
+}
+
+func (m *Manager) IsStateful() bool {
+	return m.stateful
 }
 
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
@@ -507,22 +526,6 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 
-// AddDNATRule adds a DNAT rule
-func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	if m.nativeFirewall == nil {
-		return nil, errNatNotSupported
-	}
-	return m.nativeFirewall.AddDNATRule(rule)
-}
-
-// DeleteDNATRule deletes a DNAT rule
-func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
-	if m.nativeFirewall == nil {
-		return errNatNotSupported
-	}
-	return m.nativeFirewall.DeleteDNATRule(rule)
-}
-
 // UpdateSet updates the rule destinations associated with the given set
 // by merging the existing prefixes with the new ones, then deduplicating.
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
@@ -569,14 +572,14 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	return nil
 }
 
-// DropOutgoing filter outgoing packets
-func (m *Manager) DropOutgoing(packetData []byte, size int) bool {
-	return m.processOutgoingHooks(packetData, size)
+// FilterOutBound filters outgoing packets
+func (m *Manager) FilterOutbound(packetData []byte, size int) bool {
+	return m.filterOutbound(packetData, size)
 }
 
-// DropIncoming filter incoming packets
-func (m *Manager) DropIncoming(packetData []byte, size int) bool {
-	return m.dropFilter(packetData, size)
+// FilterInbound filters incoming packets
+func (m *Manager) FilterInbound(packetData []byte, size int) bool {
+	return m.filterInbound(packetData, size)
 }
 
 // UpdateLocalIPs updates the list of local IPs
@@ -584,7 +587,7 @@ func (m *Manager) UpdateLocalIPs() error {
 	return m.localipmanager.UpdateLocalIPs(m.wgIface)
 }
 
-func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
+func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 
@@ -606,9 +609,8 @@ func (m *Manager) processOutgoingHooks(packetData []byte, size int) bool {
 		return true
 	}
 
-	if m.stateful {
-		m.trackOutbound(d, srcIP, dstIP, size)
-	}
+	m.trackOutbound(d, srcIP, dstIP, size)
+	m.translateOutboundDNAT(packetData, d)
 
 	return false
 }
@@ -660,7 +662,7 @@ func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, size int) {
 		flags := getTCPFlags(&d.tcp)
 		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
 	case layers.LayerTypeICMPv4:
-		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, size)
+		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, d.icmp4.Payload, size)
 	}
 }
 
@@ -673,7 +675,7 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, ruleID []byt
 		flags := getTCPFlags(&d.tcp)
 		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size)
 	case layers.LayerTypeICMPv4:
-		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, ruleID, size)
+		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, ruleID, d.icmp4.Payload, size)
 	}
 }
 
@@ -712,9 +714,9 @@ func (m *Manager) udpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte
 	return false
 }
 
-// dropFilter implements filtering logic for incoming packets.
+// filterInbound implements filtering logic for incoming packets.
 // If it returns true, the packet should be dropped.
-func (m *Manager) dropFilter(packetData []byte, size int) bool {
+func (m *Manager) filterInbound(packetData []byte, size int) bool {
 	d := m.decoders.Get().(*decoder)
 	defer m.decoders.Put(d)
 
@@ -736,8 +738,15 @@ func (m *Manager) dropFilter(packetData []byte, size int) bool {
 		return false
 	}
 
-	// For all inbound traffic, first check if it matches a tracked connection.
-	// This must happen before any other filtering because the packets are statefully tracked.
+	if translated := m.translateInboundReverse(packetData, d); translated {
+		// Re-decode after translation to get original addresses
+		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+			m.logger.Error("Failed to re-decode packet after reverse DNAT: %v", err)
+			return true
+		}
+		srcIP, dstIP = m.extractIPs(d)
+	}
+
 	if m.stateful && m.isValidTrackedConnection(d, srcIP, dstIP, size) {
 		return false
 	}
@@ -777,9 +786,10 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 		return true
 	}
 
-	// if running in netstack mode we need to pass this to the forwarder
-	if m.netstack && m.localForwarding {
-		return m.handleNetstackLocalTraffic(packetData)
+	// If requested we pass local traffic to internal interfaces to the forwarder.
+	// netstack doesn't have an interface to forward packets to the native stack so we always need to use the forwarder.
+	if m.localForwarding && (m.netstack || dstIP != m.wgIface.Address().IP) {
+		return m.handleForwardedLocalTraffic(packetData)
 	}
 
 	// track inbound packets to get the correct direction and session id for flows
@@ -789,8 +799,7 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 	return false
 }
 
-func (m *Manager) handleNetstackLocalTraffic(packetData []byte) bool {
-
+func (m *Manager) handleForwardedLocalTraffic(packetData []byte) bool {
 	fwd := m.forwarder.Load()
 	if fwd == nil {
 		m.logger.Trace("Dropping local packet (forwarder not initialized)")
@@ -1086,11 +1095,6 @@ func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, prot
 	}
 
 	return true
-}
-
-// SetNetwork of the wireguard interface to which filtering applied
-func (m *Manager) SetNetwork(network *net.IPNet) {
-	m.wgNetwork = network
 }
 
 // AddUDPPacketHook calls hook when UDP packet from given direction matched

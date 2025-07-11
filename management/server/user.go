@@ -531,9 +531,13 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		groupsMap[group.ID] = group
 	}
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
-	if err != nil {
-		return nil, err
+	var initiatorUser *types.User
+	if initiatorUserID != activity.SystemInitiator {
+		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+		if err != nil {
+			return nil, err
+		}
+		initiatorUser = result
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -543,10 +547,10 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			}
 
 			userHadPeers, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
-				ctx, transaction, groupsMap, accountID, initiatorUser, update, addIfNotExists, settings,
+				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to process user update: %w", err)
+				return fmt.Errorf("failed to process update for user %s: %w", update.Id, err)
 			}
 			usersToSave = append(usersToSave, updatedUser)
 			addUserEvents = append(addUserEvents, userEvents...)
@@ -629,7 +633,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 }
 
 func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transaction store.Store, groupsMap map[string]*types.Group,
-	accountID string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
+	accountID, initiatorUserId string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
 
 	if update == nil {
 		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
@@ -653,10 +657,12 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	updatedUser.Issued = update.Issued
 	updatedUser.IntegrationReference = update.IntegrationReference
 
-	transferredOwnerRole, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
+	var transferredOwnerRole bool
+	result, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
 	if err != nil {
 		return false, nil, nil, nil, err
 	}
+	transferredOwnerRole = result
 
 	userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthUpdate, updatedUser.AccountID, update.Id)
 	if err != nil {
@@ -676,13 +682,13 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 			return false, nil, nil, nil, fmt.Errorf("error modifying user peers in groups: %w", err)
 		}
 
-		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, update.AccountID, updatedGroups); err != nil {
+		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, updatedGroups); err != nil {
 			return false, nil, nil, nil, fmt.Errorf("error saving groups: %w", err)
 		}
 	}
 
 	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUser.Id, oldUser, updatedUser, transferredOwnerRole)
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole)
 
 	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
 }
@@ -709,7 +715,7 @@ func getUserOrCreateIfNotExists(ctx context.Context, transaction store.Store, ac
 }
 
 func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initiatorUser, update *types.User) (bool, error) {
-	if initiatorUser.Role == types.UserRoleOwner && initiatorUser.Id != update.Id && update.Role == types.UserRoleOwner {
+	if initiatorUser != nil && initiatorUser.Role == types.UserRoleOwner && initiatorUser.Id != update.Id && update.Role == types.UserRoleOwner {
 		newInitiatorUser := initiatorUser.Copy()
 		newInitiatorUser.Role = types.UserRoleAdmin
 
@@ -737,6 +743,10 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.Us
 
 // validateUserUpdate validates the update operation for a user.
 func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUser, update *types.User) error {
+	if initiatorUser == nil {
+		return nil
+	}
+
 	// @todo double check these
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
@@ -818,9 +828,13 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		return nil, status.NewPermissionValidationError(err)
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+	var user *types.User
+	if initiatorUserID != activity.SystemInitiator {
+		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+		user = result
 	}
 
 	accountUsers := []*types.User{}
@@ -830,7 +844,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		if err != nil {
 			return nil, err
 		}
-	case user.AccountID == accountID:
+	case user != nil && user.AccountID == accountID:
 		accountUsers = append(accountUsers, user)
 	default:
 		return map[string]*types.UserInfo{}, nil
@@ -1139,8 +1153,9 @@ func updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbp
 		if !ok {
 			return nil, errors.New("group not found")
 		}
-		addUserPeersToGroup(userPeerIDMap, group)
-		groupsToUpdate = append(groupsToUpdate, group)
+		if changed := addUserPeersToGroup(userPeerIDMap, group); changed {
+			groupsToUpdate = append(groupsToUpdate, group)
+		}
 	}
 
 	for _, gid := range groupsToRemove {
@@ -1148,45 +1163,65 @@ func updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbp
 		if !ok {
 			return nil, errors.New("group not found")
 		}
-		removeUserPeersFromGroup(userPeerIDMap, group)
-		groupsToUpdate = append(groupsToUpdate, group)
+		if changed := removeUserPeersFromGroup(userPeerIDMap, group); changed {
+			groupsToUpdate = append(groupsToUpdate, group)
+		}
 	}
 
 	return groupsToUpdate, nil
 }
 
 // addUserPeersToGroup adds the user's peers to the group.
-func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *types.Group) {
+func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *types.Group) bool {
 	groupPeers := make(map[string]struct{}, len(group.Peers))
 	for _, pid := range group.Peers {
 		groupPeers[pid] = struct{}{}
 	}
 
+	changed := false
 	for pid := range userPeerIDs {
-		groupPeers[pid] = struct{}{}
+		if _, exists := groupPeers[pid]; !exists {
+			groupPeers[pid] = struct{}{}
+			changed = true
+		}
 	}
 
 	group.Peers = make([]string, 0, len(groupPeers))
 	for pid := range groupPeers {
 		group.Peers = append(group.Peers, pid)
 	}
+
+	if changed {
+		group.Peers = make([]string, 0, len(groupPeers))
+		for pid := range groupPeers {
+			group.Peers = append(group.Peers, pid)
+		}
+	}
+	return changed
 }
 
 // removeUserPeersFromGroup removes user's peers from the group.
-func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *types.Group) {
+func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *types.Group) bool {
 	// skip removing peers from group All
 	if group.Name == "All" {
-		return
+		return false
 	}
 
 	updatedPeers := make([]string, 0, len(group.Peers))
+	changed := false
+
 	for _, pid := range group.Peers {
-		if _, found := userPeerIDs[pid]; !found {
-			updatedPeers = append(updatedPeers, pid)
+		if _, owned := userPeerIDs[pid]; owned {
+			changed = true
+			continue
 		}
+		updatedPeers = append(updatedPeers, pid)
 	}
 
-	group.Peers = updatedPeers
+	if changed {
+		group.Peers = updatedPeers
+	}
+	return changed
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {

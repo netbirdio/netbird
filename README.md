@@ -12,8 +12,11 @@
        <img src="https://img.shields.io/badge/license-BSD--3-blue" />
      </a> 
     <br>
-    <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-31rofwmxc-27akKd0Le0vyRpBcwXkP0g">
+    <a href="https://docs.netbird.io/slack-url">
         <img src="https://img.shields.io/badge/slack-@netbird-red.svg?logo=slack"/>
+     </a>
+    <a href="https://forum.netbird.io">
+        <img src="https://img.shields.io/badge/community forum-@netbird-red.svg?logo=discourse"/>
      </a>  
      <br>
     <a href="https://gurubase.io/g/netbird">
@@ -29,13 +32,13 @@
   <br/>
   See <a href="https://netbird.io/docs/">Documentation</a>
   <br/>
-   Join our <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-31rofwmxc-27akKd0Le0vyRpBcwXkP0g">Slack channel</a>
+   Join our <a href="https://docs.netbird.io/slack-url">Slack channel</a> or our <a href="https://forum.netbird.io">Community forum</a>
   <br/>
  
 </strong>
 <br>
-<a href="https://github.com/netbirdio/kubernetes-operator">
-    New: NetBird Kubernetes Operator
+<a href="https://registry.terraform.io/providers/netbirdio/netbird/latest">
+    New: NetBird terraform provider
   </a> 
 </p>
 
@@ -47,10 +50,9 @@
 
 **Secure.** NetBird enables secure remote access by applying granular access policies while allowing you to manage them intuitively from a single place. Works universally on any infrastructure.
 
-### Open-Source Network Security in a Single Platform
+### Open Source Network Security in a Single Platform
 
-
-![netbird_2](https://github.com/netbirdio/netbird/assets/700848/46bc3b73-508d-4a0e-bb9a-f465d68646ab)
+<img width="1188" alt="centralized-network-management 1" src="https://github.com/user-attachments/assets/c28cc8e4-15d2-4d2f-bb97-a6433db39d56" />
 
 ### NetBird on Lawrence Systems (Video)
 [![Watch the video](https://img.youtube.com/vi/Kwrff6h0rEw/0.jpg)](https://www.youtube.com/watch?v=Kwrff6h0rEw)

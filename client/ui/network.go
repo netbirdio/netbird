@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -32,6 +33,11 @@ const (
 )
 
 type filter string
+
+type exitNodeState struct {
+	id       string
+	selected bool
+}
 
 func (s *serviceClient) showNetworksUI() {
 	s.wNetworks = s.app.NewWindow("Networks")
@@ -352,23 +358,48 @@ func (s *serviceClient) updateExitNodes() {
 	} else {
 		s.mExitNode.Disable()
 	}
-
-	log.Debugf("Exit nodes updated: %d", len(s.mExitNodeItems))
 }
 
 func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
+	var exitNodeIDs []exitNodeState
+	for _, node := range exitNodes {
+		exitNodeIDs = append(exitNodeIDs, exitNodeState{
+			id:       node.ID,
+			selected: node.Selected,
+		})
+	}
+
+	sort.Slice(exitNodeIDs, func(i, j int) bool {
+		return exitNodeIDs[i].id < exitNodeIDs[j].id
+	})
+	if slices.Equal(s.exitNodeStates, exitNodeIDs) {
+		log.Debug("Exit node menu already up to date")
+		return
+	}
+
 	for _, node := range s.mExitNodeItems {
 		node.cancel()
+		node.Hide()
 		node.Remove()
 	}
 	s.mExitNodeItems = nil
+	if s.mExitNodeDeselectAll != nil {
+		s.mExitNodeDeselectAll.Remove()
+		s.mExitNodeDeselectAll = nil
+	}
 
 	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
 		s.mExitNode.Remove()
 		s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
 	}
 
+	var showDeselectAll bool
+
 	for _, node := range exitNodes {
+		if node.Selected {
+			showDeselectAll = true
+		}
+
 		menuItem := s.mExitNode.AddSubMenuItemCheckbox(
 			node.ID,
 			fmt.Sprintf("Use exit node %s", node.ID),
@@ -381,6 +412,32 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 			cancel:   cancel,
 		})
 		go s.handleChecked(ctx, node.ID, menuItem)
+	}
+
+	s.exitNodeStates = exitNodeIDs
+
+	if showDeselectAll {
+		s.mExitNode.AddSeparator()
+		deselectAllItem := s.mExitNode.AddSubMenuItem("Deselect All", "Deselect All")
+		s.mExitNodeDeselectAll = deselectAllItem
+		go func() {
+			for {
+				_, ok := <-deselectAllItem.ClickedCh
+				if !ok {
+					// channel closed: exit the goroutine
+					return
+				}
+				exitNodes, err := s.handleExitNodeMenuDeselectAll()
+				if err != nil {
+					log.Warnf("failed to handle deselect all exit nodes: %v", err)
+				} else {
+					s.exitNodeMu.Lock()
+					s.recreateExitNodeMenu(exitNodes)
+					s.exitNodeMu.Unlock()
+				}
+			}
+
+		}()
 	}
 
 }
@@ -418,6 +475,37 @@ func (s *serviceClient) handleChecked(ctx context.Context, id string, item *syst
 			}
 		}
 	}
+}
+
+func (s *serviceClient) handleExitNodeMenuDeselectAll() ([]*proto.Network, error) {
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("get client: %v", err)
+	}
+
+	exitNodes, err := s.getExitNodes(conn)
+	if err != nil {
+		return nil, fmt.Errorf("get exit nodes: %v", err)
+	}
+
+	var ids []string
+	for _, e := range exitNodes {
+		if e.Selected {
+			ids = append(ids, e.ID)
+		}
+	}
+
+	// deselect selected exit nodes
+	if err := s.deselectOtherExitNodes(conn, ids); err != nil {
+		return nil, err
+	}
+
+	updatedExitNodes, err := s.getExitNodes(conn)
+	if err != nil {
+		return nil, fmt.Errorf("re-fetch exit nodes: %v", err)
+	}
+
+	return updatedExitNodes, nil
 }
 
 // Add function to toggle exit node selection

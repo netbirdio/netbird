@@ -76,7 +76,6 @@ func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 		rules = append(rules, generateRulesWithPortRanges(baseRule, rule, rulesExists)...)
 	} else {
 		rules = append(rules, generateRulesWithPorts(ctx, baseRule, rule, rulesExists)...)
-
 	}
 
 	// TODO: generate IPv6 rules for dynamic routes

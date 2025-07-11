@@ -37,21 +37,23 @@ func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(ctx context.Con
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	a, err := am.Store.GetAccountByUser(ctx, userID)
-	if err != nil {
-		return err
-	}
+	return am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		a, err := transaction.GetAccountByUser(ctx, userID)
+		if err != nil {
+			return err
+		}
 
-	var extra *types.ExtraSettings
+		var extra *types.ExtraSettings
 
-	if a.Settings.Extra != nil {
-		extra = a.Settings.Extra
-	} else {
-		extra = &types.ExtraSettings{}
-		a.Settings.Extra = extra
-	}
-	extra.IntegratedValidatorGroups = groups
-	return am.Store.SaveAccount(ctx, a)
+		if a.Settings.Extra != nil {
+			extra = a.Settings.Extra
+		} else {
+			extra = &types.ExtraSettings{}
+			a.Settings.Extra = extra
+		}
+		extra.IntegratedValidatorGroups = groups
+		return transaction.SaveAccount(ctx, a)
+	})
 }
 
 func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID string, groupIDs []string) (bool, error) {
@@ -81,15 +83,12 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 	var peers []*nbpeer.Peer
 	var settings *types.Settings
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return err
-		}
+	groups, err = am.Store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return nil, err
+	}
 
-		peers, err = transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
-		return err
-	})
+	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
 	if err != nil {
 		return nil, err
 	}

@@ -19,12 +19,8 @@ import (
 )
 
 func TestPeerACLFiltering(t *testing.T) {
-	localIP := net.ParseIP("100.10.0.100")
-	wgNet := &net.IPNet{
-		IP:   net.ParseIP("100.10.0.0"),
-		Mask: net.CIDRMask(16, 32),
-	}
-
+	localIP := netip.MustParseAddr("100.10.0.100")
+	wgNet := netip.MustParsePrefix("100.10.0.0/16")
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 		AddressFunc: func() wgaddr.Address {
@@ -42,8 +38,6 @@ func TestPeerACLFiltering(t *testing.T) {
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
 	})
-
-	manager.wgNetwork = wgNet
 
 	err = manager.UpdateLocalIPs()
 	require.NoError(t, err)
@@ -468,7 +462,7 @@ func TestPeerACLFiltering(t *testing.T) {
 
 	t.Run("Implicit DROP (no rules)", func(t *testing.T) {
 		packet := createTestPacket(t, "100.10.0.1", "100.10.0.100", fw.ProtocolTCP, 12345, 443)
-		isDropped := manager.DropIncoming(packet, 0)
+		isDropped := manager.FilterInbound(packet, 0)
 		require.True(t, isDropped, "Packet should be dropped when no rules exist")
 	})
 
@@ -515,7 +509,7 @@ func TestPeerACLFiltering(t *testing.T) {
 			})
 
 			packet := createTestPacket(t, tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
-			isDropped := manager.DropIncoming(packet, 0)
+			isDropped := manager.FilterInbound(packet, 0)
 			require.Equal(t, tc.shouldBeBlocked, isDropped)
 		})
 	}
@@ -581,14 +575,13 @@ func setupRoutedManager(tb testing.TB, network string) *Manager {
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().MTU().Return(1500, nil).AnyTimes()
 
-	localIP, wgNet, err := net.ParseCIDR(network)
-	require.NoError(tb, err)
+	wgNet := netip.MustParsePrefix(network)
 
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP:      localIP,
+				IP:      wgNet.Addr(),
 				Network: wgNet,
 			}
 		},
@@ -1240,7 +1233,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			srcIP := netip.MustParseAddr(tc.srcIP)
 			dstIP := netip.MustParseAddr(tc.dstIP)
 
-			// testing routeACLsPass only and not DropIncoming, as routed packets are dropped after being passed
+			// testing routeACLsPass only and not FilterInbound, as routed packets are dropped after being passed
 			// to the forwarder
 			_, isAllowed := manager.routeACLsPass(srcIP, dstIP, tc.proto, tc.srcPort, tc.dstPort)
 			require.Equal(t, tc.shouldPass, isAllowed)
@@ -1440,11 +1433,8 @@ func TestRouteACLSet(t *testing.T) {
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("100.10.0.100"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("100.10.0.0"),
-					Mask: net.CIDRMask(16, 32),
-				},
+				IP:      netip.MustParseAddr("100.10.0.100"),
+				Network: netip.MustParsePrefix("100.10.0.0/16"),
 			}
 		},
 	}

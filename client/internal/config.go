@@ -68,8 +68,8 @@ type ConfigInput struct {
 	DisableServerRoutes *bool
 	DisableDNS          *bool
 	DisableFirewall     *bool
-
-	BlockLANAccess *bool
+	BlockLANAccess      *bool
+	BlockInbound        *bool
 
 	DisableNotifications *bool
 
@@ -98,8 +98,8 @@ type Config struct {
 	DisableServerRoutes bool
 	DisableDNS          bool
 	DisableFirewall     bool
-
-	BlockLANAccess bool
+	BlockLANAccess      bool
+	BlockInbound        bool
 
 	DisableNotifications *bool
 
@@ -223,6 +223,8 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	config := &Config{
 		// defaults to false only for new (post 0.26) configurations
 		ServerSSHAllowed: util.False(),
+		// default to disabling server routes on Android for security
+		DisableServerRoutes: runtime.GOOS == "android",
 	}
 
 	if _, err := config.apply(input); err != nil {
@@ -316,10 +318,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		log.Infof("updating Wireguard port %d (old value %d)",
 			*input.WireguardPort, config.WgPort)
 		config.WgPort = *input.WireguardPort
-		updated = true
-	} else if config.WgPort == 0 {
-		config.WgPort = iface.DefaultWgPort
-		log.Infof("using default Wireguard port %d", config.WgPort)
 		updated = true
 	}
 
@@ -416,9 +414,15 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		config.ServerSSHAllowed = input.ServerSSHAllowed
 		updated = true
 	} else if config.ServerSSHAllowed == nil {
-		// enables SSH for configs from old versions to preserve backwards compatibility
-		log.Infof("falling back to enabled SSH server for pre-existing configuration")
-		config.ServerSSHAllowed = util.True()
+		if runtime.GOOS == "android" {
+			// default to disabled SSH on Android for security
+			log.Infof("setting SSH server to false by default on Android")
+			config.ServerSSHAllowed = util.False()
+		} else {
+			// enables SSH for configs from old versions to preserve backwards compatibility
+			log.Infof("falling back to enabled SSH server for pre-existing configuration")
+			config.ServerSSHAllowed = util.True()
+		}
 		updated = true
 	}
 
@@ -480,6 +484,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("allowing LAN access")
 		}
 		config.BlockLANAccess = *input.BlockLANAccess
+		updated = true
+	}
+
+	if input.BlockInbound != nil && *input.BlockInbound != config.BlockInbound {
+		if *input.BlockInbound {
+			log.Infof("blocking inbound connections")
+		} else {
+			log.Infof("allowing inbound connections")
+		}
+		config.BlockInbound = *input.BlockInbound
 		updated = true
 	}
 

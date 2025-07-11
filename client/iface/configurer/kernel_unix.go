@@ -5,12 +5,15 @@ package configurer
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+var zeroKey wgtypes.Key
 
 type KernelConfigurer struct {
 	deviceName string
@@ -43,7 +46,7 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 	return nil
 }
 
-func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
@@ -52,7 +55,7 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []net.IPNet, ke
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: false,
 		// don't replace allowed ips, wg will handle duplicated peer IP
-		AllowedIPs:                  allowedIps,
+		AllowedIPs:                  prefixesToIPNets(allowedIps),
 		PersistentKeepaliveInterval: &keepAlive,
 		Endpoint:                    endpoint,
 		PresharedKey:                preSharedKey,
@@ -89,10 +92,10 @@ func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	return nil
 }
 
-func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error {
-	_, ipNet, err := net.ParseCIDR(allowedIP)
-	if err != nil {
-		return err
+func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
+	ipNet := net.IPNet{
+		IP:   allowedIP.Addr().AsSlice(),
+		Mask: net.CIDRMask(allowedIP.Bits(), allowedIP.Addr().BitLen()),
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
@@ -103,7 +106,7 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error 
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
 		ReplaceAllowedIPs: false,
-		AllowedIPs:        []net.IPNet{*ipNet},
+		AllowedIPs:        []net.IPNet{ipNet},
 	}
 
 	config := wgtypes.Config{
@@ -116,10 +119,10 @@ func (c *KernelConfigurer) AddAllowedIP(peerKey string, allowedIP string) error 
 	return nil
 }
 
-func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP string) error {
-	_, ipNet, err := net.ParseCIDR(allowedIP)
-	if err != nil {
-		return fmt.Errorf("parse allowed IP: %w", err)
+func (c *KernelConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
+	ipNet := net.IPNet{
+		IP:   allowedIP.Addr().AsSlice(),
+		Mask: net.CIDRMask(allowedIP.Bits(), allowedIP.Addr().BitLen()),
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
@@ -187,7 +190,11 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 	if err != nil {
 		return err
 	}
-	defer wg.Close()
+	defer func() {
+		if err := wg.Close(); err != nil {
+			log.Errorf("Failed to close wgctrl client: %v", err)
+		}
+	}()
 
 	// validate if device with name exists
 	_, err = wg.Device(c.deviceName)
@@ -199,6 +206,47 @@ func (c *KernelConfigurer) configure(config wgtypes.Config) error {
 }
 
 func (c *KernelConfigurer) Close() {
+}
+
+func (c *KernelConfigurer) FullStats() (*Stats, error) {
+	wg, err := wgctrl.New()
+	if err != nil {
+		return nil, fmt.Errorf("wgctl: %w", err)
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			log.Errorf("Got error while closing wgctl: %v", err)
+		}
+	}()
+
+	wgDevice, err := wg.Device(c.deviceName)
+	if err != nil {
+		return nil, fmt.Errorf("get device %s: %w", c.deviceName, err)
+	}
+	fullStats := &Stats{
+		DeviceName: wgDevice.Name,
+		PublicKey:  wgDevice.PublicKey.String(),
+		ListenPort: wgDevice.ListenPort,
+		FWMark:     wgDevice.FirewallMark,
+		Peers:      []Peer{},
+	}
+
+	for _, p := range wgDevice.Peers {
+		peer := Peer{
+			PublicKey:     p.PublicKey.String(),
+			AllowedIPs:    p.AllowedIPs,
+			TxBytes:       p.TransmitBytes,
+			RxBytes:       p.ReceiveBytes,
+			LastHandshake: p.LastHandshakeTime,
+			PresharedKey:  p.PresharedKey != zeroKey,
+		}
+		if p.Endpoint != nil {
+			peer.Endpoint = *p.Endpoint
+		}
+		fullStats.Peers = append(fullStats.Peers, peer)
+	}
+	return fullStats, nil
 }
 
 func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
@@ -227,4 +275,8 @@ func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
 		}
 	}
 	return stats, nil
+}
+
+func (c *KernelConfigurer) LastActivities() map[string]time.Time {
+	return nil
 }

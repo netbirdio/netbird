@@ -47,6 +47,7 @@ message Body {
     ANSWER = 1;
     CANDIDATE = 2;
     MODE = 4;
+    GO_IDLE = 5;
   }
   Type type = 1;
   string payload = 2;

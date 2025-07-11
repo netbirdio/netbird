@@ -69,7 +69,10 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
+	status := resp.GetStatus()
+
+	if status == string(internal.StatusNeedsLogin) || status == string(internal.StatusLoginFailed) ||
+		status == string(internal.StatusSessionExpired) {
 		cmd.Printf("Daemon status: %s\n\n"+
 			"Run UP command to log in with SSO (interactive login):\n\n"+
 			" netbird up \n\n"+
@@ -117,7 +120,7 @@ func getStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	}
 	defer conn.Close()
 
-	resp, err := proto.NewDaemonServiceClient(conn).Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
+	resp, err := proto.NewDaemonServiceClient(conn).Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true, ShouldRunProbes: true})
 	if err != nil {
 		return nil, fmt.Errorf("status failed: %v", status.Convert(err).Message())
 	}

@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -10,9 +11,10 @@ import (
 )
 
 const (
-	PriorityDNSRoute    = 100
-	PriorityMatchDomain = 50
-	PriorityDefault     = 1
+	PriorityLocal    = 100
+	PriorityDNSRoute = 75
+	PriorityUpstream = 50
+	PriorityDefault  = 1
 )
 
 type SubdomainMatcher interface {
@@ -148,61 +150,42 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	qname := strings.ToLower(r.Question[0].Name)
-	log.Tracef("handling DNS request for domain=%s", qname)
 
 	c.mu.RLock()
 	handlers := slices.Clone(c.handlers)
 	c.mu.RUnlock()
 
 	if log.IsLevelEnabled(log.TraceLevel) {
-		log.Tracef("current handlers (%d):", len(handlers))
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("DNS request domain=%s, handlers (%d):\n", qname, len(handlers)))
 		for _, h := range handlers {
-			log.Tracef("  - pattern: domain=%s original: domain=%s wildcard=%v match_subdomain=%v priority=%d",
-				h.Pattern, h.OrigPattern, h.IsWildcard, h.MatchSubdomains, h.Priority)
+			b.WriteString(fmt.Sprintf("  - pattern: domain=%s original: domain=%s wildcard=%v match_subdomain=%v priority=%d\n",
+				h.Pattern, h.OrigPattern, h.IsWildcard, h.MatchSubdomains, h.Priority))
 		}
+		log.Trace(strings.TrimSuffix(b.String(), "\n"))
 	}
 
 	// Try handlers in priority order
 	for _, entry := range handlers {
-		var matched bool
-		switch {
-		case entry.Pattern == ".":
-			matched = true
-		case entry.IsWildcard:
-			parts := strings.Split(strings.TrimSuffix(qname, entry.Pattern), ".")
-			matched = len(parts) >= 2 && strings.HasSuffix(qname, entry.Pattern)
-		default:
-			// For non-wildcard patterns:
-			// If handler wants subdomain matching, allow suffix match
-			// Otherwise require exact match
-			if entry.MatchSubdomains {
-				matched = strings.EqualFold(qname, entry.Pattern) || strings.HasSuffix(qname, "."+entry.Pattern)
-			} else {
-				matched = strings.EqualFold(qname, entry.Pattern)
+		matched := c.isHandlerMatch(qname, entry)
+
+		if matched {
+			log.Tracef("handler matched: domain=%s -> pattern=%s wildcard=%v match_subdomain=%v priority=%d",
+				qname, entry.OrigPattern, entry.IsWildcard, entry.MatchSubdomains, entry.Priority)
+
+			chainWriter := &ResponseWriterChain{
+				ResponseWriter: w,
+				origPattern:    entry.OrigPattern,
 			}
-		}
+			entry.Handler.ServeDNS(chainWriter, r)
 
-		if !matched {
-			log.Tracef("trying domain match: request: domain=%s pattern: domain=%s wildcard=%v match_subdomain=%v priority=%d matched=false",
-				qname, entry.OrigPattern, entry.MatchSubdomains, entry.IsWildcard, entry.Priority)
-			continue
+			// If handler wants to continue, try next handler
+			if chainWriter.shouldContinue {
+				log.Tracef("handler requested continue to next handler for domain=%s", qname)
+				continue
+			}
+			return
 		}
-
-		log.Tracef("handler matched: request: domain=%s pattern: domain=%s wildcard=%v match_subdomain=%v priority=%d",
-			qname, entry.OrigPattern, entry.IsWildcard, entry.MatchSubdomains, entry.Priority)
-
-		chainWriter := &ResponseWriterChain{
-			ResponseWriter: w,
-			origPattern:    entry.OrigPattern,
-		}
-		entry.Handler.ServeDNS(chainWriter, r)
-
-		// If handler wants to continue, try next handler
-		if chainWriter.shouldContinue {
-			log.Tracef("handler requested continue to next handler")
-			continue
-		}
-		return
 	}
 
 	// No handler matched or all handlers passed
@@ -211,5 +194,24 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	resp.SetRcode(r, dns.RcodeNameError)
 	if err := w.WriteMsg(resp); err != nil {
 		log.Errorf("failed to write DNS response: %v", err)
+	}
+}
+
+func (c *HandlerChain) isHandlerMatch(qname string, entry HandlerEntry) bool {
+	switch {
+	case entry.Pattern == ".":
+		return true
+	case entry.IsWildcard:
+		parts := strings.Split(strings.TrimSuffix(qname, entry.Pattern), ".")
+		return len(parts) >= 2 && strings.HasSuffix(qname, entry.Pattern)
+	default:
+		// For non-wildcard patterns:
+		// If handler wants subdomain matching, allow suffix match
+		// Otherwise require exact match
+		if entry.MatchSubdomains {
+			return strings.EqualFold(qname, entry.Pattern) || strings.HasSuffix(qname, "."+entry.Pattern)
+		} else {
+			return strings.EqualFold(qname, entry.Pattern)
+		}
 	}
 }

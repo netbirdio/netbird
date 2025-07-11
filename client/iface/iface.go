@@ -29,6 +29,11 @@ const (
 	WgInterfaceDefault = configurer.WgInterfaceDefault
 )
 
+var (
+	// ErrIfaceNotFound is returned when the WireGuard interface is not found
+	ErrIfaceNotFound = fmt.Errorf("wireguard interface not found")
+)
+
 type wgProxyFactory interface {
 	GetProxy() wgproxy.Proxy
 	Free() error
@@ -43,6 +48,7 @@ type WGIFaceOpts struct {
 	MobileArgs   *device.MobileIFaceArguments
 	TransportNet transport.Net
 	FilterFn     bind.FilterFn
+	DisableDNS   bool
 }
 
 // WGIface represents an interface instance
@@ -111,38 +117,50 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
-// Endpoint is optional
+// Endpoint is optional.
+// If allowedIps is given it will be added to the existing ones.
 func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
 
-	netIPNets := prefixesToIPNets(allowedIps)
-	log.Debugf("updating interface %s peer %s, endpoint %s", w.tun.DeviceName(), peerKey, endpoint)
-	return w.configurer.UpdatePeer(peerKey, netIPNets, keepAlive, endpoint, preSharedKey)
+	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
+	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface
 func (w *WGIface) RemovePeer(peerKey string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
 
 	log.Debugf("Removing peer %s from interface %s ", peerKey, w.tun.DeviceName())
 	return w.configurer.RemovePeer(peerKey)
 }
 
 // AddAllowedIP adds a prefix to the allowed IPs list of peer
-func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
+func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
 
 	log.Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.AddAllowedIP(peerKey, allowedIP)
 }
 
 // RemoveAllowedIP removes a prefix from the allowed IPs list of peer
-func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
+func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
 
 	log.Debugf("Removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.RemoveAllowedIP(peerKey, allowedIP)
@@ -185,7 +203,6 @@ func (w *WGIface) SetFilter(filter device.PacketFilter) error {
 	}
 
 	w.filter = filter
-	w.filter.SetNetwork(w.tun.WgAddress().Network)
 
 	w.tun.FilteredDevice().SetFilter(filter)
 	return nil
@@ -214,7 +231,30 @@ func (w *WGIface) GetWGDevice() *wgdevice.Device {
 
 // GetStats returns the last handshake time, rx and tx bytes
 func (w *WGIface) GetStats() (map[string]configurer.WGStats, error) {
+	if w.configurer == nil {
+		return nil, ErrIfaceNotFound
+	}
 	return w.configurer.GetStats()
+}
+
+func (w *WGIface) LastActivities() map[string]time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.configurer == nil {
+		return nil
+	}
+
+	return w.configurer.LastActivities()
+
+}
+
+func (w *WGIface) FullStats() (*configurer.Stats, error) {
+	if w.configurer == nil {
+		return nil, ErrIfaceNotFound
+	}
+
+	return w.configurer.FullStats()
 }
 
 func (w *WGIface) waitUntilRemoved() error {
@@ -250,15 +290,4 @@ func (w *WGIface) GetNet() *netstack.Net {
 	defer w.mu.Unlock()
 
 	return w.tun.GetNet()
-}
-
-func prefixesToIPNets(prefixes []netip.Prefix) []net.IPNet {
-	ipNets := make([]net.IPNet, len(prefixes))
-	for i, prefix := range prefixes {
-		ipNets[i] = net.IPNet{
-			IP:   net.IP(prefix.Addr().AsSlice()),                     // Convert netip.Addr to net.IP
-			Mask: net.CIDRMask(prefix.Bits(), prefix.Addr().BitLen()), // Create subnet mask
-		}
-	}
-	return ipNets
 }

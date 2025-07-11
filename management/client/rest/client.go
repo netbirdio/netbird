@@ -86,6 +86,7 @@ func NewWithBearerToken(managementURL, token string) *Client {
 	)
 }
 
+// NewWithOptions initialize new Client instance with options
 func NewWithOptions(opts ...option) *Client {
 	client := &Client{
 		httpClient: http.DefaultClient,
@@ -115,7 +116,8 @@ func (c *Client) initialize() {
 	c.Events = &EventsAPI{c}
 }
 
-func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+// NewRequest creates and executes new management API request
+func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Reader, query map[string]string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.managementURL+path, body)
 	if err != nil {
 		return nil, err
@@ -125,6 +127,14 @@ func (c *Client) NewRequest(ctx context.Context, method, path string, body io.Re
 	req.Header.Add("Accept", "application/json")
 	if body != nil {
 		req.Header.Add("Content-Type", "application/json")
+	}
+
+	if len(query) != 0 {
+		q := req.URL.Query()
+		for k, v := range query {
+			q.Add(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
 	}
 
 	resp, err := c.httpClient.Do(req)

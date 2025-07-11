@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -19,21 +20,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/server/util"
-
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
-	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/types"
-
-	route2 "github.com/netbirdio/netbird/route"
-
-	"github.com/netbirdio/netbird/management/server/status"
-
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
 	nbroute "github.com/netbirdio/netbird/route"
+	route2 "github.com/netbirdio/netbird/route"
 )
 
 func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
@@ -357,8 +354,15 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
 	}
 
+	o, err := store.GetAccountOnboarding(context.Background(), account.Id)
+	require.NoError(t, err)
+	require.Equal(t, o.AccountID, account.Id)
+
 	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err)
+
+	_, err = store.GetAccountOnboarding(context.Background(), account.Id)
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting onboarding")
 
 	if len(store.GetAllAccounts(context.Background())) != 0 {
 		t.Errorf("expecting 0 Accounts to be stored after DeleteAccount()")
@@ -417,12 +421,21 @@ func Test_GetAccount(t *testing.T) {
 		account, err := store.GetAccount(context.Background(), id)
 		require.NoError(t, err)
 		require.Equal(t, id, account.Id, "account id should match")
+		require.Equal(t, false, account.Onboarding.OnboardingFlowPending)
+
+		id = "9439-34653001fc3b-bf1c8084-ba50-4ce7"
+
+		account, err = store.GetAccount(context.Background(), id)
+		require.NoError(t, err)
+		require.Equal(t, id, account.Id, "account id should match")
+		require.Equal(t, true, account.Onboarding.OnboardingFlowPending)
 
 		_, err = store.GetAccount(context.Background(), "non-existing-account")
 		assert.Error(t, err)
 		parsedErr, ok := status.FromError(err)
 		require.True(t, ok)
 		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+
 	})
 }
 
@@ -634,7 +647,7 @@ func TestMigrate(t *testing.T) {
 	t.Cleanup(cleanUp)
 	assert.NoError(t, err)
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on empty db")
 
 	_, ipnet, err := net.ParseCIDR("10.0.0.0/24")
@@ -689,10 +702,10 @@ func TestMigrate(t *testing.T) {
 	err = store.(*SqlStore).db.Save(rt).Error
 	require.NoError(t, err, "Failed to insert Gob data")
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on gob populated db")
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
 
 	err = store.(*SqlStore).db.Delete(rt).Where("id = ?", "route1").Error
@@ -708,10 +721,10 @@ func TestMigrate(t *testing.T) {
 	err = store.(*SqlStore).db.Save(nRT).Error
 	require.NoError(t, err, "Failed to insert json nil slice data")
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on json nil slice populated db")
 
-	err = migrate(context.Background(), store.(*SqlStore).db)
+	err = migratePreAuto(context.Background(), store.(*SqlStore).db)
 	require.NoError(t, err, "Migration should not fail on migrated db")
 
 }
@@ -954,6 +967,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	peer1 := &nbpeer.Peer{
 		ID:        "peer1",
 		AccountID: existingAccountID,
+		DNSLabel:  "peer1",
 		IP:        net.IP{1, 1, 1, 1},
 	}
 	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
@@ -965,8 +979,9 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	assert.Equal(t, []net.IP{ip1}, takenIPs)
 
 	peer2 := &nbpeer.Peer{
-		ID:        "peer2",
+		ID:        "peer1second",
 		AccountID: existingAccountID,
+		DNSLabel:  "peer1-1",
 		IP:        net.IP{2, 2, 2, 2},
 	}
 	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
@@ -976,49 +991,100 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	require.NoError(t, err)
 	ip2 := net.IP{2, 2, 2, 2}.To16()
 	assert.Equal(t, []net.IP{ip1, ip2}, takenIPs)
-
 }
 
 func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.SqliteStoreEngine))
-	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
-	if err != nil {
-		return
-	}
-	t.Cleanup(cleanup)
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		peerHostname := "peer1"
 
-	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		_, err := store.GetAccount(context.Background(), existingAccountID)
+		require.NoError(t, err)
 
-	_, err = store.GetAccount(context.Background(), existingAccountID)
-	require.NoError(t, err)
+		labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, labels)
 
-	labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
-	require.NoError(t, err)
-	assert.Equal(t, []string{}, labels)
+		peer1 := &nbpeer.Peer{
+			ID:        "peer1",
+			AccountID: existingAccountID,
+			DNSLabel:  "peer1",
+			IP:        net.IP{1, 1, 1, 1},
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+		require.NoError(t, err)
 
-	peer1 := &nbpeer.Peer{
-		ID:        "peer1",
-		AccountID: existingAccountID,
-		DNSLabel:  "peer1.domain.test",
-	}
-	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
-	require.NoError(t, err)
+		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"peer1"}, labels)
 
-	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"peer1.domain.test"}, labels)
+		peer2 := &nbpeer.Peer{
+			ID:        "peer1second",
+			AccountID: existingAccountID,
+			DNSLabel:  "peer1-1",
+			IP:        net.IP{2, 2, 2, 2},
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+		require.NoError(t, err)
 
-	peer2 := &nbpeer.Peer{
-		ID:        "peer2",
-		AccountID: existingAccountID,
-		DNSLabel:  "peer2.domain.test",
-	}
-	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
-	require.NoError(t, err)
+		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
+		require.NoError(t, err)
 
-	labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"peer1.domain.test", "peer2.domain.test"}, labels)
+		expected := []string{"peer1", "peer1-1"}
+		sort.Strings(expected)
+		sort.Strings(labels)
+		assert.Equal(t, expected, labels)
+	})
+}
+
+func Test_AddPeerWithSameDnsLabel(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+		_, err := store.GetAccount(context.Background(), existingAccountID)
+		require.NoError(t, err)
+
+		peer1 := &nbpeer.Peer{
+			ID:        "peer1",
+			AccountID: existingAccountID,
+			DNSLabel:  "peer1.domain.test",
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+		require.NoError(t, err)
+
+		peer2 := &nbpeer.Peer{
+			ID:        "peer1second",
+			AccountID: existingAccountID,
+			DNSLabel:  "peer1.domain.test",
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+		require.Error(t, err)
+	})
+}
+
+func Test_AddPeerWithSameIP(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/extended-store.sql", func(t *testing.T, store Store) {
+		existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+		_, err := store.GetAccount(context.Background(), existingAccountID)
+		require.NoError(t, err)
+
+		peer1 := &nbpeer.Peer{
+			ID:        "peer1",
+			AccountID: existingAccountID,
+			IP:        net.IP{1, 1, 1, 1},
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+		require.NoError(t, err)
+
+		peer2 := &nbpeer.Peer{
+			ID:        "peer1second",
+			AccountID: existingAccountID,
+			IP:        net.IP{1, 1, 1, 1},
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+		require.Error(t, err)
+	})
 }
 
 func TestSqlite_GetAccountNetwork(t *testing.T) {
@@ -2046,9 +2112,10 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 		},
+		Onboarding: types.AccountOnboarding{SignupFormPending: true, OnboardingFlowPending: true},
 	}
 
-	if err := acc.AddAllGroup(); err != nil {
+	if err := acc.AddAllGroup(false); err != nil {
 		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
 	}
 	return acc
@@ -3247,6 +3314,132 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 8003, len(accountGroups))
 }
+func TestSqlStore_GetAccountRoutes(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		accountID     string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve routes by existing account ID",
+			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount: 1,
+		},
+		{
+			name:          "non-existing account ID",
+			accountID:     "nonexistent",
+			expectedCount: 0,
+		},
+		{
+			name:          "empty account ID",
+			accountID:     "",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			routes, err := store.GetAccountRoutes(context.Background(), LockingStrengthShare, tt.accountID)
+			require.NoError(t, err)
+			require.Len(t, routes, tt.expectedCount)
+		})
+	}
+}
+
+func TestSqlStore_GetRouteByID(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	tests := []struct {
+		name        string
+		routeID     string
+		expectError bool
+	}{
+		{
+			name:        "retrieve existing route",
+			routeID:     "ct03t427qv97vmtmglog",
+			expectError: false,
+		},
+		{
+			name:        "retrieve non-existing route",
+			routeID:     "non-existing",
+			expectError: true,
+		},
+		{
+			name:        "retrieve with empty route ID",
+			routeID:     "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			route, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, tt.routeID)
+			if tt.expectError {
+				require.Error(t, err)
+				sErr, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, sErr.Type(), status.NotFound)
+				require.Nil(t, route)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, route)
+				require.Equal(t, tt.routeID, string(route.ID))
+			}
+		})
+	}
+}
+
+func TestSqlStore_SaveRoute(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	route := &route2.Route{
+		ID:                  "route-id",
+		AccountID:           accountID,
+		Network:             netip.MustParsePrefix("10.10.0.0/16"),
+		NetID:               "netID",
+		PeerGroups:          []string{"routeA"},
+		NetworkType:         route2.IPv4Network,
+		Masquerade:          true,
+		Metric:              9999,
+		Enabled:             true,
+		Groups:              []string{"groupA"},
+		AccessControlGroups: []string{},
+	}
+	err = store.SaveRoute(context.Background(), LockingStrengthUpdate, route)
+	require.NoError(t, err)
+
+	saveRoute, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, string(route.ID))
+	require.NoError(t, err)
+	require.Equal(t, route, saveRoute)
+
+}
+
+func TestSqlStore_DeleteRoute(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	routeID := "ct03t427qv97vmtmglog"
+
+	err = store.DeleteRoute(context.Background(), LockingStrengthUpdate, accountID, routeID)
+	require.NoError(t, err)
+
+	route, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, routeID)
+	require.Error(t, err)
+	require.Nil(t, route)
+}
 
 func TestSqlStore_GetAccountMeta(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
@@ -3262,6 +3455,63 @@ func TestSqlStore_GetAccountMeta(t *testing.T) {
 	require.Equal(t, "test.com", accountMeta.Domain)
 	require.Equal(t, "private", accountMeta.DomainCategory)
 	require.Equal(t, time.Date(2024, time.October, 2, 14, 1, 38, 210000000, time.UTC), accountMeta.CreatedAt.UTC())
+}
+
+func TestSqlStore_GetAccountOnboarding(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "9439-34653001fc3b-bf1c8084-ba50-4ce7"
+	a, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	t.Logf("Onboarding: %+v", a.Onboarding)
+	err = store.SaveAccount(context.Background(), a)
+	require.NoError(t, err)
+	onboarding, err := store.GetAccountOnboarding(context.Background(), accountID)
+	require.NoError(t, err)
+	require.NotNil(t, onboarding)
+	require.Equal(t, accountID, onboarding.AccountID)
+	require.Equal(t, time.Date(2024, time.October, 2, 14, 1, 38, 210000000, time.UTC), onboarding.CreatedAt.UTC())
+}
+
+func TestSqlStore_SaveAccountOnboarding(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+	t.Run("New onboarding should be saved correctly", func(t *testing.T) {
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		onboarding := &types.AccountOnboarding{
+			AccountID:             accountID,
+			SignupFormPending:     true,
+			OnboardingFlowPending: true,
+		}
+
+		err = store.SaveAccountOnboarding(context.Background(), onboarding)
+		require.NoError(t, err)
+
+		savedOnboarding, err := store.GetAccountOnboarding(context.Background(), accountID)
+		require.NoError(t, err)
+		require.Equal(t, onboarding.SignupFormPending, savedOnboarding.SignupFormPending)
+		require.Equal(t, onboarding.OnboardingFlowPending, savedOnboarding.OnboardingFlowPending)
+	})
+
+	t.Run("Existing onboarding should be updated correctly", func(t *testing.T) {
+		accountID := "9439-34653001fc3b-bf1c8084-ba50-4ce7"
+		onboarding, err := store.GetAccountOnboarding(context.Background(), accountID)
+		require.NoError(t, err)
+
+		onboarding.OnboardingFlowPending = !onboarding.OnboardingFlowPending
+		onboarding.SignupFormPending = !onboarding.SignupFormPending
+
+		err = store.SaveAccountOnboarding(context.Background(), onboarding)
+		require.NoError(t, err)
+
+		savedOnboarding, err := store.GetAccountOnboarding(context.Background(), accountID)
+		require.NoError(t, err)
+		require.Equal(t, onboarding.SignupFormPending, savedOnboarding.SignupFormPending)
+		require.Equal(t, onboarding.OnboardingFlowPending, savedOnboarding.OnboardingFlowPending)
+	})
 }
 
 func TestSqlStore_GetAnyAccountID(t *testing.T) {

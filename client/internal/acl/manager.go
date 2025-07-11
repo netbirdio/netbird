@@ -58,6 +58,11 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
+	if d.firewall == nil {
+		log.Debug("firewall manager is not supported, skipping firewall rules")
+		return
+	}
+
 	start := time.Now()
 	defer func() {
 		total := 0
@@ -69,13 +74,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 			time.Since(start), total)
 	}()
 
-	if d.firewall == nil {
-		log.Debug("firewall manager is not supported, skipping firewall rules")
-		return
-	}
-
 	d.applyPeerACLs(networkMap)
-
 
 	if err := d.applyRouteACLs(networkMap.RoutesFirewallRules, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("Failed to apply route ACLs: %v", err)
@@ -285,8 +284,10 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	case mgmProto.RuleDirection_IN:
 		rules, err = d.addInRules(r.PolicyID, ip, protocol, port, action, ipsetName)
 	case mgmProto.RuleDirection_OUT:
-		// TODO: Remove this soon. Outbound rules are obsolete.
-		// We only maintain this for return traffic (inbound dir) which is now handled by the stateful firewall already
+		if d.firewall.IsStateful() {
+			return "", nil, nil
+		}
+		// return traffic for outbound connections if firewall is stateless
 		rules, err = d.addOutRules(r.PolicyID, ip, protocol, port, action, ipsetName)
 	default:
 		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")
@@ -397,11 +398,15 @@ func (d *DefaultManager) squashAcceptRules(
 	//
 	// We zeroed this to notify squash function that this protocol can't be squashed.
 	addRuleToCalculationMap := func(i int, r *mgmProto.FirewallRule, protocols map[mgmProto.RuleProtocol]*protoMatch) {
-		drop := r.Action == mgmProto.RuleAction_DROP || r.Port != ""
-		if drop {
+		hasPortRestrictions := r.Action == mgmProto.RuleAction_DROP ||
+			r.Port != "" || !portInfoEmpty(r.PortInfo)
+
+		if hasPortRestrictions {
+			// Don't squash rules with port restrictions
 			protocols[r.Protocol] = &protoMatch{ips: map[string]int{}}
 			return
 		}
+
 		if _, ok := protocols[r.Protocol]; !ok {
 			protocols[r.Protocol] = &protoMatch{
 				ips: map[string]int{},

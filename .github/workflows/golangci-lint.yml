@@ -21,7 +21,6 @@ jobs:
         with:
           ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe
           skip: go.mod,go.sum
-          only_warn: 1
   golangci:
     strategy:
       fail-fast: false
