@@ -100,7 +100,7 @@ type OutputOverview struct {
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 }
 
-func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}) OutputOverview {
+func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string) OutputOverview {
 	pbFullStatus := resp.GetFullStatus()
 
 	managementState := pbFullStatus.GetManagementState()
@@ -118,7 +118,7 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 	}
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
-	peersOverview := mapPeers(resp.GetFullStatus().GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter)
+	peersOverview := mapPeers(resp.GetFullStatus().GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
 
 	overview := OutputOverview{
 		Peers:                   peersOverview,
@@ -193,6 +193,7 @@ func mapPeers(
 	prefixNamesFilter []string,
 	prefixNamesFilterMap map[string]struct{},
 	ipsFilter map[string]struct{},
+	connectionTypeFilter string,
 ) PeersStateOutput {
 	var peersStateDetail []PeerStateDetailOutput
 	peersConnected := 0
@@ -221,6 +222,9 @@ func mapPeers(
 			connType = "P2P"
 			if pbPeerState.Relayed {
 				connType = "Relayed"
+			}
+			if connectionTypeFilter != "" && !strings.EqualFold(connType, connectionTypeFilter) {
+				continue
 			}
 			relayServerAddress = pbPeerState.GetRelayAddress()
 			lastHandshake = pbPeerState.GetLastWireguardHandshake().AsTime().Local()
