@@ -264,7 +264,6 @@ func (x *daemonServiceSubscribeEventsClient) Recv() (*SystemEvent, error) {
 func (c *daemonServiceClient) GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error) {
 	out := new(GetEventsResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetEvents", in, out, opts...)
-<<<<<<< HEAD
 	if err != nil {
 		return nil, err
 	}
@@ -274,8 +273,6 @@ func (c *daemonServiceClient) GetEvents(ctx context.Context, in *GetEventsReques
 func (c *daemonServiceClient) GetPeerSSHHostKey(ctx context.Context, in *GetPeerSSHHostKeyRequest, opts ...grpc.CallOption) (*GetPeerSSHHostKeyResponse, error) {
 	out := new(GetPeerSSHHostKeyResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetPeerSSHHostKey", in, out, opts...)
-=======
->>>>>>> main
 	if err != nil {
 		return nil, err
 	}
