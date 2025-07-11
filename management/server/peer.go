@@ -1279,7 +1279,6 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 	b := bufUpd.(*bufferUpdate)
 
 	if !b.mu.TryLock() {
-		log.WithContext(ctx).Debugf("BufferUpdateAccountPeers for account %s is already running, skipping", accountID)
 		b.update.Store(true)
 		return
 	}
@@ -1290,18 +1289,13 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 
 	go func() {
 		defer b.mu.Unlock()
-		t := time.Now()
-		log.WithContext(ctx).Debugf("BufferUpdateAccountPeers started for account %s", accountID)
 		am.UpdateAccountPeers(ctx, accountID)
-		log.WithContext(ctx).Debugf("BufferUpdateAccountPeers finished for account %s, took %s", accountID, time.Since(t))
 		if !b.update.Load() {
 			return
 		}
-		log.WithContext(ctx).Debugf("BufferUpdateAccountPeers for account %s, rescheduling", accountID)
 		b.update.Store(false)
 		if b.next == nil {
 			b.next = time.AfterFunc(time.Duration(am.updateAccountPeersBufferInterval.Load()), func() {
-				log.WithContext(ctx).Debugf("BufferUpdateAccountPeers for account %s, UpdateAccountPeers started by timeout", accountID)
 				am.UpdateAccountPeers(ctx, accountID)
 			})
 			return
