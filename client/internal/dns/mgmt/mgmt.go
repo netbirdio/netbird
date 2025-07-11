@@ -20,9 +20,9 @@ const dnsTimeout = 5 * time.Second
 
 // Resolver caches critical NetBird infrastructure domains
 type Resolver struct {
-	records          map[dns.Question][]dns.RR
-	managementDomain *domain.Domain
-	mutex            sync.RWMutex
+	records    map[dns.Question][]dns.RR
+	mgmtDomain *domain.Domain
+	mutex      sync.RWMutex
 }
 
 // NewResolver creates a new management domains cache resolver.
@@ -93,6 +93,8 @@ func (m *Resolver) continueToNext(w dns.ResponseWriter, r *dns.Msg) {
 
 // AddDomain manually adds a domain to cache by resolving it.
 func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
+	dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
+	
 	ctx, cancel := context.WithTimeout(ctx, dnsTimeout)
 	defer cancel()
 
@@ -106,7 +108,7 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 		if ip.Is4() {
 			rr := &dns.A{
 				Hdr: dns.RR_Header{
-					Name:   strings.ToLower(dns.Fqdn(d.PunycodeString())),
+					Name:   dnsName,
 					Rrtype: dns.TypeA,
 					Class:  dns.ClassINET,
 					Ttl:    300,
@@ -117,7 +119,7 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 		} else if ip.Is6() {
 			rr := &dns.AAAA{
 				Hdr: dns.RR_Header{
-					Name:   strings.ToLower(dns.Fqdn(d.PunycodeString())),
+					Name:   dnsName,
 					Rrtype: dns.TypeAAAA,
 					Class:  dns.ClassINET,
 					Ttl:    300,
@@ -132,7 +134,7 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 
 	if len(aRecords) > 0 {
 		aQuestion := dns.Question{
-			Name:   strings.ToLower(dns.Fqdn(d.PunycodeString())),
+			Name:   dnsName,
 			Qtype:  dns.TypeA,
 			Qclass: dns.ClassINET,
 		}
@@ -141,7 +143,7 @@ func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
 
 	if len(aaaaRecords) > 0 {
 		aaaaQuestion := dns.Question{
-			Name:   strings.ToLower(dns.Fqdn(d.PunycodeString())),
+			Name:   dnsName,
 			Qtype:  dns.TypeAAAA,
 			Qclass: dns.ClassINET,
 		}
@@ -168,7 +170,7 @@ func (m *Resolver) PopulateFromConfig(ctx context.Context, mgmtURL *url.URL) err
 	}
 
 	m.mutex.Lock()
-	m.managementDomain = &d
+	m.mgmtDomain = &d
 	m.mutex.Unlock()
 
 	if err := m.AddDomain(ctx, d); err != nil {
@@ -180,18 +182,20 @@ func (m *Resolver) PopulateFromConfig(ctx context.Context, mgmtURL *url.URL) err
 
 // RemoveDomain removes a domain from the cache.
 func (m *Resolver) RemoveDomain(d domain.Domain) error {
+	dnsName := strings.ToLower(dns.Fqdn(d.PunycodeString()))
+	
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	aQuestion := dns.Question{
-		Name:   strings.ToLower(dns.Fqdn(d.PunycodeString())),
+		Name:   dnsName,
 		Qtype:  dns.TypeA,
 		Qclass: dns.ClassINET,
 	}
 	delete(m.records, aQuestion)
 
 	aaaaQuestion := dns.Question{
-		Name:   strings.ToLower(dns.Fqdn(d.PunycodeString())),
+		Name:   dnsName,
 		Qtype:  dns.TypeAAAA,
 		Qclass: dns.ClassINET,
 	}
@@ -267,7 +271,8 @@ func (m *Resolver) isDomainInList(domain domain.Domain, list domain.List) bool {
 func (m *Resolver) isManagementDomain(domain domain.Domain) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	return m.managementDomain != nil && domain.SafeString() == m.managementDomain.SafeString()
+	
+	return m.mgmtDomain != nil && domain == *m.mgmtDomain
 }
 
 // addNewDomains adds all new domains to the cache

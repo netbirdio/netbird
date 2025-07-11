@@ -904,7 +904,7 @@ func toZone(d domain.Domain) domain.Domain {
 
 // PopulateManagementDomain populates the DNS cache with management domain
 func (s *DefaultServer) PopulateManagementDomain(mgmtURL *url.URL) error {
-	if s.mgmtCacheResolver != nil && mgmtURL != nil {
+	if s.mgmtCacheResolver != nil {
 		return s.mgmtCacheResolver.PopulateFromConfig(s.ctx, mgmtURL)
 	}
 	return nil
