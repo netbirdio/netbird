@@ -16,6 +16,8 @@ import (
 	"github.com/netbirdio/netbird/management/domain"
 )
 
+const dnsTimeout = 5 * time.Second
+
 // Resolver caches critical NetBird infrastructure domains
 type Resolver struct {
 	records          map[dns.Question][]dns.RR
@@ -91,7 +93,7 @@ func (m *Resolver) continueToNext(w dns.ResponseWriter, r *dns.Msg) {
 
 // AddDomain manually adds a domain to cache by resolving it.
 func (m *Resolver) AddDomain(ctx context.Context, d domain.Domain) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, dnsTimeout)
 	defer cancel()
 
 	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", d.PunycodeString())
@@ -310,4 +312,3 @@ func (m *Resolver) extractDomainsFromServerDomains(serverDomains dnsconfig.Serve
 
 	return domains
 }
-
