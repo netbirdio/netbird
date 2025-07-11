@@ -74,7 +74,6 @@ type DefaultServer struct {
 	handlerChain       *HandlerChain
 	extraDomains       map[domain.Domain]int
 
-	// management cache resolver for critical infrastructure domains
 	mgmtCacheResolver *mgmt.Resolver
 
 	// permanent related properties
@@ -106,18 +105,15 @@ type registeredHandlerMap map[types.HandlerID]handlerWrapper
 
 // DefaultServerConfig holds configuration parameters for NewDefaultServer
 type DefaultServerConfig struct {
-	Ctx            context.Context
 	WgInterface    WGIface
 	CustomAddress  string
 	StatusRecorder *peer.Status
 	StateManager   *statemanager.Manager
 	DisableSys     bool
-	MgmtURL        *url.URL
-	ServerDomains  dnsconfig.ServerDomains
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(config DefaultServerConfig) (*DefaultServer, error) {
+func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*DefaultServer, error) {
 	var addrPort *netip.AddrPort
 	if config.CustomAddress != "" {
 		parsedAddrPort, err := netip.ParseAddrPort(config.CustomAddress)
@@ -134,20 +130,7 @@ func NewDefaultServer(config DefaultServerConfig) (*DefaultServer, error) {
 		dnsService = newServiceViaListener(config.WgInterface, addrPort)
 	}
 
-	server := newDefaultServer(config.Ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
-
-	if config.MgmtURL != nil && server.mgmtCacheResolver != nil {
-		if err := server.mgmtCacheResolver.PopulateFromConfig(config.Ctx, config.MgmtURL); err != nil {
-			log.Warnf("Failed to populate management cache from management URL: %v", err)
-		}
-	}
-
-	if server.mgmtCacheResolver != nil {
-		if err := server.UpdateServerConfig(config.ServerDomains); err != nil {
-			log.Warnf("Failed to populate management cache from ServerDomains: %v", err)
-		}
-	}
-
+	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
 	return server, nil
 }
 
@@ -197,7 +180,6 @@ func newDefaultServer(
 	handlerChain := NewHandlerChain()
 	ctx, stop := context.WithCancel(ctx)
 
-	// Create management cache resolver
 	mgmtCacheResolver := mgmt.NewResolver()
 
 	defaultServer := &DefaultServer{
@@ -345,20 +327,8 @@ func (s *DefaultServer) Stop() {
 	maps.Clear(s.extraDomains)
 }
 
-// PopulateMgmtCacheFromConfig populates the management cache with domains from the client configuration
-func (s *DefaultServer) PopulateMgmtCacheFromConfig(mgmtURL *url.URL) error {
-	if s.mgmtCacheResolver == nil {
-		return fmt.Errorf("management cache resolver not initialized")
-	}
-
-	log.Debug("populating management cache from client configuration")
-	return s.mgmtCacheResolver.PopulateFromConfig(s.ctx, mgmtURL)
-}
-
-
 // OnUpdatedHostDNSServer update the DNS servers addresses for root zones
 // It will be applied if the mgm server do not enforce DNS settings for root zone
-
 func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
 	s.hostsDNSHolder.set(hostsDnsList)
 
@@ -465,12 +435,12 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 		}
 
 		if len(removedDomains) > 0 {
-			s.DeregisterHandler(removedDomains, PriorityMgmtCache)
+			s.deregisterHandler(removedDomains.ToPunycodeList(), PriorityMgmtCache)
 		}
 
 		newDomains := s.mgmtCacheResolver.GetCachedDomains()
 		if len(newDomains) > 0 {
-			s.RegisterHandler(newDomains, s.mgmtCacheResolver, PriorityMgmtCache)
+			s.registerHandler(newDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
 		}
 	}
 
@@ -934,4 +904,12 @@ func toZone(d domain.Domain) domain.Domain {
 			),
 		),
 	)
+}
+
+// PopulateManagementDomain populates the DNS cache with management domain
+func (s *DefaultServer) PopulateManagementDomain(ctx context.Context, mgmtURL *url.URL) error {
+	if s.mgmtCacheResolver != nil && mgmtURL != nil {
+		return s.mgmtCacheResolver.PopulateFromConfig(ctx, mgmtURL)
+	}
+	return nil
 }

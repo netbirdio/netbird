@@ -2,22 +2,24 @@ package mgmt
 
 import (
 	"context"
-	"net"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
+	"github.com/netbirdio/netbird/client/internal/dns/test"
+	"github.com/netbirdio/netbird/management/domain"
 )
 
 func TestResolver_NewResolver(t *testing.T) {
 	resolver := NewResolver()
 
 	assert.NotNil(t, resolver)
-	assert.NotNil(t, resolver.cache)
-	assert.True(t, resolver.MatchSubdomains())
+	assert.NotNil(t, resolver.records)
+	assert.False(t, resolver.MatchSubdomains())
 }
 
 func TestResolver_ExtractDomainFromURL(t *testing.T) {
@@ -113,145 +115,173 @@ func TestResolver_PopulateFromConfig(t *testing.T) {
 
 	resolver := NewResolver()
 
-	// Use IP address to avoid DNS resolution timeout
+	// Test with IP address - should return error since IP addresses are rejected
 	mgmtURL, _ := url.Parse("https://127.0.0.1")
 
 	err := resolver.PopulateFromConfig(ctx, mgmtURL)
-	assert.NoError(t, err)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "host is an IP address")
 
-	// IP addresses are rejected, so no domains should be cached
+	// No domains should be cached when using IP addresses
 	domains := resolver.GetCachedDomains()
 	assert.Equal(t, 0, len(domains), "No domains should be cached when using IP addresses")
 }
 
-func TestResolver_PopulateFromNetbirdConfig(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+func TestResolver_ServeDNS(t *testing.T) {
 	resolver := NewResolver()
+	ctx := context.Background()
 
-	// Use IP addresses to avoid DNS resolution timeouts
-	netbirdConfig := &mgmProto.NetbirdConfig{
-		Signal: &mgmProto.HostConfig{
-			Uri: "https://10.0.0.1",
-		},
-		Relay: &mgmProto.RelayConfig{
-			Urls: []string{
-				"https://10.0.0.2:443",
-				"https://10.0.0.3:443",
-			},
-		},
-		Flow: &mgmProto.FlowConfig{
-			Url: "https://10.0.0.4:80",
-		},
-		Stuns: []*mgmProto.HostConfig{
-			{Uri: "stun:10.0.0.5:3478"},
-			{Uri: "stun:10.0.0.6:3478"},
-		},
-		Turns: []*mgmProto.ProtectedHostConfig{
-			{
-				HostConfig: &mgmProto.HostConfig{
-					Uri: "turn:10.0.0.7:3478",
-				},
-			},
-			{
-				HostConfig: &mgmProto.HostConfig{
-					Uri: "turn:10.0.0.8:3478",
-				},
-			},
-		},
+	// Add a test domain to the cache - use example.org which is reserved for testing
+	testDomain, err := domain.FromString("example.org")
+	if err != nil {
+		t.Fatalf("Failed to create domain: %v", err)
+	}
+	err = resolver.AddDomain(ctx, testDomain)
+	if err != nil {
+		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
 
-	err := resolver.PopulateFromNetbirdConfig(ctx, netbirdConfig)
-	assert.NoError(t, err)
+	// Test A record query for cached domain
+	t.Run("Cached domain A record", func(t *testing.T) {
+		var capturedMsg *dns.Msg
+		mockWriter := &test.MockResponseWriter{
+			WriteMsgFunc: func(m *dns.Msg) error {
+				capturedMsg = m
+				return nil
+			},
+		}
 
-	// IP addresses are rejected, so no domains should be cached
-	domains := resolver.GetCachedDomains()
-	assert.Equal(t, 0, len(domains), "No domains should be cached when using IP addresses")
+		req := new(dns.Msg)
+		req.SetQuestion("example.org.", dns.TypeA)
+
+		resolver.ServeDNS(mockWriter, req)
+
+		assert.NotNil(t, capturedMsg)
+		assert.Equal(t, dns.RcodeSuccess, capturedMsg.Rcode)
+		assert.True(t, len(capturedMsg.Answer) > 0, "Should have at least one answer")
+	})
+
+	// Test uncached domain signals to continue to next handler
+	t.Run("Uncached domain signals continue to next handler", func(t *testing.T) {
+		var capturedMsg *dns.Msg
+		mockWriter := &test.MockResponseWriter{
+			WriteMsgFunc: func(m *dns.Msg) error {
+				capturedMsg = m
+				return nil
+			},
+		}
+
+		req := new(dns.Msg)
+		req.SetQuestion("unknown.example.com.", dns.TypeA)
+
+		resolver.ServeDNS(mockWriter, req)
+
+		assert.NotNil(t, capturedMsg)
+		assert.Equal(t, dns.RcodeNameError, capturedMsg.Rcode)
+		// Zero flag set to true signals the handler chain to continue to next handler
+		assert.True(t, capturedMsg.MsgHdr.Zero, "Zero flag should be set to signal continuation to next handler")
+		assert.Empty(t, capturedMsg.Answer, "Should have no answers for uncached domain")
+	})
+
+	// Test that subdomains of cached domains are NOT resolved
+	t.Run("Subdomains of cached domains are not resolved", func(t *testing.T) {
+		var capturedMsg *dns.Msg
+		mockWriter := &test.MockResponseWriter{
+			WriteMsgFunc: func(m *dns.Msg) error {
+				capturedMsg = m
+				return nil
+			},
+		}
+
+		// Query for a subdomain of our cached domain
+		req := new(dns.Msg)
+		req.SetQuestion("sub.example.org.", dns.TypeA)
+
+		resolver.ServeDNS(mockWriter, req)
+
+		assert.NotNil(t, capturedMsg)
+		assert.Equal(t, dns.RcodeNameError, capturedMsg.Rcode)
+		assert.True(t, capturedMsg.MsgHdr.Zero, "Should signal continuation to next handler for subdomains")
+		assert.Empty(t, capturedMsg.Answer, "Should have no answers for subdomains")
+	})
+
+	// Test case-insensitive matching
+	t.Run("Case-insensitive domain matching", func(t *testing.T) {
+		var capturedMsg *dns.Msg
+		mockWriter := &test.MockResponseWriter{
+			WriteMsgFunc: func(m *dns.Msg) error {
+				capturedMsg = m
+				return nil
+			},
+		}
+
+		// Query with different casing
+		req := new(dns.Msg)
+		req.SetQuestion("EXAMPLE.ORG.", dns.TypeA)
+
+		resolver.ServeDNS(mockWriter, req)
+
+		assert.NotNil(t, capturedMsg)
+		assert.Equal(t, dns.RcodeSuccess, capturedMsg.Rcode)
+		assert.True(t, len(capturedMsg.Answer) > 0, "Should resolve regardless of case")
+	})
 }
 
-func TestResolver_UpdateFromNetbirdConfig(t *testing.T) {
+func TestResolver_GetCachedDomains(t *testing.T) {
 	resolver := NewResolver()
+	ctx := context.Background()
 
-	// Test with empty initial config and then add domains
-	initialConfig := &mgmProto.NetbirdConfig{}
-
-	// Start with empty config
-	removedDomains, err := resolver.UpdateFromNetbirdConfig(context.Background(), initialConfig)
-	assert.NoError(t, err)
-	assert.Equal(t, 0, len(removedDomains), "No domains should be removed from empty cache")
-
-	// Update to config with IP addresses instead of domains to avoid DNS resolution
-	// IP addresses will be rejected by extractDomainFromURL so no actual resolution happens
-	updatedConfig := &mgmProto.NetbirdConfig{
-		Signal: &mgmProto.HostConfig{
-			Uri: "https://127.0.0.1",
-		},
-		Flow: &mgmProto.FlowConfig{
-			Url: "https://192.168.1.1:80",
-		},
+	testDomain, err := domain.FromString("example.org")
+	if err != nil {
+		t.Fatalf("Failed to create domain: %v", err)
+	}
+	err = resolver.AddDomain(ctx, testDomain)
+	if err != nil {
+		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
 	}
 
-	removedDomains, err = resolver.UpdateFromNetbirdConfig(context.Background(), updatedConfig)
-	assert.NoError(t, err)
+	cachedDomains := resolver.GetCachedDomains()
 
-	// Verify the method completes successfully without DNS timeouts
-	assert.GreaterOrEqual(t, len(removedDomains), 0, "Should not error on config update")
-
-	// Verify no domains were actually added since IPs are rejected
-	domains := resolver.GetCachedDomains()
-	assert.Equal(t, 0, len(domains), "No domains should be cached when using IP addresses")
+	assert.Equal(t, 1, len(cachedDomains), "Should return exactly one domain for single added domain")
+	assert.Equal(t, testDomain.SafeString(), cachedDomains[0].SafeString(), "Cached domain should match original")
+	assert.False(t, strings.HasSuffix(cachedDomains[0].PunycodeString(), "."), "Domain should not have trailing dot")
 }
 
-func TestResolver_ContinueToNext(t *testing.T) {
+func TestResolver_ManagementDomainProtection(t *testing.T) {
 	resolver := NewResolver()
+	ctx := context.Background()
 
-	// Create a mock response writer to capture the response
-	mockWriter := &MockResponseWriter{}
+	mgmtURL, _ := url.Parse("https://example.org")
+	err := resolver.PopulateFromConfig(ctx, mgmtURL)
+	if err != nil {
+		t.Skipf("Skipping test due to DNS resolution failure: %v", err)
+	}
 
-	// Create a test DNS query
-	req := new(dns.Msg)
-	req.SetQuestion("unknown.example.com.", dns.TypeA)
+	initialDomains := resolver.GetCachedDomains()
+	if len(initialDomains) == 0 {
+		t.Skip("Management domain failed to resolve, skipping test")
+	}
+	assert.Equal(t, 1, len(initialDomains), "Should have management domain cached")
+	assert.Equal(t, "example.org", initialDomains[0].SafeString())
 
-	// Call continueToNext
-	resolver.continueToNext(mockWriter, req)
+	serverDomains := dnsconfig.ServerDomains{
+		Signal: "google.com",
+		Relay:  []domain.Domain{"cloudflare.com"},
+	}
 
-	// Verify the response
-	assert.NotNil(t, mockWriter.msg)
-	assert.Equal(t, dns.RcodeNameError, mockWriter.msg.Rcode)
-	assert.True(t, mockWriter.msg.MsgHdr.Zero)
+	_, err = resolver.UpdateFromServerDomains(ctx, serverDomains)
+	if err != nil {
+		t.Logf("Server domains update failed: %v", err)
+	}
+
+	finalDomains := resolver.GetCachedDomains()
+
+	managementStillCached := false
+	for _, d := range finalDomains {
+		if d.SafeString() == "example.org" {
+			managementStillCached = true
+			break
+		}
+	}
+	assert.True(t, managementStillCached, "Management domain should never be removed")
 }
-
-// MockResponseWriter is a simple mock implementation of dns.ResponseWriter for testing
-type MockResponseWriter struct {
-	msg *dns.Msg
-}
-
-func (m *MockResponseWriter) LocalAddr() net.Addr {
-	return &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 53}
-}
-
-func (m *MockResponseWriter) RemoteAddr() net.Addr {
-	return &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 12345}
-}
-
-func (m *MockResponseWriter) WriteMsg(msg *dns.Msg) error {
-	m.msg = msg
-	return nil
-}
-
-func (m *MockResponseWriter) Write([]byte) (int, error) {
-	return 0, nil
-}
-
-func (m *MockResponseWriter) Close() error {
-	return nil
-}
-
-func (m *MockResponseWriter) TsigStatus() error {
-	return nil
-}
-
-func (m *MockResponseWriter) TsigTimersOnly(bool) {}
-
-func (m *MockResponseWriter) Hijack() {}

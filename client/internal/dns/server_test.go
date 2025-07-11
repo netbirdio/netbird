@@ -23,7 +23,6 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	pfmock "github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dns/local"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
@@ -364,15 +363,12 @@ func TestUpdateDNSServer(t *testing.T) {
 					t.Log(err)
 				}
 			}()
-			dnsServer, err := NewDefaultServer(DefaultServerConfig{
-				Ctx:            context.Background(),
+			dnsServer, err := NewDefaultServer(context.Background(), DefaultServerConfig{
 				WgInterface:    wgIface,
 				CustomAddress:  "",
 				StatusRecorder: peer.NewRecorder("mgm"),
 				StateManager:   nil,
 				DisableSys:     false,
-				MgmtURL:        nil,
-				ServerDomains:  dnsconfig.ServerDomains{},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -483,15 +479,12 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		return
 	}
 
-	dnsServer, err := NewDefaultServer(DefaultServerConfig{
-		Ctx:            context.Background(),
+	dnsServer, err := NewDefaultServer(context.Background(), DefaultServerConfig{
 		WgInterface:    wgIface,
 		CustomAddress:  "",
 		StatusRecorder: peer.NewRecorder("mgm"),
 		StateManager:   nil,
 		DisableSys:     false,
-		MgmtURL:        nil,
-		ServerDomains:  dnsconfig.ServerDomains{},
 	})
 	if err != nil {
 		t.Errorf("create DNS server: %v", err)
@@ -594,15 +587,12 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dnsServer, err := NewDefaultServer(DefaultServerConfig{
-				Ctx:            context.Background(),
+			dnsServer, err := NewDefaultServer(context.Background(), DefaultServerConfig{
 				WgInterface:    &mocWGIface{},
 				CustomAddress:  testCase.addrPort,
 				StatusRecorder: peer.NewRecorder("mgm"),
 				StateManager:   nil,
 				DisableSys:     false,
-				MgmtURL:        nil,
-				ServerDomains:  dnsconfig.ServerDomains{},
 			})
 			if err != nil {
 				t.Fatalf("%v", err)

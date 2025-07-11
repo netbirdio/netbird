@@ -33,7 +33,7 @@ import (
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
-	"github.com/netbirdio/netbird/client/internal/dns/config"
+	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/netflow"
@@ -126,12 +126,6 @@ type EngineConfig struct {
 	BlockInbound        bool
 
 	LazyConnectionEnabled bool
-
-	// ManagementURL is the URL of the management server for DNS cache
-	ManagementURL *url.URL
-
-	// NetbirdConfig contains signal, relay, and flow server configuration
-	NetbirdConfig *mgmProto.NetbirdConfig
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -350,7 +344,7 @@ func (e *Engine) Stop() error {
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
-func (e *Engine) Start() error {
+func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -395,12 +389,17 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("read initial settings: %w", err)
 	}
 
-	dnsServer, err := e.newDnsServer(dnsConfig, e.config.ManagementURL, e.config.NetbirdConfig)
+	dnsServer, err := e.newDnsServer(dnsConfig)
 	if err != nil {
 		e.close()
 		return fmt.Errorf("create dns server: %w", err)
 	}
 	e.dnsServer = dnsServer
+
+	// Populate DNS cache with NetbirdConfig and management URL for early resolution
+	if err := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); err != nil {
+		log.Warnf("failed to populate DNS cache: %v", err)
+	}
 
 	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
 		Context:             e.ctx,
@@ -666,6 +665,32 @@ func (e *Engine) removePeer(peerKey string) error {
 	return nil
 }
 
+// PopulateNetbirdConfig populates the DNS cache with infrastructure domains from login response
+func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) error {
+	if e.dnsServer == nil {
+		return nil
+	}
+
+	// Populate management URL if provided
+	if mgmtURL != nil {
+		if defaultServer, ok := e.dnsServer.(*dns.DefaultServer); ok {
+			if err := defaultServer.PopulateManagementDomain(e.ctx, mgmtURL); err != nil {
+				log.Warnf("failed to populate DNS cache with management URL: %v", err)
+			}
+		}
+	}
+
+	// Populate NetbirdConfig domains if provided
+	if netbirdConfig != nil {
+		serverDomains := dnsconfig.ExtractFromNetbirdConfig(netbirdConfig)
+		if err := e.dnsServer.UpdateServerConfig(serverDomains); err != nil {
+			return fmt.Errorf("update DNS server config from NetbirdConfig: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
@@ -697,11 +722,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			return fmt.Errorf("handle the flow configuration: %w", err)
 		}
 
-		if e.dnsServer != nil {
-			serverDomains := config.ExtractFromNetbirdConfig(wCfg)
-			if err := e.dnsServer.UpdateServerConfig(serverDomains); err != nil {
-				log.Warnf("Failed to update DNS server config: %v", err)
-			}
+		if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
+			log.Warnf("Failed to update DNS server config: %v", err)
 		}
 
 		// todo update signal
@@ -1587,7 +1609,7 @@ func (e *Engine) wgInterfaceCreate() (err error) {
 	return err
 }
 
-func (e *Engine) newDnsServer(dnsConfig *nbdns.Config, mgmtURL *url.URL, netbirdConfig *mgmProto.NetbirdConfig) (dns.Server, error) {
+func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 	// due to tests where we are using a mocked version of the DNS server
 	if e.dnsServer != nil {
 		return e.dnsServer, nil
@@ -1612,18 +1634,13 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config, mgmtURL *url.URL, netbird
 		return dnsServer, nil
 
 	default:
-		// Extract domains from NetBird configuration
-		serverDomains := config.ExtractFromNetbirdConfig(netbirdConfig)
-		
-		dnsServer, err := dns.NewDefaultServer(dns.DefaultServerConfig{
-			Ctx:            e.ctx,
+
+		dnsServer, err := dns.NewDefaultServer(e.ctx, dns.DefaultServerConfig{
 			WgInterface:    e.wgInterface,
 			CustomAddress:  e.config.CustomDNSAddress,
 			StatusRecorder: e.statusRecorder,
 			StateManager:   e.stateManager,
 			DisableSys:     e.config.DisableDNS,
-			MgmtURL:        mgmtURL,
-			ServerDomains:  serverDomains,
 		})
 		if err != nil {
 			return nil, err
@@ -1641,11 +1658,6 @@ func (e *Engine) GetRouteManager() routemanager.Manager {
 // GetFirewallManager returns the firewall manager
 func (e *Engine) GetFirewallManager() firewallManager.Manager {
 	return e.firewall
-}
-
-// GetDNSServer returns the DNS server
-func (e *Engine) GetDNSServer() dns.Server {
-	return e.dnsServer
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

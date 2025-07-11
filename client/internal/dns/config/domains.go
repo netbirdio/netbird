@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -40,19 +41,34 @@ func ExtractFromNetbirdConfig(config *mgmProto.NetbirdConfig) ServerDomains {
 
 // extractValidDomain extracts a valid domain from a URL, filtering out IP addresses
 func extractValidDomain(rawURL string) (domain.Domain, error) {
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		// If URL parsing fails, it might be a raw host:port, try parsing as such
-		if host, _, err := net.SplitHostPort(rawURL); err == nil {
-			return extractDomainFromHost(host)
-		}
-		// If not host:port, try as raw hostname
-		return extractDomainFromHost(rawURL)
+	if rawURL == "" {
+		return "", fmt.Errorf("empty URL")
 	}
 
-	host := parsedURL.Hostname()
-	if host == "" {
-		return "", fmt.Errorf("no hostname in URL")
+	// Try standard URL parsing first (handles https://, http://, rels://, etc.)
+	if parsedURL, err := url.Parse(rawURL); err == nil && parsedURL.Hostname() != "" {
+		return extractDomainFromHost(parsedURL.Hostname())
+	}
+
+	// Extract domain from various formats:
+	// - stun:domain:port -> domain
+	// - turns:domain:port?params -> domain
+	// - domain:port -> domain
+	host := rawURL
+
+	// Remove scheme prefix (stun:, turn:, turns:)
+	if colonIndex := strings.Index(host, ":"); colonIndex > 0 && colonIndex < 10 && !strings.Contains(host[:colonIndex], ".") {
+		host = host[colonIndex+1:]
+	}
+
+	// Remove port suffix
+	if hostOnly, _, err := net.SplitHostPort(host); err == nil {
+		host = hostOnly
+	}
+
+	// Remove query parameters
+	if queryIndex := strings.Index(host, "?"); queryIndex > 0 {
+		host = host[:queryIndex]
 	}
 
 	return extractDomainFromHost(host)
