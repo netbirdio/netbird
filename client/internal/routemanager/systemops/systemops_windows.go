@@ -829,13 +829,14 @@ func formatRouteAge(ageSeconds uint32) string {
 	}
 
 	age := time.Duration(ageSeconds) * time.Second
-	if age < time.Minute {
+	switch {
+	case age < time.Minute:
 		return fmt.Sprintf("%ds", int(age.Seconds()))
-	} else if age < time.Hour {
+	case age < time.Hour:
 		return fmt.Sprintf("%dm", int(age.Minutes()))
-	} else if age < 24*time.Hour {
+	case age < 24*time.Hour:
 		return fmt.Sprintf("%dh", int(age.Hours()))
-	} else {
+	default:
 		return fmt.Sprintf("%dd", int(age.Hours()/24))
 	}
 }
