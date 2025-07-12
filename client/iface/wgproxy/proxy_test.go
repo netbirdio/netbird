@@ -98,9 +98,7 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 				t.Errorf("failed to free ebpf proxy: %s", err)
 			}
 		}()
-		proxyWrapper := &ebpf.ProxyWrapper{
-			WgeBPFProxy: ebpfProxy,
-		}
+		proxyWrapper := ebpf.NewProxyWrapper(ebpfProxy)
 
 		tests = append(tests, struct {
 			name  string
