@@ -34,14 +34,14 @@ func NewActivityRecorder() *ActivityRecorder {
 }
 
 // GetLastActivities returns a snapshot of peer last activity
-func (r *ActivityRecorder) GetLastActivities() map[string]time.Time {
+func (r *ActivityRecorder) GetLastActivities() map[string]monotime.Time {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	activities := make(map[string]time.Time, len(r.peers))
+	activities := make(map[string]monotime.Time, len(r.peers))
 	for key, record := range r.peers {
-		unixNano := record.LastActivity.Load()
-		activities[key] = time.Unix(0, unixNano)
+		monoTime := record.LastActivity.Load()
+		activities[key] = monotime.Time(monoTime)
 	}
 	return activities
 }
@@ -51,18 +51,20 @@ func (r *ActivityRecorder) UpsertAddress(publicKey string, address netip.AddrPor
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if pr, exists := r.peers[publicKey]; exists {
-		delete(r.addrToPeer, pr.Address)
-		pr.Address = address
+	var record *PeerRecord
+	record, exists := r.peers[publicKey]
+	if exists {
+		delete(r.addrToPeer, record.Address)
+		record.Address = address
 	} else {
-		record := &PeerRecord{
+		record = &PeerRecord{
 			Address: address,
 		}
-		record.LastActivity.Store(monotime.Now())
+		record.LastActivity.Store(int64(monotime.Now()))
 		r.peers[publicKey] = record
 	}
 
-	r.addrToPeer[address] = r.peers[publicKey]
+	r.addrToPeer[address] = record
 }
 
 func (r *ActivityRecorder) Remove(publicKey string) {
@@ -84,7 +86,7 @@ func (r *ActivityRecorder) record(address netip.AddrPort) {
 		return
 	}
 
-	now := monotime.Now()
+	now := int64(monotime.Now())
 	last := record.LastActivity.Load()
 	if now-last < saveFrequency {
 		return
