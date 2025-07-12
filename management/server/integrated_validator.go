@@ -11,7 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-// UpdateIntegratedValidatorGroups updates the integrated validator groups for a specified account.
+// UpdateIntegratedValidator updates the integrated validator groups for a specified account.
 // It retrieves the account associated with the provided userID, then updates the integrated validator groups
 // with the provided list of group ids. The updated account is then saved.
 //
@@ -22,7 +22,11 @@ import (
 //
 // Returns:
 //   - error: An error if any occurred during the process, otherwise returns nil
-func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error {
+func (am *DefaultAccountManager) UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error {
+	if validator == "" {
+		return errors.New("validator cannot be empty")
+	}
+
 	ok, err := am.GroupValidation(ctx, accountID, groups)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error validating groups: %s", err.Error())
@@ -51,6 +55,8 @@ func (am *DefaultAccountManager) UpdateIntegratedValidatorGroups(ctx context.Con
 			extra = &types.ExtraSettings{}
 			a.Settings.Extra = extra
 		}
+
+		extra.IntegratedValidator = validator
 		extra.IntegratedValidatorGroups = groups
 		return transaction.SaveAccount(ctx, a)
 	})
@@ -98,7 +104,7 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 		return nil, err
 	}
 
-	return am.integratedPeerValidator.GetValidatedPeers(accountID, groups, peers, settings.Extra)
+	return am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, groups, peers, settings.Extra)
 }
 
 type MocIntegratedValidator struct {
@@ -116,7 +122,7 @@ func (a MocIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.P
 	return update, false, nil
 }
 
-func (a MocIntegratedValidator) GetValidatedPeers(accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
+func (a MocIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
 		validatedPeers[peer.ID] = struct{}{}
@@ -132,7 +138,7 @@ func (MocIntegratedValidator) IsNotValidPeer(_ context.Context, accountID string
 	return false, false, nil
 }
 
-func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string) error {
+func (MocIntegratedValidator) PeerDeleted(_ context.Context, _, _ string, extraSettings *types.ExtraSettings) error {
 	return nil
 }
 
