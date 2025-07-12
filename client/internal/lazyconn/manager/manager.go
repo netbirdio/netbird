@@ -258,12 +258,13 @@ func (m *Manager) ActivatePeer(peerID string) (found bool) {
 		return false
 	}
 
+	cfg.Log.Infof("activate peer from inactive state by remote signal message")
+
 	if !m.activateSinglePeer(cfg, mp) {
 		return false
 	}
 
 	m.activateHAGroupPeers(cfg)
-
 	return true
 }
 
@@ -571,11 +572,11 @@ func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {
 		// this is blocking operation, potentially can be optimized
 		m.peerStore.PeerConnIdle(mp.peerCfg.PublicKey)
 
-		mp.peerCfg.Log.Infof("start activity monitor")
-
 		mp.expectedWatcher = watcherActivity
 
 		m.inactivityManager.RemovePeer(mp.peerCfg.PublicKey)
+
+		mp.peerCfg.Log.Infof("start activity monitor")
 
 		if err := m.activityManager.MonitorPeerActivity(*mp.peerCfg); err != nil {
 			mp.peerCfg.Log.Errorf("failed to create activity monitor: %v", err)
