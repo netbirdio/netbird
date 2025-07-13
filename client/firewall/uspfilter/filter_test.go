@@ -136,9 +136,22 @@ func TestManagerDeleteRule(t *testing.T) {
 		return
 	}
 
+	// Check rules exist in appropriate maps
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip][r.ID()]; !ok {
-			t.Errorf("rule2 is not in the incomingRules")
+		peerRule, ok := r.(*PeerRule)
+		if !ok {
+			t.Errorf("rule should be a PeerRule")
+			continue
+		}
+		// Check if rule exists in deny or allow maps based on action
+		found := false
+		if peerRule.drop {
+			_, found = m.incomingDenyRules[ip][r.ID()]
+		} else {
+			_, found = m.incomingRules[ip][r.ID()]
+		}
+		if !found {
+			t.Errorf("rule2 is not in the expected rules map")
 		}
 	}
 
@@ -150,9 +163,22 @@ func TestManagerDeleteRule(t *testing.T) {
 		}
 	}
 
+	// Check rules are removed from appropriate maps
 	for _, r := range rule2 {
-		if _, ok := m.incomingRules[ip][r.ID()]; ok {
-			t.Errorf("rule2 is not in the incomingRules")
+		peerRule, ok := r.(*PeerRule)
+		if !ok {
+			t.Errorf("rule should be a PeerRule")
+			continue
+		}
+		// Check if rule is removed from deny or allow maps based on action
+		found := false
+		if peerRule.drop {
+			_, found = m.incomingDenyRules[ip][r.ID()]
+		} else {
+			_, found = m.incomingRules[ip][r.ID()]
+		}
+		if found {
+			t.Errorf("rule2 should be removed from the rules map")
 		}
 	}
 }
@@ -196,16 +222,17 @@ func TestAddUDPPacketHook(t *testing.T) {
 
 			var addedRule PeerRule
 			if tt.in {
+				// Incoming UDP hooks are stored in allow rules map
 				if len(manager.incomingRules[tt.ip]) != 1 {
-					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules))
+					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules[tt.ip]))
 					return
 				}
 				for _, rule := range manager.incomingRules[tt.ip] {
 					addedRule = rule
 				}
 			} else {
-				if len(manager.outgoingRules) != 1 {
-					t.Errorf("expected 1 outgoing rule, got %d", len(manager.outgoingRules))
+				if len(manager.outgoingRules[tt.ip]) != 1 {
+					t.Errorf("expected 1 outgoing rule, got %d", len(manager.outgoingRules[tt.ip]))
 					return
 				}
 				for _, rule := range manager.outgoingRules[tt.ip] {
@@ -261,8 +288,8 @@ func TestManagerReset(t *testing.T) {
 		return
 	}
 
-	if len(m.outgoingRules) != 0 || len(m.incomingRules) != 0 {
-		t.Errorf("rules is not empty")
+	if len(m.outgoingRules) != 0 || len(m.incomingRules) != 0 || len(m.incomingDenyRules) != 0 {
+		t.Errorf("rules are not empty")
 	}
 }
 
