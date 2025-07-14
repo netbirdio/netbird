@@ -6,7 +6,8 @@ set -eEuo pipefail
 : ${NB_ENTRYPOINT_TAIL_LOG_FILE:="true"}
 NETBIRD_BIN="${NETBIRD_BIN:-"netbird"}"
 export NB_LOG_FILE="${NB_LOG_FILE:-"/var/log/netbird/client.log"}"
-pids=()
+service_pids=()
+extra_pids=()
 
 _log() {
   # mimic Go logger's output for easier parsing
@@ -22,20 +23,30 @@ warn() {
   _log WARN "$@"
 }
 
-signal_cleanup() {
+on_exit() {
   info "Shutting down NetBird daemon..."
-  if test "${#pids[@]}" -gt 0; then
-    kill -TERM "${pids[@]}" 2>/dev/null || true
-    wait "${pids[@]}" 2>/dev/null || true
+  if test "${#service_pids[@]}" -gt 0; then
+    info "terminating service process PIDs: ${service_pids[*]}"
+    kill -TERM "${service_pids[@]}" 2>/dev/null || true
+    wait "${service_pids[@]}" 2>/dev/null || true
+  else
+    info "there are no service processes to terminate"
+  fi
+  if test "${#extra_pids[@]}" -gt 0; then
+    info "terminating extra process PIDs: ${extra_pids[*]}"
+    kill -TERM "${extra_pids[@]}" 2>/dev/null || true
+    wait "${extra_pids[@]}" 2>/dev/null || true
+  else
+    info "there are no extra processes to terminate"
   fi
   exit 0
 }
 
-signal_propagate() {
+on_signal_propagate() {
   local signal="${1}"
-  if test -n "${SERVICE_PID}"; then
+  if test "${#service_pids[@]}" -gt 0; then
     info "Propagating ${signal} to NetBird daemon..."
-    kill -"${signal}" "${SERVICE_PID}"
+    kill -"${signal}" "${#service_pids[@]}"
   fi
 }
 
@@ -55,8 +66,8 @@ wait_for_message() {
 main() {
   has_logfile="false"
   "${NETBIRD_BIN}" service run &
-  SERVICE_PID="$!"
-  pids+=("${SERVICE_PID}")
+  service_pids+=("$!")
+  info "registered new service process 'netbird service run', currently running: ${service_pids[*]}"
 
   trap 'signal_cleanup' SIGTERM SIGINT EXIT
 
@@ -71,7 +82,8 @@ main() {
     if test "${NB_ENTRYPOINT_TAIL_LOG_FILE}" = "true"; then
       info "tailing ${NB_LOG_FILE}..."
       tail -F "${NB_LOG_FILE}" >&2 &
-      pids+=("$!")
+      extra_pids+=("$!")
+      info "registered new extra process 'tail', currently running: ${extra_pids[*]}"
     fi
 
     if ! wait_for_message "${NB_ENTRYPOINT_SERVICE_TIMEOUT}" "started daemon server"; then
@@ -89,8 +101,7 @@ main() {
     "${NETBIRD_BIN}" up
   fi
 
-  wait "${SERVICE_PID}"
-  signal_cleanup || true
+  wait "${service_pids[@]}"
 }
 
 main "$@"
