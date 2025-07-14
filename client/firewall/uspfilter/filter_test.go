@@ -144,7 +144,7 @@ func TestManagerDeleteRule(t *testing.T) {
 			continue
 		}
 		// Check if rule exists in deny or allow maps based on action
-		found := false
+		var found bool
 		if peerRule.drop {
 			_, found = m.incomingDenyRules[ip][r.ID()]
 		} else {
@@ -171,7 +171,7 @@ func TestManagerDeleteRule(t *testing.T) {
 			continue
 		}
 		// Check if rule is removed from deny or allow maps based on action
-		found := false
+		var found bool
 		if peerRule.drop {
 			_, found = m.incomingDenyRules[ip][r.ID()]
 		} else {
