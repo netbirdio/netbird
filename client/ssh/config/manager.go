@@ -162,13 +162,8 @@ func getWindowsSSHPaths() (configDir, knownHostsDir string) {
 	return configDir, knownHostsDir
 }
 
-// SetupSSHClientConfig creates SSH client configuration for NetBird domains
-func (m *Manager) SetupSSHClientConfig(domains []string) error {
-	return m.SetupSSHClientConfigWithPeers(domains, nil)
-}
-
-// SetupSSHClientConfigWithPeers creates SSH client configuration for peer hostnames
-func (m *Manager) SetupSSHClientConfigWithPeers(domains []string, peerKeys []PeerHostKey) error {
+// SetupSSHClientConfig creates SSH client configuration for NetBird peers
+func (m *Manager) SetupSSHClientConfig(peerKeys []PeerHostKey) error {
 	if !shouldGenerateSSHConfig(len(peerKeys)) {
 		m.logSkipReason(len(peerKeys))
 		return nil
@@ -176,7 +171,7 @@ func (m *Manager) SetupSSHClientConfigWithPeers(domains []string, peerKeys []Pee
 
 	knownHostsPath := m.getKnownHostsPath()
 	sshConfig := m.buildSSHConfig(peerKeys, knownHostsPath)
-	return m.writeSSHConfig(sshConfig, domains)
+	return m.writeSSHConfig(sshConfig)
 }
 
 func (m *Manager) logSkipReason(peerCount int) {
@@ -255,17 +250,17 @@ func (m *Manager) buildHostKeyConfig(knownHostsPath string) string {
 		fmt.Sprintf("    UserKnownHostsFile %s\n", knownHostsPath)
 }
 
-func (m *Manager) writeSSHConfig(sshConfig string, domains []string) error {
+func (m *Manager) writeSSHConfig(sshConfig string) error {
 	sshConfigPath := filepath.Join(m.sshConfigDir, m.sshConfigFile)
 
 	if err := os.MkdirAll(m.sshConfigDir, 0755); err != nil {
 		log.Warnf("Failed to create SSH config directory %s: %v", m.sshConfigDir, err)
-		return m.setupUserConfig(sshConfig, domains)
+		return m.setupUserConfig(sshConfig)
 	}
 
 	if err := writeFileWithTimeout(sshConfigPath, []byte(sshConfig), 0644); err != nil {
 		log.Warnf("Failed to write SSH config file %s: %v", sshConfigPath, err)
-		return m.setupUserConfig(sshConfig, domains)
+		return m.setupUserConfig(sshConfig)
 	}
 
 	log.Infof("Created NetBird SSH client config: %s", sshConfigPath)
@@ -273,7 +268,7 @@ func (m *Manager) writeSSHConfig(sshConfig string, domains []string) error {
 }
 
 // setupUserConfig creates SSH config in user's directory as fallback
-func (m *Manager) setupUserConfig(sshConfig string, domains []string) error {
+func (m *Manager) setupUserConfig(sshConfig string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("get user home directory: %w", err)

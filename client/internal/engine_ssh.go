@@ -24,7 +24,6 @@ type sshServer interface {
 	RemoveAuthorizedKey(peer string)
 	AddAuthorizedKey(peer, newKey string) error
 	SetSocketFilter(ifIdx int)
-	SetupSSHClientConfigWithPeers(peerKeys []sshconfig.PeerHostKey) error
 }
 
 func (e *Engine) setupSSHPortRedirection() error {
@@ -183,11 +182,8 @@ func (e *Engine) updateKnownHostsFile(peerKeys []sshconfig.PeerHostKey) error {
 
 // updateSSHClientConfig updates SSH client configuration with peer hostnames
 func (e *Engine) updateSSHClientConfig(peerKeys []sshconfig.PeerHostKey) {
-	if e.sshServer == nil {
-		return
-	}
-
-	if err := e.sshServer.SetupSSHClientConfigWithPeers(peerKeys); err != nil {
+	configMgr := sshconfig.NewManager()
+	if err := configMgr.SetupSSHClientConfig(peerKeys); err != nil {
 		log.Warnf("failed to update SSH client config with peer hostnames: %v", err)
 	} else {
 		log.Debugf("updated SSH client config with %d peer hostnames", len(peerKeys))
@@ -271,9 +267,6 @@ func (e *Engine) startSSHServer() error {
 		return fmt.Errorf("start SSH server: %w", err)
 	}
 
-	if err := server.SetupSSHClientConfig(); err != nil {
-		log.Warnf("failed to setup SSH client config: %v", err)
-	}
 
 	return nil
 }

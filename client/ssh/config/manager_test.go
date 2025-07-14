@@ -100,9 +100,8 @@ func TestManager_SetupSSHClientConfig(t *testing.T) {
 		userKnownHosts: "known_hosts_netbird",
 	}
 
-	// Test SSH config generation
-	domains := []string{"example.nb.internal", "test.nb.internal"}
-	err = manager.SetupSSHClientConfig(domains)
+	// Test SSH config generation with empty peer keys
+	err = manager.SetupSSHClientConfig(nil)
 	require.NoError(t, err)
 
 	// Read generated config
@@ -275,7 +274,7 @@ func TestManager_PeerLimit(t *testing.T) {
 	}
 
 	// Test that SSH config generation is skipped when too many peers
-	err = manager.SetupSSHClientConfigWithPeers([]string{"nb.internal"}, peerKeys)
+	err = manager.SetupSSHClientConfig(peerKeys)
 	require.NoError(t, err)
 
 	// Config should not be created due to peer limit
@@ -328,7 +327,7 @@ func TestManager_ForcedSSHConfig(t *testing.T) {
 	}
 
 	// Test that SSH config generation is forced despite many peers
-	err = manager.SetupSSHClientConfigWithPeers([]string{"nb.internal"}, peerKeys)
+	err = manager.SetupSSHClientConfig(peerKeys)
 	require.NoError(t, err)
 
 	// Config should be created despite peer limit due to force flag

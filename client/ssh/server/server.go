@@ -14,7 +14,6 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 )
 
 // DefaultSSHPort is the default SSH port of the NetBird's embedded SSH server
@@ -255,26 +254,6 @@ func (s *Server) SetSocketFilter(ifIdx int) {
 	s.ifIdx = ifIdx
 }
 
-// SetupSSHClientConfig configures SSH client settings
-func (s *Server) SetupSSHClientConfig() error {
-	return s.SetupSSHClientConfigWithPeers(nil)
-}
-
-// SetupSSHClientConfigWithPeers configures SSH client settings for peer hostnames
-func (s *Server) SetupSSHClientConfigWithPeers(peerKeys []sshconfig.PeerHostKey) error {
-	configMgr := sshconfig.NewManager()
-	if err := configMgr.SetupSSHClientConfigWithPeers(nil, peerKeys); err != nil {
-		return fmt.Errorf("setup SSH client config: %w", err)
-	}
-
-	peerCount := len(peerKeys)
-	if peerCount > 0 {
-		log.Debugf("SSH client config setup completed for %d peer hostnames", peerCount)
-	} else {
-		log.Debugf("SSH client config setup completed with no peers")
-	}
-	return nil
-}
 
 func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	s.mu.RLock()
