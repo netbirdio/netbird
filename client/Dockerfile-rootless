@@ -24,8 +24,7 @@ ENV \
     NB_LOG_FILE="/var/lib/netbird/client.log" \
     NB_DISABLE_DNS="true" \
     NB_ENTRYPOINT_SERVICE_TIMEOUT="5" \
-    NB_ENTRYPOINT_LOGIN_TIMEOUT="1" \
-    NB_ENTRYPOINT_TAIL_LOG_FILE="true"
+    NB_ENTRYPOINT_LOGIN_TIMEOUT="1"
 
 ENTRYPOINT [ "/usr/local/bin/netbird-entrypoint.sh" ]
 
