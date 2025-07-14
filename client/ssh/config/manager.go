@@ -434,24 +434,14 @@ func (m *Manager) UpdatePeerHostKeys(peerKeys []PeerHostKey) error {
 		return fmt.Errorf("setup known_hosts file: %w", err)
 	}
 
-	// Build new entries map for efficient lookup
-	newEntries := make(map[string]string)
-	for _, peerKey := range peerKeys {
-		entry := m.formatKnownHostsEntry(peerKey)
-		// Use all possible hostnames as keys
-		hostnames := m.getHostnameVariants(peerKey)
-		for _, hostname := range hostnames {
-			newEntries[hostname] = entry
-		}
-	}
-
 	// Create updated known_hosts content - NetBird file should only contain NetBird entries
 	var updatedContent strings.Builder
 	updatedContent.WriteString("# NetBird SSH known hosts\n")
 	updatedContent.WriteString("# Generated automatically - do not edit manually\n\n")
 
-	// Add new NetBird entries
-	for _, entry := range newEntries {
+	// Add new NetBird entries - one entry per peer with all hostnames
+	for _, peerKey := range peerKeys {
+		entry := m.formatKnownHostsEntry(peerKey)
 		updatedContent.WriteString(entry)
 		updatedContent.WriteString("\n")
 	}
