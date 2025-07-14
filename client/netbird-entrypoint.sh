@@ -3,7 +3,6 @@ set -eEuo pipefail
 
 : ${NB_ENTRYPOINT_SERVICE_TIMEOUT:="5"}
 : ${NB_ENTRYPOINT_LOGIN_TIMEOUT:="1"}
-: ${NB_ENTRYPOINT_TAIL_LOG_FILE:="true"}
 NETBIRD_BIN="${NETBIRD_BIN:-"netbird"}"
 export NB_LOG_FILE="${NB_LOG_FILE:-"/var/log/netbird/client.log"}"
 service_pids=()
@@ -79,12 +78,6 @@ main() {
     ;;
   *)
     has_logfile="true"
-    if test "${NB_ENTRYPOINT_TAIL_LOG_FILE}" = "true"; then
-      info "tailing ${NB_LOG_FILE}..."
-      tail -F "${NB_LOG_FILE}" >&2 &
-      extra_pids+=("$!")
-      info "registered new extra process 'tail', currently running: ${extra_pids[*]}"
-    fi
 
     if ! wait_for_message "${NB_ENTRYPOINT_SERVICE_TIMEOUT}" "started daemon server"; then
       warn "log line containing 'started daemon server' not found after ${NB_ENTRYPOINT_SERVICE_TIMEOUT} seconds"
