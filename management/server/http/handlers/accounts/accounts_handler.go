@@ -1,8 +1,10 @@
 package accounts
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -35,6 +37,64 @@ func newHandler(accountManager account.Manager, settingsManager settings.Manager
 		accountManager:  accountManager,
 		settingsManager: settingsManager,
 	}
+}
+
+func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, networkRange string) error {
+	if networkRange == "" {
+		return nil
+	}
+
+	prefix, err := netip.ParsePrefix(networkRange)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid CIDR format: %v", err)
+	}
+
+	addr := prefix.Addr()
+
+	if addr.Is4() {
+		linkLocal, _ := netip.ParsePrefix("169.254.0.0/16")
+		if linkLocal.Contains(addr) {
+			return status.Errorf(status.InvalidArgument, "link-local address range not allowed")
+		}
+	} else if addr.Is6() {
+		linkLocal, _ := netip.ParsePrefix("fe80::/10")
+		if linkLocal.Contains(addr) {
+			return status.Errorf(status.InvalidArgument, "IPv6 link-local address range not allowed")
+		}
+	}
+
+	if addr.IsLoopback() {
+		return status.Errorf(status.InvalidArgument, "loopback address range not allowed")
+	}
+
+	if addr.IsMulticast() {
+		return status.Errorf(status.InvalidArgument, "multicast address range not allowed")
+	}
+
+	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "")
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to get peer count: %v", err)
+	}
+
+	availableAddresses := prefix.Addr().BitLen() - prefix.Bits()
+	maxHosts := int64(1) << availableAddresses
+
+	if addr.Is4() {
+		maxHosts -= 2
+	}
+
+	requiredAddresses := int64(len(peers)) + int64(len(peers)/2)
+	if requiredAddresses < 10 {
+		requiredAddresses = 10
+	}
+
+	if maxHosts < requiredAddresses {
+		return status.Errorf(status.InvalidArgument,
+			"network range too small: need at least %d addresses for %d peers + buffer, but range provides %d",
+			requiredAddresses, len(peers), maxHosts)
+	}
+
+	return nil
 }
 
 // getAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
@@ -131,6 +191,13 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Settings.LazyConnectionEnabled != nil {
 		settings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
 	}
+	if req.Settings.NetworkRange != nil {
+		if err := h.validateNetworkRange(r.Context(), accountID, userID, *req.Settings.NetworkRange); err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+		settings.NetworkRange = *req.Settings.NetworkRange
+	}
 
 	var onboarding *types.AccountOnboarding
 	if req.Onboarding != nil {
@@ -206,6 +273,10 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		RoutingPeerDnsResolutionEnabled: &settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
 		DnsDomain:                       &settings.DNSDomain,
+	}
+
+	if settings.NetworkRange != "" {
+		apiSettings.NetworkRange = &settings.NetworkRange
 	}
 
 	apiOnboarding := api.AccountOnboarding{

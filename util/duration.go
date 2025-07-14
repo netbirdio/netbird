@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-//Duration is used strictly for JSON requests/responses due to duration marshalling issues
+// Duration is used strictly for JSON requests/responses due to duration marshalling issues
 type Duration struct {
 	time.Duration
 }
