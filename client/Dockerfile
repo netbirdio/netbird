@@ -1,7 +1,8 @@
-# build locally with:
+# build & run locally with:
 #   cd "$(git rev-parse --show-toplevel)"
 #   CGO_ENABLED=0 go build -o netbird ./client
-#   podman build -t localhost/netbird:latest -f client/Dockerfile --ignorefile .dockerignore-client .
+#   sudo podman build -t localhost/netbird:latest -f client/Dockerfile --ignorefile .dockerignore-client .
+#   sudo podman run --rm -it --cap-add={BPF,NET_ADMIN,NET_RAW} localhost/netbird:latest
 
 FROM alpine:3.22.0
 # iproute2: busybox doesn't display ip rules properly
