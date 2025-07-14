@@ -4,8 +4,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/grpclog"
@@ -17,35 +17,47 @@ import (
 const defaultLogSize = 15
 
 // InitLog parses and sets log-level input
-func InitLog(logLevel string, logPath string) error {
+func InitLog(logLevel string, logPaths string) error {
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
 		log.Errorf("Failed parsing log-level %s: %s", logLevel, err)
 		return err
 	}
-	customOutputs := []string{"console", "syslog"}
+	var writers []io.Writer
+	logFmt := os.Getenv("NB_LOG_FORMAT")
 
-	if logPath != "" && !slices.Contains(customOutputs, logPath) {
-		maxLogSize := getLogMaxSize()
-		lumberjackLogger := &lumberjack.Logger{
-			// Log file absolute path, os agnostic
-			Filename:   filepath.ToSlash(logPath),
-			MaxSize:    maxLogSize, // MB
-			MaxBackups: 10,
-			MaxAge:     30, // days
-			Compress:   true,
+	for _, logPath := range strings.Split(logPaths, ":") {
+		switch logPath {
+		case "syslog":
+			AddSyslogHook()
+			logFmt = "syslog"
+		case "console", "docker", "stderr":
+			writers = append(writers, os.Stderr)
+		case "":
+			log.Warnf("empty log path received: %#v", logPath)
+		default:
+			maxLogSize := getLogMaxSize()
+			lumberjackLogger := &lumberjack.Logger{
+				// Log file absolute path, os agnostic
+				Filename:   filepath.ToSlash(logPath),
+				MaxSize:    maxLogSize, // MB
+				MaxBackups: 10,
+				MaxAge:     30, // days
+				Compress:   true,
+			}
+			writers = append(writers, lumberjackLogger)
 		}
-		log.SetOutput(io.Writer(lumberjackLogger))
-	} else if logPath == "syslog" {
-		AddSyslogHook()
+	}
+	if len(writers) > 0 {
+		log.SetOutput(io.MultiWriter(writers...))
 	}
 
-	//nolint:gocritic
-	if os.Getenv("NB_LOG_FORMAT") == "json" {
+	switch logFmt {
+	case "json":
 		formatter.SetJSONFormatter(log.StandardLogger())
-	} else if logPath == "syslog" {
+	case "syslog":
 		formatter.SetSyslogFormatter(log.StandardLogger())
-	} else {
+	default:
 		formatter.SetTextFormatter(log.StandardLogger())
 	}
 	log.SetLevel(level)

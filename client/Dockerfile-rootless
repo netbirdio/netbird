@@ -21,7 +21,7 @@ ENV \
     NB_CONFIG="/var/lib/netbird/config.json" \
     NB_STATE_DIR="/var/lib/netbird" \
     NB_DAEMON_ADDR="unix:///var/lib/netbird/netbird.sock" \
-    NB_LOG_FILE="/var/lib/netbird/client.log" \
+    NB_LOG_FILE="console:/var/lib/netbird/client.log" \
     NB_DISABLE_DNS="true" \
     NB_ENTRYPOINT_SERVICE_TIMEOUT="5" \
     NB_ENTRYPOINT_LOGIN_TIMEOUT="1"
