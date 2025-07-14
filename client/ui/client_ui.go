@@ -1196,6 +1196,21 @@ func (s *serviceClient) restartClient() error {
 	return nil
 }
 
+// updateDefaultConfig updates the default configuration parameters
+func (s *serviceClient) updateDefaultConfig(cfgInput *profilemanager.ConfigInput) error {
+	ctx, cancel := context.WithTimeout(s.ctx, defaultFailTimeout)
+	defer cancel()
+
+	client, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.SetDefaultConfig(ctx, &proto.SetDefaultConfigRequest{})
+
+	return nil
+}
+
 // showLoginURL creates a borderless window styled like a pop-up in the top-right corner using s.wLoginURL.
 func (s *serviceClient) showLoginURL() {
 

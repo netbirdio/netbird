@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -296,6 +297,135 @@ func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (i
 		return status, err
 	}
 	return "", nil
+}
+
+// Login uses setup key to prepare configuration for the daemon.
+func (s *Server) SetDefaultConfig(callerCtx context.Context, msg *proto.SetDefaultConfigRequest) (*proto.SetDefaultConfigResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	config, err := profilemanager.GetConfig(s.profileManager.DefaultProfilePath())
+	if err != nil {
+		log.Errorf("failed to get default profile config: %v", err)
+		return nil, fmt.Errorf("failed to get default profile config: %w", err)
+	}
+
+	//profilemanager.CreateInMemoryConfig()
+
+	/*
+		// managementUrl to authenticate.
+		ManagementUrl string `protobuf:"bytes,1,opt,name=managementUrl,proto3" json:"managementUrl,omitempty"`
+		// adminUrl to manage keys.
+		AdminURL              string  `protobuf:"bytes,2,opt,name=adminURL,proto3" json:"adminURL,omitempty"`
+		RosenpassEnabled      *bool   `protobuf:"varint,3,opt,name=rosenpassEnabled,proto3,oneof" json:"rosenpassEnabled,omitempty"`
+		InterfaceName         *string `protobuf:"bytes,4,opt,name=interfaceName,proto3,oneof" json:"interfaceName,omitempty"`
+		WireguardPort         *int64  `protobuf:"varint,5,opt,name=wireguardPort,proto3,oneof" json:"wireguardPort,omitempty"`
+		OptionalPreSharedKey  *string `protobuf:"bytes,6,opt,name=optionalPreSharedKey,proto3,oneof" json:"optionalPreSharedKey,omitempty"`
+		DisableAutoConnect    *bool   `protobuf:"varint,7,opt,name=disableAutoConnect,proto3,oneof" json:"disableAutoConnect,omitempty"`
+		ServerSSHAllowed      *bool   `protobuf:"varint,8,opt,name=serverSSHAllowed,proto3,oneof" json:"serverSSHAllowed,omitempty"`
+		RosenpassPermissive   *bool   `protobuf:"varint,9,opt,name=rosenpassPermissive,proto3,oneof" json:"rosenpassPermissive,omitempty"`
+		NetworkMonitor        *bool   `protobuf:"varint,10,opt,name=networkMonitor,proto3,oneof" json:"networkMonitor,omitempty"`
+		DisableClientRoutes   *bool   `protobuf:"varint,11,opt,name=disable_client_routes,json=disableClientRoutes,proto3,oneof" json:"disable_client_routes,omitempty"`
+		DisableServerRoutes   *bool   `protobuf:"varint,12,opt,name=disable_server_routes,json=disableServerRoutes,proto3,oneof" json:"disable_server_routes,omitempty"`
+		DisableDns            *bool   `protobuf:"varint,13,opt,name=disable_dns,json=disableDns,proto3,oneof" json:"disable_dns,omitempty"`
+		DisableFirewall       *bool   `protobuf:"varint,14,opt,name=disable_firewall,json=disableFirewall,proto3,oneof" json:"disable_firewall,omitempty"`
+		BlockLanAccess        *bool   `protobuf:"varint,15,opt,name=block_lan_access,json=blockLanAccess,proto3,oneof" json:"block_lan_access,omitempty"`
+		DisableNotifications  *bool   `protobuf:"varint,16,opt,name=disable_notifications,json=disableNotifications,proto3,oneof" json:"disable_notifications,omitempty"`
+		LazyConnectionEnabled *bool   `protobuf:"varint,17,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
+		BlockInbound          *bool   `protobuf:"varint,18,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
+	*/
+
+	if msg.ManagementUrl != "" {
+		managementURL, err := url.Parse(msg.ManagementUrl)
+		if err != nil {
+			log.Errorf("failed to parse management URL: %v", err)
+			return nil, fmt.Errorf("failed to parse management URL: %w", err)
+		}
+		config.ManagementURL = managementURL
+	}
+
+	if msg.AdminURL != "" {
+		adminURL, err := url.Parse(msg.AdminURL)
+		if err != nil {
+			log.Errorf("failed to parse admin URL: %v", err)
+			return nil, fmt.Errorf("failed to parse admin URL: %w", err)
+		}
+		config.AdminURL = adminURL
+	}
+
+	if msg.InterfaceName != nil {
+		config.WgIface = *msg.InterfaceName
+	}
+
+	if msg.WireguardPort != nil {
+		config.WgPort = int(*msg.WireguardPort)
+	}
+
+	if msg.OptionalPreSharedKey != nil {
+		if *msg.OptionalPreSharedKey != "" {
+			config.PreSharedKey = *msg.OptionalPreSharedKey
+		} else {
+			config.PreSharedKey = ""
+		}
+	}
+	if msg.RosenpassEnabled != nil {
+		config.RosenpassEnabled = *msg.RosenpassEnabled
+	}
+
+	if msg.RosenpassPermissive != nil {
+		config.RosenpassPermissive = *msg.RosenpassPermissive
+	}
+
+	if msg.DisableAutoConnect != nil {
+		config.DisableAutoConnect = *msg.DisableAutoConnect
+	}
+
+	if msg.ServerSSHAllowed != nil {
+		config.ServerSSHAllowed = msg.ServerSSHAllowed
+	}
+
+	if msg.NetworkMonitor != nil {
+		config.NetworkMonitor = msg.NetworkMonitor
+	}
+
+	if msg.DisableClientRoutes != nil {
+		config.DisableClientRoutes = *msg.DisableClientRoutes
+	}
+
+	if msg.DisableServerRoutes != nil {
+		config.DisableServerRoutes = *msg.DisableServerRoutes
+	}
+
+	if msg.DisableDns != nil {
+		config.DisableDNS = *msg.DisableDns
+	}
+
+	if msg.DisableFirewall != nil {
+		config.DisableFirewall = *msg.DisableFirewall
+	}
+
+	if msg.BlockLanAccess != nil {
+		config.BlockLANAccess = *msg.BlockLanAccess
+	}
+
+	if msg.DisableNotifications != nil {
+		config.DisableNotifications = msg.DisableNotifications
+	}
+
+	if msg.LazyConnectionEnabled != nil {
+		config.LazyConnectionEnabled = *msg.LazyConnectionEnabled
+	}
+
+	if msg.BlockInbound != nil {
+		config.BlockInbound = *msg.BlockInbound
+	}
+
+	// if err := profilemanager.UpdateConfig(); err != nil {
+	// 	log.Errorf("failed to update default profile config: %v", err)
+	// 	return nil, fmt.Errorf("failed to update default profile config: %w", err)
+	// }
+
+	return &proto.SetDefaultConfigResponse{}, nil
 }
 
 // Login uses setup key to prepare configuration for the daemon.
