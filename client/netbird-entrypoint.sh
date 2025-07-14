@@ -54,32 +54,33 @@ wait_for_message() {
   fi
 }
 
-wait_for_daemon_startup() {
-  local timeout="${1}" log_files_string="${2}"
-  local log_file daemon_started=false
+locate_log_file() {
+  local log_files_string="${1}"
+
   while read -r log_file; do
-    if test "${daemon_started}" = "true"; then
-      continue
-    fi
     case "${log_file}" in
-    console | syslog | docker | stderr)
-      warn "log file '${log_file}' parsing is not supported by debug bundles"
-      warn "please consider removing the \$NB_LOG_FILE or setting it to real file, before gathering debug bundles."
-      ;;
+    console | syslog | docker | stderr) ;;
     *)
       log_file_path="${log_file}"
-
-      if ! wait_for_message "${timeout}" "started daemon server"; then
-        warn "log line containing 'started daemon server' not found after ${timeout} seconds"
-        warn "daemon failed to start, exiting..."
-        exit 1
-      fi
-      daemon_started=true
+      return
       ;;
     esac
   done < <(sed 's#:#\n#g' <<<"${log_files_string}")
 
-  if test "${daemon_started}" != "true"; then
+  warn "log files parsing parsing for '${log_files_string}' is not supported by debug bundles"
+  warn "please consider removing the \$NB_LOG_FILE or setting it to real file, before gathering debug bundles."
+}
+
+wait_for_daemon_startup() {
+  local timeout="${1}"
+
+  if test -n "${log_file_path}"; then
+    if ! wait_for_message "${timeout}" "started daemon server"; then
+      warn "log line containing 'started daemon server' not found after ${timeout} seconds"
+      warn "daemon failed to start, exiting..."
+      exit 1
+    fi
+  else
     warn "daemon service startup not discovered, sleeping ${timeout} instead"
     sleep "${timeout}"
   fi
@@ -102,7 +103,8 @@ main() {
   service_pids+=("$!")
   info "registered new service process 'netbird service run', currently running: ${service_pids[*]}"
 
-  wait_for_daemon_startup "${NB_ENTRYPOINT_SERVICE_TIMEOUT}" "${NB_LOG_FILE}"
+  locate_log_file "${NB_LOG_FILE}"
+  wait_for_daemon_startup "${NB_ENTRYPOINT_SERVICE_TIMEOUT}"
   login_if_needed "${NB_ENTRYPOINT_LOGIN_TIMEOUT}"
 
   wait "${service_pids[@]}"
