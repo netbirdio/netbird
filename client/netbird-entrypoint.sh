@@ -59,9 +59,6 @@ main() {
   pids+=("${SERVICE_PID}")
 
   trap 'signal_cleanup' SIGTERM SIGINT EXIT
-  # TODO: do we actually handle any signals in `netbird service run`?
-  #trap 'signal_propagate USR1' SIGUSR1
-  #trap 'signal_propagate USR2' SIGUSR2
 
   case "${NB_LOG_FILE}" in
   console | syslog)
