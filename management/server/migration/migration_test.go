@@ -156,15 +156,15 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
 		Peers []peer `gorm:"foreignKey:AccountID;references:id"`
 	}
 
-	a := &types.Account{
-		Id: "1234",
+	a := &account{
+		Account: types.Account{Id: "123"},
 	}
 
 	err = db.Save(a).Error
 	require.NoError(t, err, "Failed to insert account")
 
-	a.PeersG = []nbpeer.Peer{
-		{AccountID: "1234", Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+	a.Peers = []peer{
+		{Location: location{ConnectionIP: net.IP{10, 0, 0, 1}}},
 	}
 
 	err = db.Save(a).Error
