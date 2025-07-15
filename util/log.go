@@ -36,20 +36,14 @@ func InitLog(logLevel string, logPaths string) error {
 		case "":
 			log.Warnf("empty log path received: %#v", logPath)
 		default:
-			maxLogSize := getLogMaxSize()
-			lumberjackLogger := &lumberjack.Logger{
-				// Log file absolute path, os agnostic
-				Filename:   filepath.ToSlash(logPath),
-				MaxSize:    maxLogSize, // MB
-				MaxBackups: 10,
-				MaxAge:     30, // days
-				Compress:   true,
-			}
-			writers = append(writers, lumberjackLogger)
+			writers = append(writers, newRotatedOutput(logPath))
 		}
 	}
-	if len(writers) > 0 {
+
+	if len(writers) > 1 {
 		log.SetOutput(io.MultiWriter(writers...))
+	} else if len(writers) == 1 {
+		log.SetOutput(writers[0])
 	}
 
 	switch logFmt {
@@ -65,6 +59,19 @@ func InitLog(logLevel string, logPaths string) error {
 	setGRPCLibLogger()
 
 	return nil
+}
+
+func newRotatedOutput(logPath string) io.Writer {
+	maxLogSize := getLogMaxSize()
+	lumberjackLogger := &lumberjack.Logger{
+		// Log file absolute path, os agnostic
+		Filename:   filepath.ToSlash(logPath),
+		MaxSize:    maxLogSize, // MB
+		MaxBackups: 10,
+		MaxAge:     30, // days
+		Compress:   true,
+	}
+	return lumberjackLogger
 }
 
 func setGRPCLibLogger() {
