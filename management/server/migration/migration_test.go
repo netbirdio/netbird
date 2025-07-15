@@ -215,7 +215,7 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 func TestMigrateSetupKeyToHashedSetupKey_ForPlainKey(t *testing.T) {
 	db := setupDatabase(t)
 
-	err := db.AutoMigrate(&types.SetupKey{})
+	err := db.AutoMigrate(&types.SetupKey{}, &nbpeer.Peer{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	err = db.Save(&types.SetupKey{
