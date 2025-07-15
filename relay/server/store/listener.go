@@ -8,6 +8,7 @@ import (
 )
 
 type Listener struct {
+	ctx   context.Context
 	store *Store
 
 	onlineChan                chan messages.PeerID
@@ -19,8 +20,9 @@ type Listener struct {
 	listenerCtx context.Context
 }
 
-func newListener(store *Store) *Listener {
+func newListener(ctx context.Context, store *Store) *Listener {
 	l := &Listener{
+		ctx:   ctx,
 		store: store,
 
 		onlineChan:                make(chan messages.PeerID, 244), //244 is the message size limit in the relay protocol
@@ -65,11 +67,10 @@ func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
 	}
 }
 
-func (l *Listener) listenForEvents(ctx context.Context, onPeersComeOnline, onPeersWentOffline func([]messages.PeerID)) {
-	l.listenerCtx = ctx
+func (l *Listener) listenForEvents(onPeersComeOnline, onPeersWentOffline func([]messages.PeerID)) {
 	for {
 		select {
-		case <-ctx.Done():
+		case <-l.ctx.Done():
 			return
 		case pID := <-l.onlineChan:
 			peers := make([]messages.PeerID, 0)
@@ -102,7 +103,7 @@ func (l *Listener) peerWentOffline(peerID messages.PeerID) {
 	if _, ok := l.interestedPeersForOffline[peerID]; ok {
 		select {
 		case l.offlineChan <- peerID:
-		case <-l.listenerCtx.Done():
+		case <-l.ctx.Done():
 		}
 	}
 }
@@ -114,7 +115,7 @@ func (l *Listener) peerComeOnline(peerID messages.PeerID) {
 	if _, ok := l.interestedPeersForOnline[peerID]; ok {
 		select {
 		case l.onlineChan <- peerID:
-		case <-l.listenerCtx.Done():
+		case <-l.ctx.Done():
 		}
 		delete(l.interestedPeersForOnline, peerID)
 	}
