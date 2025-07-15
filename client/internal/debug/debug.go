@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/util"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -283,7 +285,7 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("Failed to add wg show output: %v", err)
 	}
 
-	if g.logFile != "console" && g.logFile != "" {
+	if g.logFile != "" && !slices.Contains(util.SpecialLogs, g.logFile) {
 		if err := g.addLogfile(); err != nil {
 			log.Errorf("Failed to add log file to debug bundle: %v", err)
 			if err := g.trySystemdLogFallback(); err != nil {

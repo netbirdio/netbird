@@ -2,8 +2,10 @@ package util
 
 import (
 	"io"
+	"iter"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,8 +18,22 @@ import (
 
 const defaultLogSize = 15
 
+const (
+	// LogSeparator preserves compatibility with cobra's StringSliceVar() by using `,`
+	LogSeparator = ","
+	LogConsole   = "console"
+	LogSyslog    = "syslog"
+)
+
+var (
+	SpecialLogs = []string{
+		LogSyslog,
+		LogConsole,
+	}
+)
+
 // InitLog parses and sets log-level input
-func InitLog(logLevel string, logPaths string) error {
+func InitLog(logLevel string, logs ...string) error {
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
 		log.Errorf("Failed parsing log-level %s: %s", logLevel, err)
@@ -26,12 +42,12 @@ func InitLog(logLevel string, logPaths string) error {
 	var writers []io.Writer
 	logFmt := os.Getenv("NB_LOG_FORMAT")
 
-	for _, logPath := range strings.Split(logPaths, ":") {
+	for logPath := range IterateLogs(logs) {
 		switch logPath {
-		case "syslog":
+		case LogSyslog:
 			AddSyslogHook()
 			logFmt = "syslog"
-		case "console", "docker", "stderr":
+		case LogConsole:
 			writers = append(writers, os.Stderr)
 		case "":
 			log.Warnf("empty log path received: %#v", logPath)
@@ -59,6 +75,28 @@ func InitLog(logLevel string, logPaths string) error {
 	setGRPCLibLogger()
 
 	return nil
+}
+
+// IterateLogs parses and iterates over logging entries
+func IterateLogs(logs []string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		parts := strings.Split(strings.Join(logs, LogSeparator), LogSeparator)
+		for _, part := range parts {
+			if !yield(strings.TrimSpace(part)) {
+				return
+			}
+		}
+	}
+}
+
+// FindFirstLogPath locates the first non-special logfile, assumed to be a valid path
+func FindFirstLogPath(logs []string) string {
+	for logFile := range IterateLogs(logs) {
+		if !slices.Contains(SpecialLogs, logFile) {
+			return logFile
+		}
+	}
+	return ""
 }
 
 func newRotatedOutput(logPath string) io.Writer {

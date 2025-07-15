@@ -66,7 +66,7 @@ func main() {
 		}
 		logFile = file
 	} else {
-		_ = util.InitLog("trace", "console")
+		_ = util.InitLog("trace", util.LogConsole)
 	}
 
 	// Create the Fyne application.

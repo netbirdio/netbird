@@ -61,7 +61,7 @@ func (p *program) Start(svc service.Service) error {
 			}
 		}
 
-		serverInstance := server.New(p.ctx, configPath, logFile)
+		serverInstance := server.New(p.ctx, configPath, util.FindFirstLogPath(logFiles))
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed to start daemon: %v", err)
 		}
@@ -136,7 +136,7 @@ var runCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(cmd.Context())
 
 		SetupCloseHandler(ctx, cancel)
-		SetupDebugHandler(ctx, nil, nil, nil, logFile)
+		SetupDebugHandler(ctx, nil, nil, nil, util.FindFirstLogPath(logFiles))
 
 		s, err := setupServiceControlCommand(cmd, ctx, cancel)
 		if err != nil {

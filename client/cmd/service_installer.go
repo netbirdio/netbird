@@ -12,6 +12,8 @@ import (
 
 	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 var ErrGetServiceStatus = fmt.Errorf("failed to get service status")
@@ -41,7 +43,7 @@ func buildServiceArguments() []string {
 		args = append(args, "--management-url", managementURL)
 	}
 
-	if logFile != "" {
+	for _, logFile := range logFiles {
 		args = append(args, "--log-file", logFile)
 	}
 
@@ -54,7 +56,7 @@ func configurePlatformSpecificSettings(svcConfig *service.Config) error {
 		// Respected only by systemd systems
 		svcConfig.Dependencies = []string{"After=network.target syslog.target"}
 
-		if logFile != "console" {
+		if logFile := util.FindFirstLogPath(logFiles); logFile != "" {
 			setStdLogPath := true
 			dir := filepath.Dir(logFile)
 

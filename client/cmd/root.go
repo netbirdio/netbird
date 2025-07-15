@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -51,7 +52,7 @@ var (
 	defaultLogFile          string
 	oldDefaultLogFileDir    string
 	oldDefaultLogFile       string
-	logFile                 string
+	logFiles                []string
 	daemonAddr              string
 	managementURL           string
 	adminURL                string
@@ -120,7 +121,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultAdminURL))
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
-	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout. If syslog is specified the log will be sent to syslog daemon. You can separate multiple entries by `:` character")
+	rootCmd.PersistentFlags().StringSliceVar(&logFiles, "log-file", []string{defaultLogFile}, "sets Netbird log paths written to simultaneously. If `console` is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character")
 	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
 	rootCmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.")
 	rootCmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
@@ -265,7 +266,7 @@ func getSetupKeyFromFile(setupKeyPath string) (string, error) {
 
 func handleRebrand(cmd *cobra.Command) error {
 	var err error
-	if logFile == defaultLogFile {
+	if slices.Contains(logFiles, defaultLogFile) {
 		if migrateToNetbird(oldDefaultLogFile, defaultLogFile) {
 			cmd.Printf("will copy Log dir %s and its content to %s\n", oldDefaultLogFileDir, defaultLogFileDir)
 			err = cpDir(oldDefaultLogFileDir, defaultLogFileDir)
