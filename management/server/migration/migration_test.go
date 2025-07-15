@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -155,12 +156,18 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
 		Peers []peer `gorm:"foreignKey:AccountID;references:id"`
 	}
 
-	err = db.Save(&account{
-		Account: types.Account{Id: "123"},
-		Peers: []peer{
-			{Location: location{ConnectionIP: net.IP{10, 0, 0, 1}}},
-		}},
-	).Error
+	a := &types.Account{
+		Id: "1234",
+	}
+
+	err = db.Save(a).Error
+	require.NoError(t, err, "Failed to insert account")
+
+	a.PeersG = []nbpeer.Peer{
+		{AccountID: "1234", Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+	}
+
+	err = db.Save(a).Error
 	require.NoError(t, err, "Failed to insert blob data")
 
 	var blobValue string
@@ -181,12 +188,18 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	err := db.AutoMigrate(&types.Account{}, &nbpeer.Peer{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
-	err = db.Save(&types.Account{
+	account := &types.Account{
 		Id: "1234",
-		PeersG: []nbpeer.Peer{
-			{Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
-		}},
-	).Error
+	}
+
+	err = db.Save(account).Error
+	require.NoError(t, err, "Failed to insert account")
+
+	account.PeersG = []nbpeer.Peer{
+		{AccountID: "1234", Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+	}
+
+	err = db.Save(account).Error
 	require.NoError(t, err, "Failed to insert JSON data")
 
 	err = migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](context.Background(), db, "location_connection_ip", "")
@@ -273,8 +286,9 @@ func TestDropIndex(t *testing.T) {
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	err = db.Save(&types.SetupKey{
-		Id:  "1",
-		Key: "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
+		Id:        "1",
+		Key:       "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
+		UpdatedAt: time.Now(),
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")
 
@@ -289,8 +303,6 @@ func TestDropIndex(t *testing.T) {
 }
 
 func TestCreateIndex(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", "mysql")
-
 	db := setupDatabase(t)
 	err := db.AutoMigrate(&nbpeer.Peer{})
 	assert.NoError(t, err, "Failed to auto-migrate tables")
