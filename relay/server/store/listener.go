@@ -16,8 +16,6 @@ type Listener struct {
 	interestedPeersForOffline map[messages.PeerID]struct{}
 	interestedPeersForOnline  map[messages.PeerID]struct{}
 	mu                        sync.RWMutex
-
-	listenerCtx context.Context
 }
 
 func newListener(ctx context.Context, store *Store) *Listener {
