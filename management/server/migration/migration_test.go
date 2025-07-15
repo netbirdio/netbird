@@ -28,9 +28,10 @@ func setupDatabase(t *testing.T) *gorm.DB {
 	var db *gorm.DB
 	var err error
 	var dsn string
+	var cleanup func()
 	switch os.Getenv("NETBIRD_STORE_ENGINE") {
 	case "mysql":
-		_, dsn, err = testutil.CreateMysqlTestContainer()
+		cleanup, dsn, err = testutil.CreateMysqlTestContainer()
 		if err != nil {
 			t.Fatalf("Failed to create MySQL test container: %v", err)
 		}
@@ -41,7 +42,7 @@ func setupDatabase(t *testing.T) *gorm.DB {
 
 		db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
 	case "postgres":
-		_, dsn, err = testutil.CreatePostgresTestContainer()
+		cleanup, dsn, err = testutil.CreatePostgresTestContainer()
 		if err != nil {
 			t.Fatalf("Failed to create PostgreSQL test container: %v", err)
 		}
@@ -55,6 +56,9 @@ func setupDatabase(t *testing.T) *gorm.DB {
 		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	default:
 		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	}
+	if cleanup != nil {
+		t.Cleanup(cleanup)
 	}
 
 	require.NoError(t, err, "Failed to open database")
