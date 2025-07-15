@@ -4,26 +4,55 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/netbirdio/netbird/relay/auth"
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/relay/metrics"
+	"github.com/netbirdio/netbird/relay/server/store"
 )
+
+type Config struct {
+	Meter          metric.Meter
+	ExposedAddress string
+	TLSSupport     bool
+	AuthValidator  Validator
+
+	instanceURL string
+}
+
+func (c *Config) validate() error {
+	if c.Meter == nil {
+		c.Meter = otel.Meter("")
+	}
+	if c.ExposedAddress == "" {
+		return fmt.Errorf("exposed address is required")
+	}
+
+	instanceURL, err := getInstanceURL(c.ExposedAddress, c.TLSSupport)
+	if err != nil {
+		return fmt.Errorf("invalid url: %v", err)
+	}
+	c.instanceURL = instanceURL
+
+	if c.AuthValidator == nil {
+		return fmt.Errorf("auth validator is required")
+	}
+	return nil
+}
 
 // Relay represents the relay server
 type Relay struct {
 	metrics       *metrics.Metrics
 	metricsCancel context.CancelFunc
-	validator     auth.Validator
+	validator     Validator
 
-	store       *Store
+	store       *store.Store
+	notifier    *store.PeerNotifier
 	instanceURL string
 	preparedMsg *preparedMsg
 
@@ -31,40 +60,40 @@ type Relay struct {
 	closeMu sync.RWMutex
 }
 
-// NewRelay creates a new Relay instance
+// NewRelay creates and returns a new Relay instance.
 //
 // Parameters:
-// meter: An instance of metric.Meter from the go.opentelemetry.io/otel/metric package. It is used to create and manage
-// metrics for the relay server.
-// exposedAddress: A string representing the address that the relay server is exposed on. The client will use this
-// address as the relay server's instance URL.
-// tlsSupport: A boolean indicating whether the relay server supports TLS (Transport Layer Security) or not. The
-// instance URL depends on this value.
-// validator: An instance of auth.Validator from the auth package. It is used to validate the authentication of the
-// peers.
+//
+//	config: A Config struct that holds the configuration needed to initialize the relay server.
+//	  - Meter: A metric.Meter used for emitting metrics. If not set, a default no-op meter will be used.
+//	  - ExposedAddress: The external address clients use to reach this relay. Required.
+//	  - TLSSupport: A boolean indicating if the relay uses TLS. Affects the generated instance URL.
+//	  - AuthValidator: A Validator implementation used to authenticate peers. Required.
 //
 // Returns:
-// A pointer to a Relay instance and an error. If the Relay instance is successfully created, the error is nil.
-// Otherwise, the error contains the details of what went wrong.
-func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, validator auth.Validator) (*Relay, error) {
+//
+//	A pointer to a Relay instance and an error. If initialization is successful, the error will be nil;
+//	otherwise, it will contain the reason the relay could not be created (e.g., invalid configuration).
+func NewRelay(config Config) (*Relay, error) {
+	if err := config.validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %v", err)
+	}
+
 	ctx, metricsCancel := context.WithCancel(context.Background())
-	m, err := metrics.NewMetrics(ctx, meter)
+	m, err := metrics.NewMetrics(ctx, config.Meter)
 	if err != nil {
 		metricsCancel()
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
 
+	peerStore := store.NewStore()
 	r := &Relay{
 		metrics:       m,
 		metricsCancel: metricsCancel,
-		validator:     validator,
-		store:         NewStore(),
-	}
-
-	r.instanceURL, err = getInstanceURL(exposedAddress, tlsSupport)
-	if err != nil {
-		metricsCancel()
-		return nil, fmt.Errorf("get instance URL: %v", err)
+		validator:     config.AuthValidator,
+		instanceURL:   config.instanceURL,
+		store:         peerStore,
+		notifier:      store.NewPeerNotifier(peerStore),
 	}
 
 	r.preparedMsg, err = newPreparedMsg(r.instanceURL)
@@ -74,32 +103,6 @@ func NewRelay(meter metric.Meter, exposedAddress string, tlsSupport bool, valida
 	}
 
 	return r, nil
-}
-
-// getInstanceURL checks if user supplied a URL scheme otherwise adds to the
-// provided address according to TLS definition and parses the address before returning it
-func getInstanceURL(exposedAddress string, tlsSupported bool) (string, error) {
-	addr := exposedAddress
-	split := strings.Split(exposedAddress, "://")
-	switch {
-	case len(split) == 1 && tlsSupported:
-		addr = "rels://" + exposedAddress
-	case len(split) == 1 && !tlsSupported:
-		addr = "rel://" + exposedAddress
-	case len(split) > 2:
-		return "", fmt.Errorf("invalid exposed address: %s", exposedAddress)
-	}
-
-	parsedURL, err := url.ParseRequestURI(addr)
-	if err != nil {
-		return "", fmt.Errorf("invalid exposed address: %v", err)
-	}
-
-	if parsedURL.Scheme != "rel" && parsedURL.Scheme != "rels" {
-		return "", fmt.Errorf("invalid scheme: %s", parsedURL.Scheme)
-	}
-
-	return parsedURL.String(), nil
 }
 
 // Accept start to handle a new peer connection
@@ -125,14 +128,17 @@ func (r *Relay) Accept(conn net.Conn) {
 		return
 	}
 
-	peer := NewPeer(r.metrics, peerID, conn, r.store)
+	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	storeTime := time.Now()
 	r.store.AddPeer(peer)
+	r.notifier.PeerCameOnline(peer.ID())
+
 	r.metrics.RecordPeerStoreTime(time.Since(storeTime))
 	r.metrics.PeerConnected(peer.String())
 	go func() {
 		peer.Work()
+		r.notifier.PeerWentOffline(peer.ID())
 		r.store.DeletePeer(peer)
 		peer.log.Debugf("relay connection closed")
 		r.metrics.PeerDisconnected(peer.String())
@@ -154,12 +160,12 @@ func (r *Relay) Shutdown(ctx context.Context) {
 
 	wg := sync.WaitGroup{}
 	peers := r.store.Peers()
-	for _, peer := range peers {
+	for _, v := range peers {
 		wg.Add(1)
 		go func(p *Peer) {
 			p.CloseGracefully(ctx)
 			wg.Done()
-		}(peer)
+		}(v.(*Peer))
 	}
 	wg.Wait()
 	r.metricsCancel()
