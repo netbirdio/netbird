@@ -229,16 +229,14 @@ func TestForeginAutoClose(t *testing.T) {
 	errChan := make(chan error, 1)
 	go func() {
 		t.Log("binding server 1.")
-		err := srv1.Listen(srvCfg1)
-		if err != nil {
+		if err := srv1.Listen(srvCfg1); err != nil {
 			errChan <- err
 		}
 	}()
 
 	defer func() {
 		t.Logf("closing server 1.")
-		err := srv1.Shutdown(ctx)
-		if err != nil {
+		if err := srv1.Shutdown(ctx); err != nil {
 			t.Errorf("failed to close server: %s", err)
 		}
 		t.Logf("server 1. closed")
@@ -287,15 +285,8 @@ func TestForeginAutoClose(t *testing.T) {
 	}
 
 	t.Log("open connection to another peer")
-	conn, err := mgr.OpenConn(ctx, toURL(srvCfg2)[0], "anotherpeer")
-	if err != nil {
-		t.Fatalf("failed to bind channel: %s", err)
-	}
-
-	t.Log("close conn")
-	err = conn.Close()
-	if err != nil {
-		t.Fatalf("failed to close connection: %s", err)
+	if _, err = mgr.OpenConn(ctx, toURL(srvCfg2)[0], "anotherpeer"); err == nil {
+		t.Fatalf("should have failed to open connection to another peer")
 	}
 
 	timeout := relayCleanupInterval + keepUnusedServerTime + 1*time.Second
