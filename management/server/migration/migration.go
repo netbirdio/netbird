@@ -384,6 +384,54 @@ func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName s
 	tableName := stmt.Schema.Table
 	dialect := db.Dialector.Name()
 
+	switch dialect {
+	case "mysql":
+		var count int
+		query := `
+			SELECT COUNT(1)
+			FROM INFORMATION_SCHEMA.STATISTICS
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?
+		`
+		if err := db.Raw(query, tableName, indexName).Scan(&count).Error; err != nil {
+			return fmt.Errorf("failed to check if index exists: %w", err)
+		}
+		if count > 0 {
+			log.WithContext(ctx).Infof("index %s already exists on table %s", indexName, tableName)
+			return nil
+		}
+
+	case "postgres":
+		var exists bool
+		query := `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_indexes
+				WHERE tablename = ? AND indexname = ?
+			)
+		`
+		if err := db.Raw(query, tableName, indexName).Scan(&exists).Error; err != nil {
+			return fmt.Errorf("failed to check if index exists: %w", err)
+		}
+		if exists {
+			log.WithContext(ctx).Infof("index %s already exists on table %s", indexName, tableName)
+			return nil
+		}
+
+	case "sqlite":
+		var count int
+		query := `
+			SELECT COUNT(1)
+			FROM sqlite_master
+			WHERE type = 'index' AND tbl_name = ? AND name = ?
+		`
+		if err := db.Raw(query, tableName, indexName).Scan(&count).Error; err != nil {
+			return fmt.Errorf("failed to check if index exists: %w", err)
+		}
+		if count > 0 {
+			log.WithContext(ctx).Infof("index %s already exists on table %s", indexName, tableName)
+			return nil
+		}
+	}
+
 	var columnClause string
 	if dialect == "mysql" {
 		var withLength []string

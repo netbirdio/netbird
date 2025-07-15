@@ -4,16 +4,20 @@ import (
 	"context"
 	"encoding/gob"
 	"net"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
@@ -21,7 +25,37 @@ import (
 func setupDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	var db *gorm.DB
+	var err error
+	var dsn string
+	switch os.Getenv("NETBIRD_STORE_ENGINE") {
+	case "mysql":
+		_, dsn, err = testutil.CreateMysqlTestContainer()
+		if err != nil {
+			t.Fatalf("Failed to create MySQL test container: %v", err)
+		}
+
+		if dsn == "" {
+			t.Fatal("MySQL connection string is empty, ensure the test container is running")
+		}
+
+		db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+	case "postgres":
+		_, dsn, err = testutil.CreatePostgresTestContainer()
+		if err != nil {
+			t.Fatalf("Failed to create PostgreSQL test container: %v", err)
+		}
+
+		if dsn == "" {
+			t.Fatalf("PostgreSQL connection string is empty, ensure the test container is running")
+		}
+
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	case "sqlite":
+		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	default:
+		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	}
 
 	require.NoError(t, err, "Failed to open database")
 	return db
@@ -248,4 +282,40 @@ func TestDropIndex(t *testing.T) {
 
 	exist = db.Migrator().HasIndex(&types.SetupKey{}, "idx_setup_keys_account_id")
 	assert.False(t, exist, "Should not have the index")
+}
+
+func TestCreateIndex(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", "mysql")
+
+	db := setupDatabase(t)
+	err := db.AutoMigrate(&nbpeer.Peer{})
+	assert.NoError(t, err, "Failed to auto-migrate tables")
+
+	indexName := "idx_account_ip"
+
+	err = migration.CreateIndexIfNotExists[nbpeer.Peer](context.Background(), db, indexName, "account_id", "ip")
+	assert.NoError(t, err, "Migration should not fail to create index")
+
+	exist := db.Migrator().HasIndex(&nbpeer.Peer{}, indexName)
+	assert.True(t, exist, "Should have the index")
+}
+
+func TestCreateIndexIfExists(t *testing.T) {
+	db := setupDatabase(t)
+	err := db.AutoMigrate(&nbpeer.Peer{})
+	assert.NoError(t, err, "Failed to auto-migrate tables")
+
+	indexName := "idx_account_ip"
+
+	err = migration.CreateIndexIfNotExists[nbpeer.Peer](context.Background(), db, indexName, "account_id", "ip")
+	assert.NoError(t, err, "Migration should not fail to create index")
+
+	exist := db.Migrator().HasIndex(&nbpeer.Peer{}, indexName)
+	assert.True(t, exist, "Should have the index")
+
+	err = migration.CreateIndexIfNotExists[nbpeer.Peer](context.Background(), db, indexName, "account_id", "ip")
+	assert.NoError(t, err, "Create index should not fail if index exists")
+
+	exist = db.Migrator().HasIndex(&nbpeer.Peer{}, indexName)
+	assert.True(t, exist, "Should have the index")
 }
