@@ -89,14 +89,16 @@ func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context,
 	// Create a channel to wait for the peer to come online
 	waitCh := make(chan struct{}, 1)
 	s.waitingPeers[peerID] = waitCh
+	s.listenForOfflinePeers[peerID] = struct{}{}
 	s.mu.Unlock()
 
-	if err := s.subscribeStateChange([]messages.PeerID{peerID}); err != nil {
+	if err := s.subscribeStateChange(peerID); err != nil {
 		s.log.Errorf("failed to subscribe to peer state: %s", err)
 		s.mu.Lock()
 		if ch, exists := s.waitingPeers[peerID]; exists && ch == waitCh {
 			close(waitCh)
 			delete(s.waitingPeers, peerID)
+			delete(s.listenForOfflinePeers, peerID)
 		}
 		s.mu.Unlock()
 		return err
@@ -108,7 +110,7 @@ func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context,
 	select {
 	case _, ok := <-waitCh:
 		if !ok {
-			return fmt.Errorf("peer is offline")
+			return fmt.Errorf("wait for peer to come online has been cancelled")
 		}
 
 		s.log.Debugf("peer %s is now online", peerID)
@@ -122,6 +124,7 @@ func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context,
 		if ch, exists := s.waitingPeers[peerID]; exists && ch == waitCh {
 			close(waitCh)
 			delete(s.waitingPeers, peerID)
+			delete(s.listenForOfflinePeers, peerID)
 		}
 		s.mu.Unlock()
 		return timeoutCtx.Err()
@@ -157,14 +160,10 @@ func (s *PeersStateSubscription) Cleanup() {
 	s.listenForOfflinePeers = make(map[messages.PeerID]struct{})
 }
 
-func (s *PeersStateSubscription) subscribeStateChange(peerIDs []messages.PeerID) error {
-	msgs, err := messages.MarshalSubPeerStateMsg(peerIDs)
+func (s *PeersStateSubscription) subscribeStateChange(peerID messages.PeerID) error {
+	msgs, err := messages.MarshalSubPeerStateMsg([]messages.PeerID{peerID})
 	if err != nil {
 		return err
-	}
-
-	for _, peer := range peerIDs {
-		s.listenForOfflinePeers[peer] = struct{}{}
 	}
 
 	for _, msg := range msgs {
