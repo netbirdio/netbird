@@ -7,6 +7,8 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 var installCmd = &cobra.Command{
@@ -39,7 +41,7 @@ var installCmd = &cobra.Command{
 			svcConfig.Arguments = append(svcConfig.Arguments, "--management-url", managementURL)
 		}
 
-		if logFile != "" {
+		for _, logFile := range logFiles {
 			svcConfig.Arguments = append(svcConfig.Arguments, "--log-file", logFile)
 		}
 
@@ -47,7 +49,7 @@ var installCmd = &cobra.Command{
 			// Respected only by systemd systems
 			svcConfig.Dependencies = []string{"After=network.target syslog.target"}
 
-			if logFile != "console" {
+			if logFile := util.FindFirstLogPath(logFiles); logFile != "" {
 				setStdLogPath := true
 				dir := filepath.Dir(logFile)
 

@@ -31,7 +31,7 @@ var connConf = ConnConfig{
 }
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("trace", "console")
+	_ = util.InitLog("trace", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }

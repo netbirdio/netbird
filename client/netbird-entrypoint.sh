@@ -4,7 +4,7 @@ set -eEuo pipefail
 : ${NB_ENTRYPOINT_SERVICE_TIMEOUT:="5"}
 : ${NB_ENTRYPOINT_LOGIN_TIMEOUT:="1"}
 NETBIRD_BIN="${NETBIRD_BIN:-"netbird"}"
-export NB_LOG_FILE="${NB_LOG_FILE:-"console:/var/log/netbird/client.log"}"
+export NB_LOG_FILE="${NB_LOG_FILE:-"console,/var/log/netbird/client.log"}"
 service_pids=()
 log_file_path=""
 
@@ -65,7 +65,7 @@ locate_log_file() {
       return
       ;;
     esac
-  done < <(sed 's#:#\n#g' <<<"${log_files_string}")
+  done < <(sed 's#,#\n#g' <<<"${log_files_string}")
 
   warn "log files parsing parsing for '${log_files_string}' is not supported by debug bundles"
   warn "please consider removing the \$NB_LOG_FILE or setting it to real file, before gathering debug bundles."

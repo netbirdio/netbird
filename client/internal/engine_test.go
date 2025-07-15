@@ -195,7 +195,7 @@ func (m *MockWGIface) LastActivities() map[string]time.Time {
 }
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("debug", "console")
+	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
