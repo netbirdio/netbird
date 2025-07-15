@@ -61,6 +61,7 @@ func (l *ListenerConfig) ListenPacket(ctx context.Context, network, address stri
 		return nil, fmt.Errorf("listen packet: %w", err)
 	}
 	connID := GenerateConnID()
+
 	return &PacketConn{PacketConn: pc, ID: connID, seenAddrs: &sync.Map{}}, nil
 }
 
@@ -100,6 +101,15 @@ func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 func (c *UDPConn) Close() error {
 	c.seenAddrs = &sync.Map{}
 	return closeConn(c.ID, c.UDPConn)
+}
+
+// WrapUDPConn wraps an existing *net.UDPConn with nbnet functionality
+func WrapUDPConn(conn *net.UDPConn) *UDPConn {
+	return &UDPConn{
+		UDPConn:   conn,
+		ID:        GenerateConnID(),
+		seenAddrs: &sync.Map{},
+	}
 }
 
 func callWriteHooks(id ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Addr) {
