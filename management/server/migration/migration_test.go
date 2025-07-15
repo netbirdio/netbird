@@ -137,6 +137,7 @@ func TestMigrateNetIPFieldFromBlobToJSON_EmptyDB(t *testing.T) {
 }
 
 func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
 	db := setupDatabase(t)
 
 	err := db.AutoMigrate(&types.Account{}, &nbpeer.Peer{})
