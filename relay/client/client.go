@@ -232,6 +232,11 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 	conn := NewConn(c, peerID, msgChannel, c.instanceURL)
 
 	c.mu.Lock()
+	if !c.serviceIsRunning {
+		c.mu.Unlock()
+		_ = conn.Close()
+		return nil, fmt.Errorf("relay connection is not established")
+	}
 	_, ok = c.conns[peerID]
 	if ok {
 		c.mu.Unlock()
