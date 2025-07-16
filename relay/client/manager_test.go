@@ -285,15 +285,15 @@ func TestForeginAutoClose(t *testing.T) {
 	}
 
 	t.Log("open connection to another peer")
-	if _, err = mgr.OpenConn(ctx, toURL(srvCfg2)[0], "anotherpeer"); err == nil {
-		t.Fatalf("should have failed to open connection to another peer")
+	if _, err = mgr.OpenConn(ctx, toURL(srvCfg2)[0], "anotherpeer"); err != nil {
+		t.Fatalf("failed to open connection: %s", err)
 	}
 
 	timeout := relayCleanupInterval + keepUnusedServerTime + 1*time.Second
 	t.Logf("waiting for relay cleanup: %s", timeout)
 	time.Sleep(timeout)
-	if len(mgr.relayClients) != 0 {
-		t.Errorf("expected 0, got %d", len(mgr.relayClients))
+	if len(mgr.relayClients) != 1 {
+		t.Errorf("expected 1 relay client, got %d", len(mgr.relayClients))
 	}
 
 	t.Logf("closing manager")

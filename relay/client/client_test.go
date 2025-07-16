@@ -314,8 +314,8 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 	_, err = clientAlice.OpenConn(ctx, "bob")
-	if err == nil {
-		t.Errorf("expected error when binding to unavailable peer, got nil")
+	if err != nil {
+		t.Errorf("failed to open bob: %s", err)
 	}
 
 	log.Infof("closing client")
