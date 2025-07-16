@@ -11,7 +11,7 @@ const (
 	MaxHandshakeRespSize = 8192
 	MaxMessageSize       = 8820
 
-	CurrentProtocolVersion = 1
+	CurrentProtocolVersion = 2
 
 	MsgTypeUnknown MsgType = 0
 	// Deprecated: Use MsgTypeAuth instead.
@@ -264,11 +264,11 @@ func MarshalAuthResponse(address string) ([]byte, error) {
 }
 
 // UnmarshalAuthResponse it is a confirmation message to auth success
-func UnmarshalAuthResponse(msg []byte) (string, error) {
+func UnmarshalAuthResponse(msg []byte) ([]byte, error) {
 	if len(msg) < sizeOfProtoHeader+1 {
-		return "", ErrInvalidMessageLength
+		return nil, ErrInvalidMessageLength
 	}
-	return string(msg[sizeOfProtoHeader:]), nil
+	return msg[sizeOfProtoHeader:], nil
 }
 
 // MarshalCloseMsg creates a close message.

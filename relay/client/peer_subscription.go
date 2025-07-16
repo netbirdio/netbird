@@ -46,6 +46,10 @@ func NewPeersStateSubscription(log *log.Entry, relayConn relayedConnWriter, offl
 // OnPeersOnline should be called when a notification is received that certain peers have come online.
 // It checks if any of the peers are being waited on and signals their availability.
 func (s *PeersStateSubscription) OnPeersOnline(peersID []messages.PeerID) {
+	if s == nil {
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -63,6 +67,10 @@ func (s *PeersStateSubscription) OnPeersOnline(peersID []messages.PeerID) {
 }
 
 func (s *PeersStateSubscription) OnPeersWentOffline(peersID []messages.PeerID) {
+	if s == nil {
+		return
+	}
+
 	s.mu.Lock()
 	relevantPeers := make([]messages.PeerID, 0, len(peersID))
 	for _, peerID := range peersID {
@@ -79,6 +87,9 @@ func (s *PeersStateSubscription) OnPeersWentOffline(peersID []messages.PeerID) {
 
 // WaitToBeOnlineAndSubscribe waits for a specific peer to come online and subscribes to its state changes.
 func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context, peerID messages.PeerID) error {
+	if s == nil {
+		return nil
+	}
 	// Check if already waiting for this peer
 	s.mu.Lock()
 	if _, exists := s.waitingPeers[peerID]; exists {
@@ -132,6 +143,10 @@ func (s *PeersStateSubscription) WaitToBeOnlineAndSubscribe(ctx context.Context,
 }
 
 func (s *PeersStateSubscription) UnsubscribeStateChange(peerIDs []messages.PeerID) error {
+	if s == nil {
+		return nil
+	}
+
 	msgErr := s.unsubscribeStateChange(peerIDs)
 
 	s.mu.Lock()
@@ -149,6 +164,10 @@ func (s *PeersStateSubscription) UnsubscribeStateChange(peerIDs []messages.PeerI
 }
 
 func (s *PeersStateSubscription) Cleanup() {
+	if s == nil {
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

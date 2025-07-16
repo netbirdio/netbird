@@ -74,7 +74,7 @@ func TestMarshalAuthResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if respAddr != address {
+	if string(respAddr) != address {
 		t.Errorf("expected %s, got %s", address, respAddr)
 	}
 }

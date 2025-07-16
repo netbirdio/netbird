@@ -136,7 +136,7 @@ type Client struct {
 	mu               sync.Mutex // protect serviceIsRunning and conns
 	readLoopMutex    sync.Mutex
 	wgReadLoop       sync.WaitGroup
-	instanceURL      *RelayAddr
+	instanceURL      *messages.RelayAddr
 	muInstanceURL    sync.Mutex
 
 	onDisconnectListener func(string)
@@ -189,7 +189,11 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.instanceURL = instanceURL
 	c.muInstanceURL.Unlock()
 
-	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.closeConnsByPeerID)
+	if c.instanceURL.FeatureVersionCode < messages.VersionSubscription {
+		c.log.Warnf("server is deprecated, peer state subscription feature will not work")
+	} else {
+		c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.closeConnsByPeerID)
+	}
 
 	c.log = c.log.WithField("relay", instanceURL.String())
 	c.log.Infof("relay connection established")
@@ -291,7 +295,7 @@ func (c *Client) Close() error {
 	return c.close(true)
 }
 
-func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
+func (c *Client) connect(ctx context.Context) (*messages.RelayAddr, error) {
 	rd := dialer.NewRaceDial(c.log, c.connectionURL, quic.Dialer{}, ws.Dialer{})
 	conn, err := rd.Dial()
 	if err != nil {
@@ -311,7 +315,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	return instanceURL, nil
 }
 
-func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
+func (c *Client) handShake(ctx context.Context) (*messages.RelayAddr, error) {
 	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
 	if err != nil {
 		c.log.Errorf("failed to marshal auth message: %s", err)
@@ -346,12 +350,16 @@ func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
 		return nil, fmt.Errorf("unexpected message type")
 	}
 
-	addr, err := messages.UnmarshalAuthResponse(buf[:n])
+	payload, err := messages.UnmarshalAuthResponse(buf[:n])
 	if err != nil {
 		return nil, err
 	}
 
-	return &RelayAddr{addr: addr}, nil
+	relayAddr, err := messages.UnmarshalRelayAddr(payload)
+	if err != nil {
+		return nil, err
+	}
+	return relayAddr, nil
 }
 
 func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internallyStoppedFlag *internalStopFlag) {
@@ -411,10 +419,16 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
 	case messages.MsgTypePeersOnline:
+		if c.stateSubscription == nil {
+			c.log.Warnf("message type %s is not supported by the server, peer state subscription feature is not available)", msgType)
+		}
 		c.handlePeersOnlineMsg(buf)
 		c.bufPool.Put(bufPtr)
 		return true
 	case messages.MsgTypePeersWentOffline:
+		if c.stateSubscription == nil {
+			c.log.Warnf("message type %s is not supported by the server, peer state subscription feature is not available)", msgType)
+		}
 		c.handlePeersWentOfflineMsg(buf)
 		c.bufPool.Put(bufPtr)
 		return true

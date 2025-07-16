@@ -25,7 +25,7 @@ func TestWaitToBeOnlineAndSubscribe_Success(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{}) // discard log output
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub, _ := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -45,7 +45,7 @@ func TestWaitToBeOnlineAndSubscribe_Timeout(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub, _ := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -60,7 +60,7 @@ func TestWaitToBeOnlineAndSubscribe_Duplicate(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub, _ := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil, 0)
 
 	ctx := context.Background()
 	go func() {
@@ -78,7 +78,7 @@ func TestUnsubscribeStateChange(t *testing.T) {
 	mockConn := &mockRelayedConn{}
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	sub := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil)
+	sub, _ := NewPeersStateSubscription(logrus.NewEntry(logger), mockConn, nil, 0)
 
 	doneChan := make(chan struct{})
 	go func() {
