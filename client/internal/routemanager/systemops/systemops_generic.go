@@ -31,7 +31,7 @@ var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
 
 var ErrRoutingIsSeparate = errors.New("routing is separate")
 
-func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	stateManager.RegisterState(&ShutdownState{})
 
 	initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
@@ -75,7 +75,10 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 
 	r.refCounter = refCounter
 
-	return r.setupHooks(initAddresses, stateManager)
+	if err := r.setupHooks(initAddresses, stateManager); err != nil {
+		return fmt.Errorf("setup hooks: %w", err)
+	}
+	return nil
 }
 
 // updateState updates state on every change so it will be persisted regularly
@@ -264,7 +267,7 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	return r.removeFromRouteTable(prefix, nextHop)
 }
 
-func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
 		prefix, err := util.GetPrefixFromIP(ip)
 		if err != nil {
@@ -289,9 +292,11 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 		return nil
 	}
 
+	var merr *multierror.Error
+
 	for _, ip := range initAddresses {
 		if err := beforeHook("init", ip); err != nil {
-			log.Errorf("Failed to add route reference: %v", err)
+			merr = multierror.Append(merr, fmt.Errorf("add initial route for %s: %w", ip, err))
 		}
 	}
 
@@ -300,11 +305,11 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 			return ctx.Err()
 		}
 
-		var result *multierror.Error
+		var merr *multierror.Error
 		for _, ip := range resolvedIPs {
-			result = multierror.Append(result, beforeHook(connID, ip.IP))
+			merr = multierror.Append(merr, beforeHook(connID, ip.IP))
 		}
-		return nberrors.FormatErrorOrNil(result)
+		return nberrors.FormatErrorOrNil(merr)
 	})
 
 	nbnet.AddDialerCloseHook(func(connID nbnet.ConnectionID, conn *net.Conn) error {
@@ -319,7 +324,7 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 		return afterHook(connID)
 	})
 
-	return beforeHook, afterHook, nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func GetNextHop(ip netip.Addr) (Nexthop, error) {

@@ -430,7 +430,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				StatusRecorder: statusRecorder,
 			})
 
-			_, _, err = routeManager.Init()
+			err = routeManager.Init()
 
 			require.NoError(t, err, "should init route manager")
 			defer routeManager.Stop(nil)

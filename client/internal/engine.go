@@ -61,7 +61,6 @@ import (
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -137,9 +136,6 @@ type Engine struct {
 	peerStore *peerstore.Store
 
 	connMgr *ConnMgr
-
-	beforePeerHook nbnet.AddHookFunc
-	afterPeerHook  nbnet.RemoveHookFunc
 
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager
@@ -409,12 +405,8 @@ func (e *Engine) Start() error {
 		DisableClientRoutes: e.config.DisableClientRoutes,
 		DisableServerRoutes: e.config.DisableServerRoutes,
 	})
-	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
-	if err != nil {
+	if err := e.routeManager.Init(); err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
-	} else {
-		e.beforePeerHook = beforePeerHook
-		e.afterPeerHook = afterPeerHook
 	}
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
@@ -1261,10 +1253,6 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 
-	if e.beforePeerHook != nil && e.afterPeerHook != nil {
-		conn.AddBeforeAddPeerHook(e.beforePeerHook)
-		conn.AddAfterRemovePeerHook(e.afterPeerHook)
-	}
 	return nil
 }
 
