@@ -419,16 +419,10 @@ func (c *Client) handleMsg(msgType messages.MsgType, buf []byte, bufPtr *[]byte,
 	case messages.MsgTypeTransport:
 		return c.handleTransportMsg(buf, bufPtr, internallyStoppedFlag)
 	case messages.MsgTypePeersOnline:
-		if c.stateSubscription == nil {
-			c.log.Warnf("message type %s is not supported by the server, peer state subscription feature is not available)", msgType)
-		}
 		c.handlePeersOnlineMsg(buf)
 		c.bufPool.Put(bufPtr)
 		return true
 	case messages.MsgTypePeersWentOffline:
-		if c.stateSubscription == nil {
-			c.log.Warnf("message type %s is not supported by the server, peer state subscription feature is not available)", msgType)
-		}
 		c.handlePeersWentOfflineMsg(buf)
 		c.bufPool.Put(bufPtr)
 		return true
@@ -661,6 +655,11 @@ func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
 }
 
 func (c *Client) handlePeersOnlineMsg(buf []byte) {
+	if c.stateSubscription == nil {
+		c.log.Warnf("message type %s is not supported by the server, peer state subscription feature is not available)", messages.MsgTypePeersOnline)
+		return
+	}
+
 	peersID, err := messages.UnmarshalPeersOnlineMsg(buf)
 	if err != nil {
 		c.log.Errorf("failed to unmarshal peers online msg: %s", err)
@@ -670,6 +669,11 @@ func (c *Client) handlePeersOnlineMsg(buf []byte) {
 }
 
 func (c *Client) handlePeersWentOfflineMsg(buf []byte) {
+	if c.stateSubscription == nil {
+		c.log.Warnf("message type %s is not supported by the server, peer state subscription feature is not available)", messages.MsgTypePeersWentOffline)
+		return
+	}
+
 	peersID, err := messages.UnMarshalPeersWentOffline(buf)
 	if err != nil {
 		c.log.Errorf("failed to unmarshal peers went offline msg: %s", err)
