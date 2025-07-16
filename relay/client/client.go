@@ -656,7 +656,7 @@ func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
 
 func (c *Client) handlePeersOnlineMsg(buf []byte) {
 	if c.stateSubscription == nil {
-		c.log.Warnf("message type %s is not supported by the server, peer state subscription feature is not available)", messages.MsgTypePeersOnline)
+		c.log.Warnf("message type %d is not supported by the server, peer state subscription feature is not available)", messages.MsgTypePeersOnline)
 		return
 	}
 
@@ -670,7 +670,7 @@ func (c *Client) handlePeersOnlineMsg(buf []byte) {
 
 func (c *Client) handlePeersWentOfflineMsg(buf []byte) {
 	if c.stateSubscription == nil {
-		c.log.Warnf("message type %s is not supported by the server, peer state subscription feature is not available)", messages.MsgTypePeersWentOffline)
+		c.log.Warnf("message type %d is not supported by the server, peer state subscription feature is not available)", messages.MsgTypePeersWentOffline)
 		return
 	}
 
