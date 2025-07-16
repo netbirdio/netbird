@@ -278,7 +278,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 			return err
 		}
 
-		return transaction.AddPeerToGroup(ctx, peerID, groupID)
+		return transaction.AddPeerToGroup(ctx, accountID, peerID, groupID)
 	})
 	if err != nil {
 		return err

@@ -119,7 +119,7 @@ type Store interface {
 
 	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string, hostname string) ([]string, error)
 	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
-	AddPeerToGroup(ctx context.Context, peerId string, groupID string) error
+	AddPeerToGroup(ctx context.Context, accountID, peerId string, groupID string) error
 	RemovePeerFromGroup(ctx context.Context, peerID string, groupID string) error
 	RemovePeerFromAllGroups(ctx context.Context, peerID string) error
 	GetPeerGroups(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]*types.Group, error)
@@ -354,10 +354,11 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_dnslabel", "account_id", "dns_label")
 		},
 		func(db *gorm.DB) error {
-			return migration.MigrateJsonToTable[types.Group](ctx, db, "peers", func(id, value string) any {
+			return migration.MigrateJsonToTable[types.Group](ctx, db, "peers", func(accountID, id, value string) any {
 				return &types.GroupPeer{
-					GroupID: id,
-					PeerID:  value,
+					AccountID: accountID,
+					GroupID:   id,
+					PeerID:    value,
 				}
 			})
 		},

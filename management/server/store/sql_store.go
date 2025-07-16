@@ -773,8 +773,8 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 
 	var account types.Account
 	result := s.db.Model(&account).
-		Preload("UsersG.PATsG").       // have to be specifies as this is nester reference
-		Preload("GroupsG.GroupPeers"). // have to be specifies as this is nester reference
+		Omit("GroupsG").
+		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
 		Preload(clause.Associations).
 		First(&account, idQueryCondition, accountID)
 	if result.Error != nil {
@@ -819,10 +819,20 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 
 	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
 	for _, group := range account.GroupsG {
-		group.LoadGroupPeers()
 		account.Groups[group.ID] = group.Copy()
 	}
 	account.GroupsG = nil
+
+	var groupPeers []types.GroupPeer
+	s.db.Model(&types.GroupPeer{}).Where("account_id = ?", accountID).
+		Find(&groupPeers)
+	for _, groupPeer := range groupPeers {
+		if group, ok := account.Groups[groupPeer.GroupID]; ok {
+			group.Peers = append(group.Peers, groupPeer.PeerID)
+		} else {
+			log.WithContext(ctx).Warnf("group %s not found for group peer %s in account %s", groupPeer.GroupID, groupPeer.PeerID, accountID)
+		}
+	}
 
 	account.Routes = make(map[route.ID]*route.Route, len(account.RoutesG))
 	for _, route := range account.RoutesG {
@@ -1337,8 +1347,9 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peer
 		Columns:   []clause.Column{{Name: "group_id"}, {Name: "peer_id"}},
 		DoNothing: true,
 	}).Create(&types.GroupPeer{
-		GroupID: groupID,
-		PeerID:  peerID,
+		AccountID: accountID,
+		GroupID:   groupID,
+		PeerID:    peerID,
 	}).Error
 
 	if err != nil {
@@ -1349,10 +1360,11 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peer
 }
 
 // AddPeerToGroup adds a peer to a group
-func (s *SqlStore) AddPeerToGroup(ctx context.Context, peerID string, groupID string) error {
+func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupID string) error {
 	peer := &types.GroupPeer{
-		GroupID: groupID,
-		PeerID:  peerID,
+		AccountID: accountID,
+		GroupID:   groupID,
+		PeerID:    peerID,
 	}
 
 	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
@@ -1361,7 +1373,7 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, peerID string, groupID st
 	}).Create(peer).Error
 
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to add peer %s to group %s: %v", peerID, groupID, err)
+		log.WithContext(ctx).Errorf("failed to add peer %s to group %s for account %s: %v", peerID, groupID, accountID, err)
 		return status.Errorf(status.Internal, "failed to add peer to group")
 	}
 

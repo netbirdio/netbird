@@ -419,7 +419,7 @@ func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName s
 	return nil
 }
 
-func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName string, mapperFunc func(id string, value string) any) error {
+func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName string, mapperFunc func(accountID string, id string, value string) any) error {
 	var model T
 
 	if !db.Migrator().HasTable(&model) {
@@ -441,7 +441,7 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 
 	if err := db.Transaction(func(tx *gorm.DB) error {
 		var rows []map[string]any
-		if err := tx.Table(tableName).Select("id", columnName).Find(&rows).Error; err != nil {
+		if err := tx.Table(tableName).Select("id", "account_id", columnName).Find(&rows).Error; err != nil {
 			return fmt.Errorf("find rows: %w", err)
 		}
 
@@ -460,7 +460,7 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 				if err := tx.Clauses(clause.OnConflict{
 					DoNothing: true, // this needs to be removed when the cleanup is enabled
 				}).Create(
-					mapperFunc(row["id"].(string), value),
+					mapperFunc(row["account_id"].(string), row["id"].(string), value),
 				).Error; err != nil {
 					return fmt.Errorf("failed to insert id %v: %w", row["id"], err)
 				}

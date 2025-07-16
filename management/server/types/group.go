@@ -36,8 +36,9 @@ type Group struct {
 }
 
 type GroupPeer struct {
-	GroupID string `gorm:"primaryKey"`
-	PeerID  string `gorm:"primaryKey"`
+	AccountID string `gorm:"index"`
+	GroupID   string `gorm:"primaryKey"`
+	PeerID    string `gorm:"primaryKey"`
 }
 
 func (g *Group) LoadGroupPeers() {
@@ -47,12 +48,14 @@ func (g *Group) LoadGroupPeers() {
 	}
 	g.GroupPeers = []GroupPeer{}
 }
+
 func (g *Group) StoreGroupPeers() {
 	g.GroupPeers = make([]GroupPeer, len(g.Peers))
 	for i, peer := range g.Peers {
 		g.GroupPeers[i] = GroupPeer{
-			GroupID: g.ID,
-			PeerID:  peer,
+			AccountID: g.AccountID,
+			GroupID:   g.ID,
+			PeerID:    peer,
 		}
 	}
 	g.Peers = []string{}
