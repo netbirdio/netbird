@@ -12,7 +12,7 @@ type Conn struct {
 	client      *Client
 	dstID       messages.PeerID
 	messageChan chan Msg
-	instanceURL *RelayAddr
+	instanceURL *messages.RelayAddr
 }
 
 // NewConn creates a new connection to a relayed remote peer.
@@ -20,7 +20,7 @@ type Conn struct {
 // dstID: the destination peer ID
 // messageChan: the channel where the messages will be received
 // instanceURL: the relay instance URL, it used to get the proper server instance address for the remote peer
-func NewConn(client *Client, dstID messages.PeerID, messageChan chan Msg, instanceURL *RelayAddr) *Conn {
+func NewConn(client *Client, dstID messages.PeerID, messageChan chan Msg, instanceURL *messages.RelayAddr) *Conn {
 	c := &Conn{
 		client:      client,
 		dstID:       dstID,
