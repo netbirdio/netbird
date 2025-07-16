@@ -43,7 +43,7 @@ jobs:
       - name: gomobile init
         run: gomobile init
       - name: build android netbird lib
-        run: PATH=$PATH:$(go env GOPATH) gomobile bind -o $GITHUB_WORKSPACE/netbird.aar -javapkg=io.netbird.gomobile -ldflags="-X golang.zx2c4.com/wireguard/ipc.socketDirectory=/data/data/io.netbird.client/cache/wireguard -X github.com/netbirdio/netbird/version.version=buildtest"  $GITHUB_WORKSPACE/client/android
+        run: PATH=$PATH:$(go env GOPATH) gomobile bind -o $GITHUB_WORKSPACE/netbird.aar -javapkg=io.netbird.gomobile -ldflags="-checklinkname=0 -X golang.zx2c4.com/wireguard/ipc.socketDirectory=/data/data/io.netbird.client/cache/wireguard -X github.com/netbirdio/netbird/version.version=buildtest"  $GITHUB_WORKSPACE/client/android
         env:
           CGO_ENABLED: 0
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/23.1.7779620

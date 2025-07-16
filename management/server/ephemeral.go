@@ -15,6 +15,8 @@ import (
 
 const (
 	ephemeralLifeTime = 10 * time.Minute
+	// cleanupWindow is the time window to wait after nearest peer deadline to start the cleanup procedure.
+	cleanupWindow = 1 * time.Minute
 )
 
 var (
@@ -41,6 +43,9 @@ type EphemeralManager struct {
 	tailPeer  *ephemeralPeer
 	peersLock sync.Mutex
 	timer     *time.Timer
+
+	lifeTime      time.Duration
+	cleanupWindow time.Duration
 }
 
 // NewEphemeralManager instantiate new EphemeralManager
@@ -48,6 +53,9 @@ func NewEphemeralManager(store store.Store, accountManager nbAccount.Manager) *E
 	return &EphemeralManager{
 		store:          store,
 		accountManager: accountManager,
+
+		lifeTime:      ephemeralLifeTime,
+		cleanupWindow: cleanupWindow,
 	}
 }
 
@@ -60,7 +68,7 @@ func (e *EphemeralManager) LoadInitialPeers(ctx context.Context) {
 
 	e.loadEphemeralPeers(ctx)
 	if e.headPeer != nil {
-		e.timer = time.AfterFunc(ephemeralLifeTime, func() {
+		e.timer = time.AfterFunc(e.lifeTime, func() {
 			e.cleanup(ctx)
 		})
 	}
@@ -113,9 +121,13 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 		return
 	}
 
-	e.addPeer(peer.AccountID, peer.ID, newDeadLine())
+	e.addPeer(peer.AccountID, peer.ID, e.newDeadLine())
 	if e.timer == nil {
-		e.timer = time.AfterFunc(e.headPeer.deadline.Sub(timeNow()), func() {
+		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
+		if delay < 0 {
+			delay = 0
+		}
+		e.timer = time.AfterFunc(delay, func() {
 			e.cleanup(ctx)
 		})
 	}
@@ -128,7 +140,7 @@ func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
 		return
 	}
 
-	t := newDeadLine()
+	t := e.newDeadLine()
 	for _, p := range peers {
 		e.addPeer(p.AccountID, p.ID, t)
 	}
@@ -155,7 +167,11 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 	}
 
 	if e.headPeer != nil {
-		e.timer = time.AfterFunc(e.headPeer.deadline.Sub(timeNow()), func() {
+		delay := e.headPeer.deadline.Sub(timeNow()) + e.cleanupWindow
+		if delay < 0 {
+			delay = 0
+		}
+		e.timer = time.AfterFunc(delay, func() {
 			e.cleanup(ctx)
 		})
 	} else {
@@ -164,12 +180,19 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 
 	e.peersLock.Unlock()
 
+	bufferAccountCall := make(map[string]struct{})
+
 	for id, p := range deletePeers {
 		log.WithContext(ctx).Debugf("delete ephemeral peer: %s", id)
 		err := e.accountManager.DeletePeer(ctx, p.accountID, id, activity.SystemInitiator)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to delete ephemeral peer: %s", err)
+		} else {
+			bufferAccountCall[p.accountID] = struct{}{}
 		}
+	}
+	for accountID := range bufferAccountCall {
+		e.accountManager.BufferUpdateAccountPeers(ctx, accountID)
 	}
 }
 
@@ -223,6 +246,6 @@ func (e *EphemeralManager) isPeerOnList(id string) bool {
 	return false
 }
 
-func newDeadLine() time.Time {
-	return timeNow().Add(ephemeralLifeTime)
+func (e *EphemeralManager) newDeadLine() time.Time {
+	return timeNow().Add(e.lifeTime)
 }

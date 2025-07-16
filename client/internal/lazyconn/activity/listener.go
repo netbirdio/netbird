@@ -48,7 +48,7 @@ func (d *Listener) ReadPackets() {
 		n, remoteAddr, err := d.conn.ReadFromUDP(make([]byte, 1))
 		if err != nil {
 			if d.isClosed.Load() {
-				d.peerCfg.Log.Debugf("exit from activity listener")
+				d.peerCfg.Log.Infof("exit from activity listener")
 			} else {
 				d.peerCfg.Log.Errorf("failed to read from activity listener: %s", err)
 			}
@@ -59,9 +59,11 @@ func (d *Listener) ReadPackets() {
 			d.peerCfg.Log.Warnf("received %d bytes from %s, too short", n, remoteAddr)
 			continue
 		}
+		d.peerCfg.Log.Infof("activity detected")
 		break
 	}
 
+	d.peerCfg.Log.Debugf("removing lazy endpoint: %s", d.endpoint.String())
 	if err := d.removeEndpoint(); err != nil {
 		d.peerCfg.Log.Errorf("failed to remove endpoint: %s", err)
 	}
@@ -71,7 +73,7 @@ func (d *Listener) ReadPackets() {
 }
 
 func (d *Listener) Close() {
-	d.peerCfg.Log.Infof("closing listener: %s", d.conn.LocalAddr().String())
+	d.peerCfg.Log.Infof("closing activity listener: %s", d.conn.LocalAddr().String())
 	d.isClosed.Store(true)
 
 	if err := d.conn.Close(); err != nil {
@@ -81,7 +83,6 @@ func (d *Listener) Close() {
 }
 
 func (d *Listener) removeEndpoint() error {
-	d.peerCfg.Log.Debugf("removing lazy endpoint: %s", d.endpoint.String())
 	return d.wgIface.RemovePeer(d.peerCfg.PublicKey)
 }
 

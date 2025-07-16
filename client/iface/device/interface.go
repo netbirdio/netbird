@@ -8,6 +8,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/monotime"
 )
 
 type WGConfigurer interface {
@@ -19,5 +20,5 @@ type WGConfigurer interface {
 	Close()
 	GetStats() (map[string]configurer.WGStats, error)
 	FullStats() (*configurer.Stats, error)
-	LastActivities() map[string]time.Time
+	LastActivities() map[string]monotime.Time
 }

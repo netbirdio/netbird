@@ -16,7 +16,7 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 )
 
-const defaultLogSize = 5
+const defaultLogSize = 15
 
 const (
 	// LogSeparator preserves compatibility with cobra's StringSliceVar() by using `,`

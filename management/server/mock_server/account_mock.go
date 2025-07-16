@@ -120,10 +120,20 @@ type MockAccountManager struct {
 	GetAccountOnboardingFunc              func(ctx context.Context, accountID, userID string) (*types.AccountOnboarding, error)
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
+	UpdateAccountPeersFunc                func(ctx context.Context, accountID string)
+	BufferUpdateAccountPeersFunc          func(ctx context.Context, accountID string)
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
-	// do nothing
+	if am.UpdateAccountPeersFunc != nil {
+		am.UpdateAccountPeersFunc(ctx, accountID)
+	}
+}
+
+func (am *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+	if am.BufferUpdateAccountPeersFunc != nil {
+		am.BufferUpdateAccountPeersFunc(ctx, accountID)
+	}
 }
 
 func (am *MockAccountManager) DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error {

@@ -52,6 +52,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/monotime"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -96,7 +97,7 @@ type MockWGIface struct {
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
-	LastActivitiesFunc         func() map[string]time.Time
+	LastActivitiesFunc         func() map[string]monotime.Time
 }
 
 func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
@@ -187,7 +188,7 @@ func (m *MockWGIface) GetNet() *netstack.Net {
 	return m.GetNetFunc()
 }
 
-func (m *MockWGIface) LastActivities() map[string]time.Time {
+func (m *MockWGIface) LastActivities() map[string]monotime.Time {
 	if m.LastActivitiesFunc != nil {
 		return m.LastActivitiesFunc()
 	}

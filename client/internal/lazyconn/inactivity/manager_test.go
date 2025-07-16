@@ -9,13 +9,14 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
+	"github.com/netbirdio/netbird/monotime"
 )
 
 type mockWgInterface struct {
-	lastActivities map[string]time.Time
+	lastActivities map[string]monotime.Time
 }
 
-func (m *mockWgInterface) LastActivities() map[string]time.Time {
+func (m *mockWgInterface) LastActivities() map[string]monotime.Time {
 	return m.lastActivities
 }
 
@@ -23,8 +24,8 @@ func TestPeerTriggersInactivity(t *testing.T) {
 	peerID := "peer1"
 
 	wgMock := &mockWgInterface{
-		lastActivities: map[string]time.Time{
-			peerID: time.Now().Add(-20 * time.Minute),
+		lastActivities: map[string]monotime.Time{
+			peerID: monotime.Time(int64(monotime.Now()) - int64(20*time.Minute)),
 		},
 	}
 
@@ -64,8 +65,8 @@ func TestPeerTriggersActivity(t *testing.T) {
 	peerID := "peer1"
 
 	wgMock := &mockWgInterface{
-		lastActivities: map[string]time.Time{
-			peerID: time.Now().Add(-5 * time.Minute),
+		lastActivities: map[string]monotime.Time{
+			peerID: monotime.Time(int64(monotime.Now()) - int64(5*time.Minute)),
 		},
 	}
 
