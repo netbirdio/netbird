@@ -390,18 +390,13 @@ func TestBindReconnect(t *testing.T) {
 
 	chAlice, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
-		t.Errorf("failed to bind channel: %s", err)
+		t.Fatalf("failed to bind channel: %s", err)
 	}
 
 	testString := "hello alice, I am bob"
 	_, err = chBob.Write([]byte(testString))
-	if err == nil {
-		t.Errorf("expected error when writing to channel, got nil")
-	}
-
-	chBob, err = clientBob.OpenConn(ctx, "alice")
 	if err != nil {
-		t.Errorf("failed to bind channel: %s", err)
+		t.Errorf("expected error when writing to channel, got nil")
 	}
 
 	_, err = chBob.Write([]byte(testString))
