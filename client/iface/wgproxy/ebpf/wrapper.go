@@ -11,6 +11,8 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
 // ProxyWrapper help to keep the remoteConn instance for net.Conn.Close function call
@@ -26,6 +28,15 @@ type ProxyWrapper struct {
 	pausedMu  sync.Mutex
 	paused    bool
 	isStarted bool
+
+	closeListener *listener.CloseListener
+}
+
+func NewProxyWrapper(WgeBPFProxy *WGEBPFProxy) *ProxyWrapper {
+	return &ProxyWrapper{
+		WgeBPFProxy:   WgeBPFProxy,
+		closeListener: listener.NewCloseListener(),
+	}
 }
 
 func (p *ProxyWrapper) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, remoteConn net.Conn) error {
@@ -41,6 +52,10 @@ func (p *ProxyWrapper) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, r
 
 func (p *ProxyWrapper) EndpointAddr() *net.UDPAddr {
 	return p.wgEndpointAddr
+}
+
+func (p *ProxyWrapper) SetDisconnectListener(disconnected func()) {
+	p.closeListener.SetCloseListener(disconnected)
 }
 
 func (p *ProxyWrapper) Work() {
@@ -76,6 +91,8 @@ func (e *ProxyWrapper) CloseConn() error {
 	}
 
 	e.cancel()
+
+	e.closeListener.SetCloseListener(nil)
 
 	if err := e.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		return fmt.Errorf("failed to close remote conn: %w", err)
@@ -117,6 +134,7 @@ func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, err
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
+		p.closeListener.Notify()
 		if !errors.Is(err, io.EOF) {
 			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgEndpointAddr.Port, err)
 		}

@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	cerrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
 // WGUDPProxy proxies
@@ -28,6 +29,8 @@ type WGUDPProxy struct {
 	pausedMu  sync.Mutex
 	paused    bool
 	isStarted bool
+
+	closeListener *listener.CloseListener
 }
 
 // NewWGUDPProxy instantiate a UDP based WireGuard proxy. This is not a thread safe implementation
@@ -35,6 +38,7 @@ func NewWGUDPProxy(wgPort int) *WGUDPProxy {
 	log.Debugf("Initializing new user space proxy with port %d", wgPort)
 	p := &WGUDPProxy{
 		localWGListenPort: wgPort,
+		closeListener:     listener.NewCloseListener(),
 	}
 	return p
 }
@@ -65,6 +69,10 @@ func (p *WGUDPProxy) EndpointAddr() *net.UDPAddr {
 	}
 	endpointUdpAddr, _ := net.ResolveUDPAddr(p.localConn.LocalAddr().Network(), p.localConn.LocalAddr().String())
 	return endpointUdpAddr
+}
+
+func (p *WGUDPProxy) SetDisconnectListener(disconnected func()) {
+	p.closeListener.SetCloseListener(disconnected)
 }
 
 // Work starts the proxy or resumes it if it was paused
@@ -111,6 +119,8 @@ func (p *WGUDPProxy) close() error {
 	if p.closed {
 		return nil
 	}
+
+	p.closeListener.SetCloseListener(nil)
 	p.closed = true
 
 	p.cancel()
@@ -141,6 +151,7 @@ func (p *WGUDPProxy) proxyToRemote(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
+			p.closeListener.Notify()
 			log.Debugf("failed to read from wg interface conn: %s", err)
 			return
 		}

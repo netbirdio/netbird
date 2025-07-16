@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
+	"github.com/netbirdio/netbird/monotime"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 )
 
 type WgInterface interface {
-	LastActivities() map[string]time.Time
+	LastActivities() map[string]monotime.Time
 }
 
 type Manager struct {
@@ -124,6 +125,7 @@ func (m *Manager) checkStats() (map[string]struct{}, error) {
 
 	idlePeers := make(map[string]struct{})
 
+	checkTime := time.Now()
 	for peerID, peerCfg := range m.interestedPeers {
 		lastActive, ok := lastActivities[peerID]
 		if !ok {
@@ -132,8 +134,9 @@ func (m *Manager) checkStats() (map[string]struct{}, error) {
 			continue
 		}
 
-		if time.Since(lastActive) > m.inactivityThreshold {
-			peerCfg.Log.Infof("peer is inactive since: %v", lastActive)
+		since := monotime.Since(lastActive)
+		if since > m.inactivityThreshold {
+			peerCfg.Log.Infof("peer is inactive since time: %s", checkTime.Add(-since).String())
 			idlePeers[peerID] = struct{}{}
 		}
 	}

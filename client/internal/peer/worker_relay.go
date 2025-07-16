@@ -19,6 +19,7 @@ type RelayConnInfo struct {
 }
 
 type WorkerRelay struct {
+	peerCtx      context.Context
 	log          *log.Entry
 	isController bool
 	config       ConnConfig
@@ -33,8 +34,9 @@ type WorkerRelay struct {
 	wgWatcher *WGWatcher
 }
 
-func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager relayClient.ManagerService, stateDump *stateDump) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager relayClient.ManagerService, stateDump *stateDump) *WorkerRelay {
 	r := &WorkerRelay{
+		peerCtx:      ctx,
 		log:          log,
 		isController: ctrl,
 		config:       config,
@@ -62,7 +64,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
 
-	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key)
+	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Debugf("handled offer by reusing existing relay connection")

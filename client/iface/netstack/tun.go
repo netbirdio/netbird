@@ -41,9 +41,12 @@ func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
 	}
 	t.tundev = nsTunDev
 
-	skipProxy, err := strconv.ParseBool(os.Getenv(EnvSkipProxy))
-	if err != nil {
-		log.Errorf("failed to parse %s: %s", EnvSkipProxy, err)
+	var skipProxy bool
+	if val := os.Getenv(EnvSkipProxy); val != "" {
+		skipProxy, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Errorf("failed to parse %s: %s", EnvSkipProxy, err)
+		}
 	}
 	if skipProxy {
 		return nsTunDev, tunNet, nil
