@@ -1481,6 +1481,10 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&types.Settings{}, nil).
 		AnyTimes()
+	settingsMockManager.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
 
 	permissionsManager := permissions.NewManager(store)
 
