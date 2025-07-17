@@ -11,14 +11,21 @@ import (
 )
 
 func (m *UDPMuxDefault) notifyAddressRemoval(addr string) {
-	if wrapped, ok := m.params.UDPConn.(*UDPConn); ok {
-		if nbnetConn, ok := wrapped.GetPacketConn().(*nbnet.UDPConn); ok {
-			udpAddr, err := net.ResolveUDPAddr("udp", addr)
-			if err != nil {
-				log.Errorf("Failed to parse UDP address %s: %v", addr, err)
-				return
-			}
-			nbnetConn.RemoveAddress(udpAddr)
-		}
+	wrapped, ok := m.params.UDPConn.(*UDPConn)
+	if !ok {
+		return
 	}
+
+	nbnetConn, ok := wrapped.GetPacketConn().(*nbnet.UDPConn)
+	if !ok {
+		return
+	}
+
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		log.Errorf("Failed to parse UDP address %s: %v", addr, err)
+		return
+	}
+
+	nbnetConn.RemoveAddress(udpAddr)
 }
