@@ -195,7 +195,7 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	// No handler matched or all handlers passed
 	log.Tracef("no handler found for domain=%s", qname)
 	resp := &dns.Msg{}
-	resp.SetRcode(r, dns.RcodeNameError)
+	resp.SetRcode(r, dns.RcodeRefused)
 	if err := w.WriteMsg(resp); err != nil {
 		log.Errorf("failed to write DNS response: %v", err)
 	}
