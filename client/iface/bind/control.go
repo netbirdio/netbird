@@ -6,6 +6,7 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
+// TODO: This is most likely obsolete since the control fns should be called by the wrapped udpconn (ice_bind.go)
 func init() {
 	listener := nbnet.NewListener()
 	if listener.ListenConfig.Control != nil {
