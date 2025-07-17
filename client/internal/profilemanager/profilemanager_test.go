@@ -2,6 +2,7 @@ package profilemanager
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"testing"
 
@@ -58,7 +59,6 @@ func TestServiceManager_CreateAndGetDefaultProfile(t *testing.T) {
 			active, err := sm.GetActiveProfileState()
 			assert.NoError(t, err)
 			assert.Equal(t, "default", active.Name)
-			assert.Equal(t, defaultConfigPath, active.Path)
 		})
 	})
 }
@@ -90,15 +90,17 @@ func TestServiceManager_CopyDefaultProfileIfNotExists(t *testing.T) {
 func TestServiceManager_SetActiveProfileState(t *testing.T) {
 	withTempConfigDir(t, func(configDir string) {
 		withPatchedGlobals(t, configDir, func() {
+			currUser, err := user.Current()
+			assert.NoError(t, err)
 			sm := &ServiceManager{}
-			state := &ActiveProfileState{Name: "foo", Path: "/tmp/foo.json"}
-			err := sm.SetActiveProfileState(state)
+			state := &ActiveProfileState{Name: "foo", Username: currUser.Username}
+			err = sm.SetActiveProfileState(state)
 			assert.NoError(t, err)
 
 			// Should error on nil or incomplete state
 			err = sm.SetActiveProfileState(nil)
 			assert.Error(t, err)
-			err = sm.SetActiveProfileState(&ActiveProfileState{Name: "", Path: ""})
+			err = sm.SetActiveProfileState(&ActiveProfileState{Name: "", Username: ""})
 			assert.Error(t, err)
 		})
 	})
@@ -115,7 +117,7 @@ func TestServiceManager_SetActiveProfileStateToDefault(t *testing.T) {
 			_, err = util.ReadJson(ActiveProfileStatePath, &state)
 			assert.NoError(t, err)
 			assert.Equal(t, "default", state.Name)
-			assert.Equal(t, defaultConfigPath, state.Path)
+			assert.Equal(t, defaultConfigPath, state.Username)
 		})
 	})
 }

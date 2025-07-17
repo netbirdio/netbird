@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/url"
+	"os/user"
 	"testing"
 	"time"
 
@@ -80,10 +81,13 @@ func TestConnectWithRetryRuns(t *testing.T) {
 		t.Fatalf("failed to create config: %v", err)
 	}
 
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name: "test-profile",
-		Path: ic.ConfigPath,
+		Name:     "test-profile",
+		Username: currUser.Username,
 	})
 	if err != nil {
 		t.Fatalf("failed to set active profile state: %v", err)
@@ -117,21 +121,24 @@ func TestServer_Up(t *testing.T) {
 
 	ctx := internal.CtxInitState(context.Background())
 
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
 	profName := "test-profile"
 
 	ic := profilemanager.ConfigInput{
 		ConfigPath: t.TempDir() + "/" + profName + ".json",
 	}
 
-	_, err := profilemanager.UpdateOrCreateConfig(ic)
+	_, err = profilemanager.UpdateOrCreateConfig(ic)
 	if err != nil {
 		t.Fatalf("failed to create config: %v", err)
 	}
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name: profName,
-		Path: ic.ConfigPath,
+		Name:     profName,
+		Username: currUser.Username,
 	})
 	if err != nil {
 		t.Fatalf("failed to set active profile state: %v", err)
@@ -153,7 +160,7 @@ func TestServer_Up(t *testing.T) {
 
 	upReq := &daemonProto.UpRequest{
 		ProfileName: &profName,
-		ProfilePath: &ic.ConfigPath,
+		Username:    &currUser.Username,
 	}
 	_, err = s.Up(upCtx, upReq)
 
@@ -195,10 +202,13 @@ func TestServer_SubcribeEvents(t *testing.T) {
 		t.Fatalf("failed to create config: %v", err)
 	}
 
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name: "test-profile",
-		Path: ic.ConfigPath,
+		Name:     "test-profile",
+		Username: currUser.Username,
 	})
 	if err != nil {
 		t.Fatalf("failed to set active profile state: %v", err)

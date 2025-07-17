@@ -36,8 +36,8 @@ func TestUpDaemon(t *testing.T) {
 	}
 
 	err = sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name: "test1",
-		Path: profilemanager.DefaultConfigPathDir + "/test1.json",
+		Name:     "test1",
+		Username: currUser.Username,
 	})
 	if err != nil {
 		t.Fatalf("failed to set active profile state: %v", err)

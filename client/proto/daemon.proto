@@ -73,6 +73,10 @@ service DaemonService {
   rpc SetConfig(SetConfigRequest) returns (SetConfigResponse) {}
 
   rpc AddProfile(AddProfileRequest) returns (AddProfileResponse) {}
+
+  rpc RemoveProfile(RemoveProfileRequest) returns (RemoveProfileResponse) {}
+
+  rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse) {}
 }
 
 
@@ -144,7 +148,7 @@ message LoginRequest {
   optional bool block_inbound = 29;
 
   optional string profileName = 30;
-  optional string profilePath = 31;
+  optional string username = 31;
 }
 
 message LoginResponse {
@@ -165,7 +169,7 @@ message WaitSSOLoginResponse {
 
 message UpRequest {
   optional string profileName = 1;
-  optional string profilePath = 2;
+  optional string username = 2;
 }
 
 message UpResponse {}
@@ -513,7 +517,7 @@ message GetEventsResponse {
 
 message SwitchProfileRequest {
   optional string profileName = 1;
-  optional string profilePath = 2;
+  optional string username = 2;
 }
 
 message SwitchProfileResponse {}
@@ -565,3 +569,23 @@ message AddProfileRequest {
 }
 
 message AddProfileResponse {}
+
+message RemoveProfileRequest {
+  string username = 1;
+  string profileName = 2;
+}
+
+message RemoveProfileResponse {}
+
+message ListProfilesRequest {
+  string username = 1;
+}
+
+message ListProfilesResponse {
+  repeated Profile profiles = 1;
+}
+
+message Profile {
+  string name = 1;
+  bool is_active = 2;
+}

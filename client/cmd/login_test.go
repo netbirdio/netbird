@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os/user"
 	"strings"
 	"testing"
 
@@ -13,14 +14,20 @@ func TestLogin(t *testing.T) {
 
 	tempDir := t.TempDir()
 
+	currUser, err := user.Current()
+	if err != nil {
+		t.Fatalf("failed to get current user: %v", err)
+		return
+	}
+
 	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
 	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
 	profilemanager.DefaultConfigPathDir = tempDir
 	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
 	sm := profilemanager.ServiceManager{}
-	err := sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name: "default",
-		Path: profilemanager.DefaultConfigPathDir + "/default.json",
+	err = sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name:     "default",
+		Username: currUser.Username,
 	})
 	if err != nil {
 		t.Fatalf("failed to set active profile state: %v", err)

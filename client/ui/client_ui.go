@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"path"
 	"runtime"
 	"strconv"
@@ -540,16 +541,15 @@ func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
 		return nil, err
 	}
 
-	filePath, err := activeProf.FilePath()
+	currUser, err := user.Current()
 	if err != nil {
-		log.Errorf("get active profile file path: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("get current user: %w", err)
 	}
 
 	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{
 		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
 		ProfileName:         &activeProf.Name,
-		ProfilePath:         &filePath,
+		Username:            &currUser.Username,
 	})
 	if err != nil {
 		log.Errorf("login to management URL with: %v", err)

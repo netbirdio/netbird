@@ -63,15 +63,31 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	profileManager := profilemanager.NewProfileManager()
-	profiles, err := profileManager.ListProfiles()
+	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
+	if err != nil {
+		log.Errorf("failed to connect to service CLI interface %v", err)
+		return err
+	}
+	defer conn.Close()
+
+	currUser, err := user.Current()
+	if err != nil {
+		log.Errorf("failed to get current user: %v", err)
+		return err
+	}
+
+	daemonClient := proto.NewDaemonServiceClient(conn)
+
+	profiles, err := daemonClient.ListProfiles(cmd.Context(), &proto.ListProfilesRequest{
+		Username: currUser.Username,
+	})
 	if err != nil {
 		return err
 	}
 
 	// list profiles, add a tick if the profile is active
-	cmd.Println("Found", len(profiles), "profiles:")
-	for _, profile := range profiles {
+	cmd.Println("Found", len(profiles.Profiles), "profiles:")
+	for _, profile := range profiles.Profiles {
 		// use a cross to indicate the passive profiles
 		activeMarker := "✗"
 		if profile.IsActive {
@@ -134,10 +150,27 @@ func removeProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	profileManager := profilemanager.NewProfileManager()
+	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
+	if err != nil {
+		log.Errorf("failed to connect to service CLI interface %v", err)
+		return err
+	}
+	defer conn.Close()
+
+	currUser, err := user.Current()
+	if err != nil {
+		log.Errorf("failed to get current user: %v", err)
+		return err
+	}
+
+	daemonClient := proto.NewDaemonServiceClient(conn)
+
 	profileName := args[0]
 
-	err = profileManager.RemoveProfile(profileName)
+	_, err = daemonClient.RemoveProfile(cmd.Context(), &proto.RemoveProfileRequest{
+		ProfileName: profileName,
+		Username:    currUser.Username,
+	})
 	if err != nil {
 		return err
 	}
@@ -170,7 +203,13 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := switchProfile(cmd.Context(), prof); err != nil {
+	currUser, err := user.Current()
+	if err != nil {
+		log.Errorf("failed to get current user: %v", err)
+		return err
+	}
+
+	if err := switchProfile(cmd.Context(), prof, currUser.Username); err != nil {
 		return err
 	}
 

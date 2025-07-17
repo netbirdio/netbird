@@ -249,19 +249,19 @@ func (s *serviceClient) switchProfile(profileName string) error {
 		return fmt.Errorf(getClientFMT, err)
 	}
 
+	currUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %w", err)
+	}
+
 	prof, err := s.profileManager.GetActiveProfile()
 	if err != nil {
 		return fmt.Errorf("get active profile: %w", err)
 	}
 
-	profPath, err := prof.FilePath()
-	if err != nil {
-		return fmt.Errorf("get profile path: %w", err)
-	}
-
 	if _, err := conn.SwitchProfile(context.Background(), &proto.SwitchProfileRequest{
 		ProfileName: &prof.Name,
-		ProfilePath: &profPath,
+		Username:    &currUser.Username,
 	}); err != nil {
 		return fmt.Errorf("switch profile failed: %w", err)
 	}
@@ -270,7 +270,20 @@ func (s *serviceClient) switchProfile(profileName string) error {
 }
 
 func (s *serviceClient) removeProfile(profileName string) error {
-	err := s.profileManager.RemoveProfile(profileName)
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		return fmt.Errorf(getClientFMT, err)
+	}
+
+	currUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %w", err)
+	}
+
+	_, err = conn.AddProfile(context.Background(), &proto.AddProfileRequest{
+		ProfileName: profileName,
+		Username:    currUser.Username,
+	})
 	if err != nil {
 		return fmt.Errorf("remove profile: %w", err)
 	}
@@ -278,12 +291,38 @@ func (s *serviceClient) removeProfile(profileName string) error {
 	return nil
 }
 
-func (s *serviceClient) getProfiles() ([]profilemanager.Profile, error) {
-	prof, err := s.profileManager.ListProfiles()
+type Profile struct {
+	Name     string
+	IsActive bool
+}
+
+func (s *serviceClient) getProfiles() ([]Profile, error) {
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		return nil, fmt.Errorf(getClientFMT, err)
+	}
+
+	currUser, err := user.Current()
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+	profilesResp, err := conn.ListProfiles(context.Background(), &proto.ListProfilesRequest{
+		Username: currUser.Username,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list profiles: %w", err)
 	}
-	return prof, nil
+
+	var profiles []Profile
+
+	for _, profile := range profilesResp.Profiles {
+		profiles = append(profiles, Profile{
+			Name:     profile.Name,
+			IsActive: profile.IsActive,
+		})
+	}
+
+	return profiles, nil
 }
 
 type subItem struct {
@@ -301,7 +340,7 @@ type profileMenu struct {
 	emailMenuItem         *systray.MenuItem
 	profileSubItems       []*subItem
 	manageProfilesSubItem *subItem
-	profilesState         []profilemanager.Profile
+	profilesState         []Profile
 	downClickCallback     func() error
 	upClickCallback       func() error
 	getSrvClientCallback  func(timeout time.Duration) (proto.DaemonServiceClient, error)
@@ -330,11 +369,40 @@ func newProfileMenu(ctx context.Context, profileManager *profilemanager.ProfileM
 	return &p
 }
 
+func (p *profileMenu) getProfiles() ([]Profile, error) {
+	conn, err := p.getSrvClientCallback(defaultFailTimeout)
+	if err != nil {
+		return nil, fmt.Errorf(getClientFMT, err)
+	}
+	currUser, err := user.Current()
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+
+	profilesResp, err := conn.ListProfiles(p.ctx, &proto.ListProfilesRequest{
+		Username: currUser.Username,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list profiles: %w", err)
+	}
+
+	var profiles []Profile
+
+	for _, profile := range profilesResp.Profiles {
+		profiles = append(profiles, Profile{
+			Name:     profile.Name,
+			IsActive: profile.IsActive,
+		})
+	}
+
+	return profiles, nil
+}
+
 func (p *profileMenu) refresh() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	profiles, err := p.profileManager.ListProfiles()
+	profiles, err := p.getProfiles()
 	if err != nil {
 		log.Errorf("failed to list profiles: %v", err)
 		return
@@ -352,7 +420,7 @@ func (p *profileMenu) refresh() {
 		p.emailMenuItem.Show()
 	}
 
-	var activeProfile *profilemanager.Profile
+	var activeProfile *Profile
 	for _, profile := range profiles {
 		item := p.profileMenuItem.AddSubMenuItem(profile.Name, "")
 		if profile.IsActive {
@@ -384,6 +452,12 @@ func (p *profileMenu) refresh() {
 						return
 					}
 
+					currUser, err := user.Current()
+					if err != nil {
+						log.Errorf("failed to get current user: %v", err)
+						return
+					}
+
 					err = p.profileManager.SwitchProfile(profile.Name)
 					if err != nil {
 						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
@@ -394,15 +468,10 @@ func (p *profileMenu) refresh() {
 						log.Errorf("failed to get active profile after switching: %v", err)
 						return
 					}
-					profPath, err := prof.FilePath()
-					if err != nil {
-						log.Errorf("failed to get profile path after switching: %v", err)
-						return
-					}
 
 					_, err = conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{
 						ProfileName: &prof.Name,
-						ProfilePath: &profPath,
+						Username:    &currUser.Username,
 					})
 					if err != nil {
 						log.Errorf("failed to switch profile: %v", err)
@@ -459,7 +528,7 @@ func (p *profileMenu) refresh() {
 
 }
 
-func (p *profileMenu) clear(profiles []profilemanager.Profile) {
+func (p *profileMenu) clear(profiles []Profile) {
 	// Clear existing profile items
 	for _, item := range p.profileSubItems {
 		item.Remove()
@@ -486,7 +555,7 @@ func (p *profileMenu) updateMenu() {
 		case <-ticker.C:
 
 			// get profilesList
-			profiles, err := p.profileManager.ListProfiles()
+			profiles, err := p.getProfiles()
 			if err != nil {
 				log.Errorf("failed to list profiles: %v", err)
 				continue

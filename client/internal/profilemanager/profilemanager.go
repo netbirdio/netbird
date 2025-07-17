@@ -1,17 +1,14 @@
 package profilemanager
 
 import (
-	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -25,17 +22,25 @@ type Profile struct {
 }
 
 func (p *Profile) FilePath() (string, error) {
+	if p.Name == "" {
+		return "", fmt.Errorf("active profile name is empty")
+	}
+
 	if p.Name == defaultProfileName {
 		return defaultConfigPath, nil
 	}
 
-	configDir, err := getConfigDir()
+	username, err := user.Current()
 	if err != nil {
-		return "", fmt.Errorf("failed to get config directory: %w", err)
+		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
 
-	profPath := filepath.Join(configDir, p.Name+".json")
-	return profPath, nil
+	configDir, err := getConfigDirForUser(username.Username)
+	if err != nil {
+		return "", fmt.Errorf("failed to get config directory for user %s: %w", username.Username, err)
+	}
+
+	return filepath.Join(configDir, p.Name+".json"), nil
 }
 
 func (p *Profile) IsDefault() bool {
@@ -50,85 +55,12 @@ func NewProfileManager() *ProfileManager {
 	return &ProfileManager{}
 }
 
-func (pm *ProfileManager) RemoveProfile(profileName string) error {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	profileName = sanitazeProfileName(profileName)
-
-	if profileName == defaultProfileName {
-		return fmt.Errorf("cannot remove profile with reserved name: %s", defaultProfileName)
-	}
-	profPath := filepath.Join(configDir, profileName+".json")
-	if !fileExists(profPath) {
-		return ErrProfileNotFound
-	}
-
-	activeProf, err := pm.GetActiveProfile()
-	if err != nil && !errors.Is(err, ErrNoActiveProfile) {
-		return fmt.Errorf("failed to get active profile: %w", err)
-	}
-
-	if activeProf != nil && activeProf.Name == profileName {
-		return fmt.Errorf("cannot remove active profile: %s", profileName)
-	}
-
-	err = util.RemoveJson(profPath)
-	if err != nil {
-		return fmt.Errorf("failed to remove profile config: %w", err)
-	}
-	return nil
-}
-
 func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	prof := pm.getActiveProfileState()
 	return &Profile{Name: prof}, nil
-}
-
-func (pm *ProfileManager) ListProfiles() ([]Profile, error) {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	files, err := util.ListFiles(configDir, "*.json")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list profile files: %w", err)
-	}
-
-	var filtered []string
-	for _, file := range files {
-		if strings.HasSuffix(file, "state.json") {
-			continue // skip state files
-		}
-		filtered = append(filtered, file)
-	}
-	sort.Strings(filtered)
-
-	var activeProfName string
-	activeProf, err := pm.GetActiveProfile()
-	if err == nil {
-		activeProfName = activeProf.Name
-	}
-
-	var profiles []Profile
-	// add default profile always
-	profiles = append(profiles, Profile{Name: defaultProfileName, IsActive: activeProfName == "" || activeProfName == defaultProfileName})
-	for _, file := range filtered {
-		profileName := strings.TrimSuffix(filepath.Base(file), ".json")
-		var isActive bool
-		if activeProfName != "" && activeProfName == profileName {
-			isActive = true
-		}
-		profiles = append(profiles, Profile{Name: profileName, IsActive: isActive})
-	}
-
-	return profiles, nil
 }
 
 func (pm *ProfileManager) SwitchProfile(profileName string) error {

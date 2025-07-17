@@ -126,8 +126,8 @@ func (s *Server) Start() error {
 		}
 
 		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-			Name: "default",
-			Path: s.profileManager.DefaultProfilePath(),
+			Name:     "default",
+			Username: "",
 		}); err != nil {
 			log.Errorf("failed to set active profile state: %v", err)
 			return fmt.Errorf("failed to set active profile state: %w", err)
@@ -142,13 +142,19 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	config, err := profilemanager.GetConfig(activeProf.Path)
+	cfgPath, err := activeProf.FilePath()
+	if err != nil {
+		log.Errorf("failed to get active profile file path: %v", err)
+		return fmt.Errorf("failed to get active profile file path: %w", err)
+	}
+
+	config, err := profilemanager.GetConfig(cfgPath)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 
 		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-			Name: "default",
-			Path: s.profileManager.DefaultProfilePath(),
+			Name:     "default",
+			Username: "",
 		}); err != nil {
 			log.Errorf("failed to set active profile state: %v", err)
 			return fmt.Errorf("failed to set active profile state: %w", err)
@@ -462,12 +468,22 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	if msg.ProfileName != nil && msg.ProfilePath != nil {
-		if *msg.ProfileName != activeProf.Name && *msg.ProfilePath != activeProf.Path {
-			log.Infof("switching to profile %s at %s", *msg.ProfileName, *msg.ProfilePath)
+	if msg.ProfileName != nil {
+		if *msg.ProfileName != "default" && (msg.Username == nil || *msg.Username == "") {
+			log.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
+			return nil, fmt.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
+		}
+
+		var username string
+		if *msg.ProfileName != "default" {
+			username = *msg.Username
+		}
+
+		if *msg.ProfileName != activeProf.Name && username != activeProf.Username {
+			log.Infof("switching to profile %s for user %s", *msg.ProfileName, username)
 			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-				Name: *msg.ProfileName,
-				Path: *msg.ProfilePath,
+				Name:     *msg.ProfileName,
+				Username: username,
 			}); err != nil {
 				log.Errorf("failed to set active profile state: %v", err)
 				return nil, fmt.Errorf("failed to set active profile state: %w", err)
@@ -481,7 +497,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	log.Infof("active profile: %s at %s", activeProf.Name, activeProf.Path)
+	log.Infof("active profile: %s for %s", activeProf.Name, activeProf.Username)
 
 	s.mutex.Lock()
 
@@ -491,7 +507,13 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 	s.mutex.Unlock()
 
-	config, err := profilemanager.GetConfig(activeProf.Path)
+	cfgPath, err := activeProf.FilePath()
+	if err != nil {
+		log.Errorf("failed to get active profile file path: %v", err)
+		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
+	}
+
+	config, err := profilemanager.GetConfig(cfgPath)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
@@ -687,12 +709,22 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	if msg != nil && msg.ProfileName != nil && msg.ProfilePath != nil {
-		if *msg.ProfileName != activeProf.Name && *msg.ProfilePath != activeProf.Path {
-			log.Infof("switching to profile %s at %s", *msg.ProfileName, *msg.ProfilePath)
+	if msg != nil && msg.ProfileName != nil {
+		if *msg.ProfileName != "default" && (msg.Username == nil || *msg.Username == "") {
+			log.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
+			return nil, fmt.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
+		}
+
+		var username string
+		if *msg.ProfileName != "default" {
+			username = *msg.Username
+		}
+
+		if *msg.ProfileName != activeProf.Name && username != activeProf.Username {
+			log.Infof("switching to profile %s for user %s", *msg.ProfileName, username)
 			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-				Name: *msg.ProfileName,
-				Path: *msg.ProfilePath,
+				Name:     *msg.ProfileName,
+				Username: username,
 			}); err != nil {
 				log.Errorf("failed to set active profile state: %v", err)
 				return nil, fmt.Errorf("failed to set active profile state: %w", err)
@@ -706,9 +738,15 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	log.Infof("active profile: %s at %s", activeProf.Name, activeProf.Path)
+	log.Infof("active profile: %s for %s", activeProf.Name, activeProf.Username)
 
-	config, err := profilemanager.GetConfig(activeProf.Path)
+	cfgPath, err := activeProf.FilePath()
+	if err != nil {
+		log.Errorf("failed to get active profile file path: %v", err)
+		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
+	}
+
+	config, err := profilemanager.GetConfig(cfgPath)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
@@ -753,12 +791,22 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	if msg != nil && msg.ProfileName != nil && msg.ProfilePath != nil {
-		if *msg.ProfileName != activeProf.Name && *msg.ProfilePath != activeProf.Path {
-			log.Infof("switching to profile %s at %s", *msg.ProfileName, *msg.ProfilePath)
+	if msg != nil && msg.ProfileName != nil {
+		if *msg.ProfileName != "default" && (msg.Username == nil || *msg.Username == "") {
+			log.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
+			return nil, fmt.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
+		}
+
+		var username string
+		if *msg.ProfileName != "default" {
+			username = *msg.Username
+		}
+
+		if *msg.ProfileName != activeProf.Name && username != activeProf.Username {
+			log.Infof("switching to profile %s for user %s", *msg.ProfileName, username)
 			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-				Name: *msg.ProfileName,
-				Path: *msg.ProfilePath,
+				Name:     *msg.ProfileName,
+				Username: username,
 			}); err != nil {
 				log.Errorf("failed to set active profile state: %v", err)
 				return nil, fmt.Errorf("failed to set active profile state: %w", err)
@@ -1056,4 +1104,57 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 	}
 
 	return &proto.AddProfileResponse{}, nil
+}
+
+// RemoveProfile removes a profile from the daemon.
+func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequest) (*proto.RemoveProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if err := restoreResidualState(ctx); err != nil {
+		log.Warnf(errRestoreResidualState, err)
+	}
+
+	if msg.ProfileName == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
+	}
+
+	if err := s.profileManager.RemoveProfile(msg.ProfileName, msg.Username); err != nil {
+		log.Errorf("failed to remove profile: %v", err)
+		return nil, fmt.Errorf("failed to remove profile: %w", err)
+	}
+
+	return &proto.RemoveProfileResponse{}, nil
+}
+
+// ListProfiles lists all profiles in the daemon.
+func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesRequest) (*proto.ListProfilesResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if err := restoreResidualState(ctx); err != nil {
+		log.Warnf(errRestoreResidualState, err)
+	}
+
+	if msg.Username == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "username must be provided")
+	}
+
+	profiles, err := s.profileManager.ListProfiles(msg.Username)
+	if err != nil {
+		log.Errorf("failed to list profiles: %v", err)
+		return nil, fmt.Errorf("failed to list profiles: %w", err)
+	}
+
+	response := &proto.ListProfilesResponse{
+		Profiles: make([]*proto.Profile, len(profiles)),
+	}
+	for i, profile := range profiles {
+		response.Profiles[i] = &proto.Profile{
+			Name:     profile.Name,
+			IsActive: profile.IsActive,
+		}
+	}
+
+	return response, nil
 }

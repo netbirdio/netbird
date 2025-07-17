@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/user"
 	"runtime"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ import (
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
+	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "Netbird config file location")
 }
 
 var loginCmd = &cobra.Command{
@@ -41,17 +43,16 @@ var loginCmd = &cobra.Command{
 			// nolint
 			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 		}
+		username, err := user.Current()
+		if err != nil {
+			return fmt.Errorf("get current user: %v", err)
+		}
 
 		pm := profilemanager.NewProfileManager()
 
-		activeProf, err := getActiveProfile(cmd.Context(), pm, profileName)
+		activeProf, err := getActiveProfile(cmd.Context(), pm, profileName, username.Username)
 		if err != nil {
 			return fmt.Errorf("get active profile: %v", err)
-		}
-
-		configPath, err := activeProf.FilePath()
-		if err != nil {
-			return fmt.Errorf("get active profile path: %v", err)
 		}
 
 		providedSetupKey, err := getSetupKey()
@@ -61,13 +62,13 @@ var loginCmd = &cobra.Command{
 
 		// workaround to run without service
 		if logFile == "console" {
-			if err := doForegroundLogin(ctx, cmd, configPath, providedSetupKey, activeProf); err != nil {
+			if err := doForegroundLogin(ctx, cmd, providedSetupKey, activeProf); err != nil {
 				return fmt.Errorf("foreground login failed: %v", err)
 			}
 			return nil
 		}
 
-		if err := doDaemonLogin(ctx, cmd, providedSetupKey, activeProf, configPath, pm); err != nil {
+		if err := doDaemonLogin(ctx, cmd, providedSetupKey, activeProf, username.Username, pm); err != nil {
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
 
@@ -77,7 +78,7 @@ var loginCmd = &cobra.Command{
 	},
 }
 
-func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey string, activeProf *profilemanager.Profile, configPath string, pm *profilemanager.ProfileManager) error {
+func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey string, activeProf *profilemanager.Profile, username string, pm *profilemanager.ProfileManager) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
@@ -100,7 +101,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		Hostname:            hostName,
 		DnsLabels:           dnsLabelsReq,
 		ProfileName:         &activeProf.Name,
-		ProfilePath:         &configPath,
+		Username:            &username,
 	}
 
 	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
@@ -140,7 +141,7 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 	return nil
 }
 
-func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, profileName string) (*profilemanager.Profile, error) {
+func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, profileName string, username string) (*profilemanager.Profile, error) {
 	activeProf, err := pm.GetActiveProfile()
 	if err != nil {
 		return nil, fmt.Errorf("get active profile: %v", err)
@@ -153,7 +154,7 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 			return nil, fmt.Errorf("switch profile: %v", err)
 		}
 
-		err = switchProfile(context.Background(), activeProf)
+		err = switchProfile(context.Background(), activeProf, username)
 		if err != nil {
 			return nil, fmt.Errorf("switch profile on daemon: %v", err)
 		}
@@ -191,7 +192,7 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	return activeProf, nil
 }
 
-func switchProfile(ctx context.Context, prof *profilemanager.Profile) error {
+func switchProfile(ctx context.Context, prof *profilemanager.Profile, username string) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
@@ -200,16 +201,11 @@ func switchProfile(ctx context.Context, prof *profilemanager.Profile) error {
 	}
 	defer conn.Close()
 
-	profPath, err := prof.FilePath()
-	if err != nil {
-		return fmt.Errorf("get profile path: %v", err)
-	}
-
 	client := proto.NewDaemonServiceClient(conn)
 
 	_, err = client.SwitchProfile(ctx, &proto.SwitchProfileRequest{
 		ProfileName: &prof.Name,
-		ProfilePath: &profPath,
+		Username:    &username,
 	})
 	if err != nil {
 		return fmt.Errorf("switch profile failed: %v", err)
@@ -218,21 +214,31 @@ func switchProfile(ctx context.Context, prof *profilemanager.Profile) error {
 	return nil
 }
 
-func doForegroundLogin(ctx context.Context, cmd *cobra.Command, configPath string, setupKey string, activeProf *profilemanager.Profile) error {
-	config, err := profilemanager.ReadConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("update config: %v", err)
-	}
+func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string, activeProf *profilemanager.Profile) error {
 
-	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
-
-	err = handleRebrand(cmd, activeProf)
+	err := handleRebrand(cmd, activeProf)
 	if err != nil {
 		return err
 	}
 
 	// update host's static platform and system information
 	system.UpdateStaticInfo()
+
+	var configFilePath string
+	if configPath != "" {
+		configFilePath = configPath
+	} else {
+		var err error
+		configFilePath, err = activeProf.FilePath()
+		if err != nil {
+			return fmt.Errorf("get active profile file path: %v", err)
+		}
+	}
+
+	config, err := profilemanager.ReadConfig(configFilePath)
+	if err != nil {
+		return fmt.Errorf("read config file %s: %v", configFilePath, err)
+	}
 
 	err = foregroundLogin(ctx, cmd, config, setupKey)
 	if err != nil {

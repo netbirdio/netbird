@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -48,8 +50,25 @@ func init() {
 }
 
 type ActiveProfileState struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name     string `json:"name"`
+	Username string `json:"username"`
+}
+
+func (a *ActiveProfileState) FilePath() (string, error) {
+	if a.Name == "" {
+		return "", fmt.Errorf("active profile name is empty")
+	}
+
+	if a.Name == defaultProfileName {
+		return defaultConfigPath, nil
+	}
+
+	configDir, err := getConfigDirForUser(a.Username)
+	if err != nil {
+		return "", fmt.Errorf("failed to get config directory for user %s: %w", a.Username, err)
+	}
+
+	return filepath.Join(configDir, a.Name+".json"), nil
 }
 
 type ServiceManager struct{}
@@ -84,8 +103,8 @@ func (s *ServiceManager) CopyDefaultProfileIfNotExists() (bool, error) {
 	}
 
 	if err := s.SetActiveProfileState(&ActiveProfileState{
-		Name: "default",
-		Path: defaultConfigPath,
+		Name:     "default",
+		Username: "",
 	}); err != nil {
 		log.Errorf("failed to set active profile state: %v", err)
 		return false, fmt.Errorf("failed to set active profile state: %w", err)
@@ -140,8 +159,8 @@ func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
 				return nil, fmt.Errorf("failed to set active profile to default: %w", err)
 			}
 			return &ActiveProfileState{
-				Name: "default",
-				Path: defaultConfigPath,
+				Name:     "default",
+				Username: "",
 			}, nil
 		} else {
 			return nil, fmt.Errorf("failed to stat active profile state path %s: %w", ActiveProfileStatePath, err)
@@ -155,21 +174,21 @@ func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
 				return nil, fmt.Errorf("failed to set active profile to default: %w", err)
 			}
 			return &ActiveProfileState{
-				Name: "default",
-				Path: defaultConfigPath,
+				Name:     "default",
+				Username: "",
 			}, nil
 		} else {
 			return nil, fmt.Errorf("failed to read active profile state: %w", err)
 		}
 	}
 
-	if activeProfile.Name == "" || activeProfile.Path == "" {
+	if activeProfile.Name == "" {
 		if err := s.SetActiveProfileStateToDefault(); err != nil {
 			return nil, fmt.Errorf("failed to set active profile to default: %w", err)
 		}
 		return &ActiveProfileState{
-			Name: "default",
-			Path: defaultConfigPath,
+			Name:     "default",
+			Username: "",
 		}, nil
 	}
 
@@ -178,22 +197,26 @@ func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
 }
 
 func (s *ServiceManager) SetActiveProfileState(a *ActiveProfileState) error {
-	if a == nil || a.Name == "" || a.Path == "" {
+	if a == nil || a.Name == "" {
 		return errors.New("invalid active profile state")
+	}
+
+	if a.Name != defaultProfileName && a.Username == "" {
+		return fmt.Errorf("username must be set for non-default profiles, got: %s", a.Name)
 	}
 
 	if err := util.WriteJsonWithRestrictedPermission(context.Background(), ActiveProfileStatePath, a); err != nil {
 		return fmt.Errorf("failed to write active profile state: %w", err)
 	}
 
-	log.Infof("active profile set to %s at %s", a.Name, a.Path)
+	log.Infof("active profile set to %s for %s", a.Name, a.Username)
 	return nil
 }
 
 func (s *ServiceManager) SetActiveProfileStateToDefault() error {
 	return s.SetActiveProfileState(&ActiveProfileState{
-		Name: "default",
-		Path: defaultConfigPath,
+		Name:     "default",
+		Username: "",
 	})
 }
 
@@ -229,4 +252,77 @@ func (s *ServiceManager) AddProfile(profileName, username string) error {
 	}
 
 	return nil
+}
+
+func (s *ServiceManager) RemoveProfile(profileName, username string) error {
+	configDir, err := getConfigDirForUser(username)
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	profileName = sanitazeProfileName(profileName)
+
+	if profileName == defaultProfileName {
+		return fmt.Errorf("cannot remove profile with reserved name: %s", defaultProfileName)
+	}
+	profPath := filepath.Join(configDir, profileName+".json")
+	if !fileExists(profPath) {
+		return ErrProfileNotFound
+	}
+
+	activeProf, err := s.GetActiveProfileState()
+	if err != nil && !errors.Is(err, ErrNoActiveProfile) {
+		return fmt.Errorf("failed to get active profile: %w", err)
+	}
+
+	if activeProf != nil && activeProf.Name == profileName {
+		return fmt.Errorf("cannot remove active profile: %s", profileName)
+	}
+
+	err = util.RemoveJson(profPath)
+	if err != nil {
+		return fmt.Errorf("failed to remove profile config: %w", err)
+	}
+	return nil
+}
+
+func (s *ServiceManager) ListProfiles(username string) ([]Profile, error) {
+	configDir, err := getConfigDirForUser(username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	files, err := util.ListFiles(configDir, "*.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list profile files: %w", err)
+	}
+
+	var filtered []string
+	for _, file := range files {
+		if strings.HasSuffix(file, "state.json") {
+			continue // skip state files
+		}
+		filtered = append(filtered, file)
+	}
+	sort.Strings(filtered)
+
+	var activeProfName string
+	activeProf, err := s.GetActiveProfileState()
+	if err == nil {
+		activeProfName = activeProf.Name
+	}
+
+	var profiles []Profile
+	// add default profile always
+	profiles = append(profiles, Profile{Name: defaultProfileName, IsActive: activeProfName == "" || activeProfName == defaultProfileName})
+	for _, file := range filtered {
+		profileName := strings.TrimSuffix(filepath.Base(file), ".json")
+		var isActive bool
+		if activeProfName != "" && activeProfName == profileName {
+			isActive = true
+		}
+		profiles = append(profiles, Profile{Name: profileName, IsActive: isActive})
+	}
+
+	return profiles, nil
 }

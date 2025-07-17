@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os/user"
 	"runtime"
 	"strings"
 	"time"
@@ -47,6 +48,7 @@ var (
 	dnsLabelsValidated domain.List
 	noBrowser          bool
 	profileName        string
+	configPath         string
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -76,6 +78,7 @@ func init() {
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
+	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "Netbird config file location")
 
 }
 
@@ -113,6 +116,11 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get active profile: %v", err)
 	}
 
+	username, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %v", err)
+	}
+
 	var profileSwitched bool
 	// switch profile if provided
 	if profileName != "" && activeProf.Name != profileName {
@@ -121,7 +129,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("switch profile: %v", err)
 		}
 
-		err = switchProfile(cmd.Context(), activeProf)
+		err = switchProfile(cmd.Context(), activeProf, username.Username)
 		if err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
@@ -151,12 +159,18 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 		return err
 	}
 
-	configPath, err := activeProf.FilePath()
-	if err != nil {
-		return fmt.Errorf("get active profile path: %v", err)
+	var configFilePath string
+	if configPath != "" {
+		configFilePath = configPath
+	} else {
+		var err error
+		configFilePath, err = activeProf.FilePath()
+		if err != nil {
+			return fmt.Errorf("get active profile file path: %v", err)
+		}
 	}
 
-	ic, err := setupConfig(customDNSAddressConverted, cmd)
+	ic, err := setupConfig(customDNSAddressConverted, cmd, configFilePath)
 	if err != nil {
 		return fmt.Errorf("setup config: %v", err)
 	}
@@ -171,7 +185,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 		return fmt.Errorf("get config file: %v", err)
 	}
 
-	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
 
 	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
 	if err != nil {
@@ -230,14 +244,19 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		}
 	}
 
-	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, configPath, customDNSAddressConverted); err != nil {
+	username, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %v", err)
+	}
+
+	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, configPath, customDNSAddressConverted, username.Username); err != nil {
 		return fmt.Errorf("daemon up failed: %v", err)
 	}
 	cmd.Println("Connected")
 	return nil
 }
 
-func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, configPath string, customDNSAddressConverted []byte) error {
+func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, configPath string, customDNSAddressConverted []byte, username string) error {
 
 	providedSetupKey, err := getSetupKey()
 	if err != nil {
@@ -250,7 +269,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	loginRequest.ProfileName = &activeProf.Name
-	loginRequest.ProfilePath = &configPath
+	loginRequest.Username = &username
 
 	var loginErr error
 	var loginResp *proto.LoginResponse
@@ -283,7 +302,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 
 	if _, err := client.Up(ctx, &proto.UpRequest{
 		ProfileName: &activeProf.Name,
-		ProfilePath: &configPath,
+		Username:    &username,
 	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)
 	}
@@ -297,13 +316,19 @@ func prepareConfig(ctx context.Context, cmd *cobra.Command, activeProf *profilem
 		return []byte{}, "", fmt.Errorf("parse custom DNS address: %v", err)
 	}
 
-	configPath, err := activeProf.FilePath()
-	if err != nil {
-		return nil, "", fmt.Errorf("get active profile path: %v", err)
+	var configFilePath string
+	if configPath != "" {
+		configFilePath = configPath
+	} else {
+		var err error
+		configFilePath, err = activeProf.FilePath()
+		if err != nil {
+			return nil, "", fmt.Errorf("get active profile file path: %v", err)
+		}
 	}
 
 	if activeProf.Name != "default" {
-		ic, err := setupConfig(customDNSAddressConverted, cmd)
+		ic, err := setupConfig(customDNSAddressConverted, cmd, configFilePath)
 		if err != nil {
 			return nil, "", fmt.Errorf("setup config: %v", err)
 		}
@@ -313,17 +338,18 @@ func prepareConfig(ctx context.Context, cmd *cobra.Command, activeProf *profilem
 			return nil, "", fmt.Errorf("get config file: %v", err)
 		}
 
-		_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configPath)
+		_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
 	}
 
-	return customDNSAddressConverted, configPath, nil
+	return customDNSAddressConverted, configFilePath, nil
 
 }
 
-func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
+func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFilePath string) (*profilemanager.ConfigInput, error) {
 	ic := profilemanager.ConfigInput{
 		ManagementURL:       managementURL,
 		AdminURL:            adminURL,
+		ConfigPath:          configFilePath,
 		NATExternalIPs:      natExternalIPs,
 		CustomDNSAddress:    customDNSAddressConverted,
 		ExtraIFaceBlackList: extraIFaceBlackList,
