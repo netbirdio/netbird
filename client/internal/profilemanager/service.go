@@ -152,21 +152,9 @@ func (s *ServiceManager) CreateDefaultProfile() error {
 }
 
 func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
-	_, err := os.Stat(ActiveProfileStatePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			if err := s.SetActiveProfileStateToDefault(); err != nil {
-				return nil, fmt.Errorf("failed to set active profile to default: %w", err)
-			}
-			return &ActiveProfileState{
-				Name:     "default",
-				Username: "",
-			}, nil
-		} else {
-			return nil, fmt.Errorf("failed to stat active profile state path %s: %w", ActiveProfileStatePath, err)
-		}
+	if err := s.setDefaultActiveState(); err != nil {
+		return nil, fmt.Errorf("failed to set default active profile state: %w", err)
 	}
-
 	var activeProfile ActiveProfileState
 	if _, err := util.ReadJson(ActiveProfileStatePath, &activeProfile); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -194,6 +182,21 @@ func (s *ServiceManager) GetActiveProfileState() (*ActiveProfileState, error) {
 
 	return &activeProfile, nil
 
+}
+
+func (s *ServiceManager) setDefaultActiveState() error {
+	_, err := os.Stat(ActiveProfileStatePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if err := s.SetActiveProfileStateToDefault(); err != nil {
+				return fmt.Errorf("failed to set active profile to default: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to stat active profile state path %s: %w", ActiveProfileStatePath, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *ServiceManager) SetActiveProfileState(a *ActiveProfileState) error {

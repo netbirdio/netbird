@@ -149,35 +149,8 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 
 	// switch profile if provided
 	if profileName != "" && activeProf.Name != profileName {
-		err = pm.SwitchProfile(profileName)
-		if err != nil {
+		if err := switchProfileOnDaemon(ctx, pm, profileName, activeProf, username); err != nil {
 			return nil, fmt.Errorf("switch profile: %v", err)
-		}
-
-		err = switchProfile(context.Background(), activeProf, username)
-		if err != nil {
-			return nil, fmt.Errorf("switch profile on daemon: %v", err)
-		}
-
-		conn, err := DialClientGRPCServer(ctx, daemonAddr)
-		if err != nil {
-			log.Errorf("failed to connect to service CLI interface %v", err)
-			return nil, err
-		}
-		defer conn.Close()
-
-		client := proto.NewDaemonServiceClient(conn)
-
-		status, err := client.Status(ctx, &proto.StatusRequest{})
-		if err != nil {
-			return nil, fmt.Errorf("unable to get daemon status: %v", err)
-		}
-
-		if status.Status == string(internal.StatusConnected) {
-			if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
-				log.Errorf("call service down method: %v", err)
-				return nil, err
-			}
 		}
 	}
 
@@ -190,6 +163,41 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 		return nil, fmt.Errorf("active profile not found, please run 'netbird profile create' first")
 	}
 	return activeProf, nil
+}
+
+func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, profileName string, activeProf *profilemanager.Profile, username string) error {
+	err := pm.SwitchProfile(profileName)
+	if err != nil {
+		return fmt.Errorf("switch profile: %v", err)
+	}
+
+	err = switchProfile(context.Background(), activeProf, username)
+	if err != nil {
+		return fmt.Errorf("switch profile on daemon: %v", err)
+	}
+
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		log.Errorf("failed to connect to service CLI interface %v", err)
+		return err
+	}
+	defer conn.Close()
+
+	client := proto.NewDaemonServiceClient(conn)
+
+	status, err := client.Status(ctx, &proto.StatusRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to get daemon status: %v", err)
+	}
+
+	if status.Status == string(internal.StatusConnected) {
+		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
+			log.Errorf("call service down method: %v", err)
+			return err
+		}
+	}
+
+	return nil
 }
 
 func switchProfile(ctx context.Context, prof *profilemanager.Profile, username string) error {

@@ -249,14 +249,14 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("get current user: %v", err)
 	}
 
-	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, configPath, customDNSAddressConverted, username.Username); err != nil {
+	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, customDNSAddressConverted, username.Username); err != nil {
 		return fmt.Errorf("daemon up failed: %v", err)
 	}
 	cmd.Println("Connected")
 	return nil
 }
 
-func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, configPath string, customDNSAddressConverted []byte, username string) error {
+func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, customDNSAddressConverted []byte, username string) error {
 
 	providedSetupKey, err := getSetupKey()
 	if err != nil {
