@@ -425,7 +425,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 
 		if *msg.ProfileName != activeProf.Name && username != activeProf.Username {
-			log.Infof("switching to profile %s for user %s", *msg.ProfileName, username)
+			log.Infof("switching to profile %s for user '%s'", *msg.ProfileName, username)
 			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
 				Name:     *msg.ProfileName,
 				Username: username,
