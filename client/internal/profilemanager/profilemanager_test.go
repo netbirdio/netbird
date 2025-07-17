@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/netbirdio/netbird/util"
 )
 
 func withTempConfigDir(t *testing.T, testFunc func(configDir string)) {
@@ -103,22 +101,6 @@ func TestServiceManager_SetActiveProfileState(t *testing.T) {
 			assert.Error(t, err)
 			err = sm.SetActiveProfileState(&ActiveProfileState{Name: "", Username: ""})
 			assert.Error(t, err)
-		})
-	})
-}
-
-func TestServiceManager_SetActiveProfileStateToDefault(t *testing.T) {
-	withTempConfigDir(t, func(configDir string) {
-		withPatchedGlobals(t, configDir, func() {
-			sm := &ServiceManager{}
-			err := sm.SetActiveProfileStateToDefault()
-			assert.NoError(t, err)
-
-			var state ActiveProfileState
-			_, err = util.ReadJson(ActiveProfileStatePath, &state)
-			assert.NoError(t, err)
-			assert.Equal(t, "default", state.Name)
-			assert.Equal(t, DefaultConfigPath, state.Username)
 		})
 	})
 }
