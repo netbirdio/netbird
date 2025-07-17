@@ -249,6 +249,12 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 		return fmt.Errorf("get current user: %v", err)
 	}
 
+	// set the new config
+	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.Name, username.Username)
+	if _, err := client.SetConfig(ctx, req); err != nil {
+		return fmt.Errorf("call service set config method: %v", err)
+	}
+
 	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, customDNSAddressConverted, username.Username); err != nil {
 		return fmt.Errorf("daemon up failed: %v", err)
 	}
@@ -308,6 +314,86 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	return nil
+}
+
+func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, profileName, username string) *proto.SetConfigRequest {
+	var req proto.SetConfigRequest
+	req.ProfileName = profileName
+	req.Username = username
+
+	req.ManagementUrl = managementURL
+	req.AdminURL = adminURL
+	req.NatExternalIPs = natExternalIPs
+	req.CustomDNSAddress = customDNSAddressConverted
+	req.ExtraIFaceBlacklist = extraIFaceBlackList
+	req.DnsLabels = dnsLabelsValidated.ToPunycodeList()
+	req.CleanDNSLabels = dnsLabels != nil && len(dnsLabels) == 0
+	req.CleanNATExternalIPs = natExternalIPs != nil && len(natExternalIPs) == 0
+
+	if cmd.Flag(enableRosenpassFlag).Changed {
+		req.RosenpassEnabled = &rosenpassEnabled
+	}
+	if cmd.Flag(rosenpassPermissiveFlag).Changed {
+		req.RosenpassPermissive = &rosenpassPermissive
+	}
+	if cmd.Flag(serverSSHAllowedFlag).Changed {
+		req.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(interfaceNameFlag).Changed {
+		if err := parseInterfaceName(interfaceName); err != nil {
+			log.Errorf("parse interface name: %v", err)
+			return nil
+		}
+		req.InterfaceName = &interfaceName
+	}
+	if cmd.Flag(wireguardPortFlag).Changed {
+		p := int64(wireguardPort)
+		req.WireguardPort = &p
+	}
+
+	if cmd.Flag(networkMonitorFlag).Changed {
+		req.NetworkMonitor = &networkMonitor
+	}
+	if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {
+		req.OptionalPreSharedKey = &preSharedKey
+	}
+	if cmd.Flag(disableAutoConnectFlag).Changed {
+		req.DisableAutoConnect = &autoConnectDisabled
+	}
+
+	if cmd.Flag(dnsRouteIntervalFlag).Changed {
+		req.DnsRouteInterval = durationpb.New(dnsRouteInterval)
+	}
+
+	if cmd.Flag(disableClientRoutesFlag).Changed {
+		req.DisableClientRoutes = &disableClientRoutes
+	}
+
+	if cmd.Flag(disableServerRoutesFlag).Changed {
+		req.DisableServerRoutes = &disableServerRoutes
+	}
+
+	if cmd.Flag(disableDNSFlag).Changed {
+		req.DisableDns = &disableDNS
+	}
+
+	if cmd.Flag(disableFirewallFlag).Changed {
+		req.DisableFirewall = &disableFirewall
+	}
+
+	if cmd.Flag(blockLANAccessFlag).Changed {
+		req.BlockLanAccess = &blockLANAccess
+	}
+
+	if cmd.Flag(blockInboundFlag).Changed {
+		req.BlockInbound = &blockInbound
+	}
+
+	if cmd.Flag(enableLazyConnectionFlag).Changed {
+		req.LazyConnectionEnabled = &lazyConnEnabled
+	}
+
+	return &req
 }
 
 func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFilePath string) (*profilemanager.ConfigInput, error) {

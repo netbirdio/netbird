@@ -565,6 +565,19 @@ message SetConfigRequest {
   
     optional bool block_inbound = 20;
 
+    repeated string natExternalIPs = 21;
+    bool cleanNATExternalIPs = 22;
+
+    bytes customDNSAddress = 23;
+
+    repeated string extraIFaceBlacklist = 24;
+
+    repeated string dns_labels = 25;
+    // cleanDNSLabels clean map list of DNS labels.
+    bool cleanDNSLabels = 26;
+
+    optional google.protobuf.Duration dnsRouteInterval = 27;
+
 }
 
 message SetConfigResponse{}

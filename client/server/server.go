@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -355,6 +356,25 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		if *msg.OptionalPreSharedKey != "" {
 			config.PreSharedKey = msg.OptionalPreSharedKey
 		}
+	}
+
+	if msg.CleanDNSLabels {
+		config.DNSLabels = domain.List{}
+
+	} else if msg.DnsLabels != nil {
+		dnsLabels := domain.FromPunycodeList(msg.DnsLabels)
+		config.DNSLabels = dnsLabels
+	}
+
+	if msg.CleanNATExternalIPs {
+		config.NATExternalIPs = make([]string, 0)
+	} else if msg.NatExternalIPs != nil {
+		config.NATExternalIPs = msg.NatExternalIPs
+	}
+
+	config.CustomDNSAddress = msg.CustomDNSAddress
+	if string(msg.CustomDNSAddress) == "empty" {
+		config.CustomDNSAddress = []byte{}
 	}
 
 	config.RosenpassEnabled = msg.RosenpassEnabled
