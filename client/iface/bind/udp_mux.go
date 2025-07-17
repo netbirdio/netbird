@@ -303,10 +303,12 @@ func (m *UDPMuxDefault) RemoveConnByUfrag(ufrag string) {
 	}
 
 	m.addressMapMu.Lock()
-	defer m.addressMapMu.Unlock()
-
 	for _, addr := range allAddresses {
 		delete(m.addressMap, addr)
+	}
+	m.addressMapMu.Unlock()
+
+	for _, addr := range allAddresses {
 		m.notifyAddressRemoval(addr)
 	}
 }
