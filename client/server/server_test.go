@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"os/user"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -110,13 +111,19 @@ func TestConnectWithRetryRuns(t *testing.T) {
 }
 
 func TestServer_Up(t *testing.T) {
+	tempDir := t.TempDir()
 	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	profilemanager.ConfigDirOverride = tempDir
 	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
-	profilemanager.DefaultConfigPathDir = t.TempDir()
-	profilemanager.ActiveProfileStatePath = t.TempDir() + "/active_profile.json"
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
 	t.Cleanup(func() {
 		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
 		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
 	})
 
 	ctx := internal.CtxInitState(context.Background())
@@ -124,10 +131,10 @@ func TestServer_Up(t *testing.T) {
 	currUser, err := user.Current()
 	require.NoError(t, err)
 
-	profName := "test-profile"
+	profName := "default"
 
 	ic := profilemanager.ConfigInput{
-		ConfigPath: t.TempDir() + "/" + profName + ".json",
+		ConfigPath: filepath.Join(tempDir, profName+".json"),
 	}
 
 	_, err = profilemanager.UpdateOrCreateConfig(ic)
@@ -183,18 +190,24 @@ func (m *mockSubscribeEventsServer) Context() context.Context {
 }
 
 func TestServer_SubcribeEvents(t *testing.T) {
+	tempDir := t.TempDir()
 	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	profilemanager.ConfigDirOverride = tempDir
 	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
-	profilemanager.DefaultConfigPathDir = t.TempDir()
-	profilemanager.ActiveProfileStatePath = t.TempDir() + "/active_profile.json"
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
 	t.Cleanup(func() {
 		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
 		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
 	})
 
 	ctx := internal.CtxInitState(context.Background())
 	ic := profilemanager.ConfigInput{
-		ConfigPath: t.TempDir() + "/test-profile.json",
+		ConfigPath: tempDir + "/default.json",
 	}
 
 	_, err := profilemanager.UpdateOrCreateConfig(ic)
@@ -207,7 +220,7 @@ func TestServer_SubcribeEvents(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     "test-profile",
+		Name:     "default",
 		Username: currUser.Username,
 	})
 	if err != nil {

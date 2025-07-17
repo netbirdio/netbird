@@ -224,7 +224,7 @@ func switchProfile(ctx context.Context, prof *profilemanager.Profile, username s
 
 func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string, activeProf *profilemanager.Profile) error {
 
-	err := handleRebrand(cmd, activeProf)
+	err := handleRebrand(cmd)
 	if err != nil {
 		return err
 	}

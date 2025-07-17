@@ -21,7 +21,7 @@ var (
 	oldDefaultConfigPath    = ""
 
 	DefaultConfigPathDir   = ""
-	defaultConfigPath      = ""
+	DefaultConfigPath      = ""
 	ActiveProfileStatePath = ""
 )
 
@@ -45,7 +45,7 @@ func init() {
 	}
 
 	oldDefaultConfigPath = filepath.Join(oldDefaultConfigPathDir, "config.json")
-	defaultConfigPath = filepath.Join(DefaultConfigPathDir, "default.json")
+	DefaultConfigPath = filepath.Join(DefaultConfigPathDir, "default.json")
 	ActiveProfileStatePath = filepath.Join(DefaultConfigPathDir, "active_profile.json")
 }
 
@@ -60,7 +60,7 @@ func (a *ActiveProfileState) FilePath() (string, error) {
 	}
 
 	if a.Name == defaultProfileName {
-		return defaultConfigPath, nil
+		return DefaultConfigPath, nil
 	}
 
 	configDir, err := getConfigDirForUser(a.Username)
@@ -80,9 +80,9 @@ func (s *ServiceManager) CopyDefaultProfileIfNotExists() (bool, error) {
 	}
 
 	// check if default profile exists
-	if _, err := os.Stat(defaultConfigPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(DefaultConfigPath); !os.IsNotExist(err) {
 		// default profile already exists
-		log.Debugf("default profile already exists at %s, skipping copy", defaultConfigPath)
+		log.Debugf("default profile already exists at %s, skipping copy", DefaultConfigPath)
 		return false, nil
 	}
 
@@ -93,12 +93,12 @@ func (s *ServiceManager) CopyDefaultProfileIfNotExists() (bool, error) {
 	}
 
 	// copy old default profile to new location
-	if err := copyFile(oldDefaultConfigPath, defaultConfigPath, 0600); err != nil {
-		return false, fmt.Errorf("copy default profile from %s to %s: %w", oldDefaultConfigPath, defaultConfigPath, err)
+	if err := copyFile(oldDefaultConfigPath, DefaultConfigPath, 0600); err != nil {
+		return false, fmt.Errorf("copy default profile from %s to %s: %w", oldDefaultConfigPath, DefaultConfigPath, err)
 	}
 
 	// set permissions for the new default profile
-	if err := os.Chmod(defaultConfigPath, 0600); err != nil {
+	if err := os.Chmod(DefaultConfigPath, 0600); err != nil {
 		log.Warnf("failed to set permissions for default profile: %v", err)
 	}
 
@@ -140,14 +140,14 @@ func copyFile(src, dst string, perm os.FileMode) error {
 
 func (s *ServiceManager) CreateDefaultProfile() error {
 	_, err := UpdateOrCreateConfig(ConfigInput{
-		ConfigPath: defaultConfigPath,
+		ConfigPath: DefaultConfigPath,
 	})
 
 	if err != nil {
 		return fmt.Errorf("failed to create default profile: %w", err)
 	}
 
-	log.Infof("default profile created at %s", defaultConfigPath)
+	log.Infof("default profile created at %s", DefaultConfigPath)
 	return nil
 }
 
@@ -224,7 +224,7 @@ func (s *ServiceManager) SetActiveProfileStateToDefault() error {
 }
 
 func (s *ServiceManager) DefaultProfilePath() string {
-	return defaultConfigPath
+	return DefaultConfigPath
 }
 
 func (s *ServiceManager) AddProfile(profileName, username string) error {

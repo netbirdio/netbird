@@ -27,7 +27,7 @@ func (p *Profile) FilePath() (string, error) {
 	}
 
 	if p.Name == defaultProfileName {
-		return defaultConfigPath, nil
+		return DefaultConfigPath, nil
 	}
 
 	username, err := user.Current()

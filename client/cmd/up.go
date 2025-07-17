@@ -149,7 +149,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
-	err := handleRebrand(cmd, activeProf)
+	err := handleRebrand(cmd)
 	if err != nil {
 		return err
 	}

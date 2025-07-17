@@ -280,7 +280,7 @@ func getSetupKeyFromFile(setupKeyPath string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func handleRebrand(cmd *cobra.Command, activeProf *profilemanager.Profile) error {
+func handleRebrand(cmd *cobra.Command) error {
 	var err error
 	if logFile == defaultLogFile {
 		if migrateToNetbird(oldDefaultLogFile, defaultLogFile) {
@@ -291,15 +291,14 @@ func handleRebrand(cmd *cobra.Command, activeProf *profilemanager.Profile) error
 			}
 		}
 	}
-	if activeProf.IsDefault() {
-		if migrateToNetbird(oldDefaultConfigPath, defaultConfigPath) {
-			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultConfigPathDir, defaultConfigPathDir)
-			err = cpDir(oldDefaultConfigPathDir, defaultConfigPathDir)
-			if err != nil {
-				return err
-			}
+	if migrateToNetbird(oldDefaultConfigPath, defaultConfigPath) {
+		cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultConfigPathDir, defaultConfigPathDir)
+		err = cpDir(oldDefaultConfigPathDir, defaultConfigPathDir)
+		if err != nil {
+			return err
 		}
 	}
+
 	return nil
 }
 

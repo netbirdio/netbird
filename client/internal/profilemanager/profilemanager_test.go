@@ -21,12 +21,12 @@ func withTempConfigDir(t *testing.T, testFunc func(configDir string)) {
 
 func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
 	origDefaultConfigPathDir := DefaultConfigPathDir
-	origDefaultConfigPath := defaultConfigPath
+	origDefaultConfigPath := DefaultConfigPath
 	origActiveProfileStatePath := ActiveProfileStatePath
 	origOldDefaultConfigPath := oldDefaultConfigPath
 	origConfigDirOverride := ConfigDirOverride
 	DefaultConfigPathDir = configDir
-	defaultConfigPath = filepath.Join(configDir, "default.json")
+	DefaultConfigPath = filepath.Join(configDir, "default.json")
 	ActiveProfileStatePath = filepath.Join(configDir, "active_profile.json")
 	oldDefaultConfigPath = filepath.Join(configDir, "old_config.json")
 	ConfigDirOverride = configDir
@@ -35,7 +35,7 @@ func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
 	os.MkdirAll(configDir, 0755) //nolint: errcheck
 	defer func() {
 		DefaultConfigPathDir = origDefaultConfigPathDir
-		defaultConfigPath = origDefaultConfigPath
+		DefaultConfigPath = origDefaultConfigPath
 		ActiveProfileStatePath = origActiveProfileStatePath
 		oldDefaultConfigPath = origOldDefaultConfigPath
 		ConfigDirOverride = origConfigDirOverride
@@ -82,7 +82,7 @@ func TestServiceManager_CopyDefaultProfileIfNotExists(t *testing.T) {
 			ok, err = sm.CopyDefaultProfileIfNotExists()
 			assert.True(t, ok)
 			assert.NoError(t, err)
-			_, err = os.Stat(defaultConfigPath)
+			_, err = os.Stat(DefaultConfigPath)
 			assert.NoError(t, err)
 		})
 	})
@@ -118,7 +118,7 @@ func TestServiceManager_SetActiveProfileStateToDefault(t *testing.T) {
 			_, err = util.ReadJson(ActiveProfileStatePath, &state)
 			assert.NoError(t, err)
 			assert.Equal(t, "default", state.Name)
-			assert.Equal(t, defaultConfigPath, state.Username)
+			assert.Equal(t, DefaultConfigPath, state.Username)
 		})
 	})
 }
@@ -127,7 +127,7 @@ func TestServiceManager_DefaultProfilePath(t *testing.T) {
 	withTempConfigDir(t, func(configDir string) {
 		withPatchedGlobals(t, configDir, func() {
 			sm := &ServiceManager{}
-			assert.Equal(t, defaultConfigPath, sm.DefaultProfilePath())
+			assert.Equal(t, DefaultConfigPath, sm.DefaultProfilePath())
 		})
 	})
 }
