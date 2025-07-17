@@ -347,6 +347,7 @@ type profileMenu struct {
 }
 
 func newProfileMenu(ctx context.Context, profileManager *profilemanager.ProfileManager,
+
 	eventHandler eventHandler, profileMenuItem, emailMenuItem *systray.MenuItem,
 	downClickCallback, upClickCallback func() error,
 	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)) *profileMenu {
@@ -498,7 +499,6 @@ func (p *profileMenu) refresh() {
 		}()
 
 	}
-	p.profileMenuItem.AddSeparator()
 	ctx, cancel := context.WithCancel(context.Background())
 	manageItem := p.profileMenuItem.AddSubMenuItem("Manage Profiles", "")
 	p.manageProfilesSubItem = &subItem{manageItem, ctx, cancel}

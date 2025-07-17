@@ -206,9 +206,9 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
-	customDNSAddressConverted, configPath, err := prepareConfig(ctx, cmd, activeProf)
+	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
 	if err != nil {
-		return fmt.Errorf("prepare config: %v", err)
+		return fmt.Errorf("parse custom DNS address: %v", err)
 	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
@@ -308,41 +308,6 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	return nil
-}
-
-func prepareConfig(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) ([]byte, string, error) {
-	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
-	if err != nil {
-		return []byte{}, "", fmt.Errorf("parse custom DNS address: %v", err)
-	}
-
-	var configFilePath string
-	if configPath != "" {
-		configFilePath = configPath
-	} else {
-		var err error
-		configFilePath, err = activeProf.FilePath()
-		if err != nil {
-			return nil, "", fmt.Errorf("get active profile file path: %v", err)
-		}
-	}
-
-	if activeProf.Name != "default" {
-		ic, err := setupConfig(customDNSAddressConverted, cmd, configFilePath)
-		if err != nil {
-			return nil, "", fmt.Errorf("setup config: %v", err)
-		}
-
-		config, err := profilemanager.UpdateOrCreateConfig(*ic)
-		if err != nil {
-			return nil, "", fmt.Errorf("get config file: %v", err)
-		}
-
-		_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
-	}
-
-	return customDNSAddressConverted, configFilePath, nil
-
 }
 
 func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFilePath string) (*profilemanager.ConfigInput, error) {

@@ -919,42 +919,42 @@ func (s *serviceClient) getSrvConfig() {
 	s.managementURL = profilemanager.DefaultManagementURL
 	s.adminURL = profilemanager.DefaultAdminURL
 
+	_, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Errorf("get active profile: %v", err)
+		return
+	}
+
+	var cfg *profilemanager.Config
+
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		log.Errorf("get client: %v", err)
+		return
+	}
+
+	currUser, err := user.Current()
+	if err != nil {
+		log.Errorf("get current user: %v", err)
+		return
+	}
+
 	activeProf, err := s.profileManager.GetActiveProfile()
 	if err != nil {
 		log.Errorf("get active profile: %v", err)
 		return
 	}
 
-	profPath, err := activeProf.FilePath()
+	srvCfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
+		ProfileName: activeProf.Name,
+		Username:    currUser.Username,
+	})
 	if err != nil {
-		log.Errorf("get active profile file path: %v", err)
+		log.Errorf("get config settings from server: %v", err)
 		return
 	}
 
-	var cfg *profilemanager.Config
-
-	if activeProf.Name == "default" {
-		conn, err := s.getSrvClient(failFastTimeout)
-		if err != nil {
-			log.Errorf("get client: %v", err)
-			return
-		}
-
-		srvCfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
-		if err != nil {
-			log.Errorf("get config settings from server: %v", err)
-			return
-		}
-
-		cfg = protoConfigToConfig(srvCfg)
-
-	} else {
-		cfg, err = profilemanager.GetConfig(profPath)
-		if err != nil {
-			log.Errorf("get config from profile: %v", err)
-			return
-		}
-	}
+	cfg = protoConfigToConfig(srvCfg)
 
 	if cfg.ManagementURL.String() != "" {
 		s.managementURL = cfg.ManagementURL.String()
@@ -976,7 +976,6 @@ func (s *serviceClient) getSrvConfig() {
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iAdminURL.SetText(s.adminURL)
-		//s.iLogFile.SetText(cfg)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
 		s.iInterfaceName.SetText(cfg.WgIface)
 		s.iInterfacePort.SetText(strconv.Itoa(cfg.WgPort))
@@ -1087,7 +1086,22 @@ func (s *serviceClient) loadSettings() {
 		return
 	}
 
-	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
+	currUser, err := user.Current()
+	if err != nil {
+		log.Errorf("get current user: %v", err)
+		return
+	}
+
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Errorf("get active profile: %v", err)
+		return
+	}
+
+	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
+		ProfileName: activeProf.Name,
+		Username:    currUser.Username,
+	})
 	if err != nil {
 		log.Errorf("get config settings from server: %v", err)
 		return

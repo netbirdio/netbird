@@ -109,10 +109,7 @@ func (pm *ProfileManager) getActiveProfileState() string {
 		log.Warnf("active profile state is empty, using default profile: %s", defaultProfileName)
 		return defaultProfileName
 	}
-	if profileName != defaultProfileName && !fileExists(filepath.Join(configDir, profileName+".json")) {
-		log.Warnf("active profile %s does not exist, using default profile: %s", profileName, defaultProfileName)
-		return defaultProfileName
-	}
+
 	return profileName
 }
 
@@ -121,13 +118,6 @@ func (pm *ProfileManager) setActiveProfileState(profileName string) error {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	if profileName != defaultProfileName {
-		profPath := filepath.Join(configDir, profileName+".json")
-		if !fileExists(profPath) {
-			return fmt.Errorf("profile %s does not exist", profileName)
-		}
 	}
 
 	statePath := filepath.Join(configDir, activeProfileStateFilename)

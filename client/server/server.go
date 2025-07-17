@@ -776,7 +776,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 }
 
-// Up starts engine work in the daemon.
+// SwitchProfile switches the active profile in the daemon.
 func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfileRequest) (*proto.SwitchProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -814,7 +814,19 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 		}
 	}
 
-	config, err := profilemanager.GetConfig(s.profileManager.DefaultProfilePath())
+	activeProf, err = s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	cfgPath, err := activeProf.FilePath()
+	if err != nil {
+		log.Errorf("failed to get active profile file path: %v", err)
+		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
+	}
+
+	config, err := profilemanager.GetConfig(cfgPath)
 	if err != nil {
 		log.Errorf("failed to get default profile config: %v", err)
 		return nil, fmt.Errorf("failed to get default profile config: %w", err)
@@ -912,50 +924,66 @@ func (s *Server) runProbes() {
 }
 
 // GetConfig of the daemon.
-func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto.GetConfigResponse, error) {
+func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*proto.GetConfigResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	managementURL := s.config.ManagementURL
-	adminURL := s.config.AdminURL
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	prof := profilemanager.ActiveProfileState{
+		Name:     req.ProfileName,
+		Username: req.Username,
+	}
+
+	cfgPath, err := prof.FilePath()
+	if err != nil {
+		log.Errorf("failed to get active profile file path: %v", err)
+		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
+	}
+
+	cfg, err := profilemanager.GetConfig(cfgPath)
+	if err != nil {
+		log.Errorf("failed to get active profile config: %v", err)
+		return nil, fmt.Errorf("failed to get active profile config: %w", err)
+	}
+	managementURL := cfg.ManagementURL
+	adminURL := cfg.AdminURL
 	preSharedKey := ""
 
-	if s.config != nil {
-		preSharedKey = s.config.PreSharedKey
-		if preSharedKey != "" {
-			preSharedKey = "**********"
-		}
+	preSharedKey = cfg.PreSharedKey
+	if preSharedKey != "" {
+		preSharedKey = "**********"
 	}
 
 	disableNotifications := true
-	if s.config.DisableNotifications != nil {
-		disableNotifications = *s.config.DisableNotifications
+	if cfg.DisableNotifications != nil {
+		disableNotifications = *cfg.DisableNotifications
 	}
 
 	networkMonitor := false
-	if s.config.NetworkMonitor != nil {
-		networkMonitor = *s.config.NetworkMonitor
+	if cfg.NetworkMonitor != nil {
+		networkMonitor = *cfg.NetworkMonitor
 	}
 
-	disableDNS := s.config.DisableDNS
-	disableClientRoutes := s.config.DisableClientRoutes
-	disableServerRoutes := s.config.DisableServerRoutes
-	blockLANAccess := s.config.BlockLANAccess
+	disableDNS := cfg.DisableDNS
+	disableClientRoutes := cfg.DisableClientRoutes
+	disableServerRoutes := cfg.DisableServerRoutes
+	blockLANAccess := cfg.BlockLANAccess
 
 	return &proto.GetConfigResponse{
-		ManagementUrl: managementURL.String(),
-		//ConfigFile:            s.latestConfigInput.ConfigPath,
-		//LogFile:               s.logFile,
+		ManagementUrl:         managementURL.String(),
 		PreSharedKey:          preSharedKey,
 		AdminURL:              adminURL.String(),
-		InterfaceName:         s.config.WgIface,
-		WireguardPort:         int64(s.config.WgPort),
-		DisableAutoConnect:    s.config.DisableAutoConnect,
-		ServerSSHAllowed:      *s.config.ServerSSHAllowed,
-		RosenpassEnabled:      s.config.RosenpassEnabled,
-		RosenpassPermissive:   s.config.RosenpassPermissive,
-		LazyConnectionEnabled: s.config.LazyConnectionEnabled,
-		BlockInbound:          s.config.BlockInbound,
+		InterfaceName:         cfg.WgIface,
+		WireguardPort:         int64(cfg.WgPort),
+		DisableAutoConnect:    cfg.DisableAutoConnect,
+		ServerSSHAllowed:      *cfg.ServerSSHAllowed,
+		RosenpassEnabled:      cfg.RosenpassEnabled,
+		RosenpassPermissive:   cfg.RosenpassPermissive,
+		LazyConnectionEnabled: cfg.LazyConnectionEnabled,
+		BlockInbound:          cfg.BlockInbound,
 		DisableNotifications:  disableNotifications,
 		NetworkMonitor:        networkMonitor,
 		DisableDns:            disableDNS,

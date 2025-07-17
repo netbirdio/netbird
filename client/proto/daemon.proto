@@ -191,7 +191,10 @@ message DownRequest {}
 
 message DownResponse {}
 
-message GetConfigRequest {}
+message GetConfigRequest {
+  string profileName = 1;
+  string username = 2;
+}
 
 message GetConfigResponse {
   // managementUrl settings value.
