@@ -14,6 +14,8 @@ import (
 	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
+
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 /*
@@ -303,6 +305,17 @@ func (m *UDPMuxDefault) RemoveConnByUfrag(ufrag string) {
 		addresses := c.getAddresses()
 		for _, addr := range addresses {
 			delete(m.addressMap, addr)
+
+			if wrapped, ok := m.params.UDPConn.(*UDPConn); ok {
+				if nbnetConn, ok := wrapped.GetPacketConn().(*nbnet.UDPConn); ok {
+					udpAddr, err := net.ResolveUDPAddr("udp", addr)
+					if err != nil {
+						log.Errorf("Failed to parse UDP address %s: %v", addr, err)
+						continue
+					}
+					nbnetConn.RemoveAddress(udpAddr)
+				}
+			}
 		}
 	}
 }

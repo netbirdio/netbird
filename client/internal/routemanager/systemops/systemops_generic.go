@@ -324,6 +324,15 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 		return afterHook(connID)
 	})
 
+	nbnet.AddListenerAddressRemoveHook(func(connID nbnet.ConnectionID, prefix netip.Prefix) error {
+		if _, err := r.refCounter.Decrement(prefix); err != nil {
+			return fmt.Errorf("remove route reference: %w", err)
+		}
+
+		r.updateState(stateManager)
+		return nil
+	})
+
 	return nberrors.FormatErrorOrNil(merr)
 }
 

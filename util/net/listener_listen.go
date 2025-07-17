@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -17,11 +18,16 @@ type ListenerWriteHookFunc func(connID ConnectionID, ip *net.IPAddr, data []byte
 // ListenerCloseHookFunc defines the function signature for close hooks for PacketConn.
 type ListenerCloseHookFunc func(connID ConnectionID, conn net.PacketConn) error
 
+// ListenerAddressRemoveHookFunc defines the function signature for hooks called when addresses are removed.
+type ListenerAddressRemoveHookFunc func(connID ConnectionID, prefix netip.Prefix) error
+
 var (
-	listenerWriteHooksMutex sync.RWMutex
-	listenerWriteHooks      []ListenerWriteHookFunc
-	listenerCloseHooksMutex sync.RWMutex
-	listenerCloseHooks      []ListenerCloseHookFunc
+	listenerWriteHooksMutex         sync.RWMutex
+	listenerWriteHooks              []ListenerWriteHookFunc
+	listenerCloseHooksMutex         sync.RWMutex
+	listenerCloseHooks              []ListenerCloseHookFunc
+	listenerAddressRemoveHooksMutex sync.RWMutex
+	listenerAddressRemoveHooks      []ListenerAddressRemoveHookFunc
 )
 
 // AddListenerWriteHook allows adding a new write hook to be executed before a UDP packet is sent.
@@ -38,6 +44,13 @@ func AddListenerCloseHook(hook ListenerCloseHookFunc) {
 	listenerCloseHooks = append(listenerCloseHooks, hook)
 }
 
+// AddListenerAddressRemoveHook allows adding a new hook to be executed when an address is removed.
+func AddListenerAddressRemoveHook(hook ListenerAddressRemoveHookFunc) {
+	listenerAddressRemoveHooksMutex.Lock()
+	defer listenerAddressRemoveHooksMutex.Unlock()
+	listenerAddressRemoveHooks = append(listenerAddressRemoveHooks, hook)
+}
+
 // RemoveListenerHooks removes all listener hooks.
 func RemoveListenerHooks() {
 	listenerWriteHooksMutex.Lock()
@@ -47,6 +60,10 @@ func RemoveListenerHooks() {
 	listenerCloseHooksMutex.Lock()
 	defer listenerCloseHooksMutex.Unlock()
 	listenerCloseHooks = nil
+
+	listenerAddressRemoveHooksMutex.Lock()
+	defer listenerAddressRemoveHooksMutex.Unlock()
+	listenerAddressRemoveHooks = nil
 }
 
 // ListenPacket listens on the network address and returns a PacketConn
@@ -109,6 +126,36 @@ func WrapUDPConn(conn *net.UDPConn) *UDPConn {
 		UDPConn:   conn,
 		ID:        GenerateConnID(),
 		seenAddrs: &sync.Map{},
+	}
+}
+
+// RemoveAddress removes an address from the seen cache and triggers removal hooks.
+func (c *UDPConn) RemoveAddress(addr net.Addr) {
+	if _, exists := c.seenAddrs.LoadAndDelete(addr.String()); !exists {
+		return
+	}
+
+	ipStr, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		log.Errorf("Error splitting IP address and port: %v", err)
+		return
+	}
+
+	ipAddr, err := netip.ParseAddr(ipStr)
+	if err != nil {
+		log.Errorf("Error parsing IP address %s: %v", ipStr, err)
+		return
+	}
+
+	prefix := netip.PrefixFrom(ipAddr, ipAddr.BitLen())
+
+	listenerAddressRemoveHooksMutex.RLock()
+	defer listenerAddressRemoveHooksMutex.RUnlock()
+
+	for _, hook := range listenerAddressRemoveHooks {
+		if err := hook(c.ID, prefix); err != nil {
+			log.Errorf("Error executing listener address remove hook: %v", err)
+		}
 	}
 }
 
