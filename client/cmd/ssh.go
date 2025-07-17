@@ -18,9 +18,9 @@ import (
 )
 
 var (
-	port int
-	user = "root"
-	host string
+	port     int
+	userName = "root"
+	host     string
 )
 
 var sshCmd = &cobra.Command{
@@ -32,7 +32,7 @@ var sshCmd = &cobra.Command{
 
 		split := strings.Split(args[0], "@")
 		if len(split) == 2 {
-			user = split[0]
+			userName = split[0]
 			host = split[1]
 		} else {
 			host = args[0]
@@ -98,7 +98,7 @@ var sshCmd = &cobra.Command{
 }
 
 func runSSH(ctx context.Context, addr string, pemKey []byte, cmd *cobra.Command) error {
-	c, err := nbssh.DialWithKey(fmt.Sprintf("%s:%d", addr, port), user, pemKey)
+	c, err := nbssh.DialWithKey(fmt.Sprintf("%s:%d", addr, port), userName, pemKey)
 	if err != nil {
 		cmd.Printf("Error: %v\n", err)
 		cmd.Printf("Couldn't connect. Please check the connection status or if the ssh server is enabled on the other peer" +

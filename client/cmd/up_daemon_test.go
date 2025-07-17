@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"os/user"
 	"testing"
 	"time"
 
@@ -21,16 +22,19 @@ func TestUpDaemon(t *testing.T) {
 	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
 	profilemanager.ConfigDirOverride = tempDir
 
-	pm := profilemanager.ProfileManager{}
-	err := pm.AddProfile(profilemanager.Profile{
-		Name: "test1",
-	})
+	currUser, err := user.Current()
+	if err != nil {
+		t.Fatalf("failed to get current user: %v", err)
+		return
+	}
+
+	sm := profilemanager.ServiceManager{}
+	err = sm.AddProfile("test1", currUser.Username)
 	if err != nil {
 		t.Fatalf("failed to add profile: %v", err)
 		return
 	}
 
-	sm := profilemanager.ServiceManager{}
 	err = sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
 		Name: "test1",
 		Path: profilemanager.DefaultConfigPathDir + "/test1.json",

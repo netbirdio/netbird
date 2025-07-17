@@ -42,56 +42,6 @@ func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
 	testFunc()
 }
 
-func TestProfileManager_AddListRemoveProfile(t *testing.T) {
-	withTempConfigDir(t, func(configDir string) {
-		withPatchedGlobals(t, configDir, func() {
-			pm := NewProfileManager()
-			profile := Profile{Name: "testprofile"}
-
-			err := pm.AddProfile(profile)
-			assert.NoError(t, err)
-
-			profiles, err := pm.ListProfiles()
-			assert.NoError(t, err)
-			var found bool
-			for _, p := range profiles {
-				if p.Name == "testprofile" {
-					found = true
-					break
-				}
-			}
-			assert.True(t, found, "profile should be listed after adding")
-
-			err = pm.RemoveProfile("testprofile")
-			assert.NoError(t, err)
-
-			profiles, err = pm.ListProfiles()
-			assert.NoError(t, err)
-			for _, p := range profiles {
-				assert.NotEqual(t, "testprofile", p.Name, "profile should be removed")
-			}
-		})
-	})
-}
-
-func TestProfileManager_SwitchProfile(t *testing.T) {
-	withTempConfigDir(t, func(configDir string) {
-		withPatchedGlobals(t, configDir, func() {
-			pm := NewProfileManager()
-			profile := Profile{Name: "profile1"}
-			err := pm.AddProfile(profile)
-			assert.NoError(t, err)
-
-			err = pm.SwitchProfile("profile1")
-			assert.NoError(t, err)
-
-			active, err := pm.GetActiveProfile()
-			assert.NoError(t, err)
-			assert.Equal(t, "profile1", active.Name)
-		})
-	})
-}
-
 func TestServiceManager_CreateAndGetDefaultProfile(t *testing.T) {
 	withTempConfigDir(t, func(configDir string) {
 		withPatchedGlobals(t, configDir, func() {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"os/user"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
@@ -92,11 +94,26 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	profileManager := profilemanager.NewProfileManager()
+	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
+	if err != nil {
+		log.Errorf("failed to connect to service CLI interface %v", err)
+		return err
+	}
+	defer conn.Close()
+
+	currUser, err := user.Current()
+	if err != nil {
+		log.Errorf("failed to get current user: %v", err)
+		return err
+	}
+
+	daemonClient := proto.NewDaemonServiceClient(conn)
+
 	profileName := args[0]
 
-	err = profileManager.AddProfile(profilemanager.Profile{
-		Name: profileName,
+	_, err = daemonClient.AddProfile(cmd.Context(), &proto.AddProfileRequest{
+		ProfileName: profileName,
+		Username:    currUser.Username,
 	})
 	if err != nil {
 		return err

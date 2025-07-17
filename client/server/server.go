@@ -300,7 +300,7 @@ func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (i
 }
 
 // Login uses setup key to prepare configuration for the daemon.
-func (s *Server) SetDefaultConfig(callerCtx context.Context, msg *proto.SetDefaultConfigRequest) (*proto.SetDefaultConfigResponse, error) {
+func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigRequest) (*proto.SetConfigResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -425,7 +425,7 @@ func (s *Server) SetDefaultConfig(callerCtx context.Context, msg *proto.SetDefau
 	// 	return nil, fmt.Errorf("failed to update default profile config: %w", err)
 	// }
 
-	return &proto.SetDefaultConfigResponse{}, nil
+	return &proto.SetConfigResponse{}, nil
 }
 
 // Login uses setup key to prepare configuration for the daemon.
@@ -1035,4 +1035,25 @@ func sendTerminalNotification() error {
 	}
 
 	return wallCmd.Wait()
+}
+
+// AddProfile adds a new profile to the daemon.
+func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (*proto.AddProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if err := restoreResidualState(ctx); err != nil {
+		log.Warnf(errRestoreResidualState, err)
+	}
+
+	if msg.ProfileName == "" || msg.Username == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
+	}
+
+	if err := s.profileManager.AddProfile(msg.ProfileName, msg.Username); err != nil {
+		log.Errorf("failed to create profile: %v", err)
+		return nil, fmt.Errorf("failed to create profile: %w", err)
+	}
+
+	return &proto.AddProfileResponse{}, nil
 }

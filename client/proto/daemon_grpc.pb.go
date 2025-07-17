@@ -56,7 +56,8 @@ type DaemonServiceClient interface {
 	SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
 	SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error)
-	SetDefaultConfig(ctx context.Context, in *SetDefaultConfigRequest, opts ...grpc.CallOption) (*SetDefaultConfigResponse, error)
+	SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error)
+	AddProfile(ctx context.Context, in *AddProfileRequest, opts ...grpc.CallOption) (*AddProfileResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -279,9 +280,18 @@ func (c *daemonServiceClient) SwitchProfile(ctx context.Context, in *SwitchProfi
 	return out, nil
 }
 
-func (c *daemonServiceClient) SetDefaultConfig(ctx context.Context, in *SetDefaultConfigRequest, opts ...grpc.CallOption) (*SetDefaultConfigResponse, error) {
-	out := new(SetDefaultConfigResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SetDefaultConfig", in, out, opts...)
+func (c *daemonServiceClient) SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error) {
+	out := new(SetConfigResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SetConfig", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) AddProfile(ctx context.Context, in *AddProfileRequest, opts ...grpc.CallOption) (*AddProfileResponse, error) {
+	out := new(AddProfileResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/AddProfile", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +340,8 @@ type DaemonServiceServer interface {
 	SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
 	SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error)
-	SetDefaultConfig(context.Context, *SetDefaultConfigRequest) (*SetDefaultConfigResponse, error)
+	SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error)
+	AddProfile(context.Context, *AddProfileRequest) (*AddProfileResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -401,8 +412,11 @@ func (UnimplementedDaemonServiceServer) GetEvents(context.Context, *GetEventsReq
 func (UnimplementedDaemonServiceServer) SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SwitchProfile not implemented")
 }
-func (UnimplementedDaemonServiceServer) SetDefaultConfig(context.Context, *SetDefaultConfigRequest) (*SetDefaultConfigResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetDefaultConfig not implemented")
+func (UnimplementedDaemonServiceServer) SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetConfig not implemented")
+}
+func (UnimplementedDaemonServiceServer) AddProfile(context.Context, *AddProfileRequest) (*AddProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddProfile not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -798,20 +812,38 @@ func _DaemonService_SwitchProfile_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DaemonService_SetDefaultConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetDefaultConfigRequest)
+func _DaemonService_SetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetConfigRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DaemonServiceServer).SetDefaultConfig(ctx, in)
+		return srv.(DaemonServiceServer).SetConfig(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/daemon.DaemonService/SetDefaultConfig",
+		FullMethod: "/daemon.DaemonService/SetConfig",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).SetDefaultConfig(ctx, req.(*SetDefaultConfigRequest))
+		return srv.(DaemonServiceServer).SetConfig(ctx, req.(*SetConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_AddProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).AddProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/AddProfile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).AddProfile(ctx, req.(*AddProfileRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -904,8 +936,12 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_SwitchProfile_Handler,
 		},
 		{
-			MethodName: "SetDefaultConfig",
-			Handler:    _DaemonService_SetDefaultConfig_Handler,
+			MethodName: "SetConfig",
+			Handler:    _DaemonService_SetConfig_Handler,
+		},
+		{
+			MethodName: "AddProfile",
+			Handler:    _DaemonService_AddProfile_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

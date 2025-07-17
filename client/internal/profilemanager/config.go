@@ -165,6 +165,23 @@ func getConfigDir() (string, error) {
 	return configDir, nil
 }
 
+func getConfigDirForUser(username string) (string, error) {
+	if ConfigDirOverride != "" {
+		return ConfigDirOverride, nil
+	}
+
+	username = sanitazeProfileName(username)
+
+	configDir := filepath.Join(DefaultConfigPathDir, username)
+	if _, err := os.Stat(configDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(configDir, 0600); err != nil {
+			return "", err
+		}
+	}
+
+	return configDir, nil
+}
+
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)

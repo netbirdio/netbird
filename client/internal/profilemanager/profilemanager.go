@@ -1,7 +1,6 @@
 package profilemanager
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -49,36 +48,6 @@ type ProfileManager struct {
 
 func NewProfileManager() *ProfileManager {
 	return &ProfileManager{}
-}
-
-func (pm *ProfileManager) AddProfile(profile Profile) error {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	profile.Name = sanitazeProfileName(profile.Name)
-
-	if profile.Name == defaultProfileName {
-		return fmt.Errorf("cannot create profile with reserved name: %s", defaultProfileName)
-	}
-
-	profPath := filepath.Join(configDir, profile.Name+".json")
-	if fileExists(profPath) {
-		return ErrProfileAlreadyExists
-	}
-
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath})
-	if err != nil {
-		return fmt.Errorf("failed to create new config: %w", err)
-	}
-
-	err = util.WriteJson(context.Background(), profPath, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to write profile config: %w", err)
-	}
-
-	return nil
 }
 
 func (pm *ProfileManager) RemoveProfile(profileName string) error {

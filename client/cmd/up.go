@@ -156,7 +156,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 		return fmt.Errorf("get active profile path: %v", err)
 	}
 
-	ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
+	ic, err := setupConfig(customDNSAddressConverted, cmd)
 	if err != nil {
 		return fmt.Errorf("setup config: %v", err)
 	}
@@ -303,7 +303,7 @@ func prepareConfig(ctx context.Context, cmd *cobra.Command, activeProf *profilem
 	}
 
 	if activeProf.Name != "default" {
-		ic, err := setupConfig(customDNSAddressConverted, cmd, configPath)
+		ic, err := setupConfig(customDNSAddressConverted, cmd)
 		if err != nil {
 			return nil, "", fmt.Errorf("setup config: %v", err)
 		}
@@ -320,11 +320,10 @@ func prepareConfig(ctx context.Context, cmd *cobra.Command, activeProf *profilem
 
 }
 
-func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configPath string) (*profilemanager.ConfigInput, error) {
+func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
 	ic := profilemanager.ConfigInput{
 		ManagementURL:       managementURL,
 		AdminURL:            adminURL,
-		ConfigPath:          configPath,
 		NATExternalIPs:      natExternalIPs,
 		CustomDNSAddress:    customDNSAddressConverted,
 		ExtraIFaceBlackList: extraIFaceBlackList,

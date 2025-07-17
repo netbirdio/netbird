@@ -70,7 +70,9 @@ service DaemonService {
 
   rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
 
-  rpc SetDefaultConfig(SetDefaultConfigRequest) returns (SetDefaultConfigResponse) {}
+  rpc SetConfig(SetConfigRequest) returns (SetConfigResponse) {}
+
+  rpc AddProfile(AddProfileRequest) returns (AddProfileResponse) {}
 }
 
 
@@ -516,41 +518,50 @@ message SwitchProfileRequest {
 
 message SwitchProfileResponse {}
 
-message SetDefaultConfigRequest {
+message SetConfigRequest {
+    string username = 1;
+    string profileName = 2;
     // managementUrl to authenticate.
-    string managementUrl = 1;
+    string managementUrl = 3;
   
     // adminUrl to manage keys.
-    string adminURL = 2;
+    string adminURL = 4;
         
-    optional bool rosenpassEnabled = 3;
+    optional bool rosenpassEnabled = 5;
   
-    optional string interfaceName = 4;
+    optional string interfaceName = 6;
   
-    optional int64 wireguardPort = 5;
+    optional int64 wireguardPort = 7;
   
-    optional string optionalPreSharedKey = 6;
+    optional string optionalPreSharedKey = 8;
   
-    optional bool disableAutoConnect = 7;
+    optional bool disableAutoConnect = 9;
   
-    optional bool serverSSHAllowed = 8;
+    optional bool serverSSHAllowed = 10;
   
-    optional bool rosenpassPermissive = 9;
+    optional bool rosenpassPermissive = 11;
   
-    optional bool networkMonitor = 10;
+    optional bool networkMonitor = 12;
   
-    optional bool disable_client_routes = 11;
-    optional bool disable_server_routes = 12;
-    optional bool disable_dns = 13;
-    optional bool disable_firewall = 14;
-    optional bool block_lan_access = 15;
+    optional bool disable_client_routes = 13;
+    optional bool disable_server_routes = 14;
+    optional bool disable_dns = 15;
+    optional bool disable_firewall = 16;
+    optional bool block_lan_access = 17;
   
-    optional bool disable_notifications = 16;
+    optional bool disable_notifications = 18;
   
-    optional bool lazyConnectionEnabled = 17;
+    optional bool lazyConnectionEnabled = 19;
   
-    optional bool block_inbound = 18;
+    optional bool block_inbound = 20;
 
 }
 
-message SetDefaultConfigResponse{}
+message SetConfigResponse{}
+
+message AddProfileRequest {
+  string username = 1;
+  string profileName = 2;
+}
+
+message AddProfileResponse {}

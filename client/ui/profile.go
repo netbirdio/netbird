@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/user"
 	"slices"
 	"sort"
 	"sync"
@@ -215,8 +216,19 @@ func (s *serviceClient) showProfilesUI() {
 }
 
 func (s *serviceClient) addProfile(profileName string) error {
-	err := s.profileManager.AddProfile(profilemanager.Profile{
-		Name: profileName,
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		return fmt.Errorf(getClientFMT, err)
+	}
+
+	currUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %w", err)
+	}
+
+	_, err = conn.AddProfile(context.Background(), &proto.AddProfileRequest{
+		ProfileName: profileName,
+		Username:    currUser.Username,
 	})
 
 	if err != nil {

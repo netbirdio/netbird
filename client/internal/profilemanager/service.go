@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -73,8 +74,8 @@ func (s *ServiceManager) CopyDefaultProfileIfNotExists() (bool, error) {
 	}
 
 	// copy old default profile to new location
-	if err := os.Rename(oldDefaultConfigPath, defaultConfigPath); err != nil {
-		return false, errors.New("failed to copy old default profile to new location: " + err.Error())
+	if err := copyFile(oldDefaultConfigPath, defaultConfigPath, 0600); err != nil {
+		return false, fmt.Errorf("copy default profile from %s to %s: %w", oldDefaultConfigPath, defaultConfigPath, err)
 	}
 
 	// set permissions for the new default profile
@@ -91,6 +92,31 @@ func (s *ServiceManager) CopyDefaultProfileIfNotExists() (bool, error) {
 	}
 
 	return true, nil
+}
+
+// copyFile copies the contents of src to dst and sets dst's file mode to perm.
+func copyFile(src, dst string, perm os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open source file %s: %w", src, err)
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return fmt.Errorf("open target file %s: %w", dst, err)
+	}
+	defer func() {
+		if cerr := out.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy data to %s: %w", dst, err)
+	}
+
+	return nil
 }
 
 func (s *ServiceManager) CreateDefaultProfile() error {
@@ -173,4 +199,34 @@ func (s *ServiceManager) SetActiveProfileStateToDefault() error {
 
 func (s *ServiceManager) DefaultProfilePath() string {
 	return defaultConfigPath
+}
+
+func (s *ServiceManager) AddProfile(profileName, username string) error {
+	configDir, err := getConfigDirForUser(username)
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	profileName = sanitazeProfileName(profileName)
+
+	if profileName == defaultProfileName {
+		return fmt.Errorf("cannot create profile with reserved name: %s", defaultProfileName)
+	}
+
+	profPath := filepath.Join(configDir, profileName+".json")
+	if fileExists(profPath) {
+		return ErrProfileAlreadyExists
+	}
+
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath})
+	if err != nil {
+		return fmt.Errorf("failed to create new config: %w", err)
+	}
+
+	err = util.WriteJson(context.Background(), profPath, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to write profile config: %w", err)
+	}
+
+	return nil
 }
