@@ -4,6 +4,7 @@ package proto
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -268,60 +269,6 @@ func (x *daemonServiceSubscribeEventsClient) Recv() (*SystemEvent, error) {
 func (c *daemonServiceClient) GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error) {
 	out := new(GetEventsResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetEvents", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *daemonServiceClient) SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error) {
-	out := new(SwitchProfileResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SwitchProfile", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *daemonServiceClient) SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error) {
-	out := new(SetConfigResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SetConfig", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *daemonServiceClient) AddProfile(ctx context.Context, in *AddProfileRequest, opts ...grpc.CallOption) (*AddProfileResponse, error) {
-	out := new(AddProfileResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/AddProfile", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *daemonServiceClient) RemoveProfile(ctx context.Context, in *RemoveProfileRequest, opts ...grpc.CallOption) (*RemoveProfileResponse, error) {
-	out := new(RemoveProfileResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/RemoveProfile", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *daemonServiceClient) ListProfiles(ctx context.Context, in *ListProfilesRequest, opts ...grpc.CallOption) (*ListProfilesResponse, error) {
-	out := new(ListProfilesResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/ListProfiles", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *daemonServiceClient) GetActiveProfile(ctx context.Context, in *GetActiveProfileRequest, opts ...grpc.CallOption) (*GetActiveProfileResponse, error) {
-	out := new(GetActiveProfileResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetActiveProfile", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}

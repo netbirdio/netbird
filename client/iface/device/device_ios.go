@@ -71,7 +71,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()

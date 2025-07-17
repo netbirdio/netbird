@@ -1,18 +1,27 @@
 package activity
 
 import (
+	"net"
+	"net/netip"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
 
+type WgInterface interface {
+	RemovePeer(peerKey string) error
+	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+}
+
 type Manager struct {
 	OnActivityChan chan peerid.ConnID
 
-	wgIface lazyconn.WGIface
+	wgIface WgInterface
 
 	peers map[peerid.ConnID]*Listener
 	done  chan struct{}
@@ -20,7 +29,7 @@ type Manager struct {
 	mu sync.Mutex
 }
 
-func NewManager(wgIface lazyconn.WGIface) *Manager {
+func NewManager(wgIface WgInterface) *Manager {
 	m := &Manager{
 		OnActivityChan: make(chan peerid.ConnID, 1),
 		wgIface:        wgIface,

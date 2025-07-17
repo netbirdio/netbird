@@ -283,7 +283,7 @@ func MigrateSetupKeyToHashedSetupKey[T any](ctx context.Context, db *gorm.DB) er
 			}
 		}
 
-		if err := tx.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", "peers", "setup_key")).Error; err != nil {
+		if err := tx.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN IF EXISTS %s", "peers", "setup_key")).Error; err != nil {
 			log.WithContext(ctx).Errorf("Failed to drop column %s: %v", "setup_key", err)
 		}
 
@@ -377,12 +377,22 @@ func DropIndex[T any](ctx context.Context, db *gorm.DB, indexName string) error 
 func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName string, columns ...string) error {
 	var model T
 
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no migration needed", model)
+		return nil
+	}
+
 	stmt := &gorm.Statement{DB: db}
 	if err := stmt.Parse(&model); err != nil {
 		return fmt.Errorf("failed to parse model schema: %w", err)
 	}
 	tableName := stmt.Schema.Table
 	dialect := db.Dialector.Name()
+
+	if db.Migrator().HasIndex(&model, indexName) {
+		log.WithContext(ctx).Infof("index %s already exists on table %s", indexName, tableName)
+		return nil
+	}
 
 	var columnClause string
 	if dialect == "mysql" {

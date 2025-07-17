@@ -36,7 +36,6 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -54,6 +53,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/monotime"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -98,6 +98,7 @@ type MockWGIface struct {
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
+	LastActivitiesFunc         func() map[string]monotime.Time
 }
 
 func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
@@ -186,6 +187,13 @@ func (m *MockWGIface) GetProxy() wgproxy.Proxy {
 
 func (m *MockWGIface) GetNet() *netstack.Net {
 	return m.GetNetFunc()
+}
+
+func (m *MockWGIface) LastActivities() map[string]monotime.Time {
+	if m.LastActivitiesFunc != nil {
+		return m.LastActivitiesFunc()
+	}
+	return nil
 }
 
 func TestMain(m *testing.M) {
@@ -405,7 +413,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
-	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface, dispatcher.NewConnectionDispatcher())
+	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface)
 	engine.connMgr.Start(ctx)
 
 	type testCase struct {
@@ -794,7 +802,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 
 			engine.routeManager = mockRouteManager
 			engine.dnsServer = &dns.MockServer{}
-			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface, dispatcher.NewConnectionDispatcher())
+			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface)
 			engine.connMgr.Start(ctx)
 
 			defer func() {
@@ -992,7 +1000,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}
 
 			engine.dnsServer = mockDNSServer
-			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface, dispatcher.NewConnectionDispatcher())
+			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface)
 			engine.connMgr.Start(ctx)
 
 			defer func() {
@@ -1473,6 +1481,10 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	settingsMockManager.EXPECT().
 		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&types.Settings{}, nil).
+		AnyTimes()
+	settingsMockManager.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(store)

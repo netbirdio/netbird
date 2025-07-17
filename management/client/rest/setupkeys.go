@@ -16,7 +16,7 @@ type SetupKeysAPI struct {
 // List list all setup keys
 // See more: https://docs.netbird.io/api/resources/setup-keys#list-all-setup-keys
 func (a *SetupKeysAPI) List(ctx context.Context) ([]api.SetupKey, error) {
-	resp, err := a.c.NewRequest(ctx, "GET", "/api/setup-keys", nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/setup-keys", nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +30,7 @@ func (a *SetupKeysAPI) List(ctx context.Context) ([]api.SetupKey, error) {
 // Get get setup key info
 // See more: https://docs.netbird.io/api/resources/setup-keys#retrieve-a-setup-key
 func (a *SetupKeysAPI) Get(ctx context.Context, setupKeyID string) (*api.SetupKey, error) {
-	resp, err := a.c.NewRequest(ctx, "GET", "/api/setup-keys/"+setupKeyID, nil)
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/setup-keys/"+setupKeyID, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func (a *SetupKeysAPI) Create(ctx context.Context, request api.PostApiSetupKeysJ
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.NewRequest(ctx, "POST", path, bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "POST", path, bytes.NewReader(requestBytes), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (a *SetupKeysAPI) Update(ctx context.Context, setupKeyID string, request ap
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.c.NewRequest(ctx, "PUT", "/api/setup-keys/"+setupKeyID, bytes.NewReader(requestBytes))
+	resp, err := a.c.NewRequest(ctx, "PUT", "/api/setup-keys/"+setupKeyID, bytes.NewReader(requestBytes), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (a *SetupKeysAPI) Update(ctx context.Context, setupKeyID string, request ap
 // Delete delete setup key
 // See more: https://docs.netbird.io/api/resources/setup-keys#delete-a-setup-key
 func (a *SetupKeysAPI) Delete(ctx context.Context, setupKeyID string) error {
-	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/setup-keys/"+setupKeyID, nil)
+	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/setup-keys/"+setupKeyID, nil, nil)
 	if err != nil {
 		return err
 	}

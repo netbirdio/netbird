@@ -39,7 +39,6 @@ import (
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
@@ -176,8 +175,7 @@ type Engine struct {
 	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
 	sshServer     nbssh.Server
 
-	statusRecorder     *peer.Status
-	peerConnDispatcher *dispatcher.ConnectionDispatcher
+	statusRecorder *peer.Status
 
 	firewall          firewallManager.Manager
 	routeManager      routemanager.Manager
@@ -384,7 +382,13 @@ func (e *Engine) Start() error {
 	}
 	e.stateManager.Start()
 
-	initialRoutes, dnsServer, err := e.newDnsServer()
+	initialRoutes, dnsConfig, dnsFeatureFlag, err := e.readInitialSettings()
+	if err != nil {
+		e.close()
+		return fmt.Errorf("read initial settings: %w", err)
+	}
+
+	dnsServer, err := e.newDnsServer(dnsConfig)
 	if err != nil {
 		e.close()
 		return fmt.Errorf("create dns server: %w", err)
@@ -401,6 +405,7 @@ func (e *Engine) Start() error {
 		InitialRoutes:       initialRoutes,
 		StateManager:        e.stateManager,
 		DNSServer:           dnsServer,
+		DNSFeatureFlag:      dnsFeatureFlag,
 		PeerStore:           e.peerStore,
 		DisableClientRoutes: e.config.DisableClientRoutes,
 		DisableServerRoutes: e.config.DisableServerRoutes,
@@ -452,9 +457,7 @@ func (e *Engine) Start() error {
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
 
-	e.peerConnDispatcher = dispatcher.NewConnectionDispatcher()
-
-	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface, e.peerConnDispatcher)
+	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
 	e.connMgr.Start(e.ctx)
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
@@ -489,9 +492,9 @@ func (e *Engine) createFirewall() error {
 }
 
 func (e *Engine) initFirewall() error {
-	if err := e.routeManager.EnableServerRouter(e.firewall); err != nil {
+	if err := e.routeManager.SetFirewall(e.firewall); err != nil {
 		e.close()
-		return fmt.Errorf("enable server router: %w", err)
+		return fmt.Errorf("set firewall: %w", err)
 	}
 
 	if e.config.BlockLANAccess {
@@ -1010,8 +1013,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
-	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
-
 	// apply routes first, route related actions might depend on routing being enabled
 	routes := toRoutes(networkMap.GetRoutes())
 	serverRoutes, clientRoutes := e.routeManager.ClassifyRoutes(routes)
@@ -1022,6 +1023,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Debugf("updated lazy connection manager with %d HA groups", len(clientRoutes))
 	}
 
+	dnsRouteFeatureFlag := toDNSFeatureFlag(networkMap)
 	if err := e.routeManager.UpdateRoutes(serial, serverRoutes, clientRoutes, dnsRouteFeatureFlag); err != nil {
 		log.Errorf("failed to update routes: %v", err)
 	}
@@ -1256,7 +1258,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	}
 
 	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
-		conn.Close()
+		conn.Close(false)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 
@@ -1303,13 +1305,12 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
-		StatusRecorder:     e.statusRecorder,
-		Signaler:           e.signaler,
-		IFaceDiscover:      e.mobileDep.IFaceDiscover,
-		RelayManager:       e.relayManager,
-		SrWatcher:          e.srWatcher,
-		Semaphore:          e.connSemaphore,
-		PeerConnDispatcher: e.peerConnDispatcher,
+		StatusRecorder: e.statusRecorder,
+		Signaler:       e.signaler,
+		IFaceDiscover:  e.mobileDep.IFaceDiscover,
+		RelayManager:   e.relayManager,
+		SrWatcher:      e.srWatcher,
+		Semaphore:      e.connSemaphore,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1332,9 +1333,14 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn, ok := e.connMgr.OnSignalMsg(e.ctx, msg.Key)
+			conn, ok := e.peerStore.PeerConn(msg.Key)
 			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
+			}
+
+			msgType := msg.GetBody().GetType()
+			if msgType != sProto.Body_GO_IDLE {
+				e.connMgr.ActivatePeer(e.ctx, conn)
 			}
 
 			switch msg.GetBody().Type {
@@ -1393,6 +1399,8 @@ func (e *Engine) receiveSignalEvents() {
 
 				go conn.OnRemoteCandidate(candidate, e.routeManager.GetClientRoutes())
 			case sProto.Body_MODE:
+			case sProto.Body_GO_IDLE:
+				e.connMgr.DeactivatePeer(conn)
 			}
 
 			return nil
@@ -1490,7 +1498,12 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
+func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, error) {
+	if runtime.GOOS != "android" {
+		// nolint:nilnil
+		return nil, nil, false, nil
+	}
+
 	info := system.GetInfo(e.ctx)
 	info.SetFlags(
 		e.config.RosenpassEnabled,
@@ -1507,11 +1520,12 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
 
 	netMap, err := e.mgmClient.GetNetworkMap(info)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
 	dnsCfg := toDNSConfig(netMap.GetDNSConfig(), e.wgInterface.Address().Network)
-	return routes, &dnsCfg, nil
+	dnsFeatureFlag := toDNSFeatureFlag(netMap)
+	return routes, &dnsCfg, dnsFeatureFlag, nil
 }
 
 func (e *Engine) newWgIface() (*iface.WGIface, error) {
@@ -1559,18 +1573,14 @@ func (e *Engine) wgInterfaceCreate() (err error) {
 	return err
 }
 
-func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
+func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 	// due to tests where we are using a mocked version of the DNS server
 	if e.dnsServer != nil {
-		return nil, e.dnsServer, nil
+		return e.dnsServer, nil
 	}
 
 	switch runtime.GOOS {
 	case "android":
-		routes, dnsConfig, err := e.readInitialSettings()
-		if err != nil {
-			return nil, nil, err
-		}
 		dnsServer := dns.NewDefaultServerPermanentUpstream(
 			e.ctx,
 			e.wgInterface,
@@ -1581,19 +1591,19 @@ func (e *Engine) newDnsServer() ([]*route.Route, dns.Server, error) {
 			e.config.DisableDNS,
 		)
 		go e.mobileDep.DnsReadyListener.OnReady()
-		return routes, dnsServer, nil
+		return dnsServer, nil
 
 	case "ios":
 		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder, e.config.DisableDNS)
-		return nil, dnsServer, nil
+		return dnsServer, nil
 
 	default:
 		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager, e.config.DisableDNS)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
-		return nil, dnsServer, nil
+		return dnsServer, nil
 	}
 }
 

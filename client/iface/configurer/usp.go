@@ -16,6 +16,8 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/monotime"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -36,16 +38,18 @@ const (
 var ErrAllowedIPNotFound = fmt.Errorf("allowed IP not found")
 
 type WGUSPConfigurer struct {
-	device     *device.Device
-	deviceName string
+	device           *device.Device
+	deviceName       string
+	activityRecorder *bind.ActivityRecorder
 
 	uapiListener net.Listener
 }
 
-func NewUSPConfigurer(device *device.Device, deviceName string) *WGUSPConfigurer {
+func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
 	wgCfg := &WGUSPConfigurer{
-		device:     device,
-		deviceName: deviceName,
+		device:           device,
+		deviceName:       deviceName,
+		activityRecorder: activityRecorder,
 	}
 	wgCfg.startUAPI()
 	return wgCfg
@@ -87,7 +91,19 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 		Peers: []wgtypes.PeerConfig{peer},
 	}
 
-	return c.device.IpcSet(toWgUserspaceString(config))
+	if ipcErr := c.device.IpcSet(toWgUserspaceString(config)); ipcErr != nil {
+		return ipcErr
+	}
+
+	if endpoint != nil {
+		addr, err := netip.ParseAddr(endpoint.IP.String())
+		if err != nil {
+			return fmt.Errorf("failed to parse endpoint address: %w", err)
+		}
+		addrPort := netip.AddrPortFrom(addr, uint16(endpoint.Port))
+		c.activityRecorder.UpsertAddress(peerKey, addrPort)
+	}
+	return nil
 }
 
 func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
@@ -104,7 +120,10 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-	return c.device.IpcSet(toWgUserspaceString(config))
+	ipcErr := c.device.IpcSet(toWgUserspaceString(config))
+
+	c.activityRecorder.Remove(peerKey)
+	return ipcErr
 }
 
 func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
@@ -203,6 +222,10 @@ func (c *WGUSPConfigurer) FullStats() (*Stats, error) {
 	}
 
 	return parseStatus(c.deviceName, ipcStr)
+}
+
+func (c *WGUSPConfigurer) LastActivities() map[string]monotime.Time {
+	return c.activityRecorder.GetLastActivities()
 }
 
 // startUAPI starts the UAPI listener for managing the WireGuard interface via external tool

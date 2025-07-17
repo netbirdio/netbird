@@ -112,6 +112,7 @@ type Manager interface {
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	UpdateAccountPeers(ctx context.Context, accountID string)
+	BufferUpdateAccountPeers(ctx context.Context, accountID string)
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
 	GetStore() store.Store

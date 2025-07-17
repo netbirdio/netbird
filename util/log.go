@@ -14,7 +14,7 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 )
 
-const defaultLogSize = 5
+const defaultLogSize = 15
 
 // InitLog parses and sets log-level input
 func InitLog(logLevel string, logPath string) error {

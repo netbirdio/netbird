@@ -95,6 +95,17 @@ func (s *Store) PeerConnOpen(ctx context.Context, pubKey string) {
 
 }
 
+func (s *Store) PeerConnIdle(pubKey string) {
+	s.peerConnsMu.RLock()
+	defer s.peerConnsMu.RUnlock()
+
+	p, ok := s.peerConns[pubKey]
+	if !ok {
+		return
+	}
+	p.Close(true)
+}
+
 func (s *Store) PeerConnClose(pubKey string) {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()
@@ -103,7 +114,7 @@ func (s *Store) PeerConnClose(pubKey string) {
 	if !ok {
 		return
 	}
-	p.Close()
+	p.Close(false)
 }
 
 func (s *Store) PeersPubKey() []string {

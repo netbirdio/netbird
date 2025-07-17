@@ -65,7 +65,9 @@ type Client struct {
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
+func NewClient(cfgFile string, androidSDKVersion int, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
+	execWorkaround(androidSDKVersion)
+
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
 	return &Client{
 		cfgFile:               cfgFile,
@@ -204,8 +206,10 @@ func (c *Client) Networks() *NetworkArray {
 			continue
 		}
 
-		if routes[0].IsDynamic() {
-			continue
+		r := routes[0]
+		netStr := r.Network.String()
+		if r.IsDynamic() {
+			netStr = r.Domains.SafeString()
 		}
 
 		peer, err := c.recorder.GetPeer(routes[0].Peer)
@@ -215,7 +219,7 @@ func (c *Client) Networks() *NetworkArray {
 		}
 		network := Network{
 			Name:    string(id),
-			Network: routes[0].Network.String(),
+			Network: netStr,
 			Peer:    peer.FQDN,
 			Status:  peer.ConnStatus.String(),
 		}
