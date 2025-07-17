@@ -52,7 +52,7 @@ var profileSelectCmd = &cobra.Command{
 	RunE:  selectProfileFunc,
 }
 
-func listProfilesFunc(cmd *cobra.Command, _ []string) error {
+func setupCmd(cmd *cobra.Command) error {
 	SetFlagsFromEnvVars(rootCmd)
 	SetFlagsFromEnvVars(cmd)
 
@@ -60,6 +60,13 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 
 	err := util.InitLog(logLevel, "console")
 	if err != nil {
+		return err
+	}
+
+	return nil
+}
+func listProfilesFunc(cmd *cobra.Command, _ []string) error {
+	if err := setupCmd(cmd); err != nil {
 		return err
 	}
 
@@ -100,13 +107,7 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 }
 
 func addProfileFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
-
-	cmd.SetOut(cmd.OutOrStdout())
-
-	err := util.InitLog(logLevel, "console")
-	if err != nil {
+	if err := setupCmd(cmd); err != nil {
 		return err
 	}
 
@@ -140,13 +141,7 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 }
 
 func removeProfileFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
-
-	cmd.SetOut(cmd.OutOrStdout())
-
-	err := util.InitLog(logLevel, "console")
-	if err != nil {
+	if err := setupCmd(cmd); err != nil {
 		return err
 	}
 
@@ -180,20 +175,14 @@ func removeProfileFunc(cmd *cobra.Command, args []string) error {
 }
 
 func selectProfileFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
-
-	cmd.SetOut(cmd.OutOrStdout())
-
-	err := util.InitLog(logLevel, "console")
-	if err != nil {
+	if err := setupCmd(cmd); err != nil {
 		return err
 	}
 
 	profileManager := profilemanager.NewProfileManager()
 	profileName := args[0]
 
-	err = profileManager.SwitchProfile(profileName)
+	err := profileManager.SwitchProfile(profileName)
 	if err != nil {
 		return err
 	}
