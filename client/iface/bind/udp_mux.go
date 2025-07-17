@@ -14,8 +14,6 @@ import (
 	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
-
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 /*
@@ -172,7 +170,6 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 	mux.updateLocalAddresses()
 	return mux
 }
-
 
 func (m *UDPMuxDefault) updateLocalAddresses() {
 	var localAddrsForUnspecified []net.Addr
