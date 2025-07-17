@@ -296,15 +296,18 @@ func (m *UDPMuxDefault) RemoveConnByUfrag(ufrag string) {
 		return
 	}
 
+	var allAddresses []string
+	for _, c := range removedConns {
+		addresses := c.getAddresses()
+		allAddresses = append(allAddresses, addresses...)
+	}
+
 	m.addressMapMu.Lock()
 	defer m.addressMapMu.Unlock()
 
-	for _, c := range removedConns {
-		addresses := c.getAddresses()
-		for _, addr := range addresses {
-			delete(m.addressMap, addr)
-			m.notifyAddressRemoval(addr)
-		}
+	for _, addr := range allAddresses {
+		delete(m.addressMap, addr)
+		m.notifyAddressRemoval(addr)
 	}
 }
 
