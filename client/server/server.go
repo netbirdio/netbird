@@ -645,25 +645,9 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 
 	if msg != nil && msg.ProfileName != nil {
-		if *msg.ProfileName != "default" && (msg.Username == nil || *msg.Username == "") {
-			log.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
-			return nil, fmt.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
-		}
-
-		var username string
-		if *msg.ProfileName != "default" {
-			username = *msg.Username
-		}
-
-		if *msg.ProfileName != activeProf.Name && username != activeProf.Username {
-			log.Infof("switching to profile %s for user %s", *msg.ProfileName, username)
-			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-				Name:     *msg.ProfileName,
-				Username: username,
-			}); err != nil {
-				log.Errorf("failed to set active profile state: %v", err)
-				return nil, fmt.Errorf("failed to set active profile state: %w", err)
-			}
+		if err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
+			log.Errorf("failed to switch profile: %v", err)
+			return nil, fmt.Errorf("failed to switch profile: %w", err)
 		}
 	}
 
@@ -711,6 +695,31 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 }
 
+func (s *Server) switchProfileIfNeeded(profileName string, userName *string, activeProf *profilemanager.ActiveProfileState) error {
+	if profileName != "default" && (userName == nil || *userName == "") {
+		log.Errorf("profile name is set to %s, but username is not provided", profileName)
+		return fmt.Errorf("profile name is set to %s, but username is not provided", profileName)
+	}
+
+	var username string
+	if profileName != "default" {
+		username = *userName
+	}
+
+	if profileName != activeProf.Name && username != activeProf.Username {
+		log.Infof("switching to profile %s for user %s", profileName, username)
+		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
+			Name:     profileName,
+			Username: username,
+		}); err != nil {
+			log.Errorf("failed to set active profile state: %v", err)
+			return fmt.Errorf("failed to set active profile state: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // SwitchProfile switches the active profile in the daemon.
 func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfileRequest) (*proto.SwitchProfileResponse, error) {
 	s.mutex.Lock()
@@ -727,25 +736,9 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	}
 
 	if msg != nil && msg.ProfileName != nil {
-		if *msg.ProfileName != "default" && (msg.Username == nil || *msg.Username == "") {
-			log.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
-			return nil, fmt.Errorf("profile name is set to %s, but username is not provided", *msg.ProfileName)
-		}
-
-		var username string
-		if *msg.ProfileName != "default" {
-			username = *msg.Username
-		}
-
-		if *msg.ProfileName != activeProf.Name && username != activeProf.Username {
-			log.Infof("switching to profile %s for user %s", *msg.ProfileName, username)
-			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
-				Name:     *msg.ProfileName,
-				Username: username,
-			}); err != nil {
-				log.Errorf("failed to set active profile state: %v", err)
-				return nil, fmt.Errorf("failed to set active profile state: %w", err)
-			}
+		if err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
+			log.Errorf("failed to switch profile: %v", err)
+			return nil, fmt.Errorf("failed to switch profile: %w", err)
 		}
 	}
 
