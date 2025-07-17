@@ -77,6 +77,8 @@ service DaemonService {
   rpc RemoveProfile(RemoveProfileRequest) returns (RemoveProfileResponse) {}
 
   rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse) {}
+
+  rpc GetActiveProfile(GetActiveProfileRequest) returns (GetActiveProfileResponse) {}
 }
 
 
@@ -591,4 +593,11 @@ message ListProfilesResponse {
 message Profile {
   string name = 1;
   bool is_active = 2;
+}
+
+message GetActiveProfileRequest {}
+
+message GetActiveProfileResponse {
+  string profileName = 1;
+  string username = 2;
 }

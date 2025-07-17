@@ -60,6 +60,7 @@ type DaemonServiceClient interface {
 	AddProfile(ctx context.Context, in *AddProfileRequest, opts ...grpc.CallOption) (*AddProfileResponse, error)
 	RemoveProfile(ctx context.Context, in *RemoveProfileRequest, opts ...grpc.CallOption) (*RemoveProfileResponse, error)
 	ListProfiles(ctx context.Context, in *ListProfilesRequest, opts ...grpc.CallOption) (*ListProfilesResponse, error)
+	GetActiveProfile(ctx context.Context, in *GetActiveProfileRequest, opts ...grpc.CallOption) (*GetActiveProfileResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -318,6 +319,15 @@ func (c *daemonServiceClient) ListProfiles(ctx context.Context, in *ListProfiles
 	return out, nil
 }
 
+func (c *daemonServiceClient) GetActiveProfile(ctx context.Context, in *GetActiveProfileRequest, opts ...grpc.CallOption) (*GetActiveProfileResponse, error) {
+	out := new(GetActiveProfileResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetActiveProfile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -364,6 +374,7 @@ type DaemonServiceServer interface {
 	AddProfile(context.Context, *AddProfileRequest) (*AddProfileResponse, error)
 	RemoveProfile(context.Context, *RemoveProfileRequest) (*RemoveProfileResponse, error)
 	ListProfiles(context.Context, *ListProfilesRequest) (*ListProfilesResponse, error)
+	GetActiveProfile(context.Context, *GetActiveProfileRequest) (*GetActiveProfileResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -445,6 +456,9 @@ func (UnimplementedDaemonServiceServer) RemoveProfile(context.Context, *RemovePr
 }
 func (UnimplementedDaemonServiceServer) ListProfiles(context.Context, *ListProfilesRequest) (*ListProfilesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListProfiles not implemented")
+}
+func (UnimplementedDaemonServiceServer) GetActiveProfile(context.Context, *GetActiveProfileRequest) (*GetActiveProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetActiveProfile not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -912,6 +926,24 @@ func _DaemonService_ListProfiles_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_GetActiveProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetActiveProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GetActiveProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/GetActiveProfile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GetActiveProfile(ctx, req.(*GetActiveProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1014,6 +1046,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListProfiles",
 			Handler:    _DaemonService_ListProfiles_Handler,
+		},
+		{
+			MethodName: "GetActiveProfile",
+			Handler:    _DaemonService_GetActiveProfile_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

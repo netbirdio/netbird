@@ -13,21 +13,13 @@ type ProfileState struct {
 	Email string `json:"email"`
 }
 
-func (pm *ProfileManager) GetActiveProfileState() (*ProfileState, error) {
+func (pm *ProfileManager) GetProfileState(profileName string) (*ProfileState, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config directory: %w", err)
 	}
 
-	activeProf, err := pm.GetActiveProfile()
-	if err != nil {
-		if errors.Is(err, ErrNoActiveProfile) {
-			return nil, fmt.Errorf("no active profile set: %w", err)
-		}
-		return nil, fmt.Errorf("failed to get active profile: %w", err)
-	}
-
-	stateFile := filepath.Join(configDir, activeProf.Name+".state.json")
+	stateFile := filepath.Join(configDir, profileName+".state.json")
 	if !fileExists(stateFile) {
 		return nil, errors.New("profile state file does not exist")
 	}

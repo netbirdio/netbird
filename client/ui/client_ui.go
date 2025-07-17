@@ -424,8 +424,17 @@ func (s *serviceClient) showSettingsUI() {
 
 // getSettingsForm to embed it into settings window.
 func (s *serviceClient) getSettingsForm() *widget.Form {
+
+	var activeProfName string
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		log.Errorf("get active profile: %v", err)
+	} else {
+		activeProfName = activeProf.Name
+	}
 	return &widget.Form{
 		Items: []*widget.FormItem{
+			{Text: "Profile", Widget: widget.NewLabel(activeProfName)},
 			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
@@ -454,7 +463,6 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
 				return
 			}
-			portInt := int(port)
 
 			iAdminURL := strings.TrimSpace(s.iAdminURL.Text)
 			iMngURL := strings.TrimSpace(s.iMngURL.Text)
@@ -475,51 +483,50 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				s.preSharedKey = s.iPreSharedKey.Text
 				s.adminURL = iAdminURL
 
-				activeProf, err := s.profileManager.GetActiveProfile()
+				currUser, err := user.Current()
 				if err != nil {
-					log.Errorf("get active profile: %v", err)
+					log.Errorf("get current user: %v", err)
 					return
 				}
 
-				profilePath, err := activeProf.FilePath()
-				if err != nil {
-					log.Errorf("get active profile file path: %v", err)
-					return
-				}
-
-				cfgInput := profilemanager.ConfigInput{
-					ConfigPath: profilePath,
-				}
+				var req proto.SetConfigRequest
+				req.ProfileName = activeProf.Name
+				req.Username = currUser.Username
 
 				if iMngURL != "" {
-					cfgInput.ManagementURL = iMngURL
+					req.ManagementUrl = iMngURL
 				}
 
 				if iAdminURL != "" {
-					cfgInput.AdminURL = iAdminURL
+					req.AdminURL = iAdminURL
 				}
 
-				cfgInput.RosenpassPermissive = &s.sRosenpassPermissive.Checked
-				cfgInput.InterfaceName = &s.iInterfaceName.Text
-				cfgInput.WireguardPort = &portInt
-				cfgInput.NetworkMonitor = &s.sNetworkMonitor.Checked
-				cfgInput.DisableDNS = &s.sDisableDNS.Checked
-				cfgInput.DisableClientRoutes = &s.sDisableClientRoutes.Checked
-				cfgInput.DisableServerRoutes = &s.sDisableServerRoutes.Checked
-				cfgInput.BlockLANAccess = &s.sBlockLANAccess.Checked
+				req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
+				req.InterfaceName = &s.iInterfaceName.Text
+				req.WireguardPort = &port
+				req.NetworkMonitor = &s.sNetworkMonitor.Checked
+				req.DisableDns = &s.sDisableDNS.Checked
+				req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
+				req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
+				req.BlockLanAccess = &s.sBlockLANAccess.Checked
 
 				if s.iPreSharedKey.Text != censoredPreSharedKey {
-					cfgInput.PreSharedKey = &s.iPreSharedKey.Text
+					req.OptionalPreSharedKey = &s.iPreSharedKey.Text
 				}
 
-				if _, err := profilemanager.UpdateConfig(cfgInput); err != nil {
-					log.Errorf("set active profile config: %v", err)
-				}
-
-				if err := s.restartClient(); err != nil {
-					log.Errorf("restarting client connection: %v", err)
+				conn, err := s.getSrvClient(failFastTimeout)
+				if err != nil {
+					log.Errorf("get client: %v", err)
+					dialog.ShowError(fmt.Errorf("Failed to connect to the service: %v", err), s.wSettings)
 					return
 				}
+				_, err = conn.SetConfig(s.ctx, &req)
+				if err != nil {
+					log.Errorf("set config: %v", err)
+					dialog.ShowError(fmt.Errorf("Failed to set configuration: %v", err), s.wSettings)
+					return
+				}
+
 			}
 		},
 		OnCancel: func() {
@@ -1163,29 +1170,31 @@ func (s *serviceClient) updateConfig() error {
 		return err
 	}
 
-	profilePath, err := activeProf.FilePath()
+	currUser, err := user.Current()
 	if err != nil {
-		log.Errorf("get active profile file path: %v", err)
+		log.Errorf("get current user: %v", err)
 		return err
 	}
 
-	cfgInput := profilemanager.ConfigInput{
-		ConfigPath: profilePath,
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		log.Errorf("get client: %v", err)
+		return err
 	}
 
-	cfgInput.ServerSSHAllowed = &sshAllowed
-	cfgInput.RosenpassEnabled = &rosenpassEnabled
-	cfgInput.DisableAutoConnect = &disableAutoStart
-	cfgInput.DisableNotifications = &notificationsDisabled
-	cfgInput.LazyConnectionEnabled = &lazyConnectionEnabled
-	cfgInput.BlockInbound = &blockInbound
-
-	if _, err := profilemanager.UpdateConfig(cfgInput); err != nil {
-		log.Errorf("set active profile config: %v", err)
+	req := proto.SetConfigRequest{
+		ProfileName:           activeProf.Name,
+		Username:              currUser.Username,
+		DisableAutoConnect:    &disableAutoStart,
+		ServerSSHAllowed:      &sshAllowed,
+		RosenpassEnabled:      &rosenpassEnabled,
+		LazyConnectionEnabled: &lazyConnectionEnabled,
+		BlockInbound:          &blockInbound,
+		DisableNotifications:  &notificationsDisabled,
 	}
 
-	if err := s.restartClient(); err != nil {
-		log.Errorf("restarting client connection: %v", err)
+	if _, err := conn.SetConfig(s.ctx, &req); err != nil {
+		log.Errorf("set config settings on server: %v", err)
 		return err
 	}
 

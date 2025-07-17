@@ -412,21 +412,39 @@ func (p *profileMenu) refresh() {
 	// Clear existing profile items
 	p.clear(profiles)
 
-	activeProfState, err := p.profileManager.GetActiveProfileState()
+	currUser, err := user.Current()
 	if err != nil {
-		log.Warnf("failed to get active profile state: %v", err)
-		p.emailMenuItem.Hide()
-	} else if activeProfState.Email != "" {
-		p.emailMenuItem.SetTitle(fmt.Sprintf("(%s)", activeProfState.Email))
-		p.emailMenuItem.Show()
+		log.Errorf("failed to get current user: %v", err)
+		return
 	}
 
-	var activeProfile *Profile
+	conn, err := p.getSrvClientCallback(defaultFailTimeout)
+	if err != nil {
+		log.Errorf("failed to get daemon client: %v", err)
+		return
+	}
+
+	activeProf, err := conn.GetActiveProfile(p.ctx, &proto.GetActiveProfileRequest{})
+	if err != nil {
+		log.Errorf("failed to get active profile: %v", err)
+		return
+	}
+
+	if activeProf.ProfileName == "default" || activeProf.Username == currUser.Username {
+		activeProfState, err := p.profileManager.GetProfileState(activeProf.ProfileName)
+		if err != nil {
+			log.Warnf("failed to get active profile state: %v", err)
+			p.emailMenuItem.Hide()
+		} else if activeProfState.Email != "" {
+			p.emailMenuItem.SetTitle(fmt.Sprintf("(%s)", activeProfState.Email))
+			p.emailMenuItem.Show()
+		}
+	}
+
 	for _, profile := range profiles {
 		item := p.profileMenuItem.AddSubMenuItem(profile.Name, "")
 		if profile.IsActive {
 			item.Check()
-			activeProfile = &profile
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -450,12 +468,6 @@ func (p *profileMenu) refresh() {
 					conn, err := p.getSrvClientCallback(defaultFailTimeout)
 					if err != nil {
 						log.Errorf("failed to get daemon client: %v", err)
-						return
-					}
-
-					currUser, err := user.Current()
-					if err != nil {
-						log.Errorf("failed to get current user: %v", err)
 						return
 					}
 
@@ -519,10 +531,10 @@ func (p *profileMenu) refresh() {
 		}
 	}()
 
-	if activeProfile != nil {
-		p.profileMenuItem.SetTitle(activeProfile.Name)
+	if activeProf.ProfileName == "default" || activeProf.Username == currUser.Username {
+		p.profileMenuItem.SetTitle(activeProf.ProfileName)
 	} else {
-		p.profileMenuItem.SetTitle("Profile: None")
+		p.profileMenuItem.SetTitle(fmt.Sprintf("Profile: %s (User: %s)", activeProf.ProfileName, activeProf.Username))
 		p.emailMenuItem.Hide()
 	}
 
