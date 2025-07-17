@@ -352,14 +352,13 @@ func (m *UDPMuxDefault) registerConnForAddress(conn *udpMuxedConn, addr string) 
 	}
 
 	m.addressMapMu.Lock()
-	defer m.addressMapMu.Unlock()
-
 	existing, ok := m.addressMap[addr]
 	if !ok {
 		existing = []*udpMuxedConn{}
 	}
 	existing = append(existing, conn)
 	m.addressMap[addr] = existing
+	m.addressMapMu.Unlock()
 
 	log.Debugf("ICE: registered %s for %s", addr, conn.params.Key)
 }
@@ -387,12 +386,12 @@ func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) erro
 	// If you are using the same socket for the Host and SRFLX candidates, it might be that there are more than one
 	// muxed connection - one for the SRFLX candidate and the other one for the HOST one.
 	// We will then forward STUN packets to each of these connections.
-	m.addressMapMu.Lock()
+	m.addressMapMu.RLock()
 	var destinationConnList []*udpMuxedConn
 	if storedConns, ok := m.addressMap[addr.String()]; ok {
 		destinationConnList = append(destinationConnList, storedConns...)
 	}
-	m.addressMapMu.Unlock()
+	m.addressMapMu.RUnlock()
 
 	var isIPv6 bool
 	if udpAddr, _ := addr.(*net.UDPAddr); udpAddr != nil && udpAddr.IP.To4() == nil {
