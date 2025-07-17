@@ -18,9 +18,10 @@ type Scheduler interface {
 
 // MockScheduler is a mock implementation of  Scheduler
 type MockScheduler struct {
-	CancelFunc    func(ctx context.Context, IDs []string)
-	CancelAllFunc func(ctx context.Context)
-	ScheduleFunc  func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
+	CancelFunc             func(ctx context.Context, IDs []string)
+	CancelAllFunc          func(ctx context.Context)
+	ScheduleFunc           func(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
+	IsSchedulerRunningFunc func(ID string) bool
 }
 
 // Cancel mocks the Cancel function of the Scheduler interface
@@ -51,7 +52,9 @@ func (mock *MockScheduler) Schedule(ctx context.Context, in time.Duration, ID st
 }
 
 func (mock *MockScheduler) IsSchedulerRunning(ID string) bool {
-	// MockScheduler does not implement IsSchedulerRunning, so we return false
+	if mock.IsSchedulerRunningFunc != nil {
+		return mock.IsSchedulerRunningFunc(ID)
+	}
 	log.Warnf("MockScheduler doesn't have IsSchedulerRunning function defined")
 	return false
 }
