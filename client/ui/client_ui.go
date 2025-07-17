@@ -1201,24 +1201,6 @@ func (s *serviceClient) updateConfig() error {
 	return nil
 }
 
-// restartClient restarts the client connection.
-func (s *serviceClient) restartClient() error {
-	ctx, cancel := context.WithTimeout(s.ctx, defaultFailTimeout)
-	defer cancel()
-
-	client, err := s.getSrvClient(failFastTimeout)
-	if err != nil {
-		return err
-	}
-
-	_, err = client.Up(ctx, &proto.UpRequest{})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // showLoginURL creates a borderless window styled like a pop-up in the top-right corner using s.wLoginURL.
 func (s *serviceClient) showLoginURL() {
 

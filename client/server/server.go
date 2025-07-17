@@ -888,9 +888,8 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	}
 	managementURL := cfg.ManagementURL
 	adminURL := cfg.AdminURL
-	preSharedKey := ""
 
-	preSharedKey = cfg.PreSharedKey
+	var preSharedKey = cfg.PreSharedKey
 	if preSharedKey != "" {
 		preSharedKey = "**********"
 	}
