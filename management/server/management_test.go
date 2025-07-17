@@ -227,6 +227,7 @@ func startServer(
 		nil,
 		nil,
 		nil,
+		server.MocIntegratedValidator{},
 	)
 	if err != nil {
 		t.Fatalf("failed creating management server: %v", err)

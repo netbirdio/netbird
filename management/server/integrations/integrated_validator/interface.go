@@ -20,35 +20,3 @@ type IntegratedValidator interface {
 	Stop(ctx context.Context)
 	ValidateFlowResponse(ctx context.Context, peerKey string, flowResponse *proto.PKCEAuthorizationFlow) *proto.PKCEAuthorizationFlow
 }
-
-type IntegratedValidatorMock struct{}
-
-func (iv *IntegratedValidatorMock) ValidateExtraSettings(ctx context.Context, newExtraSettings *types.ExtraSettings, oldExtraSettings *types.ExtraSettings, peers map[string]*nbpeer.Peer, userID string, accountID string) error {
-	return nil
-}
-func (iv *IntegratedValidatorMock) ValidatePeer(ctx context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
-	return peer, false, nil
-}
-func (iv *IntegratedValidatorMock) PreparePeer(ctx context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings) *nbpeer.Peer {
-	return peer
-}
-func (iv *IntegratedValidatorMock) IsNotValidPeer(ctx context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings) (bool, bool, error) {
-	return false, false, nil
-}
-func (iv *IntegratedValidatorMock) GetValidatedPeers(accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
-	validatedPeers := make(map[string]struct{})
-	for _, peer := range peers {
-		validatedPeers[peer.ID] = struct{}{}
-	}
-	return validatedPeers, nil
-}
-func (iv *IntegratedValidatorMock) PeerDeleted(ctx context.Context, accountID, peerID string) error {
-	return nil
-}
-func (iv *IntegratedValidatorMock) SetPeerInvalidationListener(fn func(accountID string)) {
-}
-func (iv *IntegratedValidatorMock) Stop(ctx context.Context) {
-}
-func (iv *IntegratedValidatorMock) ValidateFlowResponse(ctx context.Context, peerKey string, flowResponse *proto.PKCEAuthorizationFlow) *proto.PKCEAuthorizationFlow {
-	return flowResponse
-}
