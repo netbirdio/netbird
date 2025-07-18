@@ -121,12 +121,12 @@ func (c *UDPConn) Close() error {
 }
 
 // RemoveAddress removes an address from the seen cache and triggers removal hooks.
-func (c *PacketConn) RemoveAddress(addr net.Addr) {
-	if _, exists := c.seenAddrs.LoadAndDelete(addr.String()); !exists {
+func (c *PacketConn) RemoveAddress(addr string) {
+	if _, exists := c.seenAddrs.LoadAndDelete(addr); !exists {
 		return
 	}
 
-	ipStr, _, err := net.SplitHostPort(addr.String())
+	ipStr, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		log.Errorf("Error splitting IP address and port: %v", err)
 		return
