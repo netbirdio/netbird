@@ -1,4 +1,5 @@
 package testing_tools
+
 import (
 	"bytes"
 	"context"
@@ -132,7 +133,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	}
 
 	geoMock := &geolocation.Mock{}
-	validatorMock := server.MocIntegratedValidator{}
+	validatorMock := server.MockIntegratedValidator{}
 	proxyController := integrations.NewController(store)
 	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)
