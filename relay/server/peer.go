@@ -241,10 +241,13 @@ func (p *Peer) handleSubscribePeerState(msg []byte) {
 	}
 
 	p.log.Debugf("received subscription message for %d peers", len(peerIDs))
-	onlinePeers := p.peersListener.AddInterestedPeers(peerIDs)
+
+	// collect online peers to response back to the caller
+	onlinePeers := p.store.GetOnlinePeersAndRegisterInterest(peerIDs, p.peersListener)
 	if len(onlinePeers) == 0 {
 		return
 	}
+
 	p.log.Debugf("response with %d online peers", len(onlinePeers))
 	p.sendPeersOnline(onlinePeers)
 }

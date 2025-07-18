@@ -50,6 +50,8 @@ func (s *Store) DeletePeer(peer IPeer) {
 		return
 	}
 
+	// todo notify peer disconnection on in this case
+
 	delete(s.peers, peer.ID())
 }
 
@@ -72,4 +74,22 @@ func (s *Store) Peers() []IPeer {
 		peers = append(peers, p)
 	}
 	return peers
+}
+
+func (s *Store) GetOnlinePeersAndRegisterInterest(peerIDs []messages.PeerID, listener *Listener) []messages.PeerID {
+	s.peersLock.RLock()
+	defer s.peersLock.RUnlock()
+
+	onlinePeers := make([]messages.PeerID, 0, len(peerIDs))
+
+	listener.AddInterestedPeers(peerIDs)
+
+	// Check for currently online peers
+	for _, id := range peerIDs {
+		if _, ok := s.peers[id]; ok {
+			onlinePeers = append(onlinePeers, id)
+		}
+	}
+
+	return onlinePeers
 }

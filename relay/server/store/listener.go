@@ -8,8 +8,7 @@ import (
 )
 
 type Listener struct {
-	ctx   context.Context
-	store *Store
+	ctx context.Context
 
 	onlineChan                chan messages.PeerID
 	offlineChan               chan messages.PeerID
@@ -18,10 +17,9 @@ type Listener struct {
 	mu                        sync.RWMutex
 }
 
-func newListener(ctx context.Context, store *Store) *Listener {
+func newListener(ctx context.Context) *Listener {
 	l := &Listener{
-		ctx:   ctx,
-		store: store,
+		ctx: ctx,
 
 		onlineChan:                make(chan messages.PeerID, 244), //244 is the message size limit in the relay protocol
 		offlineChan:               make(chan messages.PeerID, 244), //244 is the message size limit in the relay protocol
@@ -32,8 +30,7 @@ func newListener(ctx context.Context, store *Store) *Listener {
 	return l
 }
 
-func (l *Listener) AddInterestedPeers(peerIDs []messages.PeerID) []messages.PeerID {
-	availablePeers := make([]messages.PeerID, 0)
+func (l *Listener) AddInterestedPeers(peerIDs []messages.PeerID) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -41,17 +38,7 @@ func (l *Listener) AddInterestedPeers(peerIDs []messages.PeerID) []messages.Peer
 		l.interestedPeersForOnline[id] = struct{}{}
 		l.interestedPeersForOffline[id] = struct{}{}
 	}
-
-	// collect online peers to response back to the caller
-	for _, id := range peerIDs {
-		_, ok := l.store.Peer(id)
-		if !ok {
-			continue
-		}
-
-		availablePeers = append(availablePeers, id)
-	}
-	return availablePeers
+	return
 }
 
 func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
