@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -198,6 +199,36 @@ func ReadJson(file string, res interface{}) (interface{}, error) {
 	}
 
 	return res, nil
+}
+
+// RemoveJson removes the specified JSON file if it exists
+func RemoveJson(file string) error {
+	// Check if the file exists
+	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
+		return nil // File does not exist, nothing to remove
+	}
+
+	// Attempt to remove the file
+	if err := os.Remove(file); err != nil {
+		return fmt.Errorf("failed to remove JSON file %s: %w", file, err)
+	}
+
+	return nil
+}
+
+// ListFiles returns the full paths of all files in dir that match pattern.
+// Pattern uses shell-style globbing (e.g. "*.json").
+func ListFiles(dir, pattern string) ([]string, error) {
+	// glob pattern like "/path/to/dir/*.json"
+	globPattern := filepath.Join(dir, pattern)
+
+	matches, err := filepath.Glob(globPattern)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Strings(matches)
+	return matches, nil
 }
 
 // ReadJsonWithEnvSub reads JSON config file and maps to a provided interface with environment variable substitution

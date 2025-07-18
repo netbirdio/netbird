@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -230,7 +231,44 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 		return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
 	}
 
+	email, err := parseEmailFromIDToken(tokenInfo.IDToken)
+	if err != nil {
+		log.Warnf("failed to parse email from ID token: %v", err)
+	} else {
+		tokenInfo.Email = email
+	}
+
 	return tokenInfo, nil
+}
+
+func parseEmailFromIDToken(token string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid token format")
+	}
+
+	data, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("failed to decode payload: %w", err)
+	}
+	var claims map[string]interface{}
+	if err := json.Unmarshal(data, &claims); err != nil {
+		return "", fmt.Errorf("json unmarshal error: %w", err)
+	}
+
+	var email string
+	if emailValue, ok := claims["email"].(string); ok {
+		email = emailValue
+	} else {
+		val, ok := claims["name"].(string)
+		if ok {
+			email = val
+		} else {
+			return "", fmt.Errorf("email or name field not found in token payload")
+		}
+	}
+
+	return email, nil
 }
 
 func createCodeChallenge(codeVerifier string) string {

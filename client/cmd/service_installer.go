@@ -27,8 +27,6 @@ var installCmd = &cobra.Command{
 		svcConfig.Arguments = []string{
 			"service",
 			"run",
-			"--config",
-			configPath,
 			"--log-level",
 			logLevel,
 			"--daemon-addr",
