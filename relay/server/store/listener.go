@@ -43,7 +43,6 @@ func (l *Listener) AddInterestedPeers(peerIDs []messages.PeerID) {
 		l.interestedPeersForOnline[id] = struct{}{}
 		l.interestedPeersForOffline[id] = struct{}{}
 	}
-	return
 }
 
 func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
