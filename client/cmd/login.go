@@ -142,19 +142,15 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 }
 
 func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, profileName string, username string) (*profilemanager.Profile, error) {
-	activeProf, err := pm.GetActiveProfile()
-	if err != nil {
-		return nil, fmt.Errorf("get active profile: %v", err)
-	}
-
 	// switch profile if provided
-	if profileName != "" && activeProf.Name != profileName {
-		if err := switchProfileOnDaemon(ctx, pm, profileName, activeProf, username); err != nil {
+
+	if profileName != "" {
+		if err := switchProfileOnDaemon(ctx, pm, profileName, username); err != nil {
 			return nil, fmt.Errorf("switch profile: %v", err)
 		}
 	}
 
-	activeProf, err = pm.GetActiveProfile()
+	activeProf, err := pm.GetActiveProfile()
 	if err != nil {
 		return nil, fmt.Errorf("get active profile: %v", err)
 	}
@@ -165,13 +161,13 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 	return activeProf, nil
 }
 
-func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, profileName string, activeProf *profilemanager.Profile, username string) error {
+func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, profileName string, username string) error {
 	err := pm.SwitchProfile(profileName)
 	if err != nil {
 		return fmt.Errorf("switch profile: %v", err)
 	}
 
-	err = switchProfile(context.Background(), activeProf, username)
+	err = switchProfile(context.Background(), &profilemanager.Profile{Name: profileName}, username)
 	if err != nil {
 		return fmt.Errorf("switch profile on daemon: %v", err)
 	}
