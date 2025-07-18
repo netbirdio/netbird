@@ -75,6 +75,38 @@ func TestScheduler_Cancel(t *testing.T) {
 	assert.NotNil(t, scheduler.jobs[jobID2])
 }
 
+func TestScheduler_CancelAll(t *testing.T) {
+	jobID1 := "test-scheduler-job-1"
+	jobID2 := "test-scheduler-job-2"
+	scheduler := NewDefaultScheduler()
+	tChan := make(chan struct{})
+	p := []string{jobID1, jobID2}
+	scheduletime := 2 * time.Millisecond
+	sleepTime := 4 * time.Millisecond
+	if runtime.GOOS == "windows" {
+		// sleep and ticker are slower on windows see https://github.com/golang/go/issues/44343
+		sleepTime = 20 * time.Millisecond
+	}
+
+	scheduler.Schedule(context.Background(), scheduletime, jobID1, func() (nextRunIn time.Duration, reschedule bool) {
+		tt := p[0]
+		<-tChan
+		t.Logf("job %s", tt)
+		return scheduletime, true
+	})
+	scheduler.Schedule(context.Background(), scheduletime, jobID2, func() (nextRunIn time.Duration, reschedule bool) {
+		return scheduletime, true
+	})
+
+	time.Sleep(sleepTime)
+	assert.Len(t, scheduler.jobs, 2)
+	scheduler.CancelAll(context.Background())
+	close(tChan)
+	p = []string{}
+	time.Sleep(sleepTime)
+	assert.Len(t, scheduler.jobs, 0)
+}
+
 func TestScheduler_Schedule(t *testing.T) {
 	jobID := "test-scheduler-job-1"
 	scheduler := NewDefaultScheduler()
