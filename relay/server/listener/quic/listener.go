@@ -18,12 +18,9 @@ type Listener struct {
 	TLSConfig *tls.Config
 
 	listener *quic.Listener
-	acceptFn func(conn net.Conn)
 }
 
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
-	l.acceptFn = acceptFn
-
 	quicCfg := &quic.Config{
 		EnableDatagrams:   true,
 		InitialPacketSize: 1452,
@@ -49,7 +46,7 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 
 		log.Infof("QUIC client connected from: %s", session.RemoteAddr())
 		conn := NewConn(session)
-		l.acceptFn(conn)
+		acceptFn(conn)
 	}
 }
 
