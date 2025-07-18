@@ -6,7 +6,7 @@ require (
 	cunicu.li/go-rosenpass v0.4.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/cloudflare/circl v1.3.3 // indirect
-	github.com/golang-jwt/jwt v3.2.2+incompatible
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/golang/protobuf v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.0
