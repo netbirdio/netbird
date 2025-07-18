@@ -108,6 +108,9 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
 		}
+	} else {
+		util.WriteErrorResponse("no extra settings provided", http.StatusBadRequest, w)
+		return
 	}
 
 	if req.Settings.JwtGroupsEnabled != nil {
