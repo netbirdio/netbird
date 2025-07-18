@@ -1044,9 +1044,6 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	mu := sync.Mutex{}
 	engines := []*Engine{}
 	numPeers := 10
-	if runtime.GOOS == "windows" {
-		numPeers = 5
-	}
 	wg := sync.WaitGroup{}
 	wg.Add(numPeers)
 	// create and start peers
