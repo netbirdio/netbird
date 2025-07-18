@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/exp/maps"
 
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
@@ -220,10 +219,8 @@ func (t *UDPTracker) sendEvent(typ nftypes.Type, conn *UDPConnTrack, ruleID []by
 	})
 }
 
-func (t *UDPTracker) getConnections() map[ConnKey]*UDPConnTrack {
+func (t *UDPTracker) getConnectionsLen() int {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	copyConn := make(map[ConnKey]*UDPConnTrack, len(t.connections))
-	maps.Copy(copyConn, t.connections)
-	return copyConn
+	return len(t.connections)
 }

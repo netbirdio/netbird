@@ -202,13 +202,13 @@ func TestUDPTracker_Cleanup(t *testing.T) {
 	}
 
 	// Verify initial connections
-	assert.Len(t, tracker.getConnections(), 2)
+	assert.Equal(t, 2, tracker.getConnectionsLen())
 
 	// Wait for connection timeout and cleanup interval
 	time.Sleep(timeout + 2*cleanupInterval)
 
 	tracker.mutex.RLock()
-	connCount := len(tracker.getConnections())
+	connCount := tracker.getConnectionsLen()
 	tracker.mutex.RUnlock()
 
 	// Verify connections were cleaned up
