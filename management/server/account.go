@@ -2090,7 +2090,7 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
-		return fmt.Errorf("failed to validate user permissions: %w", err)
+		return fmt.Errorf("validate user permissions: %w", err)
 	}
 	if !allowed {
 		return status.NewPermissionDeniedError()

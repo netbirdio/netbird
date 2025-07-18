@@ -18,6 +18,17 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
+const (
+	// PeerBufferPercentage is the percentage of peers to add as buffer for network range calculations
+	PeerBufferPercentage = 0.5
+	// MinRequiredAddresses is the minimum number of addresses required in a network range
+	MinRequiredAddresses = 10
+	// MinNetworkBits is the minimum prefix length for IPv4 network ranges (e.g., /29 gives 8 addresses, /28 gives 16)
+	MinNetworkBitsIPv4 = 28
+	// MinNetworkBitsIPv6 is the minimum prefix length for IPv6 network ranges
+	MinNetworkBitsIPv6 = 120
+)
+
 // handler is a handler that handles the server.Account HTTP endpoints
 type handler struct {
 	accountManager  account.Manager
@@ -71,9 +82,16 @@ func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, n
 		return status.Errorf(status.InvalidArgument, "multicast address range not allowed")
 	}
 
+	if addr.Is4() && prefix.Bits() > MinNetworkBitsIPv4 {
+		return status.Errorf(status.InvalidArgument, "network range too small: minimum size is /%d for IPv4", MinNetworkBitsIPv4)
+	}
+	if addr.Is6() && prefix.Bits() > MinNetworkBitsIPv6 {
+		return status.Errorf(status.InvalidArgument, "network range too small: minimum size is /%d for IPv6", MinNetworkBitsIPv6)
+	}
+
 	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "")
 	if err != nil {
-		return status.Errorf(status.Internal, "failed to get peer count: %v", err)
+		return status.Errorf(status.Internal, "get peer count: %v", err)
 	}
 
 	availableAddresses := prefix.Addr().BitLen() - prefix.Bits()
@@ -83,9 +101,9 @@ func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, n
 		maxHosts -= 2
 	}
 
-	requiredAddresses := int64(len(peers)) + int64(len(peers)/2)
-	if requiredAddresses < 10 {
-		requiredAddresses = 10
+	requiredAddresses := int64(len(peers)) + int64(float64(len(peers))*PeerBufferPercentage)
+	if requiredAddresses < MinRequiredAddresses {
+		requiredAddresses = MinRequiredAddresses
 	}
 
 	if maxHosts < requiredAddresses {
