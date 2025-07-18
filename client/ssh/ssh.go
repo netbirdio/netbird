@@ -30,9 +30,8 @@ const RSA KeyType = "rsa"
 // RSAKeySize is a size of newly generated RSA key
 const RSAKeySize = 2048
 
-// GeneratePrivateKey creates RSA Private Key of specified byte size
+// GeneratePrivateKey creates a private key of the specified type.
 func GeneratePrivateKey(keyType KeyType) ([]byte, error) {
-
 	var key crypto.Signer
 	var err error
 	switch keyType {
@@ -57,7 +56,7 @@ func GeneratePrivateKey(keyType KeyType) ([]byte, error) {
 	return pemBytes, nil
 }
 
-// GeneratePublicKey returns the public part of the private key
+// GeneratePublicKey returns the public part of the private key.
 func GeneratePublicKey(key []byte) ([]byte, error) {
 	signer, err := gossh.ParsePrivateKey(key)
 	if err != nil {
@@ -68,20 +67,17 @@ func GeneratePublicKey(key []byte) ([]byte, error) {
 	return []byte(strKey), nil
 }
 
-// EncodePrivateKeyToPEM encodes Private Key from RSA to PEM format
+// EncodePrivateKeyToPEM encodes a private key to PEM format.
 func EncodePrivateKeyToPEM(privateKey crypto.Signer) ([]byte, error) {
 	mk, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
 		return nil, err
 	}
 
-	// pem.Block
 	privBlock := pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: mk,
 	}
-
-	// Private key in PEM format
 	privatePEM := pem.EncodeToMemory(&privBlock)
 	return privatePEM, nil
 }
