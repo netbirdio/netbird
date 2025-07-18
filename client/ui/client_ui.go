@@ -790,7 +790,7 @@ func (s *serviceClient) onTrayReady() {
 
 	profileMenuItem := systray.AddMenuItem("", "")
 	emailMenuItem := systray.AddMenuItem("", "")
-	s.mProfile = newProfileMenu(s.ctx, s.profileManager, *s.eventHandler, profileMenuItem, emailMenuItem, s.menuDownClick, s.menuUpClick, s.getSrvClient)
+	s.mProfile = newProfileMenu(s.ctx, s.profileManager, *s.eventHandler, profileMenuItem, emailMenuItem, s.menuDownClick, s.menuUpClick, s.getSrvClient, s.loadSettings)
 
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")

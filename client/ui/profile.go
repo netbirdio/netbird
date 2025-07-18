@@ -339,13 +339,15 @@ type profileMenu struct {
 	downClickCallback     func() error
 	upClickCallback       func() error
 	getSrvClientCallback  func(timeout time.Duration) (proto.DaemonServiceClient, error)
+	loadSettingsCallback  func()
 }
 
 func newProfileMenu(ctx context.Context, profileManager *profilemanager.ProfileManager,
 
 	eventHandler eventHandler, profileMenuItem, emailMenuItem *systray.MenuItem,
 	downClickCallback, upClickCallback func() error,
-	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)) *profileMenu {
+	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error),
+	loadSettingsCallback func()) *profileMenu {
 	p := profileMenu{
 		ctx:                  ctx,
 		profileManager:       profileManager,
@@ -355,6 +357,7 @@ func newProfileMenu(ctx context.Context, profileManager *profilemanager.ProfileM
 		downClickCallback:    downClickCallback,
 		upClickCallback:      upClickCallback,
 		getSrvClientCallback: getSrvClientCallback,
+		loadSettingsCallback: loadSettingsCallback,
 	}
 
 	p.emailMenuItem.Disable()
@@ -501,6 +504,7 @@ func (p *profileMenu) refresh() {
 					}
 
 					p.refresh()
+					p.loadSettingsCallback()
 				}
 			}
 		}()
@@ -522,6 +526,7 @@ func (p *profileMenu) refresh() {
 				// Handle manage profiles click
 				p.eventHandler.runSelfCommand(p.ctx, "profiles", "true")
 				p.refresh()
+				p.loadSettingsCallback()
 			}
 		}
 	}()
