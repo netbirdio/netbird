@@ -2084,6 +2084,19 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 	return nil
 }
 
+func (am *DefaultAccountManager) validateIPForUpdate(account *types.Account, peers []*nbpeer.Peer, peerID string, newIP net.IP) error {
+	if !account.Network.Net.Contains(newIP) {
+		return status.Errorf(status.InvalidArgument, "IP %s is not within the account network range %s", newIP.String(), account.Network.Net.String())
+	}
+
+	for _, peer := range peers {
+		if peer.ID != peerID && peer.IP.Equal(newIP) {
+			return status.Errorf(status.InvalidArgument, "IP %s is already assigned to peer %s", newIP.String(), peer.ID)
+		}
+	}
+	return nil
+}
+
 func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, userID, peerID string, newIP net.IP) error {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
@@ -2103,10 +2116,6 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 			return err
 		}
 
-		if !account.Network.Net.Contains(newIP) {
-			return status.Errorf(status.InvalidArgument, "IP %s is not within the account network range %s", newIP.String(), account.Network.Net.String())
-		}
-
 		existingPeer, err := transaction.GetPeerByID(ctx, store.LockingStrengthShare, accountID, peerID)
 		if err != nil {
 			return err
@@ -2121,10 +2130,8 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 			return err
 		}
 
-		for _, peer := range peers {
-			if peer.ID != peerID && peer.IP.Equal(newIP) {
-				return status.Errorf(status.InvalidArgument, "IP %s is already assigned to peer %s", newIP.String(), peer.ID)
-			}
+		if err := am.validateIPForUpdate(account, peers, peerID, newIP); err != nil {
+			return err
 		}
 
 		log.WithContext(ctx).Infof("updating peer %s IP from %s to %s", peerID, existingPeer.IP.String(), newIP.String())

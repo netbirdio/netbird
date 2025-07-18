@@ -50,17 +50,14 @@ func newHandler(accountManager account.Manager, settingsManager settings.Manager
 	}
 }
 
-func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, networkRange string) error {
-	if networkRange == "" {
-		return nil
+func validateIPAddress(addr netip.Addr) error {
+	if addr.IsLoopback() {
+		return status.Errorf(status.InvalidArgument, "loopback address range not allowed")
 	}
 
-	prefix, err := netip.ParsePrefix(networkRange)
-	if err != nil {
-		return status.Errorf(status.InvalidArgument, "invalid CIDR format: %v", err)
+	if addr.IsMulticast() {
+		return status.Errorf(status.InvalidArgument, "multicast address range not allowed")
 	}
-
-	addr := prefix.Addr()
 
 	if addr.Is4() {
 		linkLocal, _ := netip.ParsePrefix("169.254.0.0/16")
@@ -74,19 +71,36 @@ func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, n
 		}
 	}
 
-	if addr.IsLoopback() {
-		return status.Errorf(status.InvalidArgument, "loopback address range not allowed")
-	}
+	return nil
+}
 
-	if addr.IsMulticast() {
-		return status.Errorf(status.InvalidArgument, "multicast address range not allowed")
-	}
-
+func validateMinimumSize(prefix netip.Prefix) error {
+	addr := prefix.Addr()
 	if addr.Is4() && prefix.Bits() > MinNetworkBitsIPv4 {
 		return status.Errorf(status.InvalidArgument, "network range too small: minimum size is /%d for IPv4", MinNetworkBitsIPv4)
 	}
 	if addr.Is6() && prefix.Bits() > MinNetworkBitsIPv6 {
 		return status.Errorf(status.InvalidArgument, "network range too small: minimum size is /%d for IPv6", MinNetworkBitsIPv6)
+	}
+	return nil
+}
+
+func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, networkRange string) error {
+	if networkRange == "" {
+		return nil
+	}
+
+	prefix, err := netip.ParsePrefix(networkRange)
+	if err != nil {
+		return status.Errorf(status.InvalidArgument, "invalid CIDR format: %v", err)
+	}
+
+	if err := validateIPAddress(prefix.Addr()); err != nil {
+		return err
+	}
+
+	if err := validateMinimumSize(prefix); err != nil {
+		return err
 	}
 
 	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "")
@@ -97,7 +111,7 @@ func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, n
 	availableAddresses := prefix.Addr().BitLen() - prefix.Bits()
 	maxHosts := int64(1) << availableAddresses
 
-	if addr.Is4() {
+	if prefix.Addr().Is4() {
 		maxHosts -= 2
 	}
 
