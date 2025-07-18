@@ -254,13 +254,8 @@ func (s *serviceClient) switchProfile(profileName string) error {
 		return fmt.Errorf("get current user: %w", err)
 	}
 
-	prof, err := s.profileManager.GetActiveProfile()
-	if err != nil {
-		return fmt.Errorf("get active profile: %w", err)
-	}
-
 	if _, err := conn.SwitchProfile(context.Background(), &proto.SwitchProfileRequest{
-		ProfileName: &prof.Name,
+		ProfileName: &profileName,
 		Username:    &currUser.Username,
 	}); err != nil {
 		return fmt.Errorf("switch profile failed: %w", err)
@@ -280,7 +275,7 @@ func (s *serviceClient) removeProfile(profileName string) error {
 		return fmt.Errorf("get current user: %w", err)
 	}
 
-	_, err = conn.AddProfile(context.Background(), &proto.AddProfileRequest{
+	_, err = conn.RemoveProfile(context.Background(), &proto.RemoveProfileRequest{
 		ProfileName: profileName,
 		Username:    currUser.Username,
 	})

@@ -736,7 +736,7 @@ func (s *Server) switchProfileIfNeeded(profileName string, userName *string, act
 		username = *userName
 	}
 
-	if profileName != activeProf.Name && username != activeProf.Username {
+	if profileName != activeProf.Name || username != activeProf.Username {
 		log.Infof("switching to profile %s for user %s", profileName, username)
 		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
 			Name:     profileName,
@@ -771,13 +771,11 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 			return nil, fmt.Errorf("failed to switch profile: %w", err)
 		}
 	}
-
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
-
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
 		log.Errorf("failed to get active profile file path: %v", err)
