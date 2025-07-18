@@ -60,9 +60,7 @@ func (r *RaceDial) Dial() (net.Conn, error) {
 func (r *RaceDial) dial(dfn DialeFn, abortCtx context.Context, connChan chan dialResult) {
 	ctx, cancel := context.WithTimeout(abortCtx, connectionTimeout)
 	defer cancel()
-	if dfn.Protocol() == "WS" {
-		time.Sleep(500 * time.Millisecond) // Give WS a head start
-	}
+
 	r.log.Infof("dialing Relay server via %s", dfn.Protocol())
 	conn, err := dfn.Dial(ctx, r.serverURL)
 	connChan <- dialResult{Conn: conn, Protocol: dfn.Protocol(), Err: err}

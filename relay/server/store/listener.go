@@ -7,11 +7,15 @@ import (
 	"github.com/netbirdio/netbird/relay/messages"
 )
 
+type event struct {
+	peerID messages.PeerID
+	online bool
+}
+
 type Listener struct {
 	ctx context.Context
 
-	onlineChan                chan messages.PeerID
-	offlineChan               chan messages.PeerID
+	eventChan                 chan *event
 	interestedPeersForOffline map[messages.PeerID]struct{}
 	interestedPeersForOnline  map[messages.PeerID]struct{}
 	mu                        sync.RWMutex
@@ -21,8 +25,9 @@ func newListener(ctx context.Context) *Listener {
 	l := &Listener{
 		ctx: ctx,
 
-		onlineChan:                make(chan messages.PeerID, 244), //244 is the message size limit in the relay protocol
-		offlineChan:               make(chan messages.PeerID, 244), //244 is the message size limit in the relay protocol
+		// important to use a single channel for offline and online events becuse with it we can ensure all events will
+		// be processed in the order they were sent
+		eventChan:                 make(chan *event, 244), //244 is the message size limit in the relay protocol
 		interestedPeersForOffline: make(map[messages.PeerID]struct{}),
 		interestedPeersForOnline:  make(map[messages.PeerID]struct{}),
 	}
@@ -48,7 +53,6 @@ func (l *Listener) RemoveInterestedPeer(peerIDs []messages.PeerID) {
 	for _, id := range peerIDs {
 		delete(l.interestedPeersForOffline, id)
 		delete(l.interestedPeersForOnline, id)
-
 	}
 }
 
@@ -57,26 +61,31 @@ func (l *Listener) listenForEvents(onPeersComeOnline, onPeersWentOffline func([]
 		select {
 		case <-l.ctx.Done():
 			return
-		case pID := <-l.onlineChan:
-			peers := make([]messages.PeerID, 0)
-			peers = append(peers, pID)
-
-			for len(l.onlineChan) > 0 {
-				pID = <-l.onlineChan
-				peers = append(peers, pID)
+		case e := <-l.eventChan:
+			peersOffline := make([]messages.PeerID, 0)
+			peersOnline := make([]messages.PeerID, 0)
+			if e.online {
+				peersOnline = append(peersOnline, e.peerID)
+			} else {
+				peersOffline = append(peersOffline, e.peerID)
 			}
 
-			onPeersComeOnline(peers)
-		case pID := <-l.offlineChan:
-			peers := make([]messages.PeerID, 0)
-			peers = append(peers, pID)
-
-			for len(l.offlineChan) > 0 {
-				pID = <-l.offlineChan
-				peers = append(peers, pID)
+			// Drain the channel to collect all events
+			for len(l.eventChan) > 0 {
+				e = <-l.eventChan
+				if e.online {
+					peersOnline = append(peersOnline, e.peerID)
+				} else {
+					peersOffline = append(peersOffline, e.peerID)
+				}
 			}
 
-			onPeersWentOffline(peers)
+			if len(peersOnline) > 0 {
+				onPeersComeOnline(peersOnline)
+			}
+			if len(peersOffline) > 0 {
+				onPeersWentOffline(peersOffline)
+			}
 		}
 	}
 }
@@ -87,7 +96,10 @@ func (l *Listener) peerWentOffline(peerID messages.PeerID) {
 
 	if _, ok := l.interestedPeersForOffline[peerID]; ok {
 		select {
-		case l.offlineChan <- peerID:
+		case l.eventChan <- &event{
+			peerID: peerID,
+			online: false,
+		}:
 		case <-l.ctx.Done():
 		}
 	}
@@ -99,9 +111,13 @@ func (l *Listener) peerComeOnline(peerID messages.PeerID) {
 
 	if _, ok := l.interestedPeersForOnline[peerID]; ok {
 		select {
-		case l.onlineChan <- peerID:
+		case l.eventChan <- &event{
+			peerID: peerID,
+			online: true,
+		}:
 		case <-l.ctx.Done():
 		}
+
 		delete(l.interestedPeersForOnline, peerID)
 	}
 }
