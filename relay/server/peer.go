@@ -32,6 +32,9 @@ type Peer struct {
 	notifier *store.PeerNotifier
 
 	peersListener *store.Listener
+
+	// between the online peer collection step and the notification sending should not be sent offline notifications from another thread
+	notificationMutex sync.Mutex
 }
 
 // NewPeer creates a new Peer instance and prepare custom logging
@@ -243,6 +246,9 @@ func (p *Peer) handleSubscribePeerState(msg []byte) {
 	p.log.Debugf("received subscription message for %d peers", len(peerIDs))
 
 	// collect online peers to response back to the caller
+	p.notificationMutex.Lock()
+	defer p.notificationMutex.Unlock()
+
 	onlinePeers := p.store.GetOnlinePeersAndRegisterInterest(peerIDs, p.peersListener)
 	if len(onlinePeers) == 0 {
 		return
@@ -277,6 +283,9 @@ func (p *Peer) sendPeersOnline(peers []messages.PeerID) {
 }
 
 func (p *Peer) sendPeersWentOffline(peers []messages.PeerID) {
+	p.notificationMutex.Lock()
+	defer p.notificationMutex.Unlock()
+
 	msgs, err := messages.MarshalPeersWentOffline(peers)
 	if err != nil {
 		p.log.Errorf("failed to marshal peer location message: %s", err)
