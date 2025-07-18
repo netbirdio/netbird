@@ -60,7 +60,7 @@ func (p *program) Start(svc service.Service) error {
 			}
 		}
 
-		serverInstance := server.New(p.ctx, configPath, logFile)
+		serverInstance := server.New(p.ctx, configPath, util.FindFirstLogPath(logFiles))
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed to start daemon: %v", err)
 		}
@@ -113,14 +113,14 @@ var runCmd = &cobra.Command{
 			return err
 		}
 
-		err = util.InitLog(logLevel, logFile)
+		err = util.InitLog(logLevel, logFiles...)
 		if err != nil {
 			return fmt.Errorf("failed initializing log %v", err)
 		}
 
 		ctx, cancel := context.WithCancel(cmd.Context())
 		SetupCloseHandler(ctx, cancel)
-		SetupDebugHandler(ctx, nil, nil, nil, logFile)
+		SetupDebugHandler(ctx, nil, nil, nil, util.FindFirstLogPath(logFiles))
 
 		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
@@ -147,7 +147,7 @@ var startCmd = &cobra.Command{
 			return err
 		}
 
-		err = util.InitLog(logLevel, logFile)
+		err = util.InitLog(logLevel, logFiles...)
 		if err != nil {
 			return err
 		}
@@ -182,7 +182,7 @@ var stopCmd = &cobra.Command{
 			return err
 		}
 
-		err = util.InitLog(logLevel, logFile)
+		err = util.InitLog(logLevel, logFiles...)
 		if err != nil {
 			return fmt.Errorf("failed initializing log %v", err)
 		}
@@ -215,7 +215,7 @@ var restartCmd = &cobra.Command{
 			return err
 		}
 
-		err = util.InitLog(logLevel, logFile)
+		err = util.InitLog(logLevel, logFiles...)
 		if err != nil {
 			return fmt.Errorf("failed initializing log %v", err)
 		}
