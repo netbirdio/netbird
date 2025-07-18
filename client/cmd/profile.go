@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"os/user"
@@ -182,7 +183,46 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 	profileManager := profilemanager.NewProfileManager()
 	profileName := args[0]
 
-	err := profileManager.SwitchProfile(profileName)
+	currUser, err := user.Current()
+	if err != nil {
+		log.Errorf("failed to get current user: %v", err)
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*7)
+	defer cancel()
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		log.Errorf("failed to connect to service CLI interface %v", err)
+		return err
+	}
+	defer conn.Close()
+
+	daemonClient := proto.NewDaemonServiceClient(conn)
+
+	profiles, err := daemonClient.ListProfiles(ctx, &proto.ListProfilesRequest{
+		Username: currUser.Username,
+	})
+	if err != nil {
+		log.Errorf("call service list profiles method: %v", err)
+		return err
+	}
+
+	var profileExists bool
+
+	for _, profile := range profiles.Profiles {
+		if profile.Name == profileName {
+			profileExists = true
+			break
+		}
+	}
+
+	if !profileExists {
+		log.Errorf("profile %s does not exist", profileName)
+		return fmt.Errorf("profile %s does not exist", profileName)
+	}
+
+	err = profileManager.SwitchProfile(profileName)
 	if err != nil {
 		return err
 	}
@@ -192,27 +232,9 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	currUser, err := user.Current()
-	if err != nil {
-		log.Errorf("failed to get current user: %v", err)
-		return err
-	}
-
 	if err := switchProfile(cmd.Context(), prof, currUser.Username); err != nil {
 		return err
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*7)
-	defer cancel()
-
-	conn, err := DialClientGRPCServer(ctx, daemonAddr)
-	if err != nil {
-		log.Errorf("failed to connect to service CLI interface %v", err)
-		return err
-	}
-	defer conn.Close()
-
-	daemonClient := proto.NewDaemonServiceClient(conn)
 
 	status, err := daemonClient.Status(ctx, &proto.StatusRequest{})
 	if err != nil {
