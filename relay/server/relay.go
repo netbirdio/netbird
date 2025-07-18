@@ -138,8 +138,9 @@ func (r *Relay) Accept(conn net.Conn) {
 	r.metrics.PeerConnected(peer.String())
 	go func() {
 		peer.Work()
-		r.notifier.PeerWentOffline(peer.ID())
-		r.store.DeletePeer(peer)
+		if deleted := r.store.DeletePeer(peer); deleted {
+			r.notifier.PeerWentOffline(peer.ID())
+		}
 		peer.log.Debugf("relay connection closed")
 		r.metrics.PeerDisconnected(peer.String())
 	}()
