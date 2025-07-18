@@ -272,10 +272,11 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engine.SetNetworkMapPersistence(c.persistNetworkMap)
 		c.engineMutex.Unlock()
 
-		if err := c.engine.Start(); err != nil {
+		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
+
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
