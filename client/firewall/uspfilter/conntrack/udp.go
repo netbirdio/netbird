@@ -218,3 +218,9 @@ func (t *UDPTracker) sendEvent(typ nftypes.Type, conn *UDPConnTrack, ruleID []by
 		TxBytes:    conn.BytesTx.Load(),
 	})
 }
+
+func (t *UDPTracker) getConnectionsLen() int {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+	return len(t.connections)
+}

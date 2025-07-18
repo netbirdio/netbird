@@ -50,7 +50,7 @@ type upstreamResolverBase struct {
 	upstreamClient   upstreamClient
 	upstreamServers  []string
 	domain           string
-	disabled         bool
+	disabled         atomic.Bool
 	failsCount       atomic.Int32
 	successCount     atomic.Int32
 	failsTillDeact   int32
@@ -176,7 +176,7 @@ func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
-	if u.failsCount.Load() < u.failsTillDeact || u.disabled {
+	if u.failsCount.Load() < u.failsTillDeact || u.disabled.Load() {
 		return
 	}
 
@@ -305,7 +305,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 	u.failsCount.Store(0)
 	u.successCount.Add(1)
 	u.reactivate()
-	u.disabled = false
+	u.disabled.Store(false)
 }
 
 // isTimeout returns true if the given error is a network timeout error.
@@ -320,14 +320,14 @@ func isTimeout(err error) bool {
 }
 
 func (u *upstreamResolverBase) disable(err error) {
-	if u.disabled {
+	if u.disabled.Load() {
 		return
 	}
 
 	log.Warnf("Upstream resolving is Disabled for %v", reactivatePeriod)
 	u.successCount.Store(0)
 	u.deactivate(err)
-	u.disabled = true
+	u.disabled.Store(true)
 	go u.waitUntilResponse()
 }
 

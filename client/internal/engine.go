@@ -836,7 +836,10 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			}
 			go func() {
 				// blocking
-				err = e.sshServer.Start()
+				e.syncMsgMux.Lock()
+				sshServer := e.sshServer
+				e.syncMsgMux.Unlock()
+				err = sshServer.Start()
 				if err != nil {
 					// will throw error when we stop it even if it is a graceful stop
 					log.Debugf("stopped SSH server with error %v", err)
@@ -851,6 +854,8 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		}
 	} else if !isNil(e.sshServer) {
 		// Disable SSH server request, so stop it if it was running
+		e.syncMsgMux.Lock()
+		defer e.syncMsgMux.Unlock()
 		err := e.sshServer.Stop()
 		if err != nil {
 			log.Warnf("failed to stop SSH server %v", err)

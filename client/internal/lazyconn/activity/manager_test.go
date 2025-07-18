@@ -50,8 +50,11 @@ func TestManager_MonitorPeerActivity(t *testing.T) {
 	if err := mgr.MonitorPeerActivity(peerCfg1); err != nil {
 		t.Fatalf("failed to monitor peer activity: %v", err)
 	}
-
-	if err := trigger(mgr.peers[peerCfg1.PeerConnID].conn.LocalAddr().String()); err != nil {
+	listener, ok := mgr.getPeerListener(peerCfg1.PeerConnID)
+	if !ok {
+		t.Fatalf("failed to get peer listener: %s", peerCfg1.PeerConnID)
+	}
+	if err := trigger(listener.conn.LocalAddr().String()); err != nil {
 		t.Fatalf("failed to trigger activity: %v", err)
 	}
 
