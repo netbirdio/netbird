@@ -25,8 +25,8 @@ func newListener(ctx context.Context) *Listener {
 	l := &Listener{
 		ctx: ctx,
 
-		// important to use a single channel for offline and online events becuse with it we can ensure all events will
-		// be processed in the order they were sent
+		// important to use a single channel for offline and online events because with it we can ensure all events
+		// will be processed in the order they were sent
 		eventChan:                 make(chan *event, 244), //244 is the message size limit in the relay protocol
 		interestedPeersForOffline: make(map[messages.PeerID]struct{}),
 		interestedPeersForOnline:  make(map[messages.PeerID]struct{}),
