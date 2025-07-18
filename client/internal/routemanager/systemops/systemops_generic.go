@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/libp2p/go-netroute"
@@ -24,6 +25,8 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
+const localSubnetsCacheTTL = 15 * time.Minute
+
 var splitDefaultv4_1 = netip.PrefixFrom(netip.IPv4Unspecified(), 1)
 var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
@@ -31,7 +34,7 @@ var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
 
 var ErrRoutingIsSeparate = errors.New("routing is separate")
 
-func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	stateManager.RegisterState(&ShutdownState{})
 
 	initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
@@ -75,7 +78,10 @@ func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemana
 
 	r.refCounter = refCounter
 
-	return r.setupHooks(initAddresses, stateManager)
+	if err := r.setupHooks(initAddresses, stateManager); err != nil {
+		return fmt.Errorf("setup hooks: %w", err)
+	}
+	return nil
 }
 
 // updateState updates state on every change so it will be persisted regularly
@@ -128,18 +134,14 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 		return Nexthop{}, fmt.Errorf("get next hop: %w", err)
 	}
 
-	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop.IP, prefix, nexthop.IP)
-	exitNextHop := Nexthop{
-		IP:   nexthop.IP,
-		Intf: nexthop.Intf,
-	}
+	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop.IP, prefix, nexthop.Intf)
+	exitNextHop := nexthop
 
 	vpnAddr := vpnIntf.Address().IP
 
 	// if next hop is the VPN address or the interface is the VPN interface, we should use the initial values
 	if exitNextHop.IP == vpnAddr || exitNextHop.Intf != nil && exitNextHop.Intf.Name == vpnIntf.Name() {
 		log.Debugf("Route for prefix %s is pointing to the VPN interface, using initial next hop %v", prefix, initialNextHop)
-
 		exitNextHop = initialNextHop
 	}
 
@@ -152,12 +154,37 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 }
 
 func (r *SysOps) isPrefixInLocalSubnets(prefix netip.Prefix) (bool, *net.IPNet) {
+	r.localSubnetsCacheMu.RLock()
+	cacheAge := time.Since(r.localSubnetsCacheTime)
+	subnets := r.localSubnetsCache
+	r.localSubnetsCacheMu.RUnlock()
+
+	if cacheAge > localSubnetsCacheTTL || subnets == nil {
+		r.localSubnetsCacheMu.Lock()
+		if time.Since(r.localSubnetsCacheTime) > localSubnetsCacheTTL || r.localSubnetsCache == nil {
+			r.refreshLocalSubnetsCache()
+		}
+		subnets = r.localSubnetsCache
+		r.localSubnetsCacheMu.Unlock()
+	}
+
+	for _, subnet := range subnets {
+		if subnet.Contains(prefix.Addr().AsSlice()) {
+			return true, subnet
+		}
+	}
+
+	return false, nil
+}
+
+func (r *SysOps) refreshLocalSubnetsCache() {
 	localInterfaces, err := net.Interfaces()
 	if err != nil {
 		log.Errorf("Failed to get local interfaces: %v", err)
-		return false, nil
+		return
 	}
 
+	var newSubnets []*net.IPNet
 	for _, intf := range localInterfaces {
 		addrs, err := intf.Addrs()
 		if err != nil {
@@ -171,14 +198,12 @@ func (r *SysOps) isPrefixInLocalSubnets(prefix netip.Prefix) (bool, *net.IPNet) 
 				log.Errorf("Failed to convert address to IPNet: %v", addr)
 				continue
 			}
-
-			if ipnet.Contains(prefix.Addr().AsSlice()) {
-				return true, ipnet
-			}
+			newSubnets = append(newSubnets, ipnet)
 		}
 	}
 
-	return false, nil
+	r.localSubnetsCache = newSubnets
+	r.localSubnetsCacheTime = time.Now()
 }
 
 // genericAddVPNRoute adds a new route to the vpn interface, it splits the default prefix
@@ -264,7 +289,7 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 	return r.removeFromRouteTable(prefix, nextHop)
 }
 
-func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
 		prefix, err := util.GetPrefixFromIP(ip)
 		if err != nil {
@@ -289,9 +314,11 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 		return nil
 	}
 
+	var merr *multierror.Error
+
 	for _, ip := range initAddresses {
 		if err := beforeHook("init", ip); err != nil {
-			log.Errorf("Failed to add route reference: %v", err)
+			merr = multierror.Append(merr, fmt.Errorf("add initial route for %s: %w", ip, err))
 		}
 	}
 
@@ -300,11 +327,11 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 			return ctx.Err()
 		}
 
-		var result *multierror.Error
+		var merr *multierror.Error
 		for _, ip := range resolvedIPs {
-			result = multierror.Append(result, beforeHook(connID, ip.IP))
+			merr = multierror.Append(merr, beforeHook(connID, ip.IP))
 		}
-		return nberrors.FormatErrorOrNil(result)
+		return nberrors.FormatErrorOrNil(merr)
 	})
 
 	nbnet.AddDialerCloseHook(func(connID nbnet.ConnectionID, conn *net.Conn) error {
@@ -319,7 +346,16 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 		return afterHook(connID)
 	})
 
-	return beforeHook, afterHook, nil
+	nbnet.AddListenerAddressRemoveHook(func(connID nbnet.ConnectionID, prefix netip.Prefix) error {
+		if _, err := r.refCounter.Decrement(prefix); err != nil {
+			return fmt.Errorf("remove route reference: %w", err)
+		}
+
+		r.updateState(stateManager)
+		return nil
+	})
+
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func GetNextHop(ip netip.Addr) (Nexthop, error) {

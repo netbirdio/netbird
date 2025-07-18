@@ -72,7 +72,7 @@ func getSetupRules() []ruleParams {
 // Rule 2 (VPN Traffic Routing): Directs all remaining traffic to the 'NetbirdVPNTableID' custom routing table.
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
-func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (_ nbnet.AddHookFunc, _ nbnet.RemoveHookFunc, err error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (err error) {
 	if !nbnet.AdvancedRouting() {
 		log.Infof("Using legacy routing setup")
 		return r.setupRefCounter(initAddresses, stateManager)
@@ -89,7 +89,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 	rules := getSetupRules()
 	for _, rule := range rules {
 		if err := addRule(rule); err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", rule.description, err)
+			return fmt.Errorf("%s: %w", rule.description, err)
 		}
 	}
 
@@ -104,7 +104,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 	}
 	originalSysctl = originalValues
 
-	return nil, nil, nil
+	return nil
 }
 
 // CleanupRouting performs a thorough cleanup of the routing configuration established by 'setupRouting'.

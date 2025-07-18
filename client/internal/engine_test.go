@@ -400,7 +400,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		StatusRecorder:   engine.statusRecorder,
 		RelayManager:     relayMgr,
 	})
-	_, _, err = engine.routeManager.Init()
+	err = engine.routeManager.Init()
 	require.NoError(t, err)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },

@@ -812,7 +812,7 @@ func TestGetBestrouteFromStatuses(t *testing.T) {
 			}
 
 			params := common.HandlerParams{
-				Route:               &route.Route{Network: netip.MustParsePrefix("192.168.0.0/24")},
+				Route: &route.Route{Network: netip.MustParsePrefix("192.168.0.0/24")},
 			}
 			// create new clientNetwork
 			client := &Watcher{
