@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	log "github.com/sirupsen/logrus"
 
@@ -18,31 +19,37 @@ import (
 // Parameters:
 //   - accountID: The ID of the account for which integrated validator groups are to be updated.
 //   - userID: The ID of the user whose account is being updated.
+//   - validator: The validator type to use, or empty to remove.
 //   - groups: A slice of strings representing the ids of integrated validator groups to be updated.
 //
 // Returns:
 //   - error: An error if any occurred during the process, otherwise returns nil
 func (am *DefaultAccountManager) UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error {
-	if validator == "" {
-		return errors.New("validator cannot be empty")
+	if validator != "" && len(groups) == 0 {
+		return fmt.Errorf("at least one group must be specified for validator")
 	}
 
-	ok, err := am.GroupValidation(ctx, accountID, groups)
-	if err != nil {
-		log.WithContext(ctx).Debugf("error validating groups: %s", err.Error())
-		return err
-	}
+	if validator != "" {
+		ok, err := am.GroupValidation(ctx, accountID, groups)
+		if err != nil {
+			log.WithContext(ctx).Debugf("error validating groups: %s", err.Error())
+			return err
+		}
 
-	if !ok {
-		log.WithContext(ctx).Debugf("invalid groups")
-		return errors.New("invalid groups")
+		if !ok {
+			log.WithContext(ctx).Debugf("invalid groups")
+			return errors.New("invalid groups")
+		}
+	} else {
+		// ensure groups is empty
+		groups = []string{}
 	}
 
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
 	return am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		a, err := transaction.GetAccountByUser(ctx, userID)
+		a, err := transaction.GetAccount(ctx, accountID)
 		if err != nil {
 			return err
 		}
