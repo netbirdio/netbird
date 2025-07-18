@@ -111,10 +111,6 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	pm := profilemanager.NewProfileManager()
-	activeProf, err := pm.GetActiveProfile()
-	if err != nil {
-		return fmt.Errorf("get active profile: %v", err)
-	}
 
 	username, err := user.Current()
 	if err != nil {
@@ -137,7 +133,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 		profileSwitched = true
 	}
 
-	activeProf, err = pm.GetActiveProfile()
+	activeProf, err := pm.GetActiveProfile()
 	if err != nil {
 		return fmt.Errorf("get active profile: %v", err)
 	}
