@@ -534,20 +534,18 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					return
 				}
 				if status.Status == string(internal.StatusConnected) {
-					go func() {
-						// run down & up
-						_, err = conn.Down(s.ctx, &proto.DownRequest{})
-						if err != nil {
-							log.Errorf("down service: %v", err)
-						}
+					// run down & up
+					_, err = conn.Down(s.ctx, &proto.DownRequest{})
+					if err != nil {
+						log.Errorf("down service: %v", err)
+					}
 
-						_, err = conn.Up(s.ctx, &proto.UpRequest{})
-						if err != nil {
-							log.Errorf("up service: %v", err)
-							dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
-							return
-						}
-					}()
+					_, err = conn.Up(s.ctx, &proto.UpRequest{})
+					if err != nil {
+						log.Errorf("up service: %v", err)
+						dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
+						return
+					}
 				}
 
 			}

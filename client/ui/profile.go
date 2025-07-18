@@ -88,7 +88,8 @@ func (s *serviceClient) showProfilesUI() {
 						// switch
 						err = s.switchProfile(profile.Name)
 						if err != nil {
-							dialog.ShowError(fmt.Errorf("failed to select profile: %w", err), s.wProfiles)
+							log.Errorf("failed to switch profile: %v", err)
+							dialog.ShowError(errors.New("failed to select profile"), s.wProfiles)
 							return
 						}
 
@@ -112,7 +113,8 @@ func (s *serviceClient) showProfilesUI() {
 
 						if status.Status == string(internal.StatusConnected) {
 							if err := s.menuDownClick(); err != nil {
-								dialog.ShowError(fmt.Errorf("failed to handle down click: %w", err), s.wProfiles)
+								log.Errorf("failed to handle down click after switching profile: %v", err)
+								dialog.ShowError(fmt.Errorf("failed to handle down click"), s.wProfiles)
 								return
 							}
 						}
@@ -136,7 +138,8 @@ func (s *serviceClient) showProfilesUI() {
 						// remove
 						err = s.removeProfile(profile.Name)
 						if err != nil {
-							dialog.ShowError(fmt.Errorf("failed to remove profile: %w", err), s.wProfiles)
+							log.Errorf("failed to remove profile: %v", err)
+							dialog.ShowError(fmt.Errorf("failed to remove profile"), s.wProfiles)
 							return
 						}
 						dialog.ShowInformation(
@@ -187,7 +190,8 @@ func (s *serviceClient) showProfilesUI() {
 				// add profile
 				err = s.addProfile(name)
 				if err != nil {
-					dialog.ShowError(fmt.Errorf("failed to create profile: %w", err), s.wProfiles)
+					log.Errorf("failed to create profile: %v", err)
+					dialog.ShowError(fmt.Errorf("failed to create profile"), s.wProfiles)
 					return
 				}
 				dialog.ShowInformation(
@@ -496,6 +500,10 @@ func (p *profileMenu) refresh() {
 						if err := p.downClickCallback(); err != nil {
 							log.Errorf("failed to handle down click after switching profile: %v", err)
 						}
+					}
+
+					if err := p.upClickCallback(); err != nil {
+						log.Errorf("failed to handle up click after switching profile: %v", err)
 					}
 
 					p.refresh()
