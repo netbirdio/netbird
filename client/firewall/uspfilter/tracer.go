@@ -314,7 +314,7 @@ func (m *Manager) buildConntrackStateMessage(d *decoder) string {
 func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP netip.Addr) bool {
 	trace.AddResult(StageRouting, "Packet destined for local delivery", true)
 
-	ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
+	ruleId, blocked := m.peerACLsBlock(srcIP, d, packetData)
 
 	strRuleId := "<no id>"
 	if ruleId != nil {

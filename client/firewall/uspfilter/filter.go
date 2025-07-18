@@ -70,14 +70,13 @@ func (r RouteRules) Sort() {
 
 // Manager userspace firewall manager
 type Manager struct {
-	// outgoingRules is used for hooks only
-	outgoingRules map[netip.Addr]RuleSet
-	// incomingRules is used for filtering and hooks
-	incomingRules  map[netip.Addr]RuleSet
-	routeRules     RouteRules
-	decoders       sync.Pool
-	wgIface        common.IFaceMapper
-	nativeFirewall firewall.Manager
+	outgoingRules     map[netip.Addr]RuleSet
+	incomingDenyRules map[netip.Addr]RuleSet
+	incomingRules     map[netip.Addr]RuleSet
+	routeRules        RouteRules
+	decoders          sync.Pool
+	wgIface           common.IFaceMapper
+	nativeFirewall    firewall.Manager
 
 	mutex sync.RWMutex
 
@@ -186,6 +185,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		},
 		nativeFirewall:      nativeFirewall,
 		outgoingRules:       make(map[netip.Addr]RuleSet),
+		incomingDenyRules:   make(map[netip.Addr]RuleSet),
 		incomingRules:       make(map[netip.Addr]RuleSet),
 		wgIface:             iface,
 		localipmanager:      newLocalIPManager(),
@@ -417,10 +417,17 @@ func (m *Manager) AddPeerFiltering(
 	}
 
 	m.mutex.Lock()
-	if _, ok := m.incomingRules[r.ip]; !ok {
-		m.incomingRules[r.ip] = make(RuleSet)
+	var targetMap map[netip.Addr]RuleSet
+	if r.drop {
+		targetMap = m.incomingDenyRules
+	} else {
+		targetMap = m.incomingRules
 	}
-	m.incomingRules[r.ip][r.id] = r
+
+	if _, ok := targetMap[r.ip]; !ok {
+		targetMap[r.ip] = make(RuleSet)
+	}
+	targetMap[r.ip][r.id] = r
 	m.mutex.Unlock()
 	return []firewall.Rule{&r}, nil
 }
@@ -507,10 +514,24 @@ func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
 		return fmt.Errorf("delete rule: invalid rule type: %T", rule)
 	}
 
-	if _, ok := m.incomingRules[r.ip][r.id]; !ok {
+	var sourceMap map[netip.Addr]RuleSet
+	if r.drop {
+		sourceMap = m.incomingDenyRules
+	} else {
+		sourceMap = m.incomingRules
+	}
+
+	if ruleset, ok := sourceMap[r.ip]; ok {
+		if _, exists := ruleset[r.id]; !exists {
+			return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
+		}
+		delete(ruleset, r.id)
+		if len(ruleset) == 0 {
+			delete(sourceMap, r.ip)
+		}
+	} else {
 		return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
 	}
-	delete(m.incomingRules[r.ip], r.id)
 
 	return nil
 }
@@ -572,7 +593,7 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	return nil
 }
 
-// FilterOutBound filters outgoing packets
+// FilterOutbound filters outgoing packets
 func (m *Manager) FilterOutbound(packetData []byte, size int) bool {
 	return m.filterOutbound(packetData, size)
 }
@@ -761,7 +782,7 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 // handleLocalTraffic handles local traffic.
 // If it returns true, the packet should be dropped.
 func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
-	ruleID, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
+	ruleID, blocked := m.peerACLsBlock(srcIP, d, packetData)
 	if blocked {
 		_, pnum := getProtocolFromPacket(d)
 		srcPort, dstPort := getPortsFromPacket(d)
@@ -971,26 +992,28 @@ func (m *Manager) isSpecialICMP(d *decoder) bool {
 		icmpType == layers.ICMPv4TypeTimeExceeded
 }
 
-func (m *Manager) peerACLsBlock(srcIP netip.Addr, packetData []byte, rules map[netip.Addr]RuleSet, d *decoder) ([]byte, bool) {
+func (m *Manager) peerACLsBlock(srcIP netip.Addr, d *decoder, packetData []byte) ([]byte, bool) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
+
 	if m.isSpecialICMP(d) {
 		return nil, false
 	}
 
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules[srcIP], d); ok {
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingDenyRules[srcIP], d); ok {
 		return mgmtId, filter
 	}
 
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules[netip.IPv4Unspecified()], d); ok {
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingRules[srcIP], d); ok {
+		return mgmtId, filter
+	}
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingRules[netip.IPv4Unspecified()], d); ok {
+		return mgmtId, filter
+	}
+	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingRules[netip.IPv6Unspecified()], d); ok {
 		return mgmtId, filter
 	}
 
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, rules[netip.IPv6Unspecified()], d); ok {
-		return mgmtId, filter
-	}
-
-	// Default policy: DROP ALL
 	return nil, true
 }
 
@@ -1013,6 +1036,7 @@ func portsMatch(rulePort *firewall.Port, packetPort uint16) bool {
 
 func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d *decoder) ([]byte, bool, bool) {
 	payloadLayer := d.decoded[1]
+
 	for _, rule := range rules {
 		if rule.matchByIP && ip.Compare(rule.ip) != 0 {
 			continue
@@ -1045,6 +1069,7 @@ func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d
 			return rule.mgmtId, rule.drop, true
 		}
 	}
+
 	return nil, false, false
 }
 
@@ -1116,6 +1141,7 @@ func (m *Manager) AddUDPPacketHook(in bool, ip netip.Addr, dPort uint16, hook fu
 
 	m.mutex.Lock()
 	if in {
+		// Incoming UDP hooks are stored in allow rules map
 		if _, ok := m.incomingRules[r.ip]; !ok {
 			m.incomingRules[r.ip] = make(map[string]PeerRule)
 		}
@@ -1136,6 +1162,7 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	// Check incoming hooks (stored in allow rules)
 	for _, arr := range m.incomingRules {
 		for _, r := range arr {
 			if r.id == hookID {
@@ -1144,6 +1171,7 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 			}
 		}
 	}
+	// Check outgoing hooks
 	for _, arr := range m.outgoingRules {
 		for _, r := range arr {
 			if r.id == hookID {
