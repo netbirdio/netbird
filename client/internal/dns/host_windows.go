@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -210,8 +211,8 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 	return nil
 }
 
-func (r *registryConfigurator) addDNSSetupForAll(ip string) error {
-	if err := r.setInterfaceRegistryKeyStringValue(interfaceConfigNameServerKey, ip); err != nil {
+func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
+	if err := r.setInterfaceRegistryKeyStringValue(interfaceConfigNameServerKey, ip.String()); err != nil {
 		return fmt.Errorf("adding dns setup for all failed: %w", err)
 	}
 	r.routingAll = true
@@ -219,7 +220,7 @@ func (r *registryConfigurator) addDNSSetupForAll(ip string) error {
 	return nil
 }
 
-func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip string) error {
+func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr) error {
 	// if the gpo key is present, we need to put our DNS settings there, otherwise our config might be ignored
 	// see https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpnrpt/8cc31cb9-20cb-4140-9e85-3e08703b4745
 	if r.gpo {
@@ -241,7 +242,7 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip string) er
 }
 
 // configureDNSPolicy handles the actual configuration of a DNS policy at the specified path
-func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip string) error {
+func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip netip.Addr) error {
 	if err := removeRegistryKeyFromDNSPolicyConfig(policyPath); err != nil {
 		return fmt.Errorf("remove existing dns policy: %w", err)
 	}
@@ -260,7 +261,7 @@ func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []s
 		return fmt.Errorf("set %s: %w", dnsPolicyConfigNameKey, err)
 	}
 
-	if err := regKey.SetStringValue(dnsPolicyConfigGenericDNSServersKey, ip); err != nil {
+	if err := regKey.SetStringValue(dnsPolicyConfigGenericDNSServersKey, ip.String()); err != nil {
 		return fmt.Errorf("set %s: %w", dnsPolicyConfigGenericDNSServersKey, err)
 	}
 

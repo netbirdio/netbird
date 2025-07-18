@@ -2,7 +2,6 @@ package dns
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/netip"
 	"runtime"
@@ -20,7 +19,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	cProto "github.com/netbirdio/netbird/client/proto"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/domain"
 )
@@ -41,7 +39,7 @@ type Server interface {
 	DeregisterHandler(domains domain.List, priority int)
 	Initialize() error
 	Stop()
-	DnsIP() string
+	DnsIP() netip.Addr
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
 	OnUpdatedHostDNSServer(strings []string)
 	SearchDomains() []string
@@ -51,6 +49,12 @@ type Server interface {
 type nsGroupsByDomain struct {
 	domain string
 	groups []*nbdns.NameServerGroup
+}
+
+// hostManagerWithOriginalNS extends the basic hostManager interface
+type hostManagerWithOriginalNS interface {
+	hostManager
+	getOriginalNameservers() []string
 }
 
 // DefaultServer dns server object
@@ -215,6 +219,7 @@ func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, p
 			log.Warn("skipping empty domain")
 			continue
 		}
+
 		s.handlerChain.AddHandler(domain, handler, priority)
 	}
 }
@@ -286,7 +291,7 @@ func (s *DefaultServer) Initialize() (err error) {
 //
 // When kernel space interface used it return real DNS server listener IP address
 // For bind interface, fake DNS resolver address returned (second last IP address from Nebird network)
-func (s *DefaultServer) DnsIP() string {
+func (s *DefaultServer) DnsIP() netip.Addr {
 	return s.service.RuntimeIP()
 }
 
@@ -297,6 +302,11 @@ func (s *DefaultServer) Stop() {
 	s.ctxCancel()
 
 	if s.hostManager != nil {
+		if srvs, ok := s.hostManager.(hostManagerWithOriginalNS); ok && len(srvs.getOriginalNameservers()) > 0 {
+			log.Debugf("deregistering original nameservers as fallback handlers")
+			s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+		}
+
 		if err := s.hostManager.restoreHostDNS(); err != nil {
 			log.Error("failed to restore host DNS settings: ", err)
 		} else if err := s.stateManager.DeleteState(&ShutdownState{}); err != nil {
@@ -311,7 +321,6 @@ func (s *DefaultServer) Stop() {
 
 // OnUpdatedHostDNSServer update the DNS servers addresses for root zones
 // It will be applied if the mgm server do not enforce DNS settings for root zone
-
 func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
 	s.hostsDNSHolder.set(hostsDnsList)
 
@@ -493,25 +502,56 @@ func (s *DefaultServer) applyHostConfig() {
 
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
-		s.handleErrNoGroupaAll(err)
 	}
+
+	s.registerFallback(config)
 }
 
-func (s *DefaultServer) handleErrNoGroupaAll(err error) {
-	if !errors.Is(ErrRouteAllWithoutNameserverGroup, err) {
+// registerFallback registers original nameservers as low-priority fallback handlers
+func (s *DefaultServer) registerFallback(config HostDNSConfig) {
+	hostMgrWithNS, ok := s.hostManager.(hostManagerWithOriginalNS)
+	if !ok {
 		return
 	}
 
-	if s.statusRecorder == nil {
+	originalNameservers := hostMgrWithNS.getOriginalNameservers()
+	if len(originalNameservers) == 0 {
 		return
 	}
 
-	s.statusRecorder.PublishEvent(
-		cProto.SystemEvent_WARNING, cProto.SystemEvent_DNS,
-		"The host dns manager does not support match domains",
-		"The host dns manager does not support match domains without a catch-all nameserver group.",
-		map[string]string{"manager": s.hostManager.string()},
+	log.Infof("registering original nameservers %v as upstream handlers with priority %d", originalNameservers, PriorityFallback)
+
+	handler, err := newUpstreamResolver(
+		s.ctx,
+		s.wgInterface.Name(),
+		s.wgInterface.Address().IP,
+		s.wgInterface.Address().Network,
+		s.statusRecorder,
+		s.hostsDNSHolder,
+		nbdns.RootZone,
 	)
+	if err != nil {
+		log.Errorf("failed to create upstream resolver for original nameservers: %v", err)
+		return
+	}
+
+	for _, ns := range originalNameservers {
+		if ns == config.ServerIP.String() {
+			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, config.ServerIP)
+			continue
+		}
+
+		ns = fmt.Sprintf("%s:%d", ns, defaultPort)
+		if ip, err := netip.ParseAddr(ns); err == nil && ip.Is6() {
+			ns = fmt.Sprintf("[%s]:%d", ns, defaultPort)
+		}
+
+		handler.upstreamServers = append(handler.upstreamServers, ns)
+	}
+	handler.deactivate = func(error) { /* always active */ }
+	handler.reactivate = func() { /* always active */ }
+
+	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityFallback)
 }
 
 func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.SimpleRecord, error) {
@@ -588,14 +628,8 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		// Decrement priority by handler index (0, 1, 2, ...) to avoid conflicts
 		priority := basePriority - i
 
-		// Check if we're about to overlap with the next priority tier.
-		// This boundary check ensures that the priority of upstream handlers does not conflict
-		// with the default priority tier. By decrementing the priority for each handler, we avoid
-		// overlaps, but if the calculated priority falls into the default tier, we skip the remaining
-		// handlers to maintain the integrity of the priority system.
-		if basePriority == PriorityUpstream && priority <= PriorityDefault {
-			log.Warnf("too many handlers for domain=%s, would overlap with default priority tier (diff=%d). Skipping remaining handlers",
-				domainGroup.domain, PriorityUpstream-PriorityDefault)
+		// Check if we're about to overlap with the next priority tier
+		if s.leaksPriority(domainGroup, basePriority, priority) {
 			break
 		}
 
@@ -646,6 +680,21 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 	}
 
 	return muxUpdates, nil
+}
+
+func (s *DefaultServer) leaksPriority(domainGroup nsGroupsByDomain, basePriority int, priority int) bool {
+	if basePriority == PriorityUpstream && priority <= PriorityDefault {
+		log.Warnf("too many handlers for domain=%s, would overlap with default priority tier (diff=%d). Skipping remaining handlers",
+			domainGroup.domain, PriorityUpstream-PriorityDefault)
+		return true
+	}
+	if basePriority == PriorityDefault && priority <= PriorityFallback {
+		log.Warnf("too many handlers for domain=%s, would overlap with fallback priority tier (diff=%d). Skipping remaining handlers",
+			domainGroup.domain, PriorityDefault-PriorityFallback)
+		return true
+	}
+
+	return false
 }
 
 func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
@@ -760,6 +809,12 @@ func (s *DefaultServer) upstreamCallbacks(
 }
 
 func (s *DefaultServer) addHostRootZone() {
+	hostDNSServers := s.hostsDNSHolder.get()
+	if len(hostDNSServers) == 0 {
+		log.Debug("no host DNS servers available, skipping root zone handler creation")
+		return
+	}
+
 	handler, err := newUpstreamResolver(
 		s.ctx,
 		s.wgInterface.Name(),
@@ -775,7 +830,7 @@ func (s *DefaultServer) addHostRootZone() {
 	}
 
 	handler.upstreamServers = make([]string, 0)
-	for k := range s.hostsDNSHolder.get() {
+	for k := range hostDNSServers {
 		handler.upstreamServers = append(handler.upstreamServers, k)
 	}
 	handler.deactivate = func(error) {}
