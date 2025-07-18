@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -135,20 +136,26 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 	responseWriter := &test.MockResponseWriter{
 		WriteMsgFunc: func(m *dns.Msg) error { return nil },
 	}
-
+	lmux := sync.Mutex{}
 	failed := false
 	resolver.deactivate = func(error) {
+		lmux.Lock()
 		failed = true
+		lmux.Unlock()
 	}
 
 	reactivated := false
 	resolver.reactivate = func() {
+		lmux.Lock()
 		reactivated = true
+		lmux.Unlock()
 	}
 
 	resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("one.one.one.one.", dns.TypeA))
-
-	if !failed {
+	lmux.Lock()
+	failedCheck := failed
+	lmux.Unlock()
+	if !failedCheck {
 		t.Errorf("expected that resolving was deactivated")
 		return
 	}
@@ -160,7 +167,10 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 
 	time.Sleep(time.Millisecond * 200)
 
-	if !reactivated {
+	lmux.Lock()
+	checkReactivated := reactivated
+	lmux.Unlock()
+	if !checkReactivated {
 		t.Errorf("expected that resolving was reactivated")
 		return
 	}

@@ -102,3 +102,11 @@ func (m *Manager) notify(peerConnID peerid.ConnID) {
 	case m.OnActivityChan <- peerConnID:
 	}
 }
+
+func (m *Manager) getPeerListener(peerConnID peerid.ConnID) (*Listener, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	listener, ok := m.peers[peerConnID]
+	return listener, ok
+}

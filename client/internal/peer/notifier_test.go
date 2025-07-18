@@ -9,30 +9,54 @@ type mocListener struct {
 	lastState int
 	wg        sync.WaitGroup
 	peers     int
+	mux       sync.Mutex
 }
 
 func (l *mocListener) OnConnected() {
+	l.mux.Lock()
+	defer l.mux.Unlock()
 	l.lastState = stateConnected
 	l.wg.Done()
 }
 func (l *mocListener) OnDisconnected() {
+	l.mux.Lock()
+	defer l.mux.Unlock()
 	l.lastState = stateDisconnected
 	l.wg.Done()
 }
 func (l *mocListener) OnConnecting() {
+	l.mux.Lock()
+	defer l.mux.Unlock()
 	l.lastState = stateConnecting
 	l.wg.Done()
 }
 func (l *mocListener) OnDisconnecting() {
+	l.mux.Lock()
+	defer l.mux.Unlock()
 	l.lastState = stateDisconnecting
 	l.wg.Done()
+
+}
+
+func (l *mocListener) getLastState() int {
+	l.mux.Lock()
+	defer l.mux.Unlock()
+	return l.lastState
 }
 
 func (l *mocListener) OnAddressChanged(host, addr string) {
 
 }
 func (l *mocListener) OnPeersListChanged(size int) {
+	l.mux.Lock()
 	l.peers = size
+	l.mux.Unlock()
+}
+
+func (l *mocListener) getPeers() int {
+	l.mux.Lock()
+	defer l.mux.Unlock()
+	return l.peers
 }
 
 func (l *mocListener) setWaiter() {
@@ -77,7 +101,7 @@ func Test_notifier_SetListener(t *testing.T) {
 	n.lastNotification = stateConnecting
 	n.setListener(listener)
 	listener.wait()
-	if listener.lastState != n.lastNotification {
+	if listener.getLastState() != n.lastNotification {
 		t.Errorf("invalid state: %d, expected: %d", listener.lastState, n.lastNotification)
 	}
 }
@@ -91,7 +115,7 @@ func Test_notifier_RemoveListener(t *testing.T) {
 	n.removeListener()
 	n.peerListChanged(1)
 
-	if listener.peers != 0 {
+	if listener.getPeers() != 0 {
 		t.Errorf("invalid state: %d", listener.peers)
 	}
 }
