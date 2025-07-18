@@ -43,7 +43,9 @@ services:
       - $NETBIRD_SIGNAL_PORT:80
   #      # port and command for Let's Encrypt validation
   #      - 443:443
-  #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
+    environment:
+      - NB_LETSENCRYPT_DOMAIN=$NETBIRD_LETSENCRYPT_DOMAIN
+      - NB_LOG_FILE=console
     logging:
       driver: "json-file"
       options:
@@ -80,24 +82,22 @@ services:
       - ./management.json:/etc/netbird/management.json
     ports:
       - $NETBIRD_MGMT_API_PORT:443 #API port
-  #    # command for Let's Encrypt validation without dashboard container
-  #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
-    command: [
-      "--port", "443",
-      "--log-file", "console",
-      "--log-level", "info",
-      "--disable-anonymous-metrics=$NETBIRD_DISABLE_ANONYMOUS_METRICS",
-      "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN",
-      "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"
-      ]
     logging:
       driver: "json-file"
       options:
         max-size: "500m"
         max-file: "2"
     environment:
+        # Let's Encrypt validation without dashboard container
+        # - NB_LETSENCRYPT_DOMAIN=$NETBIRD_LETSENCRYPT_DOMAIN
       - NETBIRD_STORE_ENGINE_POSTGRES_DSN=$NETBIRD_STORE_ENGINE_POSTGRES_DSN
       - NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN
+      - NB_PORT=443
+      - NB_LOG_FILE=console
+      - NB_LOG_LEVEL=info
+      - NB_DISABLE_ANONYMOUS_METRICS=$NETBIRD_DISABLE_ANONYMOUS_METRICS
+      - NB_SINGLE_ACCOUNT_MODE_DOMAIN=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN
+      - NB_DNS_DOMAIN=$NETBIRD_MGMT_DNS_DOMAIN
       
   # Coturn
   coturn:
