@@ -38,21 +38,22 @@ func (s *Store) AddPeer(peer IPeer) {
 }
 
 // DeletePeer deletes a peer from the store
-func (s *Store) DeletePeer(peer IPeer) {
+func (s *Store) DeletePeer(peer IPeer) bool {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 
 	dp, ok := s.peers[peer.ID()]
 	if !ok {
-		return
+		return false
 	}
 	if dp != peer {
-		return
+		return false
 	}
 
 	// todo notify peer disconnection on in this case
 
 	delete(s.peers, peer.ID())
+	return true
 }
 
 // Peer returns a peer by its ID
