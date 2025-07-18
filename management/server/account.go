@@ -328,6 +328,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
 			}
+			updateAccountPeers = true
 		}
 
 		if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled ||
@@ -2057,7 +2058,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 	for _, peer := range peers {
 		newIP, err := types.AllocatePeerIP(*newIPNet, takenIPs)
 		if err != nil {
-			return status.Errorf(status.Internal, "failed to allocate IP for peer %s: %v", peer.ID, err)
+			return status.Errorf(status.Internal, "allocate IP for peer %s: %v", peer.ID, err)
 		}
 
 		log.WithContext(ctx).Infof("reallocating peer %s IP from %s to %s due to network range change",
@@ -2074,7 +2075,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 
 	for _, peer := range peersToUpdate {
 		if err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer); err != nil {
-			return status.Errorf(status.Internal, "failed to save updated peer %s: %v", peer.ID, err)
+			return status.Errorf(status.Internal, "save updated peer %s: %v", peer.ID, err)
 		}
 	}
 
