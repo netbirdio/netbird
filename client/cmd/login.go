@@ -162,14 +162,14 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 }
 
 func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, profileName string, username string) error {
-	err := pm.SwitchProfile(profileName)
-	if err != nil {
-		return fmt.Errorf("switch profile: %v", err)
-	}
-
-	err = switchProfile(context.Background(), &profilemanager.Profile{Name: profileName}, username)
+	err := switchProfile(context.Background(), profileName, username)
 	if err != nil {
 		return fmt.Errorf("switch profile on daemon: %v", err)
+	}
+
+	err = pm.SwitchProfile(profileName)
+	if err != nil {
+		return fmt.Errorf("switch profile: %v", err)
 	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
@@ -196,7 +196,7 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 	return nil
 }
 
-func switchProfile(ctx context.Context, prof *profilemanager.Profile, username string) error {
+func switchProfile(ctx context.Context, profileName string, username string) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
@@ -208,7 +208,7 @@ func switchProfile(ctx context.Context, prof *profilemanager.Profile, username s
 	client := proto.NewDaemonServiceClient(conn)
 
 	_, err = client.SwitchProfile(ctx, &proto.SwitchProfileRequest{
-		ProfileName: &prof.Name,
+		ProfileName: &profileName,
 		Username:    &username,
 	})
 	if err != nil {

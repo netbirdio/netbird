@@ -120,12 +120,12 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	var profileSwitched bool
 	// switch profile if provided
 	if profileName != "" {
-		err = pm.SwitchProfile(profileName)
+		err = switchProfile(cmd.Context(), profileName, username.Username)
 		if err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
 
-		err = switchProfile(cmd.Context(), &profilemanager.Profile{Name: profileName}, username.Username)
+		err = pm.SwitchProfile(profileName)
 		if err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}

@@ -239,11 +239,6 @@ func (s *serviceClient) addProfile(profileName string) error {
 }
 
 func (s *serviceClient) switchProfile(profileName string) error {
-	err := s.profileManager.SwitchProfile(profileName)
-	if err != nil {
-		return fmt.Errorf("switch profile: %w", err)
-	}
-
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		return fmt.Errorf(getClientFMT, err)
@@ -259,6 +254,11 @@ func (s *serviceClient) switchProfile(profileName string) error {
 		Username:    &currUser.Username,
 	}); err != nil {
 		return fmt.Errorf("switch profile failed: %w", err)
+	}
+
+	err = s.profileManager.SwitchProfile(profileName)
+	if err != nil {
+		return fmt.Errorf("switch profile: %w", err)
 	}
 
 	return nil
@@ -469,23 +469,18 @@ func (p *profileMenu) refresh() {
 						return
 					}
 
-					err = p.profileManager.SwitchProfile(profile.Name)
-					if err != nil {
-						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
-						return
-					}
-					prof, err := p.profileManager.GetActiveProfile()
-					if err != nil {
-						log.Errorf("failed to get active profile after switching: %v", err)
-						return
-					}
-
 					_, err = conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{
-						ProfileName: &prof.Name,
+						ProfileName: &profile.Name,
 						Username:    &currUser.Username,
 					})
 					if err != nil {
 						log.Errorf("failed to switch profile: %v", err)
+						return
+					}
+
+					err = p.profileManager.SwitchProfile(profile.Name)
+					if err != nil {
+						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
 						return
 					}
 

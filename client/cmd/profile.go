@@ -222,17 +222,12 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("profile %s does not exist", profileName)
 	}
 
+	if err := switchProfile(cmd.Context(), profileName, currUser.Username); err != nil {
+		return err
+	}
+
 	err = profileManager.SwitchProfile(profileName)
 	if err != nil {
-		return err
-	}
-
-	prof, err := profileManager.GetActiveProfile()
-	if err != nil {
-		return err
-	}
-
-	if err := switchProfile(cmd.Context(), prof, currUser.Username); err != nil {
 		return err
 	}
 
