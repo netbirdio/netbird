@@ -755,10 +755,6 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if err := restoreResidualState(callerCtx); err != nil {
-		log.Warnf(errRestoreResidualState, err)
-	}
-
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
 		log.Errorf("failed to get active profile state: %v", err)
@@ -1073,10 +1069,6 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if err := restoreResidualState(ctx); err != nil {
-		log.Warnf(errRestoreResidualState, err)
-	}
-
 	if msg.ProfileName == "" || msg.Username == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
 	}
@@ -1094,10 +1086,6 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if err := restoreResidualState(ctx); err != nil {
-		log.Warnf(errRestoreResidualState, err)
-	}
-
 	if msg.ProfileName == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
 	}
@@ -1114,10 +1102,6 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesRequest) (*proto.ListProfilesResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-
-	if err := restoreResidualState(ctx); err != nil {
-		log.Warnf(errRestoreResidualState, err)
-	}
 
 	if msg.Username == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "username must be provided")
@@ -1146,10 +1130,6 @@ func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesReques
 func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfileRequest) (*proto.GetActiveProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-
-	if err := restoreResidualState(ctx); err != nil {
-		log.Warnf(errRestoreResidualState, err)
-	}
 
 	activeProfile, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
