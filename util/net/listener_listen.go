@@ -120,17 +120,8 @@ func (c *UDPConn) Close() error {
 	return closeConn(c.ID, c.UDPConn)
 }
 
-// WrapUDPConn wraps an existing *net.UDPConn with nbnet functionality
-func WrapUDPConn(conn *net.UDPConn) *UDPConn {
-	return &UDPConn{
-		UDPConn:   conn,
-		ID:        GenerateConnID(),
-		seenAddrs: &sync.Map{},
-	}
-}
-
 // RemoveAddress removes an address from the seen cache and triggers removal hooks.
-func (c *UDPConn) RemoveAddress(addr string) {
+func (c *PacketConn) RemoveAddress(addr string) {
 	if _, exists := c.seenAddrs.LoadAndDelete(addr); !exists {
 		return
 	}
@@ -156,6 +147,16 @@ func (c *UDPConn) RemoveAddress(addr string) {
 		if err := hook(c.ID, prefix); err != nil {
 			log.Errorf("Error executing listener address remove hook: %v", err)
 		}
+	}
+}
+
+
+// WrapPacketConn wraps an existing net.PacketConn with nbnet functionality
+func WrapPacketConn(conn net.PacketConn) *PacketConn {
+	return &PacketConn{
+		PacketConn: conn,
+		ID:         GenerateConnID(),
+		seenAddrs:  &sync.Map{},
 	}
 }
 

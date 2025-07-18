@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/sharedsock"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type TunKernelDevice struct {
@@ -99,8 +100,14 @@ func (t *TunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	var udpConn net.PacketConn = rawSock
+	if !nbnet.AdvancedRouting() {
+		udpConn = nbnet.WrapPacketConn(rawSock)
+	}
+
 	bindParams := bind.UniversalUDPMuxParams{
-		UDPConn:   rawSock,
+		UDPConn:   udpConn,
 		Net:       t.transportNet,
 		FilterFn:  t.filterFn,
 		WGAddress: t.address,
