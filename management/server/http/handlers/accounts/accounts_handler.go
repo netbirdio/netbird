@@ -237,7 +237,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Settings.LazyConnectionEnabled != nil {
 		settings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
 	}
-	if req.Settings.NetworkRange != nil {
+	if req.Settings.NetworkRange != nil && *req.Settings.NetworkRange != "" {
 		if err := h.validateNetworkRange(r.Context(), accountID, userID, *req.Settings.NetworkRange); err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
