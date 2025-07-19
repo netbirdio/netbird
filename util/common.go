@@ -23,7 +23,6 @@ func FileExists(path string) bool {
 	return err == nil
 }
 
-
 /// Bool helpers
 
 // True returns a *bool whose underlying value is true.

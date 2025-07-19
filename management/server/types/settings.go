@@ -42,6 +42,9 @@ type Settings struct {
 	// DNSDomain is the custom domain for that account
 	DNSDomain string
 
+	// NetworkRange is the custom network range for that account in CIDR format
+	NetworkRange string
+
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 
@@ -66,6 +69,7 @@ func (s *Settings) Copy() *Settings {
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
+		NetworkRange:                    s.NetworkRange,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()

@@ -303,6 +303,9 @@ type AccountSettings struct {
 	// LazyConnectionEnabled Enables or disables experimental lazy connection
 	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
 
+	// NetworkRange Allows to define a custom network range for the account in CIDR format
+	NetworkRange *string `json:"network_range,omitempty"`
+
 	// PeerInactivityExpiration Period of time of inactivity after which peer session expires (seconds).
 	PeerInactivityExpiration int `json:"peer_inactivity_expiration"`
 
@@ -1196,11 +1199,14 @@ type PeerNetworkRangeCheckAction string
 // PeerRequest defines model for PeerRequest.
 type PeerRequest struct {
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
-	ApprovalRequired            *bool  `json:"approval_required,omitempty"`
-	InactivityExpirationEnabled bool   `json:"inactivity_expiration_enabled"`
-	LoginExpirationEnabled      bool   `json:"login_expiration_enabled"`
-	Name                        string `json:"name"`
-	SshEnabled                  bool   `json:"ssh_enabled"`
+	ApprovalRequired            *bool `json:"approval_required,omitempty"`
+	InactivityExpirationEnabled bool  `json:"inactivity_expiration_enabled"`
+
+	// Ip Peer's IP address
+	Ip                     *string `json:"ip,omitempty"`
+	LoginExpirationEnabled bool    `json:"login_expiration_enabled"`
+	Name                   string  `json:"name"`
+	SshEnabled             bool    `json:"ssh_enabled"`
 }
 
 // PersonalAccessToken defines model for PersonalAccessToken.
