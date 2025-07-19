@@ -103,22 +103,17 @@ func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, n
 		return err
 	}
 
+	return h.validateCapacity(ctx, accountID, userID, prefix)
+}
+
+func (h *handler) validateCapacity(ctx context.Context, accountID, userID string, prefix netip.Prefix) error {
 	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "")
 	if err != nil {
 		return status.Errorf(status.Internal, "get peer count: %v", err)
 	}
 
-	availableAddresses := prefix.Addr().BitLen() - prefix.Bits()
-	maxHosts := int64(1) << availableAddresses
-
-	if prefix.Addr().Is4() {
-		maxHosts -= 2
-	}
-
-	requiredAddresses := int64(len(peers)) + int64(float64(len(peers))*PeerBufferPercentage)
-	if requiredAddresses < MinRequiredAddresses {
-		requiredAddresses = MinRequiredAddresses
-	}
+	maxHosts := calculateMaxHosts(prefix)
+	requiredAddresses := calculateRequiredAddresses(len(peers))
 
 	if maxHosts < requiredAddresses {
 		return status.Errorf(status.InvalidArgument,
@@ -127,6 +122,25 @@ func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, n
 	}
 
 	return nil
+}
+
+func calculateMaxHosts(prefix netip.Prefix) int64 {
+	availableAddresses := prefix.Addr().BitLen() - prefix.Bits()
+	maxHosts := int64(1) << availableAddresses
+
+	if prefix.Addr().Is4() {
+		maxHosts -= 2 // network and broadcast addresses
+	}
+
+	return maxHosts
+}
+
+func calculateRequiredAddresses(peerCount int) int64 {
+	requiredAddresses := int64(peerCount) + int64(float64(peerCount)*PeerBufferPercentage)
+	if requiredAddresses < MinRequiredAddresses {
+		requiredAddresses = MinRequiredAddresses
+	}
+	return requiredAddresses
 }
 
 // getAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.

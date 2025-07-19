@@ -378,8 +378,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 	if oldSettings.NetworkRange != newSettings.NetworkRange {
 		eventMeta := map[string]any{
-			"old_network_range": oldSettings.NetworkRange.String(),
-			"new_network_range": newSettings.NetworkRange.String(),
+			"old_network_range": oldSettings.NetworkRange,
+			"new_network_range": newSettings.NetworkRange,
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
 	}
@@ -2119,8 +2119,20 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 		return status.NewPermissionDeniedError()
 	}
 
+	updateNetworkMap, err := am.updatePeerIPInTransaction(ctx, accountID, userID, peerID, newIP)
+	if err != nil {
+		return fmt.Errorf("update peer IP transaction: %w", err)
+	}
+
+	if updateNetworkMap {
+		am.UpdateAccountPeers(ctx, accountID)
+	}
+	return nil
+}
+
+func (am *DefaultAccountManager) updatePeerIPInTransaction(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) (bool, error) {
 	var updateNetworkMap bool
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		account, err := transaction.GetAccount(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("get account: %w", err)
@@ -2144,36 +2156,37 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 			return err
 		}
 
-		log.WithContext(ctx).Infof("updating peer %s IP from %s to %s", peerID, existingPeer.IP, newIP)
-
-		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
-		if err != nil {
-			return fmt.Errorf("get account settings: %w", err)
+		if err := am.savePeerIPUpdate(ctx, transaction, accountID, userID, existingPeer, newIP); err != nil {
+			return err
 		}
-		dnsDomain := am.GetDNSDomain(settings)
-
-		eventMeta := existingPeer.EventMeta(dnsDomain)
-		oldIP := existingPeer.IP.String()
-
-		existingPeer.IP = newIP.AsSlice()
-		err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, existingPeer)
-		if err != nil {
-			return fmt.Errorf("save peer: %w", err)
-		}
-
-		eventMeta["old_ip"] = oldIP
-		eventMeta["ip"] = newIP.String()
-		am.StoreEvent(ctx, userID, existingPeer.ID, accountID, activity.PeerIPUpdated, eventMeta)
 
 		updateNetworkMap = true
 		return nil
 	})
+	return updateNetworkMap, err
+}
+
+func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transaction store.Store, accountID, userID string, peer *nbpeer.Peer, newIP netip.Addr) error {
+	log.WithContext(ctx).Infof("updating peer %s IP from %s to %s", peer.ID, peer.IP, newIP)
+
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
-		return fmt.Errorf("update peer IP transaction: %w", err)
+		return fmt.Errorf("get account settings: %w", err)
+	}
+	dnsDomain := am.GetDNSDomain(settings)
+
+	eventMeta := peer.EventMeta(dnsDomain)
+	oldIP := peer.IP.String()
+
+	peer.IP = newIP.AsSlice()
+	err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer)
+	if err != nil {
+		return fmt.Errorf("save peer: %w", err)
 	}
 
-	if updateNetworkMap {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	eventMeta["old_ip"] = oldIP
+	eventMeta["ip"] = newIP.String()
+	am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerIPUpdated, eventMeta)
+
 	return nil
 }
