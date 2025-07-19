@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -113,10 +114,10 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				p.Name = update.Name
 				return p, nil
 			},
-			UpdatePeerIPFunc: func(_ context.Context, accountID, userID, peerID string, newIP net.IP) error {
+			UpdatePeerIPFunc: func(_ context.Context, accountID, userID, peerID string, newIP netip.Addr) error {
 				for _, peer := range peers {
 					if peer.ID == peerID {
-						peer.IP = newIP
+						peer.IP = net.IP(newIP.AsSlice())
 						return nil
 					}
 				}

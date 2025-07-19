@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
+	"net/netip"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -113,14 +113,13 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 	}
 
 	if req.Ip != nil {
-		newIP := net.ParseIP(*req.Ip)
-		if newIP == nil {
-			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "invalid IP address: %s", *req.Ip), w)
+		addr, err := netip.ParseAddr(*req.Ip)
+		if err != nil {
+			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "invalid IP address %s: %v", *req.Ip, err), w)
 			return
 		}
 
-		err = h.accountManager.UpdatePeerIP(ctx, accountID, userID, peerID, newIP)
-		if err != nil {
+		if err = h.accountManager.UpdatePeerIP(ctx, accountID, userID, peerID, addr); err != nil {
 			util.WriteError(ctx, err, w)
 			return
 		}
