@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -10,7 +11,20 @@ import (
 
 var (
 	reconnectingTimeout = 60 * time.Second
+	mux                 sync.Mutex
 )
+
+func getReconnectingTimeout() time.Duration {
+	mux.Lock()
+	defer mux.Unlock()
+	return reconnectingTimeout
+}
+
+func setReconnectingTimeout(timeout time.Duration) {
+	mux.Lock()
+	defer mux.Unlock()
+	reconnectingTimeout = timeout
+}
 
 // Guard manage the reconnection tries to the Relay server in case of disconnection event.
 type Guard struct {
@@ -128,7 +142,7 @@ func exponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval: 2 * time.Second,
 		Multiplier:      2,
-		MaxInterval:     reconnectingTimeout,
+		MaxInterval:     getReconnectingTimeout(),
 		Clock:           backoff.SystemClock,
 	}, ctx)
 

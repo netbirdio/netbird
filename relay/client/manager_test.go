@@ -301,7 +301,7 @@ func TestForeginAutoClose(t *testing.T) {
 
 func TestAutoReconnect(t *testing.T) {
 	ctx := context.Background()
-	reconnectingTimeout = 2 * time.Second
+	setReconnectingTimeout(2 * time.Second)
 
 	srvCfg := server.ListenerConfig{
 		Address: "localhost:1234",
@@ -362,7 +362,7 @@ func TestAutoReconnect(t *testing.T) {
 	}
 
 	log.Infof("waiting for reconnection")
-	time.Sleep(reconnectingTimeout + 1*time.Second)
+	time.Sleep(getReconnectingTimeout() + 1*time.Second)
 
 	log.Infof("reopent the connection")
 	_, err = clientAlice.OpenConn(ctx, ra, "bob")
