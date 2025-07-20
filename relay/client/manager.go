@@ -350,6 +350,12 @@ func (m *Manager) startCleanupLoop() {
 	}
 }
 
+func (m *Manager) getClientLen() int {
+	m.relayClientsMutex.Lock()
+	defer m.relayClientsMutex.Unlock()
+	return len(m.relayClients)
+}
+
 func (m *Manager) cleanUpUnusedRelays() {
 	m.relayClientsMutex.Lock()
 	defer m.relayClientsMutex.Unlock()

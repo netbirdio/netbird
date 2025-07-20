@@ -292,8 +292,8 @@ func TestForeginAutoClose(t *testing.T) {
 	timeout := relayCleanupInterval + keepUnusedServerTime + 1*time.Second
 	t.Logf("waiting for relay cleanup: %s", timeout)
 	time.Sleep(timeout)
-	if len(mgr.relayClients) != 0 {
-		t.Errorf("expected 0, got %d", len(mgr.relayClients))
+	if mgr.getClientLen() != 0 {
+		t.Errorf("expected 0, got %d", mgr.getClientLen())
 	}
 
 	t.Logf("closing manager")
