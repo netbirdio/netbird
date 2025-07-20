@@ -103,7 +103,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ '386','amd64' ]
+        include:
+          - arch: "386"
+            raceFlag: ""
+          - arch: "amd64"
+            raceFlag: "-race"
     runs-on: ubuntu-22.04
     steps:
       - name: Install Go
@@ -144,7 +148,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -race -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay)
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' ${{ matrix.raceFlag }} -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay)
 
   test_client_on_docker:
     name: "Client (Docker) / Unit"
