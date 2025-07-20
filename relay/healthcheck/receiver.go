@@ -11,13 +11,13 @@ import (
 var heartbeatTimeout = healthCheckInterval + 10*time.Second
 var mux sync.Mutex
 
-func getHealthCheckInterval() time.Duration {
+func getHeartBeatTimeout() time.Duration {
 	mux.Lock()
 	defer mux.Unlock()
 	return heartbeatTimeout
 }
 
-func setHealthCheckInterval(interval time.Duration) {
+func setHeartBeatTimeout(interval time.Duration) {
 	mux.Lock()
 	defer mux.Unlock()
 	heartbeatTimeout = interval
@@ -68,7 +68,7 @@ func (r *Receiver) Stop() {
 }
 
 func (r *Receiver) waitForHealthcheck() {
-	ticker := time.NewTicker(getHealthCheckInterval())
+	ticker := time.NewTicker(getHeartBeatTimeout())
 	defer ticker.Stop()
 	defer r.ctxCancel()
 	defer close(r.OnTimeout)
