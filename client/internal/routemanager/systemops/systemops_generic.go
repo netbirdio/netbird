@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/libp2p/go-netroute"
@@ -23,6 +24,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
+
+const localSubnetsCacheTTL = 15 * time.Minute
 
 var splitDefaultv4_1 = netip.PrefixFrom(netip.IPv4Unspecified(), 1)
 var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
@@ -131,18 +134,14 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 		return Nexthop{}, fmt.Errorf("get next hop: %w", err)
 	}
 
-	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop.IP, prefix, nexthop.IP)
-	exitNextHop := Nexthop{
-		IP:   nexthop.IP,
-		Intf: nexthop.Intf,
-	}
+	log.Debugf("Found next hop %s for prefix %s with interface %v", nexthop.IP, prefix, nexthop.Intf)
+	exitNextHop := nexthop
 
 	vpnAddr := vpnIntf.Address().IP
 
 	// if next hop is the VPN address or the interface is the VPN interface, we should use the initial values
 	if exitNextHop.IP == vpnAddr || exitNextHop.Intf != nil && exitNextHop.Intf.Name == vpnIntf.Name() {
 		log.Debugf("Route for prefix %s is pointing to the VPN interface, using initial next hop %v", prefix, initialNextHop)
-
 		exitNextHop = initialNextHop
 	}
 
@@ -155,12 +154,37 @@ func (r *SysOps) addRouteToNonVPNIntf(prefix netip.Prefix, vpnIntf wgIface, init
 }
 
 func (r *SysOps) isPrefixInLocalSubnets(prefix netip.Prefix) (bool, *net.IPNet) {
+	r.localSubnetsCacheMu.RLock()
+	cacheAge := time.Since(r.localSubnetsCacheTime)
+	subnets := r.localSubnetsCache
+	r.localSubnetsCacheMu.RUnlock()
+
+	if cacheAge > localSubnetsCacheTTL || subnets == nil {
+		r.localSubnetsCacheMu.Lock()
+		if time.Since(r.localSubnetsCacheTime) > localSubnetsCacheTTL || r.localSubnetsCache == nil {
+			r.refreshLocalSubnetsCache()
+		}
+		subnets = r.localSubnetsCache
+		r.localSubnetsCacheMu.Unlock()
+	}
+
+	for _, subnet := range subnets {
+		if subnet.Contains(prefix.Addr().AsSlice()) {
+			return true, subnet
+		}
+	}
+
+	return false, nil
+}
+
+func (r *SysOps) refreshLocalSubnetsCache() {
 	localInterfaces, err := net.Interfaces()
 	if err != nil {
 		log.Errorf("Failed to get local interfaces: %v", err)
-		return false, nil
+		return
 	}
 
+	var newSubnets []*net.IPNet
 	for _, intf := range localInterfaces {
 		addrs, err := intf.Addrs()
 		if err != nil {
@@ -174,14 +198,12 @@ func (r *SysOps) isPrefixInLocalSubnets(prefix netip.Prefix) (bool, *net.IPNet) 
 				log.Errorf("Failed to convert address to IPNet: %v", addr)
 				continue
 			}
-
-			if ipnet.Contains(prefix.Addr().AsSlice()) {
-				return true, ipnet
-			}
+			newSubnets = append(newSubnets, ipnet)
 		}
 	}
 
-	return false, nil
+	r.localSubnetsCache = newSubnets
+	r.localSubnetsCacheTime = time.Now()
 }
 
 // genericAddVPNRoute adds a new route to the vpn interface, it splits the default prefix
