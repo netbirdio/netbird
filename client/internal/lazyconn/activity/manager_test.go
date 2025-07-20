@@ -86,7 +86,12 @@ func TestManager_RemovePeerActivity(t *testing.T) {
 		t.Fatalf("failed to monitor peer activity: %v", err)
 	}
 
-	addr := mgr.peers[peerCfg1.PeerConnID].conn.LocalAddr().String()
+	peer1Listener, ok := mgr.getPeerListener(peerCfg1.PeerConnID)
+	if !ok {
+		t.Fatalf("failed to get peer listener: %s", peerCfg1.PublicKey)
+	}
+
+	addr := peer1Listener.conn.LocalAddr().String()
 
 	mgr.RemovePeer(peerCfg1.Log, peerCfg1.PeerConnID)
 
@@ -131,11 +136,20 @@ func TestManager_MultiPeerActivity(t *testing.T) {
 		t.Fatalf("failed to monitor peer activity: %v", err)
 	}
 
-	if err := trigger(mgr.peers[peerCfg1.PeerConnID].conn.LocalAddr().String()); err != nil {
+	peer1Listener, ok := mgr.getPeerListener(peerCfg1.PeerConnID)
+	if !ok {
+		t.Fatalf("failed to get peer listener: %s", peerCfg1.PublicKey)
+	}
+	if err := trigger(peer1Listener.conn.LocalAddr().String()); err != nil {
 		t.Fatalf("failed to trigger activity: %v", err)
 	}
 
-	if err := trigger(mgr.peers[peerCfg2.PeerConnID].conn.LocalAddr().String()); err != nil {
+	peer2Listener, ok := mgr.getPeerListener(peerCfg2.PeerConnID)
+	if !ok {
+		t.Fatalf("failed to get peer listener: %s", peerCfg2.PublicKey)
+	}
+
+	if err := trigger(peer2Listener.conn.LocalAddr().String()); err != nil {
 		t.Fatalf("failed to trigger activity: %v", err)
 	}
 
