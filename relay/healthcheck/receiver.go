@@ -2,14 +2,26 @@ package healthcheck
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	heartbeatTimeout = healthCheckInterval + 10*time.Second
-)
+var heartbeatTimeout = healthCheckInterval + 10*time.Second
+var mux sync.Mutex
+
+func getHealthCheckInterval() time.Duration {
+	mux.Lock()
+	defer mux.Unlock()
+	return heartbeatTimeout
+}
+
+func setHealthCheckInterval(interval time.Duration) {
+	mux.Lock()
+	defer mux.Unlock()
+	heartbeatTimeout = interval
+}
 
 // Receiver is a healthcheck receiver
 // It will listen for heartbeat and check if the heartbeat is not received in a certain time
@@ -56,7 +68,7 @@ func (r *Receiver) Stop() {
 }
 
 func (r *Receiver) waitForHealthcheck() {
-	ticker := time.NewTicker(heartbeatTimeout)
+	ticker := time.NewTicker(getHealthCheckInterval())
 	defer ticker.Stop()
 	defer r.ctxCancel()
 	defer close(r.OnTimeout)
