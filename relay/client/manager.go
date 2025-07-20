@@ -125,7 +125,7 @@ func (m *Manager) Serve() error {
 // connection to the relay server. It returns back with a net.Conn what represent the remote peer connection.
 func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string) (net.Conn, error) {
 	m.relayClientMu.RLock()
-	defer m.relayClientMu.Unlock()
+	defer m.relayClientMu.RUnlock()
 
 	if m.relayClient == nil {
 		return nil, ErrRelayClientNotConnected
@@ -156,7 +156,7 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string) (
 // Ready returns true if the home Relay client is connected to the relay server.
 func (m *Manager) Ready() bool {
 	m.relayClientMu.RLock()
-	defer m.relayClientMu.Unlock()
+	defer m.relayClientMu.RUnlock()
 
 	if m.relayClient == nil {
 		return false
@@ -175,7 +175,7 @@ func (m *Manager) SetOnReconnectedListener(f func()) {
 // closed.
 func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServerCloseListener) error {
 	m.relayClientMu.RLock()
-	defer m.relayClientMu.Unlock()
+	defer m.relayClientMu.RUnlock()
 
 	if m.relayClient == nil {
 		return ErrRelayClientNotConnected
@@ -200,7 +200,7 @@ func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServ
 // lost. This address will be sent to the target peer to choose the common relay server for the communication.
 func (m *Manager) RelayInstanceAddress() (string, error) {
 	m.relayClientMu.RLock()
-	defer m.relayClientMu.Unlock()
+	defer m.relayClientMu.RUnlock()
 
 	if m.relayClient == nil {
 		return "", ErrRelayClientNotConnected
