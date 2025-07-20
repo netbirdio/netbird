@@ -153,7 +153,7 @@ func TestManager_MultiPeerActivity(t *testing.T) {
 
 	listener, exists = mgr.GetPeerListener(peerCfg2.PeerConnID)
 	if !exists {
-		t.Fatalf("peer listener for peer1 not found")
+		t.Fatalf("peer listener for peer2 not found")
 	}
 
 	if err := trigger(listener.conn.LocalAddr().String()); err != nil {
