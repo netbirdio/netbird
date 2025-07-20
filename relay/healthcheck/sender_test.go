@@ -12,8 +12,8 @@ import (
 
 func TestMain(m *testing.M) {
 	// override the health check interval to speed up the test
-	healthCheckInterval = 2 * time.Second
-	healthCheckTimeout = 100 * time.Millisecond
+	setHealthCheckInterval(2 * time.Second)
+	setHealthCheckTimeout(100 * time.Millisecond)
 	code := m.Run()
 	os.Exit(code)
 }
@@ -32,7 +32,7 @@ func TestNewHealthPeriod(t *testing.T) {
 			hc.OnHCResponse()
 		case <-hc.Timeout:
 			t.Fatalf("health check is timed out")
-		case <-time.After(healthCheckInterval + 100*time.Millisecond):
+		case <-time.After(getHealthCheckInterval() + 100*time.Millisecond):
 			t.Fatalf("health check not received")
 		}
 	}
@@ -46,7 +46,7 @@ func TestNewHealthFailed(t *testing.T) {
 
 	select {
 	case <-hc.Timeout:
-	case <-time.After(healthCheckInterval + healthCheckTimeout + 100*time.Millisecond):
+	case <-time.After(getHealthCheckInterval() + getHealthCheckTimeout() + 100*time.Millisecond):
 		t.Fatalf("health check is not timed out")
 	}
 }
@@ -89,7 +89,7 @@ func TestTimeoutReset(t *testing.T) {
 			hc.OnHCResponse()
 		case <-hc.Timeout:
 			t.Fatalf("health check is timed out")
-		case <-time.After(healthCheckInterval + 100*time.Millisecond):
+		case <-time.After(getHealthCheckInterval() + 100*time.Millisecond):
 			t.Fatalf("health check not received")
 		}
 	}
@@ -118,13 +118,13 @@ func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
 
 	for _, tc := range testsCases {
 		t.Run(tc.name, func(t *testing.T) {
-			originalInterval := healthCheckInterval
-			originalTimeout := healthCheckTimeout
-			healthCheckInterval = 1 * time.Second
-			healthCheckTimeout = 500 * time.Millisecond
+			originalInterval := getHealthCheckInterval()
+			originalTimeout := getHealthCheckTimeout()
+			setHealthCheckInterval(1 * time.Second)
+			setHealthCheckTimeout(500 * time.Millisecond)
 			defer func() {
-				healthCheckInterval = originalInterval
-				healthCheckTimeout = originalTimeout
+				setHealthCheckInterval(originalInterval)
+				setHealthCheckTimeout(originalTimeout)
 			}()
 
 			//nolint:tenv
@@ -155,7 +155,7 @@ func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
 				}
 			}()
 
-			testTimeout := sender.getTimeoutTime()*time.Duration(tc.threshold) + healthCheckInterval
+			testTimeout := sender.getTimeoutTime()*time.Duration(tc.threshold) + getHealthCheckInterval()
 
 			select {
 			case <-sender.Timeout:

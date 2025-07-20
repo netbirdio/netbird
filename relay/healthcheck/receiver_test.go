@@ -59,12 +59,12 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 
 	for _, tc := range testsCases {
 		t.Run(tc.name, func(t *testing.T) {
-			originalInterval := healthCheckInterval
+			originalInterval := getHealthCheckInterval()
 			originalTimeout := getHeartBeatTimeout()
-			healthCheckInterval = 1 * time.Second
-			setHeartBeatTimeout(healthCheckInterval + 500*time.Millisecond)
+			setHealthCheckInterval(1 * time.Second)
+			setHeartBeatTimeout(getHealthCheckInterval() + 500*time.Millisecond)
 			defer func() {
-				healthCheckInterval = originalInterval
+				setHealthCheckInterval(originalInterval)
 				setHeartBeatTimeout(originalTimeout)
 			}()
 			//nolint:tenv
@@ -73,7 +73,7 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 
 			receiver := NewReceiver(log.WithField("test_name", tc.name))
 
-			testTimeout := originalTimeout*time.Duration(tc.threshold) + healthCheckInterval
+			testTimeout := originalTimeout*time.Duration(tc.threshold) + getHealthCheckInterval()
 
 			if tc.resetCounterOnce {
 				receiver.Heartbeat()

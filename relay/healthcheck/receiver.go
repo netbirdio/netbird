@@ -8,7 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var heartbeatTimeout = healthCheckInterval + 10*time.Second
+var heartbeatTimeout = getHealthCheckInterval() + 10*time.Second
 var mux sync.Mutex
 
 func getHeartBeatTimeout() time.Duration {
