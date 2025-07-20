@@ -73,7 +73,7 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 
 			receiver := NewReceiver(log.WithField("test_name", tc.name))
 
-			testTimeout := originalTimeout*time.Duration(tc.threshold) + getHealthCheckInterval()
+			testTimeout := getHeartBeatTimeout()*time.Duration(tc.threshold) + getHealthCheckInterval()
 
 			if tc.resetCounterOnce {
 				receiver.Heartbeat()
