@@ -1792,7 +1792,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string, dis
 			RoutingPeerDNSResolutionEnabled: true,
 		},
 		Onboarding: types.AccountOnboarding{
-			OnboardingFlowPending: true,
+			OnboardingFlowPending: false,
 			SignupFormPending:     true,
 		},
 	}
