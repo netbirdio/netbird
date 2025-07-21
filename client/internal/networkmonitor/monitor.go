@@ -22,6 +22,19 @@ const (
 )
 
 var checkChangeFn = checkChange
+var mux sync.Mutex
+
+func getCheckChangeFn() func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
+	mux.Lock()
+	defer mux.Unlock()
+	return checkChangeFn
+}
+
+func setCheckChangeFn(fn func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error) {
+	mux.Lock()
+	defer mux.Unlock()
+	checkChangeFn = fn
+}
 
 // NetworkMonitor watches for changes in network configuration.
 type NetworkMonitor struct {
@@ -120,7 +133,8 @@ func (nw *NetworkMonitor) Stop() {
 func (nw *NetworkMonitor) checkChanges(ctx context.Context, event chan struct{}, nexthop4 systemops.Nexthop, nexthop6 systemops.Nexthop) {
 	defer close(event)
 	for {
-		if err := checkChangeFn(ctx, nexthop4, nexthop6); err != nil {
+		checkFn := getCheckChangeFn()
+		if err := checkFn(ctx, nexthop4, nexthop6); err != nil {
 			if !errors.Is(err, context.Canceled) {
 				log.Errorf("Network monitor: failed to check for changes: %v", err)
 			}

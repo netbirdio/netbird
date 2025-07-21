@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewReceiver(t *testing.T) {
-	heartbeatTimeout = 5 * time.Second
+	setHeartBeatTimeout(5 * time.Second)
 	r := NewReceiver(log.WithContext(context.Background()))
 
 	select {
@@ -23,7 +23,7 @@ func TestNewReceiver(t *testing.T) {
 }
 
 func TestNewReceiverNotReceive(t *testing.T) {
-	heartbeatTimeout = 1 * time.Second
+	setHeartBeatTimeout(1 * time.Second)
 	r := NewReceiver(log.WithContext(context.Background()))
 
 	select {
@@ -34,7 +34,7 @@ func TestNewReceiverNotReceive(t *testing.T) {
 }
 
 func TestNewReceiverAck(t *testing.T) {
-	heartbeatTimeout = 2 * time.Second
+	setHeartBeatTimeout(2 * time.Second)
 	r := NewReceiver(log.WithContext(context.Background()))
 
 	r.Heartbeat()
@@ -59,13 +59,13 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 
 	for _, tc := range testsCases {
 		t.Run(tc.name, func(t *testing.T) {
-			originalInterval := healthCheckInterval
-			originalTimeout := heartbeatTimeout
-			healthCheckInterval = 1 * time.Second
-			heartbeatTimeout = healthCheckInterval + 500*time.Millisecond
+			originalInterval := getHealthCheckInterval()
+			originalTimeout := getHeartBeatTimeout()
+			setHealthCheckInterval(1 * time.Second)
+			setHeartBeatTimeout(getHealthCheckInterval() + 500*time.Millisecond)
 			defer func() {
-				healthCheckInterval = originalInterval
-				heartbeatTimeout = originalTimeout
+				setHealthCheckInterval(originalInterval)
+				setHeartBeatTimeout(originalTimeout)
 			}()
 			//nolint:tenv
 			os.Setenv(defaultAttemptThresholdEnv, fmt.Sprintf("%d", tc.threshold))
@@ -73,7 +73,7 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 
 			receiver := NewReceiver(log.WithField("test_name", tc.name))
 
-			testTimeout := heartbeatTimeout*time.Duration(tc.threshold) + healthCheckInterval
+			testTimeout := getHeartBeatTimeout()*time.Duration(tc.threshold) + getHealthCheckInterval()
 
 			if tc.resetCounterOnce {
 				receiver.Heartbeat()

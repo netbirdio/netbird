@@ -25,10 +25,10 @@ func (m *MocMultiEvent) checkChange(ctx context.Context, nexthopv4, nexthopv6 sy
 }
 
 func TestNetworkMonitor_Close(t *testing.T) {
-	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
+	setCheckChangeFn(func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 		<-ctx.Done()
 		return ctx.Err()
-	}
+	})
 	nw := New()
 
 	var resErr error
@@ -48,7 +48,7 @@ func TestNetworkMonitor_Close(t *testing.T) {
 }
 
 func TestNetworkMonitor_Event(t *testing.T) {
-	checkChangeFn = func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
+	setCheckChangeFn(func(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 		timeout, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		select {
@@ -57,7 +57,7 @@ func TestNetworkMonitor_Event(t *testing.T) {
 		case <-timeout.Done():
 			return nil
 		}
-	}
+	})
 	nw := New()
 	defer nw.Stop()
 
@@ -77,7 +77,7 @@ func TestNetworkMonitor_Event(t *testing.T) {
 func TestNetworkMonitor_MultiEvent(t *testing.T) {
 	eventsRepeated := 3
 	me := &MocMultiEvent{counter: eventsRepeated}
-	checkChangeFn = me.checkChange
+	setCheckChangeFn(me.checkChange)
 
 	nw := New()
 	defer nw.Stop()

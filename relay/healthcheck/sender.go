@@ -19,6 +19,30 @@ var (
 	healthCheckTimeout  = 20 * time.Second
 )
 
+func getHealthCheckInterval() time.Duration {
+	mux.Lock()
+	defer mux.Unlock()
+	return healthCheckInterval
+}
+
+func setHealthCheckInterval(interval time.Duration) {
+	mux.Lock()
+	defer mux.Unlock()
+	healthCheckInterval = interval
+}
+
+func getHealthCheckTimeout() time.Duration {
+	mux.Lock()
+	defer mux.Unlock()
+	return healthCheckTimeout
+}
+
+func setHealthCheckTimeout(timeout time.Duration) {
+	mux.Lock()
+	defer mux.Unlock()
+	healthCheckTimeout = timeout
+}
+
 // Sender is a healthcheck sender
 // It will send healthcheck signal to the receiver
 // If the receiver does not receive the signal in a certain time, it will send a timeout signal and stop to work
@@ -57,7 +81,7 @@ func (hc *Sender) OnHCResponse() {
 }
 
 func (hc *Sender) StartHealthCheck(ctx context.Context) {
-	ticker := time.NewTicker(healthCheckInterval)
+	ticker := time.NewTicker(getHealthCheckInterval())
 	defer ticker.Stop()
 
 	timeoutTicker := time.NewTicker(hc.getTimeoutTime())
@@ -94,7 +118,7 @@ func (hc *Sender) StartHealthCheck(ctx context.Context) {
 }
 
 func (hc *Sender) getTimeoutTime() time.Duration {
-	return healthCheckInterval + healthCheckTimeout
+	return getHealthCheckInterval() + getHealthCheckTimeout()
 }
 
 func getAttemptThresholdFromEnv() int {
