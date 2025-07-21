@@ -572,10 +572,14 @@ func TestCloseByServer(t *testing.T) {
 	idAlice := "alice"
 	log.Debugf("connect by alice")
 	relayClient := NewClient(serverURL, hmacTokenStore, idAlice)
-	err = relayClient.Connect(ctx)
-	if err != nil {
+	if err = relayClient.Connect(ctx); err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
 	}
+	defer func() {
+		if err := relayClient.Close(); err != nil {
+			log.Errorf("failed to close client: %s", err)
+		}
+	}()
 
 	disconnected := make(chan struct{})
 	relayClient.SetOnDisconnectListener(func(_ string) {
