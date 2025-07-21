@@ -51,7 +51,7 @@ locate_log_file() {
 
   while read -r log_file; do
     case "${log_file}" in
-    console | syslog | docker | stderr) ;;
+    console | syslog) ;;
     *)
       log_file_path="${log_file}"
       return
