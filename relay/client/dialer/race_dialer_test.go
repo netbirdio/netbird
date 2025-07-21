@@ -77,7 +77,7 @@ func TestRaceDialEmptyDialers(t *testing.T) {
 	logger := logrus.NewEntry(logrus.New())
 	serverURL := "test.server.com"
 
-	rd := NewRaceDial(logger, serverURL)
+	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL)
 	conn, err := rd.Dial()
 	if err == nil {
 		t.Errorf("Expected an error with empty dialers, got nil")
@@ -103,7 +103,7 @@ func TestRaceDialSingleSuccessfulDialer(t *testing.T) {
 		protocolStr: proto,
 	}
 
-	rd := NewRaceDial(logger, serverURL, mockDialer)
+	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer)
 	conn, err := rd.Dial()
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
@@ -136,7 +136,7 @@ func TestRaceDialMultipleDialersWithOneSuccess(t *testing.T) {
 		protocolStr: "proto2",
 	}
 
-	rd := NewRaceDial(logger, serverURL, mockDialer1, mockDialer2)
+	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer1, mockDialer2)
 	conn, err := rd.Dial()
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
@@ -144,13 +144,13 @@ func TestRaceDialMultipleDialersWithOneSuccess(t *testing.T) {
 	if conn.RemoteAddr().Network() != proto2 {
 		t.Errorf("Expected connection with protocol %s, got %s", proto2, conn.RemoteAddr().Network())
 	}
+	_ = conn.Close()
 }
 
 func TestRaceDialTimeout(t *testing.T) {
 	logger := logrus.NewEntry(logrus.New())
 	serverURL := "test.server.com"
 
-	connectionTimeout = 3 * time.Second
 	mockDialer := &MockDialer{
 		dialFunc: func(ctx context.Context, address string) (net.Conn, error) {
 			<-ctx.Done()
@@ -159,7 +159,7 @@ func TestRaceDialTimeout(t *testing.T) {
 		protocolStr: "proto1",
 	}
 
-	rd := NewRaceDial(logger, serverURL, mockDialer)
+	rd := NewRaceDial(logger, 3*time.Second, serverURL, mockDialer)
 	conn, err := rd.Dial()
 	if err == nil {
 		t.Errorf("Expected an error, got nil")
@@ -187,7 +187,7 @@ func TestRaceDialAllDialersFail(t *testing.T) {
 		protocolStr: "protocol2",
 	}
 
-	rd := NewRaceDial(logger, serverURL, mockDialer1, mockDialer2)
+	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer1, mockDialer2)
 	conn, err := rd.Dial()
 	if err == nil {
 		t.Errorf("Expected an error, got nil")
@@ -229,7 +229,7 @@ func TestRaceDialFirstSuccessfulDialerWins(t *testing.T) {
 		protocolStr: proto2,
 	}
 
-	rd := NewRaceDial(logger, serverURL, mockDialer1, mockDialer2)
+	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer1, mockDialer2)
 	conn, err := rd.Dial()
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
