@@ -33,14 +33,6 @@ on_exit() {
   fi
 }
 
-on_signal_propagate() {
-  local signal="${1}"
-  if test "${#service_pids[@]}" -gt 0; then
-    info "Propagating ${signal} to NetBird daemon..."
-    kill -"${signal}" "${#service_pids[@]}"
-  fi
-}
-
 wait_for_message() {
   local timeout="${1}" message="${2}"
   if test "${timeout}" -eq 0; then
