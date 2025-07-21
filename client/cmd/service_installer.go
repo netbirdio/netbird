@@ -56,7 +56,7 @@ func configurePlatformSpecificSettings(svcConfig *service.Config) error {
 		// Respected only by systemd systems
 		svcConfig.Dependencies = []string{"After=network.target syslog.target"}
 
-		if logFile := util.FindFirstLogPath(logFiles); logFile != "" {
+		if logFile := util.FindFirstLogPath(logFiles...); logFile != "" {
 			setStdLogPath := true
 			dir := filepath.Dir(logFile)
 

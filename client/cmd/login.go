@@ -50,7 +50,7 @@ var loginCmd = &cobra.Command{
 		}
 
 		// workaround to run without service
-		if util.FindFirstLogPath(logFiles) == "" {
+		if util.FindFirstLogPath(logFiles...) == "" {
 			err = handleRebrand(cmd)
 			if err != nil {
 				return err

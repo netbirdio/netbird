@@ -2,12 +2,10 @@ package util
 
 import (
 	"io"
-	"iter"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/grpclog"
@@ -19,10 +17,8 @@ import (
 const defaultLogSize = 15
 
 const (
-	// LogSeparator preserves compatibility with cobra's StringSliceVar() by using `,`
-	LogSeparator = ","
-	LogConsole   = "console"
-	LogSyslog    = "syslog"
+	LogConsole = "console"
+	LogSyslog  = "syslog"
 )
 
 var (
@@ -42,7 +38,7 @@ func InitLog(logLevel string, logs ...string) error {
 	var writers []io.Writer
 	logFmt := os.Getenv("NB_LOG_FORMAT")
 
-	for logPath := range IterateLogs(logs) {
+	for _, logPath := range logs {
 		switch logPath {
 		case LogSyslog:
 			AddSyslogHook()
@@ -77,22 +73,10 @@ func InitLog(logLevel string, logs ...string) error {
 	return nil
 }
 
-// IterateLogs parses and iterates over logging entries
-func IterateLogs(logs []string) iter.Seq[string] {
-	return func(yield func(string) bool) {
-		parts := strings.Split(strings.Join(logs, LogSeparator), LogSeparator)
-		for _, part := range parts {
-			if !yield(strings.TrimSpace(part)) {
-				return
-			}
-		}
-	}
-}
-
-// FindFirstLogPath locates the first non-special logfile, assumed to be a valid path
-func FindFirstLogPath(logs []string) string {
-	for logFile := range IterateLogs(logs) {
-		if !slices.Contains(SpecialLogs, logFile) {
+// FindFirstLogPath returns the first logs entry that could be a log path, that is neither empty, nor a special value
+func FindFirstLogPath(logs ...string) string {
+	for _, logFile := range logs {
+		if logFile != "" && !slices.Contains(SpecialLogs, logFile) {
 			return logFile
 		}
 	}
