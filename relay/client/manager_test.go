@@ -324,7 +324,6 @@ func TestForeignAutoClose(t *testing.T) {
 
 func TestAutoReconnect(t *testing.T) {
 	ctx := context.Background()
-	reconnectingTimeout = 2 * time.Second
 
 	srvCfg := server.ListenerConfig{
 		Address: "localhost:1234",
@@ -335,8 +334,7 @@ func TestAutoReconnect(t *testing.T) {
 	}
 	errChan := make(chan error, 1)
 	go func() {
-		err := srv.Listen(srvCfg)
-		if err != nil {
+		if err := srv.Listen(srvCfg); err != nil {
 			errChan <- err
 		}
 	}()

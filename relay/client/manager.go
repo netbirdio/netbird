@@ -39,17 +39,6 @@ func NewRelayTrack() *RelayTrack {
 
 type OnServerCloseListener func()
 
-// ManagerService is the interface for the relay manager.
-type ManagerService interface {
-	Serve() error
-	OpenConn(ctx context.Context, serverAddress, peerKey string) (net.Conn, error)
-	AddCloseListener(serverAddress string, onClosedListener OnServerCloseListener) error
-	RelayInstanceAddress() (string, error)
-	ServerURLs() []string
-	HasRelayAddress() bool
-	UpdateToken(token *relayAuth.Token) error
-}
-
 // Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
 // and automatically reconnect to them in case disconnection.
 // The manager also manage temporary relay connection. If a client wants to communicate with a client on a
