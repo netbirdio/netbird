@@ -24,7 +24,7 @@ type WorkerRelay struct {
 	isController bool
 	config       ConnConfig
 	conn         *Conn
-	relayManager relayClient.ManagerService
+	relayManager *relayClient.Manager
 
 	relayedConn net.Conn
 	relayLock   sync.Mutex
@@ -34,7 +34,7 @@ type WorkerRelay struct {
 	wgWatcher *WGWatcher
 }
 
-func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager relayClient.ManagerService, stateDump *stateDump) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager, stateDump *stateDump) *WorkerRelay {
 	r := &WorkerRelay{
 		peerCtx:      ctx,
 		log:          log,

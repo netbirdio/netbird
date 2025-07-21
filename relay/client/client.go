@@ -292,7 +292,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
-	rd := dialer.NewRaceDial(c.log, c.connectionURL, quic.Dialer{}, ws.Dialer{})
+	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, quic.Dialer{}, ws.Dialer{})
 	conn, err := rd.Dial()
 	if err != nil {
 		return nil, err
