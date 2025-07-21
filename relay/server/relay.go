@@ -130,7 +130,9 @@ func (r *Relay) Accept(conn net.Conn) {
 	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	storeTime := time.Now()
-	r.store.AddPeer(peer)
+	if isReconnection := r.store.AddPeer(peer); isReconnection {
+		r.metrics.RecordPeerReconnection()
+	}
 	r.notifier.PeerCameOnline(peer.ID())
 
 	r.metrics.RecordPeerStoreTime(time.Since(storeTime))

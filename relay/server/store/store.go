@@ -26,7 +26,9 @@ func NewStore() *Store {
 }
 
 // AddPeer adds a peer to the store
-func (s *Store) AddPeer(peer IPeer) {
+// If the peer already exists, it will be replaced and the old peer will be closed
+// Returns true if the peer was replaced, false if it was added for the first time.
+func (s *Store) AddPeer(peer IPeer) bool {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 	odlPeer, ok := s.peers[peer.ID()]
@@ -35,6 +37,7 @@ func (s *Store) AddPeer(peer IPeer) {
 	}
 
 	s.peers[peer.ID()] = peer
+	return ok
 }
 
 // DeletePeer deletes a peer from the store
@@ -49,8 +52,6 @@ func (s *Store) DeletePeer(peer IPeer) bool {
 	if dp != peer {
 		return false
 	}
-
-	// todo notify peer disconnection on in this case
 
 	delete(s.peers, peer.ID())
 	return true
