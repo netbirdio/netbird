@@ -19,7 +19,7 @@ type mockIFaceMapper struct {
 }
 
 func (m *mockIFaceMapper) Name() string {
-	return "wt0"
+	return "nb0"
 }
 
 func (m *mockIFaceMapper) Address() wgaddr.Address {

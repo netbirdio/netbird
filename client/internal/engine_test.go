@@ -1393,7 +1393,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	if runtime.GOOS == "darwin" {
 		ifaceName = fmt.Sprintf("utun1%d", i)
 	} else {
-		ifaceName = fmt.Sprintf("wt%d", i)
+		ifaceName = fmt.Sprintf("nb%d", i)
 	}
 
 	wgPort := 33100 + i
