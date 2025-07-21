@@ -25,7 +25,7 @@ warn() {
 on_exit() {
   info "Shutting down NetBird daemon..."
   if test "${#service_pids[@]}" -gt 0; then
-    info "terminating service process PIDs: ${service_pids[*]}"
+    info "terminating service process IDs: ${service_pids[*]}"
     kill -TERM "${service_pids[@]}" 2>/dev/null || true
     wait "${service_pids[@]}" 2>/dev/null || true
   else
@@ -36,10 +36,10 @@ on_exit() {
 wait_for_message() {
   local timeout="${1}" message="${2}"
   if test "${timeout}" -eq 0; then
-    info "not waiting for info message '${message}' due to zero timeout."
+    info "not waiting for log line '${message}' due to zero timeout."
   elif test -n "${log_file_path}"; then
-    info "waiting for info message '${message}' for ${timeout} seconds..."
-    timeout "${timeout}" grep -q "${message}" <(tail -F "${log_file_path}" 2>/dev/null)
+    info "waiting for log line '${message}' for ${timeout} seconds..."
+    grep -q "${message}" <(timeout "${timeout}" tail -F "${log_file_path}" 2>/dev/null)
   else
     info "log file unsupported, sleeping for ${timeout} seconds..."
     sleep "${timeout}"
