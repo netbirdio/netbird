@@ -13,7 +13,9 @@ import (
 )
 
 func TestEmptyURL(t *testing.T) {
-	mgr := NewManager(context.Background(), nil, "alice")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr := NewManager(ctx, nil, "alice")
 	err := mgr.Serve()
 	if err == nil {
 		t.Errorf("expected error, got nil")
