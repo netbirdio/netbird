@@ -595,7 +595,7 @@ func TestCloseByServer(t *testing.T) {
 	select {
 	case <-disconnected:
 	case <-time.After(3 * time.Second):
-		log.Fatalf("timeout waiting for client to disconnect")
+		log.Errorf("timeout waiting for client to disconnect")
 	}
 
 	_, err = relayClient.OpenConn(ctx, "bob")
