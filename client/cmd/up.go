@@ -484,7 +484,7 @@ func parseCustomDNSAddress(modified bool) ([]byte, error) {
 		if !isValidAddrPort(customDNSAddress) {
 			return nil, fmt.Errorf("%s is invalid, it should be formatted as IP:Port string or as an empty string like \"\"", customDNSAddress)
 		}
-		if customDNSAddress == "" && util.FindFirstLogPath(logFiles...) != "" {
+		if customDNSAddress == "" && util.FindFirstLogPath(logFiles) != "" {
 			parsed = []byte("empty")
 		} else {
 			parsed = []byte(customDNSAddress)

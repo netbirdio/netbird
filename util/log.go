@@ -74,7 +74,7 @@ func InitLog(logLevel string, logs ...string) error {
 }
 
 // FindFirstLogPath returns the first logs entry that could be a log path, that is neither empty, nor a special value
-func FindFirstLogPath(logs ...string) string {
+func FindFirstLogPath(logs []string) string {
 	for _, logFile := range logs {
 		if logFile != "" && !slices.Contains(SpecialLogs, logFile) {
 			return logFile
