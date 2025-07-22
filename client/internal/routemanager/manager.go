@@ -44,7 +44,7 @@ import (
 
 // Manager is a route manager interface
 type Manager interface {
-	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
+	Init() error
 	UpdateRoutes(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
 	ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
 	TriggerSelection(route.HAMap)
@@ -201,11 +201,11 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 }
 
 // Init sets up the routing
-func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (m *DefaultManager) Init() error {
 	m.routeSelector = m.initSelector()
 
 	if nbnet.CustomRoutingDisabled() || m.disableClientRoutes {
-		return nil, nil, nil
+		return nil
 	}
 
 	if err := m.sysOps.CleanupRouting(nil); err != nil {
@@ -219,13 +219,12 @@ func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 
 	ips := resolveURLsToIPs(initialAddresses)
 
-	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips, m.stateManager)
-	if err != nil {
-		return nil, nil, fmt.Errorf("setup routing: %w", err)
+	if err := m.sysOps.SetupRouting(ips, m.stateManager); err != nil {
+		return fmt.Errorf("setup routing: %w", err)
 	}
 
 	log.Info("Routing setup complete")
-	return beforePeerHook, afterPeerHook, nil
+	return nil
 }
 
 func (m *DefaultManager) initSelector() *routeselector.RouteSelector {

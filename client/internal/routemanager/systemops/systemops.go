@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
@@ -56,6 +57,10 @@ type SysOps struct {
 	// seq is an atomic counter for generating unique sequence numbers for route messages
 	//nolint:unused // only used on BSD systems
 	seq atomic.Uint32
+
+	localSubnetsCache     []*net.IPNet
+	localSubnetsCacheMu   sync.RWMutex
+	localSubnetsCacheTime time.Time
 }
 
 func NewSysOps(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {

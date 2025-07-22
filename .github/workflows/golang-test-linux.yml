@@ -211,7 +211,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ '386','amd64' ]
+        include:
+          - arch: "386"
+            raceFlag: ""
+          - arch: "amd64"
+            raceFlag: "-race"
     runs-on: ubuntu-22.04
     steps:
       - name: Install Go
@@ -251,9 +255,9 @@ jobs:
       - name: Test
         run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
-          go test \
+          go test ${{ matrix.raceFlag }} \
             -exec 'sudo' \
-            -timeout 10m ./signal/...
+            -timeout 10m ./relay/...
 
   test_signal:
     name: "Signal / Unit"
