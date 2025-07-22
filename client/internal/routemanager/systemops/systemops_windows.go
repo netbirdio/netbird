@@ -19,7 +19,6 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const InfiniteLifetime = 0xffffffff
@@ -137,7 +136,7 @@ const (
 	RouteDeleted
 )
 
-func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	return r.setupRefCounter(initAddresses, stateManager)
 }
 

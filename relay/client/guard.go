@@ -8,7 +8,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
+const (
+	// TODO: make it configurable, the manager should validate all configurable parameters
 	reconnectingTimeout = 60 * time.Second
 )
 

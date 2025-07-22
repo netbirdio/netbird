@@ -86,14 +86,13 @@ func NewRelay(config Config) (*Relay, error) {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}
 
-	peerStore := store.NewStore()
 	r := &Relay{
 		metrics:       m,
 		metricsCancel: metricsCancel,
 		validator:     config.AuthValidator,
 		instanceURL:   config.instanceURL,
-		store:         peerStore,
-		notifier:      store.NewPeerNotifier(peerStore),
+		store:         store.NewStore(),
+		notifier:      store.NewPeerNotifier(),
 	}
 
 	r.preparedMsg, err = newPreparedMsg(r.instanceURL)
@@ -131,15 +130,18 @@ func (r *Relay) Accept(conn net.Conn) {
 	peer := NewPeer(r.metrics, *peerID, conn, r.store, r.notifier)
 	peer.log.Infof("peer connected from: %s", conn.RemoteAddr())
 	storeTime := time.Now()
-	r.store.AddPeer(peer)
+	if isReconnection := r.store.AddPeer(peer); isReconnection {
+		r.metrics.RecordPeerReconnection()
+	}
 	r.notifier.PeerCameOnline(peer.ID())
 
 	r.metrics.RecordPeerStoreTime(time.Since(storeTime))
 	r.metrics.PeerConnected(peer.String())
 	go func() {
 		peer.Work()
-		r.notifier.PeerWentOffline(peer.ID())
-		r.store.DeletePeer(peer)
+		if deleted := r.store.DeletePeer(peer); deleted {
+			r.notifier.PeerWentOffline(peer.ID())
+		}
 		peer.log.Debugf("relay connection closed")
 		r.metrics.PeerDisconnected(peer.String())
 	}()
