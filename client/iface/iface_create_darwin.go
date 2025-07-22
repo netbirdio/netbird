@@ -29,6 +29,7 @@ func (w *WGIface) Create() error {
 			return err
 		}
 		w.configurer = cfgr
+		w.batcher = NewWGBatcher(cfgr)
 		return nil
 	}
 

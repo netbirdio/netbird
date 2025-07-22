@@ -59,6 +59,7 @@ type WGIface struct {
 	mu            sync.Mutex
 
 	configurer     device.WGConfigurer
+	batcher        *WGBatcher
 	filter         device.PacketFilter
 	wgProxyFactory wgProxyFactory
 }
@@ -128,6 +129,12 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 	}
 
 	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
+
+	if endpoint != nil && w.batcher != nil {
+		if err := w.batcher.Flush(); err != nil {
+			log.Warnf("failed to flush batched operations: %v", err)
+		}
+	}
 	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
@@ -152,6 +159,10 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	}
 
 	log.Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
+
+	if w.batcher != nil {
+		return w.batcher.AddAllowedIP(peerKey, allowedIP)
+	}
 	return w.configurer.AddAllowedIP(peerKey, allowedIP)
 }
 
@@ -164,6 +175,10 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error 
 	}
 
 	log.Debugf("Removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
+
+	if w.batcher != nil {
+		return w.batcher.RemoveAllowedIP(peerKey, allowedIP)
+	}
 	return w.configurer.RemoveAllowedIP(peerKey, allowedIP)
 }
 
@@ -173,6 +188,12 @@ func (w *WGIface) Close() error {
 	defer w.mu.Unlock()
 
 	var result *multierror.Error
+
+	if w.batcher != nil {
+		if err := w.batcher.Close(); err != nil {
+			result = multierror.Append(result, fmt.Errorf("failed to close WireGuard batcher: %w", err))
+		}
+	}
 
 	if err := w.wgProxyFactory.Free(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("failed to free WireGuard proxy: %w", err))

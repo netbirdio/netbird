@@ -1,8 +1,6 @@
 package iface
 
-import (
-	"fmt"
-)
+import "fmt"
 
 // CreateOnAndroid creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
@@ -15,6 +13,7 @@ func (w *WGIface) CreateOnAndroid(routes []string, dns string, searchDomains []s
 		return err
 	}
 	w.configurer = cfgr
+	w.batcher = NewWGBatcher(cfgr)
 	return nil
 }
 
