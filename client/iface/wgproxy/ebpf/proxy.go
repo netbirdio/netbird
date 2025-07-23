@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
 	nbnet "github.com/netbirdio/netbird/util/net"
+	"github.com/netbirdio/netbird/client/iface/bufsize"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
 	localWGListenPort int
+	mtu               int
 
 	ebpfManager   ebpfMgr.Manager
 	turnConnStore map[uint16]net.Conn
@@ -43,10 +45,11 @@ type WGEBPFProxy struct {
 }
 
 // NewWGEBPFProxy create new WGEBPFProxy instance
-func NewWGEBPFProxy(wgPort int) *WGEBPFProxy {
+func NewWGEBPFProxy(wgPort int, mtu int) *WGEBPFProxy {
 	log.Debugf("instantiate ebpf proxy")
 	wgProxy := &WGEBPFProxy{
 		localWGListenPort: wgPort,
+		mtu:               mtu,
 		ebpfManager:       ebpf.GetEbpfManagerInstance(),
 		turnConnStore:     make(map[uint16]net.Conn),
 	}
@@ -138,7 +141,7 @@ func (p *WGEBPFProxy) Free() error {
 // proxyToRemote read messages from local WireGuard interface and forward it to remote conn
 // From this go routine has only one instance.
 func (p *WGEBPFProxy) proxyToRemote() {
-	buf := make([]byte, 1500)
+	buf := make([]byte, p.mtu+bufsize.WGBufferOverhead)
 	for p.ctx.Err() == nil {
 		if err := p.readAndForwardPacket(buf); err != nil {
 			if p.ctx.Err() != nil {

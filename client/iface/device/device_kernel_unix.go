@@ -95,7 +95,7 @@ func (t *TunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 
-	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter())
+	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter(), t.mtu)
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +104,7 @@ func (t *TunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		Net:       t.transportNet,
 		FilterFn:  t.filterFn,
 		WGAddress: t.address,
+		MTU:       t.mtu,
 	}
 	mux := bind.NewUniversalUDPMuxDefault(bindParams)
 	go mux.ReadFromConn(t.ctx)
@@ -149,6 +150,10 @@ func (t *TunKernelDevice) Close() error {
 
 func (t *TunKernelDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunKernelDevice) MTU() int {
+	return t.mtu
 }
 
 func (t *TunKernelDevice) DeviceName() string {

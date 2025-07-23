@@ -19,7 +19,9 @@ import (
 	"github.com/pion/transport/v3"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/iface/bufsize"
 )
+
 
 // FilterFn is a function that filters out candidates based on the address.
 // If it returns true, the address is to be filtered. It also returns the prefix of matching route.
@@ -44,6 +46,7 @@ type UniversalUDPMuxParams struct {
 	Net                   transport.Net
 	FilterFn              FilterFn
 	WGAddress             wgaddr.Address
+	MTU                   int
 }
 
 // NewUniversalUDPMuxDefault creates an implementation of UniversalUDPMux embedding UDPMux
@@ -84,7 +87,7 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 // just ignore other packets printing an warning message.
 // It is a blocking method, consider running in a go routine.
 func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
-	buf := make([]byte, 1500)
+	buf := make([]byte, m.params.MTU+bufsize.WGBufferOverhead)
 	for {
 		select {
 		case <-ctx.Done():

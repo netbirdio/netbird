@@ -137,6 +137,10 @@ func (t *WGTunDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 
+func (t *WGTunDevice) MTU() int {
+	return t.mtu
+}
+
 func (t *WGTunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }

@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/iface"
 )
 
 type Proxy struct {
@@ -26,7 +28,7 @@ func (p *Proxy) Close() {
 }
 
 func (p *Proxy) readFromDevice() {
-	buf := make([]byte, 1500)
+	buf := make([]byte, iface.MaxMTU)
 	for {
 		n, err := p.Device.Read(buf)
 		if err != nil {
@@ -49,7 +51,7 @@ func (p *Proxy) readFromDevice() {
 }
 
 func (p *Proxy) readFromConn() {
-	buf := make([]byte, 1500)
+	buf := make([]byte, iface.MaxMTU)
 	for {
 		n, _, err := p.PConn.ReadFrom(buf)
 		if err != nil {

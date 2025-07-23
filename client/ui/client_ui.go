@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
@@ -220,6 +221,7 @@ type serviceClient struct {
 	iPreSharedKey  *widget.Entry
 	iInterfaceName *widget.Entry
 	iInterfacePort *widget.Entry
+	iMTU           *widget.Entry
 
 	// switch elements for settings form
 	sRosenpassPermissive *widget.Check
@@ -236,6 +238,7 @@ type serviceClient struct {
 	RosenpassPermissive bool
 	interfaceName       string
 	interfacePort       int
+	mtu                 int
 	networkMonitor      bool
 	disableDNS          bool
 	disableClientRoutes bool
@@ -352,6 +355,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.iPreSharedKey = widget.NewPasswordEntry()
 	s.iInterfaceName = widget.NewEntry()
 	s.iInterfacePort = widget.NewEntry()
+	s.iMTU = widget.NewEntry()
 
 	s.sRosenpassPermissive = widget.NewCheck("Enable Rosenpass permissive mode", nil)
 
@@ -376,6 +380,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
+			{Text: "MTU", Widget: s.iMTU},
 			{Text: "Management URL", Widget: s.iMngURL},
 			{Text: "Admin URL", Widget: s.iAdminURL},
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
@@ -403,6 +408,16 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				return
 			}
 
+			mtu, err := strconv.ParseInt(s.iMTU.Text, 10, 64)
+			if err != nil {
+				dialog.ShowError(errors.New("Invalid MTU value"), s.wSettings)
+				return
+			}
+			if mtu < iface.MinMTU || mtu > iface.MaxMTU {
+				dialog.ShowError(fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU), s.wSettings)
+				return
+			}
+
 			iAdminURL := strings.TrimSpace(s.iAdminURL.Text)
 			iMngURL := strings.TrimSpace(s.iMngURL.Text)
 
@@ -412,7 +427,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
 				s.adminURL != iAdminURL || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
 				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
-				s.networkMonitor != s.sNetworkMonitor.Checked ||
+				s.mtu != int(mtu) || s.networkMonitor != s.sNetworkMonitor.Checked ||
 				s.disableDNS != s.sDisableDNS.Checked ||
 				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
 				s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
@@ -429,6 +444,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					RosenpassPermissive: &s.sRosenpassPermissive.Checked,
 					InterfaceName:       &s.iInterfaceName.Text,
 					WireguardPort:       &port,
+					Mtu:                 &mtu,
 					NetworkMonitor:      &s.sNetworkMonitor.Checked,
 					DisableDns:          &s.sDisableDNS.Checked,
 					DisableClientRoutes: &s.sDisableClientRoutes.Checked,
@@ -822,6 +838,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.RosenpassPermissive = cfg.RosenpassPermissive
 	s.interfaceName = cfg.InterfaceName
 	s.interfacePort = int(cfg.WireguardPort)
+	s.mtu = int(cfg.Mtu)
 
 	s.networkMonitor = cfg.NetworkMonitor
 	s.disableDNS = cfg.DisableDns
@@ -837,6 +854,7 @@ func (s *serviceClient) getSrvConfig() {
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
 		s.iInterfaceName.SetText(cfg.InterfaceName)
 		s.iInterfacePort.SetText(strconv.Itoa(int(cfg.WireguardPort)))
+		s.iMTU.SetText(strconv.Itoa(int(cfg.Mtu)))
 		s.sRosenpassPermissive.SetChecked(cfg.RosenpassPermissive)
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()

@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
+	"github.com/netbirdio/netbird/client/iface/bufsize"
 )
 
 // ProxyWrapper help to keep the remoteConn instance for net.Conn.Close function call
@@ -103,7 +104,7 @@ func (e *ProxyWrapper) CloseConn() error {
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 	defer p.WgeBPFProxy.removeTurnConn(uint16(p.wgEndpointAddr.Port))
 
-	buf := make([]byte, 1500)
+	buf := make([]byte, p.WgeBPFProxy.mtu+bufsize.WGBufferOverhead)
 	for {
 		n, err := p.readFromRemote(ctx, buf)
 		if err != nil {

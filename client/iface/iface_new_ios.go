@@ -16,7 +16,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 		return nil, err
 	}
 
-	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress)
+	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, opts.MTU)
 
 	wgIFace := &WGIface{
 		tun:            device.NewTunDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, iceBind, opts.MobileArgs.TunFd),

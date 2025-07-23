@@ -118,6 +118,10 @@ func (t *USPDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 
+func (t *USPDevice) MTU() int {
+	return t.mtu
+}
+
 func (t *USPDevice) DeviceName() string {
 	return t.name
 }

@@ -125,6 +125,10 @@ func (t *TunNetstackDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 
+func (t *TunNetstackDevice) MTU() int {
+	return t.mtu
+}
+
 func (t *TunNetstackDevice) DeviceName() string {
 	return t.name
 }

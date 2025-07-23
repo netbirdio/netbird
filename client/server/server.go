@@ -428,6 +428,12 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.LazyConnectionEnabled = msg.LazyConnectionEnabled
 	}
 
+	if msg.Mtu != nil {
+		mtu := int(*msg.Mtu)
+		inputConfig.MTU = &mtu
+		s.latestConfigInput.MTU = &mtu
+	}
+
 	s.mutex.Unlock()
 
 	if msg.OptionalPreSharedKey != nil {
@@ -784,6 +790,7 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 		AdminURL:              adminURL,
 		InterfaceName:         s.config.WgIface,
 		WireguardPort:         int64(s.config.WgPort),
+		Mtu:                   int64(s.config.MTU),
 		DisableAutoConnect:    s.config.DisableAutoConnect,
 		ServerSSHAllowed:      *s.config.ServerSSHAllowed,
 		RosenpassEnabled:      s.config.RosenpassEnabled,
@@ -841,6 +848,11 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
 
 	for _, peerState := range fullStatus.Peers {
+		connectionType := "P2P"
+		if peerState.Relayed {
+			connectionType = "Relayed"
+		}
+
 		pbPeerState := &proto.PeerState{
 			IP:                         peerState.IP,
 			PubKey:                     peerState.PubKey,
@@ -859,6 +871,7 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			RosenpassEnabled:           peerState.RosenpassEnabled,
 			Networks:                   maps.Keys(peerState.GetRoutes()),
 			Latency:                    durationpb.New(peerState.Latency),
+			ConnectionType:             connectionType,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

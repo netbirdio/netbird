@@ -261,6 +261,8 @@ message PeerConfig {
   bool RoutingPeerDnsResolutionEnabled = 5;
 
   bool LazyConnectionEnabled = 6;
+
+  int32 mtu = 7;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections

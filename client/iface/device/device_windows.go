@@ -144,6 +144,10 @@ func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 
+func (t *TunDevice) MTU() int {
+	return t.mtu
+}
+
 func (t *TunDevice) DeviceName() string {
 	return t.name
 }

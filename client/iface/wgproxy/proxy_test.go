@@ -84,7 +84,7 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 	}{
 		{
 			name:  "userspace proxy",
-			proxy: udpProxy.NewWGUDPProxy(51830),
+			proxy: udpProxy.NewWGUDPProxy(51830, 1280),
 		},
 	}
 

@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -442,6 +443,8 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		BlockInbound:        config.BlockInbound,
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
+
+		MTU: selectMTU(config.MTU, peerConfig.Mtu),
 	}
 
 	if config.PreSharedKey != "" {
@@ -462,6 +465,20 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 	engineConf.WgPort = port
 
 	return engineConf, nil
+}
+
+func selectMTU(localMTU int, peerMTU int32) int {
+	finalMTU := iface.DefaultMTU
+	if localMTU > 0 {
+		finalMTU = localMTU
+	} else if peerMTU > 0 {
+		finalMTU = int(peerMTU)
+	}
+
+	// Set global DNS MTU
+	dns.SetCurrentMTU(finalMTU)
+
+	return finalMTU
 }
 
 // connectToSignal creates Signal Service client and established a connection

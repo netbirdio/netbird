@@ -26,6 +26,8 @@ import (
 
 const (
 	DefaultMTU         = 1280
+	MinMTU             = 576
+	MaxMTU             = 8192
 	DefaultWgPort      = 51820
 	WgInterfaceDefault = configurer.WgInterfaceDefault
 )
@@ -80,6 +82,10 @@ func (w *WGIface) Name() string {
 // Address returns the interface address
 func (w *WGIface) Address() wgaddr.Address {
 	return w.tun.WgAddress()
+}
+
+func (w *WGIface) MTU() int {
+	return w.tun.MTU()
 }
 
 // ToInterface returns the net.Interface for the Wireguard interface

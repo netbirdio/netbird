@@ -9,19 +9,21 @@ import (
 // KernelFactory todo: check eBPF support on FreeBSD
 type KernelFactory struct {
 	wgPort int
+	mtu    int
 }
 
-func NewKernelFactory(wgPort int) *KernelFactory {
+func NewKernelFactory(wgPort int, mtu int) *KernelFactory {
 	log.Infof("WireGuard Proxy Factory will produce UDP proxy")
 	f := &KernelFactory{
 		wgPort: wgPort,
+		mtu:    mtu,
 	}
 
 	return f
 }
 
 func (w *KernelFactory) GetProxy() Proxy {
-	return udpProxy.NewWGUDPProxy(w.wgPort)
+	return udpProxy.NewWGUDPProxy(w.wgPort, w.mtu)
 }
 
 func (w *KernelFactory) Free() error {

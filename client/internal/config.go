@@ -76,6 +76,8 @@ type ConfigInput struct {
 	DNSLabels domain.List
 
 	LazyConnectionEnabled *bool
+
+	MTU *int
 }
 
 // Config Configuration type
@@ -142,6 +144,8 @@ type Config struct {
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
 	LazyConnectionEnabled bool
+
+	MTU int
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
@@ -545,6 +549,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
 		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
 		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
+		updated = true
+	}
+
+	if input.MTU != nil && *input.MTU != config.MTU {
+		log.Infof("updating MTU to %d (old value %d)", *input.MTU, config.MTU)
+		config.MTU = *input.MTU
+		updated = true
+	} else if config.MTU == 0 {
+		config.MTU = iface.DefaultMTU
+		log.Infof("using default MTU %d", config.MTU)
 		updated = true
 	}
 

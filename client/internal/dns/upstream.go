@@ -25,6 +25,12 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
+var currentMTU = iface.DefaultMTU
+
+func SetCurrentMTU(mtu int) {
+	currentMTU = mtu
+}
+
 const (
 	UpstreamTimeout = 15 * time.Second
 
@@ -346,8 +352,8 @@ func (u *upstreamResolverBase) testNameserver(server string, timeout time.Durati
 // If the passed context is nil, this will use Exchange instead of ExchangeContext.
 func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, upstream string) (*dns.Msg, time.Duration, error) {
 	// MTU - ip + udp headers
-	// Note: this could be sent out on an interface that is not ours, but our MTU should always be lower.
-	client.UDPSize = iface.DefaultMTU - (60 + 8)
+	// Note: this could be sent out on an interface that is not ours, but higher MTU settings could break truncation handling.
+	client.UDPSize = uint16(currentMTU - (60 + 8))
 
 	var (
 		rm  *dns.Msg

@@ -136,6 +136,8 @@ message LoginRequest {
   optional bool lazyConnectionEnabled = 28;
 
   optional bool block_inbound = 29;
+
+  optional int64 mtu = 30;
 }
 
 message LoginResponse {
@@ -195,6 +197,8 @@ message GetConfigResponse {
 
   int64 wireguardPort = 7;
 
+  int64 mtu = 8;
+
   bool disableAutoConnect = 9;
 
   bool serverSSHAllowed = 10;
@@ -239,6 +243,7 @@ message PeerState {
   repeated string networks = 16;
   google.protobuf.Duration latency = 17;
   string relayAddress = 18;
+  string connectionType = 19;
 }
 
 // LocalPeerState contains the latest state of the local peer

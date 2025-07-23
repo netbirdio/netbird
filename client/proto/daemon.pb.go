@@ -273,9 +273,10 @@ type LoginRequest struct {
 	// cleanDNSLabels clean map list of DNS labels.
 	// This is needed because the generated code
 	// omits initialized empty slices due to omitempty tags
-	CleanDNSLabels        bool  `protobuf:"varint,27,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
-	LazyConnectionEnabled *bool `protobuf:"varint,28,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
-	BlockInbound          *bool `protobuf:"varint,29,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
+	CleanDNSLabels        bool   `protobuf:"varint,27,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
+	LazyConnectionEnabled *bool  `protobuf:"varint,28,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
+	BlockInbound          *bool  `protobuf:"varint,29,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
+	Mtu                   *int64 `protobuf:"varint,30,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -512,6 +513,13 @@ func (x *LoginRequest) GetBlockInbound() bool {
 		return *x.BlockInbound
 	}
 	return false
+}
+
+func (x *LoginRequest) GetMtu() int64 {
+	if x != nil && x.Mtu != nil {
+		return *x.Mtu
+	}
+	return 0
 }
 
 type LoginResponse struct {
@@ -978,6 +986,7 @@ type GetConfigResponse struct {
 	AdminURL              string `protobuf:"bytes,5,opt,name=adminURL,proto3" json:"adminURL,omitempty"`
 	InterfaceName         string `protobuf:"bytes,6,opt,name=interfaceName,proto3" json:"interfaceName,omitempty"`
 	WireguardPort         int64  `protobuf:"varint,7,opt,name=wireguardPort,proto3" json:"wireguardPort,omitempty"`
+	Mtu                   int64  `protobuf:"varint,8,opt,name=mtu,proto3" json:"mtu,omitempty"`
 	DisableAutoConnect    bool   `protobuf:"varint,9,opt,name=disableAutoConnect,proto3" json:"disableAutoConnect,omitempty"`
 	ServerSSHAllowed      bool   `protobuf:"varint,10,opt,name=serverSSHAllowed,proto3" json:"serverSSHAllowed,omitempty"`
 	RosenpassEnabled      bool   `protobuf:"varint,11,opt,name=rosenpassEnabled,proto3" json:"rosenpassEnabled,omitempty"`
@@ -1069,6 +1078,13 @@ func (x *GetConfigResponse) GetInterfaceName() string {
 func (x *GetConfigResponse) GetWireguardPort() int64 {
 	if x != nil {
 		return x.WireguardPort
+	}
+	return 0
+}
+
+func (x *GetConfigResponse) GetMtu() int64 {
+	if x != nil {
+		return x.Mtu
 	}
 	return 0
 }
@@ -1177,6 +1193,7 @@ type PeerState struct {
 	Networks                   []string               `protobuf:"bytes,16,rep,name=networks,proto3" json:"networks,omitempty"`
 	Latency                    *durationpb.Duration   `protobuf:"bytes,17,opt,name=latency,proto3" json:"latency,omitempty"`
 	RelayAddress               string                 `protobuf:"bytes,18,opt,name=relayAddress,proto3" json:"relayAddress,omitempty"`
+	ConnectionType             string                 `protobuf:"bytes,19,opt,name=connectionType,proto3" json:"connectionType,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -1331,10 +1348,10 @@ func (x *PeerState) GetRelayAddress() string {
 }
 
 func (x *PeerState) GetConnectionType() string {
-	if x.Relayed {
-		return "Relayed"
+	if x != nil {
+		return x.ConnectionType
 	}
-	return "P2P"
+	return ""
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -3567,7 +3584,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\xbf\r\n" +
+	"\fEmptyRequest\"\xde\r\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -3601,7 +3618,8 @@ const file_daemon_proto_rawDesc = "" +
 	"dns_labels\x18\x1a \x03(\tR\tdnsLabels\x12&\n" +
 	"\x0ecleanDNSLabels\x18\x1b \x01(\bR\x0ecleanDNSLabels\x129\n" +
 	"\x15lazyConnectionEnabled\x18\x1c \x01(\bH\x0fR\x15lazyConnectionEnabled\x88\x01\x01\x12(\n" +
-	"\rblock_inbound\x18\x1d \x01(\bH\x10R\fblockInbound\x88\x01\x01B\x13\n" +
+	"\rblock_inbound\x18\x1d \x01(\bH\x10R\fblockInbound\x88\x01\x01\x12\x15\n" +
+	"\x03mtu\x18\x1e \x01(\x03H\x11R\x03mtu\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -3618,7 +3636,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x11_block_lan_accessB\x18\n" +
 	"\x16_disable_notificationsB\x18\n" +
 	"\x16_lazyConnectionEnabledB\x10\n" +
-	"\x0e_block_inbound\"\xb5\x01\n" +
+	"\x0e_block_inboundB\x06\n" +
+	"\x04_mtu\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -3642,7 +3661,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\rdaemonVersion\x18\x03 \x01(\tR\rdaemonVersion\"\r\n" +
 	"\vDownRequest\"\x0e\n" +
 	"\fDownResponse\"\x12\n" +
-	"\x10GetConfigRequest\"\xa3\x06\n" +
+	"\x10GetConfigRequest\"\xb5\x06\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -3652,7 +3671,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\fpreSharedKey\x18\x04 \x01(\tR\fpreSharedKey\x12\x1a\n" +
 	"\badminURL\x18\x05 \x01(\tR\badminURL\x12$\n" +
 	"\rinterfaceName\x18\x06 \x01(\tR\rinterfaceName\x12$\n" +
-	"\rwireguardPort\x18\a \x01(\x03R\rwireguardPort\x12.\n" +
+	"\rwireguardPort\x18\a \x01(\x03R\rwireguardPort\x12\x10\n" +
+	"\x03mtu\x18\b \x01(\x03R\x03mtu\x12.\n" +
 	"\x12disableAutoConnect\x18\t \x01(\bR\x12disableAutoConnect\x12*\n" +
 	"\x10serverSSHAllowed\x18\n" +
 	" \x01(\bR\x10serverSSHAllowed\x12*\n" +
@@ -3666,7 +3686,7 @@ const file_daemon_proto_rawDesc = "" +
 	"disableDns\x122\n" +
 	"\x15disable_client_routes\x18\x12 \x01(\bR\x13disableClientRoutes\x122\n" +
 	"\x15disable_server_routes\x18\x13 \x01(\bR\x13disableServerRoutes\x12(\n" +
-	"\x10block_lan_access\x18\x14 \x01(\bR\x0eblockLanAccess\"\xde\x05\n" +
+	"\x10block_lan_access\x18\x14 \x01(\bR\x0eblockLanAccess\"\x86\x06\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -3687,7 +3707,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x10rosenpassEnabled\x18\x0f \x01(\bR\x10rosenpassEnabled\x12\x1a\n" +
 	"\bnetworks\x18\x10 \x03(\tR\bnetworks\x123\n" +
 	"\alatency\x18\x11 \x01(\v2\x19.google.protobuf.DurationR\alatency\x12\"\n" +
-	"\frelayAddress\x18\x12 \x01(\tR\frelayAddress\"\xf0\x01\n" +
+	"\frelayAddress\x18\x12 \x01(\tR\frelayAddress\x12&\n" +
+	"\x0econnectionType\x18\x13 \x01(\tR\x0econnectionType\"\xf0\x01\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +

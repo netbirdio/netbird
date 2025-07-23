@@ -13,6 +13,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
+	"github.com/netbirdio/netbird/client/iface/bufsize"
 )
 
 type ProxyBind struct {
@@ -135,7 +136,7 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 	}()
 
 	for {
-		buf := make([]byte, 1500)
+		buf := make([]byte, p.Bind.MTU()+bufsize.WGBufferOverhead)
 		n, err := p.remoteConn.Read(buf)
 		if err != nil {
 			if ctx.Err() != nil {
