@@ -355,5 +355,5 @@ func (s *ServiceManager) GetStatePath() string {
 		return defaultStatePath
 	}
 
-	return filepath.Join(configDir, activeProf.Name+"_state.json")
+	return filepath.Join(configDir, activeProf.Name+".state.json")
 }
