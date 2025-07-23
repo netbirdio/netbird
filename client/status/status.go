@@ -100,7 +100,7 @@ type OutputOverview struct {
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 }
 
-func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}) OutputOverview {
+func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string) OutputOverview {
 	pbFullStatus := resp.GetFullStatus()
 
 	managementState := pbFullStatus.GetManagementState()
@@ -118,7 +118,7 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 	}
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
-	peersOverview := mapPeers(resp.GetFullStatus().GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter)
+	peersOverview := mapPeers(resp.GetFullStatus().GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
 
 	overview := OutputOverview{
 		Peers:                   peersOverview,
@@ -193,6 +193,7 @@ func mapPeers(
 	prefixNamesFilter []string,
 	prefixNamesFilterMap map[string]struct{},
 	ipsFilter map[string]struct{},
+	connectionTypeFilter string,
 ) PeersStateOutput {
 	var peersStateDetail []PeerStateDetailOutput
 	peersConnected := 0
@@ -208,7 +209,7 @@ func mapPeers(
 		transferSent := int64(0)
 
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
-		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter) {
+		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter) {
 			continue
 		}
 		if isPeerConnected {
@@ -218,10 +219,7 @@ func mapPeers(
 			remoteICE = pbPeerState.GetRemoteIceCandidateType()
 			localICEEndpoint = pbPeerState.GetLocalIceCandidateEndpoint()
 			remoteICEEndpoint = pbPeerState.GetRemoteIceCandidateEndpoint()
-			connType = "P2P"
-			if pbPeerState.Relayed {
-				connType = "Relayed"
-			}
+			connType = pbPeerState.GetConnectionType()
 			relayServerAddress = pbPeerState.GetRelayAddress()
 			lastHandshake = pbPeerState.GetLastWireguardHandshake().AsTime().Local()
 			transferReceived = pbPeerState.GetBytesRx()
@@ -542,10 +540,11 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 	return peersString
 }
 
-func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}) bool {
+func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string) bool {
 	statusEval := false
 	ipEval := false
 	nameEval := true
+	connectionTypeEval := false
 
 	if statusFilter != "" {
 		if !strings.EqualFold(peerStatus, statusFilter) {
@@ -570,8 +569,11 @@ func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFi
 	} else {
 		nameEval = false
 	}
+	if connectionTypeFilter != "" && !strings.EqualFold(peerState.GetConnectionType(), connectionTypeFilter) {
+		connectionTypeEval = true
+	}
 
-	return statusEval || ipEval || nameEval
+	return statusEval || ipEval || nameEval || connectionTypeEval
 }
 
 func toIEC(b int64) string {

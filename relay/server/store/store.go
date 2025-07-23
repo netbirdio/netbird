@@ -26,7 +26,9 @@ func NewStore() *Store {
 }
 
 // AddPeer adds a peer to the store
-func (s *Store) AddPeer(peer IPeer) {
+// If the peer already exists, it will be replaced and the old peer will be closed
+// Returns true if the peer was replaced, false if it was added for the first time.
+func (s *Store) AddPeer(peer IPeer) bool {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 	odlPeer, ok := s.peers[peer.ID()]
@@ -35,22 +37,24 @@ func (s *Store) AddPeer(peer IPeer) {
 	}
 
 	s.peers[peer.ID()] = peer
+	return ok
 }
 
 // DeletePeer deletes a peer from the store
-func (s *Store) DeletePeer(peer IPeer) {
+func (s *Store) DeletePeer(peer IPeer) bool {
 	s.peersLock.Lock()
 	defer s.peersLock.Unlock()
 
 	dp, ok := s.peers[peer.ID()]
 	if !ok {
-		return
+		return false
 	}
 	if dp != peer {
-		return
+		return false
 	}
 
 	delete(s.peers, peer.ID())
+	return true
 }
 
 // Peer returns a peer by its ID
@@ -72,4 +76,22 @@ func (s *Store) Peers() []IPeer {
 		peers = append(peers, p)
 	}
 	return peers
+}
+
+func (s *Store) GetOnlinePeersAndRegisterInterest(peerIDs []messages.PeerID, listener *Listener) []messages.PeerID {
+	s.peersLock.RLock()
+	defer s.peersLock.RUnlock()
+
+	onlinePeers := make([]messages.PeerID, 0, len(peerIDs))
+
+	listener.AddInterestedPeers(peerIDs)
+
+	// Check for currently online peers
+	for _, id := range peerIDs {
+		if _, ok := s.peers[id]; ok {
+			onlinePeers = append(onlinePeers, id)
+		}
+	}
+
+	return onlinePeers
 }

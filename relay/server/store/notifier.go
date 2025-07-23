@@ -8,15 +8,12 @@ import (
 )
 
 type PeerNotifier struct {
-	store *Store
-
 	listeners      map[*Listener]context.CancelFunc
 	listenersMutex sync.RWMutex
 }
 
-func NewPeerNotifier(store *Store) *PeerNotifier {
+func NewPeerNotifier() *PeerNotifier {
 	pn := &PeerNotifier{
-		store:     store,
 		listeners: make(map[*Listener]context.CancelFunc),
 	}
 	return pn
@@ -24,8 +21,8 @@ func NewPeerNotifier(store *Store) *PeerNotifier {
 
 func (pn *PeerNotifier) NewListener(onPeersComeOnline, onPeersWentOffline func([]messages.PeerID)) *Listener {
 	ctx, cancel := context.WithCancel(context.Background())
-	listener := newListener(pn.store)
-	go listener.listenForEvents(ctx, onPeersComeOnline, onPeersWentOffline)
+	listener := newListener(ctx)
+	go listener.listenForEvents(onPeersComeOnline, onPeersWentOffline)
 
 	pn.listenersMutex.Lock()
 	pn.listeners[listener] = cancel

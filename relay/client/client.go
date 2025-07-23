@@ -181,13 +181,17 @@ func (c *Client) Connect(ctx context.Context) error {
 		return nil
 	}
 
-	if err := c.connect(ctx); err != nil {
+	instanceURL, err := c.connect(ctx)
+	if err != nil {
 		return err
 	}
+	c.muInstanceURL.Lock()
+	c.instanceURL = instanceURL
+	c.muInstanceURL.Unlock()
 
 	c.stateSubscription = NewPeersStateSubscription(c.log, c.relayConn, c.closeConnsByPeerID)
 
-	c.log = c.log.WithField("relay", c.instanceURL.String())
+	c.log = c.log.WithField("relay", instanceURL.String())
 	c.log.Infof("relay connection established")
 
 	c.serviceIsRunning = true
@@ -229,9 +233,18 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 
 	c.log.Infof("remote peer is available, prepare the relayed connection: %s", peerID)
 	msgChannel := make(chan Msg, 100)
-	conn := NewConn(c, peerID, msgChannel, c.instanceURL)
 
 	c.mu.Lock()
+	if !c.serviceIsRunning {
+		c.mu.Unlock()
+		return nil, fmt.Errorf("relay connection is not established")
+	}
+
+	c.muInstanceURL.Lock()
+	instanceURL := c.instanceURL
+	c.muInstanceURL.Unlock()
+	conn := NewConn(c, peerID, msgChannel, instanceURL)
+
 	_, ok = c.conns[peerID]
 	if ok {
 		c.mu.Unlock()
@@ -278,69 +291,67 @@ func (c *Client) Close() error {
 	return c.close(true)
 }
 
-func (c *Client) connect(ctx context.Context) error {
-	rd := dialer.NewRaceDial(c.log, c.connectionURL, quic.Dialer{}, ws.Dialer{})
+func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
+	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, quic.Dialer{}, ws.Dialer{})
 	conn, err := rd.Dial()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	c.relayConn = conn
 
-	if err = c.handShake(ctx); err != nil {
+	instanceURL, err := c.handShake(ctx)
+	if err != nil {
 		cErr := conn.Close()
 		if cErr != nil {
 			c.log.Errorf("failed to close connection: %s", cErr)
 		}
-		return err
+		return nil, err
 	}
 
-	return nil
+	return instanceURL, nil
 }
 
-func (c *Client) handShake(ctx context.Context) error {
+func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
 	msg, err := messages.MarshalAuthMsg(c.hashedID, c.authTokenStore.TokenBinary())
 	if err != nil {
 		c.log.Errorf("failed to marshal auth message: %s", err)
-		return err
+		return nil, err
 	}
 
 	_, err = c.relayConn.Write(msg)
 	if err != nil {
 		c.log.Errorf("failed to send auth message: %s", err)
-		return err
+		return nil, err
 	}
 	buf := make([]byte, messages.MaxHandshakeRespSize)
 	n, err := c.readWithTimeout(ctx, buf)
 	if err != nil {
 		c.log.Errorf("failed to read auth response: %s", err)
-		return err
+		return nil, err
 	}
 
 	_, err = messages.ValidateVersion(buf[:n])
 	if err != nil {
-		return fmt.Errorf("validate version: %w", err)
+		return nil, fmt.Errorf("validate version: %w", err)
 	}
 
 	msgType, err := messages.DetermineServerMessageType(buf[:n])
 	if err != nil {
 		c.log.Errorf("failed to determine message type: %s", err)
-		return err
+		return nil, err
 	}
 
 	if msgType != messages.MsgTypeAuthResponse {
 		c.log.Errorf("unexpected message type: %s", msgType)
-		return fmt.Errorf("unexpected message type")
+		return nil, fmt.Errorf("unexpected message type")
 	}
 
 	addr, err := messages.UnmarshalAuthResponse(buf[:n])
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	c.muInstanceURL.Lock()
-	c.instanceURL = &RelayAddr{addr: addr}
-	c.muInstanceURL.Unlock()
-	return nil
+	return &RelayAddr{addr: addr}, nil
 }
 
 func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internallyStoppedFlag *internalStopFlag) {
@@ -385,10 +396,6 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 	}
 
 	hc.Stop()
-
-	c.muInstanceURL.Lock()
-	c.instanceURL = nil
-	c.muInstanceURL.Unlock()
 
 	c.stateSubscription.Cleanup()
 	c.wgReadLoop.Done()
@@ -578,8 +585,12 @@ func (c *Client) close(gracefullyExit bool) error {
 		c.log.Warn("relay connection was already marked as not running")
 		return nil
 	}
-
 	c.serviceIsRunning = false
+
+	c.muInstanceURL.Lock()
+	c.instanceURL = nil
+	c.muInstanceURL.Unlock()
+
 	c.log.Infof("closing all peer connections")
 	c.closeAllConns()
 	if gracefullyExit {
