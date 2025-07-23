@@ -17,8 +17,6 @@ builds:
       - 386
     ignore:
       - goos: windows
-        goarch: arm64
-      - goos: windows
         goarch: arm
       - goos: windows
         goarch: 386

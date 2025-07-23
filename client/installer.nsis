@@ -213,7 +213,15 @@ Section -MainProgram
     ${INSTALL_TYPE}
     # SetOverwrite ifnewer
     SetOutPath "$INSTDIR"
-    File /r "..\\dist\\netbird_windows_amd64\\"
+    !ifndef ARCH
+        !define ARCH "amd64"
+    !endif
+
+    !if ${ARCH} == "arm64"
+        File /r "..\\dist\\netbird_windows_arm64\\"
+    !else
+        File /r "..\\dist\\netbird_windows_amd64\\"
+    !endif
 SectionEnd
 ######################################################################
 

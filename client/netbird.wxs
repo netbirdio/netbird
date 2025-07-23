@@ -16,13 +16,15 @@
 		<StandardDirectory Id="ProgramFiles64Folder">
 			<Directory Id="NetbirdInstallDir" Name="Netbird">
 				<Component Id="NetbirdFiles" Guid="db3165de-cc6e-4922-8396-9d892950e23e" Bitness="always64">
-					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\netbird.exe" KeyPath="yes" />
-					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\netbird-ui.exe">
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird.exe" KeyPath="yes" />
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird-ui.exe">
 						<Shortcut Id="NetbirdDesktopShortcut" Directory="DesktopFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
 						<Shortcut Id="NetbirdStartMenuShortcut" Directory="StartMenuFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
 					</File>
-					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\wintun.dll" />
-					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\opengl32.dll" />
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\wintun.dll" />
+					<?if $(var.ArchSuffix) = "amd64" ?>
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\opengl32.dll" />
+					<?endif ?>
 
 					<ServiceInstall
                                      Id="NetBirdService"
