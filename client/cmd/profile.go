@@ -7,7 +7,6 @@ import (
 
 	"os/user"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -73,15 +72,13 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
-		log.Errorf("failed to connect to service CLI interface %v", err)
-		return err
+		return fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 
 	currUser, err := user.Current()
 	if err != nil {
-		log.Errorf("failed to get current user: %v", err)
-		return err
+		return fmt.Errorf("get current user: %w", err)
 	}
 
 	daemonClient := proto.NewDaemonServiceClient(conn)
@@ -114,15 +111,13 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
-		log.Errorf("failed to connect to service CLI interface %v", err)
-		return err
+		return fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 
 	currUser, err := user.Current()
 	if err != nil {
-		log.Errorf("failed to get current user: %v", err)
-		return err
+		return fmt.Errorf("get current user: %w", err)
 	}
 
 	daemonClient := proto.NewDaemonServiceClient(conn)
@@ -148,15 +143,13 @@ func removeProfileFunc(cmd *cobra.Command, args []string) error {
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
-		log.Errorf("failed to connect to service CLI interface %v", err)
-		return err
+		return fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 
 	currUser, err := user.Current()
 	if err != nil {
-		log.Errorf("failed to get current user: %v", err)
-		return err
+		return fmt.Errorf("get current user: %w", err)
 	}
 
 	daemonClient := proto.NewDaemonServiceClient(conn)
@@ -185,16 +178,14 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 
 	currUser, err := user.Current()
 	if err != nil {
-		log.Errorf("failed to get current user: %v", err)
-		return err
+		return fmt.Errorf("get current user: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*7)
 	defer cancel()
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		log.Errorf("failed to connect to service CLI interface %v", err)
-		return err
+		return fmt.Errorf("connect to service CLI interface: %w", err)
 	}
 	defer conn.Close()
 
@@ -204,8 +195,7 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		Username: currUser.Username,
 	})
 	if err != nil {
-		log.Errorf("call service list profiles method: %v", err)
-		return err
+		return fmt.Errorf("list profiles: %w", err)
 	}
 
 	var profileExists bool
@@ -218,7 +208,6 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	if !profileExists {
-		log.Errorf("profile %s does not exist", profileName)
 		return fmt.Errorf("profile %s does not exist", profileName)
 	}
 
@@ -233,14 +222,12 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 
 	status, err := daemonClient.Status(ctx, &proto.StatusRequest{})
 	if err != nil {
-		log.Errorf("call service status method: %v", err)
-		return err
+		return fmt.Errorf("get service status: %w", err)
 	}
 
 	if status.Status == string(internal.StatusConnected) {
 		if _, err := daemonClient.Down(ctx, &proto.DownRequest{}); err != nil {
-			log.Errorf("call service down method: %v", err)
-			return err
+			return fmt.Errorf("call service down method: %w", err)
 		}
 	}
 

@@ -16,7 +16,7 @@ type ProfileState struct {
 func (pm *ProfileManager) GetProfileState(profileName string) (*ProfileState, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get config directory: %w", err)
+		return nil, fmt.Errorf("get config directory: %w", err)
 	}
 
 	stateFile := filepath.Join(configDir, profileName+".state.json")
@@ -27,7 +27,7 @@ func (pm *ProfileManager) GetProfileState(profileName string) (*ProfileState, er
 	var state ProfileState
 	_, err = util.ReadJson(stateFile, &state)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read profile state: %w", err)
+		return nil, fmt.Errorf("read profile state: %w", err)
 	}
 
 	return &state, nil
@@ -36,7 +36,7 @@ func (pm *ProfileManager) GetProfileState(profileName string) (*ProfileState, er
 func (pm *ProfileManager) SetActiveProfileState(state *ProfileState) error {
 	configDir, err := getConfigDir()
 	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
+		return fmt.Errorf("get config directory: %w", err)
 	}
 
 	activeProf, err := pm.GetActiveProfile()
@@ -44,13 +44,13 @@ func (pm *ProfileManager) SetActiveProfileState(state *ProfileState) error {
 		if errors.Is(err, ErrNoActiveProfile) {
 			return fmt.Errorf("no active profile set: %w", err)
 		}
-		return fmt.Errorf("failed to get active profile: %w", err)
+		return fmt.Errorf("get active profile: %w", err)
 	}
 
 	stateFile := filepath.Join(configDir, activeProf.Name+".state.json")
 	err = util.WriteJsonWithRestrictedPermission(context.Background(), stateFile, state)
 	if err != nil {
-		return fmt.Errorf("failed to write profile state: %w", err)
+		return fmt.Errorf("write profile state: %w", err)
 	}
 
 	return nil
