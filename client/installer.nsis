@@ -59,9 +59,15 @@ ShowInstDetails Show
 !define MUI_UNICON "${ICON}"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "${BANNER}"
 !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${BANNER}"
-!define MUI_FINISHPAGE_RUN
-!define MUI_FINISHPAGE_RUN_TEXT "Start ${UI_APP_NAME}"
-!define MUI_FINISHPAGE_RUN_FUNCTION "LaunchLink"
+!ifndef ARCH
+    !define ARCH "amd64"
+!endif
+
+!if ${ARCH} == "amd64"
+    !define MUI_FINISHPAGE_RUN
+    !define MUI_FINISHPAGE_RUN_TEXT "Start ${UI_APP_NAME}"
+    !define MUI_FINISHPAGE_RUN_FUNCTION "LaunchLink"
+!endif
 ######################################################################
 
 !define MUI_ABORTWARNING
@@ -322,8 +328,10 @@ DetailPrint "Uninstallation finished."
 SectionEnd
 
 
+!if ${ARCH} == "amd64"
 Function LaunchLink
 SetShellVarContext all
    SetOutPath $INSTDIR
    ShellExecAsUser::ShellExecAsUser "" "$DESKTOP\${APP_NAME}.lnk"
 FunctionEnd
+!endif
