@@ -25,7 +25,7 @@ warn() {
 on_exit() {
   info "Shutting down NetBird daemon..."
   if test "${#service_pids[@]}" -gt 0; then
-    info "terminating service process IDs: ${service_pids[*]}"
+    info "terminating service process IDs: ${service_pids[@]@Q}"
     kill -TERM "${service_pids[@]}" 2>/dev/null || true
     wait "${service_pids[@]}" 2>/dev/null || true
   else
@@ -36,9 +36,9 @@ on_exit() {
 wait_for_message() {
   local timeout="${1}" message="${2}"
   if test "${timeout}" -eq 0; then
-    info "not waiting for log line '${message}' due to zero timeout."
+    info "not waiting for log line ${message@Q} due to zero timeout."
   elif test -n "${log_file_path}"; then
-    info "waiting for log line '${message}' for ${timeout} seconds..."
+    info "waiting for log line ${message@Q} for ${timeout} seconds..."
     grep -q "${message}" <(timeout "${timeout}" tail -F "${log_file_path}" 2>/dev/null)
   else
     info "log file unsupported, sleeping for ${timeout} seconds..."
@@ -59,7 +59,7 @@ locate_log_file() {
     esac
   done < <(sed 's#,#\n#g' <<<"${log_files_string}")
 
-  warn "log files parsing parsing for '${log_files_string}' is not supported by debug bundles"
+  warn "log files parsing for ${log_files_string@Q} is not supported by debug bundles"
   warn "please consider removing the \$NB_LOG_FILE or setting it to real file, before gathering debug bundles."
 }
 
@@ -93,7 +93,7 @@ main() {
   trap 'on_exit' SIGTERM SIGINT EXIT
   "${NETBIRD_BIN}" service run &
   service_pids+=("$!")
-  info "registered new service process 'netbird service run', currently running: ${service_pids[*]}"
+  info "registered new service process 'netbird service run', currently running: ${service_pids[@]@Q}"
 
   locate_log_file "${NB_LOG_FILE}"
   wait_for_daemon_startup "${NB_ENTRYPOINT_SERVICE_TIMEOUT}"
