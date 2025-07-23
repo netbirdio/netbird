@@ -170,7 +170,7 @@ func getConfigDirForUser(username string) (string, error) {
 		return ConfigDirOverride, nil
 	}
 
-	username = sanitazeProfileName(username)
+	username = sanitizeProfileName(username)
 
 	configDir := filepath.Join(DefaultConfigPathDir, username)
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {

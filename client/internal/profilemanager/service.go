@@ -233,7 +233,7 @@ func (s *ServiceManager) AddProfile(profileName, username string) error {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
 
-	profileName = sanitazeProfileName(profileName)
+	profileName = sanitizeProfileName(profileName)
 
 	if profileName == defaultProfileName {
 		return fmt.Errorf("cannot create profile with reserved name: %s", defaultProfileName)
@@ -263,7 +263,7 @@ func (s *ServiceManager) RemoveProfile(profileName, username string) error {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
 
-	profileName = sanitazeProfileName(profileName)
+	profileName = sanitizeProfileName(profileName)
 
 	if profileName == defaultProfileName {
 		return fmt.Errorf("cannot remove profile with reserved name: %s", defaultProfileName)

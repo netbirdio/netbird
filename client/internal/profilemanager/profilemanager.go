@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -64,7 +65,7 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 }
 
 func (pm *ProfileManager) SwitchProfile(profileName string) error {
-	profileName = sanitazeProfileName(profileName)
+	profileName = sanitizeProfileName(profileName)
 
 	if err := pm.setActiveProfileState(profileName); err != nil {
 		return fmt.Errorf("failed to switch profile: %w", err)
@@ -72,14 +73,15 @@ func (pm *ProfileManager) SwitchProfile(profileName string) error {
 	return nil
 }
 
-// sanitazeProfileName sanitizes the username by removing any invalid characters and spaces.
-func sanitazeProfileName(profileName string) string {
+// sanitizeProfileName sanitizes the username by removing any invalid characters and spaces.
+func sanitizeProfileName(name string) string {
 	return strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' || r == ' ' {
-			return -1 // remove this character
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			return r
 		}
-		return r
-	}, profileName)
+		// drop everything else
+		return -1
+	}, name)
 }
 
 func (pm *ProfileManager) getActiveProfileState() string {

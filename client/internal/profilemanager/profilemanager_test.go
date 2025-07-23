@@ -113,3 +113,39 @@ func TestServiceManager_DefaultProfilePath(t *testing.T) {
 		})
 	})
 }
+
+func TestSanitizeProfileName(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		// unchanged
+		{"Alice", "Alice"},
+		{"bob123", "bob123"},
+		{"under_score", "under_score"},
+		{"dash-name", "dash-name"},
+
+		// spaces and forbidden chars removed
+		{"Alice Smith", "AliceSmith"},
+		{"bad/char\\name", "badcharname"},
+		{"colon:name*?", "colonname"},
+		{"quotes\"<>|", "quotes"},
+
+		// mixed
+		{"User_123-Test!@#", "User_123-Test"},
+
+		// empty and all-bad
+		{"", ""},
+		{"!@#$%^&*()", ""},
+
+		// unicode letters and digits
+		{"ÜserÇ", "ÜserÇ"},
+		{"漢字テスト123", "漢字テスト123"},
+	}
+
+	for _, tc := range tests {
+		got := sanitizeProfileName(tc.in)
+		if got != tc.want {
+			t.Errorf("sanitizeProfileName(%q) = %q; want %q", tc.in, got, tc.want)
+		}
+	}
+}
