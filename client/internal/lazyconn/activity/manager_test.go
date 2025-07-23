@@ -33,6 +33,15 @@ func (m MocWGIface) UpdatePeer(string, []netip.Prefix, time.Duration, *net.UDPAd
 
 }
 
+// Add this method to the Manager struct
+func (m *Manager) GetPeerListener(peerConnID peerid.ConnID) (*Listener, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	listener, exists := m.peers[peerConnID]
+	return listener, exists
+}
+
 func TestManager_MonitorPeerActivity(t *testing.T) {
 	mocWgInterface := &MocWGIface{}
 
@@ -51,7 +60,12 @@ func TestManager_MonitorPeerActivity(t *testing.T) {
 		t.Fatalf("failed to monitor peer activity: %v", err)
 	}
 
-	if err := trigger(mgr.peers[peerCfg1.PeerConnID].conn.LocalAddr().String()); err != nil {
+	listener, exists := mgr.GetPeerListener(peerCfg1.PeerConnID)
+	if !exists {
+		t.Fatalf("peer listener not found")
+	}
+
+	if err := trigger(listener.conn.LocalAddr().String()); err != nil {
 		t.Fatalf("failed to trigger activity: %v", err)
 	}
 
@@ -128,11 +142,21 @@ func TestManager_MultiPeerActivity(t *testing.T) {
 		t.Fatalf("failed to monitor peer activity: %v", err)
 	}
 
-	if err := trigger(mgr.peers[peerCfg1.PeerConnID].conn.LocalAddr().String()); err != nil {
+	listener, exists := mgr.GetPeerListener(peerCfg1.PeerConnID)
+	if !exists {
+		t.Fatalf("peer listener for peer1 not found")
+	}
+
+	if err := trigger(listener.conn.LocalAddr().String()); err != nil {
 		t.Fatalf("failed to trigger activity: %v", err)
 	}
 
-	if err := trigger(mgr.peers[peerCfg2.PeerConnID].conn.LocalAddr().String()); err != nil {
+	listener, exists = mgr.GetPeerListener(peerCfg2.PeerConnID)
+	if !exists {
+		t.Fatalf("peer listener for peer2 not found")
+	}
+
+	if err := trigger(listener.conn.LocalAddr().String()); err != nil {
 		t.Fatalf("failed to trigger activity: %v", err)
 	}
 
