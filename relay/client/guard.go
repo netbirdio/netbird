@@ -8,7 +8,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
+const (
+	// TODO: make it configurable, the manager should validate all configurable parameters
 	reconnectingTimeout = 60 * time.Second
 )
 
@@ -80,7 +81,7 @@ func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool 
 
 	log.Infof("try to reconnect to Relay server: %s", rc.connectionURL)
 
-	if err := rc.Connect(); err != nil {
+	if err := rc.Connect(parentCtx); err != nil {
 		log.Errorf("failed to reconnect to relay server: %s", err)
 		return false
 	}

@@ -11,6 +11,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/monotime"
 )
 
 var zeroKey wgtypes.Key
@@ -275,4 +277,8 @@ func (c *KernelConfigurer) GetStats() (map[string]WGStats, error) {
 		}
 	}
 	return stats, nil
+}
+
+func (c *KernelConfigurer) LastActivities() map[string]monotime.Time {
+	return nil
 }

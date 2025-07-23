@@ -354,8 +354,15 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		t.Errorf("expecting 1 Accounts to be stored after SaveAccount()")
 	}
 
+	o, err := store.GetAccountOnboarding(context.Background(), account.Id)
+	require.NoError(t, err)
+	require.Equal(t, o.AccountID, account.Id)
+
 	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err)
+
+	_, err = store.GetAccountOnboarding(context.Background(), account.Id)
+	require.Error(t, err, "expecting error after removing DeleteAccount when getting onboarding")
 
 	if len(store.GetAllAccounts(context.Background())) != 0 {
 		t.Errorf("expecting 0 Accounts to be stored after DeleteAccount()")
@@ -414,12 +421,21 @@ func Test_GetAccount(t *testing.T) {
 		account, err := store.GetAccount(context.Background(), id)
 		require.NoError(t, err)
 		require.Equal(t, id, account.Id, "account id should match")
+		require.Equal(t, false, account.Onboarding.OnboardingFlowPending)
+
+		id = "9439-34653001fc3b-bf1c8084-ba50-4ce7"
+
+		account, err = store.GetAccount(context.Background(), id)
+		require.NoError(t, err)
+		require.Equal(t, id, account.Id, "account id should match")
+		require.Equal(t, true, account.Onboarding.OnboardingFlowPending)
 
 		_, err = store.GetAccount(context.Background(), "non-existing-account")
 		assert.Error(t, err)
 		parsedErr, ok := status.FromError(err)
 		require.True(t, ok)
 		require.Equal(t, status.NotFound, parsedErr.Type(), "should return not found error")
+
 	})
 }
 
@@ -2101,6 +2117,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string) *ty
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 		},
+		Onboarding: types.AccountOnboarding{SignupFormPending: true, OnboardingFlowPending: true},
 	}
 
 	if err := acc.AddAllGroup(false); err != nil {
@@ -3443,6 +3460,63 @@ func TestSqlStore_GetAccountMeta(t *testing.T) {
 	require.Equal(t, "test.com", accountMeta.Domain)
 	require.Equal(t, "private", accountMeta.DomainCategory)
 	require.Equal(t, time.Date(2024, time.October, 2, 14, 1, 38, 210000000, time.UTC), accountMeta.CreatedAt.UTC())
+}
+
+func TestSqlStore_GetAccountOnboarding(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "9439-34653001fc3b-bf1c8084-ba50-4ce7"
+	a, err := store.GetAccount(context.Background(), accountID)
+	require.NoError(t, err)
+	t.Logf("Onboarding: %+v", a.Onboarding)
+	err = store.SaveAccount(context.Background(), a)
+	require.NoError(t, err)
+	onboarding, err := store.GetAccountOnboarding(context.Background(), accountID)
+	require.NoError(t, err)
+	require.NotNil(t, onboarding)
+	require.Equal(t, accountID, onboarding.AccountID)
+	require.Equal(t, time.Date(2024, time.October, 2, 14, 1, 38, 210000000, time.UTC), onboarding.CreatedAt.UTC())
+}
+
+func TestSqlStore_SaveAccountOnboarding(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+	t.Run("New onboarding should be saved correctly", func(t *testing.T) {
+		accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+		onboarding := &types.AccountOnboarding{
+			AccountID:             accountID,
+			SignupFormPending:     true,
+			OnboardingFlowPending: true,
+		}
+
+		err = store.SaveAccountOnboarding(context.Background(), onboarding)
+		require.NoError(t, err)
+
+		savedOnboarding, err := store.GetAccountOnboarding(context.Background(), accountID)
+		require.NoError(t, err)
+		require.Equal(t, onboarding.SignupFormPending, savedOnboarding.SignupFormPending)
+		require.Equal(t, onboarding.OnboardingFlowPending, savedOnboarding.OnboardingFlowPending)
+	})
+
+	t.Run("Existing onboarding should be updated correctly", func(t *testing.T) {
+		accountID := "9439-34653001fc3b-bf1c8084-ba50-4ce7"
+		onboarding, err := store.GetAccountOnboarding(context.Background(), accountID)
+		require.NoError(t, err)
+
+		onboarding.OnboardingFlowPending = !onboarding.OnboardingFlowPending
+		onboarding.SignupFormPending = !onboarding.SignupFormPending
+
+		err = store.SaveAccountOnboarding(context.Background(), onboarding)
+		require.NoError(t, err)
+
+		savedOnboarding, err := store.GetAccountOnboarding(context.Background(), accountID)
+		require.NoError(t, err)
+		require.Equal(t, onboarding.SignupFormPending, savedOnboarding.SignupFormPending)
+		require.Equal(t, onboarding.OnboardingFlowPending, savedOnboarding.OnboardingFlowPending)
+	})
 }
 
 func TestSqlStore_GetAnyAccountID(t *testing.T) {

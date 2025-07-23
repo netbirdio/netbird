@@ -68,3 +68,13 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 
 	return nil
 }
+
+func (s *Signaler) SignalIdle(remoteKey string) error {
+	return s.signal.Send(&sProto.Message{
+		Key:       s.wgPrivateKey.PublicKey().String(),
+		RemoteKey: remoteKey,
+		Body: &sProto.Body{
+			Type: sProto.Body_GO_IDLE,
+		},
+	})
+}

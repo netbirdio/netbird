@@ -17,9 +17,17 @@ import (
 	"github.com/netbirdio/netbird/client/server"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/upload-server/types"
 )
 
 const errCloseConnection = "Failed to close connection: %v"
+
+var (
+	logFileCount        uint32
+	systemInfoFlag      bool
+	uploadBundleFlag    bool
+	uploadBundleURLFlag string
+)
 
 var debugCmd = &cobra.Command{
 	Use:   "debug",
@@ -88,12 +96,13 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 	request := &proto.DebugBundleRequest{
-		Anonymize:  anonymizeFlag,
-		Status:     getStatusOutput(cmd, anonymizeFlag),
-		SystemInfo: debugSystemInfoFlag,
+		Anonymize:    anonymizeFlag,
+		Status:       getStatusOutput(cmd, anonymizeFlag),
+		SystemInfo:   systemInfoFlag,
+		LogFileCount: logFileCount,
 	}
-	if debugUploadBundle {
-		request.UploadURL = debugUploadBundleURL
+	if uploadBundleFlag {
+		request.UploadURL = uploadBundleURLFlag
 	}
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
@@ -105,7 +114,7 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
 	}
 
-	if debugUploadBundle {
+	if uploadBundleFlag {
 		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
 	}
 
@@ -223,12 +232,13 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	headerPreDown := fmt.Sprintf("----- Netbird pre-down - Timestamp: %s - Duration: %s", time.Now().Format(time.RFC3339), duration)
 	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, getStatusOutput(cmd, anonymizeFlag))
 	request := &proto.DebugBundleRequest{
-		Anonymize:  anonymizeFlag,
-		Status:     statusOutput,
-		SystemInfo: debugSystemInfoFlag,
+		Anonymize:    anonymizeFlag,
+		Status:       statusOutput,
+		SystemInfo:   systemInfoFlag,
+		LogFileCount: logFileCount,
 	}
-	if debugUploadBundle {
-		request.UploadURL = debugUploadBundleURL
+	if uploadBundleFlag {
+		request.UploadURL = uploadBundleURLFlag
 	}
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
@@ -255,7 +265,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
 	}
 
-	if debugUploadBundle {
+	if uploadBundleFlag {
 		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
 	}
 
@@ -297,7 +307,7 @@ func getStatusOutput(cmd *cobra.Command, anon bool) string {
 		cmd.PrintErrf("Failed to get status: %v\n", err)
 	} else {
 		statusOutputString = nbstatus.ParseToFullDetailSummary(
-			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil),
+			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, ""),
 		)
 	}
 	return statusOutputString
@@ -374,4 +384,16 @@ func generateDebugBundle(config *internal.Config, recorder *peer.Status, connect
 		return
 	}
 	log.Infof("Generated debug bundle from SIGUSR1 at: %s", path)
+}
+
+func init() {
+	debugBundleCmd.Flags().Uint32VarP(&logFileCount, "log-file-count", "C", 1, "Number of rotated log files to include in debug bundle")
+	debugBundleCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
+	debugBundleCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
+	debugBundleCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+
+	forCmd.Flags().Uint32VarP(&logFileCount, "log-file-count", "C", 1, "Number of rotated log files to include in debug bundle")
+	forCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
+	forCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
+	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
 }

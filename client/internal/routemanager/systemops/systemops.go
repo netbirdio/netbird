@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
@@ -52,6 +54,13 @@ type SysOps struct {
 	mu sync.Mutex
 	// notifier is used to notify the system of route changes (also used on mobile)
 	notifier *notifier.Notifier
+	// seq is an atomic counter for generating unique sequence numbers for route messages
+	//nolint:unused // only used on BSD systems
+	seq atomic.Uint32
+
+	localSubnetsCache     []*net.IPNet
+	localSubnetsCacheMu   sync.RWMutex
+	localSubnetsCacheTime time.Time
 }
 
 func NewSysOps(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {
@@ -59,6 +68,11 @@ func NewSysOps(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {
 		wgInterface: wgInterface,
 		notifier:    notifier,
 	}
+}
+
+//nolint:unused // only used on BSD systems
+func (r *SysOps) getSeq() int {
+	return int(r.seq.Add(1))
 }
 
 func (r *SysOps) validateRoute(prefix netip.Prefix) error {

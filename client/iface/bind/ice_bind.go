@@ -1,6 +1,7 @@
 package bind
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"net/netip"
@@ -15,6 +16,7 @@ import (
 	wgConn "golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type RecvMessage struct {
@@ -51,22 +53,24 @@ type ICEBind struct {
 	closedChanMu sync.RWMutex // protect the closeChan recreation from reading from it.
 	closed       bool
 
-	muUDPMux sync.Mutex
-	udpMux   *UniversalUDPMuxDefault
-	address  wgaddr.Address
+	muUDPMux         sync.Mutex
+	udpMux           *UniversalUDPMuxDefault
+	address          wgaddr.Address
+	activityRecorder *ActivityRecorder
 }
 
 func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Address) *ICEBind {
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
-		StdNetBind:   b,
-		RecvChan:     make(chan RecvMessage, 1),
-		transportNet: transportNet,
-		filterFn:     filterFn,
-		endpoints:    make(map[netip.Addr]net.Conn),
-		closedChan:   make(chan struct{}),
-		closed:       true,
-		address:      address,
+		StdNetBind:       b,
+		RecvChan:         make(chan RecvMessage, 1),
+		transportNet:     transportNet,
+		filterFn:         filterFn,
+		endpoints:        make(map[netip.Addr]net.Conn),
+		closedChan:       make(chan struct{}),
+		closed:           true,
+		address:          address,
+		activityRecorder: NewActivityRecorder(),
 	}
 
 	rc := receiverCreator{
@@ -98,6 +102,10 @@ func (s *ICEBind) Close() error {
 	close(s.closedChan)
 
 	return s.StdNetBind.Close()
+}
+
+func (s *ICEBind) ActivityRecorder() *ActivityRecorder {
+	return s.activityRecorder
 }
 
 // GetICEMux returns the ICE UDPMux that was created and used by ICEBind
@@ -146,7 +154,7 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 
 	s.udpMux = NewUniversalUDPMuxDefault(
 		UniversalUDPMuxParams{
-			UDPConn:   conn,
+			UDPConn:   nbnet.WrapUDPConn(conn),
 			Net:       s.transportNet,
 			FilterFn:  s.filterFn,
 			WGAddress: s.address,
@@ -199,6 +207,11 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 				continue
 			}
 			addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
+
+			if isTransportPkg(msg.Buffers, msg.N) {
+				s.activityRecorder.record(addrPort)
+			}
+
 			ep := &wgConn.StdNetEndpoint{AddrPort: addrPort} // TODO: remove allocation
 			wgConn.GetSrcFromControl(msg.OOB[:msg.NN], ep)
 			eps[i] = ep
@@ -257,6 +270,13 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 		copy(buffs[0], msg.Buffer)
 		sizes[0] = len(msg.Buffer)
 		eps[0] = wgConn.Endpoint(msg.Endpoint)
+
+		if isTransportPkg(buffs, sizes[0]) {
+			if ep, ok := eps[0].(*Endpoint); ok {
+				c.activityRecorder.record(ep.AddrPort)
+			}
+		}
+
 		return 1, nil
 	}
 }
@@ -271,4 +291,20 @@ func putMessages(msgs *[]ipv6.Message, msgsPool *sync.Pool) {
 		(*msgs)[i] = ipv6.Message{Buffers: (*msgs)[i].Buffers, OOB: (*msgs)[i].OOB}
 	}
 	msgsPool.Put(msgs)
+}
+
+func isTransportPkg(buffers [][]byte, n int) bool {
+	// The first buffer should contain at least 4 bytes for type
+	if len(buffers[0]) < 4 {
+		return true
+	}
+
+	// WireGuard packet type is a little-endian uint32 at start
+	packetType := binary.LittleEndian.Uint32(buffers[0][:4])
+
+	// Check if packetType matches known WireGuard message types
+	if packetType == 4 && n > 32 {
+		return true
+	}
+	return false
 }

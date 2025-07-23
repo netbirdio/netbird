@@ -141,7 +141,14 @@ func execute(cmd *cobra.Command, args []string) error {
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
 	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
 
-	srv, err := server.NewServer(metricsServer.Meter, cobraConfig.ExposedAddress, tlsSupport, authenticator)
+	cfg := server.Config{
+		Meter:          metricsServer.Meter,
+		ExposedAddress: cobraConfig.ExposedAddress,
+		AuthValidator:  authenticator,
+		TLSSupport:     tlsSupport,
+	}
+
+	srv, err := server.NewServer(cfg)
 	if err != nil {
 		log.Debugf("failed to create relay server: %v", err)
 		return fmt.Errorf("failed to create relay server: %v", err)

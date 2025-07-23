@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/monotime"
 )
 
 type wgIfaceBase interface {
@@ -38,4 +39,5 @@ type wgIfaceBase interface {
 	GetStats() (map[string]configurer.WGStats, error)
 	GetNet() *netstack.Net
 	FullStats() (*configurer.Stats, error)
+	LastActivities() map[string]monotime.Time
 }

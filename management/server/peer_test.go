@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,8 +26,10 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/status"
 
 	"github.com/netbirdio/netbird/management/server/util"
 
@@ -1270,7 +1273,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1343,9 +1346,14 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1376,6 +1384,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		existingSetupKeyID        string
 		expectedGroupIDsInAccount []string
 		expectAddPeerError        bool
+		errorType                 status.Type
 		expectedErrorMsgSubstring string
 	}{
 		{
@@ -1388,13 +1397,15 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			name:                      "Failed registration with setup key not allowing extra DNS labels",
 			existingSetupKeyID:        "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
 			expectAddPeerError:        true,
+			errorType:                 status.PreconditionFailed,
 			expectedErrorMsgSubstring: "setup key doesn't allow extra DNS labels",
 		},
 		{
 			name:                      "Absent setup key",
 			existingSetupKeyID:        "AAAAAAAA-38F5-4553-B31E-DD66C696CEBB",
 			expectAddPeerError:        true,
-			expectedErrorMsgSubstring: "failed to get setup key: setup key not found",
+			errorType:                 status.NotFound,
+			expectedErrorMsgSubstring: "couldn't add peer: setup key is invalid",
 		},
 	}
 
@@ -1419,6 +1430,11 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			if tc.expectAddPeerError {
 				require.Error(t, err, "Expected an error when adding peer with setup key: %s", tc.existingSetupKeyID)
 				assert.Contains(t, err.Error(), tc.expectedErrorMsgSubstring, "Error message mismatch")
+				e, ok := status.FromError(err)
+				if !ok {
+					t.Fatal("Failed to map error")
+				}
+				assert.Equal(t, e.Type(), tc.errorType)
 				return
 			}
 
@@ -1484,7 +1500,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1551,9 +1567,14 @@ func Test_LoginPeer(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1831,7 +1852,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			return update, true, nil
 		}
 
-		manager.integratedPeerValidator = MocIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
+		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -1853,7 +1874,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			return update, false, nil
 		}
 
-		manager.integratedPeerValidator = MocIntegratedValidator{ValidatePeerFunc: requireNoUpdateFunc}
+		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireNoUpdateFunc}
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -2233,4 +2254,132 @@ func Test_AddPeer(t *testing.T) {
 
 	assert.Equal(t, totalPeers, maps.Values(account.SetupKeys)[0].UsedTimes)
 	assert.Equal(t, uint64(totalPeers), account.Network.Serial)
+}
+
+func TestBufferUpdateAccountPeers(t *testing.T) {
+	const (
+		peersCount            = 1000
+		updateAccountInterval = 50 * time.Millisecond
+	)
+
+	var (
+		deletedPeers, updatePeersDeleted, updatePeersRuns atomic.Int32
+		uapLastRun, dpLastRun                             atomic.Int64
+
+		totalNewRuns, totalOldRuns int
+	)
+
+	uap := func(ctx context.Context, accountID string) {
+		updatePeersDeleted.Store(deletedPeers.Load())
+		updatePeersRuns.Add(1)
+		uapLastRun.Store(time.Now().UnixMilli())
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Run("new approach", func(t *testing.T) {
+		updatePeersRuns.Store(0)
+		updatePeersDeleted.Store(0)
+		deletedPeers.Store(0)
+
+		var mustore sync.Map
+		bufupd := func(ctx context.Context, accountID string) {
+			mu, _ := mustore.LoadOrStore(accountID, &bufferUpdate{})
+			b := mu.(*bufferUpdate)
+
+			if !b.mu.TryLock() {
+				b.update.Store(true)
+				return
+			}
+
+			if b.next != nil {
+				b.next.Stop()
+			}
+
+			go func() {
+				defer b.mu.Unlock()
+				uap(ctx, accountID)
+				if !b.update.Load() {
+					return
+				}
+				b.update.Store(false)
+				b.next = time.AfterFunc(updateAccountInterval, func() {
+					uap(ctx, accountID)
+				})
+			}()
+		}
+		dp := func(ctx context.Context, accountID, peerID, userID string) error {
+			deletedPeers.Add(1)
+			dpLastRun.Store(time.Now().UnixMilli())
+			time.Sleep(10 * time.Millisecond)
+			bufupd(ctx, accountID)
+			return nil
+		}
+
+		am := mock_server.MockAccountManager{
+			UpdateAccountPeersFunc:       uap,
+			BufferUpdateAccountPeersFunc: bufupd,
+			DeletePeerFunc:               dp,
+		}
+		empty := ""
+		for range peersCount {
+			//nolint
+			am.DeletePeer(context.Background(), empty, empty, empty)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
+		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
+		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
+
+		totalNewRuns = int(updatePeersRuns.Load())
+	})
+
+	t.Run("old approach", func(t *testing.T) {
+		updatePeersRuns.Store(0)
+		updatePeersDeleted.Store(0)
+		deletedPeers.Store(0)
+
+		var mustore sync.Map
+		bufupd := func(ctx context.Context, accountID string) {
+			mu, _ := mustore.LoadOrStore(accountID, &sync.Mutex{})
+			b := mu.(*sync.Mutex)
+
+			if !b.TryLock() {
+				return
+			}
+
+			go func() {
+				time.Sleep(updateAccountInterval)
+				b.Unlock()
+				uap(ctx, accountID)
+			}()
+		}
+		dp := func(ctx context.Context, accountID, peerID, userID string) error {
+			deletedPeers.Add(1)
+			dpLastRun.Store(time.Now().UnixMilli())
+			time.Sleep(10 * time.Millisecond)
+			bufupd(ctx, accountID)
+			return nil
+		}
+
+		am := mock_server.MockAccountManager{
+			UpdateAccountPeersFunc:       uap,
+			BufferUpdateAccountPeersFunc: bufupd,
+			DeletePeerFunc:               dp,
+		}
+		empty := ""
+		for range peersCount {
+			//nolint
+			am.DeletePeer(context.Background(), empty, empty, empty)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
+		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
+		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
+
+		totalOldRuns = int(updatePeersRuns.Load())
+	})
+	assert.Less(t, totalNewRuns, totalOldRuns, "Expected new approach to run less than old approach. New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
+	t.Logf("New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
 }

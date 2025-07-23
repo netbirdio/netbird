@@ -26,7 +26,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
-	nbnet "github.com/netbirdio/netbird/util/net"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
@@ -106,10 +105,6 @@ type Conn struct {
 	workerRelay *WorkerRelay
 	wgWatcherWg sync.WaitGroup
 
-	connIDRelay          nbnet.ConnectionID
-	connIDICE            nbnet.ConnectionID
-	beforeAddPeerHooks   []nbnet.AddHookFunc
-	afterRemovePeerHooks []nbnet.RemoveHookFunc
 	// used to store the remote Rosenpass key for Relayed connection in case of connection update from ice
 	rosenpassRemoteKey []byte
 
@@ -117,10 +112,9 @@ type Conn struct {
 	wgProxyRelay wgproxy.Proxy
 	handshaker   *Handshaker
 
-	guard              *guard.Guard
-	semaphore          *semaphoregroup.SemaphoreGroup
-	peerConnDispatcher *dispatcher.ConnectionDispatcher
-	wg                 sync.WaitGroup
+	guard     *guard.Guard
+	semaphore *semaphoregroup.SemaphoreGroup
+	wg        sync.WaitGroup
 
 	// debug purpose
 	dumpState *stateDump
@@ -136,18 +130,17 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 	connLog := log.WithField("peer", config.Key)
 
 	var conn = &Conn{
-		Log:                connLog,
-		config:             config,
-		statusRecorder:     services.StatusRecorder,
-		signaler:           services.Signaler,
-		iFaceDiscover:      services.IFaceDiscover,
-		relayManager:       services.RelayManager,
-		srWatcher:          services.SrWatcher,
-		semaphore:          services.Semaphore,
-		peerConnDispatcher: services.PeerConnDispatcher,
-		statusRelay:        worker.NewAtomicStatus(),
-		statusICE:          worker.NewAtomicStatus(),
-		dumpState:          newStateDump(config.Key, connLog, services.StatusRecorder),
+		Log:            connLog,
+		config:         config,
+		statusRecorder: services.StatusRecorder,
+		signaler:       services.Signaler,
+		iFaceDiscover:  services.IFaceDiscover,
+		relayManager:   services.RelayManager,
+		srWatcher:      services.SrWatcher,
+		semaphore:      services.Semaphore,
+		statusRelay:    worker.NewAtomicStatus(),
+		statusICE:      worker.NewAtomicStatus(),
+		dumpState:      newStateDump(config.Key, connLog, services.StatusRecorder),
 	}
 
 	return conn, nil
@@ -169,7 +162,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
 
-	conn.workerRelay = NewWorkerRelay(conn.Log, isController(conn.config), conn.config, conn, conn.relayManager, conn.dumpState)
+	conn.workerRelay = NewWorkerRelay(conn.ctx, conn.Log, isController(conn.config), conn.config, conn, conn.relayManager, conn.dumpState)
 
 	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 	workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
@@ -226,7 +219,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
-func (conn *Conn) Close() {
+func (conn *Conn) Close(signalToRemote bool) {
 	conn.mu.Lock()
 	defer conn.wgWatcherWg.Wait()
 	defer conn.mu.Unlock()
@@ -234,6 +227,12 @@ func (conn *Conn) Close() {
 	if !conn.opened {
 		conn.Log.Debugf("ignore close connection to peer")
 		return
+	}
+
+	if signalToRemote {
+		if err := conn.signaler.SignalIdle(conn.config.Key); err != nil {
+			conn.Log.Errorf("failed to signal idle state to peer: %v", err)
+		}
 	}
 
 	conn.Log.Infof("close peer connection")
@@ -263,8 +262,6 @@ func (conn *Conn) Close() {
 		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 	}
 
-	conn.freeUpConnID()
-
 	if conn.evalStatus() == StatusConnected && conn.onDisconnected != nil {
 		conn.onDisconnected(conn.config.WgConfig.RemoteKey)
 	}
@@ -287,13 +284,6 @@ func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
 func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
 	conn.dumpState.RemoteCandidate()
 	conn.workerICE.OnRemoteCandidate(candidate, haRoutes)
-}
-
-func (conn *Conn) AddBeforeAddPeerHook(hook nbnet.AddHookFunc) {
-	conn.beforeAddPeerHooks = append(conn.beforeAddPeerHooks, hook)
-}
-func (conn *Conn) AddAfterRemovePeerHook(hook nbnet.RemoveHookFunc) {
-	conn.afterRemovePeerHooks = append(conn.afterRemovePeerHooks, hook)
 }
 
 // SetOnConnected sets a handler function to be triggered by Conn when a new connection to a remote peer established
@@ -383,10 +373,6 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		ep = directEp
 	}
 
-	if err := conn.runBeforeAddPeerHooks(ep.IP); err != nil {
-		conn.Log.Errorf("Before add peer hook failed: %v", err)
-	}
-
 	conn.workerRelay.DisableWgWatcher()
 	// todo consider to run conn.wgWatcherWg.Wait() here
 
@@ -404,15 +390,10 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	}
 	wgConfigWorkaround()
 
-	oldState := conn.currentConnPriority
 	conn.currentConnPriority = priority
 	conn.statusICE.SetConnected()
 	conn.updateIceState(iceConnInfo)
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr)
-
-	if oldState == conntype.None {
-		conn.peerConnDispatcher.NotifyConnected(conn.ConnID())
-	}
 }
 
 func (conn *Conn) onICEStateDisconnected() {
@@ -450,7 +431,6 @@ func (conn *Conn) onICEStateDisconnected() {
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
 		conn.currentConnPriority = conntype.None
-		conn.peerConnDispatcher.NotifyDisconnected(conn.ConnID())
 	}
 
 	changed := conn.statusICE.Get() != worker.StatusDisconnected
@@ -491,6 +471,8 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
 		return
 	}
+	wgProxy.SetDisconnectListener(conn.onRelayDisconnected)
+
 	conn.dumpState.NewLocalProxy()
 
 	conn.Log.Infof("created new wgProxy for relay connection: %s", wgProxy.EndpointAddr().String())
@@ -501,10 +483,6 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.statusRelay.SetConnected()
 		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 		return
-	}
-
-	if err := conn.runBeforeAddPeerHooks(wgProxy.EndpointAddr().IP); err != nil {
-		conn.Log.Errorf("Before add peer hook failed: %v", err)
 	}
 
 	wgProxy.Work()
@@ -530,7 +508,6 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 	conn.Log.Infof("start to communicate with peer via relay")
 	conn.doOnConnected(rci.rosenpassPubKey, rci.rosenpassAddr)
-	conn.peerConnDispatcher.NotifyConnected(conn.ConnID())
 }
 
 func (conn *Conn) onRelayDisconnected() {
@@ -545,11 +522,7 @@ func (conn *Conn) onRelayDisconnected() {
 
 	if conn.currentConnPriority == conntype.Relay {
 		conn.Log.Debugf("clean up WireGuard config")
-		if err := conn.removeWgPeer(); err != nil {
-			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
-		}
 		conn.currentConnPriority = conntype.None
-		conn.peerConnDispatcher.NotifyDisconnected(conn.ConnID())
 	}
 
 	if conn.wgProxyRelay != nil {
@@ -710,36 +683,6 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 	}
 
 	return true
-}
-
-func (conn *Conn) runBeforeAddPeerHooks(ip net.IP) error {
-	conn.connIDICE = nbnet.GenerateConnID()
-	for _, hook := range conn.beforeAddPeerHooks {
-		if err := hook(conn.connIDICE, ip); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (conn *Conn) freeUpConnID() {
-	if conn.connIDRelay != "" {
-		for _, hook := range conn.afterRemovePeerHooks {
-			if err := hook(conn.connIDRelay); err != nil {
-				conn.Log.Errorf("After remove peer hook failed: %v", err)
-			}
-		}
-		conn.connIDRelay = ""
-	}
-
-	if conn.connIDICE != "" {
-		for _, hook := range conn.afterRemovePeerHooks {
-			if err := hook(conn.connIDICE); err != nil {
-				conn.Log.Errorf("After remove peer hook failed: %v", err)
-			}
-		}
-		conn.connIDICE = ""
-	}
 }
 
 func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {

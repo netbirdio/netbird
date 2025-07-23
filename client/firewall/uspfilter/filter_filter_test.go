@@ -462,7 +462,7 @@ func TestPeerACLFiltering(t *testing.T) {
 
 	t.Run("Implicit DROP (no rules)", func(t *testing.T) {
 		packet := createTestPacket(t, "100.10.0.1", "100.10.0.100", fw.ProtocolTCP, 12345, 443)
-		isDropped := manager.DropIncoming(packet, 0)
+		isDropped := manager.FilterInbound(packet, 0)
 		require.True(t, isDropped, "Packet should be dropped when no rules exist")
 	})
 
@@ -509,7 +509,7 @@ func TestPeerACLFiltering(t *testing.T) {
 			})
 
 			packet := createTestPacket(t, tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
-			isDropped := manager.DropIncoming(packet, 0)
+			isDropped := manager.FilterInbound(packet, 0)
 			require.Equal(t, tc.shouldBeBlocked, isDropped)
 		})
 	}
@@ -1233,7 +1233,7 @@ func TestRouteACLFiltering(t *testing.T) {
 			srcIP := netip.MustParseAddr(tc.srcIP)
 			dstIP := netip.MustParseAddr(tc.dstIP)
 
-			// testing routeACLsPass only and not DropIncoming, as routed packets are dropped after being passed
+			// testing routeACLsPass only and not FilterInbound, as routed packets are dropped after being passed
 			// to the forwarder
 			_, isAllowed := manager.routeACLsPass(srcIP, dstIP, tc.proto, tc.srcPort, tc.dstPort)
 			require.Equal(t, tc.shouldPass, isAllowed)

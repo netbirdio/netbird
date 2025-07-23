@@ -87,6 +87,12 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		).
 		Return(&types.Settings{}, nil).
 		AnyTimes()
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
 	permissionsManagerMock.
 		EXPECT().
@@ -106,7 +112,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	}
 
 	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
-	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil)
+	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, mgmt.MockIntegratedValidator{})
 	if err != nil {
 		t.Fatal(err)
 	}

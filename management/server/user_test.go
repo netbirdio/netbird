@@ -852,7 +852,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	am := DefaultAccountManager{
 		Store:                   store,
 		eventStore:              &activity.InMemoryEventStore{},
-		integratedPeerValidator: MocIntegratedValidator{},
+		integratedPeerValidator: MockIntegratedValidator{},
 		permissionsManager:      permissionsManager,
 	}
 

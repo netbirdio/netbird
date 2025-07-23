@@ -8,9 +8,11 @@ import (
 	"net/netip"
 	"net/url"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
@@ -24,6 +26,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/client"
+	"github.com/netbirdio/netbird/client/internal/routemanager/common"
+	"github.com/netbirdio/netbird/client/internal/routemanager/fakeip"
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
@@ -40,7 +44,7 @@ import (
 
 // Manager is a route manager interface
 type Manager interface {
-	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
+	Init() error
 	UpdateRoutes(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
 	ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
 	TriggerSelection(route.HAMap)
@@ -49,7 +53,7 @@ type Manager interface {
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
-	EnableServerRouter(firewall firewall.Manager) error
+	SetFirewall(firewall.Manager) error
 	Stop(stateManager *statemanager.Manager)
 }
 
@@ -63,6 +67,7 @@ type ManagerConfig struct {
 	InitialRoutes       []*route.Route
 	StateManager        *statemanager.Manager
 	DNSServer           dns.Server
+	DNSFeatureFlag      bool
 	PeerStore           *peerstore.Store
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -89,11 +94,13 @@ type DefaultManager struct {
 	// clientRoutes is the most recent list of clientRoutes received from the Management Service
 	clientRoutes        route.HAMap
 	dnsServer           dns.Server
+	firewall            firewall.Manager
 	peerStore           *peerstore.Store
 	useNewDNSRoute      bool
 	disableClientRoutes bool
 	disableServerRoutes bool
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
+	fakeIPManager       *fakeip.Manager
 }
 
 func NewManager(config ManagerConfig) *DefaultManager {
@@ -129,10 +136,30 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	}
 
 	if runtime.GOOS == "android" {
-		cr := dm.initialClientRoutes(config.InitialRoutes)
-		dm.notifier.SetInitialClientRoutes(cr)
+		dm.setupAndroidRoutes(config)
 	}
 	return dm
+}
+func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
+	cr := m.initialClientRoutes(config.InitialRoutes)
+
+	routesForComparison := slices.Clone(cr)
+
+	if config.DNSFeatureFlag {
+		m.fakeIPManager = fakeip.NewManager()
+
+		id := uuid.NewString()
+		fakeIPRoute := &route.Route{
+			ID:          route.ID(id),
+			Network:     m.fakeIPManager.GetFakeIPBlock(),
+			NetID:       route.NetID(id),
+			Peer:        m.pubKey,
+			NetworkType: route.IPv4Network,
+		}
+		cr = append(cr, fakeIPRoute)
+	}
+
+	m.notifier.SetInitialClientRoutes(cr, routesForComparison)
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
@@ -174,11 +201,11 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 }
 
 // Init sets up the routing
-func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (m *DefaultManager) Init() error {
 	m.routeSelector = m.initSelector()
 
 	if nbnet.CustomRoutingDisabled() || m.disableClientRoutes {
-		return nil, nil, nil
+		return nil
 	}
 
 	if err := m.sysOps.CleanupRouting(nil); err != nil {
@@ -192,13 +219,12 @@ func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 
 	ips := resolveURLsToIPs(initialAddresses)
 
-	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips, m.stateManager)
-	if err != nil {
-		return nil, nil, fmt.Errorf("setup routing: %w", err)
+	if err := m.sysOps.SetupRouting(ips, m.stateManager); err != nil {
+		return fmt.Errorf("setup routing: %w", err)
 	}
 
 	log.Info("Routing setup complete")
-	return beforePeerHook, afterPeerHook, nil
+	return nil
 }
 
 func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
@@ -222,14 +248,14 @@ func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
 	return routeselector.NewRouteSelector()
 }
 
-func (m *DefaultManager) EnableServerRouter(firewall firewall.Manager) error {
-	if m.disableServerRoutes {
+// SetFirewall sets the firewall manager for the DefaultManager
+// Not thread-safe, should be called before starting the manager
+func (m *DefaultManager) SetFirewall(firewall firewall.Manager) error {
+	m.firewall = firewall
+
+	if m.disableServerRoutes || firewall == nil {
 		log.Info("server routes are disabled")
 		return nil
-	}
-
-	if firewall == nil {
-		return errors.New("firewall manager is not set")
 	}
 
 	var err error
@@ -299,17 +325,20 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	}
 
 	for id, route := range toAdd {
-		handler := client.HandlerFromRoute(
-			route,
-			m.routeRefCounter,
-			m.allowedIPsRefCounter,
-			m.dnsRouteInterval,
-			m.statusRecorder,
-			m.wgInterface,
-			m.dnsServer,
-			m.peerStore,
-			m.useNewDNSRoute,
-		)
+		params := common.HandlerParams{
+			Route:                route,
+			RouteRefCounter:      m.routeRefCounter,
+			AllowedIPsRefCounter: m.allowedIPsRefCounter,
+			DnsRouterInterval:    m.dnsRouteInterval,
+			StatusRecorder:       m.statusRecorder,
+			WgInterface:          m.wgInterface,
+			DnsServer:            m.dnsServer,
+			PeerStore:            m.peerStore,
+			UseNewDNSRoute:       m.useNewDNSRoute,
+			Firewall:             m.firewall,
+			FakeIPManager:        m.fakeIPManager,
+		}
+		handler := client.HandlerFromRoute(params)
 		if err := handler.AddRoute(m.ctx); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("add route %s: %w", handler.String(), err))
 			continue
@@ -517,6 +546,7 @@ func (m *DefaultManager) initialClientRoutes(initialRoutes []*route.Route) []*ro
 	for _, routes := range crMap {
 		rs = append(rs, routes...)
 	}
+
 	return rs
 }
 
