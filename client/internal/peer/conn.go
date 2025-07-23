@@ -26,7 +26,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
-	nbnet "github.com/netbirdio/netbird/util/net"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
@@ -106,10 +105,6 @@ type Conn struct {
 	workerRelay *WorkerRelay
 	wgWatcherWg sync.WaitGroup
 
-	connIDRelay          nbnet.ConnectionID
-	connIDICE            nbnet.ConnectionID
-	beforeAddPeerHooks   []nbnet.AddHookFunc
-	afterRemovePeerHooks []nbnet.RemoveHookFunc
 	// used to store the remote Rosenpass key for Relayed connection in case of connection update from ice
 	rosenpassRemoteKey []byte
 
@@ -267,8 +262,6 @@ func (conn *Conn) Close(signalToRemote bool) {
 		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 	}
 
-	conn.freeUpConnID()
-
 	if conn.evalStatus() == StatusConnected && conn.onDisconnected != nil {
 		conn.onDisconnected(conn.config.WgConfig.RemoteKey)
 	}
@@ -291,13 +284,6 @@ func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
 func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
 	conn.dumpState.RemoteCandidate()
 	conn.workerICE.OnRemoteCandidate(candidate, haRoutes)
-}
-
-func (conn *Conn) AddBeforeAddPeerHook(hook nbnet.AddHookFunc) {
-	conn.beforeAddPeerHooks = append(conn.beforeAddPeerHooks, hook)
-}
-func (conn *Conn) AddAfterRemovePeerHook(hook nbnet.RemoveHookFunc) {
-	conn.afterRemovePeerHooks = append(conn.afterRemovePeerHooks, hook)
 }
 
 // SetOnConnected sets a handler function to be triggered by Conn when a new connection to a remote peer established
@@ -385,10 +371,6 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 			return
 		}
 		ep = directEp
-	}
-
-	if err := conn.runBeforeAddPeerHooks(ep.IP); err != nil {
-		conn.Log.Errorf("Before add peer hook failed: %v", err)
 	}
 
 	conn.workerRelay.DisableWgWatcher()
@@ -501,10 +483,6 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		conn.statusRelay.SetConnected()
 		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 		return
-	}
-
-	if err := conn.runBeforeAddPeerHooks(wgProxy.EndpointAddr().IP); err != nil {
-		conn.Log.Errorf("Before add peer hook failed: %v", err)
 	}
 
 	wgProxy.Work()
@@ -705,36 +683,6 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 	}
 
 	return true
-}
-
-func (conn *Conn) runBeforeAddPeerHooks(ip net.IP) error {
-	conn.connIDICE = nbnet.GenerateConnID()
-	for _, hook := range conn.beforeAddPeerHooks {
-		if err := hook(conn.connIDICE, ip); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (conn *Conn) freeUpConnID() {
-	if conn.connIDRelay != "" {
-		for _, hook := range conn.afterRemovePeerHooks {
-			if err := hook(conn.connIDRelay); err != nil {
-				conn.Log.Errorf("After remove peer hook failed: %v", err)
-			}
-		}
-		conn.connIDRelay = ""
-	}
-
-	if conn.connIDICE != "" {
-		for _, hook := range conn.afterRemovePeerHooks {
-			if err := hook(conn.connIDICE); err != nil {
-				conn.Log.Errorf("After remove peer hook failed: %v", err)
-			}
-		}
-		conn.connIDICE = ""
-	}
 }
 
 func (conn *Conn) newProxy(remoteConn net.Conn) (wgproxy.Proxy, error) {

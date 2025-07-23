@@ -16,6 +16,7 @@ import (
 	wgConn "golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type RecvMessage struct {
@@ -153,7 +154,7 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 
 	s.udpMux = NewUniversalUDPMuxDefault(
 		UniversalUDPMuxParams{
-			UDPConn:   conn,
+			UDPConn:   nbnet.WrapUDPConn(conn),
 			Net:       s.transportNet,
 			FilterFn:  s.filterFn,
 			WGAddress: s.address,

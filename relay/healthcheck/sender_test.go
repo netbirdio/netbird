@@ -135,7 +135,11 @@ func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
 			defer cancel()
 
 			sender := NewSender(log.WithField("test_name", tc.name))
-			go sender.StartHealthCheck(ctx)
+			senderExit := make(chan struct{})
+			go func() {
+				sender.StartHealthCheck(ctx)
+				close(senderExit)
+			}()
 
 			go func() {
 				responded := false
@@ -169,6 +173,11 @@ func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
 				t.Fatalf("should have timed out before %s", testTimeout)
 			}
 
+			select {
+			case <-senderExit:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("sender did not exit in time")
+			}
 		})
 	}
 
