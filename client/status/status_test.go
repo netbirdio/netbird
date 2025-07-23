@@ -234,7 +234,7 @@ var overview = OutputOverview{
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
-	convertedResult := ConvertToStatusOutputOverview(resp, false, "", nil, nil, nil, "")
+	convertedResult := ConvertToStatusOutputOverview(resp, false, "", nil, nil, nil, "", "")
 
 	assert.Equal(t, overview, convertedResult)
 }
