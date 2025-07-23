@@ -160,9 +160,10 @@ jobs:
       - name: Install LLVM-MinGW for ARM64 cross-compilation
         run: |
           cd /tmp
-          wget -q https://github.com/mstorsjo/llvm-mingw/releases/download/20241217/llvm-mingw-20241217-ucrt-ubuntu-20.04-x86_64.tar.xz
-          tar -xf llvm-mingw-20241217-ucrt-ubuntu-20.04-x86_64.tar.xz
-          echo "/tmp/llvm-mingw-20241217-ucrt-ubuntu-20.04-x86_64/bin" >> $GITHUB_PATH
+          wget -q https://github.com/mstorsjo/llvm-mingw/releases/download/20250709/llvm-mingw-20250709-ucrt-ubuntu-22.04-x86_64.tar.xz
+          echo "60cafae6474c7411174cff1d4ba21a8e46cadbaeb05a1bace306add301628337  llvm-mingw-20250709-ucrt-ubuntu-22.04-x86_64.tar.xz" | sha256sum -c
+          tar -xf llvm-mingw-20250709-ucrt-ubuntu-22.04-x86_64.tar.xz
+          echo "/tmp/llvm-mingw-20250709-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
       - name: Install goversioninfo
         run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@233067e
       - name: Generate windows syso amd64
