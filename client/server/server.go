@@ -98,7 +98,7 @@ func (s *Server) Start() error {
 		log.Warnf("failed to redirect stderr: %v", err)
 	}
 
-	if err := restoreResidualState(s.rootCtx); err != nil {
+	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
@@ -415,7 +415,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
-	if err := restoreResidualState(ctx); err != nil {
+	if err := restoreResidualState(ctx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
@@ -634,7 +634,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if err := restoreResidualState(callerCtx); err != nil {
+	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 

@@ -329,3 +329,31 @@ func (s *ServiceManager) ListProfiles(username string) ([]Profile, error) {
 
 	return profiles, nil
 }
+
+// GetStatePath returns the path to the state file based on the operating system
+// It returns an empty string if the path cannot be determined.
+func (s *ServiceManager) GetStatePath() string {
+	if path := os.Getenv("NB_DNS_STATE_FILE"); path != "" {
+		return path
+	}
+
+	defaultStatePath := filepath.Join(DefaultConfigPathDir, "state.json")
+
+	activeProf, err := s.GetActiveProfileState()
+	if err != nil {
+		log.Warnf("failed to get active profile state: %v", err)
+		return defaultStatePath
+	}
+
+	if activeProf.Name == defaultProfileName {
+		return defaultStatePath
+	}
+
+	configDir, err := getConfigDirForUser(activeProf.Username)
+	if err != nil {
+		log.Warnf("failed to get config directory for user %s: %v", activeProf.Username, err)
+		return defaultStatePath
+	}
+
+	return filepath.Join(configDir, activeProf.Name+"_state.json")
+}

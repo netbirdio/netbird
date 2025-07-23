@@ -26,7 +26,6 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/internal/statemanager"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
@@ -491,7 +490,8 @@ func (g *BundleGenerator) addNetworkMap() error {
 }
 
 func (g *BundleGenerator) addStateFile() error {
-	path := statemanager.GetDefaultStatePath()
+	sm := profilemanager.ServiceManager{}
+	path := sm.GetStatePath()
 	if path == "" {
 		return nil
 	}
@@ -529,7 +529,8 @@ func (g *BundleGenerator) addStateFile() error {
 }
 
 func (g *BundleGenerator) addCorruptedStateFiles() error {
-	pattern := statemanager.GetDefaultStatePath()
+	sm := profilemanager.ServiceManager{}
+	pattern := sm.GetStatePath()
 	if pattern == "" {
 		return nil
 	}
