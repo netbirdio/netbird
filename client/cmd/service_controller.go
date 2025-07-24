@@ -112,7 +112,7 @@ func setupServiceControlCommand(cmd *cobra.Command, ctx context.Context, cancel 
 		return nil, err
 	}
 
-	if err := util.InitLog(logLevel, logFile); err != nil {
+	if err := util.InitLog(logLevel, logFiles...); err != nil {
 		return nil, fmt.Errorf("init log: %w", err)
 	}
 
