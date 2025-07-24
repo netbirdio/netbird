@@ -1968,21 +1968,25 @@ func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers 
 }
 
 // isChecksEqual checks if two slices of checks are equal.
-func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
-	for _, check := range checks {
-		sort.Slice(check.Files, func(i, j int) bool {
-			return check.Files[i] < check.Files[j]
-		})
-	}
-	for _, oCheck := range oChecks {
-		sort.Slice(oCheck.Files, func(i, j int) bool {
-			return oCheck.Files[i] < oCheck.Files[j]
-		})
+func isChecksEqual(checks1, checks2 []*mgmProto.Checks) bool {
+	normalize := func(checks []*mgmProto.Checks) []string {
+		normalized := make([]string, len(checks))
+
+		for i, check := range checks {
+			sortedFiles := make([]string, len(check.Files))
+			copy(sortedFiles, check.Files)
+			sort.Strings(sortedFiles)
+			normalized[i] = strings.Join(sortedFiles, "|")
+		}
+
+		sort.Strings(normalized)
+		return normalized
 	}
 
-	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
-		return slices.Equal(checks.Files, oChecks.Files)
-	})
+	n1 := normalize(checks1)
+	n2 := normalize(checks2)
+
+	return slices.Equal(n1, n2)
 }
 
 func getInterfacePrefixes() ([]netip.Prefix, error) {
