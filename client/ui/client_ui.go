@@ -214,7 +214,6 @@ type serviceClient struct {
 
 	// input elements for settings form
 	iMngURL        *widget.Entry
-	iAdminURL      *widget.Entry
 	iConfigFile    *widget.Entry
 	iLogFile       *widget.Entry
 	iPreSharedKey  *widget.Entry
@@ -232,7 +231,6 @@ type serviceClient struct {
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL       string
 	preSharedKey        string
-	adminURL            string
 	RosenpassPermissive bool
 	interfaceName       string
 	interfacePort       int
@@ -344,7 +342,6 @@ func (s *serviceClient) showSettingsUI() {
 	s.wSettings.SetOnClosed(s.cancel)
 
 	s.iMngURL = widget.NewEntry()
-	s.iAdminURL = widget.NewEntry()
 	s.iConfigFile = widget.NewEntry()
 	s.iConfigFile.Disable()
 	s.iLogFile = widget.NewEntry()
@@ -377,7 +374,6 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
 			{Text: "Management URL", Widget: s.iMngURL},
-			{Text: "Admin URL", Widget: s.iAdminURL},
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Config File", Widget: s.iConfigFile},
 			{Text: "Log File", Widget: s.iLogFile},
@@ -403,14 +399,13 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				return
 			}
 
-			iAdminURL := strings.TrimSpace(s.iAdminURL.Text)
 			iMngURL := strings.TrimSpace(s.iMngURL.Text)
 
 			defer s.wSettings.Close()
 
 			// Check if any settings have changed
 			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
-				s.adminURL != iAdminURL || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
+				s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
 				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
 				s.networkMonitor != s.sNetworkMonitor.Checked ||
 				s.disableDNS != s.sDisableDNS.Checked ||
@@ -420,11 +415,9 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 
 				s.managementURL = iMngURL
 				s.preSharedKey = s.iPreSharedKey.Text
-				s.adminURL = iAdminURL
 
 				loginRequest := proto.LoginRequest{
 					ManagementUrl:       iMngURL,
-					AdminURL:            iAdminURL,
 					IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
 					RosenpassPermissive: &s.sRosenpassPermissive.Checked,
 					InterfaceName:       &s.iInterfaceName.Text,
@@ -798,7 +791,6 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 // getSrvConfig from the service to show it in the settings window.
 func (s *serviceClient) getSrvConfig() {
 	s.managementURL = internal.DefaultManagementURL
-	s.adminURL = internal.DefaultAdminURL
 
 	conn, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
@@ -815,9 +807,6 @@ func (s *serviceClient) getSrvConfig() {
 	if cfg.ManagementUrl != "" {
 		s.managementURL = cfg.ManagementUrl
 	}
-	if cfg.AdminURL != "" {
-		s.adminURL = cfg.AdminURL
-	}
 	s.preSharedKey = cfg.PreSharedKey
 	s.RosenpassPermissive = cfg.RosenpassPermissive
 	s.interfaceName = cfg.InterfaceName
@@ -831,7 +820,6 @@ func (s *serviceClient) getSrvConfig() {
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
-		s.iAdminURL.SetText(s.adminURL)
 		s.iConfigFile.SetText(cfg.ConfigFile)
 		s.iLogFile.SetText(cfg.LogFile)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)

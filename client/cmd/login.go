@@ -61,7 +61,6 @@ var loginCmd = &cobra.Command{
 
 			ic := internal.ConfigInput{
 				ManagementURL: managementURL,
-				AdminURL:      adminURL,
 				ConfigPath:    configPath,
 			}
 			if rootCmd.PersistentFlags().Changed(preSharedKeyFlag) {

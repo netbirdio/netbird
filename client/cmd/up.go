@@ -238,7 +238,6 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*internal.ConfigInput, error) {
 	ic := internal.ConfigInput{
 		ManagementURL:       managementURL,
-		AdminURL:            adminURL,
 		ConfigPath:          configPath,
 		NATExternalIPs:      natExternalIPs,
 		CustomDNSAddress:    customDNSAddressConverted,
@@ -325,7 +324,6 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	loginRequest := proto.LoginRequest{
 		SetupKey:            providedSetupKey,
 		ManagementUrl:       managementURL,
-		AdminURL:            adminURL,
 		NatExternalIPs:      natExternalIPs,
 		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
 		CustomDNSAddress:    customDNSAddressConverted,
