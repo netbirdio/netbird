@@ -203,13 +203,18 @@ func mapPeers(
 		localICEEndpoint := ""
 		remoteICEEndpoint := ""
 		relayServerAddress := ""
-		connType := ""
+		connType := "P2P"
 		lastHandshake := time.Time{}
 		transferReceived := int64(0)
 		transferSent := int64(0)
 
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
-		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter) {
+
+		if pbPeerState.Relayed {
+			connType = "Relayed"
+		}
+
+		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter, connType) {
 			continue
 		}
 		if isPeerConnected {
@@ -219,7 +224,6 @@ func mapPeers(
 			remoteICE = pbPeerState.GetRemoteIceCandidateType()
 			localICEEndpoint = pbPeerState.GetLocalIceCandidateEndpoint()
 			remoteICEEndpoint = pbPeerState.GetRemoteIceCandidateEndpoint()
-			connType = pbPeerState.GetConnectionType()
 			relayServerAddress = pbPeerState.GetRelayAddress()
 			lastHandshake = pbPeerState.GetLastWireguardHandshake().AsTime().Local()
 			transferReceived = pbPeerState.GetBytesRx()
@@ -540,7 +544,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 	return peersString
 }
 
-func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string) bool {
+func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter, connType string) bool {
 	statusEval := false
 	ipEval := false
 	nameEval := true
@@ -569,7 +573,7 @@ func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFi
 	} else {
 		nameEval = false
 	}
-	if connectionTypeFilter != "" && !strings.EqualFold(peerState.GetConnectionType(), connectionTypeFilter) {
+	if connectionTypeFilter != "" && !strings.EqualFold(connType, connectionTypeFilter) {
 		connectionTypeEval = true
 	}
 

@@ -160,7 +160,7 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 
 	s.udpMux = NewUniversalUDPMuxDefault(
 		UniversalUDPMuxParams{
-			UDPConn:   nbnet.WrapUDPConn(conn),
+			UDPConn:   nbnet.WrapPacketConn(conn),
 			Net:       s.transportNet,
 			FilterFn:  s.filterFn,
 			WGAddress: s.address,

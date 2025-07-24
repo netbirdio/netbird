@@ -243,7 +243,6 @@ message PeerState {
   repeated string networks = 16;
   google.protobuf.Duration latency = 17;
   string relayAddress = 18;
-  string connectionType = 19;
 }
 
 // LocalPeerState contains the latest state of the local peer

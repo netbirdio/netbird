@@ -68,7 +68,6 @@ var (
 	interfaceName           string
 	wireguardPort           uint16
 	networkMonitor          bool
-	serviceName             string
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
@@ -118,15 +117,9 @@ func init() {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
 
-	defaultServiceName := "netbird"
-	if runtime.GOOS == "windows" {
-		defaultServiceName = "Netbird"
-	}
-
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultAdminURL))
-	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout. If syslog is specified the log will be sent to syslog daemon.")
@@ -137,7 +130,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
 	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize IP addresses and non-netbird.io domains in logs and status output")
 
-	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -147,9 +139,6 @@ func init() {
 	rootCmd.AddCommand(networksCMD)
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
-
-	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
-	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
@@ -188,14 +177,13 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 	termCh := make(chan os.Signal, 1)
 	signal.Notify(termCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		done := ctx.Done()
+		defer cancel()
 		select {
-		case <-done:
+		case <-ctx.Done():
 		case <-termCh:
 		}
 
 		log.Info("shutdown signal received")
-		cancel()
 	}()
 }
 

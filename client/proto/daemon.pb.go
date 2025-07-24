@@ -1193,7 +1193,6 @@ type PeerState struct {
 	Networks                   []string               `protobuf:"bytes,16,rep,name=networks,proto3" json:"networks,omitempty"`
 	Latency                    *durationpb.Duration   `protobuf:"bytes,17,opt,name=latency,proto3" json:"latency,omitempty"`
 	RelayAddress               string                 `protobuf:"bytes,18,opt,name=relayAddress,proto3" json:"relayAddress,omitempty"`
-	ConnectionType             string                 `protobuf:"bytes,19,opt,name=connectionType,proto3" json:"connectionType,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -1343,13 +1342,6 @@ func (x *PeerState) GetLatency() *durationpb.Duration {
 func (x *PeerState) GetRelayAddress() string {
 	if x != nil {
 		return x.RelayAddress
-	}
-	return ""
-}
-
-func (x *PeerState) GetConnectionType() string {
-	if x != nil {
-		return x.ConnectionType
 	}
 	return ""
 }
@@ -3686,7 +3678,7 @@ const file_daemon_proto_rawDesc = "" +
 	"disableDns\x122\n" +
 	"\x15disable_client_routes\x18\x12 \x01(\bR\x13disableClientRoutes\x122\n" +
 	"\x15disable_server_routes\x18\x13 \x01(\bR\x13disableServerRoutes\x12(\n" +
-	"\x10block_lan_access\x18\x14 \x01(\bR\x0eblockLanAccess\"\x86\x06\n" +
+	"\x10block_lan_access\x18\x14 \x01(\bR\x0eblockLanAccess\"\xde\x05\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -3707,8 +3699,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x10rosenpassEnabled\x18\x0f \x01(\bR\x10rosenpassEnabled\x12\x1a\n" +
 	"\bnetworks\x18\x10 \x03(\tR\bnetworks\x123\n" +
 	"\alatency\x18\x11 \x01(\v2\x19.google.protobuf.DurationR\alatency\x12\"\n" +
-	"\frelayAddress\x18\x12 \x01(\tR\frelayAddress\x12&\n" +
-	"\x0econnectionType\x18\x13 \x01(\tR\x0econnectionType\"\xf0\x01\n" +
+	"\frelayAddress\x18\x12 \x01(\tR\frelayAddress\"\xf0\x01\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +
