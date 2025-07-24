@@ -1,6 +1,7 @@
 package types
 
 import (
+	"slices"
 	"time"
 )
 
@@ -82,21 +83,21 @@ type ExtraSettings struct {
 	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
 	IntegratedValidatorGroups []string `gorm:"serializer:json"`
 
-	FlowEnabled              bool `gorm:"-"`
-	FlowPacketCounterEnabled bool `gorm:"-"`
-	FlowENCollectionEnabled  bool `gorm:"-"`
-	FlowDnsCollectionEnabled bool `gorm:"-"`
+	FlowEnabled              bool     `gorm:"-"`
+	FlowGroups               []string `gorm:"-"`
+	FlowPacketCounterEnabled bool     `gorm:"-"`
+	FlowENCollectionEnabled  bool     `gorm:"-"`
+	FlowDnsCollectionEnabled bool     `gorm:"-"`
 }
 
 // Copy copies the ExtraSettings struct
 func (e *ExtraSettings) Copy() *ExtraSettings {
-	var cpGroup []string
-
 	return &ExtraSettings{
 		PeerApprovalEnabled:       e.PeerApprovalEnabled,
-		IntegratedValidatorGroups: append(cpGroup, e.IntegratedValidatorGroups...),
+		IntegratedValidatorGroups: slices.Clone(e.IntegratedValidatorGroups),
 		IntegratedValidator:       e.IntegratedValidator,
 		FlowEnabled:               e.FlowEnabled,
+		FlowGroups:                slices.Clone(e.FlowGroups),
 		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
 		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
 		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,

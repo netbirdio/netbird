@@ -106,6 +106,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		settings.Extra = &types.ExtraSettings{
 			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
 			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
+			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
 		}
 	}
@@ -217,6 +218,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		apiSettings.Extra = &api.AccountExtraSettings{
 			PeerApprovalEnabled:                settings.Extra.PeerApprovalEnabled,
 			NetworkTrafficLogsEnabled:          settings.Extra.FlowEnabled,
+			NetworkTrafficLogsGroups:           settings.Extra.FlowGroups,
 			NetworkTrafficPacketCounterEnabled: settings.Extra.FlowPacketCounterEnabled,
 		}
 	}
