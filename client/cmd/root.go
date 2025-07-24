@@ -118,7 +118,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultManagementURL))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("(DEPRECATED) Admin Panel URL [http|https]://[host]:[port] (default \"%s\") - This flag is no longer functional", internal.DefaultAdminURL))
-	rootCmd.PersistentFlags().MarkDeprecated("admin-url", "the admin-url flag is no longer functional and will be removed in a future version")
+	_ = rootCmd.PersistentFlags().MarkDeprecated("admin-url", "the admin-url flag is no longer functional and will be removed in a future version")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout. If syslog is specified the log will be sent to syslog daemon.")
