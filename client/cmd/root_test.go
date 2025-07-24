@@ -54,7 +54,7 @@ func TestSetFlagsFromEnvVars(t *testing.T) {
 	cmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
 	cmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "Enable Rosenpass feature Rosenpass.")
 	cmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
-	cmd.PersistentFlags().IntVar(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
+	cmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
 
 	t.Setenv("NB_EXTERNAL_IP_MAP", "abc,dec")
 	t.Setenv("NB_INTERFACE_NAME", "test-name")
