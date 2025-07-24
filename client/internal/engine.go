@@ -1973,8 +1973,7 @@ func isChecksEqual(checks1, checks2 []*mgmProto.Checks) bool {
 		normalized := make([]string, len(checks))
 
 		for i, check := range checks {
-			sortedFiles := make([]string, len(check.Files))
-			copy(sortedFiles, check.Files)
+			sortedFiles := slices.Clone(check.Files)
 			sort.Strings(sortedFiles)
 			normalized[i] = strings.Join(sortedFiles, "|")
 		}
