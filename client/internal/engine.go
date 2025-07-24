@@ -344,6 +344,10 @@ func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
+	if err := iface.ValidateMTU(e.config.MTU); err != nil {
+		return fmt.Errorf("invalid MTU configuration: %w", err)
+	}
+
 	if e.cancel != nil {
 		e.cancel()
 	}

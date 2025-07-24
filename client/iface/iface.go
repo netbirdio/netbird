@@ -37,6 +37,17 @@ var (
 	ErrIfaceNotFound = fmt.Errorf("wireguard interface not found")
 )
 
+// ValidateMTU validates that MTU is within acceptable range
+func ValidateMTU(mtu uint16) error {
+	if mtu < MinMTU {
+		return fmt.Errorf("MTU %d below minimum (%d bytes)", mtu, MinMTU)
+	}
+	if mtu > MaxMTU {
+		return fmt.Errorf("MTU %d exceeds maximum supported size (%d bytes)", mtu, MaxMTU)
+	}
+	return nil
+}
+
 type wgProxyFactory interface {
 	GetProxy() wgproxy.Proxy
 	Free() error

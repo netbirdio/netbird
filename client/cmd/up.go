@@ -272,7 +272,7 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command) (*interna
 	}
 
 	if cmd.Flag(mtuFlag).Changed {
-		if err := validateMTU(mtu); err != nil {
+		if err := iface.ValidateMTU(mtu); err != nil {
 			return nil, err
 		}
 		ic.MTU = &mtu
@@ -377,7 +377,7 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	}
 
 	if cmd.Flag(mtuFlag).Changed {
-		if err := validateMTU(mtu); err != nil {
+		if err := iface.ValidateMTU(mtu); err != nil {
 			return nil, err
 		}
 		m := int64(mtu)
@@ -417,16 +417,6 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 		loginRequest.LazyConnectionEnabled = &lazyConnEnabled
 	}
 	return &loginRequest, nil
-}
-
-func validateMTU(mtu uint16) error {
-	if mtu < iface.MinMTU {
-		return fmt.Errorf("MTU %d below minimum (%d bytes)", mtu, iface.MinMTU)
-	}
-	if mtu > iface.MaxMTU {
-		return fmt.Errorf("MTU %d exceeds maximum supported size (%d bytes)", mtu, iface.MaxMTU)
-	}
-	return nil
 }
 
 func validateNATExternalIPs(list []string) error {
