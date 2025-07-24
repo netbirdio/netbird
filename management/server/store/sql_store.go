@@ -251,6 +251,7 @@ func generateAccountSQLTypes(account *types.Account) {
 
 	for id, group := range account.Groups {
 		group.ID = id
+		group.AccountID = account.Id
 		account.GroupsG = append(account.GroupsG, group)
 	}
 
