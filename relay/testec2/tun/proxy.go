@@ -28,7 +28,7 @@ func (p *Proxy) Close() {
 }
 
 func (p *Proxy) readFromDevice() {
-	buf := make([]byte, iface.MaxMTU)
+	buf := make([]byte, 1500)
 	for {
 		n, err := p.Device.Read(buf)
 		if err != nil {
@@ -51,7 +51,7 @@ func (p *Proxy) readFromDevice() {
 }
 
 func (p *Proxy) readFromConn() {
-	buf := make([]byte, iface.MaxMTU)
+	buf := make([]byte, 1500)
 	for {
 		n, _, err := p.PConn.ReadFrom(buf)
 		if err != nil {
