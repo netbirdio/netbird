@@ -36,7 +36,7 @@ type SharedSocket struct {
 	conn4       *socket.Conn
 	conn6       *socket.Conn
 	port        int
-	mtu         int
+	mtu         uint16
 	routerMux   sync.RWMutex
 	router      routing.Router
 	packetDemux chan rcvdPacket
@@ -64,7 +64,7 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 const maxIPUDPOverhead = 68
 
 // Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
-func Listen(port int, filter BPFFilter, mtu int) (_ net.PacketConn, err error) {
+func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	rawSock := &SharedSocket{
 		ctx:         ctx,

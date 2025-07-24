@@ -9,10 +9,10 @@ import (
 // KernelFactory todo: check eBPF support on FreeBSD
 type KernelFactory struct {
 	wgPort int
-	mtu    int
+	mtu    uint16
 }
 
-func NewKernelFactory(wgPort int, mtu int) *KernelFactory {
+func NewKernelFactory(wgPort int, mtu uint16) *KernelFactory {
 	log.Infof("WireGuard Proxy Factory will produce UDP proxy")
 	f := &KernelFactory{
 		wgPort: wgPort,

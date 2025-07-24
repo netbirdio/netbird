@@ -5,9 +5,10 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/netbirdio/netbird/sharedsock"
-	"github.com/netbirdio/netbird/client/iface"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/sharedsock"
 )
 
 func main() {

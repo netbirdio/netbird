@@ -17,10 +17,10 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
 	nbnet "github.com/netbirdio/netbird/util/net"
-	"github.com/netbirdio/netbird/client/iface/bufsize"
 )
 
 const (
@@ -30,7 +30,7 @@ const (
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
 	localWGListenPort int
-	mtu               int
+	mtu               uint16
 
 	ebpfManager   ebpfMgr.Manager
 	turnConnStore map[uint16]net.Conn
@@ -45,7 +45,7 @@ type WGEBPFProxy struct {
 }
 
 // NewWGEBPFProxy create new WGEBPFProxy instance
-func NewWGEBPFProxy(wgPort int, mtu int) *WGEBPFProxy {
+func NewWGEBPFProxy(wgPort int, mtu uint16) *WGEBPFProxy {
 	log.Debugf("instantiate ebpf proxy")
 	wgProxy := &WGEBPFProxy{
 		localWGListenPort: wgPort,

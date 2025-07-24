@@ -467,12 +467,12 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 	return engineConf, nil
 }
 
-func selectMTU(localMTU int, peerMTU int32) int {
-	finalMTU := iface.DefaultMTU
+func selectMTU(localMTU uint16, peerMTU int32) uint16 {
+	var finalMTU uint16 = iface.DefaultMTU
 	if localMTU > 0 {
 		finalMTU = localMTU
 	} else if peerMTU > 0 {
-		finalMTU = int(peerMTU)
+		finalMTU = uint16(peerMTU)
 	}
 
 	// Set global DNS MTU

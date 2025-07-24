@@ -47,7 +47,7 @@ type WGIFaceOpts struct {
 	Address      string
 	WGPort       int
 	WGPrivKey    string
-	MTU          int
+	MTU          uint16
 	MobileArgs   *device.MobileIFaceArguments
 	TransportNet transport.Net
 	FilterFn     bind.FilterFn
@@ -84,7 +84,7 @@ func (w *WGIface) Address() wgaddr.Address {
 	return w.tun.WgAddress()
 }
 
-func (w *WGIface) MTU() int {
+func (w *WGIface) MTU() uint16 {
 	return w.tun.MTU()
 }
 

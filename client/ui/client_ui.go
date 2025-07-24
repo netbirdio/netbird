@@ -238,7 +238,7 @@ type serviceClient struct {
 	RosenpassPermissive bool
 	interfaceName       string
 	interfacePort       int
-	mtu                 int
+	mtu                 uint16
 	networkMonitor      bool
 	disableDNS          bool
 	disableClientRoutes bool
@@ -427,7 +427,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
 				s.adminURL != iAdminURL || s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
 				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
-				s.mtu != int(mtu) || s.networkMonitor != s.sNetworkMonitor.Checked ||
+				s.mtu != uint16(mtu) || s.networkMonitor != s.sNetworkMonitor.Checked ||
 				s.disableDNS != s.sDisableDNS.Checked ||
 				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
 				s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
@@ -838,7 +838,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.RosenpassPermissive = cfg.RosenpassPermissive
 	s.interfaceName = cfg.InterfaceName
 	s.interfacePort = int(cfg.WireguardPort)
-	s.mtu = int(cfg.Mtu)
+	s.mtu = uint16(cfg.Mtu)
 
 	s.networkMonitor = cfg.NetworkMonitor
 	s.disableDNS = cfg.DisableDns

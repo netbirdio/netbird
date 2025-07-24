@@ -11,12 +11,12 @@ import (
 
 type KernelFactory struct {
 	wgPort int
-	mtu    int
+	mtu    uint16
 
 	ebpfProxy *ebpf.WGEBPFProxy
 }
 
-func NewKernelFactory(wgPort int, mtu int) *KernelFactory {
+func NewKernelFactory(wgPort int, mtu uint16) *KernelFactory {
 	f := &KernelFactory{
 		wgPort: wgPort,
 		mtu:    mtu,

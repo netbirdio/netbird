@@ -15,7 +15,7 @@ type WGTunDevice interface {
 	Up() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddr(address wgaddr.Address) error
 	WgAddress() wgaddr.Address
-	MTU() int
+	MTU() uint16
 	DeviceName() string
 	Close() error
 	FilteredDevice() *device.FilteredDevice

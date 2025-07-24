@@ -77,7 +77,7 @@ type ConfigInput struct {
 
 	LazyConnectionEnabled *bool
 
-	MTU *int
+	MTU *uint16
 }
 
 // Config Configuration type
@@ -145,7 +145,7 @@ type Config struct {
 
 	LazyConnectionEnabled bool
 
-	MTU int
+	MTU uint16
 }
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values

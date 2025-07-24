@@ -124,7 +124,7 @@ type EngineConfig struct {
 
 	LazyConnectionEnabled bool
 
-	MTU int
+	MTU uint16
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.

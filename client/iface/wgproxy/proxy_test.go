@@ -89,7 +89,7 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 	}
 
 	if runtime.GOOS == "linux" && os.Getenv("GITHUB_ACTIONS") != "true" {
-		ebpfProxy := ebpf.NewWGEBPFProxy(51831)
+		ebpfProxy := ebpf.NewWGEBPFProxy(51831, 1280)
 		if err := ebpfProxy.Listen(); err != nil {
 			t.Fatalf("failed to initialize ebpf proxy: %s", err)
 		}

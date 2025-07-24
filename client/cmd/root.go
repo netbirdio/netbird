@@ -74,7 +74,7 @@ var (
 	anonymizeFlag           bool
 	dnsRouteInterval        time.Duration
 	lazyConnEnabled         bool
-	mtu                     int
+	mtu                     uint16
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",

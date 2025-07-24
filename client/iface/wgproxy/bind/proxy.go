@@ -12,8 +12,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
-	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
 type ProxyBind struct {

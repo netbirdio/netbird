@@ -25,9 +25,9 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-var currentMTU = iface.DefaultMTU
+var currentMTU uint16 = iface.DefaultMTU
 
-func SetCurrentMTU(mtu int) {
+func SetCurrentMTU(mtu uint16) {
 	currentMTU = mtu
 }
 

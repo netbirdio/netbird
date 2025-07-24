@@ -56,11 +56,11 @@ type ICEBind struct {
 	muUDPMux         sync.Mutex
 	udpMux           *UniversalUDPMuxDefault
 	address          wgaddr.Address
-	mtu              int
+	mtu              uint16
 	activityRecorder *ActivityRecorder
 }
 
-func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Address, mtu int) *ICEBind {
+func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Address, mtu uint16) *ICEBind {
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:       b,
@@ -82,7 +82,7 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Ad
 	return ib
 }
 
-func (s *ICEBind) MTU() int {
+func (s *ICEBind) MTU() uint16 {
 	return s.mtu
 }
 

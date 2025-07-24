@@ -22,7 +22,7 @@ type TunNetstackDevice struct {
 	address       wgaddr.Address
 	port          int
 	key           string
-	mtu           int
+	mtu           uint16
 	listenAddress string
 	iceBind       *bind.ICEBind
 
@@ -35,7 +35,7 @@ type TunNetstackDevice struct {
 	net *netstack.Net
 }
 
-func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu int, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
+func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
 	return &TunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -57,7 +57,7 @@ func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
 	}
 
 	log.Debugf("netstack using address: %s", t.address.IP)
-	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, t.address.IP, dnsAddr, t.mtu)
+	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, t.address.IP, dnsAddr, int(t.mtu))
 	log.Debugf("netstack using dns address: %s", dnsAddr)
 	tunIface, net, err := t.nsTun.Create()
 	if err != nil {
@@ -125,7 +125,7 @@ func (t *TunNetstackDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 
-func (t *TunNetstackDevice) MTU() int {
+func (t *TunNetstackDevice) MTU() uint16 {
 	return t.mtu
 }
 

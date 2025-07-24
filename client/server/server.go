@@ -429,7 +429,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	if msg.Mtu != nil {
-		mtu := int(*msg.Mtu)
+		mtu := uint16(*msg.Mtu)
 		inputConfig.MTU = &mtu
 		s.latestConfigInput.MTU = &mtu
 	}

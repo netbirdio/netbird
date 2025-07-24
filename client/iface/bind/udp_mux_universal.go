@@ -18,10 +18,9 @@ import (
 	"github.com/pion/stun/v2"
 	"github.com/pion/transport/v3"
 
-	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
-
 
 // FilterFn is a function that filters out candidates based on the address.
 // If it returns true, the address is to be filtered. It also returns the prefix of matching route.
@@ -46,7 +45,7 @@ type UniversalUDPMuxParams struct {
 	Net                   transport.Net
 	FilterFn              FilterFn
 	WGAddress             wgaddr.Address
-	MTU                   int
+	MTU                   uint16
 }
 
 // NewUniversalUDPMuxDefault creates an implementation of UniversalUDPMux embedding UDPMux

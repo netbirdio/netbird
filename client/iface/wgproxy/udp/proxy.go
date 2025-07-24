@@ -12,15 +12,14 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	cerrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
-
 
 // WGUDPProxy proxies
 type WGUDPProxy struct {
 	localWGListenPort int
-	mtu               int
+	mtu               uint16
 
 	remoteConn net.Conn
 	localConn  net.Conn
@@ -37,7 +36,7 @@ type WGUDPProxy struct {
 }
 
 // NewWGUDPProxy instantiate a UDP based WireGuard proxy. This is not a thread safe implementation
-func NewWGUDPProxy(wgPort int, mtu int) *WGUDPProxy {
+func NewWGUDPProxy(wgPort int, mtu uint16) *WGUDPProxy {
 	log.Debugf("Initializing new user space proxy with port %d", wgPort)
 	p := &WGUDPProxy{
 		localWGListenPort: wgPort,
