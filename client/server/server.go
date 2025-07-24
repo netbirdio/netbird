@@ -848,11 +848,6 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
 
 	for _, peerState := range fullStatus.Peers {
-		connectionType := "P2P"
-		if peerState.Relayed {
-			connectionType = "Relayed"
-		}
-
 		pbPeerState := &proto.PeerState{
 			IP:                         peerState.IP,
 			PubKey:                     peerState.PubKey,
@@ -871,7 +866,6 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			RosenpassEnabled:           peerState.RosenpassEnabled,
 			Networks:                   maps.Keys(peerState.GetRoutes()),
 			Latency:                    durationpb.New(peerState.Latency),
-			ConnectionType:             connectionType,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
