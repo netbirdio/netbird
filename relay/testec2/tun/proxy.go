@@ -7,8 +7,6 @@ import (
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/iface"
 )
 
 type Proxy struct {
