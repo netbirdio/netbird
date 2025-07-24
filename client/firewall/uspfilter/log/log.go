@@ -44,7 +44,12 @@ var levelStrings = map[Level]string{
 type logMessage struct {
 	level  Level
 	format string
-	args   []any
+	arg1   any
+	arg2   any
+	arg3   any
+	arg4   any
+	arg5   any
+	arg6   any
 }
 
 // Logger is a high-performance, non-blocking logger
@@ -89,62 +94,186 @@ func (l *Logger) SetLevel(level Level) {
 	log.Debugf("Set uspfilter logger loglevel to %v", levelStrings[level])
 }
 
-func (l *Logger) log(level Level, format string, args ...any) {
-	select {
-	case l.msgChannel <- logMessage{level: level, format: format, args: args}:
-	default:
-	}
-}
 
-// Error logs a message at error level
-func (l *Logger) Error(format string, args ...any) {
+func (l *Logger) Error(format string) {
 	if l.level.Load() >= uint32(LevelError) {
-		l.log(LevelError, format, args...)
+		select {
+		case l.msgChannel <- logMessage{level: LevelError, format: format}:
+		default:
+		}
 	}
 }
 
-// Warn logs a message at warning level
-func (l *Logger) Warn(format string, args ...any) {
+func (l *Logger) Warn(format string) {
 	if l.level.Load() >= uint32(LevelWarn) {
-		l.log(LevelWarn, format, args...)
+		select {
+		case l.msgChannel <- logMessage{level: LevelWarn, format: format}:
+		default:
+		}
 	}
 }
 
-// Info logs a message at info level
-func (l *Logger) Info(format string, args ...any) {
+func (l *Logger) Info(format string) {
 	if l.level.Load() >= uint32(LevelInfo) {
-		l.log(LevelInfo, format, args...)
+		select {
+		case l.msgChannel <- logMessage{level: LevelInfo, format: format}:
+		default:
+		}
 	}
 }
 
-// Debug logs a message at debug level
-func (l *Logger) Debug(format string, args ...any) {
+func (l *Logger) Debug(format string) {
 	if l.level.Load() >= uint32(LevelDebug) {
-		l.log(LevelDebug, format, args...)
+		select {
+		case l.msgChannel <- logMessage{level: LevelDebug, format: format}:
+		default:
+		}
 	}
 }
 
-// Trace logs a message at trace level
-func (l *Logger) Trace(format string, args ...any) {
+func (l *Logger) Trace(format string) {
 	if l.level.Load() >= uint32(LevelTrace) {
-		l.log(LevelTrace, format, args...)
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, format: format}:
+		default:
+		}
 	}
 }
 
-func (l *Logger) formatMessage(buf *[]byte, level Level, format string, args ...any) {
+func (l *Logger) Error1(format string, arg1 any) {
+	if l.level.Load() >= uint32(LevelError) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelError, format: format, arg1: arg1}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Error2(format string, arg1, arg2 any) {
+	if l.level.Load() >= uint32(LevelError) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelError, format: format, arg1: arg1, arg2: arg2}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Warn3(format string, arg1, arg2, arg3 any) {
+	if l.level.Load() >= uint32(LevelWarn) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelWarn, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Debug1(format string, arg1 any) {
+	if l.level.Load() >= uint32(LevelDebug) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelDebug, format: format, arg1: arg1}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Debug2(format string, arg1, arg2 any) {
+	if l.level.Load() >= uint32(LevelDebug) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelDebug, format: format, arg1: arg1, arg2: arg2}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace1(format string, arg1 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace2(format string, arg1, arg2 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace3(format string, arg1, arg2, arg3 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace4(format string, arg1, arg2, arg3, arg4 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace5(format string, arg1, arg2, arg3, arg4, arg5 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Trace6(format string, arg1, arg2, arg3, arg4, arg5, arg6 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5, arg6: arg6}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 	*buf = (*buf)[:0]
 	*buf = time.Now().AppendFormat(*buf, "2006-01-02T15:04:05-07:00")
 	*buf = append(*buf, ' ')
-	*buf = append(*buf, levelStrings[level]...)
+	*buf = append(*buf, levelStrings[msg.level]...)
 	*buf = append(*buf, ' ')
 
-	var msg string
-	if len(args) > 0 {
-		msg = fmt.Sprintf(format, args...)
-	} else {
-		msg = format
+	args := make([]any, 0, 6)
+	if msg.arg1 != nil {
+		args = append(args, msg.arg1)
 	}
-	*buf = append(*buf, msg...)
+	if msg.arg2 != nil {
+		args = append(args, msg.arg2)
+	}
+	if msg.arg3 != nil {
+		args = append(args, msg.arg3)
+	}
+	if msg.arg4 != nil {
+		args = append(args, msg.arg4)
+	}
+	if msg.arg5 != nil {
+		args = append(args, msg.arg5)
+	}
+	if msg.arg6 != nil {
+		args = append(args, msg.arg6)
+	}
+
+	var formatted string
+	if len(args) > 0 {
+		formatted = fmt.Sprintf(msg.format, args...)
+	} else {
+		formatted = msg.format
+	}
+
+	*buf = append(*buf, formatted...)
 	*buf = append(*buf, '\n')
 
 	if len(*buf) > maxMessageSize {
@@ -157,7 +286,7 @@ func (l *Logger) processMessage(msg logMessage, buffer *[]byte) {
 	bufp := l.bufPool.Get().(*[]byte)
 	defer l.bufPool.Put(bufp)
 
-	l.formatMessage(bufp, msg.level, msg.format, msg.args...)
+	l.formatMessage(bufp, msg)
 
 	if len(*buffer)+len(*bufp) > maxBatchSize {
 		_, _ = l.output.Write(*buffer)
