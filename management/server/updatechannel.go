@@ -51,6 +51,8 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 		}
 	}()
 
+	log.WithContext(ctx).Debugf("sending update to peer %s, checks: %s", peerID, update.Update.Checks)
+
 	if channel, ok := p.peerChannels[peerID]; ok {
 		found = true
 		select {
