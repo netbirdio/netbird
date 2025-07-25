@@ -12,11 +12,12 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 func SetupDebugHandler(
 	ctx context.Context,
-	config *internal.Config,
+	config *profilemanager.Config,
 	recorder *peer.Status,
 	connectClient *internal.ConnectClient,
 	logFilePath string,
