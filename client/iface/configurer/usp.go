@@ -530,7 +530,7 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 			if currentPeer == nil {
 				continue
 			}
-			if val != "" {
+			if val != "" && val != "0000000000000000000000000000000000000000000000000000000000000000" {
 				currentPeer.PresharedKey = true
 			}
 		}
