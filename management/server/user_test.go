@@ -1332,7 +1332,6 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 }
 
 func TestUserAccountPeersUpdate(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", "postgres")
 	// account groups propagation is enabled
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
