@@ -47,7 +47,9 @@ func newUpstreamResolver(
 }
 
 func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	client := &dns.Client{}
+	client := &dns.Client{
+		Timeout: ClientTimeout,
+	}
 	upstreamHost, _, err := net.SplitHostPort(upstream)
 	if err != nil {
 		return nil, 0, fmt.Errorf("error while parsing upstream host: %s", err)
@@ -108,7 +110,8 @@ func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Dura
 		},
 	}
 	client := &dns.Client{
-		Dialer: dialer,
+		Dialer:  dialer,
+		Timeout: dialTimeout,
 	}
 	return client, nil
 }

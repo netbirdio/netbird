@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	PriorityLocal    = 100
-	PriorityDNSRoute = 75
-	PriorityUpstream = 50
-	PriorityDefault  = 1
+	PriorityMgmtCache = 150
+	PriorityLocal     = 100
+	PriorityDNSRoute  = 75
+	PriorityUpstream  = 50
+	PriorityDefault   = 1
 )
 
 type SubdomainMatcher interface {
@@ -181,7 +182,10 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 			// If handler wants to continue, try next handler
 			if chainWriter.shouldContinue {
-				log.Tracef("handler requested continue to next handler for domain=%s", qname)
+				// Only log continue for non-management cache handlers to reduce noise
+				if entry.Priority != PriorityMgmtCache {
+					log.Tracef("handler requested continue to next handler for domain=%s", qname)
+				}
 				continue
 			}
 			return
@@ -191,7 +195,7 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	// No handler matched or all handlers passed
 	log.Tracef("no handler found for domain=%s", qname)
 	resp := &dns.Msg{}
-	resp.SetRcode(r, dns.RcodeNameError)
+	resp.SetRcode(r, dns.RcodeRefused)
 	if err := w.WriteMsg(resp); err != nil {
 		log.Errorf("failed to write DNS response: %v", err)
 	}
