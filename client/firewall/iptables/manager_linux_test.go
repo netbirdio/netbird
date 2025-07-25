@@ -3,6 +3,7 @@ package iptables
 import (
 	"fmt"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 
 var ifaceMock = &iFaceMock{
 	NameFunc: func() string {
-		return "lo"
+		return "wg-test"
 	},
 	AddressFunc: func() wgaddr.Address {
 		return wgaddr.Address{
@@ -109,10 +110,84 @@ func TestIptablesManager(t *testing.T) {
 	})
 }
 
+func TestIptablesManagerDenyRules(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	manager, err := Create(ifaceMock)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		err := manager.Close(nil)
+		require.NoError(t, err)
+	}()
+
+	t.Run("add deny rule", func(t *testing.T) {
+		ip := netip.MustParseAddr("10.20.0.3")
+		port := &fw.Port{Values: []uint16{22}}
+
+		rule, err := manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionDrop, "deny-ssh")
+		require.NoError(t, err, "failed to add deny rule")
+		require.NotEmpty(t, rule, "deny rule should not be empty")
+
+		// Verify the rule was added by checking iptables
+		for _, r := range rule {
+			rr := r.(*Rule)
+			checkRuleSpecs(t, ipv4Client, rr.chain, true, rr.specs...)
+		}
+	})
+
+	t.Run("deny rule precedence test", func(t *testing.T) {
+		ip := netip.MustParseAddr("10.20.0.4")
+		port := &fw.Port{Values: []uint16{80}}
+
+		// Add accept rule first
+		_, err := manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionAccept, "accept-http")
+		require.NoError(t, err, "failed to add accept rule")
+
+		// Add deny rule second for same IP/port - this should take precedence
+		_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionDrop, "deny-http")
+		require.NoError(t, err, "failed to add deny rule")
+
+		// Inspect the actual iptables rules to verify deny rule comes before accept rule
+		rules, err := ipv4Client.List("filter", chainNameInputRules)
+		require.NoError(t, err, "failed to list iptables rules")
+
+		// Debug: print all rules
+		t.Logf("All iptables rules in chain %s:", chainNameInputRules)
+		for i, rule := range rules {
+			t.Logf("  [%d] %s", i, rule)
+		}
+
+		var denyRuleIndex, acceptRuleIndex int = -1, -1
+		for i, rule := range rules {
+			if strings.Contains(rule, "DROP") {
+				t.Logf("Found DROP rule at index %d: %s", i, rule)
+				if strings.Contains(rule, "deny-http") && strings.Contains(rule, "80") {
+					denyRuleIndex = i
+				}
+			}
+			if strings.Contains(rule, "ACCEPT") {
+				t.Logf("Found ACCEPT rule at index %d: %s", i, rule)
+				if strings.Contains(rule, "accept-http") && strings.Contains(rule, "80") {
+					acceptRuleIndex = i
+				}
+			}
+		}
+
+		require.NotEqual(t, -1, denyRuleIndex, "deny rule should exist in iptables")
+		require.NotEqual(t, -1, acceptRuleIndex, "accept rule should exist in iptables")
+		require.Less(t, denyRuleIndex, acceptRuleIndex,
+			"deny rule should come before accept rule in iptables chain (deny at index %d, accept at index %d)",
+			denyRuleIndex, acceptRuleIndex)
+	})
+}
+
 func TestIptablesManagerIPSet(t *testing.T) {
 	mock := &iFaceMock{
 		NameFunc: func() string {
-			return "lo"
+			return "wg-test"
 		},
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
@@ -176,7 +251,7 @@ func checkRuleSpecs(t *testing.T, ipv4Client *iptables.IPTables, chainName strin
 func TestIptablesCreatePerformance(t *testing.T) {
 	mock := &iFaceMock{
 		NameFunc: func() string {
-			return "lo"
+			return "wg-test"
 		},
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{

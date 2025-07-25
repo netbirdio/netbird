@@ -27,6 +27,7 @@ func (m *Manager) Close(*statemanager.Manager) error {
 	defer m.mutex.Unlock()
 
 	m.outgoingRules = make(map[netip.Addr]RuleSet)
+	m.incomingDenyRules = make(map[netip.Addr]RuleSet)
 	m.incomingRules = make(map[netip.Addr]RuleSet)
 
 	if m.udpTracker != nil {

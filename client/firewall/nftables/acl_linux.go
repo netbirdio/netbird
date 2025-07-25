@@ -341,30 +341,38 @@ func (m *AclManager) addIOFiltering(
 	userData := []byte(ruleId)
 
 	chain := m.chainInputRules
-	nftRule := m.rConn.AddRule(&nftables.Rule{
+	rule := &nftables.Rule{
 		Table:    m.workTable,
 		Chain:    chain,
 		Exprs:    mainExpressions,
 		UserData: userData,
-	})
+	}
+
+	// Insert DROP rules at the beginning, append ACCEPT rules at the end
+	var nftRule *nftables.Rule
+	if action == firewall.ActionDrop {
+		nftRule = m.rConn.InsertRule(rule)
+	} else {
+		nftRule = m.rConn.AddRule(rule)
+	}
 
 	if err := m.rConn.Flush(); err != nil {
 		return nil, fmt.Errorf(flushError, err)
 	}
 
-	rule := &Rule{
+	ruleStruct := &Rule{
 		nftRule:    nftRule,
 		mangleRule: m.createPreroutingRule(expressions, userData),
 		nftSet:     ipset,
 		ruleID:     ruleId,
 		ip:         ip,
 	}
-	m.rules[ruleId] = rule
+	m.rules[ruleId] = ruleStruct
 	if ipset != nil {
 		m.ipsetStore.AddReferenceToIpset(ipset.Name)
 	}
 
-	return rule, nil
+	return ruleStruct, nil
 }
 
 func (m *AclManager) createPreroutingRule(expressions []expr.Any, userData []byte) *nftables.Rule {
