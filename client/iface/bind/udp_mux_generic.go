@@ -7,15 +7,16 @@ import (
 )
 
 func (m *UDPMuxDefault) notifyAddressRemoval(addr string) {
-	wrapped, ok := m.params.UDPConn.(*UDPConn)
-	if !ok {
+	// Kernel mode: direct nbnet.PacketConn (SharedSocket wrapped with nbnet)
+	if conn, ok := m.params.UDPConn.(*nbnet.PacketConn); ok {
+		conn.RemoveAddress(addr)
 		return
 	}
 
-	nbnetConn, ok := wrapped.GetPacketConn().(*nbnet.UDPConn)
-	if !ok {
-		return
+	// Userspace mode: UDPConn wrapper around nbnet.PacketConn
+	if wrapped, ok := m.params.UDPConn.(*UDPConn); ok {
+		if conn, ok := wrapped.GetPacketConn().(*nbnet.PacketConn); ok {
+			conn.RemoveAddress(addr)
+		}
 	}
-
-	nbnetConn.RemoveAddress(addr)
 }

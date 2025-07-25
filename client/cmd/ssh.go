@@ -47,7 +47,7 @@ var sshCmd = &cobra.Command{
 
 		cmd.SetOut(cmd.OutOrStdout())
 
-		err := util.InitLog(logLevel, "console")
+		err := util.InitLog(logLevel, util.LogConsole)
 		if err != nil {
 			return fmt.Errorf("failed initializing log %v", err)
 		}

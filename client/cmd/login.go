@@ -61,7 +61,7 @@ var loginCmd = &cobra.Command{
 		}
 
 		// workaround to run without service
-		if logFile == "console" {
+		if util.FindFirstLogPath(logFiles) == "" {
 			if err := doForegroundLogin(ctx, cmd, providedSetupKey, activeProf); err != nil {
 				return fmt.Errorf("foreground login failed: %v", err)
 			}

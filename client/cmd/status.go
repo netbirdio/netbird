@@ -60,7 +60,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	err = util.InitLog(logLevel, "console")
+	err = util.InitLog(logLevel, util.LogConsole)
 	if err != nil {
 		return fmt.Errorf("failed initializing log %v", err)
 	}

@@ -88,7 +88,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 
 	cmd.SetOut(cmd.OutOrStdout())
 
-	err := util.InitLog(logLevel, "console")
+	err := util.InitLog(logLevel, util.LogConsole)
 	if err != nil {
 		return fmt.Errorf("failed initializing log %v", err)
 	}
@@ -641,7 +641,7 @@ func parseCustomDNSAddress(modified bool) ([]byte, error) {
 		if !isValidAddrPort(customDNSAddress) {
 			return nil, fmt.Errorf("%s is invalid, it should be formatted as IP:Port string or as an empty string like \"\"", customDNSAddress)
 		}
-		if customDNSAddress == "" && logFile != "console" {
+		if customDNSAddress == "" && util.FindFirstLogPath(logFiles) != "" {
 			parsed = []byte("empty")
 		} else {
 			parsed = []byte(customDNSAddress)

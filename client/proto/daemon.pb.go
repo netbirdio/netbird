@@ -1386,13 +1386,6 @@ func (x *PeerState) GetRelayAddress() string {
 	return ""
 }
 
-func (x *PeerState) GetConnectionType() string {
-	if x.Relayed {
-		return "Relayed"
-	}
-	return "P2P"
-}
-
 // LocalPeerState contains the latest state of the local peer
 type LocalPeerState struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
