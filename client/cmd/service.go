@@ -77,7 +77,7 @@ func newSVCConfig() (*service.Config, error) {
 	}
 
 	if runtime.GOOS == "linux" {
-		config.EnvVars["SYSTEMD_UNIT"] = serviceName
+		config.EnvVars["NB_SERVICE"] = serviceName
 	}
 
 	return config, nil
