@@ -1550,7 +1550,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 func (e *Engine) wgInterfaceCreate() (err error) {
 	switch runtime.GOOS {
 	case "android":
-		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP(), e.dnsServer.SearchDomains())
+		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP().String(), e.dnsServer.SearchDomains())
 	case "ios":
 		e.mobileDep.NetworkChangeListener.SetInterfaceIP(e.config.WgAddr)
 		err = e.wgInterface.Create()
