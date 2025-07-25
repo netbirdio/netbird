@@ -136,6 +136,8 @@ message LoginRequest {
   optional bool lazyConnectionEnabled = 28;
 
   optional bool block_inbound = 29;
+
+  optional int64 mtu = 30;
 }
 
 message LoginResponse {
@@ -194,6 +196,8 @@ message GetConfigResponse {
   string interfaceName = 6;
 
   int64 wireguardPort = 7;
+
+  int64 mtu = 8;
 
   bool disableAutoConnect = 9;
 

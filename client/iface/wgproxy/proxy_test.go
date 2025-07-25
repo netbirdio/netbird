@@ -84,12 +84,12 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 	}{
 		{
 			name:  "userspace proxy",
-			proxy: udpProxy.NewWGUDPProxy(51830),
+			proxy: udpProxy.NewWGUDPProxy(51830, 1280),
 		},
 	}
 
 	if runtime.GOOS == "linux" && os.Getenv("GITHUB_ACTIONS") != "true" {
-		ebpfProxy := ebpf.NewWGEBPFProxy(51831)
+		ebpfProxy := ebpf.NewWGEBPFProxy(51831, 1280)
 		if err := ebpfProxy.Listen(); err != nil {
 			t.Fatalf("failed to initialize ebpf proxy: %s", err)
 		}
