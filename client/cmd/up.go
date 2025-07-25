@@ -78,7 +78,7 @@ func init() {
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "Netbird config file location")
+	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
 
 }
 
@@ -155,15 +155,9 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 		return err
 	}
 
-	var configFilePath string
-	if configPath != "" {
-		configFilePath = configPath
-	} else {
-		var err error
-		configFilePath, err = activeProf.FilePath()
-		if err != nil {
-			return fmt.Errorf("get active profile file path: %v", err)
-		}
+	configFilePath, err := activeProf.FilePath()
+	if err != nil {
+		return fmt.Errorf("get active profile file path: %v", err)
 	}
 
 	ic, err := setupConfig(customDNSAddressConverted, cmd, configFilePath)
