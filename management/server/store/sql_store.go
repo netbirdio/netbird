@@ -465,6 +465,12 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		for _, g := range groups {
+			if err := tx.Where("group_id = ?", g.ID).Delete(&types.GroupPeer{}).Error; err != nil {
+				log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", g.ID, err)
+				return status.Errorf(status.Internal, "failed to delete group peers")
+			}
+		}
 		result := tx.
 			Clauses(
 				clause.Locking{Strength: string(lockStrength)},
@@ -477,19 +483,6 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 		if result.Error != nil {
 			log.WithContext(ctx).Errorf("failed to save groups to store: %v", result.Error)
 			return status.Errorf(status.Internal, "failed to save groups to store")
-		}
-
-		for _, g := range groups {
-			if len(g.GroupPeers) == 0 {
-				if err := tx.Where("group_id = ?", g.ID).Delete(&types.GroupPeer{}).Error; err != nil {
-					log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", g.ID, err)
-					return status.Errorf(status.Internal, "failed to delete group peers")
-				}
-			} else {
-				if err := tx.Model(&g).Association("GroupPeers").Replace(g.GroupPeers); err != nil {
-					return status.Errorf(status.Internal, "failed to save group peers: %s", err)
-				}
-			}
 		}
 
 		return nil
@@ -1874,20 +1867,14 @@ func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, 
 	group = group.Copy()
 	group.StoreGroupPeers()
 
+	if err := s.db.Where("group_id = ?", group.ID).Delete(&types.GroupPeer{}).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", group.ID, err)
+		return status.Errorf(status.Internal, "failed to delete group peers")
+	}
+
 	if err := s.db.Omit(clause.Associations).Save(group).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
 		return status.Errorf(status.Internal, "failed to save group to store")
-	}
-
-	if len(group.GroupPeers) == 0 {
-		if err := s.db.Where("group_id = ?", group.ID).Delete(&types.GroupPeer{}).Error; err != nil {
-			log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", group.ID, err)
-			return status.Errorf(status.Internal, "failed to delete group peers")
-		}
-	} else {
-		if err := s.db.Model(&group).Association("GroupPeers").Replace(group.GroupPeers); err != nil {
-			return status.Errorf(status.Internal, "failed to save group peers: %s", err)
-		}
 	}
 
 	return nil
