@@ -246,31 +246,43 @@ func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 	*buf = append(*buf, levelStrings[msg.level]...)
 	*buf = append(*buf, ' ')
 
-	args := make([]any, 0, 6)
+	// Count non-nil arguments for switch
+	argCount := 0
 	if msg.arg1 != nil {
-		args = append(args, msg.arg1)
-	}
-	if msg.arg2 != nil {
-		args = append(args, msg.arg2)
-	}
-	if msg.arg3 != nil {
-		args = append(args, msg.arg3)
-	}
-	if msg.arg4 != nil {
-		args = append(args, msg.arg4)
-	}
-	if msg.arg5 != nil {
-		args = append(args, msg.arg5)
-	}
-	if msg.arg6 != nil {
-		args = append(args, msg.arg6)
+		argCount++
+		if msg.arg2 != nil {
+			argCount++
+			if msg.arg3 != nil {
+				argCount++
+				if msg.arg4 != nil {
+					argCount++
+					if msg.arg5 != nil {
+						argCount++
+						if msg.arg6 != nil {
+							argCount++
+						}
+					}
+				}
+			}
+		}
 	}
 
 	var formatted string
-	if len(args) > 0 {
-		formatted = fmt.Sprintf(msg.format, args...)
-	} else {
+	switch argCount {
+	case 0:
 		formatted = msg.format
+	case 1:
+		formatted = fmt.Sprintf(msg.format, msg.arg1)
+	case 2:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2)
+	case 3:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3)
+	case 4:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4)
+	case 5:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5)
+	case 6:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6)
 	}
 
 	*buf = append(*buf, formatted...)
