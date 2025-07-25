@@ -495,7 +495,7 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 func TestDNSAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	err := manager.CreateGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -506,7 +506,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupB",
 			Peers: []string{},
 		},
-	}, true)
+	})
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -562,11 +562,11 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 
 	// Creating DNS settings with groups that have peers should update account peers and send peer update
 	t.Run("creating dns setting with used groups", func(t *testing.T) {
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		done := make(chan struct{})

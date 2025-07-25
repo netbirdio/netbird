@@ -29,7 +29,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	err = manager.CreateGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "group_1",
 			Name:  "group_name_1",
@@ -40,7 +40,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 			Name:  "group_name_2",
 			Peers: []string{},
 		},
-	}, true)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,20 +104,20 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
-	}, true)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "group_2",
 		Name:  "group_name_2",
 		Peers: []string{},
-	}, true)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,11 +398,11 @@ func TestSetupKey_Copy(t *testing.T) {
 func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	}, true)
+	})
 	assert.NoError(t, err)
 
 	policy := &types.Policy{

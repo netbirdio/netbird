@@ -1215,7 +1215,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 		Name:  "peer1 group",
 		Peers: []string{peer1ID},
 	}
-	err = am.SaveGroup(context.Background(), account.Id, userID, newGroup, true)
+	err = am.CreateGroup(context.Background(), account.Id, userID, newGroup)
 	require.NoError(t, err)
 
 	rules, err := am.ListPolicies(context.Background(), account.Id, "testingUser")
@@ -1505,7 +1505,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 	}
 
 	for _, group := range newGroup {
-		err = am.SaveGroup(context.Background(), accountID, userID, group, true)
+		err = am.CreateGroup(context.Background(), accountID, userID, group)
 		if err != nil {
 			return nil, err
 		}
@@ -1953,7 +1953,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	account, err := initTestRouteAccount(t, manager)
 	require.NoError(t, err, "failed to init testing account")
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	g := []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -1969,8 +1969,11 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupC",
 			Peers: []string{},
 		},
-	}, true)
-	assert.NoError(t, err)
+	}
+	for _, group := range g {
+		err = manager.CreateGroup(context.Background(), account.Id, userID, group)
+		require.NoError(t, err, "failed to create group %s", group.Name)
+	}
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1ID)
 	t.Cleanup(func() {
@@ -2149,11 +2152,11 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupB",
 			Name:  "GroupB",
 			Peers: []string{peer1ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		select {
@@ -2189,11 +2192,11 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupC",
 			Name:  "GroupC",
 			Peers: []string{peer1ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		select {
