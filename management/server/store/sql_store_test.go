@@ -1187,7 +1187,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 		Peers:     nil,
 	}
 	err = store.ExecuteInTransaction(context.Background(), func(transaction Store) error {
-		err := transaction.SaveGroup(context.Background(), LockingStrengthUpdate, group)
+		err := transaction.CreateGroup(context.Background(), LockingStrengthUpdate, group)
 		if err != nil {
 			t.Fatal("failed to save group")
 			return err
@@ -1348,7 +1348,8 @@ func TestSqlStore_GetGroupsByIDs(t *testing.T) {
 	}
 }
 
-func TestSqlStore_SaveGroup(t *testing.T) {
+func TestSqlStore_CreateGroup(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.MysqlStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
@@ -1359,11 +1360,11 @@ func TestSqlStore_SaveGroup(t *testing.T) {
 		ID:         "group-id",
 		AccountID:  accountID,
 		Issued:     "api",
-		Peers:      []string{"peer1", "peer2"},
+		Peers:      []string{},
 		Resources:  []types.Resource{},
 		GroupPeers: []types.GroupPeer{},
 	}
-	err = store.SaveGroup(context.Background(), LockingStrengthUpdate, group)
+	err = store.CreateGroup(context.Background(), LockingStrengthUpdate, group)
 	require.NoError(t, err)
 
 	savedGroup, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, "group-id")
@@ -1371,7 +1372,7 @@ func TestSqlStore_SaveGroup(t *testing.T) {
 	require.Equal(t, savedGroup, group)
 }
 
-func TestSqlStore_SaveGroups(t *testing.T) {
+func TestSqlStore_CreateUpdateGroups(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/extended-store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
@@ -1383,23 +1384,24 @@ func TestSqlStore_SaveGroups(t *testing.T) {
 			ID:         "group-1",
 			AccountID:  accountID,
 			Issued:     "api",
-			Peers:      []string{"peer1", "peer2"},
+			Peers:      []string{},
 			Resources:  []types.Resource{},
 			GroupPeers: []types.GroupPeer{},
 		},
 		{
-			ID:        "group-2",
-			AccountID: accountID,
-			Issued:    "integration",
-			Peers:     []string{"peer3", "peer4"},
-			Resources: []types.Resource{},
+			ID:         "group-2",
+			AccountID:  accountID,
+			Issued:     "integration",
+			Peers:      []string{},
+			Resources:  []types.Resource{},
+			GroupPeers: []types.GroupPeer{},
 		},
 	}
-	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
+	err = store.CreateGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
 	require.NoError(t, err)
 
 	groups[1].Peers = []string{}
-	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
+	err = store.UpdateGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
 	require.NoError(t, err)
 
 	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groups[1].ID)
@@ -3312,7 +3314,7 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 		})
 	}
 
-	err = store.SaveGroups(context.Background(), LockingStrengthUpdate, accountID, groupsToSave)
+	err = store.CreateGroups(context.Background(), LockingStrengthUpdate, accountID, groupsToSave)
 	require.NoError(t, err)
 
 	accountGroups, err = store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)

@@ -1159,7 +1159,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 		Name:  "GroupA",
 		Peers: []string{},
 	}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
+	if err := manager.CreateGroup(context.Background(), account.Id, userID, &group); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1194,7 +1194,7 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	}()
 
 	group.Peers = []string{peer1.ID, peer2.ID, peer3.ID}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
+	if err := manager.UpdateGroup(context.Background(), account.Id, userID, &group); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1245,7 +1245,7 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 		Name:      "GroupA",
 		Peers:     []string{peer1.ID, peer2.ID},
 	}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
+	if err := manager.CreateGroup(context.Background(), account.Id, userID, &group); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1293,7 +1293,7 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer3.ID},
 	}
-	if err := manager.SaveGroup(context.Background(), account.Id, userID, &group, true); err != nil {
+	if err := manager.CreateGroup(context.Background(), account.Id, userID, &group); err != nil {
 		t.Errorf("save group: %v", err)
 		return
 	}
@@ -1344,11 +1344,11 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	}, true)
+	})
 
 	require.NoError(t, err, "failed to save group")
 
@@ -3363,7 +3363,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 
 	t.Run("should update membership but no account peers update for unused groups", func(t *testing.T) {
 		group1 := &types.Group{ID: "group1", Name: "Group 1", AccountID: account.Id}
-		require.NoError(t, manager.Store.SaveGroup(ctx, store.LockingStrengthUpdate, group1))
+		require.NoError(t, manager.Store.UpdateGroup(ctx, store.LockingStrengthUpdate, group1))
 
 		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
 		require.NoError(t, err)
@@ -3385,7 +3385,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 
 	t.Run("should update membership and account peers for used groups", func(t *testing.T) {
 		group2 := &types.Group{ID: "group2", Name: "Group 2", AccountID: account.Id}
-		require.NoError(t, manager.Store.SaveGroup(ctx, store.LockingStrengthUpdate, group2))
+		require.NoError(t, manager.Store.UpdateGroup(ctx, store.LockingStrengthUpdate, group2))
 
 		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
 		require.NoError(t, err)

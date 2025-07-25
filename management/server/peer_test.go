@@ -310,12 +310,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1, true)
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &group1)
 	if err != nil {
 		t.Errorf("expecting group1 to be added, got failure %v", err)
 		return
 	}
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2, true)
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &group2)
 	if err != nil {
 		t.Errorf("expecting group2 to be added, got failure %v", err)
 		return
@@ -1713,7 +1713,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
 	require.NoError(t, err)
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	g := []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -1729,8 +1729,11 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupC",
 			Peers: []string{},
 		},
-	}, true)
-	require.NoError(t, err)
+	}
+	for _, group := range g {
+		err = manager.CreateGroup(context.Background(), account.Id, userID, group)
+		require.NoError(t, err)
+	}
 
 	// create a user with auto groups
 	_, err = manager.SaveOrAddUsers(context.Background(), account.Id, userID, []*types.User{

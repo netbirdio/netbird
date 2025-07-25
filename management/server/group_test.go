@@ -47,7 +47,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 	}
 	for _, group := range account.Groups {
 		group.Issued = types.GroupIssuedIntegration
-		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group, true)
+		err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
 			t.Errorf("should allow to create %s groups", types.GroupIssuedIntegration)
 		}
@@ -55,7 +55,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 
 	for _, group := range account.Groups {
 		group.Issued = types.GroupIssuedJWT
-		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group, true)
+		err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
 			t.Errorf("should allow to create %s groups", types.GroupIssuedJWT)
 		}
@@ -63,7 +63,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 	for _, group := range account.Groups {
 		group.Issued = types.GroupIssuedAPI
 		group.ID = ""
-		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group, true)
+		err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err == nil {
 			t.Errorf("should not create api group with the same name, %s", group.Name)
 		}
@@ -169,7 +169,7 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 		}
 	}
 
-	err = manager.SaveGroups(context.Background(), account.Id, groupAdminUserID, groups, true)
+	err = manager.CreateGroups(context.Background(), account.Id, groupAdminUserID, groups)
 	assert.NoError(t, err, "Failed to save test groups")
 
 	testCases := []struct {
@@ -389,13 +389,13 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		return nil, nil, err
 	}
 
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForRoute, true)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForRoute2, true)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForNameServerGroups, true)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForPolicies, true)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys, true)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForUsers, true)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration, true)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRoute)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRoute2)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForNameServerGroups)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForPolicies)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
 
 	acc, err := am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
@@ -407,7 +407,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 func TestGroupAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	g := []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -433,8 +433,11 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupE",
 			Peers: []string{peer2.ID},
 		},
-	}, true)
-	assert.NoError(t, err)
+	}
+	for _, group := range g {
+		err := manager.CreateGroup(context.Background(), account.Id, userID, group)
+		assert.NoError(t, err)
+	}
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
@@ -449,11 +452,11 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupB",
 			Name:  "GroupB",
 			Peers: []string{peer1.ID, peer2.ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		select {
@@ -520,7 +523,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	})
 
 	// adding a group to policy
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
 			{
@@ -542,11 +545,11 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		select {
@@ -611,11 +614,11 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupC",
 			Name:  "GroupC",
 			Peers: []string{peer1.ID, peer3.ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		select {
@@ -652,11 +655,11 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		select {
@@ -679,11 +682,11 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupD",
 			Name:  "GroupD",
 			Peers: []string{peer1.ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		select {
@@ -726,11 +729,11 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupE",
 			Name:  "GroupE",
 			Peers: []string{peer2.ID, peer3.ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		select {

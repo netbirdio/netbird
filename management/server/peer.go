@@ -1561,17 +1561,8 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 	}
 
 	for _, peer := range peers {
-		groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthUpdate, accountID, peer.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get peer groups: %w", err)
-		}
-
-		for _, group := range groups {
-			group.RemovePeer(peer.ID)
-			err = transaction.SaveGroup(ctx, store.LockingStrengthUpdate, group)
-			if err != nil {
-				return nil, fmt.Errorf("failed to save group: %w", err)
-			}
+		if err := transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
+			return nil, fmt.Errorf("failed to remove peer %s from groups", peer.ID)
 		}
 
 		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID, settings.Extra); err != nil {

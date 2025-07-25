@@ -101,8 +101,10 @@ type Store interface {
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types.Group, error)
 	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*types.Group, error)
 	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types.Group, error)
-	SaveGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error
-	SaveGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error
+	CreateGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error
+	UpdateGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error
+	CreateGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error
+	UpdateGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error
 	DeleteGroup(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) error
 	DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error
 

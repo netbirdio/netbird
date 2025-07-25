@@ -677,13 +677,18 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 
 	if update.AutoGroups != nil && settings.GroupsPropagationEnabled {
 		removedGroups := util.Difference(oldUser.AutoGroups, update.AutoGroups)
-		updatedGroups, err := updateUserPeersInGroups(groupsMap, userPeers, update.AutoGroups, removedGroups)
-		if err != nil {
-			return false, nil, nil, nil, fmt.Errorf("error modifying user peers in groups: %w", err)
-		}
-
-		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, updatedGroups); err != nil {
-			return false, nil, nil, nil, fmt.Errorf("error saving groups: %w", err)
+		addedGroups := util.Difference(update.AutoGroups, oldUser.AutoGroups)
+		for _, peer := range userPeers {
+			for _, groupID := range removedGroups {
+				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, groupID); err != nil {
+					return false, nil, nil, nil, fmt.Errorf("failed to remove peer %s from group %s: %w", peer.ID, groupID, err)
+				}
+			}
+			for _, groupID := range addedGroups {
+				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
+					return false, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
+				}
+			}
 		}
 	}
 

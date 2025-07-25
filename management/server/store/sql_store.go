@@ -454,23 +454,13 @@ func (s *SqlStore) SaveUser(ctx context.Context, lockStrength LockingStrength, u
 	return nil
 }
 
-// SaveGroups saves the given list of groups to the database.
-func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error {
+// CreateGroups creates the given list of groups to the database.
+func (s *SqlStore) CreateGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error {
 	if len(groups) == 0 {
 		return nil
 	}
 
-	for _, g := range groups {
-		g.StoreGroupPeers()
-	}
-
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		for _, g := range groups {
-			if err := tx.Where("group_id = ?", g.ID).Delete(&types.GroupPeer{}).Error; err != nil {
-				log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", g.ID, err)
-				return status.Errorf(status.Internal, "failed to delete group peers")
-			}
-		}
 		result := tx.
 			Clauses(
 				clause.Locking{Strength: string(lockStrength)},
@@ -479,6 +469,33 @@ func (s *SqlStore) SaveGroups(ctx context.Context, lockStrength LockingStrength,
 					UpdateAll: true,
 				},
 			).
+			Omit(clause.Associations).
+			Create(&groups)
+		if result.Error != nil {
+			log.WithContext(ctx).Errorf("failed to save groups to store: %v", result.Error)
+			return status.Errorf(status.Internal, "failed to save groups to store")
+		}
+
+		return nil
+	})
+}
+
+// UpdateGroups updates the given list of groups to the database.
+func (s *SqlStore) UpdateGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error {
+	if len(groups) == 0 {
+		return nil
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.
+			Clauses(
+				clause.Locking{Strength: string(lockStrength)},
+				clause.OnConflict{
+					Where:     clause.Where{Exprs: []clause.Expression{clause.Eq{Column: "groups.account_id", Value: accountID}}},
+					UpdateAll: true,
+				},
+			).
+			Omit(clause.Associations).
 			Create(&groups)
 		if result.Error != nil {
 			log.WithContext(ctx).Errorf("failed to save groups to store: %v", result.Error)
@@ -1387,10 +1404,7 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupI
 		PeerID:    peerID,
 	}
 
-	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "group_id"}, {Name: "peer_id"}},
-		DoNothing: true,
-	}).Create(peer).Error
+	err := s.db.WithContext(ctx).Create(peer).Error
 
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to add peer %s to group %s for account %s: %v", peerID, groupID, accountID, err)
@@ -1858,21 +1872,27 @@ func (s *SqlStore) GetGroupsByIDs(ctx context.Context, lockStrength LockingStren
 	return groupsMap, nil
 }
 
-// SaveGroup saves a group to the store.
-func (s *SqlStore) SaveGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error {
+// CreateGroup creates a group in the store.
+func (s *SqlStore) CreateGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error {
 	if group == nil {
 		return status.Errorf(status.InvalidArgument, "group is nil")
 	}
 
-	group = group.Copy()
-	group.StoreGroupPeers()
-
-	if err := s.db.Where("group_id = ?", group.ID).Delete(&types.GroupPeer{}).Error; err != nil {
-		log.WithContext(ctx).Errorf("failed to delete group peers for group %s: %s", group.ID, err)
-		return status.Errorf(status.Internal, "failed to delete group peers")
+	if err := s.db.Omit(clause.Associations).Create(group).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
+		return status.Errorf(status.Internal, "failed to save group to store")
 	}
 
-	if err := s.db.Save(group).Error; err != nil {
+	return nil
+}
+
+// UpdateGroup updates a group in the store.
+func (s *SqlStore) UpdateGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error {
+	if group == nil {
+		return status.Errorf(status.InvalidArgument, "group is nil")
+	}
+
+	if err := s.db.Omit(clause.Associations).Save(group).Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to save group to store: %v", err)
 		return status.Errorf(status.Internal, "failed to save group to store")
 	}
