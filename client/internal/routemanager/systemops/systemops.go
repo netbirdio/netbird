@@ -19,6 +19,26 @@ type Nexthop struct {
 	Intf *net.Interface
 }
 
+// Route represents a basic network route with core routing information
+type Route struct {
+	Dst       netip.Prefix
+	Gw        netip.Addr
+	Interface *net.Interface
+}
+
+// DetailedRoute extends Route with additional metadata for display and debugging
+type DetailedRoute struct {
+	Route
+	Metric          int
+	InterfaceMetric int
+	InterfaceIndex  int
+	Protocol        string
+	Scope           string
+	Type            string
+	Table           string
+	Flags           string
+}
+
 // Equal checks if two nexthops are equal.
 func (n Nexthop) Equal(other Nexthop) bool {
 	return n.IP == other.IP && (n.Intf == nil && other.Intf == nil ||
