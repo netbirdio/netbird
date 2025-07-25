@@ -39,10 +39,12 @@ status.txt: Anonymized status information of the NetBird client.
 client.log: Most recent, anonymized client log file of the NetBird client.
 netbird.err: Most recent, anonymized stderr log file of the NetBird client.
 netbird.out: Most recent, anonymized stdout log file of the NetBird client.
-routes.txt: Anonymized system routes, if --system-info flag was provided.
+routes.txt: Detailed system routing table in tabular format including destination, gateway, interface, metrics, and protocol information, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
+ip_rules.txt: Detailed IP routing rules in tabular format including priority, source, destination, interfaces, table, and action information (Linux only), if --system-info flag was provided.
 iptables.txt: Anonymized iptables rules with packet counters, if --system-info flag was provided.
 nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
+resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized network map containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states.
@@ -106,7 +108,29 @@ go tool pprof -http=:8088 heap.prof
 This will open a web browser tab with the profiling information.
 
 Routes
-For anonymized routes, the IP addresses are replaced as described above. The prefix length remains unchanged. Note that for prefixes, the anonymized IP might not be a network address, but the prefix length is still correct.
+The routes.txt file contains detailed routing table information in a tabular format:
+
+- Destination: Network prefix (IP_ADDRESS/PREFIX_LENGTH)
+- Gateway: Next hop IP address (or "-" if direct)
+- Interface: Network interface name
+- Metric: Route priority/metric (lower values preferred)
+- Protocol: Routing protocol (kernel, static, dhcp, etc.)
+- Scope: Route scope (global, link, host, etc.)
+- Type: Route type (unicast, local, broadcast, etc.)
+- Table: Routing table name (main, local, netbird, etc.)
+
+The table format provides a comprehensive view of the system's routing configuration, including information from multiple routing tables on Linux systems. This is valuable for troubleshooting routing issues and understanding traffic flow.
+
+For anonymized routes, IP addresses are replaced as described above. The prefix length remains unchanged. Note that for prefixes, the anonymized IP might not be a network address, but the prefix length is still correct. Interface names are anonymized using string anonymization.
+
+Resolved Domains
+The resolved_domains.txt file contains information about domain names that have been resolved to IP addresses by NetBird's DNS resolver. This includes:
+- Original domain patterns that were configured for routing
+- Resolved domain names that matched those patterns
+- IP address prefixes that were resolved for each domain
+- Parent domain associations showing which original pattern each resolved domain belongs to
+
+All domain names and IP addresses in this file follow the same anonymization rules as described above. This information is valuable for troubleshooting DNS resolution and routing issues.
 
 Network Interfaces
 The interfaces.txt file contains information about network interfaces, including:
@@ -144,6 +168,22 @@ nftables.txt:
 - Shows packet and byte counters for each rule
 - All IP addresses are anonymized
 - Chain names, table names, and other non-sensitive information remain unchanged
+
+IP Rules (Linux only)
+The ip_rules.txt file contains detailed IP routing rule information:
+
+- Priority: Rule priority number (lower values processed first)
+- From: Source IP prefix or "all" if unspecified
+- To: Destination IP prefix or "all" if unspecified
+- IIF: Input interface name or "-" if unspecified
+- OIF: Output interface name or "-" if unspecified
+- Table: Target routing table name (main, local, netbird, etc.)
+- Action: Rule action (lookup, goto, blackhole, etc.)
+- Mark: Firewall mark value in hex format or "-" if unspecified
+
+The table format provides comprehensive visibility into the IP routing decision process, including how traffic is directed to different routing tables based on various criteria. This is valuable for troubleshooting advanced routing configurations and policy-based routing.
+
+For anonymized rules, IP addresses and prefixes are replaced as described above. Interface names are anonymized using string anonymization. Table names, actions, and other non-sensitive information remain unchanged.
 `
 
 const (
@@ -164,7 +204,6 @@ type BundleGenerator struct {
 	networkMap     *mgmProto.NetworkMap
 	logFile        string
 
-	// config
 	anonymize         bool
 	clientStatus      string
 	includeSystemInfo bool
@@ -257,7 +296,11 @@ func (g *BundleGenerator) createArchive() error {
 	}
 
 	if err := g.addConfig(); err != nil {
-		log.Errorf("Failed to add config to debug bundle: %v", err)
+		log.Errorf("failed to add config to debug bundle: %v", err)
+	}
+
+	if err := g.addResolvedDomains(); err != nil {
+		log.Errorf("failed to add resolved domains to debug bundle: %v", err)
 	}
 
 	if g.includeSystemInfo {
@@ -265,7 +308,7 @@ func (g *BundleGenerator) createArchive() error {
 	}
 
 	if err := g.addProf(); err != nil {
-		log.Errorf("Failed to add profiles to debug bundle: %v", err)
+		log.Errorf("failed to add profiles to debug bundle: %v", err)
 	}
 
 	if err := g.addNetworkMap(); err != nil {
@@ -273,26 +316,26 @@ func (g *BundleGenerator) createArchive() error {
 	}
 
 	if err := g.addStateFile(); err != nil {
-		log.Errorf("Failed to add state file to debug bundle: %v", err)
+		log.Errorf("failed to add state file to debug bundle: %v", err)
 	}
 
 	if err := g.addCorruptedStateFiles(); err != nil {
-		log.Errorf("Failed to add corrupted state files to debug bundle: %v", err)
+		log.Errorf("failed to add corrupted state files to debug bundle: %v", err)
 	}
 
 	if err := g.addWgShow(); err != nil {
-		log.Errorf("Failed to add wg show output: %v", err)
+		log.Errorf("failed to add wg show output: %v", err)
 	}
 
 	if g.logFile != "" && !slices.Contains(util.SpecialLogs, g.logFile) {
 		if err := g.addLogfile(); err != nil {
-			log.Errorf("Failed to add log file to debug bundle: %v", err)
+			log.Errorf("failed to add log file to debug bundle: %v", err)
 			if err := g.trySystemdLogFallback(); err != nil {
-				log.Errorf("Failed to add systemd logs as fallback: %v", err)
+				log.Errorf("failed to add systemd logs as fallback: %v", err)
 			}
 		}
 	} else if err := g.trySystemdLogFallback(); err != nil {
-		log.Errorf("Failed to add systemd logs: %v", err)
+		log.Errorf("failed to add systemd logs: %v", err)
 	}
 
 	return nil
@@ -300,15 +343,19 @@ func (g *BundleGenerator) createArchive() error {
 
 func (g *BundleGenerator) addSystemInfo() {
 	if err := g.addRoutes(); err != nil {
-		log.Errorf("Failed to add routes to debug bundle: %v", err)
+		log.Errorf("failed to add routes to debug bundle: %v", err)
 	}
 
 	if err := g.addInterfaces(); err != nil {
-		log.Errorf("Failed to add interfaces to debug bundle: %v", err)
+		log.Errorf("failed to add interfaces to debug bundle: %v", err)
+	}
+
+	if err := g.addIPRules(); err != nil {
+		log.Errorf("failed to add IP rules to debug bundle: %v", err)
 	}
 
 	if err := g.addFirewallRules(); err != nil {
-		log.Errorf("Failed to add firewall rules to debug bundle: %v", err)
+		log.Errorf("failed to add firewall rules to debug bundle: %v", err)
 	}
 }
 
@@ -363,7 +410,6 @@ func (g *BundleGenerator) addConfig() error {
 		}
 	}
 
-	// Add config content to zip file
 	configReader := strings.NewReader(configContent.String())
 	if err := g.addFileToZip(configReader, "config.txt"); err != nil {
 		return fmt.Errorf("add config file to zip: %w", err)
@@ -375,7 +421,6 @@ func (g *BundleGenerator) addConfig() error {
 func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString("NetBird Client Configuration:\n\n")
 
-	// Add non-sensitive fields
 	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", g.internalConfig.WgIface))
 	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", g.internalConfig.WgPort))
 	if g.internalConfig.NetworkMonitor != nil {
@@ -455,6 +500,27 @@ func (g *BundleGenerator) addInterfaces() error {
 	interfacesReader := strings.NewReader(interfacesContent)
 	if err := g.addFileToZip(interfacesReader, "interfaces.txt"); err != nil {
 		return fmt.Errorf("add interfaces file to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (g *BundleGenerator) addResolvedDomains() error {
+	if g.statusRecorder == nil {
+		log.Debugf("skipping resolved domains in debug bundle: no status recorder")
+		return nil
+	}
+
+	resolvedDomains := g.statusRecorder.GetResolvedDomainsStates()
+	if len(resolvedDomains) == 0 {
+		log.Debugf("skipping resolved domains in debug bundle: no resolved domains")
+		return nil
+	}
+
+	resolvedDomainsContent := formatResolvedDomains(resolvedDomains, g.anonymize, g.anonymizer)
+	resolvedDomainsReader := strings.NewReader(resolvedDomainsContent)
+	if err := g.addFileToZip(resolvedDomainsReader, "resolved_domains.txt"); err != nil {
+		return fmt.Errorf("add resolved domains file to zip: %w", err)
 	}
 
 	return nil
@@ -573,7 +639,6 @@ func (g *BundleGenerator) addLogfile() error {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 
-	// add rotated log files based on logFileCount
 	g.addRotatedLogFiles(logDir)
 
 	stdErrLogPath := filepath.Join(logDir, errorLogFile)
@@ -602,7 +667,7 @@ func (g *BundleGenerator) addSingleLogfile(logPath, targetName string) error {
 	}
 	defer func() {
 		if err := logFile.Close(); err != nil {
-			log.Errorf("Failed to close log file %s: %v", targetName, err)
+			log.Errorf("failed to close log file %s: %v", targetName, err)
 		}
 	}()
 
@@ -626,13 +691,21 @@ func (g *BundleGenerator) addSingleLogFileGz(logPath, targetName string) error {
 	if err != nil {
 		return fmt.Errorf("open gz log file %s: %w", targetName, err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			log.Errorf("failed to close gz file %s: %v", targetName, err)
+		}
+	}()
 
 	gzr, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("create gzip reader: %w", err)
 	}
-	defer gzr.Close()
+	defer func() {
+		if err := gzr.Close(); err != nil {
+			log.Errorf("failed to close gzip reader %s: %v", targetName, err)
+		}
+	}()
 
 	var logReader io.Reader = gzr
 	if g.anonymize {
@@ -690,7 +763,6 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 		return fi.ModTime().After(fj.ModTime())
 	})
 
-	// include up to logFileCount rotated files
 	maxFiles := int(g.logFileCount)
 	if maxFiles > len(files) {
 		maxFiles = len(files)
@@ -718,7 +790,7 @@ func (g *BundleGenerator) addFileToZip(reader io.Reader, filename string) error 
 	// If the reader is a file, we can get more accurate information
 	if f, ok := reader.(*os.File); ok {
 		if stat, err := f.Stat(); err != nil {
-			log.Tracef("Failed to get file stat for %s: %v", filename, err)
+			log.Tracef("failed to get file stat for %s: %v", filename, err)
 		} else {
 			header.Modified = stat.ModTime()
 		}
@@ -764,89 +836,6 @@ func seedFromStatus(a *anonymize.Anonymizer, status *peer.FullStatus) {
 			a.AnonymizeURI(relay.URI)
 		}
 	}
-}
-
-func formatRoutes(routes []netip.Prefix, anonymize bool, anonymizer *anonymize.Anonymizer) string {
-	var ipv4Routes, ipv6Routes []netip.Prefix
-
-	// Separate IPv4 and IPv6 routes
-	for _, route := range routes {
-		if route.Addr().Is4() {
-			ipv4Routes = append(ipv4Routes, route)
-		} else {
-			ipv6Routes = append(ipv6Routes, route)
-		}
-	}
-
-	// Sort IPv4 and IPv6 routes separately
-	sort.Slice(ipv4Routes, func(i, j int) bool {
-		return ipv4Routes[i].Bits() > ipv4Routes[j].Bits()
-	})
-	sort.Slice(ipv6Routes, func(i, j int) bool {
-		return ipv6Routes[i].Bits() > ipv6Routes[j].Bits()
-	})
-
-	var builder strings.Builder
-
-	// Format IPv4 routes
-	builder.WriteString("IPv4 Routes:\n")
-	for _, route := range ipv4Routes {
-		formatRoute(&builder, route, anonymize, anonymizer)
-	}
-
-	// Format IPv6 routes
-	builder.WriteString("\nIPv6 Routes:\n")
-	for _, route := range ipv6Routes {
-		formatRoute(&builder, route, anonymize, anonymizer)
-	}
-
-	return builder.String()
-}
-
-func formatRoute(builder *strings.Builder, route netip.Prefix, anonymize bool, anonymizer *anonymize.Anonymizer) {
-	if anonymize {
-		anonymizedIP := anonymizer.AnonymizeIP(route.Addr())
-		builder.WriteString(fmt.Sprintf("%s/%d\n", anonymizedIP, route.Bits()))
-	} else {
-		builder.WriteString(fmt.Sprintf("%s\n", route))
-	}
-}
-
-func formatInterfaces(interfaces []net.Interface, anonymize bool, anonymizer *anonymize.Anonymizer) string {
-	sort.Slice(interfaces, func(i, j int) bool {
-		return interfaces[i].Name < interfaces[j].Name
-	})
-
-	var builder strings.Builder
-	builder.WriteString("Network Interfaces:\n")
-
-	for _, iface := range interfaces {
-		builder.WriteString(fmt.Sprintf("\nInterface: %s\n", iface.Name))
-		builder.WriteString(fmt.Sprintf("  Index: %d\n", iface.Index))
-		builder.WriteString(fmt.Sprintf("  MTU: %d\n", iface.MTU))
-		builder.WriteString(fmt.Sprintf("  Flags: %v\n", iface.Flags))
-
-		addrs, err := iface.Addrs()
-		if err != nil {
-			builder.WriteString(fmt.Sprintf("  Addresses: Error retrieving addresses: %v\n", err))
-		} else {
-			builder.WriteString("  Addresses:\n")
-			for _, addr := range addrs {
-				prefix, err := netip.ParsePrefix(addr.String())
-				if err != nil {
-					builder.WriteString(fmt.Sprintf("    Error parsing address: %v\n", err))
-					continue
-				}
-				ip := prefix.Addr()
-				if anonymize {
-					ip = anonymizer.AnonymizeIP(ip)
-				}
-				builder.WriteString(fmt.Sprintf("    %s/%d\n", ip, prefix.Bits()))
-			}
-		}
-	}
-
-	return builder.String()
 }
 
 func anonymizeLog(reader io.Reader, writer *io.PipeWriter, anonymizer *anonymize.Anonymizer) {
@@ -955,7 +944,6 @@ func anonymizeRemotePeer(peer *mgmProto.RemotePeerConfig, anonymizer *anonymize.
 	}
 
 	for i, ip := range peer.AllowedIps {
-		// Try to parse as prefix first (CIDR)
 		if prefix, err := netip.ParsePrefix(ip); err == nil {
 			anonIP := anonymizer.AnonymizeIP(prefix.Addr())
 			peer.AllowedIps[i] = fmt.Sprintf("%s/%d", anonIP, prefix.Bits())
@@ -1034,7 +1022,7 @@ func anonymizeRecords(records []*mgmProto.SimpleRecord, anonymizer *anonymize.An
 
 func anonymizeRData(record *mgmProto.SimpleRecord, anonymizer *anonymize.Anonymizer) {
 	switch record.Type {
-	case 1, 28: // A or AAAA record
+	case 1, 28:
 		if addr, err := netip.ParseAddr(record.RData); err == nil {
 			record.RData = anonymizer.AnonymizeIP(addr).String()
 		}
