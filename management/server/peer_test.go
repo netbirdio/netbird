@@ -1792,7 +1792,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg) //
+			peerShouldNotReceiveUpdate(t, updMsg) //
 			close(done)
 		}()
 
