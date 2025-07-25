@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -47,6 +48,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 	}
 	for _, group := range account.Groups {
 		group.Issued = types.GroupIssuedIntegration
+		group.ID = uuid.New().String()
 		err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
 			t.Errorf("should allow to create %s groups", types.GroupIssuedIntegration)
@@ -55,6 +57,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 
 	for _, group := range account.Groups {
 		group.Issued = types.GroupIssuedJWT
+		group.ID = uuid.New().String()
 		err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
 			t.Errorf("should allow to create %s groups", types.GroupIssuedJWT)

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -105,10 +105,14 @@ func initTestPostureChecksAccount(am *DefaultAccountManager) (*types.Account, er
 		Id:   regularUserID,
 		Role: types.UserRoleUser,
 	}
+	peer1 := &peer.Peer{
+		ID: "peer1",
+	}
 
 	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, false)
 	account.Users[admin.Id] = admin
 	account.Users[user.Id] = user
+	account.Peers["peer1"] = peer1
 
 	err := am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
@@ -139,7 +143,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 		},
 	}
 	for _, group := range g {
-		err := manager.Store.CreateGroup(context.Background(), store.LockingStrengthUpdate, group)
+		err := manager.CreateGroup(context.Background(), account.Id, userID, group)
 		assert.NoError(t, err)
 	}
 
@@ -452,7 +456,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		AccountID: account.Id,
 		Peers:     []string{"peer1"},
 	}
-	err = manager.CreateGroup(context.Background(), account.Id, userID, groupA)
+	err = manager.CreateGroup(context.Background(), account.Id, adminUserID, groupA)
 	require.NoError(t, err, "failed to create groupA")
 
 	groupB := &types.Group{
@@ -460,7 +464,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		AccountID: account.Id,
 		Peers:     []string{},
 	}
-	err = manager.CreateGroup(context.Background(), account.Id, userID, groupB)
+	err = manager.CreateGroup(context.Background(), account.Id, adminUserID, groupB)
 	require.NoError(t, err, "failed to create groupB")
 
 	postureCheckA := &posture.Checks{
@@ -540,7 +544,7 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 
 	t.Run("posture check is linked to policy but no peers in groups", func(t *testing.T) {
 		groupA.Peers = []string{}
-		err = manager.Store.UpdateGroup(context.Background(), store.LockingStrengthUpdate, groupA)
+		err = manager.UpdateGroup(context.Background(), account.Id, adminUserID, groupA)
 		require.NoError(t, err, "failed to save groups")
 
 		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
