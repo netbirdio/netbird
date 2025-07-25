@@ -26,7 +26,7 @@ import (
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "Netbird config file location")
+	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
 }
 
 var loginCmd = &cobra.Command{
@@ -228,15 +228,10 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 	// update host's static platform and system information
 	system.UpdateStaticInfo()
 
-	var configFilePath string
-	if configPath != "" {
-		configFilePath = configPath
-	} else {
-		var err error
-		configFilePath, err = activeProf.FilePath()
-		if err != nil {
-			return fmt.Errorf("get active profile file path: %v", err)
-		}
+	configFilePath, err := activeProf.FilePath()
+	if err != nil {
+		return fmt.Errorf("get active profile file path: %v", err)
+
 	}
 
 	config, err := profilemanager.ReadConfig(configFilePath)
