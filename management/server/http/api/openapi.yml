@@ -133,6 +133,11 @@ components:
           description: Allows to define a custom dns domain for the account
           type: string
           example: my-organization.org
+        network_range:
+          description: Allows to define a custom network range for the account in CIDR format
+          type: string
+          format: cidr
+          example: 100.64.0.0/16
         extra:
           $ref: '#/components/schemas/AccountExtraSettings'
         lazy_connection_enabled:
@@ -342,6 +347,11 @@ components:
           description: (Cloud only) Indicates whether peer needs approval
           type: boolean
           example: true
+        ip:
+          description: Peer's IP address
+          type: string
+          format: ipv4
+          example: 100.64.0.15
       required:
         - name
         - ssh_enabled

@@ -142,7 +142,7 @@ var (
 
 			err := handleRebrand(cmd)
 			if err != nil {
-				return fmt.Errorf("failed to migrate files %v", err)
+				return fmt.Errorf("migrate files %v", err)
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
@@ -184,7 +184,7 @@ var (
 			}
 			eventStore, key, err := integrations.InitEventStore(ctx, config.Datadir, config.DataStoreEncryptionKey, integrationMetrics)
 			if err != nil {
-				return fmt.Errorf("failed to initialize database: %s", err)
+				return fmt.Errorf("initialize database: %s", err)
 			}
 
 			if config.DataStoreEncryptionKey != key {
@@ -192,7 +192,7 @@ var (
 				config.DataStoreEncryptionKey = key
 				err := updateMgmtConfig(ctx, types.MgmtConfigPath, config)
 				if err != nil {
-					return fmt.Errorf("failed to write out store encryption key: %s", err)
+					return fmt.Errorf("write out store encryption key: %s", err)
 				}
 			}
 
@@ -205,7 +205,7 @@ var (
 
 			integratedPeerValidator, err := integrations.NewIntegratedValidator(ctx, eventStore)
 			if err != nil {
-				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
+				return fmt.Errorf("initialize integrated peer validator: %v", err)
 			}
 
 			permissionsManager := integrations.InitPermissionsManager(store)
@@ -217,7 +217,7 @@ var (
 			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
 				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager, config.DisableDefaultPolicy)
 			if err != nil {
-				return fmt.Errorf("failed to build default manager: %v", err)
+				return fmt.Errorf("build default manager: %v", err)
 			}
 
 			secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsManager)

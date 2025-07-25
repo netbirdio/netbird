@@ -53,7 +53,7 @@ type Config struct {
 	StoreConfig StoreConfig
 
 	ReverseProxy ReverseProxy
-	
+
 	// disable default all-to-all policy
 	DisableDefaultPolicy bool
 }
