@@ -32,6 +32,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
+	"github.com/netbirdio/netbird/util"
 )
 
 var (
@@ -92,7 +93,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 func TestServer_Up(t *testing.T) {
 	ctx := internal.CtxInitState(context.Background())
 
-	s := New(ctx, t.TempDir()+"/config.json", "console")
+	s := New(ctx, t.TempDir()+"/config.json", util.LogConsole)
 
 	err := s.Start()
 	require.NoError(t, err)
@@ -130,7 +131,7 @@ func (m *mockSubscribeEventsServer) Context() context.Context {
 func TestServer_SubcribeEvents(t *testing.T) {
 	ctx := internal.CtxInitState(context.Background())
 
-	s := New(ctx, t.TempDir()+"/config.json", "console")
+	s := New(ctx, t.TempDir()+"/config.json", util.LogConsole)
 
 	err := s.Start()
 	require.NoError(t, err)

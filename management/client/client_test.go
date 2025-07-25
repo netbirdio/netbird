@@ -41,7 +41,7 @@ import (
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("debug", "console")
+	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }

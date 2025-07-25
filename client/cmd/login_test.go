@@ -21,7 +21,7 @@ func TestLogin(t *testing.T) {
 		"--config",
 		confPath,
 		"--log-file",
-		"console",
+		util.LogConsole,
 		"--setup-key",
 		strings.ToUpper("a2c8e62b-38f5-4553-b31e-dd66c696cebb"),
 		"--management-url",
