@@ -685,6 +685,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database after %d attempts: %w", maxAttempts, err)
 	}
 
+	updateAccountPeers, err := isPeerInActiveGroup(ctx, am.Store, accountID, newPeer.ID)
+	if err != nil {
+		updateAccountPeers = true
+	}
+
 	if newPeer == nil {
 		return nil, nil, nil, fmt.Errorf("new peer is nil")
 	}
@@ -697,7 +702,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	am.BufferUpdateAccountPeers(ctx, accountID)
+	if updateAccountPeers {
+		am.BufferUpdateAccountPeers(ctx, accountID)
+	}
 
 	return am.getValidatedPeerWithMap(ctx, false, accountID, newPeer)
 }
