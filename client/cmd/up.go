@@ -395,7 +395,6 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFilePath string) (*profilemanager.ConfigInput, error) {
 	ic := profilemanager.ConfigInput{
 		ManagementURL:       managementURL,
-		AdminURL:            adminURL,
 		ConfigPath:          configFilePath,
 		NATExternalIPs:      natExternalIPs,
 		CustomDNSAddress:    customDNSAddressConverted,
@@ -482,7 +481,6 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	loginRequest := proto.LoginRequest{
 		SetupKey:            providedSetupKey,
 		ManagementUrl:       managementURL,
-		AdminURL:            adminURL,
 		NatExternalIPs:      natExternalIPs,
 		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
 		CustomDNSAddress:    customDNSAddressConverted,
