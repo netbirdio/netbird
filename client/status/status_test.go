@@ -234,7 +234,7 @@ var overview = OutputOverview{
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
-	convertedResult := ConvertToStatusOutputOverview(resp, false, "", nil, nil, nil, "")
+	convertedResult := ConvertToStatusOutputOverview(resp, false, "", nil, nil, nil, "", "")
 
 	assert.Equal(t, overview, convertedResult)
 }
@@ -384,7 +384,8 @@ func TestParsingToJSON(t *testing.T) {
             }
           ],
           "events": [],
-          "lazyConnectionEnabled": false
+          "lazyConnectionEnabled": false,
+		  "profileName":""
         }`
 	// @formatter:on
 
@@ -486,6 +487,7 @@ dnsServers:
       error: timeout
 events: []
 lazyConnectionEnabled: false
+profileName: ""
 `
 
 	assert.Equal(t, expectedYAML, yaml)
@@ -538,6 +540,7 @@ Events: No events recorded
 OS: %s/%s
 Daemon version: 0.14.1
 CLI version: %s
+Profile: 
 Management: Connected to my-awesome-management.com:443
 Signal: Connected to my-awesome-signal.com:443
 Relays: 
@@ -565,6 +568,7 @@ func TestParsingToShortVersion(t *testing.T) {
 	expectedString := fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
 Daemon version: 0.14.1
 CLI version: development
+Profile: 
 Management: Connected
 Signal: Connected
 Relays: 1/2 Available

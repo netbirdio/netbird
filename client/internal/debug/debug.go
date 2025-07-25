@@ -25,9 +25,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
@@ -199,7 +198,8 @@ const (
 type BundleGenerator struct {
 	anonymizer *anonymize.Anonymizer
 
-	internalConfig *internal.Config
+	// deps
+	internalConfig *profilemanager.Config
 	statusRecorder *peer.Status
 	networkMap     *mgmProto.NetworkMap
 	logFile        string
@@ -220,7 +220,7 @@ type BundleConfig struct {
 }
 
 type GeneratorDependencies struct {
-	InternalConfig *internal.Config
+	InternalConfig *profilemanager.Config
 	StatusRecorder *peer.Status
 	NetworkMap     *mgmProto.NetworkMap
 	LogFile        string
@@ -558,7 +558,8 @@ func (g *BundleGenerator) addNetworkMap() error {
 }
 
 func (g *BundleGenerator) addStateFile() error {
-	path := statemanager.GetDefaultStatePath()
+	sm := profilemanager.ServiceManager{}
+	path := sm.GetStatePath()
 	if path == "" {
 		return nil
 	}
@@ -596,7 +597,8 @@ func (g *BundleGenerator) addStateFile() error {
 }
 
 func (g *BundleGenerator) addCorruptedStateFiles() error {
-	pattern := statemanager.GetDefaultStatePath()
+	sm := profilemanager.ServiceManager{}
+	pattern := sm.GetStatePath()
 	if pattern == "" {
 		return nil
 	}
