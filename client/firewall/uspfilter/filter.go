@@ -601,7 +601,7 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 
 	srcIP, dstIP := m.extractIPs(d)
 	if !srcIP.IsValid() {
-		m.logger.Error("Unknown network layer: %v", d.decoded[0])
+		m.logger.Error1("Unknown network layer: %v", d.decoded[0])
 		return false
 	}
 
@@ -727,13 +727,13 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 
 	srcIP, dstIP := m.extractIPs(d)
 	if !srcIP.IsValid() {
-		m.logger.Error("Unknown network layer: %v", d.decoded[0])
+		m.logger.Error1("Unknown network layer: %v", d.decoded[0])
 		return true
 	}
 
 	// TODO: pass fragments of routed packets to forwarder
 	if fragment {
-		m.logger.Trace("packet is a fragment: src=%v dst=%v id=%v flags=%v",
+		m.logger.Trace4("packet is a fragment: src=%v dst=%v id=%v flags=%v",
 			srcIP, dstIP, d.ip4.Id, d.ip4.Flags)
 		return false
 	}
@@ -741,7 +741,7 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 	if translated := m.translateInboundReverse(packetData, d); translated {
 		// Re-decode after translation to get original addresses
 		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-			m.logger.Error("Failed to re-decode packet after reverse DNAT: %v", err)
+			m.logger.Error1("Failed to re-decode packet after reverse DNAT: %v", err)
 			return true
 		}
 		srcIP, dstIP = m.extractIPs(d)
@@ -766,7 +766,7 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 		_, pnum := getProtocolFromPacket(d)
 		srcPort, dstPort := getPortsFromPacket(d)
 
-		m.logger.Trace("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+		m.logger.Trace6("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
 			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
@@ -807,7 +807,7 @@ func (m *Manager) handleForwardedLocalTraffic(packetData []byte) bool {
 	}
 
 	if err := fwd.InjectIncomingPacket(packetData); err != nil {
-		m.logger.Error("Failed to inject local packet: %v", err)
+		m.logger.Error1("Failed to inject local packet: %v", err)
 	}
 
 	// don't process this packet further
@@ -819,7 +819,7 @@ func (m *Manager) handleForwardedLocalTraffic(packetData []byte) bool {
 func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	// Drop if routing is disabled
 	if !m.routingEnabled.Load() {
-		m.logger.Trace("Dropping routed packet (routing disabled): src=%s dst=%s",
+		m.logger.Trace2("Dropping routed packet (routing disabled): src=%s dst=%s",
 			srcIP, dstIP)
 		return true
 	}
@@ -835,7 +835,7 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 
 	ruleID, pass := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
 	if !pass {
-		m.logger.Trace("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+		m.logger.Trace6("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
 			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
@@ -863,7 +863,7 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 		fwd.RegisterRuleID(srcIP, dstIP, srcPort, dstPort, ruleID)
 
 		if err := fwd.InjectIncomingPacket(packetData); err != nil {
-			m.logger.Error("Failed to inject routed packet: %v", err)
+			m.logger.Error1("Failed to inject routed packet: %v", err)
 			fwd.DeleteRuleID(srcIP, dstIP, srcPort, dstPort)
 		}
 	}
@@ -901,7 +901,7 @@ func getPortsFromPacket(d *decoder) (srcPort, dstPort uint16) {
 // It returns true, true if the packet is a fragment and valid.
 func (m *Manager) isValidPacket(d *decoder, packetData []byte) (bool, bool) {
 	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-		m.logger.Trace("couldn't decode packet, err: %s", err)
+		m.logger.Trace1("couldn't decode packet, err: %s", err)
 		return false, false
 	}
 

@@ -78,10 +78,10 @@ func (f *udpForwarder) Stop() {
 	for id, conn := range f.conns {
 		conn.cancel()
 		if err := conn.conn.Close(); err != nil {
-			f.logger.Debug("forwarder: UDP conn close error for %v: %v", epID(id), err)
+			f.logger.Debug2("forwarder: UDP conn close error for %v: %v", epID(id), err)
 		}
 		if err := conn.outConn.Close(); err != nil {
-			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
+			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
 
 		conn.ep.Close()
@@ -112,10 +112,10 @@ func (f *udpForwarder) cleanup() {
 			for _, idle := range idleConns {
 				idle.conn.cancel()
 				if err := idle.conn.conn.Close(); err != nil {
-					f.logger.Debug("forwarder: UDP conn close error for %v: %v", epID(idle.id), err)
+					f.logger.Debug2("forwarder: UDP conn close error for %v: %v", epID(idle.id), err)
 				}
 				if err := idle.conn.outConn.Close(); err != nil {
-					f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(idle.id), err)
+					f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(idle.id), err)
 				}
 
 				idle.conn.ep.Close()
@@ -124,7 +124,7 @@ func (f *udpForwarder) cleanup() {
 				delete(f.conns, idle.id)
 				f.Unlock()
 
-				f.logger.Trace("forwarder: cleaned up idle UDP connection %v", epID(idle.id))
+				f.logger.Trace1("forwarder: cleaned up idle UDP connection %v", epID(idle.id))
 			}
 		}
 	}
@@ -143,7 +143,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	_, exists := f.udpForwarder.conns[id]
 	f.udpForwarder.RUnlock()
 	if exists {
-		f.logger.Trace("forwarder: existing UDP connection for %v", epID(id))
+		f.logger.Trace1("forwarder: existing UDP connection for %v", epID(id))
 		return
 	}
 
@@ -160,7 +160,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	dstAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "udp", dstAddr)
 	if err != nil {
-		f.logger.Debug("forwarder: UDP dial error for %v: %v", epID(id), err)
+		f.logger.Debug2("forwarder: UDP dial error for %v: %v", epID(id), err)
 		// TODO: Send ICMP error message
 		return
 	}
@@ -169,9 +169,9 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	wq := waiter.Queue{}
 	ep, epErr := r.CreateEndpoint(&wq)
 	if epErr != nil {
-		f.logger.Debug("forwarder: failed to create UDP endpoint: %v", epErr)
+		f.logger.Debug1("forwarder: failed to create UDP endpoint: %v", epErr)
 		if err := outConn.Close(); err != nil {
-			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
+			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
 		return
 	}
@@ -194,10 +194,10 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		f.udpForwarder.Unlock()
 		pConn.cancel()
 		if err := inConn.Close(); err != nil {
-			f.logger.Debug("forwarder: UDP inConn close error for %v: %v", epID(id), err)
+			f.logger.Debug2("forwarder: UDP inConn close error for %v: %v", epID(id), err)
 		}
 		if err := outConn.Close(); err != nil {
-			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
+			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
 		return
 	}
@@ -205,7 +205,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	f.udpForwarder.Unlock()
 
 	success = true
-	f.logger.Trace("forwarder: established UDP connection %v", epID(id))
+	f.logger.Trace1("forwarder: established UDP connection %v", epID(id))
 
 	go f.proxyUDP(connCtx, pConn, id, ep)
 }
@@ -220,10 +220,10 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 
 		pConn.cancel()
 		if err := pConn.conn.Close(); err != nil && !isClosedError(err) {
-			f.logger.Debug("forwarder: UDP inConn close error for %v: %v", epID(id), err)
+			f.logger.Debug2("forwarder: UDP inConn close error for %v: %v", epID(id), err)
 		}
 		if err := pConn.outConn.Close(); err != nil && !isClosedError(err) {
-			f.logger.Debug("forwarder: UDP outConn close error for %v: %v", epID(id), err)
+			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
 
 		ep.Close()
@@ -250,10 +250,10 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 	wg.Wait()
 
 	if outboundErr != nil && !isClosedError(outboundErr) {
-		f.logger.Error("proxyUDP: copy error (outbound→inbound) for %s: %v", epID(id), outboundErr)
+		f.logger.Error2("proxyUDP: copy error (outbound→inbound) for %s: %v", epID(id), outboundErr)
 	}
 	if inboundErr != nil && !isClosedError(inboundErr) {
-		f.logger.Error("proxyUDP: copy error (inbound→outbound) for %s: %v", epID(id), inboundErr)
+		f.logger.Error2("proxyUDP: copy error (inbound→outbound) for %s: %v", epID(id), inboundErr)
 	}
 
 	var rxPackets, txPackets uint64
@@ -263,7 +263,7 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		txPackets = udpStats.PacketsReceived.Value()
 	}
 
-	f.logger.Trace("forwarder: Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
+	f.logger.Trace5("forwarder: Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
 
 	f.udpForwarder.Lock()
 	delete(f.udpForwarder.conns, id)

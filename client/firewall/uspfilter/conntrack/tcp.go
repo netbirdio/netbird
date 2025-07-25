@@ -211,7 +211,7 @@ func (t *TCPTracker) track(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, fla
 	conn.tombstone.Store(false)
 	conn.state.Store(int32(TCPStateNew))
 
-	t.logger.Trace("New %s TCP connection: %s", direction, key)
+	t.logger.Trace2("New %s TCP connection: %s", direction, key)
 	t.updateState(key, conn, flags, direction, size)
 
 	t.mutex.Lock()
@@ -240,7 +240,7 @@ func (t *TCPTracker) IsValidInbound(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 
 	currentState := conn.GetState()
 	if !t.isValidStateForFlags(currentState, flags) {
-		t.logger.Warn("TCP state %s is not valid with flags %x for connection %s", currentState, flags, key)
+		t.logger.Warn3("TCP state %s is not valid with flags %x for connection %s", currentState, flags, key)
 		// allow all flags for established for now
 		if currentState == TCPStateEstablished {
 			return true
@@ -262,7 +262,7 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, p
 	if flags&TCPRst != 0 {
 		if conn.CompareAndSwapState(currentState, TCPStateClosed) {
 			conn.SetTombstone()
-			t.logger.Trace("TCP connection reset: %s (dir: %s) [in: %d Pkts/%d B, out: %d Pkts/%d B]",
+			t.logger.Trace6("TCP connection reset: %s (dir: %s) [in: %d Pkts/%d B, out: %d Pkts/%d B]",
 				key, packetDir, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
@@ -340,17 +340,17 @@ func (t *TCPTracker) updateState(key ConnKey, conn *TCPConnTrack, flags uint8, p
 	}
 
 	if newState != 0 && conn.CompareAndSwapState(currentState, newState) {
-		t.logger.Trace("TCP connection %s transitioned from %s to %s (dir: %s)", key, currentState, newState, packetDir)
+		t.logger.Trace4("TCP connection %s transitioned from %s to %s (dir: %s)", key, currentState, newState, packetDir)
 
 		switch newState {
 		case TCPStateTimeWait:
-			t.logger.Trace("TCP connection %s completed [in: %d Pkts/%d B, out: %d Pkts/%d B]",
+			t.logger.Trace5("TCP connection %s completed [in: %d Pkts/%d B, out: %d Pkts/%d B]",
 				key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 			t.sendEvent(nftypes.TypeEnd, conn, nil)
 
 		case TCPStateClosed:
 			conn.SetTombstone()
-			t.logger.Trace("TCP connection %s closed gracefully [in: %d Pkts/%d, B out: %d Pkts/%d B]",
+			t.logger.Trace5("TCP connection %s closed gracefully [in: %d Pkts/%d, B out: %d Pkts/%d B]",
 				key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}
@@ -438,7 +438,7 @@ func (t *TCPTracker) cleanup() {
 		if conn.timeoutExceeded(timeout) {
 			delete(t.connections, key)
 
-			t.logger.Trace("Cleaned up timed-out TCP connection %s (%s) [in: %d Pkts/%d, B out: %d Pkts/%d B]",
+			t.logger.Trace6("Cleaned up timed-out TCP connection %s (%s) [in: %d Pkts/%d, B out: %d Pkts/%d B]",
 				key, conn.GetState(), conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 
 			// event already handled by state change

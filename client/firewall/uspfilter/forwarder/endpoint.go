@@ -57,7 +57,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		address := netHeader.DestinationAddress()
 		err := e.device.CreateOutboundPacket(data.AsSlice(), address.AsSlice())
 		if err != nil {
-			e.logger.Error("CreateOutboundPacket: %v", err)
+			e.logger.Error1("CreateOutboundPacket: %v", err)
 			continue
 		}
 		written++
