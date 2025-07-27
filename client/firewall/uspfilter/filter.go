@@ -1062,6 +1062,16 @@ func (m *Manager) routeACLsPass(srcIP, dstIP netip.Addr, proto firewall.Protocol
 }
 
 func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, proto firewall.Protocol, srcPort, dstPort uint16) bool {
+	if rule.proto != firewall.ProtocolALL && rule.proto != proto {
+		return false
+	}
+
+	if proto == firewall.ProtocolTCP || proto == firewall.ProtocolUDP {
+		if !portsMatch(rule.srcPort, srcPort) || !portsMatch(rule.dstPort, dstPort) {
+			return false
+		}
+	}
+
 	destMatched := false
 	for _, dst := range rule.destinations {
 		if dst.Contains(dstAddr) {
@@ -1082,16 +1092,6 @@ func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, prot
 	}
 	if !sourceMatched {
 		return false
-	}
-
-	if rule.proto != firewall.ProtocolALL && rule.proto != proto {
-		return false
-	}
-
-	if proto == firewall.ProtocolTCP || proto == firewall.ProtocolUDP {
-		if !portsMatch(rule.srcPort, srcPort) || !portsMatch(rule.dstPort, dstPort) {
-			return false
-		}
 	}
 
 	return true
