@@ -488,7 +488,8 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
 				s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
 				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
-				s.mtu != uint16(mtu) || s.networkMonitor != s.sNetworkMonitor.Checked ||
+				s.mtu != uint16(mtu) ||
+				s.networkMonitor != s.sNetworkMonitor.Checked ||
 				s.disableDNS != s.sDisableDNS.Checked ||
 				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
 				s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
@@ -507,6 +508,10 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				var req proto.SetConfigRequest
 				req.ProfileName = activeProf.Name
 				req.Username = currUser.Username
+				
+				if iMngURL != "" {
+					req.ManagementUrl = iMngURL
+				}
 
 				req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
 				req.InterfaceName = &s.iInterfaceName.Text
