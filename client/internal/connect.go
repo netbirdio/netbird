@@ -244,7 +244,15 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.statusRecorder.MarkSignalConnected()
 
 		relayURLs, token := parseRelayInfo(loginResp)
-		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
+		peerConfig := loginResp.GetPeerConfig()
+
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
+		if err != nil {
+			log.Error(err)
+			return wrapErr(err)
+		}
+
+		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU)
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
@@ -257,14 +265,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			if err = relayManager.Serve(); err != nil {
 				log.Error(err)
 			}
-		}
-
-		peerConfig := loginResp.GetPeerConfig()
-
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
-		if err != nil {
-			log.Error(err)
-			return wrapErr(err)
 		}
 
 		checks := loginResp.GetChecks()
