@@ -1096,11 +1096,8 @@ func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, prot
 			break
 		}
 	}
-	if !sourceMatched {
-		return false
-	}
 
-	return true
+	return sourceMatched
 }
 
 // AddUDPPacketHook calls hook when UDP packet from given direction matched
