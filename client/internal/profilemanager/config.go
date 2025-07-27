@@ -1,4 +1,4 @@
-package internal
+package profilemanager
 
 import (
 	"context"
@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
@@ -38,7 +38,7 @@ const (
 	DefaultAdminURL = "https://app.netbird.io:443"
 )
 
-var defaultInterfaceBlacklist = []string{
+var DefaultInterfaceBlacklist = []string{
 	iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
 }
@@ -148,78 +148,47 @@ type Config struct {
 	MTU uint16
 }
 
-// ReadConfig read config file and return with Config. If it is not exists create a new with default values
-func ReadConfig(configPath string) (*Config, error) {
-	if fileExists(configPath) {
-		err := util.EnforcePermission(configPath)
-		if err != nil {
-			log.Errorf("failed to enforce permission on config dir: %v", err)
-		}
+var ConfigDirOverride string
 
-		config := &Config{}
-		if _, err := util.ReadJson(configPath, config); err != nil {
-			return nil, err
-		}
-		// initialize through apply() without changes
-		if changed, err := config.apply(ConfigInput{}); err != nil {
-			return nil, err
-		} else if changed {
-			if err = WriteOutConfig(configPath, config); err != nil {
-				return nil, err
-			}
-		}
-
-		return config, nil
+func getConfigDir() (string, error) {
+	if ConfigDirOverride != "" {
+		return ConfigDirOverride, nil
 	}
-
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: configPath})
+	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	err = WriteOutConfig(configPath, cfg)
-	return cfg, err
-}
-
-// UpdateConfig update existing configuration according to input configuration and return with the configuration
-func UpdateConfig(input ConfigInput) (*Config, error) {
-	if !fileExists(input.ConfigPath) {
-		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
-	}
-
-	return update(input)
-}
-
-// UpdateOrCreateConfig reads existing config or generates a new one
-func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
-	if !fileExists(input.ConfigPath) {
-		log.Infof("generating new config %s", input.ConfigPath)
-		cfg, err := createNewConfig(input)
-		if err != nil {
-			return nil, err
+	configDir = filepath.Join(configDir, "netbird")
+	if _, err := os.Stat(configDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			return "", err
 		}
-		err = util.WriteJsonWithRestrictedPermission(context.Background(), input.ConfigPath, cfg)
-		return cfg, err
 	}
 
-	if isPreSharedKeyHidden(input.PreSharedKey) {
-		input.PreSharedKey = nil
-	}
-	err := util.EnforcePermission(input.ConfigPath)
-	if err != nil {
-		log.Errorf("failed to enforce permission on config dir: %v", err)
-	}
-	return update(input)
+	return configDir, nil
 }
 
-// CreateInMemoryConfig generate a new config but do not write out it to the store
-func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
-	return createNewConfig(input)
+func getConfigDirForUser(username string) (string, error) {
+	if ConfigDirOverride != "" {
+		return ConfigDirOverride, nil
+	}
+
+	username = sanitizeProfileName(username)
+
+	configDir := filepath.Join(DefaultConfigPathDir, username)
+	if _, err := os.Stat(configDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(configDir, 0600); err != nil {
+			return "", err
+		}
+	}
+
+	return configDir, nil
 }
 
-// WriteOutConfig write put the prepared config to the given path
-func WriteOutConfig(path string, config *Config) error {
-	return util.WriteJson(context.Background(), path, config)
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
@@ -227,33 +196,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	config := &Config{
 		// defaults to false only for new (post 0.26) configurations
 		ServerSSHAllowed: util.False(),
-		// default to disabling server routes on Android for security
-		DisableServerRoutes: runtime.GOOS == "android",
 	}
 
 	if _, err := config.apply(input); err != nil {
 		return nil, err
-	}
-
-	return config, nil
-}
-
-func update(input ConfigInput) (*Config, error) {
-	config := &Config{}
-
-	if _, err := util.ReadJson(input.ConfigPath, config); err != nil {
-		return nil, err
-	}
-
-	updated, err := config.apply(input)
-	if err != nil {
-		return nil, err
-	}
-
-	if updated {
-		if err := util.WriteJson(context.Background(), input.ConfigPath, config); err != nil {
-			return nil, err
-		}
 	}
 
 	return config, nil
@@ -386,8 +332,8 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 
 	if len(config.IFaceBlackList) == 0 {
 		log.Infof("filling in interface blacklist with defaults: [ %s ]",
-			strings.Join(defaultInterfaceBlacklist, " "))
-		config.IFaceBlackList = append(config.IFaceBlackList, defaultInterfaceBlacklist...)
+			strings.Join(DefaultInterfaceBlacklist, " "))
+		config.IFaceBlackList = append(config.IFaceBlackList, DefaultInterfaceBlacklist...)
 		updated = true
 	}
 
@@ -610,17 +556,69 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 	return false
 }
 
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
+// UpdateConfig update existing configuration according to input configuration and return with the configuration
+func UpdateConfig(input ConfigInput) (*Config, error) {
+	if !fileExists(input.ConfigPath) {
+		return nil, fmt.Errorf("config file %s does not exist", input.ConfigPath)
+	}
+
+	return update(input)
 }
 
-func createFile(path string) error {
-	file, err := os.Create(path)
-	if err != nil {
-		return err
+// UpdateOrCreateConfig reads existing config or generates a new one
+func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
+	if !fileExists(input.ConfigPath) {
+		log.Infof("generating new config %s", input.ConfigPath)
+		cfg, err := createNewConfig(input)
+		if err != nil {
+			return nil, err
+		}
+		err = util.WriteJsonWithRestrictedPermission(context.Background(), input.ConfigPath, cfg)
+		return cfg, err
 	}
-	return file.Close()
+
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
+	}
+	err := util.EnforcePermission(input.ConfigPath)
+	if err != nil {
+		log.Errorf("failed to enforce permission on config dir: %v", err)
+	}
+	return update(input)
+}
+
+func update(input ConfigInput) (*Config, error) {
+	config := &Config{}
+
+	if _, err := util.ReadJson(input.ConfigPath, config); err != nil {
+		return nil, err
+	}
+
+	updated, err := config.apply(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if updated {
+		if err := util.WriteJson(context.Background(), input.ConfigPath, config); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
+}
+
+func GetConfig(configPath string) (*Config, error) {
+	if !fileExists(configPath) {
+		return nil, fmt.Errorf("config file %s does not exist", configPath)
+	}
+
+	config := &Config{}
+	if _, err := util.ReadJson(configPath, config); err != nil {
+		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	}
+
+	return config, nil
 }
 
 // UpdateOldManagementURL checks whether client can switch to the new Management URL with port 443 and the management domain.
@@ -703,4 +701,47 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 	log.Infof("successfully switched to the new Management URL: %s", newURL.String())
 
 	return newConfig, nil
+}
+
+// CreateInMemoryConfig generate a new config but do not write out it to the store
+func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
+	return createNewConfig(input)
+}
+
+// ReadConfig read config file and return with Config. If it is not exists create a new with default values
+func ReadConfig(configPath string) (*Config, error) {
+	if fileExists(configPath) {
+		err := util.EnforcePermission(configPath)
+		if err != nil {
+			log.Errorf("failed to enforce permission on config dir: %v", err)
+		}
+
+		config := &Config{}
+		if _, err := util.ReadJson(configPath, config); err != nil {
+			return nil, err
+		}
+		// initialize through apply() without changes
+		if changed, err := config.apply(ConfigInput{}); err != nil {
+			return nil, err
+		} else if changed {
+			if err = WriteOutConfig(configPath, config); err != nil {
+				return nil, err
+			}
+		}
+
+		return config, nil
+	}
+
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: configPath})
+	if err != nil {
+		return nil, err
+	}
+
+	err = WriteOutConfig(configPath, cfg)
+	return cfg, err
+}
+
+// WriteOutConfig write put the prepared config to the given path
+func WriteOutConfig(path string, config *Config) error {
+	return util.WriteJson(context.Background(), path, config)
 }

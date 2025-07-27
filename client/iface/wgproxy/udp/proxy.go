@@ -186,6 +186,11 @@ func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 	for {
 		n, err := p.remoteConnRead(ctx, buf)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+
+			p.closeListener.Notify()
 			return
 		}
 

@@ -27,7 +27,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("error", "console")
+	_ = util.InitLog("error", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
