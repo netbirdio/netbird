@@ -200,6 +200,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 // CreateGroups adds new groups to the account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
+// This method will not create group peer membership relations. Use AddPeerToGroup or RemovePeerFromGroup methods for that.
 func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
 	if err != nil {
@@ -257,6 +258,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 // UpdateGroups updates groups in the account.
 // Note: This function does not acquire the global lock.
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
+// This method will not create group peer membership relations. Use AddPeerToGroup or RemovePeerFromGroup methods for that.
 func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
 	if err != nil {
