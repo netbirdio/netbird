@@ -32,6 +32,10 @@ var (
 func init() {
 
 	DefaultConfigPathDir = "/var/lib/netbird/"
+	if stateDir := os.Getenv("NB_STATE_DIR"); stateDir != "" {
+		DefaultConfigPathDir = stateDir
+	}
+
 	oldDefaultConfigPathDir = "/etc/netbird/"
 
 	switch runtime.GOOS {
