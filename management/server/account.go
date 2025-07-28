@@ -1389,6 +1389,8 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 					if err := transaction.AddPeerToGroup(ctx, userAuth.AccountId, peer.ID, g); err != nil {
 						return fmt.Errorf("error adding peer %s to group %s: %w", peer.ID, g, err)
 					}
+				}
+				for _, g := range removeOldGroups {
 					if err := transaction.RemovePeerFromGroup(ctx, peer.ID, g); err != nil {
 						return fmt.Errorf("error removing peer %s from group %s: %w", peer.ID, g, err)
 					}
