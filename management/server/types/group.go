@@ -26,7 +26,7 @@ type Group struct {
 	Issued string
 
 	// Peers list of the group
-	Peers      []string    `gorm:"-"`
+	Peers      []string    `gorm:"-"` // Peers and GroupPeers list will be ignored when writing to the DB. Use AddPeerToGroup and RemovePeerFromGroup methods to modify group membership
 	GroupPeers []GroupPeer `gorm:"foreignKey:GroupID;references:id;constraint:OnDelete:CASCADE;"`
 
 	// Resources contains a list of resources in that group
