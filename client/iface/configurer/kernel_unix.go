@@ -73,6 +73,26 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix,
 	return nil
 }
 
+func (c *KernelConfigurer) RemoveEndpointAddress(peerKey string) error {
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+	peer := wgtypes.PeerConfig{
+		PublicKey: peerKeyParsed,
+		Endpoint:  nil,
+	}
+
+	config := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+
+	if err := c.configure(config); err != nil {
+		return fmt.Errorf("failed to remove endpoint address: %w", err)
+	}
+	return nil
+}
+
 func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {

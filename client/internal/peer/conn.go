@@ -431,6 +431,9 @@ func (conn *Conn) onICEStateDisconnected() {
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
 		conn.currentConnPriority = conntype.None
+		if err := conn.config.WgConfig.WgInterface.RemoveEndpointAddress(conn.config.WgConfig.RemoteKey); err != nil {
+			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
+		}
 	}
 
 	changed := conn.statusICE.Get() != worker.StatusDisconnected
@@ -523,6 +526,9 @@ func (conn *Conn) onRelayDisconnected() {
 	if conn.currentConnPriority == conntype.Relay {
 		conn.Log.Debugf("clean up WireGuard config")
 		conn.currentConnPriority = conntype.None
+		if err := conn.config.WgConfig.WgInterface.RemoveEndpointAddress(conn.config.WgConfig.RemoteKey); err != nil {
+			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
+		}
 	}
 
 	if conn.wgProxyRelay != nil {
