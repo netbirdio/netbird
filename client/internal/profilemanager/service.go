@@ -34,14 +34,18 @@ func init() {
 	DefaultConfigPathDir = "/var/lib/netbird/"
 	oldDefaultConfigPathDir = "/etc/netbird/"
 
-	switch runtime.GOOS {
-	case "windows":
-		oldDefaultConfigPathDir = filepath.Join(os.Getenv("PROGRAMDATA"), "Netbird")
-		DefaultConfigPathDir = oldDefaultConfigPathDir
+	if stateDir := os.Getenv("NB_STATE_DIR"); stateDir != "" {
+		DefaultConfigPathDir = stateDir
+	} else {
+		switch runtime.GOOS {
+		case "windows":
+			oldDefaultConfigPathDir = filepath.Join(os.Getenv("PROGRAMDATA"), "Netbird")
+			DefaultConfigPathDir = oldDefaultConfigPathDir
 
-	case "freebsd":
-		oldDefaultConfigPathDir = "/var/db/netbird/"
-		DefaultConfigPathDir = oldDefaultConfigPathDir
+		case "freebsd":
+			oldDefaultConfigPathDir = "/var/db/netbird/"
+			DefaultConfigPathDir = oldDefaultConfigPathDir
+		}
 	}
 
 	oldDefaultConfigPath = filepath.Join(oldDefaultConfigPathDir, "config.json")
