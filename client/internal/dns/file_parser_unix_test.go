@@ -3,11 +3,13 @@
 package dns
 
 import (
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_parseResolvConf(t *testing.T) {
@@ -175,52 +177,6 @@ nameserver 192.168.0.1
 	}
 }
 
-func TestPrepareOptionsWithTimeout(t *testing.T) {
-	tests := []struct {
-		name     string
-		others   []string
-		timeout  int
-		attempts int
-		expected []string
-	}{
-		{
-			name:     "Append new options with timeout and attempts",
-			others:   []string{"some config"},
-			timeout:  2,
-			attempts: 2,
-			expected: []string{"some config", "options timeout:2 attempts:2"},
-		},
-		{
-			name:     "Modify existing options to exclude rotate and include timeout and attempts",
-			others:   []string{"some config", "options rotate someother"},
-			timeout:  3,
-			attempts: 2,
-			expected: []string{"some config", "options attempts:2 timeout:3 someother"},
-		},
-		{
-			name:     "Existing options with timeout and attempts are updated",
-			others:   []string{"some config", "options timeout:4 attempts:3"},
-			timeout:  5,
-			attempts: 4,
-			expected: []string{"some config", "options timeout:5 attempts:4"},
-		},
-		{
-			name:     "Modify existing options, add missing attempts before timeout",
-			others:   []string{"some config", "options timeout:4"},
-			timeout:  4,
-			attempts: 3,
-			expected: []string{"some config", "options attempts:3 timeout:4"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := prepareOptionsWithTimeout(tc.others, tc.timeout, tc.attempts)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
-
 func TestRemoveFirstNbNameserver(t *testing.T) {
 	testCases := []struct {
 		name       string
@@ -292,7 +248,9 @@ search localdomain`,
 			err := os.WriteFile(tempFile, []byte(tc.content), 0644)
 			assert.NoError(t, err)
 
-			err = removeFirstNbNameserver(tempFile, tc.ipToRemove)
+			ip, err := netip.ParseAddr(tc.ipToRemove)
+			require.NoError(t, err, "Failed to parse IP address")
+			err = removeFirstNbNameserver(tempFile, ip)
 			assert.NoError(t, err)
 
 			content, err := os.ReadFile(tempFile)

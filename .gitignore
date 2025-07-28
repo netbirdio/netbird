@@ -30,3 +30,4 @@ infrastructure_files/setup-*.env
 .vscode
 .DS_Store
 vendor/
+/netbird
