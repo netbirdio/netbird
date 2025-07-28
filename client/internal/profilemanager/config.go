@@ -172,13 +172,7 @@ func getConfigDirForUser(username string) (string, error) {
 
 	username = sanitizeProfileName(username)
 
-	var configDir string
-	if stateDir := os.Getenv("NB_STATE_DIR"); stateDir != "" {
-		configDir = filepath.Join(stateDir, username)
-	} else {
-		configDir = filepath.Join(DefaultConfigPathDir, username)
-	}
-
+	configDir := filepath.Join(DefaultConfigPathDir, username)
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(configDir, 0600); err != nil {
 			return "", err
