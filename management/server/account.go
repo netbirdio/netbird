@@ -1972,6 +1972,17 @@ func propagateUserGroupMemberships(ctx context.Context, transaction store.Store,
 		return false, false, fmt.Errorf("error getting account group peers: %w", err)
 	}
 
+	accountGroups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return false, false, fmt.Errorf("error getting account groups: %w", err)
+	}
+
+	for _, group := range accountGroups {
+		if _, exists := accountGroupPeers[group.ID]; !exists {
+			accountGroupPeers[group.ID] = make(map[string]struct{})
+		}
+	}
+
 	updatedGroups := []string{}
 	for _, user := range users {
 		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthShare, accountID, user.Id)
