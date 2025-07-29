@@ -749,7 +749,6 @@ func (s *Server) switchProfileIfNeeded(profileName string, userName *string, act
 	}
 
 	if profileName != activeProf.Name || username != activeProf.Username {
-		log.Infof("MSG PROF: %s, ACTIVE PROF: %s,MSG USERNAME: %s, USERNAME: %s,", profileName, activeProf.Name, username, username)
 		if s.checkProfilesDisabled() {
 			log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
 			return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
