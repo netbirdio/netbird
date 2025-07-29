@@ -32,7 +32,7 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 

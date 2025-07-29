@@ -10,61 +10,9 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/net/hooks"
 )
-
-// ListenerWriteHookFunc defines the function signature for write hooks for PacketConn.
-type ListenerWriteHookFunc func(connID ConnectionID, ip *net.IPAddr, data []byte) error
-
-// ListenerCloseHookFunc defines the function signature for close hooks for PacketConn.
-type ListenerCloseHookFunc func(connID ConnectionID, conn net.PacketConn) error
-
-// ListenerAddressRemoveHookFunc defines the function signature for hooks called when addresses are removed.
-type ListenerAddressRemoveHookFunc func(connID ConnectionID, prefix netip.Prefix) error
-
-var (
-	listenerWriteHooksMutex         sync.RWMutex
-	listenerWriteHooks              []ListenerWriteHookFunc
-	listenerCloseHooksMutex         sync.RWMutex
-	listenerCloseHooks              []ListenerCloseHookFunc
-	listenerAddressRemoveHooksMutex sync.RWMutex
-	listenerAddressRemoveHooks      []ListenerAddressRemoveHookFunc
-)
-
-// AddListenerWriteHook allows adding a new write hook to be executed before a UDP packet is sent.
-func AddListenerWriteHook(hook ListenerWriteHookFunc) {
-	listenerWriteHooksMutex.Lock()
-	defer listenerWriteHooksMutex.Unlock()
-	listenerWriteHooks = append(listenerWriteHooks, hook)
-}
-
-// AddListenerCloseHook allows adding a new hook to be executed upon closing a UDP connection.
-func AddListenerCloseHook(hook ListenerCloseHookFunc) {
-	listenerCloseHooksMutex.Lock()
-	defer listenerCloseHooksMutex.Unlock()
-	listenerCloseHooks = append(listenerCloseHooks, hook)
-}
-
-// AddListenerAddressRemoveHook allows adding a new hook to be executed when an address is removed.
-func AddListenerAddressRemoveHook(hook ListenerAddressRemoveHookFunc) {
-	listenerAddressRemoveHooksMutex.Lock()
-	defer listenerAddressRemoveHooksMutex.Unlock()
-	listenerAddressRemoveHooks = append(listenerAddressRemoveHooks, hook)
-}
-
-// RemoveListenerHooks removes all listener hooks.
-func RemoveListenerHooks() {
-	listenerWriteHooksMutex.Lock()
-	defer listenerWriteHooksMutex.Unlock()
-	listenerWriteHooks = nil
-
-	listenerCloseHooksMutex.Lock()
-	defer listenerCloseHooksMutex.Unlock()
-	listenerCloseHooks = nil
-
-	listenerAddressRemoveHooksMutex.Lock()
-	defer listenerAddressRemoveHooksMutex.Unlock()
-	listenerAddressRemoveHooks = nil
-}
 
 // ListenPacket listens on the network address and returns a PacketConn
 // which includes support for write hooks.
@@ -77,7 +25,7 @@ func (l *ListenerConfig) ListenPacket(ctx context.Context, network, address stri
 	if err != nil {
 		return nil, fmt.Errorf("listen packet: %w", err)
 	}
-	connID := GenerateConnID()
+	connID := hooks.GenerateConnID()
 
 	return &PacketConn{PacketConn: pc, ID: connID, seenAddrs: &sync.Map{}}, nil
 }
@@ -85,7 +33,7 @@ func (l *ListenerConfig) ListenPacket(ctx context.Context, network, address stri
 // PacketConn wraps net.PacketConn to override its WriteTo and Close methods to include hook functionality.
 type PacketConn struct {
 	net.PacketConn
-	ID        ConnectionID
+	ID        hooks.ConnectionID
 	seenAddrs *sync.Map
 }
 
@@ -104,7 +52,7 @@ func (c *PacketConn) Close() error {
 // UDPConn wraps net.UDPConn to override its WriteTo and Close methods to include hook functionality.
 type UDPConn struct {
 	*net.UDPConn
-	ID        ConnectionID
+	ID        hooks.ConnectionID
 	seenAddrs *sync.Map
 }
 
@@ -140,9 +88,7 @@ func (c *PacketConn) RemoveAddress(addr string) {
 
 	prefix := netip.PrefixFrom(ipAddr, ipAddr.BitLen())
 
-	listenerAddressRemoveHooksMutex.RLock()
-	defer listenerAddressRemoveHooksMutex.RUnlock()
-
+	listenerAddressRemoveHooks := hooks.GetListenerAddressRemoveHooks()
 	for _, hook := range listenerAddressRemoveHooks {
 		if err := hook(c.ID, prefix); err != nil {
 			log.Errorf("Error executing listener address remove hook: %v", err)
@@ -150,17 +96,16 @@ func (c *PacketConn) RemoveAddress(addr string) {
 	}
 }
 
-
 // WrapPacketConn wraps an existing net.PacketConn with nbnet functionality
 func WrapPacketConn(conn net.PacketConn) *PacketConn {
 	return &PacketConn{
 		PacketConn: conn,
-		ID:         GenerateConnID(),
+		ID:         hooks.GenerateConnID(),
 		seenAddrs:  &sync.Map{},
 	}
 }
 
-func callWriteHooks(id ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Addr) {
+func callWriteHooks(id hooks.ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Addr) {
 	// Lookup the address in the seenAddrs map to avoid calling the hooks for every write
 	if _, loaded := seenAddrs.LoadOrStore(addr.String(), true); !loaded {
 		ipStr, _, splitErr := net.SplitHostPort(addr.String())
@@ -176,25 +121,19 @@ func callWriteHooks(id ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Add
 		}
 		log.Debugf("Listener resolved IP for %s: %s", addr, ip)
 
-		func() {
-			listenerWriteHooksMutex.RLock()
-			defer listenerWriteHooksMutex.RUnlock()
-
-			for _, hook := range listenerWriteHooks {
-				if err := hook(id, ip, b); err != nil {
-					log.Errorf("Error executing listener write hook: %v", err)
-				}
+		listenerWriteHooks := hooks.GetListenerWriteHooks()
+		for _, hook := range listenerWriteHooks {
+			if err := hook(id, ip, b); err != nil {
+				log.Errorf("Error executing listener write hook: %v", err)
 			}
-		}()
+		}
 	}
 }
 
-func closeConn(id ConnectionID, conn net.PacketConn) error {
+func closeConn(id hooks.ConnectionID, conn net.PacketConn) error {
 	err := conn.Close()
 
-	listenerCloseHooksMutex.RLock()
-	defer listenerCloseHooksMutex.RUnlock()
-
+	listenerCloseHooks := hooks.GetListenerCloseHooks()
 	for _, hook := range listenerCloseHooks {
 		if err := hook(id, conn); err != nil {
 			log.Errorf("Error executing listener close hook: %v", err)

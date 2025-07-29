@@ -6,46 +6,12 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/net/hooks"
 )
-
-type DialerDialHookFunc func(ctx context.Context, connID ConnectionID, resolvedAddresses []net.IPAddr) error
-type DialerCloseHookFunc func(connID ConnectionID, conn *net.Conn) error
-
-var (
-	dialerDialHooksMutex  sync.RWMutex
-	dialerDialHooks       []DialerDialHookFunc
-	dialerCloseHooksMutex sync.RWMutex
-	dialerCloseHooks      []DialerCloseHookFunc
-)
-
-// AddDialerHook allows adding a new hook to be executed before dialing.
-func AddDialerHook(hook DialerDialHookFunc) {
-	dialerDialHooksMutex.Lock()
-	defer dialerDialHooksMutex.Unlock()
-	dialerDialHooks = append(dialerDialHooks, hook)
-}
-
-// AddDialerCloseHook allows adding a new hook to be executed on connection close.
-func AddDialerCloseHook(hook DialerCloseHookFunc) {
-	dialerCloseHooksMutex.Lock()
-	defer dialerCloseHooksMutex.Unlock()
-	dialerCloseHooks = append(dialerCloseHooks, hook)
-}
-
-// RemoveDialerHooks removes all dialer hooks.
-func RemoveDialerHooks() {
-	dialerDialHooksMutex.Lock()
-	defer dialerDialHooksMutex.Unlock()
-	dialerDialHooks = nil
-
-	dialerCloseHooksMutex.Lock()
-	defer dialerCloseHooksMutex.Unlock()
-	dialerCloseHooks = nil
-}
 
 // DialContext wraps the net.Dialer's DialContext method to use the custom connection
 func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
@@ -60,9 +26,10 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 		resolver = d.Resolver
 	}
 
-	connID := GenerateConnID()
+	connID := hooks.GenerateConnID()
+	dialerDialHooks := hooks.GetDialerHooks()
 	if dialerDialHooks != nil {
-		if err := callDialerHooks(ctx, connID, address, resolver); err != nil {
+		if err := callDialerHooks(ctx, connID, address, resolver, dialerDialHooks); err != nil {
 			log.Errorf("Failed to call dialer hooks: %v", err)
 		}
 	}
@@ -81,7 +48,7 @@ func (d *Dialer) Dial(network, address string) (net.Conn, error) {
 	return d.DialContext(context.Background(), network, address)
 }
 
-func callDialerHooks(ctx context.Context, connID ConnectionID, address string, resolver *net.Resolver) error {
+func callDialerHooks(ctx context.Context, connID hooks.ConnectionID, address string, resolver *net.Resolver, dialerDialHooks []hooks.DialerDialHookFunc) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return fmt.Errorf("split host and port: %w", err)
@@ -95,8 +62,6 @@ func callDialerHooks(ctx context.Context, connID ConnectionID, address string, r
 
 	var result *multierror.Error
 
-	dialerDialHooksMutex.RLock()
-	defer dialerDialHooksMutex.RUnlock()
 	for _, hook := range dialerDialHooks {
 		if err := hook(ctx, connID, ips); err != nil {
 			result = multierror.Append(result, fmt.Errorf("executing dial hook: %w", err))

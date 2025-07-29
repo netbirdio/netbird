@@ -15,8 +15,8 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/sharedsock"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type TunKernelDevice struct {

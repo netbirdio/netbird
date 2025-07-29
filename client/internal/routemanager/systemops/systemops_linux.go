@@ -9,7 +9,9 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -17,10 +19,11 @@ import (
 	"golang.org/x/sys/unix"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/routemanager/sysctl"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 // IPRule contains IP rule information for debugging
@@ -53,9 +56,125 @@ const (
 
 	// ipv4ForwardingPath is the path to the file containing the IP forwarding setting.
 	ipv4ForwardingPath = "net.ipv4.ip_forward"
+
+	// these have the same effect, skip socket env supported for backward compatibility
+	envSkipSocketMark   = "NB_SKIP_SOCKET_MARK"
+	envUseLegacyRouting = "NB_USE_LEGACY_ROUTING"
 )
 
-var ErrTableIDExists = errors.New("ID exists with different name")
+var (
+	ErrTableIDExists = errors.New("ID exists with different name")
+	advancedRoutingSupported bool
+)
+
+// Init initializes the routing subsystem
+func Init() {
+	advancedRoutingSupported = checkAdvancedRoutingSupport()
+}
+
+// AdvancedRouting returns true if advanced routing is supported  
+func AdvancedRouting() bool {
+	return advancedRoutingSupported
+}
+
+func checkAdvancedRoutingSupport() bool {
+	var err error
+
+	var legacyRouting bool
+	if val := os.Getenv(envUseLegacyRouting); val != "" {
+		legacyRouting, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", envUseLegacyRouting, err)
+		}
+	}
+
+	var skipSocketMark bool
+	if val := os.Getenv(envSkipSocketMark); val != "" {
+		skipSocketMark, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", envSkipSocketMark, err)
+		}
+	}
+
+	// requested to disable advanced routing
+	if legacyRouting || skipSocketMark ||
+		// CustomRoutingDisabled disables the custom dialers.
+		// There is no point in using advanced routing without those, as they set up fwmarks on the sockets.
+		nbnet.CustomRoutingDisabled() ||
+		// netstack mode doesn't need routing at all
+		netstack.IsEnabled() {
+
+		log.Info("advanced routing has been requested to be disabled")
+		return false
+	}
+
+	if !checkFwmarkSupport() || !checkRuleOperationsSupport() {
+		log.Warn("system doesn't support required routing features, falling back to legacy routing")
+		return false
+	}
+
+	log.Info("system supports advanced routing")
+
+	return true
+}
+
+func checkFwmarkSupport() bool {
+	// temporarily enable advanced routing to check fwmarks are supported
+	old := advancedRoutingSupported
+	advancedRoutingSupported = true
+	defer func() {
+		advancedRoutingSupported = old
+	}()
+
+	dialer := nbnet.NewDialer()
+	dialer.Timeout = 100 * time.Millisecond
+
+	conn, err := dialer.Dial("udp", "127.0.0.1:9")
+	if err != nil {
+		log.Warnf("failed to dial with fwmark: %v", err)
+		return false
+	}
+
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Warnf("failed to close connection: %v", err)
+		}
+	}()
+
+	if err := conn.SetWriteDeadline(time.Now().Add(time.Millisecond * 100)); err != nil {
+		log.Warnf("failed to set write deadline: %v", err)
+		return false
+	}
+
+	if _, err := conn.Write([]byte("")); err != nil {
+		log.Warnf("failed to write to fwmark connection: %v", err)
+		return false
+	}
+
+	return true
+}
+
+func checkRuleOperationsSupport() bool {
+	rule := netlink.NewRule()
+	// low precedence, semi-random
+	rule.Priority = 32321
+	rule.Table = syscall.RT_TABLE_MAIN
+	rule.Family = netlink.FAMILY_V4
+
+	if err := netlink.RuleAdd(rule); err != nil {
+		if errors.Is(err, syscall.EOPNOTSUPP) {
+			log.Warn("IP rule operations are not supported")
+			return false
+		}
+		log.Warnf("failed to test rule support: %v", err)
+		return false
+	}
+
+	if err := netlink.RuleDel(rule); err != nil {
+		log.Warnf("failed to delete test rule: %v", err)
+	}
+	return true
+}
 
 const errParsePrefixMsg = "failed to parse prefix %s: %w"
 
@@ -95,7 +214,7 @@ func getSetupRules() []ruleParams {
 // This table is where a default route or other specific routes received from the management server are configured,
 // enabling VPN connectivity.
 func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (err error) {
-	if !nbnet.AdvancedRouting() {
+	if !AdvancedRouting() {
 		log.Infof("Using legacy routing setup")
 		return r.setupRefCounter(initAddresses, stateManager)
 	}
@@ -133,7 +252,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 // It systematically removes the three rules and any associated routing table entries to ensure a clean state.
 // The function uses error aggregation to report any errors encountered during the cleanup process.
 func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
-	if !nbnet.AdvancedRouting() {
+	if !AdvancedRouting() {
 		return r.cleanupRefCounter(stateManager)
 	}
 
@@ -175,7 +294,7 @@ func (r *SysOps) AddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 		return err
 	}
 
-	if !nbnet.AdvancedRouting() {
+	if !AdvancedRouting() {
 		return r.genericAddVPNRoute(prefix, intf)
 	}
 
@@ -202,7 +321,7 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error 
 		return err
 	}
 
-	if !nbnet.AdvancedRouting() {
+	if !AdvancedRouting() {
 		return r.genericRemoveVPNRoute(prefix, intf)
 	}
 
@@ -895,7 +1014,7 @@ func getAddressFamily(prefix netip.Prefix) int {
 }
 
 func hasSeparateRouting() ([]netip.Prefix, error) {
-	if !nbnet.AdvancedRouting() {
+	if !AdvancedRouting() {
 		return GetRoutesFromTable()
 	}
 	return nil, ErrRoutingIsSeparate

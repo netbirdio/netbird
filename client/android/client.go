@@ -17,7 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/util/net"
+	"github.com/netbirdio/netbird/client/net"
 )
 
 // ConnectionListener export internal Listener for mobile

@@ -22,7 +22,7 @@ import (
 	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (

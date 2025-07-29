@@ -38,7 +38,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/route"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 

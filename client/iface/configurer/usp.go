@@ -18,7 +18,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/monotime"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
