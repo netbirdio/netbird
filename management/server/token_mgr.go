@@ -10,8 +10,10 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	auth "github.com/netbirdio/netbird/relay/auth/hmac"
@@ -39,13 +41,14 @@ type TimeBasedAuthSecretsManager struct {
 	relayHmacToken  *authv2.Generator
 	updateManager   *PeersUpdateManager
 	settingsManager settings.Manager
+	groupsManager   groups.Manager
 	turnCancelMap   map[string]chan struct{}
 	relayCancelMap  map[string]chan struct{}
 }
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *types.TURNConfig, relayCfg *types.Relay, settingsManager settings.Manager) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *types.TURNConfig, relayCfg *types.Relay, settingsManager settings.Manager, groupsManager groups.Manager) *TimeBasedAuthSecretsManager {
 	mgr := &TimeBasedAuthSecretsManager{
 		updateManager:   updateManager,
 		turnCfg:         turnCfg,
@@ -53,6 +56,7 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *
 		turnCancelMap:   make(map[string]chan struct{}),
 		relayCancelMap:  make(map[string]chan struct{}),
 		settingsManager: settingsManager,
+		groupsManager:   groupsManager,
 	}
 
 	if turnCfg != nil {
@@ -258,6 +262,11 @@ func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, p
 		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
 	}
 
-	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peerID, update.NetbirdConfig, extraSettings)
+	peerGroups, err := m.groupsManager.GetPeerGroupsMap(ctx, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer groups: %v", err)
+	}
+
+	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peerID, maps.Keys(peerGroups), update.NetbirdConfig, extraSettings)
 	update.NetbirdConfig = extendedConfig
 }
