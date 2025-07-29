@@ -86,35 +86,54 @@ func (h *eventHandler) handleDisconnectClick() {
 
 func (h *eventHandler) handleAllowSSHClick() {
 	h.toggleCheckbox(h.client.mAllowSSH)
-	h.updateConfigWithErr()
+	if err := h.updateConfigWithErr(); err != nil {
+		h.toggleCheckbox(h.client.mAllowSSH) // revert checkbox state on error
+		log.Errorf("failed to update config: %v", err)
+	}
+
 }
 
 func (h *eventHandler) handleAutoConnectClick() {
 	h.toggleCheckbox(h.client.mAutoConnect)
-	h.updateConfigWithErr()
+	if err := h.updateConfigWithErr(); err != nil {
+		h.toggleCheckbox(h.client.mAutoConnect) // revert checkbox state on error
+		log.Errorf("failed to update config: %v", err)
+	}
 }
 
 func (h *eventHandler) handleRosenpassClick() {
 	h.toggleCheckbox(h.client.mEnableRosenpass)
-	h.updateConfigWithErr()
+	if err := h.updateConfigWithErr(); err != nil {
+		h.toggleCheckbox(h.client.mEnableRosenpass) // revert checkbox state on error
+		log.Errorf("failed to update config: %v", err)
+	}
 }
 
 func (h *eventHandler) handleLazyConnectionClick() {
 	h.toggleCheckbox(h.client.mLazyConnEnabled)
-	h.updateConfigWithErr()
+	if err := h.updateConfigWithErr(); err != nil {
+		h.toggleCheckbox(h.client.mLazyConnEnabled) // revert checkbox state on error
+		log.Errorf("failed to update config: %v", err)
+	}
 }
 
 func (h *eventHandler) handleBlockInboundClick() {
 	h.toggleCheckbox(h.client.mBlockInbound)
-	h.updateConfigWithErr()
+	if err := h.updateConfigWithErr(); err != nil {
+		h.toggleCheckbox(h.client.mBlockInbound) // revert checkbox state on error
+		log.Errorf("failed to update config: %v", err)
+	}
 }
 
 func (h *eventHandler) handleNotificationsClick() {
 	h.toggleCheckbox(h.client.mNotifications)
-	if h.client.eventManager != nil {
+	if err := h.updateConfigWithErr(); err != nil {
+		h.toggleCheckbox(h.client.mNotifications) // revert checkbox state on error
+		log.Errorf("failed to update config: %v", err)
+	} else if h.client.eventManager != nil {
 		h.client.eventManager.SetNotificationsEnabled(h.client.mNotifications.Checked())
 	}
-	h.updateConfigWithErr()
+
 }
 
 func (h *eventHandler) handleAdvancedSettingsClick() {
@@ -166,10 +185,12 @@ func (h *eventHandler) toggleCheckbox(item *systray.MenuItem) {
 	}
 }
 
-func (h *eventHandler) updateConfigWithErr() {
+func (h *eventHandler) updateConfigWithErr() error {
 	if err := h.client.updateConfig(); err != nil {
-		log.Errorf("failed to update config: %v", err)
+		return err
 	}
+
+	return nil
 }
 
 func (h *eventHandler) runSelfCommand(ctx context.Context, command, arg string) {
