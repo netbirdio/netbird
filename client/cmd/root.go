@@ -74,6 +74,7 @@ var (
 	dnsRouteInterval        time.Duration
 	lazyConnEnabled         bool
 	mtu                     uint16
+	profilesDisabled        bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
