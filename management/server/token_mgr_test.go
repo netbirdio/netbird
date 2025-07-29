@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
@@ -40,13 +41,14 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	groupsManager := groups.NewManagerMock()
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &types.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
 		Turns:                []*types.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager)
+	}, rc, settingsMockManager, groupsManager)
 
 	turnCredentials, err := tested.GenerateTurnToken()
 	require.NoError(t, err)
@@ -91,13 +93,14 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), "someAccountID").Return(&types.ExtraSettings{}, nil).AnyTimes()
+	groupsManager := groups.NewManagerMock()
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &types.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
 		Turns:                []*types.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager)
+	}, rc, settingsMockManager, groupsManager)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -193,13 +196,14 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	groupsManager := groups.NewManagerMock()
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &types.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
 		Turns:                []*types.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager)
+	}, rc, settingsMockManager, groupsManager)
 
 	tested.SetupRefresh(context.Background(), "someAccountID", peer)
 	if _, ok := tested.turnCancelMap[peer]; !ok {
