@@ -2,6 +2,7 @@ package dns
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"runtime"
@@ -59,8 +60,10 @@ type hostManagerWithOriginalNS interface {
 
 // DefaultServer dns server object
 type DefaultServer struct {
-	ctx                context.Context
-	ctxCancel          context.CancelFunc
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+	// disableSys disables system DNS management (e.g., /etc/resolv.conf updates) while keeping the DNS service running.
+	// This is different from ServiceEnable=false from management which completely disables the DNS service.
 	disableSys         bool
 	mux                sync.Mutex
 	service            service
@@ -187,6 +190,7 @@ func newDefaultServer(
 		statusRecorder: statusRecorder,
 		stateManager:   stateManager,
 		hostsDNSHolder: newHostsDNSHolder(),
+		hostManager:    &noopHostConfigurator{},
 	}
 
 	// register with root zone, handler chain takes care of the routing
@@ -258,7 +262,8 @@ func (s *DefaultServer) Initialize() (err error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	if s.hostManager != nil {
+	if !s.isUsingNoopHostManager() {
+		// already initialized
 		return nil
 	}
 
@@ -271,19 +276,19 @@ func (s *DefaultServer) Initialize() (err error) {
 
 	s.stateManager.RegisterState(&ShutdownState{})
 
-	// use noop host manager if requested or running in netstack mode.
+	// Keep using noop host manager if dns off requested or running in netstack mode.
 	// Netstack mode currently doesn't have a way to receive DNS requests.
 	// TODO: Use listener on localhost in netstack mode when running as root.
 	if s.disableSys || netstack.IsEnabled() {
 		log.Info("system DNS is disabled, not setting up host manager")
-		s.hostManager = &noopHostConfigurator{}
 		return nil
 	}
 
-	s.hostManager, err = s.initialize()
+	hostManager, err := s.initialize()
 	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
+	s.hostManager = hostManager
 	return nil
 }
 
@@ -297,26 +302,40 @@ func (s *DefaultServer) DnsIP() netip.Addr {
 
 // Stop stops the server
 func (s *DefaultServer) Stop() {
-	s.mux.Lock()
-	defer s.mux.Unlock()
 	s.ctxCancel()
 
-	if s.hostManager != nil {
-		if srvs, ok := s.hostManager.(hostManagerWithOriginalNS); ok && len(srvs.getOriginalNameservers()) > 0 {
-			log.Debugf("deregistering original nameservers as fallback handlers")
-			s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
-		}
+	s.mux.Lock()
+	defer s.mux.Unlock()
 
-		if err := s.hostManager.restoreHostDNS(); err != nil {
-			log.Error("failed to restore host DNS settings: ", err)
-		} else if err := s.stateManager.DeleteState(&ShutdownState{}); err != nil {
-			log.Errorf("failed to delete shutdown dns state: %v", err)
-		}
+	if err := s.disableDNS(); err != nil {
+		log.Errorf("failed to disable DNS: %v", err)
 	}
 
-	s.service.Stop()
-
 	maps.Clear(s.extraDomains)
+}
+
+func (s *DefaultServer) disableDNS() error {
+	defer s.service.Stop()
+
+	if s.isUsingNoopHostManager() {
+		return nil
+	}
+
+	// Deregister original nameservers if they were registered as fallback
+	if srvs, ok := s.hostManager.(hostManagerWithOriginalNS); ok && len(srvs.getOriginalNameservers()) > 0 {
+		log.Debugf("deregistering original nameservers as fallback handlers")
+		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+	}
+
+	if err := s.hostManager.restoreHostDNS(); err != nil {
+		log.Errorf("failed to restore host DNS settings: %v", err)
+	} else if err := s.stateManager.DeleteState(&ShutdownState{}); err != nil {
+		log.Errorf("failed to delete shutdown dns state: %v", err)
+	}
+
+	s.hostManager = &noopHostConfigurator{}
+
+	return nil
 }
 
 // OnUpdatedHostDNSServer update the DNS servers addresses for root zones
@@ -356,10 +375,6 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 
 	s.mux.Lock()
 	defer s.mux.Unlock()
-
-	if s.hostManager == nil {
-		return fmt.Errorf("dns service is not initialized yet")
-	}
 
 	hash, err := hashstructure.Hash(update, hashstructure.FormatV2, &hashstructure.HashOptions{
 		ZeroNil:         true,
@@ -418,13 +433,14 @@ func (s *DefaultServer) ProbeAvailability() {
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	// is the service should be Disabled, we stop the listener or fake resolver
-	// and proceed with a regular update to clean up the handlers and records
 	if update.ServiceEnable {
-		if err := s.service.Listen(); err != nil {
-			log.Errorf("failed to start DNS service: %v", err)
+		if err := s.enableDNS(); err != nil {
+			log.Errorf("failed to enable DNS: %v", err)
 		}
 	} else if !s.permanent {
-		s.service.Stop()
+		if err := s.disableDNS(); err != nil {
+			log.Errorf("failed to disable DNS: %v", err)
+		}
 	}
 
 	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
@@ -469,11 +485,40 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	return nil
 }
 
-func (s *DefaultServer) applyHostConfig() {
-	if s.hostManager == nil {
-		return
+func (s *DefaultServer) isUsingNoopHostManager() bool {
+	_, isNoop := s.hostManager.(*noopHostConfigurator)
+	return isNoop
+}
+
+func (s *DefaultServer) enableDNS() error {
+	if err := s.service.Listen(); err != nil {
+		return fmt.Errorf("start DNS service: %w", err)
 	}
 
+	if !s.isUsingNoopHostManager() {
+		return nil
+	}
+
+	if s.disableSys || netstack.IsEnabled() {
+		return nil
+	}
+
+	log.Info("DNS service re-enabled, initializing host manager")
+
+	if !s.service.RuntimeIP().IsValid() {
+		return errors.New("DNS service runtime IP is invalid")
+	}
+
+	hostManager, err := s.initialize()
+	if err != nil {
+		return fmt.Errorf("initialize host manager: %w", err)
+	}
+	s.hostManager = hostManager
+
+	return nil
+}
+
+func (s *DefaultServer) applyHostConfig() {
 	// prevent reapplying config if we're shutting down
 	if s.ctx.Err() != nil {
 		return

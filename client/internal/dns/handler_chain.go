@@ -15,7 +15,7 @@ const (
 	PriorityDNSRoute = 75
 	PriorityUpstream = 50
 	PriorityDefault  = 1
-	PriorityFallback    = -100
+	PriorityFallback = -100
 )
 
 type SubdomainMatcher interface {
