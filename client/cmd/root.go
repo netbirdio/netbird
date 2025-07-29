@@ -72,6 +72,7 @@ var (
 	anonymizeFlag           bool
 	dnsRouteInterval        time.Duration
 	lazyConnEnabled         bool
+	profilesDisabled        bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",

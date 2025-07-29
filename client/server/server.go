@@ -44,6 +44,7 @@ const (
 	defaultRetryMultiplier  = 1.7
 
 	errRestoreResidualState = "failed to restore residual state: %v"
+	errProfilesDisabled     = "profiles are disabled, you cannot use this feature without profiles enabled"
 )
 
 // Server for service control.
@@ -68,7 +69,8 @@ type Server struct {
 	persistNetworkMap bool
 	isSessionActive   atomic.Bool
 
-	profileManager profilemanager.ServiceManager
+	profileManager   profilemanager.ServiceManager
+	profilesDisabled bool
 }
 
 type oauthAuthFlow struct {
@@ -79,13 +81,14 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string) *Server {
+func New(ctx context.Context, logFile string, profilesDisabled bool) *Server {
 	return &Server{
 		rootCtx:           ctx,
 		logFile:           logFile,
 		persistNetworkMap: true,
 		statusRecorder:    peer.NewRecorder(""),
 		profileManager:    profilemanager.ServiceManager{},
+		profilesDisabled:  profilesDisabled,
 	}
 }
 
@@ -319,6 +322,10 @@ func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (i
 func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigRequest) (*proto.SetConfigResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.checkProfilesDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
 
 	profState := profilemanager.ActiveProfileState{
 		Name:     msg.ProfileName,
@@ -737,6 +744,11 @@ func (s *Server) switchProfileIfNeeded(profileName string, userName *string, act
 	}
 
 	if profileName != activeProf.Name || username != activeProf.Username {
+		if s.checkProfilesDisabled() {
+			log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
+			return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+		}
+
 		log.Infof("switching to profile %s for user %s", profileName, username)
 		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
 			Name:     profileName,
@@ -1069,6 +1081,10 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if s.checkProfilesDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
+
 	if msg.ProfileName == "" || msg.Username == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
 	}
@@ -1085,6 +1101,10 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequest) (*proto.RemoveProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.checkProfilesDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
 
 	if msg.ProfileName == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
@@ -1141,4 +1161,14 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 		ProfileName: activeProfile.Name,
 		Username:    activeProfile.Username,
 	}, nil
+}
+
+func (s *Server) checkProfilesDisabled() bool {
+	// Check if the environment variable is set to disable profiles
+	if s.profilesDisabled {
+		log.Warn("Profiles are disabled via NB_DISABLE_PROFILES environment variable")
+		return true
+	}
+
+	return false
 }
