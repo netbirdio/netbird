@@ -452,6 +452,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 
 		if *msg.ProfileName != activeProf.Name && username != activeProf.Username {
+			if s.checkProfilesDisabled() {
+				log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
+				return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+			}
+
 			log.Infof("switching to profile %s for user '%s'", *msg.ProfileName, username)
 			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
 				Name:     *msg.ProfileName,
@@ -744,6 +749,7 @@ func (s *Server) switchProfileIfNeeded(profileName string, userName *string, act
 	}
 
 	if profileName != activeProf.Name || username != activeProf.Username {
+		log.Infof("MSG PROF: %s, ACTIVE PROF: %s,MSG USERNAME: %s, USERNAME: %s,", profileName, activeProf.Name, username, username)
 		if s.checkProfilesDisabled() {
 			log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
 			return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
