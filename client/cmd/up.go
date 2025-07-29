@@ -13,7 +13,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
-	grpcStatus "google.golang.org/grpc/status"
 
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -244,7 +243,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	// set the new config
 	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.Name, username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
-		if st, ok := grpcStatus.FromError(err); ok && st.Code() == codes.Unavailable {
+		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
 			log.Warnf("setConfig method is not available in the daemon")
 		} else {
 			return fmt.Errorf("call service setConfig method: %v", err)
