@@ -89,6 +89,7 @@ func (h *eventHandler) handleAllowSSHClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mAllowSSH) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
+		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update SSH settings"))
 	}
 
 }
@@ -98,6 +99,7 @@ func (h *eventHandler) handleAutoConnectClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mAutoConnect) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
+		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update auto-connect settings"))
 	}
 }
 
@@ -106,6 +108,7 @@ func (h *eventHandler) handleRosenpassClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mEnableRosenpass) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
+		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update Rosenpass settings"))
 	}
 }
 
@@ -114,6 +117,7 @@ func (h *eventHandler) handleLazyConnectionClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mLazyConnEnabled) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
+		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update lazy connection settings"))
 	}
 }
 
@@ -122,6 +126,7 @@ func (h *eventHandler) handleBlockInboundClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mBlockInbound) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
+		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update block inbound settings"))
 	}
 }
 
@@ -130,6 +135,7 @@ func (h *eventHandler) handleNotificationsClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mNotifications) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
+		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update notifications settings"))
 	} else if h.client.eventManager != nil {
 		h.client.eventManager.SetNotificationsEnabled(h.client.mNotifications.Checked())
 	}

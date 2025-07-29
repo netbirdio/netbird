@@ -334,7 +334,7 @@ type profileMenu struct {
 	mu                    sync.Mutex
 	ctx                   context.Context
 	profileManager        *profilemanager.ProfileManager
-	eventHandler          eventHandler
+	eventHandler          *eventHandler
 	profileMenuItem       *systray.MenuItem
 	emailMenuItem         *systray.MenuItem
 	profileSubItems       []*subItem
@@ -344,24 +344,34 @@ type profileMenu struct {
 	upClickCallback       func() error
 	getSrvClientCallback  func(timeout time.Duration) (proto.DaemonServiceClient, error)
 	loadSettingsCallback  func()
+	app                   fyne.App
 }
 
-func newProfileMenu(ctx context.Context, profileManager *profilemanager.ProfileManager,
+type newProfileMenuArgs struct {
+	ctx                  context.Context
+	profileManager       *profilemanager.ProfileManager
+	eventHandler         *eventHandler
+	profileMenuItem      *systray.MenuItem
+	emailMenuItem        *systray.MenuItem
+	downClickCallback    func() error
+	upClickCallback      func() error
+	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)
+	loadSettingsCallback func()
+	app                  fyne.App
+}
 
-	eventHandler eventHandler, profileMenuItem, emailMenuItem *systray.MenuItem,
-	downClickCallback, upClickCallback func() error,
-	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error),
-	loadSettingsCallback func()) *profileMenu {
+func newProfileMenu(args newProfileMenuArgs) *profileMenu {
 	p := profileMenu{
-		ctx:                  ctx,
-		profileManager:       profileManager,
-		eventHandler:         eventHandler,
-		profileMenuItem:      profileMenuItem,
-		emailMenuItem:        emailMenuItem,
-		downClickCallback:    downClickCallback,
-		upClickCallback:      upClickCallback,
-		getSrvClientCallback: getSrvClientCallback,
-		loadSettingsCallback: loadSettingsCallback,
+		ctx:                  args.ctx,
+		profileManager:       args.profileManager,
+		eventHandler:         args.eventHandler,
+		profileMenuItem:      args.profileMenuItem,
+		emailMenuItem:        args.emailMenuItem,
+		downClickCallback:    args.downClickCallback,
+		upClickCallback:      args.upClickCallback,
+		getSrvClientCallback: args.getSrvClientCallback,
+		loadSettingsCallback: args.loadSettingsCallback,
+		app:                  args.app,
 	}
 
 	p.emailMenuItem.Disable()
@@ -479,6 +489,8 @@ func (p *profileMenu) refresh() {
 					})
 					if err != nil {
 						log.Errorf("failed to switch profile: %v", err)
+						// show  notification dialog
+						p.app.SendNotification(fyne.NewNotification("Error", "Failed to switch profile"))
 						return
 					}
 
