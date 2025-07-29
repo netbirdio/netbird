@@ -22,7 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	"github.com/netbirdio/netbird/client/net/hooks"
 )
 
 const localSubnetsCacheTTL = 15 * time.Minute
@@ -97,8 +97,8 @@ func (r *SysOps) cleanupRefCounter(stateManager *statemanager.Manager) error {
 	}
 
 	// TODO: Remove hooks selectively
-	nbnet.RemoveDialerHooks()
-	nbnet.RemoveListenerHooks()
+	hooks.RemoveDialerHooks()
+	hooks.RemoveListenerHooks()
 
 	if err := r.refCounter.Flush(); err != nil {
 		return fmt.Errorf("flush route manager: %w", err)
@@ -290,7 +290,7 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 }
 
 func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) error {
-	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
+	beforeHook := func(connID hooks.ConnectionID, ip net.IP) error {
 		prefix, err := util.GetPrefixFromIP(ip)
 		if err != nil {
 			return fmt.Errorf("convert ip to prefix: %w", err)
@@ -304,7 +304,7 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 
 		return nil
 	}
-	afterHook := func(connID nbnet.ConnectionID) error {
+	afterHook := func(connID hooks.ConnectionID) error {
 		if err := r.refCounter.DecrementWithID(string(connID)); err != nil {
 			return fmt.Errorf("remove route reference: %w", err)
 		}
@@ -322,7 +322,7 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 		}
 	}
 
-	nbnet.AddDialerHook(func(ctx context.Context, connID nbnet.ConnectionID, resolvedIPs []net.IPAddr) error {
+	hooks.AddDialerHook(func(ctx context.Context, connID hooks.ConnectionID, resolvedIPs []net.IPAddr) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -334,19 +334,19 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 		return nberrors.FormatErrorOrNil(merr)
 	})
 
-	nbnet.AddDialerCloseHook(func(connID nbnet.ConnectionID, conn *net.Conn) error {
+	hooks.AddDialerCloseHook(func(connID hooks.ConnectionID, conn *net.Conn) error {
 		return afterHook(connID)
 	})
 
-	nbnet.AddListenerWriteHook(func(connID nbnet.ConnectionID, ip *net.IPAddr, data []byte) error {
+	hooks.AddListenerWriteHook(func(connID hooks.ConnectionID, ip *net.IPAddr, data []byte) error {
 		return beforeHook(connID, ip.IP)
 	})
 
-	nbnet.AddListenerCloseHook(func(connID nbnet.ConnectionID, conn net.PacketConn) error {
+	hooks.AddListenerCloseHook(func(connID hooks.ConnectionID, conn net.PacketConn) error {
 		return afterHook(connID)
 	})
 
-	nbnet.AddListenerAddressRemoveHook(func(connID nbnet.ConnectionID, prefix netip.Prefix) error {
+	hooks.AddListenerAddressRemoveHook(func(connID hooks.ConnectionID, prefix netip.Prefix) error {
 		if _, err := r.refCounter.Decrement(prefix); err != nil {
 			return fmt.Errorf("remove route reference: %w", err)
 		}

@@ -20,8 +20,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
+	nbnet "github.com/netbirdio/netbird/client/net"
+
 	"github.com/netbirdio/netbird/util/embeddedroots"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 func WithCustomDialer() grpc.DialOption {

@@ -11,6 +11,7 @@ import (
 
 const (
 	envDisableCustomRouting = "NB_DISABLE_CUSTOM_ROUTING"
+	envUseLegacyRouting     = "NB_USE_LEGACY_ROUTING"
 )
 
 // CustomRoutingDisabled returns true if custom routing is disabled.

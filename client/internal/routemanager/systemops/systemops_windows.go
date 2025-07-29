@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"sync"
 	"syscall"
@@ -21,7 +22,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-const InfiniteLifetime = 0xffffffff
+const (
+	InfiniteLifetime = 0xffffffff
+)
 
 type RouteUpdateType int
 
@@ -75,6 +78,14 @@ type MIB_IPFORWARD_ROW2 struct {
 type MIB_IPFORWARD_TABLE2 struct {
 	NumEntries uint32
 	Table      [1]MIB_IPFORWARD_ROW2 // Flexible array member
+}
+
+// candidateRoute represents a potential route for selection during route lookup
+type candidateRoute struct {
+	interfaceIndex  uint32
+	prefixLength    uint8
+	routeMetric     uint32
+	interfaceMetric int
 }
 
 // IP_ADDRESS_PREFIX is defined in https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-ip_address_prefix
@@ -177,11 +188,20 @@ const (
 	RouteDeleted
 )
 
-func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) error {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager, advancedRouting bool) error {
+	if advancedRouting {
+		return nil
+	}
+	
+	log.Infof("Using legacy routing setup with ref counters")
 	return r.setupRefCounter(initAddresses, stateManager)
 }
 
-func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
+func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRouting bool) error {
+	if advancedRouting {
+		return nil
+	}
+	
 	return r.cleanupRefCounter(stateManager)
 }
 
@@ -635,10 +655,7 @@ func getWindowsRoutingTable() (*MIB_IPFORWARD_TABLE2, error) {
 
 func freeWindowsRoutingTable(table *MIB_IPFORWARD_TABLE2) {
 	if table != nil {
-		ret, _, _ := procFreeMibTable.Call(uintptr(unsafe.Pointer(table)))
-		if ret != 0 {
-			log.Warnf("FreeMibTable failed with return code: %d", ret)
-		}
+		_, _, _ = procFreeMibTable.Call(uintptr(unsafe.Pointer(table)))
 	}
 }
 
@@ -652,8 +669,7 @@ func parseWindowsRoutingTable(table *MIB_IPFORWARD_TABLE2) []DetailedRoute {
 		entryPtr := basePtr + uintptr(i)*entrySize
 		entry := (*MIB_IPFORWARD_ROW2)(unsafe.Pointer(entryPtr))
 
-		detailed := buildWindowsDetailedRoute(entry)
-		if detailed != nil {
+		if detailed := buildWindowsDetailedRoute(entry); detailed != nil {
 			detailedRoutes = append(detailedRoutes, *detailed)
 		}
 	}
@@ -802,6 +818,46 @@ func addZone(ip netip.Addr, interfaceIndex int) netip.Addr {
 	return ip
 }
 
+// parseCandidatesFromTable extracts all matching candidate routes from the routing table
+func parseCandidatesFromTable(table *MIB_IPFORWARD_TABLE2, dest netip.Addr, skipInterfaceIndex int) []candidateRoute {
+	var candidates []candidateRoute
+	entrySize := unsafe.Sizeof(MIB_IPFORWARD_ROW2{})
+	basePtr := uintptr(unsafe.Pointer(&table.Table[0]))
+
+	for i := uint32(0); i < table.NumEntries; i++ {
+		entryPtr := basePtr + uintptr(i)*entrySize
+		entry := (*MIB_IPFORWARD_ROW2)(unsafe.Pointer(entryPtr))
+
+		if candidate := parseCandidateRoute(entry, dest, skipInterfaceIndex); candidate != nil {
+			candidates = append(candidates, *candidate)
+		}
+	}
+
+	return candidates
+}
+
+// parseCandidateRoute extracts candidate route information from a MIB_IPFORWARD_ROW2 entry
+// Returns nil if the route doesn't match the destination or should be skipped
+func parseCandidateRoute(entry *MIB_IPFORWARD_ROW2, dest netip.Addr, skipInterfaceIndex int) *candidateRoute {
+	if skipInterfaceIndex > 0 && int(entry.InterfaceIndex) == skipInterfaceIndex {
+		return nil
+	}
+
+	destPrefix := parseIPPrefix(entry.DestinationPrefix, int(entry.InterfaceIndex))
+	if !destPrefix.IsValid() || !destPrefix.Contains(dest) {
+		return nil
+	}
+
+	interfaceMetric := getInterfaceMetric(entry.InterfaceIndex, entry.DestinationPrefix.Prefix.sin6_family)
+
+	return &candidateRoute{
+		interfaceIndex:  entry.InterfaceIndex,
+		prefixLength:    entry.DestinationPrefix.PrefixLength,
+		routeMetric:     entry.Metric,
+		interfaceMetric: interfaceMetric,
+	}
+}
+
 // getInterfaceMetric retrieves the interface metric for a given interface and address family
 func getInterfaceMetric(interfaceIndex uint32, family int16) int {
 	if interfaceIndex == 0 {
@@ -819,6 +875,75 @@ func getInterfaceMetric(interfaceIndex uint32, family int16) int {
 	}
 
 	return int(ipInterfaceRow.Metric)
+}
+
+// sortRouteCandidates sorts route candidates by priority: prefix length -> route metric -> interface metric
+func sortRouteCandidates(candidates []candidateRoute) {
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].prefixLength != candidates[j].prefixLength {
+			return candidates[i].prefixLength > candidates[j].prefixLength
+		}
+		if candidates[i].routeMetric != candidates[j].routeMetric {
+			return candidates[i].routeMetric < candidates[j].routeMetric
+		}
+		return candidates[i].interfaceMetric < candidates[j].interfaceMetric
+	})
+}
+
+// GetBestInterface finds the best interface for reaching a destination,
+// excluding the VPN interface to avoid routing loops.
+//
+// Route selection priority:
+// 1. Longest prefix match (most specific route)
+// 2. Lowest route metric
+// 3. Lowest interface metric
+func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
+	var skipInterfaceIndex int
+	if vpnIntf != "" {
+		if iface, err := net.InterfaceByName(vpnIntf); err == nil {
+			skipInterfaceIndex = iface.Index
+		} else {
+			return nil, fmt.Errorf("failed to get VPN interface %s: %w", vpnIntf, err)
+		}
+	}
+
+	table, err := getWindowsRoutingTable()
+	if err != nil {
+		return nil, fmt.Errorf("get routing table: %w", err)
+	}
+	defer freeWindowsRoutingTable(table)
+
+	candidates := parseCandidatesFromTable(table, dest, skipInterfaceIndex)
+
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no route to %s", dest)
+	}
+
+	// Sort routes: prefix length -> route metric -> interface metric
+	sortRouteCandidates(candidates)
+
+	for _, candidate := range candidates {
+		iface, err := net.InterfaceByIndex(int(candidate.interfaceIndex))
+		if err != nil {
+			log.Warnf("failed to get interface by index %d: %v", candidate.interfaceIndex, err)
+			continue
+		}
+
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		if iface.Flags&net.FlagUp == 0 {
+			log.Debugf("Interface %s is down, trying next route", iface.Name)
+			continue
+		}
+
+		log.Debugf("Route lookup for %s: selected interface %s (index %d), route metric %d, interface metric %d",
+			dest, iface.Name, iface.Index, candidate.routeMetric, candidate.interfaceMetric)
+		return iface, nil
+	}
+
+	return nil, fmt.Errorf("no usable interface found for %s", dest)
 }
 
 // formatRouteAge formats the route age in seconds to a human-readable string
