@@ -1967,6 +1967,11 @@ func propagateUserGroupMemberships(ctx context.Context, transaction store.Store,
 		return false, false, err
 	}
 
+	accountGroupPeers, err := transaction.GetAccountGroupPeers(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return false, false, fmt.Errorf("error getting account group peers: %w", err)
+	}
+
 	updatedGroups := []string{}
 	for _, user := range users {
 		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthShare, accountID, user.Id)
@@ -1976,8 +1981,16 @@ func propagateUserGroupMemberships(ctx context.Context, transaction store.Store,
 
 		for _, peer := range userPeers {
 			for _, groupID := range user.AutoGroups {
-				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
+				if _, exists := accountGroupPeers[groupID]; !exists {
+					// we do not wanna create the groups here
+					log.WithContext(ctx).Warnf("group %s does not exist for user group propagation", groupID)
 					continue
+				}
+				if _, exists := accountGroupPeers[groupID][peer.ID]; exists {
+					continue
+				}
+				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
+					return false, false, fmt.Errorf("error adding peer %s to group %s: %w", peer.ID, groupID, err)
 				}
 				updatedGroups = append(updatedGroups, groupID)
 			}

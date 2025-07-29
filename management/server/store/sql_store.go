@@ -1404,7 +1404,10 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupI
 		PeerID:    peerID,
 	}
 
-	err := s.db.WithContext(ctx).Create(peer).Error
+	err := s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "group_id"}, {Name: "peer_id"}},
+		DoNothing: true,
+	}).Create(peer).Error
 
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to add peer %s to group %s for account %s: %v", peerID, groupID, accountID, err)
@@ -2715,4 +2718,28 @@ func (s *SqlStore) CountAccountsByPrivateDomain(ctx context.Context, domain stri
 	}
 
 	return count, nil
+}
+
+func (s *SqlStore) GetAccountGroupPeers(ctx context.Context, lockStrength LockingStrength, accountID string) (map[string]map[string]struct{}, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var peers []types.GroupPeer
+	result := tx.Find(&peers, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get account group peers from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get account group peers from store")
+	}
+
+	groupPeers := make(map[string]map[string]struct{})
+	for _, peer := range peers {
+		if _, exists := groupPeers[peer.GroupID]; !exists {
+			groupPeers[peer.GroupID] = make(map[string]struct{})
+		}
+		groupPeers[peer.GroupID][peer.PeerID] = struct{}{}
+	}
+
+	return groupPeers, nil
 }
