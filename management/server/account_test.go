@@ -3363,7 +3363,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 
 	t.Run("should update membership but no account peers update for unused groups", func(t *testing.T) {
 		group1 := &types.Group{ID: "group1", Name: "Group 1", AccountID: account.Id}
-		require.NoError(t, manager.Store.UpdateGroup(ctx, store.LockingStrengthUpdate, group1))
+		require.NoError(t, manager.Store.CreateGroup(ctx, store.LockingStrengthUpdate, group1))
 
 		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
 		require.NoError(t, err)
@@ -3385,7 +3385,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 
 	t.Run("should update membership and account peers for used groups", func(t *testing.T) {
 		group2 := &types.Group{ID: "group2", Name: "Group 2", AccountID: account.Id}
-		require.NoError(t, manager.Store.UpdateGroup(ctx, store.LockingStrengthUpdate, group2))
+		require.NoError(t, manager.Store.CreateGroup(ctx, store.LockingStrengthUpdate, group2))
 
 		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
 		require.NoError(t, err)
