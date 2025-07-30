@@ -50,6 +50,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
@@ -198,6 +199,9 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
+
+	// auto-update
+	updateManager *updatemanager.UpdateManager
 }
 
 // Peer is an instance of the Connection Peer
@@ -240,6 +244,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
+		updateManager:  updatemanager.NewUpdateManager(clientCtx, statusRecorder),
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -304,6 +309,10 @@ func (e *Engine) Stop() error {
 
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
+	}
+
+	if e.updateManager != nil {
+		e.updateManager.Stop()
 	}
 
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
@@ -696,6 +705,9 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
+	if update.GetAutoUpdateVersion() != "skip" {
+		e.updateManager.SetVersion(update.GetAutoUpdateVersion())
+	}
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()
 		err := e.updateTURNs(wCfg.GetTurns())

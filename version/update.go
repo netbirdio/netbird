@@ -30,7 +30,7 @@ type Update struct {
 	fetchTicker *time.Ticker
 	fetchDone   chan struct{}
 
-	onUpdateListener func()
+	onUpdateListener func(latestVersion string)
 	listenerLock     sync.Mutex
 }
 
@@ -57,11 +57,7 @@ func NewUpdate(httpAgent string) *Update {
 // StopWatch stop the version info fetch loop
 func (u *Update) StopWatch() {
 	u.fetchTicker.Stop()
-
-	select {
-	case u.fetchDone <- struct{}{}:
-	default:
-	}
+	u.fetchDone <- struct{}{}
 }
 
 // SetDaemonVersion update the currently running daemon version. If new version is available it will trigger
@@ -84,13 +80,15 @@ func (u *Update) SetDaemonVersion(newVersion string) bool {
 }
 
 // SetOnUpdateListener set new update listener
-func (u *Update) SetOnUpdateListener(updateFn func()) {
+func (u *Update) SetOnUpdateListener(updateFn func(string)) {
 	u.listenerLock.Lock()
 	defer u.listenerLock.Unlock()
 
 	u.onUpdateListener = updateFn
 	if u.isUpdateAvailable() {
-		u.onUpdateListener()
+		u.versionsLock.Lock()
+		defer u.versionsLock.Unlock()
+		u.onUpdateListener(u.latestAvailable.String())
 	}
 }
 
@@ -173,7 +171,7 @@ func (u *Update) checkUpdate() bool {
 		return true
 	}
 
-	go u.onUpdateListener()
+	go u.onUpdateListener(u.latestAvailable.String())
 	return true
 }
 
