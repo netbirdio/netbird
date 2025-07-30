@@ -497,6 +497,32 @@ func (c *GrpcClient) notifyConnected() {
 	c.connStateCallback.MarkManagementConnected()
 }
 
+func (c *GrpcClient) Logout() error {
+	serverKey, err := c.GetServerPublicKey()
+	if err != nil {
+		return fmt.Errorf("get server public key: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*5)
+	defer cancel()
+
+	message := &proto.Empty{}
+	encryptedMSG, err := encryption.EncryptMessage(*serverKey, c.key, message)
+	if err != nil {
+		return fmt.Errorf("encrypt logout message: %w", err)
+	}
+
+	_, err = c.realClient.Logout(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encryptedMSG,
+	})
+	if err != nil {
+		return fmt.Errorf("logout: %w", err)
+	}
+
+	return nil
+}
+
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 	if info == nil {
 		return nil

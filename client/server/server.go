@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"golang.org/x/exp/maps"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	log "github.com/sirupsen/logrus"
@@ -24,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
+	mgm "github.com/netbirdio/netbird/management/client"
 	"github.com/netbirdio/netbird/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -46,6 +49,8 @@ const (
 	errRestoreResidualState = "failed to restore residual state: %v"
 	errProfilesDisabled     = "profiles are disabled, you cannot use this feature without profiles enabled"
 )
+
+var ErrServiceNotUp = errors.New("service is not up")
 
 // Server for service control.
 type Server struct {
@@ -131,13 +136,7 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	cfgPath, err := activeProf.FilePath()
-	if err != nil {
-		log.Errorf("failed to get active profile file path: %v", err)
-		return fmt.Errorf("failed to get active profile file path: %w", err)
-	}
-
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 
@@ -484,13 +483,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 	s.mutex.Unlock()
 
-	cfgPath, err := activeProf.FilePath()
-	if err != nil {
-		log.Errorf("failed to get active profile file path: %v", err)
-		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
-	}
-
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
@@ -701,13 +694,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	log.Infof("active profile: %s for %s", activeProf.Name, activeProf.Username)
 
-	cfgPath, err := activeProf.FilePath()
-	if err != nil {
-		log.Errorf("failed to get active profile file path: %v", err)
-		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
-	}
-
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
@@ -789,13 +776,7 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
-	cfgPath, err := activeProf.FilePath()
-	if err != nil {
-		log.Errorf("failed to get active profile file path: %v", err)
-		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
-	}
-
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get default profile config: %v", err)
 		return nil, fmt.Errorf("failed to get default profile config: %w", err)
@@ -811,26 +792,107 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	s.oauthAuthFlow = oauthAuthFlow{}
-
-	if s.actCancel == nil {
-		return nil, fmt.Errorf("service is not up")
-	}
-	s.actCancel()
-
-	err := s.connectClient.Stop()
-	if err != nil {
+	if err := s.cleanupConnection(); err != nil {
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
-	s.isSessionActive.Store(false)
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
 
+	return &proto.DownResponse{}, nil
+}
+
+func (s *Server) cleanupConnection() error {
+	s.oauthAuthFlow = oauthAuthFlow{}
+
+	if s.actCancel == nil {
+		return ErrServiceNotUp
+	}
+	s.actCancel()
+
+	if s.connectClient == nil {
+		return nil
+	}
+
+	if err := s.connectClient.Stop(); err != nil {
+		return err
+	}
+
+	s.connectClient = nil
+	s.isSessionActive.Store(false)
+
 	log.Infof("service is down")
 
-	return &proto.DownResponse{}, nil
+	return nil
+}
+
+func (s *Server) Logout(ctx context.Context, _ *proto.LogoutRequest) (*proto.LogoutResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.config == nil {
+		activeProf, err := s.profileManager.GetActiveProfileState()
+		if err != nil {
+			return nil, gstatus.Errorf(codes.FailedPrecondition, "failed to get active profile state: %v", err)
+		}
+
+		config, err := s.getConfig(activeProf)
+		if err != nil {
+			return nil, gstatus.Errorf(codes.FailedPrecondition, "not logged in")
+		}
+		s.config = config
+	}
+
+	if err := s.sendLogoutRequest(ctx); err != nil {
+		log.Errorf("failed to send logout request: %v", err)
+		return nil, err
+	}
+
+	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+		log.Errorf("failed to cleanup connection: %v", err)
+		return nil, err
+	}
+
+	state := internal.CtxGetState(s.rootCtx)
+	state.Set(internal.StatusNeedsLogin)
+
+	return &proto.LogoutResponse{}, nil
+}
+
+// getConfig loads the config from the active profile
+func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, error) {
+	cfgPath, err := activeProf.FilePath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
+	}
+
+	config, err := profilemanager.GetConfig(cfgPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config: %w", err)
+	}
+
+	return config, nil
+}
+
+func (s *Server) sendLogoutRequest(ctx context.Context) error {
+	key, err := wgtypes.ParseKey(s.config.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("parse private key: %w", err)
+	}
+
+	mgmTlsEnabled := s.config.ManagementURL.Scheme == "https"
+	mgmClient, err := mgm.NewClient(ctx, s.config.ManagementURL.Host, key, mgmTlsEnabled)
+	if err != nil {
+		return fmt.Errorf("connect to management server: %w", err)
+	}
+	defer func() {
+		if err := mgmClient.Close(); err != nil {
+			log.Errorf("failed to close management client: %v", err)
+		}
+	}()
+
+	return mgmClient.Logout()
 }
 
 // Status returns the daemon status

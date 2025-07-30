@@ -79,6 +79,9 @@ service DaemonService {
   rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse) {}
 
   rpc GetActiveProfile(GetActiveProfileRequest) returns (GetActiveProfileResponse) {}
+
+  // Logout disconnects from the network and deletes the peer from the management server
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {}
 }
 
 
@@ -615,3 +618,7 @@ message GetActiveProfileResponse {
   string profileName = 1;
   string username = 2;
 }
+
+message LogoutRequest {}
+
+message LogoutResponse {}

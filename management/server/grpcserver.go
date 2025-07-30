@@ -19,7 +19,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/store"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
@@ -905,6 +907,42 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 	if err != nil {
 		return nil, mapError(ctx, err)
 	}
+
+	return &proto.Empty{}, nil
+}
+
+func (s *GRPCServer) Logout(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
+	log.WithContext(ctx).Debugf("Logout request from peer [%s]", req.WgPubKey)
+
+	empty := &proto.Empty{}
+	peerKey, err := s.parseRequest(ctx, req, empty)
+	if err != nil {
+		return nil, err
+	}
+
+	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthShare, peerKey.String())
+	if err != nil {
+		log.WithContext(ctx).Debugf("peer %s is not registered for logout", peerKey.String())
+		// TODO: consider idempotency
+		return nil, mapError(ctx, err)
+	}
+
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peer.ID)
+	ctx = context.WithValue(ctx, nbContext.AccountIDKey, peer.AccountID)
+
+	userID := peer.UserID
+	if userID == "" {
+		userID = activity.SystemInitiator
+	}
+
+	if err = s.accountManager.DeletePeer(ctx, peer.AccountID, peer.ID, userID); err != nil {
+		log.WithContext(ctx).Errorf("failed to logout peer %s: %v", peerKey.String(), err)
+		return nil, mapError(ctx, err)
+	}
+
+	s.accountManager.BufferUpdateAccountPeers(ctx, peer.AccountID)
+
+	log.WithContext(ctx).Infof("peer %s logged out successfully", peerKey.String())
 
 	return &proto.Empty{}, nil
 }
