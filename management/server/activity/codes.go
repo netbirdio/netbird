@@ -174,6 +174,8 @@ const (
 
 	AccountLazyConnectionEnabled  Activity = 85
 	AccountLazyConnectionDisabled Activity = 86
+
+	AccountDeleted Activity = 99999
 )
 
 var activityMap = map[Activity]Code{
