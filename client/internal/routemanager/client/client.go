@@ -336,6 +336,11 @@ func (w *Watcher) recalculateRoutes(rsn reason, routerPeerStatuses map[route.ID]
 			return nil
 		}
 
+		if isRouteStickyOnFailure() {
+			log.Warnf("No available routes for network [%v], keep current route %s", w.handler, w.currentChosen.Peer)
+			return nil
+		}
+
 		if err := w.removeAllowedIPs(w.currentChosen, rsn); err != nil {
 			return fmt.Errorf("remove obsolete: %w", err)
 		}
