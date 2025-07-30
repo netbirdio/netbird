@@ -124,7 +124,7 @@ func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc
 }
 
 func startClientDaemon(
-	t *testing.T, ctx context.Context, _, configPath string,
+	t *testing.T, ctx context.Context, _, _ string,
 ) (*grpc.Server, net.Listener) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -134,7 +134,7 @@ func startClientDaemon(
 	s := grpc.NewServer()
 
 	server := client.New(ctx,
-		configPath, "")
+		"", false)
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}

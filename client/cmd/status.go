@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
@@ -59,7 +60,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	err = util.InitLog(logLevel, "console")
+	err = util.InitLog(logLevel, util.LogConsole)
 	if err != nil {
 		return fmt.Errorf("failed initializing log %v", err)
 	}
@@ -91,7 +92,13 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter)
+	pm := profilemanager.NewProfileManager()
+	var profName string
+	if activeProf, err := pm.GetActiveProfile(); err == nil {
+		profName = activeProf.Name
+	}
+
+	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter, profName)
 	var statusOutputString string
 	switch {
 	case detailFlag:

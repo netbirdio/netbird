@@ -938,7 +938,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 	return wgIface, nil
 }
 
-func newDnsResolver(ip string, port int) *net.Resolver {
+func newDnsResolver(ip netip.Addr, port int) *net.Resolver {
 	return &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -1047,7 +1047,7 @@ type mockService struct{}
 
 func (m *mockService) Listen() error                   { return nil }
 func (m *mockService) Stop()                           {}
-func (m *mockService) RuntimeIP() string               { return "127.0.0.1" }
+func (m *mockService) RuntimeIP() netip.Addr           { return netip.MustParseAddr("127.0.0.1") }
 func (m *mockService) RuntimePort() int                { return 53 }
 func (m *mockService) RegisterMux(string, dns.Handler) {}
 func (m *mockService) DeregisterMux(string)            {}

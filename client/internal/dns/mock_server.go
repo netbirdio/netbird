@@ -2,6 +2,7 @@ package dns
 
 import (
 	"fmt"
+	"net/netip"
 
 	"github.com/miekg/dns"
 
@@ -45,8 +46,8 @@ func (m *MockServer) Stop() {
 	}
 }
 
-func (m *MockServer) DnsIP() string {
-	return ""
+func (m *MockServer) DnsIP() netip.Addr {
+	return netip.MustParseAddr("100.10.254.255")
 }
 
 func (m *MockServer) OnUpdatedHostDNSServer(strings []string) {
