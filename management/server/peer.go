@@ -1530,17 +1530,7 @@ func (am *DefaultAccountManager) GetPeerGroups(ctx context.Context, accountID, p
 
 // getPeerGroupIDs returns the IDs of the groups that the peer is part of.
 func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID string, peerID string) ([]string, error) {
-	groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthShare, accountID, peerID)
-	if err != nil {
-		return nil, err
-	}
-
-	groupIDs := make([]string, 0, len(groups))
-	for _, group := range groups {
-		groupIDs = append(groupIDs, group.ID)
-	}
-
-	return groupIDs, err
+	return transaction.GetPeerGroupIDs(ctx, store.LockingStrengthShare, accountID, peerID)
 }
 
 // IsPeerInActiveGroup checks if the given peer is part of a group that is used
