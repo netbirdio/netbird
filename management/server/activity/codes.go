@@ -184,6 +184,7 @@ var activityMap = map[Activity]Code{
 	UserJoined:                               {"User joined", "user.join"},
 	UserInvited:                              {"User invited", "user.invite"},
 	AccountCreated:                           {"Account created", "account.create"},
+	AccountDeleted:                           {"Account deleted", "account.delete"},
 	PeerRemovedByUser:                        {"Peer deleted", "user.peer.delete"},
 	RuleAdded:                                {"Rule added", "rule.add"},
 	RuleUpdated:                              {"Rule updated", "rule.update"},
