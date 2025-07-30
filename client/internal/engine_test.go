@@ -38,6 +38,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -196,7 +197,7 @@ func (m *MockWGIface) LastActivities() map[string]monotime.Time {
 }
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("debug", "console")
+	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
@@ -1149,25 +1150,25 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 	}{
 		{
 			name:                    "Parse Valid List Should Be OK",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1", "8.8.8.8/" + testingInterface},
 			expectedOutput:          []string{"1.1.1.1", "8.8.8.8/" + testingIP},
 		},
 		{
 			name:                    "Only Interface name Should Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{testingInterface},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid IP Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1000"},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid Mapping Element Should return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1/10.10.10.1/eth0"},
 			expectedOutput:          nil,
 		},
@@ -1269,6 +1270,82 @@ func Test_CheckFilesEqual(t *testing.T) {
 				},
 			},
 			expectedBool: false,
+		},
+		{
+			name: "Compared Slices with same files but different order should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile2",
+					},
+				},
+				{
+					Files: []string{
+						"testfile4",
+						"testfile3",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile3",
+						"testfile4",
+					},
+				},
+				{
+					Files: []string{
+						"testfile2",
+						"testfile1",
+					},
+				},
+			},
+			expectedBool: true,
+		},
+		{
+			name: "Compared Slices with same files but different order while first is equal should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile0",
+						"testfile1",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile2",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile3",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile0",
+						"testfile1",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile3",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile2",
+					},
+				},
+			},
+			expectedBool: true,
 		},
 	}
 	for _, testCase := range testCases {

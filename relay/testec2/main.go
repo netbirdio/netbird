@@ -233,7 +233,7 @@ func TURNReaderMain() []testResult {
 func main() {
 	var mode string
 
-	_ = util.InitLog("debug", "console")
+	_ = util.InitLog("debug", util.LogConsole)
 	flag.StringVar(&mode, "mode", "sender", "sender or receiver mode")
 	flag.Parse()
 
