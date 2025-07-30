@@ -1254,12 +1254,6 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 				return
 			}
 
-			peerGroups, err := getPeerGroupIDs(ctx, am.Store, accountID, p.ID)
-			if err != nil {
-				log.WithContext(ctx).Errorf("failed to get peer groups for peer %s: %v", p.ID, err)
-				return
-			}
-
 			am.metrics.UpdateChannelMetrics().CountCalcPostureChecksDuration(time.Since(start))
 			start = time.Now()
 
@@ -1274,8 +1268,9 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			}
 			am.metrics.UpdateChannelMetrics().CountMergeNetworkMapDuration(time.Since(start))
 
+			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, peerGroups)
+			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups))
 			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
 
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
@@ -1385,13 +1380,8 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	peerGroups, err := getPeerGroupIDs(ctx, am.Store, accountId, peerId)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get peer groups for peer %s: %v", peerId, err)
-		return
-	}
-
-	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, peerGroups)
+	peerGroups := account.GetPeerGroups(peerId)
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups))
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 

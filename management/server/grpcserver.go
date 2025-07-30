@@ -748,7 +748,7 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
-	peerGroups, err := getPeerGroupIDs(ctx, s.accountManager.GetStore(), peer.ID, peer.ID)
+	peerGroups, err := getPeerGroupIDs(ctx, s.accountManager.GetStore(), peer.AccountID, peer.ID)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
