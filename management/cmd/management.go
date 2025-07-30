@@ -41,7 +41,6 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
-	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
@@ -56,6 +55,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/users"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
 )
@@ -359,8 +359,8 @@ var (
 
 			update := version.NewUpdate("nb/management")
 			update.SetDaemonVersion(version.NetbirdVersion())
-			update.SetOnUpdateListener(func() {
-				log.WithContext(ctx).Infof("your management version, \"%s\", is outdated, a new management version is available. Learn more here: https://github.com/netbirdio/netbird/releases", version.NetbirdVersion())
+			update.SetOnUpdateListener(func(newVersion string) {
+				log.WithContext(ctx).Infof("your management version, \"%s\", is outdated, a new management version (%s) is available. Learn more here: https://github.com/netbirdio/netbird/releases", version.NetbirdVersion(), newVersion)
 			})
 			defer update.StopWatch()
 
