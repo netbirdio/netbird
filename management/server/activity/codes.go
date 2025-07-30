@@ -174,6 +174,8 @@ const (
 
 	AccountLazyConnectionEnabled  Activity = 85
 	AccountLazyConnectionDisabled Activity = 86
+
+	AccountDeleted Activity = 99999
 )
 
 var activityMap = map[Activity]Code{
@@ -182,6 +184,7 @@ var activityMap = map[Activity]Code{
 	UserJoined:                               {"User joined", "user.join"},
 	UserInvited:                              {"User invited", "user.invite"},
 	AccountCreated:                           {"Account created", "account.create"},
+	AccountDeleted:                           {"Account deleted", "account.delete"},
 	PeerRemovedByUser:                        {"Peer deleted", "user.peer.delete"},
 	RuleAdded:                                {"Rule added", "rule.add"},
 	RuleUpdated:                              {"Rule updated", "rule.update"},

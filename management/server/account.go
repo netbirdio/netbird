@@ -718,6 +718,9 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	// cancel peer login expiry job
 	am.peerLoginExpiry.Cancel(ctx, []string{account.Id})
 
+	meta := map[string]any{"account_id": account.Id, "domain": account.Domain, "created_at": account.CreatedAt}
+	am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDeleted, meta)
+
 	log.WithContext(ctx).Debugf("account %s deleted", accountID)
 	return nil
 }
