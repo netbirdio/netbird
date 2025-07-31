@@ -586,10 +586,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 			continue
 		}
 
-		ns = fmt.Sprintf("%s:%d", ns, defaultPort)
-		if ip, err := netip.ParseAddr(ns); err == nil && ip.Is6() {
-			ns = fmt.Sprintf("[%s]:%d", ns, defaultPort)
-		}
+		ns = formatAddr(ns, defaultPort)
 
 		handler.upstreamServers = append(handler.upstreamServers, ns)
 	}
@@ -774,7 +771,15 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 }
 
 func getNSHostPort(ns nbdns.NameServer) string {
-	return fmt.Sprintf("%s:%d", ns.IP.String(), ns.Port)
+	return formatAddr(ns.IP.String(), ns.Port)
+}
+
+// formatAddr formats a nameserver address with port, handling IPv6 addresses properly
+func formatAddr(address string, port int) string {
+	if ip, err := netip.ParseAddr(address); err == nil && ip.Is6() {
+		return fmt.Sprintf("[%s]:%d", address, port)
+	}
+	return fmt.Sprintf("%s:%d", address, port)
 }
 
 // upstreamCallbacks returns two functions, the first one is used to deactivate
