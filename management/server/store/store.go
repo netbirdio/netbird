@@ -127,6 +127,7 @@ type Store interface {
 	RemovePeerFromGroup(ctx context.Context, peerID string, groupID string) error
 	RemovePeerFromAllGroups(ctx context.Context, peerID string) error
 	GetPeerGroups(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]*types.Group, error)
+	GetPeerGroupIDs(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]string, error)
 	AddResourceToGroup(ctx context.Context, accountId string, groupID string, resource *types.Resource) error
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, lockStrength LockingStrength, peer *nbpeer.Peer) error

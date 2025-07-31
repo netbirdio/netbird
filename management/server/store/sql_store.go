@@ -1521,6 +1521,30 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 	return groups, nil
 }
 
+// GetPeerGroupIDs retrives all group IDs assigned to a specific peer in a given account.
+func (s *SqlStore) GetPeerGroupIDs(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]string, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var groupIDs []string
+	query := tx.
+		Model(&types.GroupPeer{}).
+		Where("account_id = ? AND peer_id = ?", accountId, peerId).
+		Pluck("group_id", &groupIDs)
+
+	if query.Error != nil {
+		if errors.Is(query.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "no groups found for peer %s in account %s", peerId, accountId)
+		}
+		log.WithContext(ctx).Errorf("failed to get group IDs for peer %s in account %s: %v", peerId, accountId, query.Error)
+		return nil, status.Errorf(status.Internal, "failed to get group IDs for peer from store")
+	}
+
+	return groupIDs, nil
+}
+
 // GetAccountPeers retrieves peers for an account.
 func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 	var peers []*nbpeer.Peer

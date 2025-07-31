@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"net"
@@ -3544,4 +3545,65 @@ func TestSqlStore_GetAnyAccountID(t *testing.T) {
 		assert.Equal(t, sErr.Type(), status.NotFound)
 		assert.Empty(t, accountID)
 	})
+}
+
+func BenchmarkGetAccountPeers(b *testing.B) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", b.TempDir())
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(cleanup)
+
+	numberOfPeers := 1000
+	numberOfGroups := 200
+	numberOfPeersPerGroup := 500
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	peers := make([]*nbpeer.Peer, 0, numberOfPeers)
+	for i := 0; i < numberOfPeers; i++ {
+		peer := &nbpeer.Peer{
+			ID:        fmt.Sprintf("peer-%d", i),
+			AccountID: accountID,
+			DNSLabel:  fmt.Sprintf("peer%d.example.com", i),
+			IP:        intToIPv4(uint32(i)),
+		}
+		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer)
+		if err != nil {
+			b.Fatalf("Failed to add peer: %v", err)
+		}
+		peers = append(peers, peer)
+	}
+
+	for i := 0; i < numberOfGroups; i++ {
+		groupID := fmt.Sprintf("group-%d", i)
+		group := &types.Group{
+			ID:        groupID,
+			AccountID: accountID,
+		}
+		err = store.CreateGroup(context.Background(), LockingStrengthUpdate, group)
+		if err != nil {
+			b.Fatalf("Failed to create group: %v", err)
+		}
+		for j := 0; j < numberOfPeersPerGroup; j++ {
+			peerIndex := (i*numberOfPeersPerGroup + j) % numberOfPeers
+			err = store.AddPeerToGroup(context.Background(), accountID, peers[peerIndex].ID, groupID)
+			if err != nil {
+				b.Fatalf("Failed to add peer to group: %v", err)
+			}
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := store.GetPeerGroups(context.Background(), LockingStrengthShare, accountID, peers[i%numberOfPeers].ID)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func intToIPv4(n uint32) net.IP {
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, n)
+	return ip
 }
