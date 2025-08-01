@@ -1702,6 +1702,7 @@ func (am *DefaultAccountManager) GetDNSDomain(settings *types.Settings) string {
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string, peerIDs []string) {
 	peers := []*nbpeer.Peer{}
+	log.WithContext(ctx).Debugf("invalidating peers %v for account %s", peerIDs, accountID)
 	for _, peerID := range peerIDs {
 		peer, err := am.GetPeer(ctx, accountID, peerID, activity.SystemInitiator)
 		if err != nil {

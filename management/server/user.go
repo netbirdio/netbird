@@ -938,6 +938,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
 func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
+	log.WithContext(ctx).Debugf("Expiring %d peers for account %s", len(peers), accountID)
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return err
