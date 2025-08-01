@@ -140,7 +140,7 @@ type RosenpassState struct {
 // whether it's enabled, and the last error message encountered during probing.
 type NSGroupState struct {
 	ID      string
-	Servers []string
+	Servers []netip.AddrPort
 	Domains []string
 	Enabled bool
 	Error   error
