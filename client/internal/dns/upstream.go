@@ -92,6 +92,7 @@ func (u *upstreamResolverBase) ID() types.HandlerID {
 	hash.Write([]byte(u.domain + ":"))
 	for _, s := range servers {
 		hash.Write([]byte(s.String()))
+		hash.Write([]byte("|"))
 	}
 	return types.HandlerID("upstream-" + hex.EncodeToString(hash.Sum(nil)[:8]))
 }
