@@ -927,7 +927,9 @@ func (s *GRPCServer) Logout(ctx context.Context, req *proto.EncryptedMessage) (*
 		return nil, mapError(ctx, err)
 	}
 
+	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peer.ID)
+	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, peer.AccountID)
 
 	userID := peer.UserID
