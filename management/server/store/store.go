@@ -101,8 +101,10 @@ type Store interface {
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types.Group, error)
 	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*types.Group, error)
 	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types.Group, error)
-	SaveGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error
-	SaveGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error
+	CreateGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error
+	UpdateGroups(ctx context.Context, lockStrength LockingStrength, accountID string, groups []*types.Group) error
+	CreateGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error
+	UpdateGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error
 	DeleteGroup(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) error
 	DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error
 
@@ -120,9 +122,12 @@ type Store interface {
 	DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) error
 
 	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string, hostname string) ([]string, error)
-	AddPeerToAllGroup(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) error
-	AddPeerToGroup(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string, groupID string) error
+	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
+	AddPeerToGroup(ctx context.Context, accountID, peerId string, groupID string) error
+	RemovePeerFromGroup(ctx context.Context, peerID string, groupID string) error
+	RemovePeerFromAllGroups(ctx context.Context, peerID string) error
 	GetPeerGroups(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]*types.Group, error)
+	GetPeerGroupIDs(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]string, error)
 	AddResourceToGroup(ctx context.Context, accountId string, groupID string, resource *types.Resource) error
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
 	AddPeerToAccount(ctx context.Context, lockStrength LockingStrength, peer *nbpeer.Peer) error
@@ -196,6 +201,7 @@ type Store interface {
 	DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error
 	GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error)
 	GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error)
+	GetAccountGroupPeers(ctx context.Context, lockStrength LockingStrength, accountID string) (map[string]map[string]struct{}, error)
 }
 
 const (
@@ -352,6 +358,15 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_dnslabel", "account_id", "dns_label")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateJsonToTable[types.Group](ctx, db, "peers", func(accountID, id, value string) any {
+				return &types.GroupPeer{
+					AccountID: accountID,
+					GroupID:   id,
+					PeerID:    value,
+				}
+			})
 		},
 	}
 }

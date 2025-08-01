@@ -993,7 +993,7 @@ func sortFunc() func(a *types.FirewallRule, b *types.FirewallRule) int {
 func TestPolicyAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	g := []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -1014,8 +1014,11 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupD",
 			Peers: []string{peer1.ID, peer2.ID},
 		},
-	}, true)
-	assert.NoError(t, err)
+	}
+	for _, group := range g {
+		err := manager.CreateGroup(context.Background(), account.Id, userID, group)
+		assert.NoError(t, err)
+	}
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
@@ -1025,6 +1028,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	var policyWithGroupRulesNoPeers *types.Policy
 	var policyWithDestinationPeersOnly *types.Policy
 	var policyWithSourceAndDestinationPeers *types.Policy
+	var err error
 
 	// Saving policy with rule groups with no peers should not update account's peers and not send peer update
 	t.Run("saving policy with rule groups with no peers", func(t *testing.T) {

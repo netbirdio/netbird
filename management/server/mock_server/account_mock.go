@@ -124,6 +124,34 @@ type MockAccountManager struct {
 	BufferUpdateAccountPeersFunc          func(ctx context.Context, accountID string)
 }
 
+func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
+	if am.SaveGroupFunc != nil {
+		return am.SaveGroupFunc(ctx, accountID, userID, group, true)
+	}
+	return status.Errorf(codes.Unimplemented, "method CreateGroup is not implemented")
+}
+
+func (am *MockAccountManager) UpdateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
+	if am.SaveGroupFunc != nil {
+		return am.SaveGroupFunc(ctx, accountID, userID, group, false)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdateGroup is not implemented")
+}
+
+func (am *MockAccountManager) CreateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error {
+	if am.SaveGroupsFunc != nil {
+		return am.SaveGroupsFunc(ctx, accountID, userID, newGroups, true)
+	}
+	return status.Errorf(codes.Unimplemented, "method CreateGroups is not implemented")
+}
+
+func (am *MockAccountManager) UpdateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error {
+	if am.SaveGroupsFunc != nil {
+		return am.SaveGroupsFunc(ctx, accountID, userID, newGroups, false)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdateGroups is not implemented")
+}
+
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
 	if am.UpdateAccountPeersFunc != nil {
 		am.UpdateAccountPeersFunc(ctx, accountID)
