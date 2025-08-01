@@ -62,8 +62,10 @@ type Manager interface {
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
-	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group, create bool) error
-	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group, create bool) error
+	CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
+	UpdateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
+	CreateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
+	UpdateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
