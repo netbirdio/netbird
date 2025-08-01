@@ -250,8 +250,8 @@ func BuildManager(
 		}()
 	}
 
-	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string) {
-		am.onPeersInvalidated(ctx, accountID)
+	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string, peerIDs []string) {
+		am.onPeersInvalidated(ctx, accountID, peerIDs)
 	})
 
 	return am, nil
@@ -1700,7 +1700,22 @@ func (am *DefaultAccountManager) GetDNSDomain(settings *types.Settings) string {
 	return settings.DNSDomain
 }
 
-func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
+func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string, peerIDs []string) {
+	peers := []*nbpeer.Peer{}
+	for _, peerID := range peerIDs {
+		peer, err := am.GetPeer(ctx, accountID, peerID, activity.SystemInitiator)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get invalidated peer %s for account %s: %v", peerID, accountID, err)
+			continue
+		}
+		peers = append(peers, peer)
+	}
+	if len(peers) > 0 {
+		err := am.expireAndUpdatePeers(ctx, accountID, peers)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to expire and update invalidated peers for account %s: %v", accountID, err)
+		}
+	}
 	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
 	am.BufferUpdateAccountPeers(ctx, accountID)
 }
