@@ -15,7 +15,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 func GetColumnName(db *gorm.DB, column string) string {
@@ -467,9 +466,7 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 			}
 
 			for _, value := range data {
-				if err := tx.Clauses(clause.OnConflict{
-					DoNothing: true, // this needs to be removed when the cleanup is enabled
-				}).Create(
+				if err := tx.Create(
 					mapperFunc(row["account_id"].(string), row["id"].(string), value),
 				).Error; err != nil {
 					return fmt.Errorf("failed to insert id %v: %w", row["id"], err)
@@ -477,10 +474,9 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 			}
 		}
 
-		// Todo: Enable this after we are sure that every thing works as expected and we do not need to rollback anymore
-		// if err := tx.Migrator().DropColumn(&model, columnName); err != nil {
-		// 	return fmt.Errorf("drop column %s: %w", columnName, err)
-		// }
+		if err := tx.Migrator().DropColumn(&model, columnName); err != nil {
+			return fmt.Errorf("drop column %s: %w", columnName, err)
+		}
 
 		return nil
 	}); err != nil {
