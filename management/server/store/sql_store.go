@@ -1521,7 +1521,7 @@ func (s *SqlStore) GetPeerGroups(ctx context.Context, lockStrength LockingStreng
 	return groups, nil
 }
 
-// GetPeerGroupIDs retrives all group IDs assigned to a specific peer in a given account.
+// GetPeerGroupIDs retrieves all group IDs assigned to a specific peer in a given account.
 func (s *SqlStore) GetPeerGroupIDs(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]string, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
