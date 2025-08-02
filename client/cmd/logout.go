@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os/user"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -29,11 +30,28 @@ var logoutCmd = &cobra.Command{
 
 		daemonClient := proto.NewDaemonServiceClient(conn)
 
-		if _, err := daemonClient.Logout(ctx, &proto.LogoutRequest{}); err != nil {
+		req := &proto.LogoutRequest{}
+
+		if profileName != "" {
+			req.ProfileName = &profileName
+
+			currUser, err := user.Current()
+			if err != nil {
+				return fmt.Errorf("get current user: %v", err)
+			}
+			username := currUser.Username
+			req.Username = &username
+		}
+
+		if _, err := daemonClient.Logout(ctx, req); err != nil {
 			return fmt.Errorf("logout: %v", err)
 		}
 
 		cmd.Println("Logged out successfully")
 		return nil
 	},
+}
+
+func init() {
+	logoutCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 }

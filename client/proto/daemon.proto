@@ -619,6 +619,9 @@ message GetActiveProfileResponse {
   string username = 2;
 }
 
-message LogoutRequest {}
+message LogoutRequest {
+  optional string profileName = 1;
+  optional string username = 2;
+}
 
 message LogoutResponse {}

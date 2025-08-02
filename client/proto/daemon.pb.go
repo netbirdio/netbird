@@ -4344,6 +4344,8 @@ func (x *GetActiveProfileResponse) GetUsername() string {
 
 type LogoutRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProfileName   *string                `protobuf:"bytes,1,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
+	Username      *string                `protobuf:"bytes,2,opt,name=username,proto3,oneof" json:"username,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4376,6 +4378,20 @@ func (x *LogoutRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use LogoutRequest.ProtoReflect.Descriptor instead.
 func (*LogoutRequest) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *LogoutRequest) GetProfileName() string {
+	if x != nil && x.ProfileName != nil {
+		return *x.ProfileName
+	}
+	return ""
+}
+
+func (x *LogoutRequest) GetUsername() string {
+	if x != nil && x.Username != nil {
+		return *x.Username
+	}
+	return ""
 }
 
 type LogoutResponse struct {
@@ -4850,8 +4866,12 @@ const file_daemon_proto_rawDesc = "" +
 	"\x17GetActiveProfileRequest\"X\n" +
 	"\x18GetActiveProfileResponse\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\x0f\n" +
-	"\rLogoutRequest\"\x10\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"t\n" +
+	"\rLogoutRequest\x12%\n" +
+	"\vprofileName\x18\x01 \x01(\tH\x00R\vprofileName\x88\x01\x01\x12\x1f\n" +
+	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
+	"\f_profileNameB\v\n" +
+	"\t_username\"\x10\n" +
 	"\x0eLogoutResponse*b\n" +
 	"\bLogLevel\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
@@ -5093,6 +5113,7 @@ func file_daemon_proto_init() {
 	file_daemon_proto_msgTypes[46].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[52].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[54].OneofWrappers = []any{}
+	file_daemon_proto_msgTypes[65].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -827,10 +827,45 @@ func (s *Server) cleanupConnection() error {
 	return nil
 }
 
-func (s *Server) Logout(ctx context.Context, _ *proto.LogoutRequest) (*proto.LogoutResponse, error) {
+func (s *Server) Logout(ctx context.Context, msg *proto.LogoutRequest) (*proto.LogoutResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if msg.ProfileName != nil && *msg.ProfileName != "" {
+		return s.handleProfileLogout(ctx, msg)
+	}
+
+	return s.handleActiveProfileLogout(ctx)
+}
+
+func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutRequest) (*proto.LogoutResponse, error) {
+	if err := s.validateProfileOperation(*msg.ProfileName, true); err != nil {
+		return nil, err
+	}
+
+	if msg.Username == nil || *msg.Username == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "username must be provided when profile name is specified")
+	}
+	username := *msg.Username
+
+	if err := s.logoutFromProfile(ctx, *msg.ProfileName, username); err != nil {
+		log.Errorf("failed to logout from profile %s: %v", *msg.ProfileName, err)
+		return nil, gstatus.Errorf(codes.Internal, "logout: %v", err)
+	}
+
+	activeProf, _ := s.profileManager.GetActiveProfileState()
+	if activeProf != nil && activeProf.Name == *msg.ProfileName {
+		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+			log.Errorf("failed to cleanup connection: %v", err)
+		}
+		state := internal.CtxGetState(s.rootCtx)
+		state.Set(internal.StatusNeedsLogin)
+	}
+
+	return &proto.LogoutResponse{}, nil
+}
+
+func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutResponse, error) {
 	if s.config == nil {
 		activeProf, err := s.profileManager.GetActiveProfileState()
 		if err != nil {
@@ -875,20 +910,79 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 	return config, nil
 }
 
+func (s *Server) canRemoveProfile(profileName string) error {
+	if profileName == profilemanager.DefaultProfileName {
+		return fmt.Errorf("remove profile with reserved name: %s", profilemanager.DefaultProfileName)
+	}
+
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err == nil && activeProf.Name == profileName {
+		return fmt.Errorf("remove active profile: %s", profileName)
+	}
+
+	return nil
+}
+
+func (s *Server) validateProfileOperation(profileName string, allowActiveProfile bool) error {
+	if s.checkProfilesDisabled() {
+		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
+
+	if profileName == "" {
+		return gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
+	}
+
+	if !allowActiveProfile {
+		if err := s.canRemoveProfile(profileName); err != nil {
+			return gstatus.Errorf(codes.InvalidArgument, "%v", err)
+		}
+	}
+
+	return nil
+}
+
+// logoutFromProfile logs out from a specific profile by loading its config and sending logout request
+func (s *Server) logoutFromProfile(ctx context.Context, profileName, username string) error {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err == nil && activeProf.Name == profileName && s.connectClient != nil {
+		return s.sendLogoutRequest(ctx)
+	}
+
+	profileState := &profilemanager.ActiveProfileState{
+		Name:     profileName,
+		Username: username,
+	}
+	profilePath, err := profileState.FilePath()
+	if err != nil {
+		return fmt.Errorf("get profile path: %w", err)
+	}
+
+	config, err := profilemanager.GetConfig(profilePath)
+	if err != nil {
+		return fmt.Errorf("profile '%s' not found", profileName)
+	}
+
+	return s.sendLogoutRequestWithConfig(ctx, config)
+}
+
 func (s *Server) sendLogoutRequest(ctx context.Context) error {
-	key, err := wgtypes.ParseKey(s.config.PrivateKey)
+	return s.sendLogoutRequestWithConfig(ctx, s.config)
+}
+
+func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profilemanager.Config) error {
+	key, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
 		return fmt.Errorf("parse private key: %w", err)
 	}
 
-	mgmTlsEnabled := s.config.ManagementURL.Scheme == "https"
-	mgmClient, err := mgm.NewClient(ctx, s.config.ManagementURL.Host, key, mgmTlsEnabled)
+	mgmTlsEnabled := config.ManagementURL.Scheme == "https"
+	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, key, mgmTlsEnabled)
 	if err != nil {
 		return fmt.Errorf("connect to management server: %w", err)
 	}
 	defer func() {
 		if err := mgmClient.Close(); err != nil {
-			log.Errorf("failed to close management client: %v", err)
+			log.Errorf("close management client: %v", err)
 		}
 	}()
 
@@ -1169,12 +1263,12 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.checkProfilesDisabled() {
-		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	if err := s.validateProfileOperation(msg.ProfileName, false); err != nil {
+		return nil, err
 	}
 
-	if msg.ProfileName == "" {
-		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
+	if err := s.logoutFromProfile(ctx, msg.ProfileName, msg.Username); err != nil {
+		log.Warnf("failed to logout from profile %s before removal: %v", msg.ProfileName, err)
 	}
 
 	if err := s.profileManager.RemoveProfile(msg.ProfileName, msg.Username); err != nil {
