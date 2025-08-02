@@ -9,6 +9,8 @@ var (
 	baseWallNano int64
 )
 
+type Time int64
+
 func init() {
 	baseWallTime = time.Now()
 	baseWallNano = baseWallTime.UnixNano()
@@ -23,7 +25,11 @@ func init() {
 // and using time.Since() for elapsed calculation, this avoids repeated
 // time.Now() calls and leverages Go's internal monotonic clock for
 // efficient duration measurement.
-func Now() int64 {
+func Now() Time {
 	elapsed := time.Since(baseWallTime)
-	return baseWallNano + int64(elapsed)
+	return Time(baseWallNano + int64(elapsed))
+}
+
+func Since(t Time) time.Duration {
+	return time.Duration(Now() - t)
 }

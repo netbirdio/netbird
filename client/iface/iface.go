@@ -21,12 +21,18 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/monotime"
 )
 
 const (
 	DefaultMTU         = 1280
 	DefaultWgPort      = 51820
 	WgInterfaceDefault = configurer.WgInterfaceDefault
+)
+
+var (
+	// ErrIfaceNotFound is returned when the WireGuard interface is not found
+	ErrIfaceNotFound = fmt.Errorf("wireguard interface not found")
 )
 
 type wgProxyFactory interface {
@@ -117,6 +123,9 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
 
 	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
 	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
@@ -126,6 +135,9 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 func (w *WGIface) RemovePeer(peerKey string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
 
 	log.Debugf("Removing peer %s from interface %s ", peerKey, w.tun.DeviceName())
 	return w.configurer.RemovePeer(peerKey)
@@ -135,6 +147,9 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
 
 	log.Debugf("Adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.AddAllowedIP(peerKey, allowedIP)
@@ -144,6 +159,9 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
 
 	log.Debugf("Removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.RemoveAllowedIP(peerKey, allowedIP)
@@ -214,18 +232,29 @@ func (w *WGIface) GetWGDevice() *wgdevice.Device {
 
 // GetStats returns the last handshake time, rx and tx bytes
 func (w *WGIface) GetStats() (map[string]configurer.WGStats, error) {
+	if w.configurer == nil {
+		return nil, ErrIfaceNotFound
+	}
 	return w.configurer.GetStats()
 }
 
-func (w *WGIface) LastActivities() map[string]time.Time {
+func (w *WGIface) LastActivities() map[string]monotime.Time {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	if w.configurer == nil {
+		return nil
+	}
 
 	return w.configurer.LastActivities()
 
 }
 
 func (w *WGIface) FullStats() (*configurer.Stats, error) {
+	if w.configurer == nil {
+		return nil, ErrIfaceNotFound
+	}
+
 	return w.configurer.FullStats()
 }
 

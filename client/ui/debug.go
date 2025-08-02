@@ -433,7 +433,7 @@ func (s *serviceClient) collectDebugData(
 
 	var postUpStatusOutput string
 	if postUpStatus != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(postUpStatus, params.anonymize, "", nil, nil, nil)
+		overview := nbstatus.ConvertToStatusOutputOverview(postUpStatus, params.anonymize, "", nil, nil, nil, "", "")
 		postUpStatusOutput = nbstatus.ParseToFullDetailSummary(overview)
 	}
 	headerPostUp := fmt.Sprintf("----- NetBird post-up - Timestamp: %s", time.Now().Format(time.RFC3339))
@@ -450,7 +450,7 @@ func (s *serviceClient) collectDebugData(
 
 	var preDownStatusOutput string
 	if preDownStatus != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(preDownStatus, params.anonymize, "", nil, nil, nil)
+		overview := nbstatus.ConvertToStatusOutputOverview(preDownStatus, params.anonymize, "", nil, nil, nil, "", "")
 		preDownStatusOutput = nbstatus.ParseToFullDetailSummary(overview)
 	}
 	headerPreDown := fmt.Sprintf("----- NetBird pre-down - Timestamp: %s - Duration: %s",
@@ -581,7 +581,7 @@ func (s *serviceClient) createDebugBundle(anonymize bool, systemInfo bool, uploa
 
 	var statusOutput string
 	if statusResp != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anonymize, "", nil, nil, nil)
+		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anonymize, "", nil, nil, nil, "", "")
 		statusOutput = nbstatus.ParseToFullDetailSummary(overview)
 	}
 

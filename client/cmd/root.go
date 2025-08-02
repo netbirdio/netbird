@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -21,8 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/upload-server/types"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 const (
@@ -38,14 +38,10 @@ const (
 	serverSSHAllowedFlag     = "allow-server-ssh"
 	extraIFaceBlackListFlag  = "extra-iface-blacklist"
 	dnsRouteIntervalFlag     = "dns-router-interval"
-	systemInfoFlag           = "system-info"
 	enableLazyConnectionFlag = "enable-lazy-connection"
-	uploadBundle             = "upload-bundle"
-	uploadBundleURL          = "upload-bundle-url"
 )
 
 var (
-	configPath              string
 	defaultConfigPathDir    string
 	defaultConfigPath       string
 	oldDefaultConfigPathDir string
@@ -55,7 +51,7 @@ var (
 	defaultLogFile          string
 	oldDefaultLogFileDir    string
 	oldDefaultLogFile       string
-	logFile                 string
+	logFiles                []string
 	daemonAddr              string
 	managementURL           string
 	adminURL                string
@@ -71,15 +67,12 @@ var (
 	interfaceName           string
 	wireguardPort           uint16
 	networkMonitor          bool
-	serviceName             string
 	autoConnectDisabled     bool
 	extraIFaceBlackList     []string
 	anonymizeFlag           bool
-	debugSystemInfoFlag     bool
 	dnsRouteInterval        time.Duration
-	debugUploadBundle       bool
-	debugUploadBundleURL    string
 	lazyConnEnabled         bool
+	profilesDisabled        bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
@@ -123,26 +116,19 @@ func init() {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
 
-	defaultServiceName := "netbird"
-	if runtime.GOOS == "windows" {
-		defaultServiceName = "Netbird"
-	}
-
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
-	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultManagementURL))
-	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultAdminURL))
-	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
+	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultManagementURL))
+	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", profilemanager.DefaultAdminURL))
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
-	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout. If syslog is specified the log will be sent to syslog daemon.")
+	rootCmd.PersistentFlags().StringSliceVar(&logFiles, "log-file", []string{defaultLogFile}, "sets Netbird log paths written to simultaneously. If `console` is specified the log will be output to stdout. If `syslog` is specified the log will be sent to syslog daemon. You can pass the flag multiple times or separate entries by `,` character")
 	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
 	rootCmd.PersistentFlags().StringVar(&setupKeyPath, "setup-key-file", "", "The path to a setup key obtained from the Management Service Dashboard (used to register peer) This is ignored if the setup-key flag is provided.")
 	rootCmd.MarkFlagsMutuallyExclusive("setup-key", "setup-key-file")
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
 	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize IP addresses and non-netbird.io domains in logs and status output")
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "(DEPRECATED)  Netbird config file location")
 
-	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -152,9 +138,7 @@ func init() {
 	rootCmd.AddCommand(networksCMD)
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
-
-	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
-	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
+	rootCmd.AddCommand(profileCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
@@ -166,6 +150,12 @@ func init() {
 	logCmd.AddCommand(logLevelCmd)
 	debugCmd.AddCommand(forCmd)
 	debugCmd.AddCommand(persistenceCmd)
+
+	// profile commands
+	profileCmd.AddCommand(profileListCmd)
+	profileCmd.AddCommand(profileAddCmd)
+	profileCmd.AddCommand(profileRemoveCmd)
+	profileCmd.AddCommand(profileSelectCmd)
 
 	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
 		`Sets external IPs maps between local addresses and interfaces.`+
@@ -184,11 +174,8 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
 	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
-	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "[Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand.")
+	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "[Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand. Note: this setting may be overridden by management configuration.")
 
-	debugCmd.PersistentFlags().BoolVarP(&debugSystemInfoFlag, systemInfoFlag, "S", true, "Adds system information to the debug bundle")
-	debugCmd.PersistentFlags().BoolVarP(&debugUploadBundle, uploadBundle, "U", false, fmt.Sprintf("Uploads the debug bundle to a server from URL defined by %s", uploadBundleURL))
-	debugCmd.PersistentFlags().StringVar(&debugUploadBundleURL, uploadBundleURL, types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
@@ -196,14 +183,13 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 	termCh := make(chan os.Signal, 1)
 	signal.Notify(termCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		done := ctx.Done()
+		defer cancel()
 		select {
-		case <-done:
+		case <-ctx.Done():
 		case <-termCh:
 		}
 
 		log.Info("shutdown signal received")
-		cancel()
 	}()
 }
 
@@ -287,7 +273,7 @@ func getSetupKeyFromFile(setupKeyPath string) (string, error) {
 
 func handleRebrand(cmd *cobra.Command) error {
 	var err error
-	if logFile == defaultLogFile {
+	if slices.Contains(logFiles, defaultLogFile) {
 		if migrateToNetbird(oldDefaultLogFile, defaultLogFile) {
 			cmd.Printf("will copy Log dir %s and its content to %s\n", oldDefaultLogFileDir, defaultLogFileDir)
 			err = cpDir(oldDefaultLogFileDir, defaultLogFileDir)
@@ -296,15 +282,14 @@ func handleRebrand(cmd *cobra.Command) error {
 			}
 		}
 	}
-	if configPath == defaultConfigPath {
-		if migrateToNetbird(oldDefaultConfigPath, defaultConfigPath) {
-			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultConfigPathDir, defaultConfigPathDir)
-			err = cpDir(oldDefaultConfigPathDir, defaultConfigPathDir)
-			if err != nil {
-				return err
-			}
+	if migrateToNetbird(oldDefaultConfigPath, defaultConfigPath) {
+		cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultConfigPathDir, defaultConfigPathDir)
+		err = cpDir(oldDefaultConfigPathDir, defaultConfigPathDir)
+		if err != nil {
+			return err
 		}
 	}
+
 	return nil
 }
 

@@ -17,6 +17,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/monotime"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
@@ -223,7 +224,7 @@ func (c *WGUSPConfigurer) FullStats() (*Stats, error) {
 	return parseStatus(c.deviceName, ipcStr)
 }
 
-func (c *WGUSPConfigurer) LastActivities() map[string]time.Time {
+func (c *WGUSPConfigurer) LastActivities() map[string]monotime.Time {
 	return c.activityRecorder.GetLastActivities()
 }
 
@@ -529,7 +530,7 @@ func parseStatus(deviceName, ipcStr string) (*Stats, error) {
 			if currentPeer == nil {
 				continue
 			}
-			if val != "" {
+			if val != "" && val != "0000000000000000000000000000000000000000000000000000000000000000" {
 				currentPeer.PresharedKey = true
 			}
 		}

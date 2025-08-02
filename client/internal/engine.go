@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"os"
 	"reflect"
 	"runtime"
 	"slices"
@@ -43,6 +44,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -63,7 +65,6 @@ import (
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -139,9 +140,6 @@ type Engine struct {
 	peerStore *peerstore.Store
 
 	connMgr *ConnMgr
-
-	beforePeerHook nbnet.AddHookFunc
-	afterPeerHook  nbnet.RemoveHookFunc
 
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager
@@ -242,7 +240,9 @@ func NewEngine(
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
 
-	path := statemanager.GetDefaultStatePath()
+	sm := profilemanager.ServiceManager{}
+
+	path := sm.GetStatePath()
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
@@ -416,12 +416,8 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		DisableClientRoutes: e.config.DisableClientRoutes,
 		DisableServerRoutes: e.config.DisableServerRoutes,
 	})
-	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
-	if err != nil {
+	if err := e.routeManager.Init(); err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
-	} else {
-		e.beforePeerHook = beforePeerHook
-		e.afterPeerHook = afterPeerHook
 	}
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
@@ -1296,10 +1292,6 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 
-	if e.beforePeerHook != nil && e.afterPeerHook != nil {
-		conn.AddBeforeAddPeerHook(e.beforePeerHook)
-		conn.AddAfterRemovePeerHook(e.afterPeerHook)
-	}
 	return nil
 }
 
@@ -1597,7 +1589,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 func (e *Engine) wgInterfaceCreate() (err error) {
 	switch runtime.GOOS {
 	case "android":
-		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP(), e.dnsServer.SearchDomains())
+		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP().String(), e.dnsServer.SearchDomains())
 	case "ios":
 		e.mobileDep.NetworkChangeListener.SetInterfaceIP(e.config.WgAddr)
 		err = e.wgInterface.Create()
@@ -2022,21 +2014,24 @@ func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers 
 }
 
 // isChecksEqual checks if two slices of checks are equal.
-func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
-	for _, check := range checks {
-		sort.Slice(check.Files, func(i, j int) bool {
-			return check.Files[i] < check.Files[j]
-		})
-	}
-	for _, oCheck := range oChecks {
-		sort.Slice(oCheck.Files, func(i, j int) bool {
-			return oCheck.Files[i] < oCheck.Files[j]
-		})
+func isChecksEqual(checks1, checks2 []*mgmProto.Checks) bool {
+	normalize := func(checks []*mgmProto.Checks) []string {
+		normalized := make([]string, len(checks))
+
+		for i, check := range checks {
+			sortedFiles := slices.Clone(check.Files)
+			sort.Strings(sortedFiles)
+			normalized[i] = strings.Join(sortedFiles, "|")
+		}
+
+		sort.Strings(normalized)
+		return normalized
 	}
 
-	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
-		return slices.Equal(checks.Files, oChecks.Files)
-	})
+	n1 := normalize(checks1)
+	n2 := normalize(checks2)
+
+	return slices.Equal(n1, n2)
 }
 
 func getInterfacePrefixes() ([]netip.Prefix, error) {
@@ -2112,4 +2107,17 @@ func compareNetIPLists(list1 []netip.Prefix, list2 []string) bool {
 		}
 	}
 	return true
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
+func createFile(path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return file.Close()
 }

@@ -440,11 +440,15 @@ func startManagementForTest(t *testing.T, testFile string, config *types.Config)
 		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
 		AnyTimes().
 		Return(&types.Settings{}, nil)
-
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
 	permissionsManager := permissions.NewManager(store)
 
 	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 
 	if err != nil {
 		cleanup()
@@ -454,7 +458,7 @@ func startManagementForTest(t *testing.T, testFile string, config *types.Config)
 	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, ephemeralMgr, nil)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{})
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}

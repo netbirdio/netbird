@@ -852,7 +852,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	am := DefaultAccountManager{
 		Store:                   store,
 		eventStore:              &activity.InMemoryEventStore{},
-		integratedPeerValidator: MocIntegratedValidator{},
+		integratedPeerValidator: MockIntegratedValidator{},
 		permissionsManager:      permissionsManager,
 	}
 
@@ -1335,11 +1335,11 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	// account groups propagation is enabled
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
 		Name:  "GroupA",
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-	}, true)
+	})
 	require.NoError(t, err)
 
 	policy := &types.Policy{

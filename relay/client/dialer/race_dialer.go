@@ -9,8 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	connectionTimeout = 30 * time.Second
+const (
+	DefaultConnectionTimeout = 30 * time.Second
 )
 
 type DialeFn interface {
@@ -25,16 +25,18 @@ type dialResult struct {
 }
 
 type RaceDial struct {
-	log       *log.Entry
-	serverURL string
-	dialerFns []DialeFn
+	log               *log.Entry
+	serverURL         string
+	dialerFns         []DialeFn
+	connectionTimeout time.Duration
 }
 
-func NewRaceDial(log *log.Entry, serverURL string, dialerFns ...DialeFn) *RaceDial {
+func NewRaceDial(log *log.Entry, connectionTimeout time.Duration, serverURL string, dialerFns ...DialeFn) *RaceDial {
 	return &RaceDial{
-		log:       log,
-		serverURL: serverURL,
-		dialerFns: dialerFns,
+		log:               log,
+		serverURL:         serverURL,
+		dialerFns:         dialerFns,
+		connectionTimeout: connectionTimeout,
 	}
 }
 
@@ -58,7 +60,7 @@ func (r *RaceDial) Dial() (net.Conn, error) {
 }
 
 func (r *RaceDial) dial(dfn DialeFn, abortCtx context.Context, connChan chan dialResult) {
-	ctx, cancel := context.WithTimeout(abortCtx, connectionTimeout)
+	ctx, cancel := context.WithTimeout(abortCtx, r.connectionTimeout)
 	defer cancel()
 
 	r.log.Infof("dialing Relay server via %s", dfn.Protocol())

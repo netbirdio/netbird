@@ -778,8 +778,14 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+
 	permissionsManager := permissions.NewManager(store)
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 }
 
 func createNSStore(t *testing.T) (store.Store, error) {
@@ -974,18 +980,18 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	var newNameServerGroupA *nbdns.NameServerGroup
 	var newNameServerGroupB *nbdns.NameServerGroup
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
-		{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{},
-		},
-		{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		},
-	}, true)
+	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+		ID:    "groupA",
+		Name:  "GroupA",
+		Peers: []string{},
+	})
+	assert.NoError(t, err)
+
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+		ID:    "groupB",
+		Name:  "GroupB",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+	})
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
