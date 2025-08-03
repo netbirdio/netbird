@@ -2,6 +2,7 @@ package main
 
 const (
 	settingsMenuDescr          = "Settings of the application"
+	profilesMenuDescr          = "Manage your profiles"
 	allowSSHMenuDescr          = "Allow SSH connections"
 	autoConnectMenuDescr       = "Connect automatically when the service starts"
 	quantumResistanceMenuDescr = "Enable post-quantum security via Rosenpass"

@@ -206,7 +206,7 @@ func startServer(
 		eventStore,
 		nil,
 		false,
-		server.MocIntegratedValidator{},
+		server.MockIntegratedValidator{},
 		metrics,
 		port_forwarding.NewControllerMock(),
 		settingsMockManager,
@@ -227,6 +227,7 @@ func startServer(
 		nil,
 		nil,
 		nil,
+		server.MockIntegratedValidator{},
 	)
 	if err != nil {
 		t.Fatalf("failed creating management server: %v", err)

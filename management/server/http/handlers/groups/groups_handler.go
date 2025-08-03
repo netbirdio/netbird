@@ -143,7 +143,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		IntegrationReference: existingGroup.IntegrationReference,
 	}
 
-	if err := h.accountManager.SaveGroup(r.Context(), accountID, userID, &group, false); err != nil {
+	if err := h.accountManager.UpdateGroup(r.Context(), accountID, userID, &group); err != nil {
 		log.WithContext(r.Context()).Errorf("failed updating group %s under account %s %v", groupID, accountID, err)
 		util.WriteError(r.Context(), err, w)
 		return
@@ -203,7 +203,7 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request) {
 		Issued:    types.GroupIssuedAPI,
 	}
 
-	err = h.accountManager.SaveGroup(r.Context(), accountID, userID, &group, true)
+	err = h.accountManager.CreateGroup(r.Context(), accountID, userID, &group)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

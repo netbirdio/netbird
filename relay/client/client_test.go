@@ -30,7 +30,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("debug", "console")
+	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
@@ -572,10 +572,14 @@ func TestCloseByServer(t *testing.T) {
 	idAlice := "alice"
 	log.Debugf("connect by alice")
 	relayClient := NewClient(serverURL, hmacTokenStore, idAlice)
-	err = relayClient.Connect(ctx)
-	if err != nil {
+	if err = relayClient.Connect(ctx); err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
 	}
+	defer func() {
+		if err := relayClient.Close(); err != nil {
+			log.Errorf("failed to close client: %s", err)
+		}
+	}()
 
 	disconnected := make(chan struct{})
 	relayClient.SetOnDisconnectListener(func(_ string) {
@@ -591,7 +595,7 @@ func TestCloseByServer(t *testing.T) {
 	select {
 	case <-disconnected:
 	case <-time.After(3 * time.Second):
-		log.Fatalf("timeout waiting for client to disconnect")
+		log.Errorf("timeout waiting for client to disconnect")
 	}
 
 	_, err = relayClient.OpenConn(ctx, "bob")

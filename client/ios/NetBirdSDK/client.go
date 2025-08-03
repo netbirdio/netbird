@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/management/domain"
@@ -92,7 +93,7 @@ func NewClient(cfgFile, stateFile, deviceName string, osVersion string, osName s
 func (c *Client) Run(fd int32, interfaceName string) error {
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
-	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath:    c.cfgFile,
 		StateFilePath: c.stateFile,
 	})
@@ -203,7 +204,7 @@ func (c *Client) IsLoginRequired() bool {
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
-	cfg, _ := internal.UpdateOrCreateConfig(internal.ConfigInput{
+	cfg, _ := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
 
@@ -223,7 +224,7 @@ func (c *Client) LoginForMobile() string {
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
-	cfg, _ := internal.UpdateOrCreateConfig(internal.ConfigInput{
+	cfg, _ := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
 

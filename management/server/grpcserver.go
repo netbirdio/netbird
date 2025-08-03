@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
@@ -40,13 +41,14 @@ type GRPCServer struct {
 	settingsManager settings.Manager
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	peersUpdateManager *PeersUpdateManager
-	config             *types.Config
-	secretsManager     SecretsManager
-	appMetrics         telemetry.AppMetrics
-	ephemeralManager   *EphemeralManager
-	peerLocks          sync.Map
-	authManager        auth.Manager
+	peersUpdateManager      *PeersUpdateManager
+	config                  *types.Config
+	secretsManager          SecretsManager
+	appMetrics              telemetry.AppMetrics
+	ephemeralManager        *EphemeralManager
+	peerLocks               sync.Map
+	authManager             auth.Manager
+	integratedPeerValidator integrated_validator.IntegratedValidator
 }
 
 // NewServer creates a new Management server
@@ -60,6 +62,7 @@ func NewServer(
 	appMetrics telemetry.AppMetrics,
 	ephemeralManager *EphemeralManager,
 	authManager auth.Manager,
+	integratedPeerValidator integrated_validator.IntegratedValidator,
 ) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -79,14 +82,15 @@ func NewServer(
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
-		peersUpdateManager: peersUpdateManager,
-		accountManager:     accountManager,
-		settingsManager:    settingsManager,
-		config:             config,
-		secretsManager:     secretsManager,
-		authManager:        authManager,
-		appMetrics:         appMetrics,
-		ephemeralManager:   ephemeralManager,
+		peersUpdateManager:      peersUpdateManager,
+		accountManager:          accountManager,
+		settingsManager:         settingsManager,
+		config:                  config,
+		secretsManager:          secretsManager,
+		authManager:             authManager,
+		appMetrics:              appMetrics,
+		ephemeralManager:        ephemeralManager,
+		integratedPeerValidator: integratedPeerValidator,
 	}, nil
 }
 
@@ -850,7 +854,7 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.En
 		return nil, status.Error(codes.NotFound, "no pkce authorization flow information available")
 	}
 
-	flowInfoResp := &proto.PKCEAuthorizationFlow{
+	initInfoFlow := &proto.PKCEAuthorizationFlow{
 		ProviderConfig: &proto.ProviderConfig{
 			Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
 			ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
@@ -864,6 +868,8 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.En
 			LoginFlag:             uint32(s.config.PKCEAuthorizationFlow.ProviderConfig.LoginFlag),
 		},
 	}
+
+	flowInfoResp := s.integratedPeerValidator.ValidateFlowResponse(ctx, peerKey.String(), initInfoFlow)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, flowInfoResp)
 	if err != nil {

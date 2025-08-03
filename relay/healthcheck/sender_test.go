@@ -122,10 +122,6 @@ func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
 			originalTimeout := healthCheckTimeout
 			healthCheckInterval = 1 * time.Second
 			healthCheckTimeout = 500 * time.Millisecond
-			defer func() {
-				healthCheckInterval = originalInterval
-				healthCheckTimeout = originalTimeout
-			}()
 
 			//nolint:tenv
 			os.Setenv(defaultAttemptThresholdEnv, fmt.Sprintf("%d", tc.threshold))
@@ -135,7 +131,11 @@ func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
 			defer cancel()
 
 			sender := NewSender(log.WithField("test_name", tc.name))
-			go sender.StartHealthCheck(ctx)
+			senderExit := make(chan struct{})
+			go func() {
+				sender.StartHealthCheck(ctx)
+				close(senderExit)
+			}()
 
 			go func() {
 				responded := false
@@ -160,15 +160,23 @@ func TestSenderHealthCheckAttemptThreshold(t *testing.T) {
 			select {
 			case <-sender.Timeout:
 				if tc.resetCounterOnce {
-					t.Fatalf("should not have timed out before %s", testTimeout)
+					t.Errorf("should not have timed out before %s", testTimeout)
 				}
 			case <-time.After(testTimeout):
 				if tc.resetCounterOnce {
 					return
 				}
-				t.Fatalf("should have timed out before %s", testTimeout)
+				t.Errorf("should have timed out before %s", testTimeout)
 			}
 
+			cancel()
+			select {
+			case <-senderExit:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("sender did not exit in time")
+			}
+			healthCheckInterval = originalInterval
+			healthCheckTimeout = originalTimeout
 		})
 	}
 
