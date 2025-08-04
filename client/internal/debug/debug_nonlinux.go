@@ -12,3 +12,8 @@ func (g *BundleGenerator) trySystemdLogFallback() error {
 	// TODO: Add BSD support
 	return nil
 }
+
+func (g *BundleGenerator) addIPRules() error {
+	// IP rules are only supported on Linux
+	return nil
+}

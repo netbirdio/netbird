@@ -48,6 +48,8 @@ type ManagementServiceClient interface {
 	// sync meta will evaluate the checks and update the peer meta with the result.
 	// EncryptedMessage of the request has a body of Empty.
 	SyncMeta(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
+	// Logout logs out the peer and removes it from the management server
+	Logout(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type managementServiceClient struct {
@@ -144,6 +146,15 @@ func (c *managementServiceClient) SyncMeta(ctx context.Context, in *EncryptedMes
 	return out, nil
 }
 
+func (c *managementServiceClient) Logout(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/Logout", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ManagementServiceServer is the server API for ManagementService service.
 // All implementations must embed UnimplementedManagementServiceServer
 // for forward compatibility
@@ -178,6 +189,8 @@ type ManagementServiceServer interface {
 	// sync meta will evaluate the checks and update the peer meta with the result.
 	// EncryptedMessage of the request has a body of Empty.
 	SyncMeta(context.Context, *EncryptedMessage) (*Empty, error)
+	// Logout logs out the peer and removes it from the management server
+	Logout(context.Context, *EncryptedMessage) (*Empty, error)
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -205,6 +218,9 @@ func (UnimplementedManagementServiceServer) GetPKCEAuthorizationFlow(context.Con
 }
 func (UnimplementedManagementServiceServer) SyncMeta(context.Context, *EncryptedMessage) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncMeta not implemented")
+}
+func (UnimplementedManagementServiceServer) Logout(context.Context, *EncryptedMessage) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Logout not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}
 
@@ -348,6 +364,24 @@ func _ManagementService_SyncMeta_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ManagementService_Logout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).Logout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/Logout",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).Logout(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ManagementService_ServiceDesc is the grpc.ServiceDesc for ManagementService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -378,6 +412,10 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncMeta",
 			Handler:    _ManagementService_SyncMeta_Handler,
+		},
+		{
+			MethodName: "Logout",
+			Handler:    _ManagementService_Logout_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

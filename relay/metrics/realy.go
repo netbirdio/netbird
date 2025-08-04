@@ -20,12 +20,12 @@ type Metrics struct {
 	TransferBytesRecv  metric.Int64Counter
 	AuthenticationTime metric.Float64Histogram
 	PeerStoreTime      metric.Float64Histogram
-
-	peers            metric.Int64UpDownCounter
-	peerActivityChan chan string
-	peerLastActive   map[string]time.Time
-	mutexActivity    sync.Mutex
-	ctx              context.Context
+	peerReconnections  metric.Int64Counter
+	peers              metric.Int64UpDownCounter
+	peerActivityChan   chan string
+	peerLastActive     map[string]time.Time
+	mutexActivity      sync.Mutex
+	ctx                context.Context
 }
 
 func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
@@ -80,6 +80,13 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
+	peerReconnections, err := meter.Int64Counter("relay_peer_reconnections_total",
+		metric.WithDescription("Total number of times peers have reconnected and closed old connections"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	m := &Metrics{
 		Meter:              meter,
 		TransferBytesSent:  bytesSent,
@@ -87,6 +94,7 @@ func NewMetrics(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 		AuthenticationTime: authTime,
 		PeerStoreTime:      peerStoreTime,
 		peers:              peers,
+		peerReconnections:  peerReconnections,
 
 		ctx:              ctx,
 		peerActivityChan: make(chan string, 10),
@@ -136,6 +144,10 @@ func (m *Metrics) PeerDisconnected(id string) {
 	defer m.mutexActivity.Unlock()
 
 	delete(m.peerLastActive, id)
+}
+
+func (m *Metrics) RecordPeerReconnection() {
+	m.peerReconnections.Add(m.ctx, 1)
 }
 
 // PeerActivity increases the active connections

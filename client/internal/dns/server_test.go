@@ -938,7 +938,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 	return wgIface, nil
 }
 
-func newDnsResolver(ip string, port int) *net.Resolver {
+func newDnsResolver(ip netip.Addr, port int) *net.Resolver {
 	return &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -1047,7 +1047,7 @@ type mockService struct{}
 
 func (m *mockService) Listen() error                   { return nil }
 func (m *mockService) Stop()                           {}
-func (m *mockService) RuntimeIP() string               { return "127.0.0.1" }
+func (m *mockService) RuntimeIP() netip.Addr           { return netip.MustParseAddr("127.0.0.1") }
 func (m *mockService) RuntimePort() int                { return 53 }
 func (m *mockService) RegisterMux(string, dns.Handler) {}
 func (m *mockService) DeregisterMux(string)            {}
@@ -2052,4 +2052,57 @@ func TestLocalResolverPriorityConstants(t *testing.T) {
 	assert.Len(t, localMuxUpdates, 1)
 	assert.Equal(t, PriorityLocal, localMuxUpdates[0].priority, "Local handler should use PriorityLocal")
 	assert.Equal(t, "local.example.com", localMuxUpdates[0].domain)
+}
+
+func TestFormatAddr(t *testing.T) {
+	tests := []struct {
+		name     string
+		address  string
+		port     int
+		expected string
+	}{
+		{
+			name:     "IPv4 address",
+			address:  "8.8.8.8",
+			port:     53,
+			expected: "8.8.8.8:53",
+		},
+		{
+			name:     "IPv4 address with custom port",
+			address:  "1.1.1.1",
+			port:     5353,
+			expected: "1.1.1.1:5353",
+		},
+		{
+			name:     "IPv6 address",
+			address:  "fd78:94bf:7df8::1",
+			port:     53,
+			expected: "[fd78:94bf:7df8::1]:53",
+		},
+		{
+			name:     "IPv6 address with custom port",
+			address:  "2001:db8::1",
+			port:     5353,
+			expected: "[2001:db8::1]:5353",
+		},
+		{
+			name:     "IPv6 localhost",
+			address:  "::1",
+			port:     53,
+			expected: "[::1]:53",
+		},
+		{
+			name:     "Invalid address treated as hostname",
+			address:  "dns.example.com",
+			port:     53,
+			expected: "dns.example.com:53",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatAddr(tt.address, tt.port)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

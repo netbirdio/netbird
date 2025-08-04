@@ -45,6 +45,9 @@ service ManagementService {
   // sync meta will evaluate the checks and update the peer meta with the result.
   // EncryptedMessage of the request has a body of Empty.
   rpc  SyncMeta(EncryptedMessage) returns (Empty) {}
+
+  // Logout logs out the peer and removes it from the management server
+  rpc Logout(EncryptedMessage) returns (Empty) {}
 }
 
 message EncryptedMessage {

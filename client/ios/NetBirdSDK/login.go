@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -36,17 +37,17 @@ type URLOpener interface {
 // Auth can register or login new client
 type Auth struct {
 	ctx     context.Context
-	config  *internal.Config
+	config  *profilemanager.Config
 	cfgPath string
 }
 
 // NewAuth instantiate Auth struct and validate the management URL
 func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
-	inputCfg := internal.ConfigInput{
+	inputCfg := profilemanager.ConfigInput{
 		ManagementURL: mgmURL,
 	}
 
-	cfg, err := internal.CreateInMemoryConfig(inputCfg)
+	cfg, err := profilemanager.CreateInMemoryConfig(inputCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +60,7 @@ func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 }
 
 // NewAuthWithConfig instantiate Auth based on existing config
-func NewAuthWithConfig(ctx context.Context, config *internal.Config) *Auth {
+func NewAuthWithConfig(ctx context.Context, config *profilemanager.Config) *Auth {
 	return &Auth{
 		ctx:    ctx,
 		config: config,
@@ -94,7 +95,7 @@ func (a *Auth) SaveConfigIfSSOSupported() (bool, error) {
 		return false, fmt.Errorf("backoff cycle failed: %v", err)
 	}
 
-	err = internal.WriteOutConfig(a.cfgPath, a.config)
+	err = profilemanager.WriteOutConfig(a.cfgPath, a.config)
 	return true, err
 }
 
@@ -115,7 +116,7 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 		return fmt.Errorf("backoff cycle failed: %v", err)
 	}
 
-	return internal.WriteOutConfig(a.cfgPath, a.config)
+	return profilemanager.WriteOutConfig(a.cfgPath, a.config)
 }
 
 func (a *Auth) Login() error {

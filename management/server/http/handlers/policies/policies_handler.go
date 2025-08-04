@@ -424,9 +424,10 @@ func toPolicyResponse(groups []*types.Group, policy *types.Policy) *api.Policy {
 			}
 			if group, ok := groupsMap[gid]; ok {
 				minimum := api.GroupMinimum{
-					Id:         group.ID,
-					Name:       group.Name,
-					PeersCount: len(group.Peers),
+					Id:             group.ID,
+					Name:           group.Name,
+					PeersCount:     len(group.Peers),
+					ResourcesCount: len(group.Resources),
 				}
 				destinations = append(destinations, minimum)
 				cache[gid] = minimum

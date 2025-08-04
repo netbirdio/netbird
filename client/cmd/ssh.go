@@ -12,14 +12,15 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/util"
 )
 
 var (
-	port int
-	user = "root"
-	host string
+	port     int
+	userName = "root"
+	host     string
 )
 
 var sshCmd = &cobra.Command{
@@ -31,7 +32,7 @@ var sshCmd = &cobra.Command{
 
 		split := strings.Split(args[0], "@")
 		if len(split) == 2 {
-			user = split[0]
+			userName = split[0]
 			host = split[1]
 		} else {
 			host = args[0]
@@ -46,7 +47,7 @@ var sshCmd = &cobra.Command{
 
 		cmd.SetOut(cmd.OutOrStdout())
 
-		err := util.InitLog(logLevel, "console")
+		err := util.InitLog(logLevel, util.LogConsole)
 		if err != nil {
 			return fmt.Errorf("failed initializing log %v", err)
 		}
@@ -58,11 +59,19 @@ var sshCmd = &cobra.Command{
 
 		ctx := internal.CtxInitState(cmd.Context())
 
-		config, err := internal.UpdateConfig(internal.ConfigInput{
-			ConfigPath: configPath,
-		})
+		pm := profilemanager.NewProfileManager()
+		activeProf, err := pm.GetActiveProfile()
 		if err != nil {
-			return err
+			return fmt.Errorf("get active profile: %v", err)
+		}
+		profPath, err := activeProf.FilePath()
+		if err != nil {
+			return fmt.Errorf("get active profile path: %v", err)
+		}
+
+		config, err := profilemanager.ReadConfig(profPath)
+		if err != nil {
+			return fmt.Errorf("read profile config: %v", err)
 		}
 
 		sig := make(chan os.Signal, 1)
@@ -89,7 +98,7 @@ var sshCmd = &cobra.Command{
 }
 
 func runSSH(ctx context.Context, addr string, pemKey []byte, cmd *cobra.Command) error {
-	c, err := nbssh.DialWithKey(fmt.Sprintf("%s:%d", addr, port), user, pemKey)
+	c, err := nbssh.DialWithKey(fmt.Sprintf("%s:%d", addr, port), userName, pemKey)
 	if err != nil {
 		cmd.Printf("Error: %v\n", err)
 		cmd.Printf("Couldn't connect. Please check the connection status or if the ssh server is enabled on the other peer" +

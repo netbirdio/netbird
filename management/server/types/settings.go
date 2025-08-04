@@ -81,6 +81,8 @@ type ExtraSettings struct {
 	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
 	PeerApprovalEnabled bool
 
+	// IntegratedValidator is the string enum for the integrated validator type
+	IntegratedValidator string
 	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
 	IntegratedValidatorGroups []string `gorm:"serializer:json"`
 
@@ -97,5 +99,10 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 	return &ExtraSettings{
 		PeerApprovalEnabled:       e.PeerApprovalEnabled,
 		IntegratedValidatorGroups: append(cpGroup, e.IntegratedValidatorGroups...),
+		IntegratedValidator:       e.IntegratedValidator,
+		FlowEnabled:               e.FlowEnabled,
+		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
+		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
+		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,
 	}
 }

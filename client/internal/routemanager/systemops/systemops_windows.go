@@ -19,7 +19,6 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const InfiniteLifetime = 0xffffffff
@@ -39,13 +38,6 @@ type RouteMonitor struct {
 	updates chan RouteUpdate
 	handle  windows.Handle
 	done    chan struct{}
-}
-
-// Route represents a single routing table entry.
-type Route struct {
-	Destination netip.Prefix
-	Nexthop     netip.Addr
-	Interface   *net.Interface
 }
 
 type MSFT_NetRoute struct {
@@ -79,6 +71,12 @@ type MIB_IPFORWARD_ROW2 struct {
 	Origin               uint32
 }
 
+// MIB_IPFORWARD_TABLE2 represents a table of IP forward entries
+type MIB_IPFORWARD_TABLE2 struct {
+	NumEntries uint32
+	Table      [1]MIB_IPFORWARD_ROW2 // Flexible array member
+}
+
 // IP_ADDRESS_PREFIX is defined in https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-ip_address_prefix
 type IP_ADDRESS_PREFIX struct {
 	Prefix       SOCKADDR_INET
@@ -109,6 +107,45 @@ type SOCKADDR_INET_NEXTHOP struct {
 // MIB_NOTIFICATION_TYPE is defined in https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ne-netioapi-mib_notification_type
 type MIB_NOTIFICATION_TYPE int32
 
+// MIB_IPINTERFACE_ROW is defined in https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipinterface_row
+type MIB_IPINTERFACE_ROW struct {
+	Family                               uint16
+	InterfaceLuid                        luid
+	InterfaceIndex                       uint32
+	MaxReassemblySize                    uint32
+	InterfaceIdentifier                  uint64
+	MinRouterAdvertisementInterval       uint32
+	MaxRouterAdvertisementInterval       uint32
+	AdvertisingEnabled                   uint8
+	ForwardingEnabled                    uint8
+	WeakHostSend                         uint8
+	WeakHostReceive                      uint8
+	UseAutomaticMetric                   uint8
+	UseNeighborUnreachabilityDetection   uint8
+	ManagedAddressConfigurationSupported uint8
+	OtherStatefulConfigurationSupported  uint8
+	AdvertiseDefaultRoute                uint8
+	RouterDiscoveryBehavior              uint32
+	DadTransmits                         uint32
+	BaseReachableTime                    uint32
+	RetransmitTime                       uint32
+	PathMtuDiscoveryTimeout              uint32
+	LinkLocalAddressBehavior             uint32
+	LinkLocalAddressTimeout              uint32
+	ZoneIndices                          [16]uint32
+	SitePrefixLength                     uint32
+	Metric                               uint32
+	NlMtu                                uint32
+	Connected                            uint8
+	SupportsWakeUpPatterns               uint8
+	SupportsNeighborDiscovery            uint8
+	SupportsRouterDiscovery              uint8
+	ReachableTime                        uint32
+	TransmitOffload                      uint32
+	ReceiveOffload                       uint32
+	DisableDefaultRoutes                 uint8
+}
+
 var (
 	modiphlpapi                     = windows.NewLazyDLL("iphlpapi.dll")
 	procNotifyRouteChange2          = modiphlpapi.NewProc("NotifyRouteChange2")
@@ -116,8 +153,11 @@ var (
 	procCreateIpForwardEntry2       = modiphlpapi.NewProc("CreateIpForwardEntry2")
 	procDeleteIpForwardEntry2       = modiphlpapi.NewProc("DeleteIpForwardEntry2")
 	procGetIpForwardEntry2          = modiphlpapi.NewProc("GetIpForwardEntry2")
+	procGetIpForwardTable2          = modiphlpapi.NewProc("GetIpForwardTable2")
 	procInitializeIpForwardEntry    = modiphlpapi.NewProc("InitializeIpForwardEntry")
 	procConvertInterfaceIndexToLuid = modiphlpapi.NewProc("ConvertInterfaceIndexToLuid")
+	procGetIpInterfaceEntry         = modiphlpapi.NewProc("GetIpInterfaceEntry")
+	procFreeMibTable                = modiphlpapi.NewProc("FreeMibTable")
 
 	prefixList []netip.Prefix
 	lastUpdate time.Time
@@ -137,7 +177,7 @@ const (
 	RouteDeleted
 )
 
-func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	return r.setupRefCounter(initAddresses, stateManager)
 }
 
@@ -430,6 +470,8 @@ func (rm *RouteMonitor) parseUpdate(row *MIB_IPFORWARD_ROW2, notificationType MI
 		updateType = RouteAdded
 	case MibDeleteInstance:
 		updateType = RouteDeleted
+	case MibInitialNotification:
+		updateType = RouteAdded // Treat initial notifications as additions
 	}
 
 	update.Type = updateType
@@ -509,7 +551,7 @@ func GetRoutesFromTable() ([]netip.Prefix, error) {
 
 	prefixList = nil
 	for _, route := range routes {
-		prefixList = append(prefixList, route.Destination)
+		prefixList = append(prefixList, route.Dst)
 	}
 
 	lastUpdate = time.Now()
@@ -552,13 +594,157 @@ func GetRoutes() ([]Route, error) {
 		}
 
 		routes = append(routes, Route{
-			Destination: dest,
-			Nexthop:     nexthop,
-			Interface:   intf,
+			Dst:       dest,
+			Gw:        nexthop,
+			Interface: intf,
 		})
 	}
 
 	return routes, nil
+}
+
+// GetDetailedRoutesFromTable returns detailed route information using Windows syscalls
+func GetDetailedRoutesFromTable() ([]DetailedRoute, error) {
+	table, err := getWindowsRoutingTable()
+	if err != nil {
+		return nil, err
+	}
+
+	defer freeWindowsRoutingTable(table)
+
+	return parseWindowsRoutingTable(table), nil
+}
+
+func getWindowsRoutingTable() (*MIB_IPFORWARD_TABLE2, error) {
+	var table *MIB_IPFORWARD_TABLE2
+
+	ret, _, err := procGetIpForwardTable2.Call(
+		uintptr(windows.AF_UNSPEC),
+		uintptr(unsafe.Pointer(&table)),
+	)
+	if ret != 0 {
+		return nil, fmt.Errorf("GetIpForwardTable2 failed: %w", err)
+	}
+
+	if table == nil {
+		return nil, fmt.Errorf("received nil routing table")
+	}
+
+	return table, nil
+}
+
+func freeWindowsRoutingTable(table *MIB_IPFORWARD_TABLE2) {
+	if table != nil {
+		ret, _, _ := procFreeMibTable.Call(uintptr(unsafe.Pointer(table)))
+		if ret != 0 {
+			log.Warnf("FreeMibTable failed with return code: %d", ret)
+		}
+	}
+}
+
+func parseWindowsRoutingTable(table *MIB_IPFORWARD_TABLE2) []DetailedRoute {
+	var detailedRoutes []DetailedRoute
+
+	entrySize := unsafe.Sizeof(MIB_IPFORWARD_ROW2{})
+	basePtr := uintptr(unsafe.Pointer(&table.Table[0]))
+
+	for i := uint32(0); i < table.NumEntries; i++ {
+		entryPtr := basePtr + uintptr(i)*entrySize
+		entry := (*MIB_IPFORWARD_ROW2)(unsafe.Pointer(entryPtr))
+
+		detailed := buildWindowsDetailedRoute(entry)
+		if detailed != nil {
+			detailedRoutes = append(detailedRoutes, *detailed)
+		}
+	}
+
+	return detailedRoutes
+}
+
+func buildWindowsDetailedRoute(entry *MIB_IPFORWARD_ROW2) *DetailedRoute {
+	dest := parseIPPrefix(entry.DestinationPrefix, int(entry.InterfaceIndex))
+	if !dest.IsValid() {
+		return nil
+	}
+
+	gateway := parseIPNexthop(entry.NextHop, int(entry.InterfaceIndex))
+
+	var intf *net.Interface
+	if entry.InterfaceIndex != 0 {
+		if netIntf, err := net.InterfaceByIndex(int(entry.InterfaceIndex)); err == nil {
+			intf = netIntf
+		} else {
+			// Create a synthetic interface for display when we can't resolve the name
+			intf = &net.Interface{
+				Index: int(entry.InterfaceIndex),
+				Name:  fmt.Sprintf("index-%d", entry.InterfaceIndex),
+			}
+		}
+	}
+
+	detailed := DetailedRoute{
+		Route: Route{
+			Dst:       dest,
+			Gw:        gateway,
+			Interface: intf,
+		},
+
+		Metric:          int(entry.Metric),
+		InterfaceMetric: getInterfaceMetric(entry.InterfaceIndex, entry.DestinationPrefix.Prefix.sin6_family),
+		InterfaceIndex:  int(entry.InterfaceIndex),
+		Protocol:        windowsProtocolToString(entry.Protocol),
+		Scope:           formatRouteAge(entry.Age),
+		Type:            windowsOriginToString(entry.Origin),
+		Table:           "main",
+		Flags:           "-",
+	}
+
+	return &detailed
+}
+
+func windowsProtocolToString(protocol uint32) string {
+	switch protocol {
+	case 1:
+		return "other"
+	case 2:
+		return "local"
+	case 3:
+		return "netmgmt"
+	case 4:
+		return "icmp"
+	case 5:
+		return "egp"
+	case 6:
+		return "ggp"
+	case 7:
+		return "hello"
+	case 8:
+		return "rip"
+	case 9:
+		return "isis"
+	case 10:
+		return "esis"
+	case 11:
+		return "cisco"
+	case 12:
+		return "bbn"
+	case 13:
+		return "ospf"
+	case 14:
+		return "bgp"
+	case 15:
+		return "idpr"
+	case 16:
+		return "eigrp"
+	case 17:
+		return "dvmrp"
+	case 18:
+		return "rpl"
+	case 19:
+		return "dhcp"
+	default:
+		return fmt.Sprintf("unknown-%d", protocol)
+	}
 }
 
 func isCacheDisabled() bool {
@@ -614,4 +800,60 @@ func addZone(ip netip.Addr, interfaceIndex int) netip.Addr {
 		ip = ip.WithZone(strconv.Itoa(interfaceIndex))
 	}
 	return ip
+}
+
+// getInterfaceMetric retrieves the interface metric for a given interface and address family
+func getInterfaceMetric(interfaceIndex uint32, family int16) int {
+	if interfaceIndex == 0 {
+		return -1
+	}
+
+	var ipInterfaceRow MIB_IPINTERFACE_ROW
+	ipInterfaceRow.Family = uint16(family)
+	ipInterfaceRow.InterfaceIndex = interfaceIndex
+
+	ret, _, _ := procGetIpInterfaceEntry.Call(uintptr(unsafe.Pointer(&ipInterfaceRow)))
+	if ret != 0 {
+		log.Debugf("GetIpInterfaceEntry failed for interface %d: %d", interfaceIndex, ret)
+		return -1
+	}
+
+	return int(ipInterfaceRow.Metric)
+}
+
+// formatRouteAge formats the route age in seconds to a human-readable string
+func formatRouteAge(ageSeconds uint32) string {
+	if ageSeconds == 0 {
+		return "0s"
+	}
+
+	age := time.Duration(ageSeconds) * time.Second
+	switch {
+	case age < time.Minute:
+		return fmt.Sprintf("%ds", int(age.Seconds()))
+	case age < time.Hour:
+		return fmt.Sprintf("%dm", int(age.Minutes()))
+	case age < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(age.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(age.Hours()/24))
+	}
+}
+
+// windowsOriginToString converts Windows route origin to string
+func windowsOriginToString(origin uint32) string {
+	switch origin {
+	case 0:
+		return "manual"
+	case 1:
+		return "wellknown"
+	case 2:
+		return "dhcp"
+	case 3:
+		return "routeradvert"
+	case 4:
+		return "6to4"
+	default:
+		return fmt.Sprintf("unknown-%d", origin)
+	}
 }

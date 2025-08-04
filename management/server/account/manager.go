@@ -63,8 +63,10 @@ type Manager interface {
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
-	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group, create bool) error
-	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group, create bool) error
+	CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
+	UpdateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
+	CreateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
+	UpdateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
@@ -102,7 +104,7 @@ type Manager interface {
 	DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManager() idp.Manager
-	UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error
+	UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
 	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error)
 	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)

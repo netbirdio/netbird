@@ -39,17 +39,6 @@ func NewRelayTrack() *RelayTrack {
 
 type OnServerCloseListener func()
 
-// ManagerService is the interface for the relay manager.
-type ManagerService interface {
-	Serve() error
-	OpenConn(serverAddress, peerKey string) (net.Conn, error)
-	AddCloseListener(serverAddress string, onClosedListener OnServerCloseListener) error
-	RelayInstanceAddress() (string, error)
-	ServerURLs() []string
-	HasRelayAddress() bool
-	UpdateToken(token *relayAuth.Token) error
-}
-
 // Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
 // and automatically reconnect to them in case disconnection.
 // The manager also manage temporary relay connection. If a client wants to communicate with a client on a
@@ -65,7 +54,7 @@ type Manager struct {
 
 	relayClient *Client
 	// the guard logic can overwrite the relayClient variable, this mutex protect the usage of the variable
-	relayClientMu  sync.Mutex
+	relayClientMu  sync.RWMutex
 	reconnectGuard *Guard
 
 	relayClients      map[string]*RelayTrack
@@ -123,9 +112,9 @@ func (m *Manager) Serve() error {
 // OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be
 // established via the relay server. If the peer is on a different relay server, the manager will establish a new
 // connection to the relay server. It returns back with a net.Conn what represent the remote peer connection.
-func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
-	m.relayClientMu.Lock()
-	defer m.relayClientMu.Unlock()
+func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string) (net.Conn, error) {
+	m.relayClientMu.RLock()
+	defer m.relayClientMu.RUnlock()
 
 	if m.relayClient == nil {
 		return nil, ErrRelayClientNotConnected
@@ -141,10 +130,10 @@ func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 	)
 	if !foreign {
 		log.Debugf("open peer connection via permanent server: %s", peerKey)
-		netConn, err = m.relayClient.OpenConn(peerKey)
+		netConn, err = m.relayClient.OpenConn(ctx, peerKey)
 	} else {
 		log.Debugf("open peer connection via foreign server: %s", serverAddress)
-		netConn, err = m.openConnVia(serverAddress, peerKey)
+		netConn, err = m.openConnVia(ctx, serverAddress, peerKey)
 	}
 	if err != nil {
 		return nil, err
@@ -155,8 +144,8 @@ func (m *Manager) OpenConn(serverAddress, peerKey string) (net.Conn, error) {
 
 // Ready returns true if the home Relay client is connected to the relay server.
 func (m *Manager) Ready() bool {
-	m.relayClientMu.Lock()
-	defer m.relayClientMu.Unlock()
+	m.relayClientMu.RLock()
+	defer m.relayClientMu.RUnlock()
 
 	if m.relayClient == nil {
 		return false
@@ -174,8 +163,8 @@ func (m *Manager) SetOnReconnectedListener(f func()) {
 // AddCloseListener adds a listener to the given server instance address. The listener will be called if the connection
 // closed.
 func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServerCloseListener) error {
-	m.relayClientMu.Lock()
-	defer m.relayClientMu.Unlock()
+	m.relayClientMu.RLock()
+	defer m.relayClientMu.RUnlock()
 
 	if m.relayClient == nil {
 		return ErrRelayClientNotConnected
@@ -199,8 +188,8 @@ func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServ
 // RelayInstanceAddress returns the address of the permanent relay server. It could change if the network connection is
 // lost. This address will be sent to the target peer to choose the common relay server for the communication.
 func (m *Manager) RelayInstanceAddress() (string, error) {
-	m.relayClientMu.Lock()
-	defer m.relayClientMu.Unlock()
+	m.relayClientMu.RLock()
+	defer m.relayClientMu.RUnlock()
 
 	if m.relayClient == nil {
 		return "", ErrRelayClientNotConnected
@@ -229,7 +218,7 @@ func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 	return m.tokenStore.UpdateToken(token)
 }
 
-func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
+func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string) (net.Conn, error) {
 	// check if already has a connection to the desired relay server
 	m.relayClientsMutex.RLock()
 	rt, ok := m.relayClients[serverAddress]
@@ -240,7 +229,7 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 		if rt.err != nil {
 			return nil, rt.err
 		}
-		return rt.relayClient.OpenConn(peerKey)
+		return rt.relayClient.OpenConn(ctx, peerKey)
 	}
 	m.relayClientsMutex.RUnlock()
 
@@ -255,7 +244,7 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 		if rt.err != nil {
 			return nil, rt.err
 		}
-		return rt.relayClient.OpenConn(peerKey)
+		return rt.relayClient.OpenConn(ctx, peerKey)
 	}
 
 	// create a new relay client and store it in the relayClients map
@@ -264,8 +253,8 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 	m.relayClients[serverAddress] = rt
 	m.relayClientsMutex.Unlock()
 
-	relayClient := NewClient(m.ctx, serverAddress, m.tokenStore, m.peerID)
-	err := relayClient.Connect()
+	relayClient := NewClient(serverAddress, m.tokenStore, m.peerID)
+	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.err = err
 		rt.Unlock()
@@ -279,7 +268,7 @@ func (m *Manager) openConnVia(serverAddress, peerKey string) (net.Conn, error) {
 	rt.relayClient = relayClient
 	rt.Unlock()
 
-	conn, err := relayClient.OpenConn(peerKey)
+	conn, err := relayClient.OpenConn(ctx, peerKey)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +289,9 @@ func (m *Manager) onServerConnected() {
 func (m *Manager) onServerDisconnected(serverAddress string) {
 	m.relayClientMu.Lock()
 	if serverAddress == m.relayClient.connectionURL {
-		go m.reconnectGuard.StartReconnectTrys(m.ctx, m.relayClient)
+		go func(client *Client) {
+			m.reconnectGuard.StartReconnectTrys(m.ctx, client)
+		}(m.relayClient)
 	}
 	m.relayClientMu.Unlock()
 

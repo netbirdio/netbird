@@ -103,7 +103,7 @@ type MockAccountManager struct {
 	DeletePostureChecksFunc               func(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecksFunc                 func(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
 	GetIdpManagerFunc                     func() idp.Manager
-	UpdateIntegratedValidatorGroupsFunc   func(ctx context.Context, accountID string, userID string, groups []string) error
+	UpdateIntegratedValidatorFunc         func(ctx context.Context, accountID, userID, validator string, groups []string) error
 	GroupValidationFunc                   func(ctx context.Context, accountId string, groups []string) (bool, error)
 	SyncPeerMetaFunc                      func(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheckFunc          func(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
@@ -123,6 +123,34 @@ type MockAccountManager struct {
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 	UpdateAccountPeersFunc                func(ctx context.Context, accountID string)
 	BufferUpdateAccountPeersFunc          func(ctx context.Context, accountID string)
+}
+
+func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
+	if am.SaveGroupFunc != nil {
+		return am.SaveGroupFunc(ctx, accountID, userID, group, true)
+	}
+	return status.Errorf(codes.Unimplemented, "method CreateGroup is not implemented")
+}
+
+func (am *MockAccountManager) UpdateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
+	if am.SaveGroupFunc != nil {
+		return am.SaveGroupFunc(ctx, accountID, userID, group, false)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdateGroup is not implemented")
+}
+
+func (am *MockAccountManager) CreateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error {
+	if am.SaveGroupsFunc != nil {
+		return am.SaveGroupsFunc(ctx, accountID, userID, newGroups, true)
+	}
+	return status.Errorf(codes.Unimplemented, "method CreateGroups is not implemented")
+}
+
+func (am *MockAccountManager) UpdateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error {
+	if am.SaveGroupsFunc != nil {
+		return am.SaveGroupsFunc(ctx, accountID, userID, newGroups, false)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdateGroups is not implemented")
 }
 
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
@@ -777,10 +805,10 @@ func (am *MockAccountManager) GetIdpManager() idp.Manager {
 	return nil
 }
 
-// UpdateIntegratedValidatorGroups mocks UpdateIntegratedApprovalGroups of the AccountManager interface
-func (am *MockAccountManager) UpdateIntegratedValidatorGroups(ctx context.Context, accountID string, userID string, groups []string) error {
-	if am.UpdateIntegratedValidatorGroupsFunc != nil {
-		return am.UpdateIntegratedValidatorGroupsFunc(ctx, accountID, userID, groups)
+// UpdateIntegratedValidator mocks UpdateIntegratedApprovalGroups of the AccountManager interface
+func (am *MockAccountManager) UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error {
+	if am.UpdateIntegratedValidatorFunc != nil {
+		return am.UpdateIntegratedValidatorFunc(ctx, accountID, userID, validator, groups)
 	}
 	return status.Errorf(codes.Unimplemented, "method UpdateIntegratedValidatorGroups is not implemented")
 }

@@ -12,4 +12,5 @@ type Proxy interface {
 	Work()                      // Work start or resume the proxy
 	Pause()                     // Pause to forward the packages from remote connection to WireGuard. The opposite way still works.
 	CloseConn() error
+	SetDisconnectListener(disconnected func())
 }
