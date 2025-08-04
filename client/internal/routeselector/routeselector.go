@@ -172,37 +172,66 @@ func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap
 		return route.HAMap{}
 	}
 
-	filtered := route.HAMap{}
+	filtered := make(route.HAMap, len(routes))
 	for id, rt := range routes {
 		netID := id.NetID()
-
-		if _, userDeselected := rs.deselectedRoutes[netID]; userDeselected {
+		if rs.isDeselected(netID) {
 			continue
 		}
 
-		if len(rt) > 0 && rt[0].Network.String() == "0.0.0.0/0" {
-			hasUserSelections := len(rs.selectedRoutes) > 0 || len(rs.deselectedRoutes) > 0
-
-			if hasUserSelections {
-				if rs.IsSelected(netID) {
-					filtered[id] = rt
-				}
-			} else {
-				var selectedRoutes []*route.Route
-				for _, route := range rt {
-					if route.IsSelected {
-						selectedRoutes = append(selectedRoutes, route)
-					}
-				}
-				if len(selectedRoutes) > 0 {
-					filtered[id] = selectedRoutes
-				}
-			}
-		} else {
+		if !isExitNode(rt) {
 			filtered[id] = rt
+			continue
+		}
+
+		rs.applyExitNodeFilter(id, netID, rt, filtered)
+	}
+
+	return filtered
+}
+
+func (rs *RouteSelector) isDeselected(netID route.NetID) bool {
+	_, deselected := rs.deselectedRoutes[netID]
+	return deselected
+}
+
+func isExitNode(rt []*route.Route) bool {
+	return len(rt) > 0 && rt[0].Network.String() == "0.0.0.0/0"
+}
+
+func (rs *RouteSelector) applyExitNodeFilter(
+	id route.HAUniqueID,
+	netID route.NetID,
+	rt []*route.Route,
+	out route.HAMap,
+) {
+	if rs.hasUserSelections() {
+		// user made explicit selects/deselects
+		if rs.IsSelected(netID) {
+			out[id] = rt
+		}
+		return
+	}
+
+	// no explicit selections: only include routes marked IsSelected
+	sel := collectSelected(rt)
+	if len(sel) > 0 {
+		out[id] = sel
+	}
+}
+
+func (rs *RouteSelector) hasUserSelections() bool {
+	return len(rs.selectedRoutes) > 0 || len(rs.deselectedRoutes) > 0
+}
+
+func collectSelected(rt []*route.Route) []*route.Route {
+	var sel []*route.Route
+	for _, r := range rt {
+		if r.IsSelected {
+			sel = append(sel, r)
 		}
 	}
-	return filtered
+	return sel
 }
 
 // MarshalJSON implements the json.Marshaler interface
