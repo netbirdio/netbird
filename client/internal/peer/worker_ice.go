@@ -374,7 +374,6 @@ func (w *WorkerICE) onConnectionStateChange(agent *ice.Agent, dialerCancel conte
 		default:
 			return
 		}
-		return
 	}
 }
 
