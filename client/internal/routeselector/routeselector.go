@@ -9,6 +9,8 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"golang.org/x/exp/maps"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/route"
 )
@@ -16,12 +18,14 @@ import (
 type RouteSelector struct {
 	mu               sync.RWMutex
 	deselectedRoutes map[route.NetID]struct{}
+	selectedRoutes   map[route.NetID]struct{}
 	deselectAll      bool
 }
 
 func NewRouteSelector() *RouteSelector {
 	return &RouteSelector{
 		deselectedRoutes: map[route.NetID]struct{}{},
+		selectedRoutes:   map[route.NetID]struct{}{},
 		deselectAll:      false,
 	}
 }
@@ -33,6 +37,7 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 
 	if !appendRoute || rs.deselectAll {
 		maps.Clear(rs.deselectedRoutes)
+		maps.Clear(rs.selectedRoutes)
 		for _, r := range allRoutes {
 			rs.deselectedRoutes[r] = struct{}{}
 		}
@@ -45,6 +50,7 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 			continue
 		}
 		delete(rs.deselectedRoutes, route)
+		rs.selectedRoutes[route] = struct{}{}
 	}
 
 	rs.deselectAll = false
@@ -59,6 +65,7 @@ func (rs *RouteSelector) SelectAllRoutes() {
 
 	rs.deselectAll = false
 	maps.Clear(rs.deselectedRoutes)
+	maps.Clear(rs.selectedRoutes)
 }
 
 // DeselectRoutes removes specific routes from the selection.
@@ -77,6 +84,7 @@ func (rs *RouteSelector) DeselectRoutes(routes []route.NetID, allRoutes []route.
 			continue
 		}
 		rs.deselectedRoutes[route] = struct{}{}
+		delete(rs.selectedRoutes, route)
 	}
 
 	return errors.FormatErrorOrNil(err)
@@ -89,6 +97,7 @@ func (rs *RouteSelector) DeselectAllRoutes() {
 
 	rs.deselectAll = true
 	maps.Clear(rs.deselectedRoutes)
+	maps.Clear(rs.selectedRoutes)
 }
 
 // IsSelected checks if a specific route is selected.
@@ -97,11 +106,14 @@ func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	defer rs.mu.RUnlock()
 
 	if rs.deselectAll {
+		log.Debugf("Route %s not selected (deselect all)", routeID)
 		return false
 	}
 
 	_, deselected := rs.deselectedRoutes[routeID]
-	return !deselected
+	isSelected := !deselected
+	log.Debugf("Route %s selection status: %v (deselected: %v)", routeID, isSelected, deselected)
+	return isSelected
 }
 
 // FilterSelected removes unselected routes from the provided map.
@@ -122,6 +134,30 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 		}
 	}
 	return filtered
+}
+
+// HasUserSelections returns true if the user has made any local selections (selected or deselected any routes)
+func (rs *RouteSelector) HasUserSelections() bool {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	// If deselectAll is true, user has made a selection
+	if rs.deselectAll {
+		return true
+	}
+
+	// If there are any selected or deselected routes, user has made selections
+	return len(rs.selectedRoutes) > 0 || len(rs.deselectedRoutes) > 0
+}
+
+// HasUserSelectionForRoute returns true if the user has explicitly selected or deselected this specific route
+func (rs *RouteSelector) HasUserSelectionForRoute(routeID route.NetID) bool {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	_, selected := rs.selectedRoutes[routeID]
+	_, deselected := rs.deselectedRoutes[routeID]
+	return selected || deselected
 }
 
 // FilterSelectedExitNodes filters routes based on the isSelected field for exit nodes (0.0.0.0/0 routes)
@@ -148,6 +184,9 @@ func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap
 			for _, route := range rt {
 				if route.IsSelected {
 					selectedRoutes = append(selectedRoutes, route)
+					log.Debugf("Exit node route %s (Peer: %s) selected for routing", route.ID, route.Peer)
+				} else {
+					log.Debugf("Exit node route %s (Peer: %s) not selected for routing", route.ID, route.Peer)
 				}
 			}
 			if len(selectedRoutes) > 0 {

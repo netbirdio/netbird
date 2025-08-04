@@ -368,6 +368,10 @@ func (m *DefaultManager) UpdateRoutes(
 
 	var merr *multierror.Error
 	if !m.disableClientRoutes {
+
+		// Update route selector based on management server's isSelected status
+		m.updateRouteSelectorFromManagement(clientRoutes)
+
 		filteredClientRoutes := m.routeSelector.FilterSelectedExitNodes(clientRoutes)
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
@@ -582,4 +586,67 @@ func resolveURLsToIPs(urls []string) []net.IP {
 		ips = append(ips, ipAddrs...)
 	}
 	return ips
+}
+
+// updateRouteSelectorFromManagement updates the route selector based on the isSelected status from the management server
+func (m *DefaultManager) updateRouteSelectorFromManagement(clientRoutes route.HAMap) {
+	// Get all available route IDs for exit nodes
+	var allExitNodeIDs []route.NetID
+	var selectedExitNodeIDs []route.NetID
+	var userSelectedExitNodeIDs []route.NetID
+	var userDeselectedExitNodeIDs []route.NetID
+
+	for haID, routes := range clientRoutes {
+		if len(routes) > 0 && routes[0].Network.String() == "0.0.0.0/0" {
+			netID := haID.NetID()
+			allExitNodeIDs = append(allExitNodeIDs, netID)
+
+			// Check if user has made explicit selection for this route
+			if m.routeSelector.HasUserSelectionForRoute(netID) {
+				if m.routeSelector.IsSelected(netID) {
+					userSelectedExitNodeIDs = append(userSelectedExitNodeIDs, netID)
+				} else {
+					userDeselectedExitNodeIDs = append(userDeselectedExitNodeIDs, netID)
+				}
+				continue // Skip management update for this route
+			}
+
+			// Check if any route in this group has isSelected=true from management
+			for _, route := range routes {
+				if route.IsSelected {
+					selectedExitNodeIDs = append(selectedExitNodeIDs, netID)
+					break
+				}
+			}
+		}
+	}
+
+	// Update route selector for exit nodes that don't have user selections
+	if len(allExitNodeIDs) > 0 {
+		// First, deselect all exit nodes that don't have user selections
+		routesToDeselect := make([]route.NetID, 0)
+		for _, netID := range allExitNodeIDs {
+			if !m.routeSelector.HasUserSelectionForRoute(netID) {
+				routesToDeselect = append(routesToDeselect, netID)
+			}
+		}
+
+		if len(routesToDeselect) > 0 {
+			err := m.routeSelector.DeselectRoutes(routesToDeselect, routesToDeselect)
+			if err != nil {
+				log.Warnf("Failed to deselect exit nodes: %v", err)
+			}
+		}
+
+		// Then, select only the ones that are selected by management (and don't have user selections)
+		if len(selectedExitNodeIDs) > 0 {
+			err := m.routeSelector.SelectRoutes(selectedExitNodeIDs, true, allExitNodeIDs)
+			if err != nil {
+				log.Warnf("Failed to select exit nodes: %v", err)
+			}
+		}
+
+		log.Debugf("Updated route selector: %d exit nodes available, %d selected by management, %d user-selected, %d user-deselected",
+			len(allExitNodeIDs), len(selectedExitNodeIDs), len(userSelectedExitNodeIDs), len(userDeselectedExitNodeIDs))
+	}
 }
