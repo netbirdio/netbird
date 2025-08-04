@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -39,6 +40,11 @@ type OfferAnswer struct {
 
 	// relay server address
 	RelaySrvAddress string
+	// SessionID is the unique identifier of the session, used to discard old messages
+	SessionID *int64
+
+	// for debugging purposes
+	When time.Time
 }
 
 type Handshaker struct {
@@ -133,42 +139,35 @@ func (h *Handshaker) sendOffer() error {
 		return ErrSignalIsNotReady
 	}
 
-	iceUFrag, icePwd := h.ice.GetLocalUserCredentials()
-	offer := OfferAnswer{
-		IceCredentials:  IceCredentials{iceUFrag, icePwd},
-		WgListenPort:    h.config.LocalWgPort,
-		Version:         version.NetbirdVersion(),
-		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
-		RosenpassAddr:   h.config.RosenpassConfig.Addr,
-	}
-
-	addr, err := h.relay.RelayInstanceAddress()
-	if err == nil {
-		offer.RelaySrvAddress = addr
-	}
+	offer := h.buildOfferAnswer()
+	h.log.Infof("sending offer: %s, %d", offer.When, offer.SessionID)
 
 	return h.signaler.SignalOffer(offer, h.config.Key)
 }
 
 func (h *Handshaker) sendAnswer() error {
-	h.log.Infof("sending answer")
-	uFrag, pwd := h.ice.GetLocalUserCredentials()
+	answer := h.buildOfferAnswer()
+	h.log.Infof("sending answer: %s, serial: %d", answer.When, answer.SessionID)
 
+	return h.signaler.SignalAnswer(answer, h.config.Key)
+}
+
+func (h *Handshaker) buildOfferAnswer() OfferAnswer {
+	uFrag, pwd := h.ice.GetLocalUserCredentials()
+	sid := h.ice.SessionID()
 	answer := OfferAnswer{
 		IceCredentials:  IceCredentials{uFrag, pwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
 		RosenpassAddr:   h.config.RosenpassConfig.Addr,
+		When:            time.Now(),
+		SessionID:       &sid,
 	}
-	addr, err := h.relay.RelayInstanceAddress()
-	if err == nil {
+
+	if addr, err := h.relay.RelayInstanceAddress(); err == nil {
 		answer.RelaySrvAddress = addr
 	}
 
-	if err = h.signaler.SignalAnswer(answer, h.config.Key); err != nil {
-		return err
-	}
-
-	return nil
+	return answer
 }

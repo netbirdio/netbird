@@ -64,6 +64,8 @@ message Body {
 
   // relayServerAddress is url of the relay server
   string relayServerAddress = 8;
+
+  optional int64 sessionId = 9;
 }
 
 // Mode indicates a connection mode

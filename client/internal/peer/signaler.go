@@ -56,7 +56,8 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 		bodyType,
 		offerAnswer.RosenpassPubKey,
 		offerAnswer.RosenpassAddr,
-		offerAnswer.RelaySrvAddress)
+		offerAnswer.RelaySrvAddress,
+		*offerAnswer.SessionID)
 	if err != nil {
 		return err
 	}

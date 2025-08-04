@@ -46,7 +46,14 @@ type WorkerICE struct {
 	agentDialerCancel context.CancelFunc
 	agentConnecting   bool      // while it is true, drop all incoming offers
 	lastSuccess       time.Time // with this avoid the too frequent ICE agent recreation
-	muxAgent          sync.Mutex
+	// remoteSessionID represents the peer's session identifier from the latest remote offer.
+	remoteSessionID int64
+	// sessionID is used to track the current session ID of the ICE agent
+	// increase by one when disconnecting the agent
+	// with it the remote peer can discard the already deprecated offer/answer
+	// Without it the remote peer may recreate a workable ICE connection
+	sessionID int64
+	muxAgent  sync.Mutex
 
 	StunTurn []*stun.URI
 
@@ -70,6 +77,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 		statusRecorder:    statusRecorder,
 		hasRelayOnLocally: hasRelayOnLocally,
 		lastKnownState:    ice.ConnectionStateDisconnected,
+		sessionID:         0,
 	}
 
 	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
@@ -82,7 +90,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 }
 
 func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
-	w.log.Debugf("OnNewOffer for ICE")
+	w.log.Debugf("OnNewOffer for ICE: %s, %s, serial: %d", time.Since(remoteOfferAnswer.When), remoteOfferAnswer.When, remoteOfferAnswer.SessionID)
 	w.muxAgent.Lock()
 
 	if w.agentConnecting {
@@ -92,8 +100,13 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	if w.agent != nil {
-		if time.Since(w.lastSuccess) < 900*time.Millisecond {
-			w.log.Debugf("agent is already connected, skipping the offer")
+		// backward compatibility with old clients that do not send session ID
+		if remoteOfferAnswer.SessionID == nil {
+			w.log.Debugf("agent already exists, skipping the offer")
+			w.muxAgent.Unlock()
+			return
+		}
+		if w.remoteSessionID == *remoteOfferAnswer.SessionID {
 			w.muxAgent.Unlock()
 			return
 		}
@@ -194,6 +207,13 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 	return agent, nil
 }
 
+func (w *WorkerICE) SessionID() int64 {
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+
+	return w.sessionID
+}
+
 // will block until connection succeeded
 // but it won't release if ICE Agent went into Disconnected or Failed state,
 // so we have to cancel it with the provided context once agent detected a broken connection
@@ -241,9 +261,13 @@ func (w *WorkerICE) connect(ctx context.Context, agent *ice.Agent, remoteOfferAn
 	}
 	w.log.Debugf("on ICE conn is ready to use")
 
+	w.log.Infof("connection successed with offer session: %d", remoteOfferAnswer.SessionID)
 	w.muxAgent.Lock()
 	w.agentConnecting = false
 	w.lastSuccess = time.Now()
+	if remoteOfferAnswer.SessionID != nil {
+		w.remoteSessionID = *remoteOfferAnswer.SessionID
+	}
 	w.muxAgent.Unlock()
 
 	// todo: the potential problem is a race between the onConnectionStateChange
@@ -257,6 +281,7 @@ func (w *WorkerICE) closeAgent(agent *ice.Agent, cancel context.CancelFunc) {
 	}
 
 	w.muxAgent.Lock()
+	w.sessionID++
 	if w.agent == agent {
 		w.agent = nil
 		w.agentConnecting = false

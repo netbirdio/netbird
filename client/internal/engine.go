@@ -1336,19 +1336,21 @@ func (e *Engine) receiveSignalEvents() {
 			}
 
 			switch msg.GetBody().Type {
-			case sProto.Body_OFFER:
+			case sProto.Body_OFFER, sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
 				if err != nil {
 					return err
 				}
 
-				var rosenpassPubKey []byte
-				rosenpassAddr := ""
-				if msg.GetBody().GetRosenpassConfig() != nil {
-					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
-					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
+				var (
+					rosenpassPubKey []byte
+					rosenpassAddr   string
+				)
+				if cfg := msg.GetBody().GetRosenpassConfig(); cfg != nil {
+					rosenpassPubKey = cfg.GetRosenpassPubKey()
+					rosenpassAddr = cfg.GetRosenpassServerAddr()
 				}
-				conn.OnRemoteOffer(peer.OfferAnswer{
+				offerAnswer := peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
 						Pwd:   remoteCred.Pwd,
@@ -1358,30 +1360,14 @@ func (e *Engine) receiveSignalEvents() {
 					RosenpassPubKey: rosenpassPubKey,
 					RosenpassAddr:   rosenpassAddr,
 					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
-				})
-			case sProto.Body_ANSWER:
-				remoteCred, err := signal.UnMarshalCredential(msg)
-				if err != nil {
-					return err
+					SessionID:       msg.GetBody().SessionId,
 				}
 
-				var rosenpassPubKey []byte
-				rosenpassAddr := ""
-				if msg.GetBody().GetRosenpassConfig() != nil {
-					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
-					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
+				if msg.Body.Type == sProto.Body_OFFER {
+					conn.OnRemoteOffer(offerAnswer)
+				} else {
+					conn.OnRemoteAnswer(offerAnswer)
 				}
-				conn.OnRemoteAnswer(peer.OfferAnswer{
-					IceCredentials: peer.IceCredentials{
-						UFrag: remoteCred.UFrag,
-						Pwd:   remoteCred.Pwd,
-					},
-					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
-					Version:         msg.GetBody().GetNetBirdVersion(),
-					RosenpassPubKey: rosenpassPubKey,
-					RosenpassAddr:   rosenpassAddr,
-					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
-				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
 				if err != nil {

@@ -548,7 +548,6 @@ func (conn *Conn) onRelayDisconnected() {
 }
 
 func (conn *Conn) onGuardEvent() {
-	conn.Log.Debugf("send offer to peer")
 	conn.dumpState.SendOffer()
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
