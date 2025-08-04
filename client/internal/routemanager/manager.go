@@ -628,7 +628,7 @@ func (m *DefaultManager) collectExitNodeInfo(clientRoutes route.HAMap) exitNodeI
 }
 
 func (m *DefaultManager) isExitNodeRoute(routes []*route.Route) bool {
-	return len(routes) > 0 && routes[0].Network.String() == "0.0.0.0/0"
+	return len(routes) > 0 && routes[0].Network.String() == vars.ExitNodeCIDR
 }
 
 func (m *DefaultManager) categorizeUserSelection(netID route.NetID, info *exitNodeInfo) {

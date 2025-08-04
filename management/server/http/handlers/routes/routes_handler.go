@@ -19,6 +19,8 @@ import (
 
 const failedToConvertRoute = "failed to convert route to response: %v"
 
+const exitNodeCIDR = "0.0.0.0/0"
+
 // handler is the routes handler of the account
 type handler struct {
 	accountManager account.Manager
@@ -128,7 +130,7 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 	isSelected := true
 	if req.IsSelected != nil {
 		isSelected = *req.IsSelected
-	} else if newPrefix.String() == "0.0.0.0/0" {
+	} else if newPrefix.String() == exitNodeCIDR {
 		isSelected = true
 	}
 
@@ -225,7 +227,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 	isSelected := true
 	if req.IsSelected != nil {
 		isSelected = *req.IsSelected
-	} else if req.Network != nil && *req.Network == "0.0.0.0/0" {
+	} else if req.Network != nil && *req.Network == exitNodeCIDR {
 		isSelected = true
 	}
 

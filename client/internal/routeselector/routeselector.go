@@ -15,6 +15,10 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+const (
+	exitNodeCIDR = "0.0.0.0/0"
+)
+
 type RouteSelector struct {
 	mu               sync.RWMutex
 	deselectedRoutes map[route.NetID]struct{}
@@ -196,7 +200,7 @@ func (rs *RouteSelector) isDeselected(netID route.NetID) bool {
 }
 
 func isExitNode(rt []*route.Route) bool {
-	return len(rt) > 0 && rt[0].Network.String() == "0.0.0.0/0"
+	return len(rt) > 0 && rt[0].Network.String() == exitNodeCIDR
 }
 
 func (rs *RouteSelector) applyExitNodeFilter(
