@@ -154,20 +154,6 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 	return filtered
 }
 
-// HasUserSelections returns true if the user has made any local selections (selected or deselected any routes)
-func (rs *RouteSelector) HasUserSelections() bool {
-	rs.mu.RLock()
-	defer rs.mu.RUnlock()
-
-	// If deselectAll is true, user has made a selection
-	if rs.deselectAll {
-		return true
-	}
-
-	// If there are any selected or deselected routes, user has made selections
-	return len(rs.selectedRoutes) > 0 || len(rs.deselectedRoutes) > 0
-}
-
 // HasUserSelectionForRoute returns true if the user has explicitly selected or deselected this specific route
 func (rs *RouteSelector) HasUserSelectionForRoute(routeID route.NetID) bool {
 	rs.mu.RLock()
