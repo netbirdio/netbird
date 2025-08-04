@@ -2045,7 +2045,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 	}
 
 	newIPNet := net.IPNet{
-		IP:   newNetworkRange.Addr().AsSlice(),
+		IP:   newNetworkRange.Masked().Addr().AsSlice(),
 		Mask: net.CIDRMask(newNetworkRange.Bits(), newNetworkRange.Addr().BitLen()),
 	}
 
