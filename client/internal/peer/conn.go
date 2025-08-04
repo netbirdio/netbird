@@ -274,10 +274,10 @@ func (conn *Conn) Close(signalToRemote bool) {
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
+func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) {
 	conn.dumpState.RemoteAnswer()
 	conn.Log.Infof("OnRemoteAnswer, priority: %s, status ICE: %s, status relay: %s", conn.currentConnPriority, conn.statusICE, conn.statusRelay)
-	return conn.handshaker.OnRemoteAnswer(answer)
+	conn.handshaker.OnRemoteAnswer(answer)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -296,10 +296,10 @@ func (conn *Conn) SetOnDisconnected(handler func(remotePeer string)) {
 	conn.onDisconnected = handler
 }
 
-func (conn *Conn) OnRemoteOffer(offer OfferAnswer) bool {
+func (conn *Conn) OnRemoteOffer(offer OfferAnswer) {
 	conn.dumpState.RemoteOffer()
 	conn.Log.Infof("OnRemoteOffer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
-	return conn.handshaker.OnRemoteOffer(offer)
+	conn.handshaker.OnRemoteOffer(offer)
 }
 
 // WgConfig returns the WireGuard config

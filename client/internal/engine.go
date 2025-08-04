@@ -254,6 +254,7 @@ func NewEngine(
 	}
 	engine.stateManager = statemanager.New(path)
 
+	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
 }
 

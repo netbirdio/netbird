@@ -74,21 +74,23 @@ func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAn
 
 func (h *Handshaker) Listen(ctx context.Context) {
 	for {
-		h.log.Info("wait for remote offer confirmation")
-		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation(ctx)
-		if err != nil {
-			var connectionClosedError *ConnectionClosedError
-			if errors.As(err, &connectionClosedError) {
-				h.log.Info("exit from handshaker")
-				return
+		select {
+		case remoteOfferAnswer := <-h.remoteOffersCh:
+			// received confirmation from the remote peer -> ready to proceed
+			if err := h.sendAnswer(); err != nil {
+				h.log.Errorf("failed to send remote offer confirmation: %s", err)
+				continue
 			}
-			h.log.Errorf("failed to received remote offer confirmation: %s", err)
-			continue
-		}
-
-		h.log.Infof("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
-		for _, listener := range h.onNewOfferListeners {
-			go listener(remoteOfferAnswer)
+			for _, listener := range h.onNewOfferListeners {
+				listener(&remoteOfferAnswer)
+			}
+		case remoteOfferAnswer := <-h.remoteAnswerCh:
+			for _, listener := range h.onNewOfferListeners {
+				listener(&remoteOfferAnswer)
+			}
+		case <-ctx.Done():
+			h.log.Infof("stop listening for remote offers and answers")
+			return
 		}
 	}
 }
@@ -101,43 +103,27 @@ func (h *Handshaker) SendOffer() error {
 
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) bool {
+func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) {
 	select {
 	case h.remoteOffersCh <- offer:
-		return true
+		return
 	default:
-		h.log.Warnf("OnRemoteOffer skipping message because is not ready")
+		h.log.Warnf("skipping remote offer message because receiver not ready")
 		// connection might not be ready yet to receive so we ignore the message
-		return false
+		return
 	}
 }
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) bool {
+func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) {
 	select {
 	case h.remoteAnswerCh <- answer:
-		return true
+		return
 	default:
 		// connection might not be ready yet to receive so we ignore the message
-		h.log.Debugf("OnRemoteAnswer skipping message because is not ready")
-		return false
-	}
-}
-
-func (h *Handshaker) waitForRemoteOfferConfirmation(ctx context.Context) (*OfferAnswer, error) {
-	select {
-	case remoteOfferAnswer := <-h.remoteOffersCh:
-		// received confirmation from the remote peer -> ready to proceed
-		if err := h.sendAnswer(); err != nil {
-			return nil, err
-		}
-		return &remoteOfferAnswer, nil
-	case remoteOfferAnswer := <-h.remoteAnswerCh:
-		return &remoteOfferAnswer, nil
-	case <-ctx.Done():
-		// closed externally
-		return nil, NewConnectionClosedError(h.config.Key)
+		h.log.Warnf("skipping remote answer message because receiver not ready")
+		return
 	}
 }
 
@@ -180,8 +166,7 @@ func (h *Handshaker) sendAnswer() error {
 		answer.RelaySrvAddress = addr
 	}
 
-	err = h.signaler.SignalAnswer(answer, h.config.Key)
-	if err != nil {
+	if err = h.signaler.SignalAnswer(answer, h.config.Key); err != nil {
 		return err
 	}
 
