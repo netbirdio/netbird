@@ -316,7 +316,8 @@ func TestRouteSelector_FilterSelectedExitNodes(t *testing.T) {
 	assert.Equal(t, normalRoute.ID, filtered["net2|192.168.1.0/24"][0].ID)
 
 	// Test with deselected routes
-	rs.DeselectRoutes([]route.NetID{"net1"}, []route.NetID{"net1", "net2"})
+	err := rs.DeselectRoutes([]route.NetID{"net1"}, []route.NetID{"net1", "net2"})
+	assert.NoError(t, err)
 	filtered = rs.FilterSelectedExitNodes(routes)
 	assert.Len(t, filtered, 1) // Only normal route should remain
 	assert.Len(t, filtered["net2|192.168.1.0/24"], 1)
