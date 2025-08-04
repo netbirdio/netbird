@@ -19,6 +19,7 @@ type MockClient struct {
 	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlowFunc   func(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
 	SyncMetaFunc                   func(sysInfo *system.Info) error
+	LogoutFunc                     func() error
 }
 
 func (m *MockClient) IsHealthy() bool {
@@ -84,4 +85,11 @@ func (m *MockClient) SyncMeta(sysInfo *system.Info) error {
 		return nil
 	}
 	return m.SyncMetaFunc(sysInfo)
+}
+
+func (m *MockClient) Logout() error {
+	if m.LogoutFunc == nil {
+		return nil
+	}
+	return m.LogoutFunc()
 }
