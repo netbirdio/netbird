@@ -2062,7 +2062,6 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 	}
 
 	var takenIPs []net.IP
-	peersToUpdate := make([]*nbpeer.Peer, 0, len(peers))
 
 	for _, peer := range peers {
 		newIP, err := types.AllocatePeerIP(newIPNet, takenIPs)
@@ -2075,21 +2074,20 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 
 		peer.IP = newIP
 		takenIPs = append(takenIPs, newIP)
-		peersToUpdate = append(peersToUpdate, peer)
 	}
 
 	if err = transaction.SaveAccount(ctx, account); err != nil {
 		return err
 	}
 
-	for _, peer := range peersToUpdate {
+	for _, peer := range peers {
 		if err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer); err != nil {
 			return status.Errorf(status.Internal, "save updated peer %s: %v", peer.ID, err)
 		}
 	}
 
 	log.WithContext(ctx).Infof("successfully re-allocated IPs for %d peers in account %s to network range %s",
-		len(peersToUpdate), accountID, newNetworkRange.String())
+		len(peers), accountID, newNetworkRange.String())
 
 	return nil
 }
