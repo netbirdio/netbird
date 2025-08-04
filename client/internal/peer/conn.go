@@ -127,7 +127,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		return nil, fmt.Errorf("allowed IPs is empty")
 	}
 
-	connLog := log.WithField("peer", config.Key)
+	connLog := log.WithField("peer", shortenKey(config.Key))
 
 	var conn = &Conn{
 		Log:            connLog,
