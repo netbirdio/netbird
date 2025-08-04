@@ -238,7 +238,7 @@ func NewEngine(
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
 
-	sm := profilemanager.ServiceManager{}
+	sm := profilemanager.NewServiceManager("")
 
 	path := sm.GetStatePath()
 	if runtime.GOOS == "ios" {

@@ -75,7 +75,15 @@ func (a *ActiveProfileState) FilePath() (string, error) {
 	return filepath.Join(configDir, a.Name+".json"), nil
 }
 
-type ServiceManager struct{}
+type ServiceManager struct {
+}
+
+func NewServiceManager(defaultConfigPath string) *ServiceManager {
+	if defaultConfigPath != "" {
+		DefaultConfigPath = defaultConfigPath
+	}
+	return &ServiceManager{}
+}
 
 func (s *ServiceManager) CopyDefaultProfileIfNotExists() (bool, error) {
 

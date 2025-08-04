@@ -74,7 +74,7 @@ type Server struct {
 	persistNetworkMap bool
 	isSessionActive   atomic.Bool
 
-	profileManager   profilemanager.ServiceManager
+	profileManager   *profilemanager.ServiceManager
 	profilesDisabled bool
 }
 
@@ -86,13 +86,13 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string, profilesDisabled bool) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool) *Server {
 	return &Server{
 		rootCtx:           ctx,
 		logFile:           logFile,
 		persistNetworkMap: true,
 		statusRecorder:    peer.NewRecorder(""),
-		profileManager:    profilemanager.ServiceManager{},
+		profileManager:    profilemanager.NewServiceManager(configFile),
 		profilesDisabled:  profilesDisabled,
 	}
 }
