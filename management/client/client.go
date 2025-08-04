@@ -22,4 +22,5 @@ type Client interface {
 	GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error)
 	IsHealthy() bool
 	SyncMeta(sysInfo *system.Info) error
+	Logout() error
 }

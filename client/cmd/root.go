@@ -133,6 +133,7 @@ func init() {
 	rootCmd.AddCommand(downCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(logoutCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
 	rootCmd.AddCommand(networksCMD)
