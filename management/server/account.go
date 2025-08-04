@@ -1717,7 +1717,7 @@ func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, account
 			log.WithContext(ctx).Errorf("failed to expire and update invalidated peers for account %s: %v", accountID, err)
 		}
 	}
-	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
+	log.WithContext(ctx).Debugf("validated peers have been invalidated for account %s", accountID)
 	am.BufferUpdateAccountPeers(ctx, accountID)
 }
 
