@@ -225,9 +225,11 @@ func (rs *RouteSelector) MarshalJSON() ([]byte, error) {
 	defer rs.mu.RUnlock()
 
 	return json.Marshal(struct {
+		SelectedRoutes   map[route.NetID]struct{} `json:"selected_routes"`
 		DeselectedRoutes map[route.NetID]struct{} `json:"deselected_routes"`
 		DeselectAll      bool                     `json:"deselect_all"`
 	}{
+		SelectedRoutes:   rs.selectedRoutes,
 		DeselectedRoutes: rs.deselectedRoutes,
 		DeselectAll:      rs.deselectAll,
 	})
@@ -248,6 +250,7 @@ func (rs *RouteSelector) UnmarshalJSON(data []byte) error {
 	}
 
 	var temp struct {
+		SelectedRoutes   map[route.NetID]struct{} `json:"selected_routes"`
 		DeselectedRoutes map[route.NetID]struct{} `json:"deselected_routes"`
 		DeselectAll      bool                     `json:"deselect_all"`
 	}
@@ -256,6 +259,7 @@ func (rs *RouteSelector) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	rs.selectedRoutes = temp.SelectedRoutes
 	rs.deselectedRoutes = temp.DeselectedRoutes
 	rs.deselectAll = temp.DeselectAll
 
