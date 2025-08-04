@@ -124,8 +124,16 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 		accessControlGroupIds = *req.AccessControlGroups
 	}
 
+	// Set default isSelected value for exit nodes (0.0.0.0/0 routes)
+	isSelected := true
+	if req.IsSelected != nil {
+		isSelected = *req.IsSelected
+	} else if newPrefix.String() == "0.0.0.0/0" {
+		isSelected = true
+	}
+
 	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, newPrefix, networkType, domains, peerId, peerGroupIds,
-		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute)
+		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute, isSelected)
 
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -142,23 +150,31 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) validateRoute(req api.PostApiRoutesJSONRequestBody) error {
-	if req.Network != nil && req.Domains != nil {
+	return h.validateRouteCommon(req.Network, req.Domains, req.Peer, req.PeerGroups, req.NetworkId)
+}
+
+func (h *handler) validateRouteUpdate(req api.PutApiRoutesRouteIdJSONRequestBody) error {
+	return h.validateRouteCommon(req.Network, req.Domains, req.Peer, req.PeerGroups, req.NetworkId)
+}
+
+func (h *handler) validateRouteCommon(network *string, domains *[]string, peer *string, peerGroups *[]string, networkId string) error {
+	if network != nil && domains != nil {
 		return status.Errorf(status.InvalidArgument, "only one of 'network' or 'domains' should be provided")
 	}
 
-	if req.Network == nil && req.Domains == nil {
+	if network == nil && domains == nil {
 		return status.Errorf(status.InvalidArgument, "either 'network' or 'domains' should be provided")
 	}
 
-	if req.Peer == nil && req.PeerGroups == nil {
+	if peer == nil && peerGroups == nil {
 		return status.Errorf(status.InvalidArgument, "either 'peer' or 'peer_groups' should be provided")
 	}
 
-	if req.Peer != nil && req.PeerGroups != nil {
+	if peer != nil && peerGroups != nil {
 		return status.Errorf(status.InvalidArgument, "only one of 'peer' or 'peer_groups' should be provided")
 	}
 
-	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
+	if utf8.RuneCountInString(networkId) > route.MaxNetIDChar || networkId == "" {
 		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d characters",
 			route.MaxNetIDChar)
 	}
@@ -195,7 +211,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.validateRoute(req); err != nil {
+	if err := h.validateRouteUpdate(req); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -203,6 +219,14 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 	peerID := ""
 	if req.Peer != nil {
 		peerID = *req.Peer
+	}
+
+	// Set default isSelected value for exit nodes (0.0.0.0/0 routes)
+	isSelected := true
+	if req.IsSelected != nil {
+		isSelected = *req.IsSelected
+	} else if req.Network != nil && *req.Network == "0.0.0.0/0" {
+		isSelected = true
 	}
 
 	newRoute := &route.Route{
@@ -214,6 +238,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		Enabled:     req.Enabled,
 		Groups:      req.Groups,
 		KeepRoute:   req.KeepRoute,
+		IsSelected:  isSelected,
 	}
 
 	if req.Domains != nil {
@@ -333,6 +358,7 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 		Metric:      serverRoute.Metric,
 		Groups:      serverRoute.Groups,
 		KeepRoute:   serverRoute.KeepRoute,
+		IsSelected:  &serverRoute.IsSelected,
 	}
 
 	if len(serverRoute.PeerGroups) > 0 {

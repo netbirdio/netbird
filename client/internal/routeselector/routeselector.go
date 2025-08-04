@@ -124,6 +124,43 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 	return filtered
 }
 
+// FilterSelectedExitNodes filters routes based on the isSelected field for exit nodes (0.0.0.0/0 routes)
+// For exit nodes, only routes with isSelected=true will be included
+func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	if rs.deselectAll {
+		return route.HAMap{}
+	}
+
+	filtered := route.HAMap{}
+	for id, rt := range routes {
+		netID := id.NetID()
+		_, deselected := rs.deselectedRoutes[netID]
+		if deselected {
+			continue
+		}
+
+		// For exit nodes (0.0.0.0/0), only include routes with isSelected=true
+		if len(rt) > 0 && rt[0].Network.String() == "0.0.0.0/0" {
+			var selectedRoutes []*route.Route
+			for _, route := range rt {
+				if route.IsSelected {
+					selectedRoutes = append(selectedRoutes, route)
+				}
+			}
+			if len(selectedRoutes) > 0 {
+				filtered[id] = selectedRoutes
+			}
+		} else {
+			// For non-exit nodes, include all routes as before
+			filtered[id] = rt
+		}
+	}
+	return filtered
+}
+
 // MarshalJSON implements the json.Marshaler interface
 func (rs *RouteSelector) MarshalJSON() ([]byte, error) {
 	rs.mu.RLock()

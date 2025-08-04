@@ -76,7 +76,7 @@ func initRoutesTestData() *handler {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(_ context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroups []string, enabled bool, _ string, keepRoute bool) (*route.Route, error) {
+			CreateRouteFunc: func(_ context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroups []string, enabled bool, _ string, keepRoute bool, isSelected bool) (*route.Route, error) {
 				if peerID == notFoundPeerID {
 					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
@@ -103,6 +103,7 @@ func initRoutesTestData() *handler {
 					Groups:              groups,
 					KeepRoute:           keepRoute,
 					AccessControlGroups: accessControlGroups,
+					IsSelected:          isSelected,
 				}, nil
 			},
 			SaveRouteFunc: func(_ context.Context, _, _ string, r *route.Route) error {

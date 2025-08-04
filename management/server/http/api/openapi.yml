@@ -1313,6 +1313,10 @@ components:
           items:
             type: string
             example: "chacbco6lnnbn6cg5s91"
+        is_selected:
+          description: Indicate if this exit node route (0.0.0.0/0) is selected for client routing
+          type: boolean
+          example: true
       required:
         - id
         - description

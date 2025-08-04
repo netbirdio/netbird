@@ -1,6 +1,7 @@
 package routeselector_test
 
 import (
+	"net/netip"
 	"slices"
 	"testing"
 
@@ -271,6 +272,62 @@ func TestRouteSelector_FilterSelected(t *testing.T) {
 		"route1|10.0.0.0/8":     {},
 		"route2|192.168.0.0/16": {},
 	}, filtered)
+}
+
+func TestRouteSelector_FilterSelectedExitNodes(t *testing.T) {
+	rs := routeselector.NewRouteSelector()
+
+	// Create test routes
+	exitNode1 := &route.Route{
+		ID:         "route1",
+		NetID:      "net1",
+		Network:    netip.MustParsePrefix("0.0.0.0/0"),
+		Peer:       "peer1",
+		IsSelected: true,
+	}
+	exitNode2 := &route.Route{
+		ID:         "route2",
+		NetID:      "net1",
+		Network:    netip.MustParsePrefix("0.0.0.0/0"),
+		Peer:       "peer2",
+		IsSelected: false,
+	}
+	normalRoute := &route.Route{
+		ID:         "route3",
+		NetID:      "net2",
+		Network:    netip.MustParsePrefix("192.168.1.0/24"),
+		Peer:       "peer3",
+		IsSelected: true,
+	}
+
+	// Create route map
+	routes := route.HAMap{
+		"ha1": {exitNode1, exitNode2}, // Multiple exit nodes for same HA group
+		"ha2": {normalRoute},          // Normal route
+	}
+
+	// Test filtering
+	filtered := rs.FilterSelectedExitNodes(routes)
+
+	// Should only include selected exit nodes and all normal routes
+	assert.Len(t, filtered, 2)
+	assert.Len(t, filtered["ha1"], 1) // Only the selected exit node
+	assert.Equal(t, exitNode1.ID, filtered["ha1"][0].ID)
+	assert.Len(t, filtered["ha2"], 1) // Normal route should be included
+	assert.Equal(t, normalRoute.ID, filtered["ha2"][0].ID)
+
+	// Test with deselected routes
+	rs.DeselectRoutes([]route.NetID{"net1"}, []route.NetID{"net1", "net2"})
+	filtered = rs.FilterSelectedExitNodes(routes)
+	assert.Len(t, filtered, 1) // Only normal route should remain
+	assert.Len(t, filtered["ha2"], 1)
+	assert.Equal(t, normalRoute.ID, filtered["ha2"][0].ID)
+
+	// Test with deselect all
+	rs = routeselector.NewRouteSelector()
+	rs.DeselectAllRoutes()
+	filtered = rs.FilterSelectedExitNodes(routes)
+	assert.Len(t, filtered, 0) // No routes should be selected
 }
 
 func TestRouteSelector_NewRoutesBehavior(t *testing.T) {

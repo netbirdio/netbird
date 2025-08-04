@@ -368,7 +368,7 @@ func (m *DefaultManager) UpdateRoutes(
 
 	var merr *multierror.Error
 	if !m.disableClientRoutes {
-		filteredClientRoutes := m.routeSelector.FilterSelected(clientRoutes)
+		filteredClientRoutes := m.routeSelector.FilterSelectedExitNodes(clientRoutes)
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("update system routes: %w", err))
@@ -430,7 +430,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
-	networks = m.routeSelector.FilterSelected(networks)
+	networks = m.routeSelector.FilterSelectedExitNodes(networks)
 
 	m.notifier.OnNewRoutes(networks)
 
