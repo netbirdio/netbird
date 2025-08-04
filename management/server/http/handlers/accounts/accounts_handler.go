@@ -59,16 +59,8 @@ func validateIPAddress(addr netip.Addr) error {
 		return status.Errorf(status.InvalidArgument, "multicast address range not allowed")
 	}
 
-	if addr.Is4() {
-		linkLocal, _ := netip.ParsePrefix("169.254.0.0/16")
-		if linkLocal.Contains(addr) {
-			return status.Errorf(status.InvalidArgument, "link-local address range not allowed")
-		}
-	} else if addr.Is6() {
-		linkLocal, _ := netip.ParsePrefix("fe80::/10")
-		if linkLocal.Contains(addr) {
-			return status.Errorf(status.InvalidArgument, "IPv6 link-local address range not allowed")
-		}
+	if addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() {
+		return status.Errorf(status.InvalidArgument, "link-local address range not allowed")
 	}
 
 	return nil

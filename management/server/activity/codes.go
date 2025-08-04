@@ -176,10 +176,9 @@ const (
 	AccountLazyConnectionDisabled Activity = 86
 
 	AccountNetworkRangeUpdated Activity = 87
-	PeerIPUpdated Activity = 88
+	PeerIPUpdated              Activity = 88
 
 	AccountDeleted Activity = 99999
-
 )
 
 var activityMap = map[Activity]Code{
