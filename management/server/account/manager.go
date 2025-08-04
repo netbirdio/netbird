@@ -51,6 +51,7 @@ type Manager interface {
 	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
+	UpdatePeerIP(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error
 	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
 	GetPeerNetwork(ctx context.Context, peerID string) (*types.Network, error)
 	AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"reflect"
 	"strconv"
@@ -3520,5 +3521,72 @@ func TestDefaultAccountManager_UpdateAccountOnboarding(t *testing.T) {
 	t.Run("update onboarding with no onboarding", func(t *testing.T) {
 		_, err = manager.UpdateAccountOnboarding(context.Background(), account.Id, userID, nil)
 		require.NoError(t, err)
+	})
+}
+
+func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
+	require.NoError(t, err, "unable to create an account")
+
+	key1, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	key2, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
+		Key:  key1.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
+	})
+	require.NoError(t, err, "unable to add peer1")
+
+	peer2, _, _, err := manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
+		Key:  key2.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
+	})
+	require.NoError(t, err, "unable to add peer2")
+
+	t.Run("update peer IP successfully", func(t *testing.T) {
+		account, err := manager.Store.GetAccount(context.Background(), accountID)
+		require.NoError(t, err, "unable to get account")
+
+		newIP, err := types.AllocatePeerIP(account.Network.Net, []net.IP{peer1.IP, peer2.IP})
+		require.NoError(t, err, "unable to allocate new IP")
+
+		newAddr := netip.MustParseAddr(newIP.String())
+		err = manager.UpdatePeerIP(context.Background(), accountID, userID, peer1.ID, newAddr)
+		require.NoError(t, err, "unable to update peer IP")
+
+		updatedPeer, err := manager.GetPeer(context.Background(), accountID, peer1.ID, userID)
+		require.NoError(t, err, "unable to get updated peer")
+		assert.Equal(t, newIP.String(), updatedPeer.IP.String(), "peer IP should be updated")
+	})
+
+	t.Run("update peer IP with same IP should be no-op", func(t *testing.T) {
+		currentAddr := netip.MustParseAddr(peer1.IP.String())
+		err := manager.UpdatePeerIP(context.Background(), accountID, userID, peer1.ID, currentAddr)
+		require.NoError(t, err, "updating with same IP should not error")
+	})
+
+	t.Run("update peer IP with collision should fail", func(t *testing.T) {
+		peer2Addr := netip.MustParseAddr(peer2.IP.String())
+		err := manager.UpdatePeerIP(context.Background(), accountID, userID, peer1.ID, peer2Addr)
+		require.Error(t, err, "should fail when IP is already assigned")
+		assert.Contains(t, err.Error(), "already assigned", "error should mention IP collision")
+	})
+
+	t.Run("update peer IP outside network range should fail", func(t *testing.T) {
+		invalidAddr := netip.MustParseAddr("192.168.1.100")
+		err := manager.UpdatePeerIP(context.Background(), accountID, userID, peer1.ID, invalidAddr)
+		require.Error(t, err, "should fail when IP is outside network range")
+		assert.Contains(t, err.Error(), "not within the account network range", "error should mention network range")
+	})
+
+	t.Run("update peer IP with invalid peer ID should fail", func(t *testing.T) {
+		newAddr := netip.MustParseAddr("100.64.0.101")
+		err := manager.UpdatePeerIP(context.Background(), accountID, userID, "invalid-peer-id", newAddr)
+		require.Error(t, err, "should fail with invalid peer ID")
 	})
 }
