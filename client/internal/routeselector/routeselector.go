@@ -36,6 +36,12 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 	defer rs.mu.Unlock()
 
 	if !appendRoute || rs.deselectAll {
+		if rs.deselectedRoutes == nil {
+			rs.deselectedRoutes = map[route.NetID]struct{}{}
+		}
+		if rs.selectedRoutes == nil {
+			rs.selectedRoutes = map[route.NetID]struct{}{}
+		}
 		maps.Clear(rs.deselectedRoutes)
 		maps.Clear(rs.selectedRoutes)
 		for _, r := range allRoutes {
@@ -64,6 +70,12 @@ func (rs *RouteSelector) SelectAllRoutes() {
 	defer rs.mu.Unlock()
 
 	rs.deselectAll = false
+	if rs.deselectedRoutes == nil {
+		rs.deselectedRoutes = map[route.NetID]struct{}{}
+	}
+	if rs.selectedRoutes == nil {
+		rs.selectedRoutes = map[route.NetID]struct{}{}
+	}
 	maps.Clear(rs.deselectedRoutes)
 	maps.Clear(rs.selectedRoutes)
 }
@@ -96,6 +108,12 @@ func (rs *RouteSelector) DeselectAllRoutes() {
 	defer rs.mu.Unlock()
 
 	rs.deselectAll = true
+	if rs.deselectedRoutes == nil {
+		rs.deselectedRoutes = map[route.NetID]struct{}{}
+	}
+	if rs.selectedRoutes == nil {
+		rs.selectedRoutes = map[route.NetID]struct{}{}
+	}
 	maps.Clear(rs.deselectedRoutes)
 	maps.Clear(rs.selectedRoutes)
 }
@@ -160,8 +178,6 @@ func (rs *RouteSelector) HasUserSelectionForRoute(routeID route.NetID) bool {
 	return selected || deselected
 }
 
-// FilterSelectedExitNodes filters routes based on the isSelected field for exit nodes (0.0.0.0/0 routes)
-// For exit nodes, only routes with isSelected=true will be included
 func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
@@ -173,27 +189,30 @@ func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap
 	filtered := route.HAMap{}
 	for id, rt := range routes {
 		netID := id.NetID()
-		_, deselected := rs.deselectedRoutes[netID]
-		if deselected {
+
+		if _, userDeselected := rs.deselectedRoutes[netID]; userDeselected {
 			continue
 		}
 
-		// For exit nodes (0.0.0.0/0), only include routes with isSelected=true
 		if len(rt) > 0 && rt[0].Network.String() == "0.0.0.0/0" {
-			var selectedRoutes []*route.Route
-			for _, route := range rt {
-				if route.IsSelected {
-					selectedRoutes = append(selectedRoutes, route)
-					log.Debugf("Exit node route %s (Peer: %s) selected for routing", route.ID, route.Peer)
-				} else {
-					log.Debugf("Exit node route %s (Peer: %s) not selected for routing", route.ID, route.Peer)
+			hasUserSelections := len(rs.selectedRoutes) > 0 || len(rs.deselectedRoutes) > 0
+
+			if hasUserSelections {
+				if rs.IsSelected(netID) {
+					filtered[id] = rt
+				}
+			} else {
+				var selectedRoutes []*route.Route
+				for _, route := range rt {
+					if route.IsSelected {
+						selectedRoutes = append(selectedRoutes, route)
+					}
+				}
+				if len(selectedRoutes) > 0 {
+					filtered[id] = selectedRoutes
 				}
 			}
-			if len(selectedRoutes) > 0 {
-				filtered[id] = selectedRoutes
-			}
 		} else {
-			// For non-exit nodes, include all routes as before
 			filtered[id] = rt
 		}
 	}
@@ -223,6 +242,7 @@ func (rs *RouteSelector) UnmarshalJSON(data []byte) error {
 	// Check for null or empty JSON
 	if len(data) == 0 || string(data) == "null" {
 		rs.deselectedRoutes = map[route.NetID]struct{}{}
+		rs.selectedRoutes = map[route.NetID]struct{}{}
 		rs.deselectAll = false
 		return nil
 	}
@@ -241,6 +261,9 @@ func (rs *RouteSelector) UnmarshalJSON(data []byte) error {
 
 	if rs.deselectedRoutes == nil {
 		rs.deselectedRoutes = map[route.NetID]struct{}{}
+	}
+	if rs.selectedRoutes == nil {
+		rs.selectedRoutes = map[route.NetID]struct{}{}
 	}
 
 	return nil

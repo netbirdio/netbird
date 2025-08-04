@@ -300,10 +300,9 @@ func TestRouteSelector_FilterSelectedExitNodes(t *testing.T) {
 		IsSelected: true,
 	}
 
-	// Create route map
 	routes := route.HAMap{
-		"ha1": {exitNode1, exitNode2}, // Multiple exit nodes for same HA group
-		"ha2": {normalRoute},          // Normal route
+		"net1|0.0.0.0/0":      {exitNode1, exitNode2},
+		"net2|192.168.1.0/24": {normalRoute},
 	}
 
 	// Test filtering
@@ -311,17 +310,17 @@ func TestRouteSelector_FilterSelectedExitNodes(t *testing.T) {
 
 	// Should only include selected exit nodes and all normal routes
 	assert.Len(t, filtered, 2)
-	assert.Len(t, filtered["ha1"], 1) // Only the selected exit node
-	assert.Equal(t, exitNode1.ID, filtered["ha1"][0].ID)
-	assert.Len(t, filtered["ha2"], 1) // Normal route should be included
-	assert.Equal(t, normalRoute.ID, filtered["ha2"][0].ID)
+	assert.Len(t, filtered["net1|0.0.0.0/0"], 1) // Only the selected exit node
+	assert.Equal(t, exitNode1.ID, filtered["net1|0.0.0.0/0"][0].ID)
+	assert.Len(t, filtered["net2|192.168.1.0/24"], 1) // Normal route should be included
+	assert.Equal(t, normalRoute.ID, filtered["net2|192.168.1.0/24"][0].ID)
 
 	// Test with deselected routes
 	rs.DeselectRoutes([]route.NetID{"net1"}, []route.NetID{"net1", "net2"})
 	filtered = rs.FilterSelectedExitNodes(routes)
 	assert.Len(t, filtered, 1) // Only normal route should remain
-	assert.Len(t, filtered["ha2"], 1)
-	assert.Equal(t, normalRoute.ID, filtered["ha2"][0].ID)
+	assert.Len(t, filtered["net2|192.168.1.0/24"], 1)
+	assert.Equal(t, normalRoute.ID, filtered["net2|192.168.1.0/24"][0].ID)
 
 	// Test with deselect all
 	rs = routeselector.NewRouteSelector()
