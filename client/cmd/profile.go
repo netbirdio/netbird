@@ -3,9 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"os/user"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -22,10 +21,11 @@ var profileCmd = &cobra.Command{
 }
 
 var profileListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "list all profiles",
-	Long:  `List all available profiles in the Netbird client.`,
-	RunE:  listProfilesFunc,
+	Use:     "list",
+	Short:   "list all profiles",
+	Long:    `List all available profiles in the Netbird client.`,
+	Aliases: []string{"ls"},
+	RunE:    listProfilesFunc,
 }
 
 var profileAddCmd = &cobra.Command{
