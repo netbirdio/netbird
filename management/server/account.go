@@ -378,8 +378,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 	if oldSettings.NetworkRange != newSettings.NetworkRange {
 		eventMeta := map[string]any{
-			"old_network_range": oldSettings.NetworkRange,
-			"new_network_range": newSettings.NetworkRange,
+			"old_network_range": oldSettings.NetworkRange.String(),
+			"new_network_range": newSettings.NetworkRange.String(),
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
 	}
@@ -2039,14 +2039,14 @@ func propagateUserGroupMemberships(ctx context.Context, transaction store.Store,
 }
 
 // reallocateAccountPeerIPs re-allocates all peer IPs when the network range changes
-func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, transaction store.Store, accountID, newNetworkRange string) error {
-	if newNetworkRange == "" {
+func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, transaction store.Store, accountID string, newNetworkRange netip.Prefix) error {
+	if !newNetworkRange.IsValid() {
 		return nil
 	}
 
-	_, newIPNet, err := net.ParseCIDR(newNetworkRange)
-	if err != nil {
-		return status.Errorf(status.InvalidArgument, "invalid network range CIDR: %v", err)
+	newIPNet := net.IPNet{
+		IP:   newNetworkRange.Addr().AsSlice(),
+		Mask: net.CIDRMask(newNetworkRange.Bits(), newNetworkRange.Addr().BitLen()),
 	}
 
 	account, err := transaction.GetAccount(ctx, accountID)
@@ -2054,7 +2054,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 		return err
 	}
 
-	account.Network.Net = *newIPNet
+	account.Network.Net = newIPNet
 
 	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
 	if err != nil {
@@ -2065,7 +2065,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 	peersToUpdate := make([]*nbpeer.Peer, 0, len(peers))
 
 	for _, peer := range peers {
-		newIP, err := types.AllocatePeerIP(*newIPNet, takenIPs)
+		newIP, err := types.AllocatePeerIP(newIPNet, takenIPs)
 		if err != nil {
 			return status.Errorf(status.Internal, "allocate IP for peer %s: %v", peer.ID, err)
 		}
@@ -2089,7 +2089,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 	}
 
 	log.WithContext(ctx).Infof("successfully re-allocated IPs for %d peers in account %s to network range %s",
-		len(peersToUpdate), accountID, newNetworkRange)
+		len(peersToUpdate), accountID, newNetworkRange.String())
 
 	return nil
 }

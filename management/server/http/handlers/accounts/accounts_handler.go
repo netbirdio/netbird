@@ -77,25 +77,20 @@ func validateMinimumSize(prefix netip.Prefix) error {
 	return nil
 }
 
-func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID, networkRange string) error {
-	if networkRange == "" {
+func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID string, networkRange netip.Prefix) error {
+	if !networkRange.IsValid() {
 		return nil
 	}
 
-	prefix, err := netip.ParsePrefix(networkRange)
-	if err != nil {
-		return status.Errorf(status.InvalidArgument, "invalid CIDR format: %v", err)
-	}
-
-	if err := validateIPAddress(prefix.Addr()); err != nil {
+	if err := validateIPAddress(networkRange.Addr()); err != nil {
 		return err
 	}
 
-	if err := validateMinimumSize(prefix); err != nil {
+	if err := validateMinimumSize(networkRange); err != nil {
 		return err
 	}
 
-	return h.validateCapacity(ctx, accountID, userID, prefix)
+	return h.validateCapacity(ctx, accountID, userID, networkRange)
 }
 
 func (h *handler) validateCapacity(ctx context.Context, accountID, userID string, prefix netip.Prefix) error {
@@ -230,11 +225,16 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		settings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
 	}
 	if req.Settings.NetworkRange != nil && *req.Settings.NetworkRange != "" {
-		if err := h.validateNetworkRange(r.Context(), accountID, userID, *req.Settings.NetworkRange); err != nil {
+		prefix, err := netip.ParsePrefix(*req.Settings.NetworkRange)
+		if err != nil {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid CIDR format: %v", err), w)
+			return
+		}
+		if err := h.validateNetworkRange(r.Context(), accountID, userID, prefix); err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
-		settings.NetworkRange = *req.Settings.NetworkRange
+		settings.NetworkRange = prefix
 	}
 
 	var onboarding *types.AccountOnboarding
@@ -313,8 +313,9 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		DnsDomain:                       &settings.DNSDomain,
 	}
 
-	if settings.NetworkRange != "" {
-		apiSettings.NetworkRange = &settings.NetworkRange
+	if settings.NetworkRange.IsValid() {
+		networkRangeStr := settings.NetworkRange.String()
+		apiSettings.NetworkRange = &networkRangeStr
 	}
 
 	apiOnboarding := api.AccountOnboarding{

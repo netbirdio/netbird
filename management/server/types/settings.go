@@ -1,6 +1,7 @@
 package types
 
 import (
+	"net/netip"
 	"time"
 )
 
@@ -42,8 +43,8 @@ type Settings struct {
 	// DNSDomain is the custom domain for that account
 	DNSDomain string
 
-	// NetworkRange is the custom network range for that account in CIDR format
-	NetworkRange string
+	// NetworkRange is the custom network range for that account
+	NetworkRange netip.Prefix `gorm:"serializer:json"`
 
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
