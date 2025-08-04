@@ -62,19 +62,20 @@ func initRoutesTestData() *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetRouteFunc: func(_ context.Context, _ string, routeID route.ID, _ string) (*route.Route, error) {
-				if routeID == existingRouteID {
+				switch routeID {
+				case existingRouteID:
 					return baseExistingRoute, nil
-				}
-				if routeID == existingRouteID2 {
+				case existingRouteID2:
 					route := baseExistingRoute.Copy()
 					route.PeerGroups = []string{existingGroupID}
 					return route, nil
-				} else if routeID == existingRouteID3 {
+				case existingRouteID3:
 					route := baseExistingRoute.Copy()
 					route.Domains = domain.List{existingDomain}
 					return route, nil
+				default:
+					return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 				}
-				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
 			CreateRouteFunc: func(_ context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroups []string, enabled bool, _ string, keepRoute bool, isSelected bool) (*route.Route, error) {
 				if peerID == notFoundPeerID {
@@ -191,7 +192,7 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/routes",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf(`{"Description":"Post","Network":"192.168.0.0/16","network_id":"awesomeNet","Peer":"%s","groups":["%s"]}`, existingPeerID, existingGroupID))),
+				[]byte(fmt.Sprintf(`{"Description":"Post","Network":"192.168.0.0/16","network_id":"awesomeNet","Peer":"%s","groups":["%s"],"is_selected":true}`, existingPeerID, existingGroupID))),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRoute: &api.Route{
@@ -204,6 +205,7 @@ func TestRoutesHandlers(t *testing.T) {
 				Masquerade:  false,
 				Enabled:     false,
 				Groups:      []string{existingGroupID},
+				IsSelected:  util.ToPtr(true),
 			},
 		},
 		{
@@ -211,7 +213,7 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/routes",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf(`{"description":"Post","domains":["example.com"],"network_id":"domainNet","peer":"%s","groups":["%s"],"keep_route":true}`, existingPeerID, existingGroupID))),
+				[]byte(fmt.Sprintf(`{"description":"Post","domains":["example.com"],"network_id":"domainNet","peer":"%s","groups":["%s"],"keep_route":true,"is_selected":true}`, existingPeerID, existingGroupID))),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRoute: &api.Route{
@@ -226,6 +228,7 @@ func TestRoutesHandlers(t *testing.T) {
 				Masquerade:  false,
 				Enabled:     false,
 				Groups:      []string{existingGroupID},
+				IsSelected:  util.ToPtr(true),
 			},
 		},
 		{
@@ -233,7 +236,7 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/routes",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"],\"access_control_groups\":[\"%s\"]}", existingPeerID, existingGroupID, existingGroupID))),
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"],\"access_control_groups\":[\"%s\"],\"is_selected\":true}", existingPeerID, existingGroupID, existingGroupID))),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRoute: &api.Route{
@@ -247,6 +250,7 @@ func TestRoutesHandlers(t *testing.T) {
 				Enabled:             false,
 				Groups:              []string{existingGroupID},
 				AccessControlGroups: &[]string{existingGroupID},
+				IsSelected:          util.ToPtr(true),
 			},
 		},
 		{
@@ -337,7 +341,7 @@ func TestRoutesHandlers(t *testing.T) {
 			name:           "Network PUT OK",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"]}", existingPeerID, existingGroupID)),
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"],\"is_selected\":true}", existingPeerID, existingGroupID)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRoute: &api.Route{
@@ -350,13 +354,14 @@ func TestRoutesHandlers(t *testing.T) {
 				Masquerade:  false,
 				Enabled:     false,
 				Groups:      []string{existingGroupID},
+				IsSelected:  util.ToPtr(true),
 			},
 		},
 		{
 			name:           "Domains PUT OK",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"Description":"Post","domains":["example.com"],"network_id":"awesomeNet","Peer":"%s","groups":["%s"],"keep_route":true}`, existingPeerID, existingGroupID)),
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"Description":"Post","domains":["example.com"],"network_id":"awesomeNet","Peer":"%s","groups":["%s"],"keep_route":true,"is_selected":true}`, existingPeerID, existingGroupID)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRoute: &api.Route{
@@ -371,13 +376,14 @@ func TestRoutesHandlers(t *testing.T) {
 				Enabled:     false,
 				Groups:      []string{existingGroupID},
 				KeepRoute:   true,
+				IsSelected:  util.ToPtr(true),
 			},
 		},
 		{
 			name:           "PUT OK when peer_groups provided",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer_groups\":[\"%s\"],\"groups\":[\"%s\"]}", existingGroupID, existingGroupID)),
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"peer_groups\":[\"%s\"],\"groups\":[\"%s\"],\"is_selected\":true}", existingGroupID, existingGroupID)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRoute: &api.Route{
@@ -391,6 +397,7 @@ func TestRoutesHandlers(t *testing.T) {
 				Masquerade:  false,
 				Enabled:     false,
 				Groups:      []string{existingGroupID},
+				IsSelected:  util.ToPtr(true),
 			},
 		},
 		{
