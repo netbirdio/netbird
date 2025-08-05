@@ -89,11 +89,6 @@ func upFunc(cmd *cobra.Command, args []string) error {
 
 	cmd.SetOut(cmd.OutOrStdout())
 
-	// Check if deprecated config flag is set and show warning
-	if cmd.Flag("config").Changed && configPath != "" {
-		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
-	}
-
 	err := util.InitLog(logLevel, util.LogConsole)
 	if err != nil {
 		return fmt.Errorf("failed initializing log %v", err)
@@ -151,6 +146,11 @@ func upFunc(cmd *cobra.Command, args []string) error {
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
+	// override the default profile filepath if provided
+	if configPath != "" {
+		_ = profilemanager.NewServiceManager(configPath)
+	}
+
 	err := handleRebrand(cmd)
 	if err != nil {
 		return err
@@ -202,6 +202,11 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
+	// Check if deprecated config flag is set and show warning
+	if cmd.Flag("config").Changed && configPath != "" {
+		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
+	}
+
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
 	if err != nil {
 		return fmt.Errorf("parse custom DNS address: %v", err)
