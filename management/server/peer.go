@@ -32,7 +32,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if

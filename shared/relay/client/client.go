@@ -13,8 +13,8 @@ import (
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer/quic"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer/ws"
-	"github.com/netbirdio/netbird/relay/healthcheck"
-	"github.com/netbirdio/netbird/relay/messages"
+	"github.com/netbirdio/netbird/shared/relay/healthcheck"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
 const (

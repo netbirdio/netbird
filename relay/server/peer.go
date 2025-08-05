@@ -9,8 +9,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/healthcheck"
-	"github.com/netbirdio/netbird/relay/messages"
+	"github.com/netbirdio/netbird/shared/relay/healthcheck"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 	"github.com/netbirdio/netbird/relay/metrics"
 	"github.com/netbirdio/netbird/relay/server/store"
 )

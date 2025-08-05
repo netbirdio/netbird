@@ -12,8 +12,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+import "github.com/netbirdio/netbird/shared/relay"
+
 // URLPath is the path for the websocket connection.
-const URLPath = "/relay"
+const URLPath = relay.WebSocketURLPath
 
 type Listener struct {
 	// Address is the address to listen on.

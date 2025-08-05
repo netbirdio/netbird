@@ -3,7 +3,7 @@ package rest
 import (
 	"context"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 // EventsAPI APIs for Events, do not use directly

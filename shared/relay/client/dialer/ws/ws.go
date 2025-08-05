@@ -14,7 +14,7 @@ import (
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	"github.com/netbirdio/netbird/shared/relay"
 	"github.com/netbirdio/netbird/util/embeddedroots"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
@@ -40,7 +40,7 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	parsedURL.Path = ws.URLPath
+	parsedURL.Path = relay.WebSocketURLPath
 
 	wsConn, resp, err := websocket.Dial(ctx, parsedURL.String(), opts)
 	if err != nil {

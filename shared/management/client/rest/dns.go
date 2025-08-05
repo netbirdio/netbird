@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 // DNSAPI APIs for DNS Management, do not use directly
