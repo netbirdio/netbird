@@ -23,7 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 )
 

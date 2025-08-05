@@ -32,7 +32,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()

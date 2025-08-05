@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"

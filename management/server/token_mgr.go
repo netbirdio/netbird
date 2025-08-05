@@ -11,11 +11,11 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
-	auth "github.com/netbirdio/netbird/relay/auth/hmac"
-	authv2 "github.com/netbirdio/netbird/relay/auth/hmac/v2"
+	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
+	authv2 "github.com/netbirdio/netbird/shared/relay/auth/hmac/v2"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 )

@@ -20,8 +20,8 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/ssh"
-	mgm "github.com/netbirdio/netbird/management/client"
-	"github.com/netbirdio/netbird/management/domain"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 )
 
