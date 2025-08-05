@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/shared/management/client/rest"
-	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 var (

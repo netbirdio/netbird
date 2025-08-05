@@ -14,7 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 

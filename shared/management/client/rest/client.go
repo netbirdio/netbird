@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 )
 
 // Client Management service HTTP REST API Client
