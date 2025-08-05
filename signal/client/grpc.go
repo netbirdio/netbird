@@ -434,10 +434,10 @@ func (c *GrpcClient) startEncryptionWorker(ctx context.Context, handler func(msg
 
 	c.decryptionWorker = NewWorker(c.decryptMessage, handler)
 	c.decryptionWg.Add(1)
+	workerCtx, workerCancel := context.WithCancel(ctx)
+	c.decryptionWorkerCancel = workerCancel
 	go func() {
-		workerCtx, workerCancel := context.WithCancel(ctx)
 		defer workerCancel()
-
 		c.decryptionWorker.Work(workerCtx)
 		c.decryptionWg.Done()
 	}()
