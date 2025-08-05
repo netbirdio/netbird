@@ -10,9 +10,9 @@ import (
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
-)
 
-import "github.com/netbirdio/netbird/shared/relay"
+	"github.com/netbirdio/netbird/shared/relay"
+)
 
 // URLPath is the path for the websocket connection.
 const URLPath = relay.WebSocketURLPath
