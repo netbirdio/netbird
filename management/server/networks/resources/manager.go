@@ -12,10 +12,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -123,7 +123,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 			return fmt.Errorf("failed to get network: %w", err)
 		}
 
-		err = transaction.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+		err = transaction.SaveNetworkResource(ctx, resource)
 		if err != nil {
 			return fmt.Errorf("failed to save network resource: %w", err)
 		}
@@ -145,7 +145,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 			eventsToStore = append(eventsToStore, event)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, resource.AccountID)
+		err = transaction.IncrementNetworkSerial(ctx, resource.AccountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -233,7 +233,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}
 
-		err = transaction.SaveNetworkResource(ctx, store.LockingStrengthUpdate, resource)
+		err = transaction.SaveNetworkResource(ctx, resource)
 		if err != nil {
 			return fmt.Errorf("failed to save network resource: %w", err)
 		}
@@ -248,7 +248,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
 		})
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, resource.AccountID)
+		err = transaction.IncrementNetworkSerial(ctx, resource.AccountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -325,7 +325,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 			return fmt.Errorf("failed to delete resource: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -375,7 +375,7 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 		eventsToStore = append(eventsToStore, event)
 	}
 
-	err = transaction.DeleteNetworkResource(ctx, store.LockingStrengthUpdate, accountID, resourceID)
+	err = transaction.DeleteNetworkResource(ctx, accountID, resourceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete network resource: %w", err)
 	}

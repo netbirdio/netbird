@@ -40,12 +40,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -346,12 +346,12 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		}
 
 		if updateAccountPeers || groupsUpdated {
-			if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 				return err
 			}
 		}
 
-		return transaction.SaveAccountSettings(ctx, store.LockingStrengthUpdate, accountID, newSettings)
+		return transaction.SaveAccountSettings(ctx, accountID, newSettings)
 	})
 	if err != nil {
 		return nil, err
@@ -1145,7 +1145,7 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 
 	newUser := types.NewRegularUser(userAuth.UserId)
 	newUser.AccountID = domainAccountID
-	err := am.Store.SaveUser(ctx, store.LockingStrengthUpdate, newUser)
+	err := am.Store.SaveUser(ctx, newUser)
 	if err != nil {
 		return "", err
 	}
@@ -1387,7 +1387,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			return nil
 		}
 
-		if err = transaction.CreateGroups(ctx, store.LockingStrengthUpdate, userAuth.AccountId, newGroupsToCreate); err != nil {
+		if err = transaction.CreateGroups(ctx, userAuth.AccountId, newGroupsToCreate); err != nil {
 			return fmt.Errorf("error saving groups: %w", err)
 		}
 
@@ -1395,7 +1395,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 		removeOldGroups = util.Difference(user.AutoGroups, updatedAutoGroups)
 
 		user.AutoGroups = updatedAutoGroups
-		if err = transaction.SaveUser(ctx, store.LockingStrengthUpdate, user); err != nil {
+		if err = transaction.SaveUser(ctx, user); err != nil {
 			return fmt.Errorf("error saving user: %w", err)
 		}
 
@@ -1419,7 +1419,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				}
 			}
 
-			if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, userAuth.AccountId); err != nil {
+			if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
@@ -2099,7 +2099,7 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 	}
 
 	for _, peer := range peers {
-		if err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer); err != nil {
+		if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 			return status.Errorf(status.Internal, "save updated peer %s: %v", peer.ID, err)
 		}
 	}
@@ -2195,7 +2195,7 @@ func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transacti
 	oldIP := peer.IP.String()
 
 	peer.IP = newIP.AsSlice()
-	err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer)
+	err = transaction.SavePeer(ctx, accountID, peer)
 	if err != nil {
 		return fmt.Errorf("save peer: %w", err)
 	}

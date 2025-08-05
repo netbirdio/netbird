@@ -10,10 +10,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -81,7 +81,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		events := am.prepareSetupKeyEvents(ctx, transaction, accountID, userID, autoGroups, nil, setupKey)
 		eventsToStore = append(eventsToStore, events...)
 
-		return transaction.SaveSetupKey(ctx, store.LockingStrengthUpdate, setupKey)
+		return transaction.SaveSetupKey(ctx, setupKey)
 	})
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		events := am.prepareSetupKeyEvents(ctx, transaction, accountID, userID, addedGroups, removedGroups, oldKey)
 		eventsToStore = append(eventsToStore, events...)
 
-		return transaction.SaveSetupKey(ctx, store.LockingStrengthUpdate, newKey)
+		return transaction.SaveSetupKey(ctx, newKey)
 	})
 	if err != nil {
 		return nil, err
@@ -219,7 +219,7 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 			return err
 		}
 
-		return transaction.DeleteSetupKey(ctx, store.LockingStrengthUpdate, accountID, keyID)
+		return transaction.DeleteSetupKey(ctx, accountID, keyID)
 	})
 	if err != nil {
 		return err

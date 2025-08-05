@@ -14,8 +14,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -73,7 +73,7 @@ func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network 
 	unlock := m.store.AcquireWriteLockByUID(ctx, network.AccountID)
 	defer unlock()
 
-	err = m.store.SaveNetwork(ctx, store.LockingStrengthUpdate, network)
+	err = m.store.SaveNetwork(ctx, network)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save network: %w", err)
 	}
@@ -114,7 +114,7 @@ func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network 
 
 	m.accountManager.StoreEvent(ctx, userID, network.ID, network.AccountID, activity.NetworkUpdated, network.EventMeta())
 
-	return network, m.store.SaveNetwork(ctx, store.LockingStrengthUpdate, network)
+	return network, m.store.SaveNetwork(ctx, network)
 }
 
 func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, networkID string) error {
@@ -162,12 +162,12 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 			eventsToStore = append(eventsToStore, event)
 		}
 
-		err = transaction.DeleteNetwork(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		err = transaction.DeleteNetwork(ctx, accountID, networkID)
 		if err != nil {
 			return fmt.Errorf("failed to delete network: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}

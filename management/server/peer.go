@@ -17,21 +17,21 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -173,7 +173,7 @@ func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocatio
 			peer.Location.CountryCode = location.Country.ISOCode
 			peer.Location.CityName = location.City.Names.En
 			peer.Location.GeoNameID = location.City.GeonameID
-			err = transaction.SavePeerLocation(ctx, store.LockingStrengthUpdate, accountID, peer)
+			err = transaction.SavePeerLocation(ctx, accountID, peer)
 			if err != nil {
 				log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
 			}
@@ -182,7 +182,7 @@ func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocatio
 
 	log.WithContext(ctx).Tracef("saving peer status for peer %s is connected: %t", peer.ID, connected)
 
-	err := transaction.SavePeerStatus(ctx, store.LockingStrengthUpdate, accountID, peer.ID, *newStatus)
+	err := transaction.SavePeerStatus(ctx, accountID, peer.ID, *newStatus)
 	if err != nil {
 		return false, err
 	}
@@ -281,7 +281,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			inactivityExpirationChanged = true
 		}
 
-		return transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer)
+		return transaction.SavePeer(ctx, accountID, peer)
 	})
 	if err != nil {
 		return nil, err
@@ -383,7 +383,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return fmt.Errorf("failed to delete peer: %w", err)
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
@@ -617,7 +617,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}()
 
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			err = transaction.AddPeerToAccount(ctx, store.LockingStrengthUpdate, newPeer)
+			err = transaction.AddPeerToAccount(ctx, newPeer)
 			if err != nil {
 				return err
 			}
@@ -658,7 +658,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 				}
 			}
 
-			err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+			err = transaction.IncrementNetworkSerial(ctx, accountID)
 			if err != nil {
 				return fmt.Errorf("failed to increment network serial: %w", err)
 			}
@@ -774,7 +774,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		if updated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
-			if err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer); err != nil {
+			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
 
@@ -911,7 +911,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 
 		if shouldStorePeer {
-			if err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer); err != nil {
+			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
 		}
@@ -1080,7 +1080,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, transact
 	// If peer was expired before and if it reached this point, it is re-authenticated.
 	// UserID is present, meaning that JWT validation passed successfully in the API layer.
 	peer = peer.UpdateLastLogin()
-	err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, peer.AccountID, peer)
+	err = transaction.SavePeer(ctx, peer.AccountID, peer)
 	if err != nil {
 		return err
 	}
@@ -1568,7 +1568,7 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 			return nil, err
 		}
 
-		if err = transaction.DeletePeer(ctx, store.LockingStrengthUpdate, accountID, peer.ID); err != nil {
+		if err = transaction.DeletePeer(ctx, accountID, peer.ID); err != nil {
 			return nil, err
 		}
 

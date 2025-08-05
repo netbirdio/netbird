@@ -27,11 +27,11 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	nbroute "github.com/netbirdio/netbird/route"
 	route2 "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func runTestForAllEngines(t *testing.T, testDataFile string, f func(t *testing.T, store Store)) {
@@ -459,7 +459,7 @@ func TestSqlStore_SavePeer(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 	ctx := context.Background()
-	err = store.SavePeer(ctx, LockingStrengthUpdate, account.Id, peer)
+	err = store.SavePeer(ctx, account.Id, peer)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -475,7 +475,7 @@ func TestSqlStore_SavePeer(t *testing.T) {
 	updatedPeer.Status.Connected = false
 	updatedPeer.Meta.Hostname = "updatedpeer"
 
-	err = store.SavePeer(ctx, LockingStrengthUpdate, account.Id, updatedPeer)
+	err = store.SavePeer(ctx, account.Id, updatedPeer)
 	require.NoError(t, err)
 
 	account, err = store.GetAccount(context.Background(), account.Id)
@@ -499,7 +499,7 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 
 	// save status of non-existing peer
 	newStatus := nbpeer.PeerStatus{Connected: false, LastSeen: time.Now().UTC()}
-	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "non-existing-peer", newStatus)
+	err = store.SavePeerStatus(context.Background(), account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -518,7 +518,7 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
-	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "testpeer", newStatus)
+	err = store.SavePeerStatus(context.Background(), account.Id, "testpeer", newStatus)
 	require.NoError(t, err)
 
 	account, err = store.GetAccount(context.Background(), account.Id)
@@ -532,7 +532,7 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 
 	newStatus.Connected = true
 
-	err = store.SavePeerStatus(context.Background(), LockingStrengthUpdate, account.Id, "testpeer", newStatus)
+	err = store.SavePeerStatus(context.Background(), account.Id, "testpeer", newStatus)
 	require.NoError(t, err)
 
 	account, err = store.GetAccount(context.Background(), account.Id)
@@ -566,7 +566,7 @@ func TestSqlStore_SavePeerLocation(t *testing.T) {
 		Meta:      nbpeer.PeerSystemMeta{},
 	}
 	// error is expected as peer is not in store yet
-	err = store.SavePeerLocation(context.Background(), LockingStrengthUpdate, account.Id, peer)
+	err = store.SavePeerLocation(context.Background(), account.Id, peer)
 	assert.Error(t, err)
 
 	account.Peers[peer.ID] = peer
@@ -578,7 +578,7 @@ func TestSqlStore_SavePeerLocation(t *testing.T) {
 	peer.Location.CityName = "Berlin"
 	peer.Location.GeoNameID = 2950159
 
-	err = store.SavePeerLocation(context.Background(), LockingStrengthUpdate, account.Id, account.Peers[peer.ID])
+	err = store.SavePeerLocation(context.Background(), account.Id, account.Peers[peer.ID])
 	assert.NoError(t, err)
 
 	account, err = store.GetAccount(context.Background(), account.Id)
@@ -588,7 +588,7 @@ func TestSqlStore_SavePeerLocation(t *testing.T) {
 	assert.Equal(t, peer.Location, actual)
 
 	peer.ID = "non-existing-peer"
-	err = store.SavePeerLocation(context.Background(), LockingStrengthUpdate, account.Id, peer)
+	err = store.SavePeerLocation(context.Background(), account.Id, peer)
 	assert.Error(t, err)
 	parsedErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -971,7 +971,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 		DNSLabel:  "peer1",
 		IP:        net.IP{1, 1, 1, 1},
 	}
-	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+	err = store.AddPeerToAccount(context.Background(), peer1)
 	require.NoError(t, err)
 
 	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
@@ -985,7 +985,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 		DNSLabel:  "peer1-1",
 		IP:        net.IP{2, 2, 2, 2},
 	}
-	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+	err = store.AddPeerToAccount(context.Background(), peer2)
 	require.NoError(t, err)
 
 	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
@@ -1012,7 +1012,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 			DNSLabel:  "peer1",
 			IP:        net.IP{1, 1, 1, 1},
 		}
-		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+		err = store.AddPeerToAccount(context.Background(), peer1)
 		require.NoError(t, err)
 
 		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
@@ -1025,7 +1025,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 			DNSLabel:  "peer1-1",
 			IP:        net.IP{2, 2, 2, 2},
 		}
-		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+		err = store.AddPeerToAccount(context.Background(), peer2)
 		require.NoError(t, err)
 
 		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
@@ -1050,7 +1050,7 @@ func Test_AddPeerWithSameDnsLabel(t *testing.T) {
 			AccountID: existingAccountID,
 			DNSLabel:  "peer1.domain.test",
 		}
-		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+		err = store.AddPeerToAccount(context.Background(), peer1)
 		require.NoError(t, err)
 
 		peer2 := &nbpeer.Peer{
@@ -1058,7 +1058,7 @@ func Test_AddPeerWithSameDnsLabel(t *testing.T) {
 			AccountID: existingAccountID,
 			DNSLabel:  "peer1.domain.test",
 		}
-		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+		err = store.AddPeerToAccount(context.Background(), peer2)
 		require.Error(t, err)
 	})
 }
@@ -1075,7 +1075,7 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 			AccountID: existingAccountID,
 			IP:        net.IP{1, 1, 1, 1},
 		}
-		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer1)
+		err = store.AddPeerToAccount(context.Background(), peer1)
 		require.NoError(t, err)
 
 		peer2 := &nbpeer.Peer{
@@ -1083,7 +1083,7 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 			AccountID: existingAccountID,
 			IP:        net.IP{1, 1, 1, 1},
 		}
-		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer2)
+		err = store.AddPeerToAccount(context.Background(), peer2)
 		require.Error(t, err)
 	})
 }
@@ -1188,7 +1188,7 @@ func TestSqlite_CreateAndGetObjectInTransaction(t *testing.T) {
 		Peers:     nil,
 	}
 	err = store.ExecuteInTransaction(context.Background(), func(transaction Store) error {
-		err := transaction.CreateGroup(context.Background(), LockingStrengthUpdate, group)
+		err := transaction.CreateGroup(context.Background(), group)
 		if err != nil {
 			t.Fatal("failed to save group")
 			return err
@@ -1286,7 +1286,7 @@ func Test_DeleteSetupKeySuccessfully(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	setupKeyID := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
-	err = store.DeleteSetupKey(context.Background(), LockingStrengthUpdate, accountID, setupKeyID)
+	err = store.DeleteSetupKey(context.Background(), accountID, setupKeyID)
 	require.NoError(t, err)
 
 	_, err = store.GetSetupKeyByID(context.Background(), LockingStrengthShare, setupKeyID, accountID)
@@ -1302,7 +1302,7 @@ func Test_DeleteSetupKeyFailsForNonExistingKey(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	nonExistingKeyID := "non-existing-key-id"
 
-	err = store.DeleteSetupKey(context.Background(), LockingStrengthUpdate, accountID, nonExistingKeyID)
+	err = store.DeleteSetupKey(context.Background(), accountID, nonExistingKeyID)
 	require.Error(t, err)
 }
 
@@ -1365,7 +1365,7 @@ func TestSqlStore_CreateGroup(t *testing.T) {
 		Resources:  []types.Resource{},
 		GroupPeers: []types.GroupPeer{},
 	}
-	err = store.CreateGroup(context.Background(), LockingStrengthUpdate, group)
+	err = store.CreateGroup(context.Background(), group)
 	require.NoError(t, err)
 
 	savedGroup, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, "group-id")
@@ -1398,11 +1398,11 @@ func TestSqlStore_CreateUpdateGroups(t *testing.T) {
 			GroupPeers: []types.GroupPeer{},
 		},
 	}
-	err = store.CreateGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
+	err = store.CreateGroups(context.Background(), accountID, groups)
 	require.NoError(t, err)
 
 	groups[1].Peers = []string{}
-	err = store.UpdateGroups(context.Background(), LockingStrengthUpdate, accountID, groups)
+	err = store.UpdateGroups(context.Background(), accountID, groups)
 	require.NoError(t, err)
 
 	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groups[1].ID)
@@ -1441,7 +1441,7 @@ func TestSqlStore_DeleteGroup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := store.DeleteGroup(context.Background(), LockingStrengthUpdate, accountID, tt.groupID)
+			err := store.DeleteGroup(context.Background(), accountID, tt.groupID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -1489,7 +1489,7 @@ func TestSqlStore_DeleteGroups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := store.DeleteGroups(context.Background(), LockingStrengthUpdate, accountID, tt.groupIDs)
+			err := store.DeleteGroups(context.Background(), accountID, tt.groupIDs)
 			if tt.expectError {
 				require.Error(t, err)
 			} else {
@@ -1715,7 +1715,7 @@ func TestSqlStore_SavePostureChecks(t *testing.T) {
 			},
 		},
 	}
-	err = store.SavePostureChecks(context.Background(), LockingStrengthUpdate, postureChecks)
+	err = store.SavePostureChecks(context.Background(), postureChecks)
 	require.NoError(t, err)
 
 	savePostureChecks, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, "posture-checks-id")
@@ -1754,7 +1754,7 @@ func TestSqlStore_DeletePostureChecks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err = store.DeletePostureChecks(context.Background(), LockingStrengthUpdate, accountID, tt.postureChecksID)
+			err = store.DeletePostureChecks(context.Background(), accountID, tt.postureChecksID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -1837,7 +1837,7 @@ func TestSqlStore_CreatePolicy(t *testing.T) {
 			},
 		},
 	}
-	err = store.CreatePolicy(context.Background(), LockingStrengthUpdate, policy)
+	err = store.CreatePolicy(context.Background(), policy)
 	require.NoError(t, err)
 
 	savePolicy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policy.ID)
@@ -1861,7 +1861,7 @@ func TestSqlStore_SavePolicy(t *testing.T) {
 	policy.Description = "policy"
 	policy.Rules[0].Sources = []string{"group"}
 	policy.Rules[0].Ports = []string{"80", "443"}
-	err = store.SavePolicy(context.Background(), LockingStrengthUpdate, policy)
+	err = store.SavePolicy(context.Background(), policy)
 	require.NoError(t, err)
 
 	savePolicy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policy.ID)
@@ -1877,7 +1877,7 @@ func TestSqlStore_DeletePolicy(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	policyID := "cs1tnh0hhcjnqoiuebf0"
 
-	err = store.DeletePolicy(context.Background(), LockingStrengthShare, accountID, policyID)
+	err = store.DeletePolicy(context.Background(), accountID, policyID)
 	require.NoError(t, err)
 
 	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policyID)
@@ -1940,7 +1940,7 @@ func TestSqlStore_SaveDNSSettings(t *testing.T) {
 	require.NoError(t, err)
 
 	dnsSettings.DisabledManagementGroups = []string{"groupA", "groupB"}
-	err = store.SaveDNSSettings(context.Background(), LockingStrengthUpdate, accountID, dnsSettings)
+	err = store.SaveDNSSettings(context.Background(), accountID, dnsSettings)
 	require.NoError(t, err)
 
 	saveDNSSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, accountID)
@@ -2055,7 +2055,7 @@ func TestSqlStore_SaveNameServerGroup(t *testing.T) {
 		SearchDomainsEnabled: false,
 	}
 
-	err = store.SaveNameServerGroup(context.Background(), LockingStrengthUpdate, nsGroup)
+	err = store.SaveNameServerGroup(context.Background(), nsGroup)
 	require.NoError(t, err)
 
 	saveNSGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, nsGroup.ID)
@@ -2071,7 +2071,7 @@ func TestSqlStore_DeleteNameServerGroup(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	nsGroupID := "csqdelq7qv97ncu7d9t0"
 
-	err = store.DeleteNameServerGroup(context.Background(), LockingStrengthShare, accountID, nsGroupID)
+	err = store.DeleteNameServerGroup(context.Background(), accountID, nsGroupID)
 	require.NoError(t, err)
 
 	nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, nsGroupID)
@@ -2219,7 +2219,7 @@ func TestSqlStore_SaveNetwork(t *testing.T) {
 		Name:      "net",
 	}
 
-	err = store.SaveNetwork(context.Background(), LockingStrengthUpdate, network)
+	err = store.SaveNetwork(context.Background(), network)
 	require.NoError(t, err)
 
 	savedNet, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, network.ID)
@@ -2235,7 +2235,7 @@ func TestSqlStore_DeleteNetwork(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	networkID := "ct286bi7qv930dsrrug0"
 
-	err = store.DeleteNetwork(context.Background(), LockingStrengthUpdate, accountID, networkID)
+	err = store.DeleteNetwork(context.Background(), accountID, networkID)
 	require.NoError(t, err)
 
 	network, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, networkID)
@@ -2336,7 +2336,7 @@ func TestSqlStore_SaveNetworkRouter(t *testing.T) {
 	netRouter, err := routerTypes.NewNetworkRouter(accountID, networkID, "", []string{"net-router-grp"}, true, 0, true)
 	require.NoError(t, err)
 
-	err = store.SaveNetworkRouter(context.Background(), LockingStrengthUpdate, netRouter)
+	err = store.SaveNetworkRouter(context.Background(), netRouter)
 	require.NoError(t, err)
 
 	savedNetRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthShare, accountID, netRouter.ID)
@@ -2352,7 +2352,7 @@ func TestSqlStore_DeleteNetworkRouter(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	netRouterID := "ctc20ji7qv9ck2sebc80"
 
-	err = store.DeleteNetworkRouter(context.Background(), LockingStrengthUpdate, accountID, netRouterID)
+	err = store.DeleteNetworkRouter(context.Background(), accountID, netRouterID)
 	require.NoError(t, err)
 
 	netRouter, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, netRouterID)
@@ -2453,7 +2453,7 @@ func TestSqlStore_SaveNetworkResource(t *testing.T) {
 	netResource, err := resourceTypes.NewNetworkResource(accountID, networkID, "resource-name", "", "example.com", []string{}, true)
 	require.NoError(t, err)
 
-	err = store.SaveNetworkResource(context.Background(), LockingStrengthUpdate, netResource)
+	err = store.SaveNetworkResource(context.Background(), netResource)
 	require.NoError(t, err)
 
 	savedNetResource, err := store.GetNetworkResourceByID(context.Background(), LockingStrengthShare, accountID, netResource.ID)
@@ -2475,7 +2475,7 @@ func TestSqlStore_DeleteNetworkResource(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	netResourceID := "ctc4nci7qv9061u6ilfg"
 
-	err = store.DeleteNetworkResource(context.Background(), LockingStrengthUpdate, accountID, netResourceID)
+	err = store.DeleteNetworkResource(context.Background(), accountID, netResourceID)
 	require.NoError(t, err)
 
 	netResource, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, netResourceID)
@@ -2559,7 +2559,7 @@ func TestSqlStore_AddPeerToAllGroup(t *testing.T) {
 	require.Len(t, group.Peers, 2, "group should have 2 peers")
 	require.NotContains(t, group.Peers, peer.ID)
 
-	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer)
+	err = store.AddPeerToAccount(context.Background(), peer)
 	require.NoError(t, err, "failed to add peer to account")
 
 	err = store.AddPeerToAllGroup(context.Background(), accountID, peer.ID)
@@ -2609,7 +2609,7 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 		CreatedAt:                   time.Now().UTC(),
 		Ephemeral:                   true,
 	}
-	err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer)
+	err = store.AddPeerToAccount(context.Background(), peer)
 	require.NoError(t, err, "failed to add peer to account")
 
 	storedPeer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peer.ID)
@@ -2856,7 +2856,7 @@ func TestSqlStore_DeletePeer(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	peerID := "csrnkiq7qv9d8aitqd50"
 
-	err = store.DeletePeer(context.Background(), LockingStrengthUpdate, accountID, peerID)
+	err = store.DeletePeer(context.Background(), accountID, peerID)
 	require.NoError(t, err)
 
 	peer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
@@ -3057,7 +3057,7 @@ func TestSqlStore_SaveUser(t *testing.T) {
 		CreatedAt:     time.Now().UTC().Add(-time.Hour),
 		Issued:        types.UserIssuedIntegration,
 	}
-	err = store.SaveUser(context.Background(), LockingStrengthUpdate, user)
+	err = store.SaveUser(context.Background(), user)
 	require.NoError(t, err)
 
 	saveUser, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, user.Id)
@@ -3098,7 +3098,7 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 			AutoGroups: []string{"groupA"},
 		},
 	}
-	err = store.SaveUsers(context.Background(), LockingStrengthUpdate, users)
+	err = store.SaveUsers(context.Background(), users)
 	require.NoError(t, err)
 
 	accountUsers, err = store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
@@ -3106,7 +3106,7 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 	require.Len(t, accountUsers, 4)
 
 	users[1].AutoGroups = []string{"groupA", "groupC"}
-	err = store.SaveUsers(context.Background(), LockingStrengthUpdate, users)
+	err = store.SaveUsers(context.Background(), users)
 	require.NoError(t, err)
 
 	user, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, users[1].Id)
@@ -3122,7 +3122,7 @@ func TestSqlStore_DeleteUser(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	userID := "f4f6d672-63fb-11ec-90d6-0242ac120003"
 
-	err = store.DeleteUser(context.Background(), LockingStrengthUpdate, accountID, userID)
+	err = store.DeleteUser(context.Background(), accountID, userID)
 	require.NoError(t, err)
 
 	user, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, userID)
@@ -3209,7 +3209,7 @@ func TestSqlStore_MarkPATUsed(t *testing.T) {
 	userID := "f4f6d672-63fb-11ec-90d6-0242ac120003"
 	patID := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	err = store.MarkPATUsed(context.Background(), LockingStrengthUpdate, patID)
+	err = store.MarkPATUsed(context.Background(), patID)
 	require.NoError(t, err)
 
 	pat, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, patID)
@@ -3235,7 +3235,7 @@ func TestSqlStore_SavePAT(t *testing.T) {
 		CreatedAt:      time.Now().UTC().Add(time.Hour),
 		LastUsed:       util.ToPtr(time.Now().UTC().Add(-15 * time.Minute)),
 	}
-	err = store.SavePAT(context.Background(), LockingStrengthUpdate, pat)
+	err = store.SavePAT(context.Background(), pat)
 	require.NoError(t, err)
 
 	savePAT, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, pat.ID)
@@ -3257,7 +3257,7 @@ func TestSqlStore_DeletePAT(t *testing.T) {
 	userID := "f4f6d672-63fb-11ec-90d6-0242ac120003"
 	patID := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	err = store.DeletePAT(context.Background(), LockingStrengthUpdate, userID, patID)
+	err = store.DeletePAT(context.Background(), userID, patID)
 	require.NoError(t, err)
 
 	pat, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, patID)
@@ -3286,7 +3286,7 @@ func TestSqlStore_SaveUsers_LargeBatch(t *testing.T) {
 		})
 	}
 
-	err = store.SaveUsers(context.Background(), LockingStrengthUpdate, usersToSave)
+	err = store.SaveUsers(context.Background(), usersToSave)
 	require.NoError(t, err)
 
 	accountUsers, err = store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
@@ -3315,7 +3315,7 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 		})
 	}
 
-	err = store.CreateGroups(context.Background(), LockingStrengthUpdate, accountID, groupsToSave)
+	err = store.CreateGroups(context.Background(), accountID, groupsToSave)
 	require.NoError(t, err)
 
 	accountGroups, err = store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)
@@ -3424,7 +3424,7 @@ func TestSqlStore_SaveRoute(t *testing.T) {
 		Groups:              []string{"groupA"},
 		AccessControlGroups: []string{},
 	}
-	err = store.SaveRoute(context.Background(), LockingStrengthUpdate, route)
+	err = store.SaveRoute(context.Background(), route)
 	require.NoError(t, err)
 
 	saveRoute, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, string(route.ID))
@@ -3441,7 +3441,7 @@ func TestSqlStore_DeleteRoute(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	routeID := "ct03t427qv97vmtmglog"
 
-	err = store.DeleteRoute(context.Background(), LockingStrengthUpdate, accountID, routeID)
+	err = store.DeleteRoute(context.Background(), accountID, routeID)
 	require.NoError(t, err)
 
 	route, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, routeID)
@@ -3567,7 +3567,7 @@ func BenchmarkGetAccountPeers(b *testing.B) {
 			DNSLabel:  fmt.Sprintf("peer%d.example.com", i),
 			IP:        intToIPv4(uint32(i)),
 		}
-		err = store.AddPeerToAccount(context.Background(), LockingStrengthUpdate, peer)
+		err = store.AddPeerToAccount(context.Background(), peer)
 		if err != nil {
 			b.Fatalf("Failed to add peer: %v", err)
 		}
@@ -3580,7 +3580,7 @@ func BenchmarkGetAccountPeers(b *testing.B) {
 			ID:        groupID,
 			AccountID: accountID,
 		}
-		err = store.CreateGroup(context.Background(), LockingStrengthUpdate, group)
+		err = store.CreateGroup(context.Background(), group)
 		if err != nil {
 			b.Fatalf("Failed to create group: %v", err)
 		}

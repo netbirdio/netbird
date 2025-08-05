@@ -14,8 +14,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -104,12 +104,12 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 		router.ID = xid.New().String()
 
-		err = transaction.SaveNetworkRouter(ctx, store.LockingStrengthUpdate, router)
+		err = transaction.SaveNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to create network router: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, router.AccountID)
+		err = transaction.IncrementNetworkSerial(ctx, router.AccountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -171,12 +171,12 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 			return status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
 		}
 
-		err = transaction.SaveNetworkRouter(ctx, store.LockingStrengthUpdate, router)
+		err = transaction.SaveNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to update network router: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, router.AccountID)
+		err = transaction.IncrementNetworkSerial(ctx, router.AccountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -213,7 +213,7 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 			return fmt.Errorf("failed to delete network router: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -246,7 +246,7 @@ func (m *managerImpl) DeleteRouterInTransaction(ctx context.Context, transaction
 		return nil, status.NewRouterNotPartOfNetworkError(routerID, networkID)
 	}
 
-	err = transaction.DeleteNetworkRouter(ctx, store.LockingStrengthUpdate, accountID, routerID)
+	err = transaction.DeleteNetworkRouter(ctx, accountID, routerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete network router: %w", err)
 	}
