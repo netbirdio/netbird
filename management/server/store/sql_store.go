@@ -2210,8 +2210,7 @@ func (s *SqlStore) GetSetupKeyByID(ctx context.Context, lockStrength LockingStre
 	}
 
 	var setupKey *types.SetupKey
-	result := tx.Clauses(clause.Locking{Strength: string(lockStrength)}).
-		Take(&setupKey, accountAndIDQueryCondition, accountID, setupKeyID)
+	result := tx.Take(&setupKey, accountAndIDQueryCondition, accountID, setupKeyID)
 	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.NewSetupKeyNotFoundError(setupKeyID)
