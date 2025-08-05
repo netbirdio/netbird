@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"fmt"
 
 	log "github.com/sirupsen/logrus"
 
@@ -24,13 +23,12 @@ func NewWorker(decryptFn func(msg *proto.EncryptedMessage) (*proto.Message, erro
 	}
 }
 
-func (w *Worker) AddMsg(msg *proto.EncryptedMessage) error {
-	if w.encryptedMsgPool == nil {
-		return fmt.Errorf("worker is not initialized")
-	}
-
+func (w *Worker) AddMsg(ctx context.Context, msg *proto.EncryptedMessage) error {
 	// this is blocker because do not want to drop messages here
-	w.encryptedMsgPool <- msg
+	select {
+	case w.encryptedMsgPool <- msg:
+	case <-ctx.Done():
+	}
 	return nil
 }
 

@@ -421,7 +421,7 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 			continue
 		}
 
-		if err := c.decryptionWorker.AddMsg(msg); err != nil {
+		if err := c.decryptionWorker.AddMsg(c.ctx, msg); err != nil {
 			log.Errorf("failed to add message to decryption worker: %v", err)
 		}
 	}
