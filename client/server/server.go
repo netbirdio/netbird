@@ -70,9 +70,9 @@ type Server struct {
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
-	lastProbe         time.Time
-	persistNetworkMap bool
-	isSessionActive   atomic.Bool
+	lastProbe           time.Time
+	persistSyncResponse bool
+	isSessionActive     atomic.Bool
 
 	profileManager   *profilemanager.ServiceManager
 	profilesDisabled bool
@@ -88,12 +88,12 @@ type oauthAuthFlow struct {
 // New server instance constructor.
 func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool) *Server {
 	return &Server{
-		rootCtx:           ctx,
-		logFile:           logFile,
-		persistNetworkMap: true,
-		statusRecorder:    peer.NewRecorder(""),
-		profileManager:    profilemanager.NewServiceManager(configFile),
-		profilesDisabled:  profilesDisabled,
+		rootCtx:             ctx,
+		logFile:             logFile,
+		persistSyncResponse: true,
+		statusRecorder:      peer.NewRecorder(""),
+		profileManager:      profilemanager.NewServiceManager(configFile),
+		profilesDisabled:    profilesDisabled,
 	}
 }
 
@@ -233,7 +233,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *profilemanage
 	runOperation := func() error {
 		log.Tracef("running client connection")
 		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
-		s.connectClient.SetNetworkMapPersistence(s.persistNetworkMap)
+		s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
 
 		err := s.connectClient.Run(runningChan)
 		if err != nil {

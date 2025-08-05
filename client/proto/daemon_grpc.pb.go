@@ -50,8 +50,8 @@ type DaemonServiceClient interface {
 	CleanState(ctx context.Context, in *CleanStateRequest, opts ...grpc.CallOption) (*CleanStateResponse, error)
 	// Delete specific state or all states
 	DeleteState(ctx context.Context, in *DeleteStateRequest, opts ...grpc.CallOption) (*DeleteStateResponse, error)
-	// SetNetworkMapPersistence enables or disables network map persistence
-	SetNetworkMapPersistence(ctx context.Context, in *SetNetworkMapPersistenceRequest, opts ...grpc.CallOption) (*SetNetworkMapPersistenceResponse, error)
+	// SetSyncResponsePersistence enables or disables sync response persistence
+	SetSyncResponsePersistence(ctx context.Context, in *SetSyncResponsePersistenceRequest, opts ...grpc.CallOption) (*SetSyncResponsePersistenceResponse, error)
 	TracePacket(ctx context.Context, in *TracePacketRequest, opts ...grpc.CallOption) (*TracePacketResponse, error)
 	SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
@@ -217,9 +217,9 @@ func (c *daemonServiceClient) DeleteState(ctx context.Context, in *DeleteStateRe
 	return out, nil
 }
 
-func (c *daemonServiceClient) SetNetworkMapPersistence(ctx context.Context, in *SetNetworkMapPersistenceRequest, opts ...grpc.CallOption) (*SetNetworkMapPersistenceResponse, error) {
-	out := new(SetNetworkMapPersistenceResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SetNetworkMapPersistence", in, out, opts...)
+func (c *daemonServiceClient) SetSyncResponsePersistence(ctx context.Context, in *SetSyncResponsePersistenceRequest, opts ...grpc.CallOption) (*SetSyncResponsePersistenceResponse, error) {
+	out := new(SetSyncResponsePersistenceResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SetSyncResponsePersistence", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -375,8 +375,8 @@ type DaemonServiceServer interface {
 	CleanState(context.Context, *CleanStateRequest) (*CleanStateResponse, error)
 	// Delete specific state or all states
 	DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error)
-	// SetNetworkMapPersistence enables or disables network map persistence
-	SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error)
+	// SetSyncResponsePersistence enables or disables sync response persistence
+	SetSyncResponsePersistence(context.Context, *SetSyncResponsePersistenceRequest) (*SetSyncResponsePersistenceResponse, error)
 	TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error)
 	SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
@@ -443,8 +443,8 @@ func (UnimplementedDaemonServiceServer) CleanState(context.Context, *CleanStateR
 func (UnimplementedDaemonServiceServer) DeleteState(context.Context, *DeleteStateRequest) (*DeleteStateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteState not implemented")
 }
-func (UnimplementedDaemonServiceServer) SetNetworkMapPersistence(context.Context, *SetNetworkMapPersistenceRequest) (*SetNetworkMapPersistenceResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetNetworkMapPersistence not implemented")
+func (UnimplementedDaemonServiceServer) SetSyncResponsePersistence(context.Context, *SetSyncResponsePersistenceRequest) (*SetSyncResponsePersistenceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetSyncResponsePersistence not implemented")
 }
 func (UnimplementedDaemonServiceServer) TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TracePacket not implemented")
@@ -777,20 +777,20 @@ func _DaemonService_DeleteState_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DaemonService_SetNetworkMapPersistence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetNetworkMapPersistenceRequest)
+func _DaemonService_SetSyncResponsePersistence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSyncResponsePersistenceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DaemonServiceServer).SetNetworkMapPersistence(ctx, in)
+		return srv.(DaemonServiceServer).SetSyncResponsePersistence(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/daemon.DaemonService/SetNetworkMapPersistence",
+		FullMethod: "/daemon.DaemonService/SetSyncResponsePersistence",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).SetNetworkMapPersistence(ctx, req.(*SetNetworkMapPersistenceRequest))
+		return srv.(DaemonServiceServer).SetSyncResponsePersistence(ctx, req.(*SetSyncResponsePersistenceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1050,8 +1050,8 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_DeleteState_Handler,
 		},
 		{
-			MethodName: "SetNetworkMapPersistence",
-			Handler:    _DaemonService_SetNetworkMapPersistence_Handler,
+			MethodName: "SetSyncResponsePersistence",
+			Handler:    _DaemonService_SetSyncResponsePersistence_Handler,
 		},
 		{
 			MethodName: "TracePacket",

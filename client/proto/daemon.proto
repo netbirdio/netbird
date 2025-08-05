@@ -59,8 +59,8 @@ service DaemonService {
   // Delete specific state or all states
   rpc DeleteState(DeleteStateRequest) returns (DeleteStateResponse) {}
 
-  // SetNetworkMapPersistence enables or disables network map persistence
-  rpc SetNetworkMapPersistence(SetNetworkMapPersistenceRequest) returns (SetNetworkMapPersistenceResponse) {}
+  // SetSyncResponsePersistence enables or disables sync response persistence
+  rpc SetSyncResponsePersistence(SetSyncResponsePersistenceRequest) returns (SetSyncResponsePersistenceResponse) {}
 
   rpc TracePacket(TracePacketRequest) returns (TracePacketResponse) {}
 
@@ -452,11 +452,11 @@ message DeleteStateResponse {
 }
 
 
-message SetNetworkMapPersistenceRequest {
+message SetSyncResponsePersistenceRequest {
   bool enabled = 1;
 }
 
-message SetNetworkMapPersistenceResponse {}
+message SetSyncResponsePersistenceResponse {}
 
 message TCPFlags {
   bool syn = 1;
