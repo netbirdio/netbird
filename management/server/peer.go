@@ -1525,7 +1525,7 @@ func (am *DefaultAccountManager) getInactivePeers(ctx context.Context, accountID
 
 // GetPeerGroups returns groups that the peer is part of.
 func (am *DefaultAccountManager) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
-	return am.Store.GetPeerGroups(ctx, store.LockingStrengthShare, accountID, peerID)
+	return am.Store.GetPeerGroups(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
 // getPeerGroupIDs returns the IDs of the groups that the peer is part of.

@@ -151,7 +151,7 @@ func (MockIntegratedValidator) PeerDeleted(_ context.Context, _, _ string, extra
 	return nil
 }
 
-func (MockIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
+func (MockIntegratedValidator) SetPeerInvalidationListener(func(accountID string, peerIDs []string)) {
 	// just a dummy
 }
 

@@ -238,7 +238,7 @@ func NewEngine(
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
 
-	sm := profilemanager.ServiceManager{}
+	sm := profilemanager.NewServiceManager("")
 
 	path := sm.GetStatePath()
 	if runtime.GOOS == "ios" {
@@ -861,15 +861,10 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		return errors.New("wireguard interface is not initialized")
 	}
 
+	// Cannot update the IP address without restarting the engine because
+	// the firewall, route manager, and other components cache the old address
 	if e.wgInterface.Address().String() != conf.Address {
-		oldAddr := e.wgInterface.Address().String()
-		log.Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
-		err := e.wgInterface.UpdateAddr(conf.Address)
-		if err != nil {
-			return err
-		}
-		e.config.WgAddr = conf.Address
-		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
+		log.Infof("peer IP address has changed from %s to %s", e.wgInterface.Address().String(), conf.Address)
 	}
 
 	if conf.GetSshConfig() != nil {
@@ -880,7 +875,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	}
 
 	state := e.statusRecorder.GetLocalPeerState()
-	state.IP = e.config.WgAddr
+	state.IP = e.wgInterface.Address().String()
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
 	state.KernelInterface = device.WireGuardModuleIsLoaded()
 	state.FQDN = conf.GetFqdn()

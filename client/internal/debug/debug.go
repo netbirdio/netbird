@@ -558,7 +558,7 @@ func (g *BundleGenerator) addNetworkMap() error {
 }
 
 func (g *BundleGenerator) addStateFile() error {
-	sm := profilemanager.ServiceManager{}
+	sm := profilemanager.NewServiceManager("")
 	path := sm.GetStatePath()
 	if path == "" {
 		return nil
@@ -597,7 +597,7 @@ func (g *BundleGenerator) addStateFile() error {
 }
 
 func (g *BundleGenerator) addCorruptedStateFiles() error {
-	sm := profilemanager.ServiceManager{}
+	sm := profilemanager.NewServiceManager("")
 	pattern := sm.GetStatePath()
 	if pattern == "" {
 		return nil

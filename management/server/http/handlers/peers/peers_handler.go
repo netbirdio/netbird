@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/netip"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -108,6 +109,19 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		// todo: looks like that we reset all status property, is it right?
 		update.Status = &nbpeer.PeerStatus{
 			RequiresApproval: *req.ApprovalRequired,
+		}
+	}
+
+	if req.Ip != nil {
+		addr, err := netip.ParseAddr(*req.Ip)
+		if err != nil {
+			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "invalid IP address %s: %v", *req.Ip, err), w)
+			return
+		}
+
+		if err = h.accountManager.UpdatePeerIP(ctx, accountID, userID, peerID, addr); err != nil {
+			util.WriteError(ctx, err, w)
+			return
 		}
 	}
 
