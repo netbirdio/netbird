@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // Windows has some limitation regarding metric size that differ from Unix-like systems.
@@ -190,13 +191,13 @@ func (r *Route) NetString() string {
 func ParseNetwork(networkString string) (NetworkType, netip.Prefix, error) {
 	prefix, err := netip.ParsePrefix(networkString)
 	if err != nil {
-		return InvalidNetwork, netip.Prefix{}, fmt.Errorf("invalid network %s", networkString)
+		return InvalidNetwork, netip.Prefix{}, status.Errorf(status.InvalidArgument, "invalid network %s", networkString)
 	}
 
 	masked := prefix.Masked()
 
 	if !masked.IsValid() {
-		return InvalidNetwork, netip.Prefix{}, fmt.Errorf("invalid range %s", networkString)
+		return InvalidNetwork, netip.Prefix{}, status.Errorf(status.InvalidArgument, "invalid range %s", networkString)
 	}
 
 	if masked.Addr().Is6() {
