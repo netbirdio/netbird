@@ -90,7 +90,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 }
 
 func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
-	w.log.Debugf("OnNewOffer for ICE: %s, %s, serial: %d", time.Since(remoteOfferAnswer.When), remoteOfferAnswer.When, remoteOfferAnswer.SessionID)
+	w.log.Debugf("OnNewOffer for ICE, serial: %d", *remoteOfferAnswer.SessionID)
 	w.muxAgent.Lock()
 
 	if w.agentConnecting {

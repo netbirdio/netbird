@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -42,9 +41,6 @@ type OfferAnswer struct {
 	RelaySrvAddress string
 	// SessionID is the unique identifier of the session, used to discard old messages
 	SessionID *int64
-
-	// for debugging purposes
-	When time.Time
 }
 
 type Handshaker struct {
@@ -140,14 +136,14 @@ func (h *Handshaker) sendOffer() error {
 	}
 
 	offer := h.buildOfferAnswer()
-	h.log.Infof("sending offer: %s, %d", offer.When, offer.SessionID)
+	h.log.Infof("sending offer with serial: %d", *offer.SessionID)
 
 	return h.signaler.SignalOffer(offer, h.config.Key)
 }
 
 func (h *Handshaker) sendAnswer() error {
 	answer := h.buildOfferAnswer()
-	h.log.Infof("sending answer: %s, serial: %d", answer.When, answer.SessionID)
+	h.log.Infof("sending answer with serial: %d", *answer.SessionID)
 
 	return h.signaler.SignalAnswer(answer, h.config.Key)
 }
@@ -161,7 +157,6 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
 		RosenpassAddr:   h.config.RosenpassConfig.Addr,
-		When:            time.Now(),
 		SessionID:       &sid,
 	}
 
