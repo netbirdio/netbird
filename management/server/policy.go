@@ -27,7 +27,7 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policyID)
+	return am.Store.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policyID)
 }
 
 // SavePolicy in the store
@@ -142,13 +142,13 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthShare, accountID)
+	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
 // arePolicyChangesAffectPeers checks if changes to a policy will affect any associated peers.
 func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy, isUpdate bool) (bool, error) {
 	if isUpdate {
-		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policy.ID)
+		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
 		if err != nil {
 			return false, err
 		}
@@ -173,7 +173,7 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 // validatePolicy validates the policy and its rules.
 func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) error {
 	if policy.ID != "" {
-		_, err := transaction.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policy.ID)
+		_, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
 		if err != nil {
 			return err
 		}
@@ -182,12 +182,12 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 		policy.AccountID = accountID
 	}
 
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, policy.RuleGroups())
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, policy.RuleGroups())
 	if err != nil {
 		return err
 	}
 
-	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthShare, accountID, policy.SourcePostureChecks)
+	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthNone, accountID, policy.SourcePostureChecks)
 	if err != nil {
 		return err
 	}

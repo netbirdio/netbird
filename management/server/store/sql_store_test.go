@@ -401,11 +401,11 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	}
 
 	for _, network := range account.Networks {
-		routers, err := store.GetNetworkRoutersByNetID(context.Background(), LockingStrengthShare, account.Id, network.ID)
+		routers, err := store.GetNetworkRoutersByNetID(context.Background(), LockingStrengthNone, account.Id, network.ID)
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for network routers")
 		require.Len(t, routers, 0, "expecting no network routers to be found after DeleteAccount")
 
-		resources, err := store.GetNetworkResourcesByNetID(context.Background(), LockingStrengthShare, account.Id, network.ID)
+		resources, err := store.GetNetworkResourcesByNetID(context.Background(), LockingStrengthNone, account.Id, network.ID)
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for network resources")
 		require.Len(t, resources, 0, "expecting no network resources to be found after DeleteAccount")
 	}
@@ -961,7 +961,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	takenIPs, err := store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
+	takenIPs, err := store.GetTakenIPs(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
 	assert.Equal(t, []net.IP{}, takenIPs)
 
@@ -974,7 +974,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	err = store.AddPeerToAccount(context.Background(), peer1)
 	require.NoError(t, err)
 
-	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
+	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
 	ip1 := net.IP{1, 1, 1, 1}.To16()
 	assert.Equal(t, []net.IP{ip1}, takenIPs)
@@ -988,7 +988,7 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 	err = store.AddPeerToAccount(context.Background(), peer2)
 	require.NoError(t, err)
 
-	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthShare, existingAccountID)
+	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
 	ip2 := net.IP{2, 2, 2, 2}.To16()
 	assert.Equal(t, []net.IP{ip1, ip2}, takenIPs)
@@ -1002,7 +1002,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		_, err := store.GetAccount(context.Background(), existingAccountID)
 		require.NoError(t, err)
 
-		labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
+		labels, err := store.GetPeerLabelsInAccount(context.Background(), LockingStrengthNone, existingAccountID, peerHostname)
 		require.NoError(t, err)
 		assert.Equal(t, []string{}, labels)
 
@@ -1015,7 +1015,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		err = store.AddPeerToAccount(context.Background(), peer1)
 		require.NoError(t, err)
 
-		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
+		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthNone, existingAccountID, peerHostname)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"peer1"}, labels)
 
@@ -1028,7 +1028,7 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 		err = store.AddPeerToAccount(context.Background(), peer2)
 		require.NoError(t, err)
 
-		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthShare, existingAccountID, peerHostname)
+		labels, err = store.GetPeerLabelsInAccount(context.Background(), LockingStrengthNone, existingAccountID, peerHostname)
 		require.NoError(t, err)
 
 		expected := []string{"peer1", "peer1-1"}
@@ -1101,7 +1101,7 @@ func TestSqlite_GetAccountNetwork(t *testing.T) {
 	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	network, err := store.GetAccountNetwork(context.Background(), LockingStrengthShare, existingAccountID)
+	network, err := store.GetAccountNetwork(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
 	ip := net.IP{100, 64, 0, 0}.To16()
 	assert.Equal(t, ip, network.Net.IP)
@@ -1128,7 +1128,7 @@ func TestSqlite_GetSetupKeyBySecret(t *testing.T) {
 	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthNone, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, encodedHashedKey, setupKey.Key)
 	assert.Equal(t, types.HiddenKey(plainKey, 4), setupKey.KeySecret)
@@ -1153,21 +1153,21 @@ func TestSqlite_incrementSetupKeyUsage(t *testing.T) {
 	_, err = store.GetAccount(context.Background(), existingAccountID)
 	require.NoError(t, err)
 
-	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
+	setupKey, err := store.GetSetupKeyBySecret(context.Background(), LockingStrengthNone, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, 0, setupKey.UsedTimes)
 
 	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
 	require.NoError(t, err)
 
-	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthNone, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupKey.UsedTimes)
 
 	err = store.IncrementSetupKeyUsage(context.Background(), setupKey.Id)
 	require.NoError(t, err)
 
-	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthShare, encodedHashedKey)
+	setupKey, err = store.GetSetupKeyBySecret(context.Background(), LockingStrengthNone, encodedHashedKey)
 	require.NoError(t, err)
 	assert.Equal(t, 2, setupKey.UsedTimes)
 }
@@ -1213,7 +1213,7 @@ func TestSqlStore_GetAccountUsers(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	account, err := store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err)
-	users, err := store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
+	users, err := store.GetAccountUsers(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.Len(t, users, len(account.Users))
 }
@@ -1272,7 +1272,7 @@ func TestSqlite_GetGroupByName(t *testing.T) {
 	}
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	group, err := store.GetGroupByName(context.Background(), LockingStrengthShare, accountID, "All")
+	group, err := store.GetGroupByName(context.Background(), LockingStrengthNone, accountID, "All")
 	require.NoError(t, err)
 	require.True(t, group.IsGroupAll())
 }
@@ -1289,7 +1289,7 @@ func Test_DeleteSetupKeySuccessfully(t *testing.T) {
 	err = store.DeleteSetupKey(context.Background(), accountID, setupKeyID)
 	require.NoError(t, err)
 
-	_, err = store.GetSetupKeyByID(context.Background(), LockingStrengthShare, setupKeyID, accountID)
+	_, err = store.GetSetupKeyByID(context.Background(), LockingStrengthNone, setupKeyID, accountID)
 	require.Error(t, err)
 }
 
@@ -1342,7 +1342,7 @@ func TestSqlStore_GetGroupsByIDs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			groups, err := store.GetGroupsByIDs(context.Background(), LockingStrengthShare, accountID, tt.groupIDs)
+			groups, err := store.GetGroupsByIDs(context.Background(), LockingStrengthNone, accountID, tt.groupIDs)
 			require.NoError(t, err)
 			require.Len(t, groups, tt.expectedCount)
 		})
@@ -1368,7 +1368,7 @@ func TestSqlStore_CreateGroup(t *testing.T) {
 	err = store.CreateGroup(context.Background(), group)
 	require.NoError(t, err)
 
-	savedGroup, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, "group-id")
+	savedGroup, err := store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, "group-id")
 	require.NoError(t, err)
 	require.Equal(t, savedGroup, group)
 }
@@ -1405,7 +1405,7 @@ func TestSqlStore_CreateUpdateGroups(t *testing.T) {
 	err = store.UpdateGroups(context.Background(), accountID, groups)
 	require.NoError(t, err)
 
-	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groups[1].ID)
+	group, err := store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, groups[1].ID)
 	require.NoError(t, err)
 	require.Equal(t, groups[1], group)
 }
@@ -1450,7 +1450,7 @@ func TestSqlStore_DeleteGroup(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 
-				group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, tt.groupID)
+				group, err := store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, tt.groupID)
 				require.Error(t, err)
 				require.Nil(t, group)
 			}
@@ -1496,7 +1496,7 @@ func TestSqlStore_DeleteGroups(t *testing.T) {
 				require.NoError(t, err)
 
 				for _, groupID := range tt.groupIDs {
-					group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+					group, err := store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, groupID)
 					require.Error(t, err)
 					require.Nil(t, group)
 				}
@@ -1535,7 +1535,7 @@ func TestSqlStore_GetPeerByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, tt.peerID)
+			peer, err := store.GetPeerByID(context.Background(), LockingStrengthNone, accountID, tt.peerID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -1586,7 +1586,7 @@ func TestSqlStore_GetPeersByIDs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetPeersByIDs(context.Background(), LockingStrengthShare, accountID, tt.peerIDs)
+			peers, err := store.GetPeersByIDs(context.Background(), LockingStrengthNone, accountID, tt.peerIDs)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})
@@ -1623,7 +1623,7 @@ func TestSqlStore_GetPostureChecksByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			postureChecks, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, tt.postureChecksID)
+			postureChecks, err := store.GetPostureChecksByID(context.Background(), LockingStrengthNone, accountID, tt.postureChecksID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -1675,7 +1675,7 @@ func TestSqlStore_GetPostureChecksByIDs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			groups, err := store.GetPostureChecksByIDs(context.Background(), LockingStrengthShare, accountID, tt.postureCheckIDs)
+			groups, err := store.GetPostureChecksByIDs(context.Background(), LockingStrengthNone, accountID, tt.postureCheckIDs)
 			require.NoError(t, err)
 			require.Len(t, groups, tt.expectedCount)
 		})
@@ -1718,7 +1718,7 @@ func TestSqlStore_SavePostureChecks(t *testing.T) {
 	err = store.SavePostureChecks(context.Background(), postureChecks)
 	require.NoError(t, err)
 
-	savePostureChecks, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, "posture-checks-id")
+	savePostureChecks, err := store.GetPostureChecksByID(context.Background(), LockingStrengthNone, accountID, "posture-checks-id")
 	require.NoError(t, err)
 	require.Equal(t, savePostureChecks, postureChecks)
 }
@@ -1762,7 +1762,7 @@ func TestSqlStore_DeletePostureChecks(t *testing.T) {
 				require.Equal(t, sErr.Type(), status.NotFound)
 			} else {
 				require.NoError(t, err)
-				group, err := store.GetPostureChecksByID(context.Background(), LockingStrengthShare, accountID, tt.postureChecksID)
+				group, err := store.GetPostureChecksByID(context.Background(), LockingStrengthNone, accountID, tt.postureChecksID)
 				require.Error(t, err)
 				require.Nil(t, group)
 			}
@@ -1800,7 +1800,7 @@ func TestSqlStore_GetPolicyByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			policy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, tt.policyID)
+			policy, err := store.GetPolicyByID(context.Background(), LockingStrengthNone, accountID, tt.policyID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -1840,7 +1840,7 @@ func TestSqlStore_CreatePolicy(t *testing.T) {
 	err = store.CreatePolicy(context.Background(), policy)
 	require.NoError(t, err)
 
-	savePolicy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policy.ID)
+	savePolicy, err := store.GetPolicyByID(context.Background(), LockingStrengthNone, accountID, policy.ID)
 	require.NoError(t, err)
 	require.Equal(t, savePolicy, policy)
 
@@ -1854,7 +1854,7 @@ func TestSqlStore_SavePolicy(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	policyID := "cs1tnh0hhcjnqoiuebf0"
 
-	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policyID)
+	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthNone, accountID, policyID)
 	require.NoError(t, err)
 
 	policy.Enabled = false
@@ -1864,7 +1864,7 @@ func TestSqlStore_SavePolicy(t *testing.T) {
 	err = store.SavePolicy(context.Background(), policy)
 	require.NoError(t, err)
 
-	savePolicy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policy.ID)
+	savePolicy, err := store.GetPolicyByID(context.Background(), LockingStrengthNone, accountID, policy.ID)
 	require.NoError(t, err)
 	require.Equal(t, savePolicy, policy)
 }
@@ -1880,7 +1880,7 @@ func TestSqlStore_DeletePolicy(t *testing.T) {
 	err = store.DeletePolicy(context.Background(), accountID, policyID)
 	require.NoError(t, err)
 
-	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthShare, accountID, policyID)
+	policy, err := store.GetPolicyByID(context.Background(), LockingStrengthNone, accountID, policyID)
 	require.Error(t, err)
 	require.Nil(t, policy)
 }
@@ -1914,7 +1914,7 @@ func TestSqlStore_GetDNSSettings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dnsSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, tt.accountID)
+			dnsSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthNone, tt.accountID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -1936,14 +1936,14 @@ func TestSqlStore_SaveDNSSettings(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	dnsSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, accountID)
+	dnsSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 
 	dnsSettings.DisabledManagementGroups = []string{"groupA", "groupB"}
 	err = store.SaveDNSSettings(context.Background(), accountID, dnsSettings)
 	require.NoError(t, err)
 
-	saveDNSSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthShare, accountID)
+	saveDNSSettings, err := store.GetAccountDNSSettings(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.Equal(t, saveDNSSettings, dnsSettings)
 }
@@ -1977,7 +1977,7 @@ func TestSqlStore_GetAccountNameServerGroups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetAccountNameServerGroups(context.Background(), LockingStrengthShare, tt.accountID)
+			peers, err := store.GetAccountNameServerGroups(context.Background(), LockingStrengthNone, tt.accountID)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})
@@ -2015,7 +2015,7 @@ func TestSqlStore_GetNameServerByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, tt.nsGroupID)
+			nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthNone, accountID, tt.nsGroupID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -2058,7 +2058,7 @@ func TestSqlStore_SaveNameServerGroup(t *testing.T) {
 	err = store.SaveNameServerGroup(context.Background(), nsGroup)
 	require.NoError(t, err)
 
-	saveNSGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, nsGroup.ID)
+	saveNSGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthNone, accountID, nsGroup.ID)
 	require.NoError(t, err)
 	require.Equal(t, saveNSGroup, nsGroup)
 }
@@ -2074,7 +2074,7 @@ func TestSqlStore_DeleteNameServerGroup(t *testing.T) {
 	err = store.DeleteNameServerGroup(context.Background(), accountID, nsGroupID)
 	require.NoError(t, err)
 
-	nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthShare, accountID, nsGroupID)
+	nsGroup, err := store.GetNameServerGroupByID(context.Background(), LockingStrengthNone, accountID, nsGroupID)
 	require.Error(t, err)
 	require.Nil(t, nsGroup)
 }
@@ -2154,7 +2154,7 @@ func TestSqlStore_GetAccountNetworks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			networks, err := store.GetAccountNetworks(context.Background(), LockingStrengthShare, tt.accountID)
+			networks, err := store.GetAccountNetworks(context.Background(), LockingStrengthNone, tt.accountID)
 			require.NoError(t, err)
 			require.Len(t, networks, tt.expectedCount)
 		})
@@ -2191,7 +2191,7 @@ func TestSqlStore_GetNetworkByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			network, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, tt.networkID)
+			network, err := store.GetNetworkByID(context.Background(), LockingStrengthNone, accountID, tt.networkID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -2222,7 +2222,7 @@ func TestSqlStore_SaveNetwork(t *testing.T) {
 	err = store.SaveNetwork(context.Background(), network)
 	require.NoError(t, err)
 
-	savedNet, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, network.ID)
+	savedNet, err := store.GetNetworkByID(context.Background(), LockingStrengthNone, accountID, network.ID)
 	require.NoError(t, err)
 	require.Equal(t, network, savedNet)
 }
@@ -2238,7 +2238,7 @@ func TestSqlStore_DeleteNetwork(t *testing.T) {
 	err = store.DeleteNetwork(context.Background(), accountID, networkID)
 	require.NoError(t, err)
 
-	network, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, networkID)
+	network, err := store.GetNetworkByID(context.Background(), LockingStrengthNone, accountID, networkID)
 	require.Error(t, err)
 	sErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -2272,7 +2272,7 @@ func TestSqlStore_GetNetworkRoutersByNetID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			routers, err := store.GetNetworkRoutersByNetID(context.Background(), LockingStrengthShare, accountID, tt.networkID)
+			routers, err := store.GetNetworkRoutersByNetID(context.Background(), LockingStrengthNone, accountID, tt.networkID)
 			require.NoError(t, err)
 			require.Len(t, routers, tt.expectedCount)
 		})
@@ -2309,7 +2309,7 @@ func TestSqlStore_GetNetworkRouterByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			networkRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthShare, accountID, tt.networkRouterID)
+			networkRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthNone, accountID, tt.networkRouterID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -2339,7 +2339,7 @@ func TestSqlStore_SaveNetworkRouter(t *testing.T) {
 	err = store.SaveNetworkRouter(context.Background(), netRouter)
 	require.NoError(t, err)
 
-	savedNetRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthShare, accountID, netRouter.ID)
+	savedNetRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthNone, accountID, netRouter.ID)
 	require.NoError(t, err)
 	require.Equal(t, netRouter, savedNetRouter)
 }
@@ -2355,7 +2355,7 @@ func TestSqlStore_DeleteNetworkRouter(t *testing.T) {
 	err = store.DeleteNetworkRouter(context.Background(), accountID, netRouterID)
 	require.NoError(t, err)
 
-	netRouter, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, netRouterID)
+	netRouter, err := store.GetNetworkByID(context.Background(), LockingStrengthNone, accountID, netRouterID)
 	require.Error(t, err)
 	sErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -2389,7 +2389,7 @@ func TestSqlStore_GetNetworkResourcesByNetID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			netResources, err := store.GetNetworkResourcesByNetID(context.Background(), LockingStrengthShare, accountID, tt.networkID)
+			netResources, err := store.GetNetworkResourcesByNetID(context.Background(), LockingStrengthNone, accountID, tt.networkID)
 			require.NoError(t, err)
 			require.Len(t, netResources, tt.expectedCount)
 		})
@@ -2426,7 +2426,7 @@ func TestSqlStore_GetNetworkResourceByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			netResource, err := store.GetNetworkResourceByID(context.Background(), LockingStrengthShare, accountID, tt.netResourceID)
+			netResource, err := store.GetNetworkResourceByID(context.Background(), LockingStrengthNone, accountID, tt.netResourceID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -2456,7 +2456,7 @@ func TestSqlStore_SaveNetworkResource(t *testing.T) {
 	err = store.SaveNetworkResource(context.Background(), netResource)
 	require.NoError(t, err)
 
-	savedNetResource, err := store.GetNetworkResourceByID(context.Background(), LockingStrengthShare, accountID, netResource.ID)
+	savedNetResource, err := store.GetNetworkResourceByID(context.Background(), LockingStrengthNone, accountID, netResource.ID)
 	require.NoError(t, err)
 	require.Equal(t, netResource.ID, savedNetResource.ID)
 	require.Equal(t, netResource.Name, savedNetResource.Name)
@@ -2478,7 +2478,7 @@ func TestSqlStore_DeleteNetworkResource(t *testing.T) {
 	err = store.DeleteNetworkResource(context.Background(), accountID, netResourceID)
 	require.NoError(t, err)
 
-	netResource, err := store.GetNetworkByID(context.Background(), LockingStrengthShare, accountID, netResourceID)
+	netResource, err := store.GetNetworkByID(context.Background(), LockingStrengthNone, accountID, netResourceID)
 	require.Error(t, err)
 	sErr, ok := status.FromError(err)
 	require.True(t, ok)
@@ -2502,18 +2502,18 @@ func TestSqlStore_AddAndRemoveResourceFromGroup(t *testing.T) {
 	err = store.AddResourceToGroup(context.Background(), accountID, groupID, res)
 	require.NoError(t, err)
 
-	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	group, err := store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, groupID)
 	require.NoError(t, err)
 	require.Contains(t, group.Resources, *res)
 
-	groups, err := store.GetResourceGroups(context.Background(), LockingStrengthShare, accountID, resourceId)
+	groups, err := store.GetResourceGroups(context.Background(), LockingStrengthNone, accountID, resourceId)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 
 	err = store.RemoveResourceFromGroup(context.Background(), accountID, groupID, res.ID)
 	require.NoError(t, err)
 
-	group, err = store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	group, err = store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, groupID)
 	require.NoError(t, err)
 	require.NotContains(t, group.Resources, *res)
 }
@@ -2527,14 +2527,14 @@ func TestSqlStore_AddPeerToGroup(t *testing.T) {
 	peerID := "cfefqs706sqkneg59g4g"
 	groupID := "cfefqs706sqkneg59g4h"
 
-	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	group, err := store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, groupID)
 	require.NoError(t, err, "failed to get group")
 	require.Len(t, group.Peers, 0, "group should have 0 peers")
 
 	err = store.AddPeerToGroup(context.Background(), accountID, peerID, groupID)
 	require.NoError(t, err, "failed to add peer to group")
 
-	group, err = store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	group, err = store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, groupID)
 	require.NoError(t, err, "failed to get group")
 	require.Len(t, group.Peers, 1, "group should have 1 peers")
 	require.Contains(t, group.Peers, peerID)
@@ -2554,7 +2554,7 @@ func TestSqlStore_AddPeerToAllGroup(t *testing.T) {
 		DNSLabel:  "peer1.domain.test",
 	}
 
-	group, err := store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	group, err := store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, groupID)
 	require.NoError(t, err, "failed to get group")
 	require.Len(t, group.Peers, 2, "group should have 2 peers")
 	require.NotContains(t, group.Peers, peer.ID)
@@ -2565,7 +2565,7 @@ func TestSqlStore_AddPeerToAllGroup(t *testing.T) {
 	err = store.AddPeerToAllGroup(context.Background(), accountID, peer.ID)
 	require.NoError(t, err, "failed to add peer to all group")
 
-	group, err = store.GetGroupByID(context.Background(), LockingStrengthShare, accountID, groupID)
+	group, err = store.GetGroupByID(context.Background(), LockingStrengthNone, accountID, groupID)
 	require.NoError(t, err, "failed to get group")
 	require.Len(t, group.Peers, 3, "group should have  peers")
 	require.Contains(t, group.Peers, peer.ID)
@@ -2612,7 +2612,7 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 	err = store.AddPeerToAccount(context.Background(), peer)
 	require.NoError(t, err, "failed to add peer to account")
 
-	storedPeer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peer.ID)
+	storedPeer, err := store.GetPeerByID(context.Background(), LockingStrengthNone, accountID, peer.ID)
 	require.NoError(t, err, "failed to get peer")
 
 	assert.Equal(t, peer.ID, storedPeer.ID)
@@ -2643,7 +2643,7 @@ func TestSqlStore_GetPeerGroups(t *testing.T) {
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 	peerID := "cfefqs706sqkneg59g4g"
 
-	groups, err := store.GetPeerGroups(context.Background(), LockingStrengthShare, accountID, peerID)
+	groups, err := store.GetPeerGroups(context.Background(), LockingStrengthNone, accountID, peerID)
 	require.NoError(t, err)
 	assert.Len(t, groups, 1)
 	assert.Equal(t, groups[0].Name, "All")
@@ -2651,7 +2651,7 @@ func TestSqlStore_GetPeerGroups(t *testing.T) {
 	err = store.AddPeerToGroup(context.Background(), accountID, peerID, "cfefqs706sqkneg59g4h")
 	require.NoError(t, err)
 
-	groups, err = store.GetPeerGroups(context.Background(), LockingStrengthShare, accountID, peerID)
+	groups, err = store.GetPeerGroups(context.Background(), LockingStrengthNone, accountID, peerID)
 	require.NoError(t, err)
 	assert.Len(t, groups, 2)
 }
@@ -2705,7 +2705,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetAccountPeers(context.Background(), LockingStrengthShare, tt.accountID, tt.nameFilter, tt.ipFilter)
+			peers, err := store.GetAccountPeers(context.Background(), LockingStrengthNone, tt.accountID, tt.nameFilter, tt.ipFilter)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})
@@ -2742,7 +2742,7 @@ func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthShare, tt.accountID)
+			peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthNone, tt.accountID)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})
@@ -2778,7 +2778,7 @@ func TestSqlStore_GetAccountPeersWithInactivity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetAccountPeersWithInactivity(context.Background(), LockingStrengthShare, tt.accountID)
+			peers, err := store.GetAccountPeersWithInactivity(context.Background(), LockingStrengthNone, tt.accountID)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})
@@ -2790,7 +2790,7 @@ func TestSqlStore_GetAllEphemeralPeers(t *testing.T) {
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
-	peers, err := store.GetAllEphemeralPeers(context.Background(), LockingStrengthShare)
+	peers, err := store.GetAllEphemeralPeers(context.Background(), LockingStrengthNone)
 	require.NoError(t, err)
 	require.Len(t, peers, 1)
 	require.True(t, peers[0].Ephemeral)
@@ -2841,7 +2841,7 @@ func TestSqlStore_GetUserPeers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			peers, err := store.GetUserPeers(context.Background(), LockingStrengthShare, tt.accountID, tt.userID)
+			peers, err := store.GetUserPeers(context.Background(), LockingStrengthNone, tt.accountID, tt.userID)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
 		})
@@ -2859,7 +2859,7 @@ func TestSqlStore_DeletePeer(t *testing.T) {
 	err = store.DeletePeer(context.Background(), accountID, peerID)
 	require.NoError(t, err)
 
-	peer, err := store.GetPeerByID(context.Background(), LockingStrengthShare, accountID, peerID)
+	peer, err := store.GetPeerByID(context.Background(), LockingStrengthNone, accountID, peerID)
 	require.Error(t, err)
 	require.Nil(t, peer)
 }
@@ -2888,7 +2888,7 @@ func TestSqlStore_DatabaseBlocking(t *testing.T) {
 
 			<-start
 			err := store.ExecuteInTransaction(context.Background(), func(tx Store) error {
-				_, err := tx.GetAccountIDByPeerID(context.Background(), LockingStrengthShare, "cfvprsrlo1hqoo49ohog")
+				_, err := tx.GetAccountIDByPeerID(context.Background(), LockingStrengthNone, "cfvprsrlo1hqoo49ohog")
 				return err
 			})
 			if err != nil {
@@ -2906,7 +2906,7 @@ func TestSqlStore_DatabaseBlocking(t *testing.T) {
 			t.Logf("Entered routine 2-%d", i)
 
 			<-start
-			_, err := store.GetAccountIDByPeerID(context.Background(), LockingStrengthShare, "cfvprsrlo1hqoo49ohog")
+			_, err := store.GetAccountIDByPeerID(context.Background(), LockingStrengthNone, "cfvprsrlo1hqoo49ohog")
 			if err != nil {
 				t.Errorf("Failed, got error: %v", err)
 				return
@@ -2965,7 +2965,7 @@ func TestSqlStore_GetAccountCreatedBy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			createdBy, err := store.GetAccountCreatedBy(context.Background(), LockingStrengthShare, tt.accountID)
+			createdBy, err := store.GetAccountCreatedBy(context.Background(), LockingStrengthNone, tt.accountID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -3011,7 +3011,7 @@ func TestSqlStore_GetUserByUserID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			user, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, tt.userID)
+			user, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, tt.userID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -3034,7 +3034,7 @@ func TestSqlStore_GetUserByPATID(t *testing.T) {
 
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
 
-	user, err := store.GetUserByPATID(context.Background(), LockingStrengthShare, id)
+	user, err := store.GetUserByPATID(context.Background(), LockingStrengthNone, id)
 	require.NoError(t, err)
 	require.Equal(t, "f4f6d672-63fb-11ec-90d6-0242ac120003", user.Id)
 }
@@ -3060,7 +3060,7 @@ func TestSqlStore_SaveUser(t *testing.T) {
 	err = store.SaveUser(context.Background(), user)
 	require.NoError(t, err)
 
-	saveUser, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, user.Id)
+	saveUser, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, user.Id)
 	require.NoError(t, err)
 	require.Equal(t, user.Id, saveUser.Id)
 	require.Equal(t, user.AccountID, saveUser.AccountID)
@@ -3080,7 +3080,7 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	accountUsers, err := store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
+	accountUsers, err := store.GetAccountUsers(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.Len(t, accountUsers, 2)
 
@@ -3101,7 +3101,7 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 	err = store.SaveUsers(context.Background(), users)
 	require.NoError(t, err)
 
-	accountUsers, err = store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
+	accountUsers, err = store.GetAccountUsers(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.Len(t, accountUsers, 4)
 
@@ -3109,7 +3109,7 @@ func TestSqlStore_SaveUsers(t *testing.T) {
 	err = store.SaveUsers(context.Background(), users)
 	require.NoError(t, err)
 
-	user, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, users[1].Id)
+	user, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, users[1].Id)
 	require.NoError(t, err)
 	require.Equal(t, users[1].AutoGroups, user.AutoGroups)
 }
@@ -3125,11 +3125,11 @@ func TestSqlStore_DeleteUser(t *testing.T) {
 	err = store.DeleteUser(context.Background(), accountID, userID)
 	require.NoError(t, err)
 
-	user, err := store.GetUserByUserID(context.Background(), LockingStrengthShare, userID)
+	user, err := store.GetUserByUserID(context.Background(), LockingStrengthNone, userID)
 	require.Error(t, err)
 	require.Nil(t, user)
 
-	userPATs, err := store.GetUserPATs(context.Background(), LockingStrengthShare, userID)
+	userPATs, err := store.GetUserPATs(context.Background(), LockingStrengthNone, userID)
 	require.NoError(t, err)
 	require.Len(t, userPATs, 0)
 }
@@ -3165,7 +3165,7 @@ func TestSqlStore_GetPATByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pat, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, tt.patID)
+			pat, err := store.GetPATByID(context.Background(), LockingStrengthNone, userID, tt.patID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -3186,7 +3186,7 @@ func TestSqlStore_GetUserPATs(t *testing.T) {
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
-	userPATs, err := store.GetUserPATs(context.Background(), LockingStrengthShare, "f4f6d672-63fb-11ec-90d6-0242ac120003")
+	userPATs, err := store.GetUserPATs(context.Background(), LockingStrengthNone, "f4f6d672-63fb-11ec-90d6-0242ac120003")
 	require.NoError(t, err)
 	require.Len(t, userPATs, 1)
 }
@@ -3196,7 +3196,7 @@ func TestSqlStore_GetPATByHashedToken(t *testing.T) {
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
 
-	pat, err := store.GetPATByHashedToken(context.Background(), LockingStrengthShare, "SoMeHaShEdToKeN")
+	pat, err := store.GetPATByHashedToken(context.Background(), LockingStrengthNone, "SoMeHaShEdToKeN")
 	require.NoError(t, err)
 	require.Equal(t, "9dj38s35-63fb-11ec-90d6-0242ac120003", pat.ID)
 }
@@ -3212,7 +3212,7 @@ func TestSqlStore_MarkPATUsed(t *testing.T) {
 	err = store.MarkPATUsed(context.Background(), patID)
 	require.NoError(t, err)
 
-	pat, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, patID)
+	pat, err := store.GetPATByID(context.Background(), LockingStrengthNone, userID, patID)
 	require.NoError(t, err)
 	now := time.Now().UTC()
 	require.WithinRange(t, pat.LastUsed.UTC(), now.Add(-15*time.Second), now, "LastUsed should be within 1 second of now")
@@ -3238,7 +3238,7 @@ func TestSqlStore_SavePAT(t *testing.T) {
 	err = store.SavePAT(context.Background(), pat)
 	require.NoError(t, err)
 
-	savePAT, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, pat.ID)
+	savePAT, err := store.GetPATByID(context.Background(), LockingStrengthNone, userID, pat.ID)
 	require.NoError(t, err)
 	require.Equal(t, pat.ID, savePAT.ID)
 	require.Equal(t, pat.UserID, savePAT.UserID)
@@ -3260,7 +3260,7 @@ func TestSqlStore_DeletePAT(t *testing.T) {
 	err = store.DeletePAT(context.Background(), userID, patID)
 	require.NoError(t, err)
 
-	pat, err := store.GetPATByID(context.Background(), LockingStrengthShare, userID, patID)
+	pat, err := store.GetPATByID(context.Background(), LockingStrengthNone, userID, patID)
 	require.Error(t, err)
 	require.Nil(t, pat)
 }
@@ -3272,7 +3272,7 @@ func TestSqlStore_SaveUsers_LargeBatch(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	accountUsers, err := store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
+	accountUsers, err := store.GetAccountUsers(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.Len(t, accountUsers, 2)
 
@@ -3289,7 +3289,7 @@ func TestSqlStore_SaveUsers_LargeBatch(t *testing.T) {
 	err = store.SaveUsers(context.Background(), usersToSave)
 	require.NoError(t, err)
 
-	accountUsers, err = store.GetAccountUsers(context.Background(), LockingStrengthShare, accountID)
+	accountUsers, err = store.GetAccountUsers(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.Equal(t, 8002, len(accountUsers))
 }
@@ -3301,7 +3301,7 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 
-	accountGroups, err := store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)
+	accountGroups, err := store.GetAccountGroups(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.Len(t, accountGroups, 3)
 
@@ -3318,7 +3318,7 @@ func TestSqlStore_SaveGroups_LargeBatch(t *testing.T) {
 	err = store.CreateGroups(context.Background(), accountID, groupsToSave)
 	require.NoError(t, err)
 
-	accountGroups, err = store.GetAccountGroups(context.Background(), LockingStrengthShare, accountID)
+	accountGroups, err = store.GetAccountGroups(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.Equal(t, 8003, len(accountGroups))
 }
@@ -3351,7 +3351,7 @@ func TestSqlStore_GetAccountRoutes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			routes, err := store.GetAccountRoutes(context.Background(), LockingStrengthShare, tt.accountID)
+			routes, err := store.GetAccountRoutes(context.Background(), LockingStrengthNone, tt.accountID)
 			require.NoError(t, err)
 			require.Len(t, routes, tt.expectedCount)
 		})
@@ -3388,7 +3388,7 @@ func TestSqlStore_GetRouteByID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			route, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, tt.routeID)
+			route, err := store.GetRouteByID(context.Background(), LockingStrengthNone, accountID, tt.routeID)
 			if tt.expectError {
 				require.Error(t, err)
 				sErr, ok := status.FromError(err)
@@ -3427,7 +3427,7 @@ func TestSqlStore_SaveRoute(t *testing.T) {
 	err = store.SaveRoute(context.Background(), route)
 	require.NoError(t, err)
 
-	saveRoute, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, string(route.ID))
+	saveRoute, err := store.GetRouteByID(context.Background(), LockingStrengthNone, accountID, string(route.ID))
 	require.NoError(t, err)
 	require.Equal(t, route, saveRoute)
 
@@ -3444,7 +3444,7 @@ func TestSqlStore_DeleteRoute(t *testing.T) {
 	err = store.DeleteRoute(context.Background(), accountID, routeID)
 	require.NoError(t, err)
 
-	route, err := store.GetRouteByID(context.Background(), LockingStrengthShare, accountID, routeID)
+	route, err := store.GetRouteByID(context.Background(), LockingStrengthNone, accountID, routeID)
 	require.Error(t, err)
 	require.Nil(t, route)
 }
@@ -3455,7 +3455,7 @@ func TestSqlStore_GetAccountMeta(t *testing.T) {
 	require.NoError(t, err)
 
 	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
-	accountMeta, err := store.GetAccountMeta(context.Background(), LockingStrengthShare, accountID)
+	accountMeta, err := store.GetAccountMeta(context.Background(), LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	require.NotNil(t, accountMeta)
 	require.Equal(t, accountID, accountMeta.AccountID)
@@ -3595,7 +3595,7 @@ func BenchmarkGetAccountPeers(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := store.GetPeerGroups(context.Background(), LockingStrengthShare, accountID, peers[i%numberOfPeers].ID)
+		_, err := store.GetPeerGroups(context.Background(), LockingStrengthNone, accountID, peers[i%numberOfPeers].ID)
 		if err != nil {
 			b.Fatal(err)
 		}

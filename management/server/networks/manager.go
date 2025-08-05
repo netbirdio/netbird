@@ -56,7 +56,7 @@ func (m *managerImpl) GetAllNetworks(ctx context.Context, accountID, userID stri
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetAccountNetworks(ctx, store.LockingStrengthShare, accountID)
+	return m.store.GetAccountNetworks(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *managerImpl) CreateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {
@@ -92,7 +92,7 @@ func (m *managerImpl) GetNetwork(ctx context.Context, accountID, userID, network
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetNetworkByID(ctx, store.LockingStrengthShare, accountID, networkID)
+	return m.store.GetNetworkByID(ctx, store.LockingStrengthNone, accountID, networkID)
 }
 
 func (m *managerImpl) UpdateNetwork(ctx context.Context, userID string, network *types.Network) (*types.Network, error) {

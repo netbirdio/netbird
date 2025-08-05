@@ -73,7 +73,7 @@ func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth nbco
 		return userAuth, nil
 	}
 
-	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, userAuth.AccountId)
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, userAuth.AccountId)
 	if err != nil {
 		return userAuth, err
 	}
@@ -104,7 +104,7 @@ func (am *manager) GetPATInfo(ctx context.Context, token string) (user *types.Us
 		return nil, nil, "", "", err
 	}
 
-	domain, category, err = am.store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, user.AccountID)
+	domain, category, err = am.store.GetAccountDomainAndCategory(ctx, store.LockingStrengthNone, user.AccountID)
 	if err != nil {
 		return nil, nil, "", "", err
 	}
@@ -142,12 +142,12 @@ func (am *manager) extractPATFromToken(ctx context.Context, token string) (*type
 	var pat *types.PersonalAccessToken
 
 	err = am.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthShare, encodedHashedToken)
+		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthNone, encodedHashedToken)
 		if err != nil {
 			return err
 		}
 
-		user, err = transaction.GetUserByPATID(ctx, store.LockingStrengthShare, pat.ID)
+		user, err = transaction.GetUserByPATID(ctx, store.LockingStrengthNone, pat.ID)
 		return err
 	})
 	if err != nil {

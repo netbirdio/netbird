@@ -134,7 +134,7 @@ func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.
 }
 
 func (e *EphemeralManager) loadEphemeralPeers(ctx context.Context) {
-	peers, err := e.store.GetAllEphemeralPeers(ctx, store.LockingStrengthShare)
+	peers, err := e.store.GetAllEphemeralPeers(ctx, store.LockingStrengthNone)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to load ephemeral peers: %s", err)
 		return
