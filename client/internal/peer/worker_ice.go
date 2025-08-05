@@ -90,7 +90,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 }
 
 func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
-	w.log.Debugf("OnNewOffer for ICE, serial: %d", remoteOfferAnswer.SessionIDString())
+	w.log.Debugf("OnNewOffer for ICE, serial: %s", remoteOfferAnswer.SessionIDString())
 	w.muxAgent.Lock()
 
 	if w.agentConnecting {
@@ -261,7 +261,7 @@ func (w *WorkerICE) connect(ctx context.Context, agent *ice.Agent, remoteOfferAn
 	}
 	w.log.Debugf("on ICE conn is ready to use")
 
-	w.log.Infof("connection succeeded with offer session: %d", remoteOfferAnswer.SessionIDString())
+	w.log.Infof("connection succeeded with offer session: %s", remoteOfferAnswer.SessionIDString())
 	w.muxAgent.Lock()
 	w.agentConnecting = false
 	w.lastSuccess = time.Now()
