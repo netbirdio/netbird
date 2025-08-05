@@ -53,8 +53,8 @@ var profileSelectCmd = &cobra.Command{
 }
 
 func setupCmd(cmd *cobra.Command) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
+	util.SetFlagsFromEnvVars(rootCmd)
+	util.SetFlagsFromEnvVars(cmd)
 
 	cmd.SetOut(cmd.OutOrStdout())
 
