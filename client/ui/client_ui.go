@@ -424,15 +424,28 @@ func (s *serviceClient) showSettingsUI() {
 func (s *serviceClient) getSettingsForm() *widget.Form {
 
 	var activeProfName string
+	var activeProfEmail string
 	activeProf, err := s.profileManager.GetActiveProfile()
 	if err != nil {
 		log.Errorf("get active profile: %v", err)
 	} else {
 		activeProfName = activeProf.Name
+		// Try to get email from profile state
+		profileState, err := s.profileManager.GetProfileState(activeProf.Name)
+		if err == nil && profileState.Email != "" {
+			activeProfEmail = profileState.Email
+		}
 	}
+
+	// Create profile display with email if available
+	profileDisplay := activeProfName
+	if activeProfEmail != "" {
+		profileDisplay = fmt.Sprintf("%s (%s)", activeProfName, activeProfEmail)
+	}
+
 	return &widget.Form{
 		Items: []*widget.FormItem{
-			{Text: "Profile", Widget: widget.NewLabel(activeProfName)},
+			{Text: "Profile", Widget: widget.NewLabel(profileDisplay)},
 			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
