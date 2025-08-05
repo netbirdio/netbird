@@ -77,11 +77,11 @@ var forCmd = &cobra.Command{
 
 var persistenceCmd = &cobra.Command{
 	Use:     "persistence [on|off]",
-	Short:   "Set network map memory persistence",
-	Long:    `Configure whether the latest network map should persist in memory. When enabled, the last known network map will be kept in memory.`,
+	Short:   "Set sync response memory persistence",
+	Long:    `Configure whether the latest sync response should persist in memory. When enabled, the last known sync response will be kept in memory.`,
 	Example: "  netbird debug persistence on",
 	Args:    cobra.ExactArgs(1),
-	RunE:    setNetworkMapPersistence,
+	RunE:    setSyncResponsePersistence,
 }
 
 func debugBundle(cmd *cobra.Command, _ []string) error {
@@ -206,11 +206,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	time.Sleep(1 * time.Second)
 
-	// Enable network map persistence before bringing the service up
-	if _, err := client.SetNetworkMapPersistence(cmd.Context(), &proto.SetNetworkMapPersistenceRequest{
+	// Enable sync response persistence before bringing the service up
+	if _, err := client.SetSyncResponsePersistence(cmd.Context(), &proto.SetSyncResponsePersistenceRequest{
 		Enabled: true,
 	}); err != nil {
-		return fmt.Errorf("failed to enable network map persistence: %v", status.Convert(err).Message())
+		return fmt.Errorf("failed to enable sync response persistence: %v", status.Convert(err).Message())
 	}
 
 	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
@@ -273,7 +273,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func setNetworkMapPersistence(cmd *cobra.Command, args []string) error {
+func setSyncResponsePersistence(cmd *cobra.Command, args []string) error {
 	conn, err := getClient(cmd)
 	if err != nil {
 		return err
@@ -290,14 +290,14 @@ func setNetworkMapPersistence(cmd *cobra.Command, args []string) error {
 	}
 
 	client := proto.NewDaemonServiceClient(conn)
-	_, err = client.SetNetworkMapPersistence(cmd.Context(), &proto.SetNetworkMapPersistenceRequest{
+	_, err = client.SetSyncResponsePersistence(cmd.Context(), &proto.SetSyncResponsePersistenceRequest{
 		Enabled: persistence == "on",
 	})
 	if err != nil {
-		return fmt.Errorf("failed to set network map persistence: %v", status.Convert(err).Message())
+		return fmt.Errorf("failed to set sync response persistence: %v", status.Convert(err).Message())
 	}
 
-	cmd.Printf("Network map persistence set to: %s\n", persistence)
+	cmd.Printf("Sync response persistence set to: %s\n", persistence)
 	return nil
 }
 
@@ -357,13 +357,13 @@ func formatDuration(d time.Duration) string {
 }
 
 func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, connectClient *internal.ConnectClient, logFilePath string) {
-	var networkMap *mgmProto.NetworkMap
+	var syncResponse *mgmProto.SyncResponse
 	var err error
 
 	if connectClient != nil {
-		networkMap, err = connectClient.GetLatestNetworkMap()
+		syncResponse, err = connectClient.GetLatestSyncResponse()
 		if err != nil {
-			log.Warnf("Failed to get latest network map: %v", err)
+			log.Warnf("Failed to get latest sync response: %v", err)
 		}
 	}
 
@@ -371,7 +371,7 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 		debug.GeneratorDependencies{
 			InternalConfig: config,
 			StatusRecorder: recorder,
-			NetworkMap:     networkMap,
+			SyncResponse:   syncResponse,
 			LogFile:        logFilePath,
 		},
 		debug.BundleConfig{
