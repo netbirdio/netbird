@@ -17,7 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	nbstatus "github.com/netbirdio/netbird/client/status"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 

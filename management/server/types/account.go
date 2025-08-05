@@ -16,7 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"

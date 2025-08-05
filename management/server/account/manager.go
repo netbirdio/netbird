@@ -7,7 +7,7 @@ import (
 	"time"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"

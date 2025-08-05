@@ -24,7 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/auth"

@@ -6,7 +6,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 type ManagementServiceServerMock struct {

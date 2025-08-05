@@ -26,8 +26,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
-	mgm "github.com/netbirdio/netbird/management/client"
-	"github.com/netbirdio/netbird/management/domain"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"

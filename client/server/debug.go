@@ -16,7 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/proto"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 

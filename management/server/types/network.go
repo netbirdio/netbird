@@ -12,7 +12,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/util"

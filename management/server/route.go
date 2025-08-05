@@ -9,8 +9,8 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"

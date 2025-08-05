@@ -8,7 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/api"
