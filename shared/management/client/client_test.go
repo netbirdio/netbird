@@ -52,7 +52,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	log.SetLevel(level)
 
 	config := &types.Config{}
-	_, err := util.ReadJson("../server/testdata/management.json", config)
+	_, err := util.ReadJson("../../../management/server/testdata/management.json", config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../server/testdata/store.sql", t.TempDir())
+	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../../management/server/testdata/store.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

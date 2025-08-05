@@ -28,7 +28,6 @@ import (
 const (
 	// managementLegacyPortString is the port that was used before by the Management gRPC server.
 	// It is used for backward compatibility now.
-	// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
 	managementLegacyPortString = "33073"
 	// DefaultManagementURL points to the NetBird's cloud management endpoint
 	DefaultManagementURL = "https://api.netbird.io:443"

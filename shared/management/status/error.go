@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/shared/management/operations"
 )
 
 const (
