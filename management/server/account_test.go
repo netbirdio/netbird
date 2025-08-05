@@ -2694,7 +2694,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 
 	t.Run("jwt match existing api group in user auto groups", func(t *testing.T) {
 		account.Users["user1"].AutoGroups = []string{"group1"}
-		assert.NoError(t, manager.Store.SaveUser(context.Background(), store.LockingStrengthUpdate, account.Users["user1"]))
+		assert.NoError(t, manager.Store.SaveUser(context.Background(), account.Users["user1"]))
 
 		claims := nbcontext.UserAuth{
 			UserId:    "user1",
@@ -3348,11 +3348,11 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	require.NoError(t, err)
 
 	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId, IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"}
-	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer1)
+	err = manager.Store.AddPeerToAccount(ctx, peer1)
 	require.NoError(t, err)
 
 	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, UserID: initiatorId, IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"}
-	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer2)
+	err = manager.Store.AddPeerToAccount(ctx, peer2)
 	require.NoError(t, err)
 
 	t.Run("should skip propagation when the user has no groups", func(t *testing.T) {
@@ -3364,13 +3364,13 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 
 	t.Run("should update membership but no account peers update for unused groups", func(t *testing.T) {
 		group1 := &types.Group{ID: "group1", Name: "Group 1", AccountID: account.Id}
-		require.NoError(t, manager.Store.CreateGroup(ctx, store.LockingStrengthUpdate, group1))
+		require.NoError(t, manager.Store.CreateGroup(ctx, group1))
 
 		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
 		require.NoError(t, err)
 
 		user.AutoGroups = append(user.AutoGroups, group1.ID)
-		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+		require.NoError(t, manager.Store.SaveUser(ctx, user))
 
 		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)
@@ -3386,13 +3386,13 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 
 	t.Run("should update membership and account peers for used groups", func(t *testing.T) {
 		group2 := &types.Group{ID: "group2", Name: "Group 2", AccountID: account.Id}
-		require.NoError(t, manager.Store.CreateGroup(ctx, store.LockingStrengthUpdate, group2))
+		require.NoError(t, manager.Store.CreateGroup(ctx, group2))
 
 		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
 		require.NoError(t, err)
 
 		user.AutoGroups = append(user.AutoGroups, group2.ID)
-		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+		require.NoError(t, manager.Store.SaveUser(ctx, user))
 
 		_, err = manager.SavePolicy(context.Background(), account.Id, initiatorId, &types.Policy{
 			Name:      "Group1 Policy",
@@ -3436,7 +3436,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 		require.NoError(t, err)
 
 		user.AutoGroups = []string{"group1"}
-		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+		require.NoError(t, manager.Store.SaveUser(ctx, user))
 
 		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)

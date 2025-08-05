@@ -38,8 +38,6 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/shared/management/domain"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -47,6 +45,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestPeer_LoginExpired(t *testing.T) {
@@ -2160,10 +2160,10 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 			}
 			t.Cleanup(cleanup)
 
-			err = s.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
+			err = s.AddPeerToAccount(context.Background(), peer)
 			assert.NoError(t, err)
 
-			err = s.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
+			err = s.AddPeerToAccount(context.Background(), peer)
 			result := isUniqueConstraintError(err)
 			assert.True(t, result)
 		})
