@@ -26,7 +26,7 @@ func ptr[T any, PT *T](x T) PT {
 
 func withBlackBoxServer(t *testing.T, callback func(*rest.Client)) {
 	t.Helper()
-	handler, _, _ := testing_tools.BuildApiBlackBoxWithDBState(t, "../../server/testdata/store.sql", nil, false)
+	handler, _, _ := testing_tools.BuildApiBlackBoxWithDBState(t, "../../../../management/server/testdata/store.sql", nil, false)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	c := rest.New(server.URL, "nbp_apTmlmUXHSC4PKmHwtIZNaGr8eqcVI2gMURp")
