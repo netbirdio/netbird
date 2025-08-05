@@ -26,9 +26,9 @@ import (
 
 	clientProto "github.com/netbirdio/netbird/client/proto"
 	client "github.com/netbirdio/netbird/client/server"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
-	sigProto "github.com/netbirdio/netbird/signal/proto"
+	sigProto "github.com/netbirdio/netbird/shared/signal/proto"
 	sig "github.com/netbirdio/netbird/signal/server"
 )
 

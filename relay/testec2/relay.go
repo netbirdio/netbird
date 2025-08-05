@@ -11,8 +11,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/auth/hmac"
-	"github.com/netbirdio/netbird/relay/client"
+	"github.com/netbirdio/netbird/shared/relay/auth/hmac"
+	"github.com/netbirdio/netbird/shared/relay/client"
 )
 
 var (
