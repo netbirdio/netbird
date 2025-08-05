@@ -1715,10 +1715,12 @@ func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, account
 		err := am.expireAndUpdatePeers(ctx, accountID, peers)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to expire and update invalidated peers for account %s: %v", accountID, err)
+			return
 		}
+	} else {
+		log.WithContext(ctx).Debugf("running invalidation with no invalid peers")
 	}
-	log.WithContext(ctx).Debugf("validated peers have been invalidated for account %s", accountID)
-	am.BufferUpdateAccountPeers(ctx, accountID)
+	log.WithContext(ctx).Debugf("invalidated peers have been expired for account %s", accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
