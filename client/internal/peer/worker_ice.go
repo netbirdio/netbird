@@ -261,7 +261,7 @@ func (w *WorkerICE) connect(ctx context.Context, agent *ice.Agent, remoteOfferAn
 	}
 	w.log.Debugf("on ICE conn is ready to use")
 
-	w.log.Infof("connection succeeded with offer session: %d", remoteOfferAnswer.SessionID)
+	w.log.Infof("connection succeeded with offer session: %d", *remoteOfferAnswer.SessionID)
 	w.muxAgent.Lock()
 	w.agentConnecting = false
 	w.lastSuccess = time.Now()
