@@ -1,6 +1,7 @@
 package types
 
 import (
+	"net/netip"
 	"slices"
 	"time"
 )
@@ -43,6 +44,9 @@ type Settings struct {
 	// DNSDomain is the custom domain for that account
 	DNSDomain string
 
+	// NetworkRange is the custom network range for that account
+	NetworkRange netip.Prefix `gorm:"serializer:json"`
+
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 
@@ -67,6 +71,7 @@ func (s *Settings) Copy() *Settings {
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
+		NetworkRange:                    s.NetworkRange,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()

@@ -3,7 +3,7 @@ package integrated_validator
 import (
 	"context"
 
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -16,7 +16,7 @@ type IntegratedValidator interface {
 	IsNotValidPeer(ctx context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings) (bool, bool, error)
 	GetValidatedPeers(ctx context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error)
 	PeerDeleted(ctx context.Context, accountID, peerID string, extraSettings *types.ExtraSettings) error
-	SetPeerInvalidationListener(fn func(accountID string))
+	SetPeerInvalidationListener(fn func(accountID string, peerIDs []string))
 	Stop(ctx context.Context)
 	ValidateFlowResponse(ctx context.Context, peerKey string, flowResponse *proto.PKCEAuthorizationFlow) *proto.PKCEAuthorizationFlow
 }

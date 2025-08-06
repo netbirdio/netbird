@@ -802,7 +802,21 @@ func (s *serviceClient) onTrayReady() {
 
 	profileMenuItem := systray.AddMenuItem("", "")
 	emailMenuItem := systray.AddMenuItem("", "")
-	s.mProfile = newProfileMenu(s.ctx, s.profileManager, *s.eventHandler, profileMenuItem, emailMenuItem, s.menuDownClick, s.menuUpClick, s.getSrvClient, s.loadSettings)
+
+	newProfileMenuArgs := &newProfileMenuArgs{
+		ctx:                  s.ctx,
+		profileManager:       s.profileManager,
+		eventHandler:         s.eventHandler,
+		profileMenuItem:      profileMenuItem,
+		emailMenuItem:        emailMenuItem,
+		downClickCallback:    s.menuDownClick,
+		upClickCallback:      s.menuUpClick,
+		getSrvClientCallback: s.getSrvClient,
+		loadSettingsCallback: s.loadSettings,
+		app:                  s.app,
+	}
+
+	s.mProfile = newProfileMenu(*newProfileMenuArgs)
 
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
@@ -817,6 +831,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
 	s.mBlockInbound = s.mSettings.AddSubMenuItemCheckbox("Block Inbound Connections", blockInboundMenuDescr, false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
+	s.mSettings.AddSeparator()
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()

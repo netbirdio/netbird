@@ -41,6 +41,10 @@ func buildServiceArguments() []string {
 		args = append(args, "--management-url", managementURL)
 	}
 
+	if configPath != "" {
+		args = append(args, "--config", configPath)
+	}
+
 	for _, logFile := range logFiles {
 		args = append(args, "--log-file", logFile)
 	}

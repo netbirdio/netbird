@@ -32,7 +32,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
@@ -2052,4 +2052,57 @@ func TestLocalResolverPriorityConstants(t *testing.T) {
 	assert.Len(t, localMuxUpdates, 1)
 	assert.Equal(t, PriorityLocal, localMuxUpdates[0].priority, "Local handler should use PriorityLocal")
 	assert.Equal(t, "local.example.com", localMuxUpdates[0].domain)
+}
+
+func TestFormatAddr(t *testing.T) {
+	tests := []struct {
+		name     string
+		address  string
+		port     int
+		expected string
+	}{
+		{
+			name:     "IPv4 address",
+			address:  "8.8.8.8",
+			port:     53,
+			expected: "8.8.8.8:53",
+		},
+		{
+			name:     "IPv4 address with custom port",
+			address:  "1.1.1.1",
+			port:     5353,
+			expected: "1.1.1.1:5353",
+		},
+		{
+			name:     "IPv6 address",
+			address:  "fd78:94bf:7df8::1",
+			port:     53,
+			expected: "[fd78:94bf:7df8::1]:53",
+		},
+		{
+			name:     "IPv6 address with custom port",
+			address:  "2001:db8::1",
+			port:     5353,
+			expected: "[2001:db8::1]:5353",
+		},
+		{
+			name:     "IPv6 localhost",
+			address:  "::1",
+			port:     53,
+			expected: "[::1]:53",
+		},
+		{
+			name:     "Invalid address treated as hostname",
+			address:  "dns.example.com",
+			port:     53,
+			expected: "dns.example.com:53",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatAddr(tt.address, tt.port)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
