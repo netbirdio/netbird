@@ -17,7 +17,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -677,13 +677,18 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 
 	if update.AutoGroups != nil && settings.GroupsPropagationEnabled {
 		removedGroups := util.Difference(oldUser.AutoGroups, update.AutoGroups)
-		updatedGroups, err := updateUserPeersInGroups(groupsMap, userPeers, update.AutoGroups, removedGroups)
-		if err != nil {
-			return false, nil, nil, nil, fmt.Errorf("error modifying user peers in groups: %w", err)
-		}
-
-		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, updatedGroups); err != nil {
-			return false, nil, nil, nil, fmt.Errorf("error saving groups: %w", err)
+		addedGroups := util.Difference(update.AutoGroups, oldUser.AutoGroups)
+		for _, peer := range userPeers {
+			for _, groupID := range removedGroups {
+				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, groupID); err != nil {
+					return false, nil, nil, nil, fmt.Errorf("failed to remove peer %s from group %s: %w", peer.ID, groupID, err)
+				}
+			}
+			for _, groupID := range addedGroups {
+				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
+					return false, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
+				}
+			}
 		}
 	}
 
@@ -933,6 +938,7 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
 func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
+	log.WithContext(ctx).Debugf("Expiring %d peers for account %s", len(peers), accountID)
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return err
@@ -963,7 +969,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
-		am.UpdateAccountPeers(ctx, accountID)
+		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 	return nil
 }
@@ -1135,93 +1141,6 @@ func (am *DefaultAccountManager) GetOwnerInfo(ctx context.Context, accountID str
 	}
 
 	return userInfo, nil
-}
-
-// updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
-func updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbpeer.Peer, groupsToAdd, groupsToRemove []string) (groupsToUpdate []*types.Group, err error) {
-	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
-		return
-	}
-
-	userPeerIDMap := make(map[string]struct{}, len(peers))
-	for _, peer := range peers {
-		userPeerIDMap[peer.ID] = struct{}{}
-	}
-
-	for _, gid := range groupsToAdd {
-		group, ok := accountGroups[gid]
-		if !ok {
-			return nil, errors.New("group not found")
-		}
-		if changed := addUserPeersToGroup(userPeerIDMap, group); changed {
-			groupsToUpdate = append(groupsToUpdate, group)
-		}
-	}
-
-	for _, gid := range groupsToRemove {
-		group, ok := accountGroups[gid]
-		if !ok {
-			return nil, errors.New("group not found")
-		}
-		if changed := removeUserPeersFromGroup(userPeerIDMap, group); changed {
-			groupsToUpdate = append(groupsToUpdate, group)
-		}
-	}
-
-	return groupsToUpdate, nil
-}
-
-// addUserPeersToGroup adds the user's peers to the group.
-func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *types.Group) bool {
-	groupPeers := make(map[string]struct{}, len(group.Peers))
-	for _, pid := range group.Peers {
-		groupPeers[pid] = struct{}{}
-	}
-
-	changed := false
-	for pid := range userPeerIDs {
-		if _, exists := groupPeers[pid]; !exists {
-			groupPeers[pid] = struct{}{}
-			changed = true
-		}
-	}
-
-	group.Peers = make([]string, 0, len(groupPeers))
-	for pid := range groupPeers {
-		group.Peers = append(group.Peers, pid)
-	}
-
-	if changed {
-		group.Peers = make([]string, 0, len(groupPeers))
-		for pid := range groupPeers {
-			group.Peers = append(group.Peers, pid)
-		}
-	}
-	return changed
-}
-
-// removeUserPeersFromGroup removes user's peers from the group.
-func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *types.Group) bool {
-	// skip removing peers from group All
-	if group.Name == "All" {
-		return false
-	}
-
-	updatedPeers := make([]string, 0, len(group.Peers))
-	changed := false
-
-	for _, pid := range group.Peers {
-		if _, owned := userPeerIDs[pid]; owned {
-			changed = true
-			continue
-		}
-		updatedPeers = append(updatedPeers, pid)
-	}
-
-	if changed {
-		group.Peers = updatedPeers
-	}
-	return changed
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {

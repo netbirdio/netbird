@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"net/netip"
 	"os"
 	"reflect"
 	"regexp"
@@ -39,7 +40,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -250,8 +251,8 @@ func BuildManager(
 		}()
 	}
 
-	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string) {
-		am.onPeersInvalidated(ctx, accountID)
+	am.integratedPeerValidator.SetPeerInvalidationListener(func(accountID string, peerIDs []string) {
+		am.onPeersInvalidated(ctx, accountID, peerIDs)
 	})
 
 	return am, nil
@@ -324,6 +325,13 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			return err
 		}
 
+		if oldSettings.NetworkRange != newSettings.NetworkRange {
+			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
+				return err
+			}
+			updateAccountPeers = true
+		}
+
 		if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled ||
 			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
 			oldSettings.DNSDomain != newSettings.DNSDomain {
@@ -362,7 +370,18 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, err
 	}
 	if oldSettings.DNSDomain != newSettings.DNSDomain {
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, nil)
+		eventMeta := map[string]any{
+			"old_dns_domain": oldSettings.DNSDomain,
+			"new_dns_domain": newSettings.DNSDomain,
+		}
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, eventMeta)
+	}
+	if oldSettings.NetworkRange != newSettings.NetworkRange {
+		eventMeta := map[string]any{
+			"old_network_range": oldSettings.NetworkRange.String(),
+			"new_network_range": newSettings.NetworkRange.String(),
+		}
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
 	}
 
 	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
@@ -1368,7 +1387,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 			return nil
 		}
 
-		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, userAuth.AccountId, newGroupsToCreate); err != nil {
+		if err = transaction.CreateGroups(ctx, store.LockingStrengthUpdate, userAuth.AccountId, newGroupsToCreate); err != nil {
 			return fmt.Errorf("error saving groups: %w", err)
 		}
 
@@ -1382,28 +1401,22 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 		// Propagate changes to peers if group propagation is enabled
 		if settings.GroupsPropagationEnabled {
-			groups, err = transaction.GetAccountGroups(ctx, store.LockingStrengthShare, userAuth.AccountId)
-			if err != nil {
-				return fmt.Errorf("error getting account groups: %w", err)
-			}
-
-			groupsMap := make(map[string]*types.Group, len(groups))
-			for _, group := range groups {
-				groupsMap[group.ID] = group
-			}
-
 			peers, err := transaction.GetUserPeers(ctx, store.LockingStrengthShare, userAuth.AccountId, userAuth.UserId)
 			if err != nil {
 				return fmt.Errorf("error getting user peers: %w", err)
 			}
 
-			updatedGroups, err := updateUserPeersInGroups(groupsMap, peers, addNewGroups, removeOldGroups)
-			if err != nil {
-				return fmt.Errorf("error modifying user peers in groups: %w", err)
-			}
-
-			if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, userAuth.AccountId, updatedGroups); err != nil {
-				return fmt.Errorf("error saving groups: %w", err)
+			for _, peer := range peers {
+				for _, g := range addNewGroups {
+					if err := transaction.AddPeerToGroup(ctx, userAuth.AccountId, peer.ID, g); err != nil {
+						return fmt.Errorf("error adding peer %s to group %s: %w", peer.ID, g, err)
+					}
+				}
+				for _, g := range removeOldGroups {
+					if err := transaction.RemovePeerFromGroup(ctx, peer.ID, g); err != nil {
+						return fmt.Errorf("error removing peer %s from group %s: %w", peer.ID, g, err)
+					}
+				}
 			}
 
 			if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, userAuth.AccountId); err != nil {
@@ -1706,9 +1719,27 @@ func (am *DefaultAccountManager) GetDNSDomain(settings *types.Settings) string {
 	return settings.DNSDomain
 }
 
-func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string) {
-	log.WithContext(ctx).Debugf("validated peers has been invalidated for account %s", accountID)
-	am.BufferUpdateAccountPeers(ctx, accountID)
+func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string, peerIDs []string) {
+	peers := []*nbpeer.Peer{}
+	log.WithContext(ctx).Debugf("invalidating peers %v for account %s", peerIDs, accountID)
+	for _, peerID := range peerIDs {
+		peer, err := am.GetPeer(ctx, accountID, peerID, activity.SystemInitiator)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get invalidated peer %s for account %s: %v", peerID, accountID, err)
+			continue
+		}
+		peers = append(peers, peer)
+	}
+	if len(peers) > 0 {
+		err := am.expireAndUpdatePeers(ctx, accountID, peers)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to expire and update invalidated peers for account %s: %v", accountID, err)
+			return
+		}
+	} else {
+		log.WithContext(ctx).Debugf("running invalidation with no invalid peers")
+	}
+	log.WithContext(ctx).Debugf("invalidated peers have been expired for account %s", accountID)
 }
 
 func (am *DefaultAccountManager) FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error) {
@@ -1971,53 +2002,207 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 // propagateUserGroupMemberships propagates all account users' group memberships to their peers.
 // Returns true if any groups were modified, true if those updates affect peers and an error.
 func propagateUserGroupMemberships(ctx context.Context, transaction store.Store, accountID string) (groupsUpdated bool, peersAffected bool, err error) {
-	groups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
-	if err != nil {
-		return false, false, err
-	}
-
-	groupsMap := make(map[string]*types.Group, len(groups))
-	for _, group := range groups {
-		groupsMap[group.ID] = group
-	}
-
 	users, err := transaction.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
 	if err != nil {
 		return false, false, err
 	}
 
-	groupsToUpdate := make(map[string]*types.Group)
+	accountGroupPeers, err := transaction.GetAccountGroupPeers(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return false, false, fmt.Errorf("error getting account group peers: %w", err)
+	}
 
+	accountGroups, err := transaction.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return false, false, fmt.Errorf("error getting account groups: %w", err)
+	}
+
+	for _, group := range accountGroups {
+		if _, exists := accountGroupPeers[group.ID]; !exists {
+			accountGroupPeers[group.ID] = make(map[string]struct{})
+		}
+	}
+
+	updatedGroups := []string{}
 	for _, user := range users {
 		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthShare, accountID, user.Id)
 		if err != nil {
 			return false, false, err
 		}
 
-		updatedGroups, err := updateUserPeersInGroups(groupsMap, userPeers, user.AutoGroups, nil)
+		for _, peer := range userPeers {
+			for _, groupID := range user.AutoGroups {
+				if _, exists := accountGroupPeers[groupID]; !exists {
+					// we do not wanna create the groups here
+					log.WithContext(ctx).Warnf("group %s does not exist for user group propagation", groupID)
+					continue
+				}
+				if _, exists := accountGroupPeers[groupID][peer.ID]; exists {
+					continue
+				}
+				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
+					return false, false, fmt.Errorf("error adding peer %s to group %s: %w", peer.ID, groupID, err)
+				}
+				updatedGroups = append(updatedGroups, groupID)
+			}
+		}
+	}
+
+	peersAffected, err = areGroupChangesAffectPeers(ctx, transaction, accountID, updatedGroups)
+	if err != nil {
+		return false, false, fmt.Errorf("error checking if group changes affect peers: %w", err)
+	}
+
+	return len(updatedGroups) > 0, peersAffected, nil
+}
+
+// reallocateAccountPeerIPs re-allocates all peer IPs when the network range changes
+func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, transaction store.Store, accountID string, newNetworkRange netip.Prefix) error {
+	if !newNetworkRange.IsValid() {
+		return nil
+	}
+
+	newIPNet := net.IPNet{
+		IP:   newNetworkRange.Masked().Addr().AsSlice(),
+		Mask: net.CIDRMask(newNetworkRange.Bits(), newNetworkRange.Addr().BitLen()),
+	}
+
+	account, err := transaction.GetAccount(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
+	account.Network.Net = newIPNet
+
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+	if err != nil {
+		return err
+	}
+
+	var takenIPs []net.IP
+
+	for _, peer := range peers {
+		newIP, err := types.AllocatePeerIP(newIPNet, takenIPs)
 		if err != nil {
-			return false, false, err
+			return status.Errorf(status.Internal, "allocate IP for peer %s: %v", peer.ID, err)
 		}
 
-		for _, group := range updatedGroups {
-			groupsToUpdate[group.ID] = group
-			groupsMap[group.ID] = group
+		log.WithContext(ctx).Infof("reallocating peer %s IP from %s to %s due to network range change",
+			peer.ID, peer.IP.String(), newIP.String())
+
+		peer.IP = newIP
+		takenIPs = append(takenIPs, newIP)
+	}
+
+	if err = transaction.SaveAccount(ctx, account); err != nil {
+		return err
+	}
+
+	for _, peer := range peers {
+		if err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer); err != nil {
+			return status.Errorf(status.Internal, "save updated peer %s: %v", peer.ID, err)
 		}
 	}
 
-	if len(groupsToUpdate) == 0 {
-		return false, false, nil
+	log.WithContext(ctx).Infof("successfully re-allocated IPs for %d peers in account %s to network range %s",
+		len(peers), accountID, newNetworkRange.String())
+
+	return nil
+}
+
+func (am *DefaultAccountManager) validateIPForUpdate(account *types.Account, peers []*nbpeer.Peer, peerID string, newIP netip.Addr) error {
+	if !account.Network.Net.Contains(newIP.AsSlice()) {
+		return status.Errorf(status.InvalidArgument, "IP %s is not within the account network range %s", newIP.String(), account.Network.Net.String())
 	}
 
-	peersAffected, err = areGroupChangesAffectPeers(ctx, transaction, accountID, maps.Keys(groupsToUpdate))
+	for _, peer := range peers {
+		if peer.ID != peerID && peer.IP.Equal(newIP.AsSlice()) {
+			return status.Errorf(status.InvalidArgument, "IP %s is already assigned to peer %s", newIP.String(), peer.ID)
+		}
+	}
+	return nil
+}
+
+func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
-		return false, false, err
+		return fmt.Errorf("validate user permissions: %w", err)
+	}
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
-	err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, accountID, maps.Values(groupsToUpdate))
+	updateNetworkMap, err := am.updatePeerIPInTransaction(ctx, accountID, userID, peerID, newIP)
 	if err != nil {
-		return false, false, err
+		return fmt.Errorf("update peer IP transaction: %w", err)
 	}
 
-	return true, peersAffected, nil
+	if updateNetworkMap {
+		am.BufferUpdateAccountPeers(ctx, accountID)
+	}
+	return nil
+}
+
+func (am *DefaultAccountManager) updatePeerIPInTransaction(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) (bool, error) {
+	var updateNetworkMap bool
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		account, err := transaction.GetAccount(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("get account: %w", err)
+		}
+
+		existingPeer, err := transaction.GetPeerByID(ctx, store.LockingStrengthShare, accountID, peerID)
+		if err != nil {
+			return fmt.Errorf("get peer: %w", err)
+		}
+
+		if existingPeer.IP.Equal(newIP.AsSlice()) {
+			return nil
+		}
+
+		peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+		if err != nil {
+			return fmt.Errorf("get account peers: %w", err)
+		}
+
+		if err := am.validateIPForUpdate(account, peers, peerID, newIP); err != nil {
+			return err
+		}
+
+		if err := am.savePeerIPUpdate(ctx, transaction, accountID, userID, existingPeer, newIP); err != nil {
+			return err
+		}
+
+		updateNetworkMap = true
+		return nil
+	})
+	return updateNetworkMap, err
+}
+
+func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transaction store.Store, accountID, userID string, peer *nbpeer.Peer, newIP netip.Addr) error {
+	log.WithContext(ctx).Infof("updating peer %s IP from %s to %s", peer.ID, peer.IP, newIP)
+
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	if err != nil {
+		return fmt.Errorf("get account settings: %w", err)
+	}
+	dnsDomain := am.GetDNSDomain(settings)
+
+	eventMeta := peer.EventMeta(dnsDomain)
+	oldIP := peer.IP.String()
+
+	peer.IP = newIP.AsSlice()
+	err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer)
+	if err != nil {
+		return fmt.Errorf("save peer: %w", err)
+	}
+
+	eventMeta["old_ip"] = oldIP
+	eventMeta["ip"] = newIP.String()
+	am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerIPUpdated, eventMeta)
+
+	return nil
 }

@@ -24,7 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	relayClient "github.com/netbirdio/netbird/relay/client"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/route"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )

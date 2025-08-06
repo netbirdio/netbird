@@ -259,7 +259,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           go test ${{ matrix.raceFlag }} \
             -exec 'sudo' \
-            -timeout 10m ./relay/...
+            -timeout 10m ./relay/... ./shared/relay/...
 
   test_signal:
     name: "Signal / Unit"
@@ -309,7 +309,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           go test \
             -exec 'sudo' \
-            -timeout 10m ./signal/...
+            -timeout 10m ./signal/... ./shared/signal/...
 
   test_management:
     name: "Management / Unit"
@@ -369,7 +369,7 @@ jobs:
             CI=true \
           go test -tags=devcert \
             -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE" \
-            -timeout 20m ./management/...
+            -timeout 20m ./management/... ./shared/management/...
 
   benchmark:
     name: "Management / Benchmark"
@@ -430,7 +430,7 @@ jobs:
           CI=true \
           go test -tags devcert -run=^$ -bench=. \
           -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
-          -timeout 20m ./management/...
+          -timeout 20m ./management/... ./shared/management/...
 
   api_benchmark:
     name: "Management / Benchmark (API)"
@@ -521,7 +521,7 @@ jobs:
             -run=^$ \
             -bench=. \
             -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,GIT_BRANCH,GITHUB_RUN_ID' \
-            -timeout 20m ./management/...
+            -timeout 20m ./management/... ./shared/management/...
 
   api_integration_test:
     name: "Management / Integration"
@@ -571,4 +571,4 @@ jobs:
           CI=true \
           go test -tags=integration \
           -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
-          -timeout 20m ./management/...
+          -timeout 20m ./management/... ./shared/management/...

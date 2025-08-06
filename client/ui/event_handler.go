@@ -13,6 +13,7 @@ import (
 	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -230,4 +231,20 @@ func (h *eventHandler) runSelfCommand(ctx context.Context, command, arg string) 
 	}
 
 	log.Printf("command '%s %s' completed successfully", command, arg)
+}
+
+func (h *eventHandler) logout(ctx context.Context) error {
+	client, err := h.client.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		return fmt.Errorf("failed to get service client: %w", err)
+	}
+
+	_, err = client.Logout(ctx, &proto.LogoutRequest{})
+	if err != nil {
+		return fmt.Errorf("logout failed: %w", err)
+	}
+
+	h.client.getSrvConfig()
+	
+	return nil
 }
