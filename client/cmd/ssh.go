@@ -59,7 +59,7 @@ var sshCmd = &cobra.Command{
 
 		ctx := internal.CtxInitState(cmd.Context())
 
-		sm := profilemanager.NewServiceManager("")
+		sm := profilemanager.NewServiceManager(configPath)
 		activeProf, err := sm.GetActiveProfileState()
 		if err != nil {
 			return fmt.Errorf("get active profile: %v", err)
