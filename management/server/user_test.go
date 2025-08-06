@@ -15,9 +15,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -88,7 +88,7 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 
 	assert.Equal(t, pat.ID, tokenID)
 
-	user, err := am.Store.GetUserByPATID(context.Background(), store.LockingStrengthShare, tokenID)
+	user, err := am.Store.GetUserByPATID(context.Background(), store.LockingStrengthNone, tokenID)
 	if err != nil {
 		t.Fatalf("Error when getting user by token ID: %s", err)
 	}
@@ -1521,7 +1521,7 @@ func TestSaveOrAddUser_PreventAccountSwitch(t *testing.T) {
 	_, err = am.SaveOrAddUser(context.Background(), "account2", "ownerAccount2", account1.Users[targetId], true)
 	assert.Error(t, err, "update user to another account should fail")
 
-	user, err := s.GetUserByUserID(context.Background(), store.LockingStrengthShare, targetId)
+	user, err := s.GetUserByUserID(context.Background(), store.LockingStrengthNone, targetId)
 	require.NoError(t, err)
 	assert.Equal(t, account1.Users[targetId].Id, user.Id)
 	assert.Equal(t, account1.Users[targetId].AccountID, user.AccountID)
