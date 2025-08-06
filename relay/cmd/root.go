@@ -36,13 +36,13 @@ type Config struct {
 	LetsencryptDomains []string
 	// in case of using Route 53 for DNS challenge the credentials should be provided in the environment variables or
 	// in the AWS credentials file
-	LetsencryptAWSRoute53 bool
-	TlsCertFile           string
-	TlsKeyFile            string
-	AuthSecret            string
-	LogLevel              string
-	LogFile               string
-	HatcheckListenAddress string
+	LetsencryptAWSRoute53    bool
+	TlsCertFile              string
+	TlsKeyFile               string
+	AuthSecret               string
+	LogLevel                 string
+	LogFile                  string
+	HealthcheckListenAddress string
 }
 
 func (c Config) Validate() error {
@@ -90,7 +90,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "auth secret")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
-	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HatcheckListenAddress, "health-listen-address", "H", ":9000", "listen address of healthcheck server")
+	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HealthcheckListenAddress, "health-listen-address", "H", ":9000", "listen address of healthcheck server")
 
 	setFlagsFromEnvVars(rootCmd)
 }
@@ -170,7 +170,7 @@ func execute(cmd *cobra.Command, args []string) error {
 	}()
 
 	hCfg := healthcheck.Config{
-		ListenAddress:  cobraConfig.HatcheckListenAddress,
+		ListenAddress:  cobraConfig.HealthcheckListenAddress,
 		ServiceChecker: srv,
 	}
 	httpHealthcheck, err := healthcheck.NewServer(hCfg)
