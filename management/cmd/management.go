@@ -34,6 +34,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/server/groups"
 
 	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -45,7 +46,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/groups"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/metrics"
@@ -220,7 +220,8 @@ var (
 				return fmt.Errorf("build default manager: %v", err)
 			}
 
-			secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsManager)
+			groupsManager := groups.NewManager(store, permissionsManager, accountManager)
+			secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsManager, groupsManager)
 
 			trustedPeers := config.ReverseProxy.TrustedPeers
 			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
@@ -277,7 +278,6 @@ var (
 				config.GetAuthAudiences(),
 				config.HttpConfig.IdpSignKeyRefreshEnabled)
 
-			groupsManager := groups.NewManager(store, permissionsManager, accountManager)
 			resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, accountManager)
 			routersManager := routers.NewManager(store, permissionsManager, accountManager)
 			networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, accountManager)
