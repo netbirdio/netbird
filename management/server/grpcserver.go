@@ -913,6 +913,7 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 
 func (s *GRPCServer) Logout(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
 	log.WithContext(ctx).Debugf("Logout request from peer [%s]", req.WgPubKey)
+	start := time.Now()
 
 	empty := &proto.Empty{}
 	peerKey, err := s.parseRequest(ctx, req, empty)
@@ -944,7 +945,7 @@ func (s *GRPCServer) Logout(ctx context.Context, req *proto.EncryptedMessage) (*
 
 	s.accountManager.BufferUpdateAccountPeers(ctx, peer.AccountID)
 
-	log.WithContext(ctx).Infof("peer %s logged out successfully", peerKey.String())
+	log.WithContext(ctx).Debugf("peer %s logged out successfully after %s", peerKey.String(), time.Since(start))
 
 	return &proto.Empty{}, nil
 }
