@@ -16,14 +16,14 @@ import (
 
 var profileCmd = &cobra.Command{
 	Use:   "profile",
-	Short: "manage Netbird profiles",
-	Long:  `Manage Netbird profiles, allowing you to list, switch, and remove profiles.`,
+	Short: "manage NetBird profiles",
+	Long:  `Manage NetBird profiles, allowing you to list, switch, and remove profiles.`,
 }
 
 var profileListCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "list all profiles",
-	Long:    `List all available profiles in the Netbird client.`,
+	Long:    `List all available profiles in the NetBird client.`,
 	Aliases: []string{"ls"},
 	RunE:    listProfilesFunc,
 }
@@ -31,7 +31,7 @@ var profileListCmd = &cobra.Command{
 var profileAddCmd = &cobra.Command{
 	Use:   "add <profile_name>",
 	Short: "add a new profile",
-	Long:  `Add a new profile to the Netbird client. The profile name must be unique.`,
+	Long:  `Add a new profile to the NetBird client. The profile name must be unique.`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  addProfileFunc,
 }
@@ -39,7 +39,7 @@ var profileAddCmd = &cobra.Command{
 var profileRemoveCmd = &cobra.Command{
 	Use:   "remove <profile_name>",
 	Short: "remove a profile",
-	Long:  `Remove a profile from the Netbird client. The profile must not be active.`,
+	Long:  `Remove a profile from the NetBird client. The profile must not be active.`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  removeProfileFunc,
 }
@@ -47,7 +47,7 @@ var profileRemoveCmd = &cobra.Command{
 var profileSelectCmd = &cobra.Command{
 	Use:   "select <profile_name>",
 	Short: "select a profile",
-	Long:  `Select a profile to be the active profile in the Netbird client. The profile must exist.`,
+	Long:  `Select a profile to be the active profile in the NetBird client. The profile must exist.`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  selectProfileFunc,
 }

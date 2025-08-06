@@ -50,10 +50,10 @@ func TestSetFlagsFromEnvVars(t *testing.T) {
 	}
 
 	cmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
-		`comma separated list of external IPs to map to the Wireguard interface`)
-	cmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
+		`comma separated list of external IPs to map to the WireGuard interface`)
+	cmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
 	cmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "Enable Rosenpass feature Rosenpass.")
-	cmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
+	cmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
 
 	t.Setenv("NB_EXTERNAL_IP_MAP", "abc,dec")
 	t.Setenv("NB_INTERFACE_NAME", "test-name")

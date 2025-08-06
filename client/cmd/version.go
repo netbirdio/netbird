@@ -9,7 +9,7 @@ import (
 var (
 	versionCmd = &cobra.Command{
 		Use:   "version",
-		Short: "prints Netbird version",
+		Short: "prints NetBird version",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.SetOut(cmd.OutOrStdout())
 			cmd.Println(version.NetbirdVersion())
