@@ -13,7 +13,7 @@ import (
 
 var logoutCmd = &cobra.Command{
 	Use:   "logout",
-	Short: "logout from the Netbird Management Service and delete peer",
+	Short: "logout from the NetBird Management Service and delete peer",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
 

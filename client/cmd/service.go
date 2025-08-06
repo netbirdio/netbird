@@ -19,7 +19,7 @@ import (
 
 var serviceCmd = &cobra.Command{
 	Use:   "service",
-	Short: "manages Netbird service",
+	Short: "manages NetBird service",
 }
 
 var (
@@ -64,7 +64,7 @@ func newSVCConfig() (*service.Config, error) {
 	config := &service.Config{
 		Name:        serviceName,
 		DisplayName: "Netbird",
-		Description: "Netbird mesh network client",
+		Description: "NetBird mesh network client",
 		Option:      make(service.KeyValue),
 		EnvVars:     make(map[string]string),
 	}

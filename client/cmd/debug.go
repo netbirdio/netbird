@@ -33,7 +33,7 @@ var (
 var debugCmd = &cobra.Command{
 	Use:   "debug",
 	Short: "Debugging commands",
-	Long:  "Provides commands for debugging and logging control within the Netbird daemon.",
+	Long:  "Provides commands for debugging and logging control within the NetBird daemon.",
 }
 
 var debugBundleCmd = &cobra.Command{
@@ -46,8 +46,8 @@ var debugBundleCmd = &cobra.Command{
 
 var logCmd = &cobra.Command{
 	Use:   "log",
-	Short: "Manage logging for the Netbird daemon",
-	Long:  `Commands to manage logging settings for the Netbird daemon, including ICE, gRPC, and general log levels.`,
+	Short: "Manage logging for the NetBird daemon",
+	Long:  `Commands to manage logging settings for the NetBird daemon, including ICE, gRPC, and general log levels.`,
 }
 
 var logLevelCmd = &cobra.Command{
@@ -184,7 +184,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
 			return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
 		}
-		cmd.Println("Netbird up")
+		cmd.Println("netbird up")
 		time.Sleep(time.Second * 10)
 	}
 
@@ -202,7 +202,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
 		return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
 	}
-	cmd.Println("Netbird down")
+	cmd.Println("netbird down")
 
 	time.Sleep(1 * time.Second)
 
@@ -216,11 +216,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
 		return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
 	}
-	cmd.Println("Netbird up")
+	cmd.Println("netbird up")
 
 	time.Sleep(3 * time.Second)
 
-	headerPostUp := fmt.Sprintf("----- Netbird post-up - Timestamp: %s", time.Now().Format(time.RFC3339))
+	headerPostUp := fmt.Sprintf("----- NetBird post-up - Timestamp: %s", time.Now().Format(time.RFC3339))
 	statusOutput := fmt.Sprintf("%s\n%s", headerPostUp, getStatusOutput(cmd, anonymizeFlag))
 
 	if waitErr := waitForDurationOrCancel(cmd.Context(), duration, cmd); waitErr != nil {
@@ -230,7 +230,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	cmd.Println("Creating debug bundle...")
 
-	headerPreDown := fmt.Sprintf("----- Netbird pre-down - Timestamp: %s - Duration: %s", time.Now().Format(time.RFC3339), duration)
+	headerPreDown := fmt.Sprintf("----- NetBird pre-down - Timestamp: %s - Duration: %s", time.Now().Format(time.RFC3339), duration)
 	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, getStatusOutput(cmd, anonymizeFlag))
 	request := &proto.DebugBundleRequest{
 		Anonymize:    anonymizeFlag,
@@ -250,7 +250,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
 			return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
 		}
-		cmd.Println("Netbird down")
+		cmd.Println("netbird down")
 	}
 
 	if !initialLevelTrace {
