@@ -2799,12 +2799,23 @@ func (s *SqlStore) GetAccountGroupPeers(ctx context.Context, lockStrength Lockin
 
 func getDebuggingCtx(grpcCtx context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	//nolint
-	ctx = context.WithValue(ctx, nbcontext.UserIDKey, grpcCtx.Value(nbcontext.UserIDKey).(string))
-	//nolint
-	ctx = context.WithValue(ctx, nbcontext.RequestIDKey, grpcCtx.Value(nbcontext.RequestIDKey).(string))
-	//nolint
-	ctx = context.WithValue(ctx, nbcontext.AccountIDKey, grpcCtx.Value(nbcontext.AccountIDKey).(string))
+	userID, ok := grpcCtx.Value(nbcontext.UserIDKey).(string)
+	if ok {
+		//nolint
+		ctx = context.WithValue(ctx, nbcontext.UserIDKey, userID)
+	}
+
+	requestID, ok := grpcCtx.Value(nbcontext.RequestIDKey).(string)
+	if ok {
+		//nolint
+		ctx = context.WithValue(ctx, nbcontext.RequestIDKey, requestID)
+	}
+
+	accountID, ok := grpcCtx.Value(nbcontext.AccountIDKey).(string)
+	if ok {
+		//nolint
+		ctx = context.WithValue(ctx, nbcontext.AccountIDKey, accountID)
+	}
 
 	go func() {
 		select {
