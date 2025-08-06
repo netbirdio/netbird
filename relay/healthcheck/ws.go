@@ -12,7 +12,13 @@ import (
 func dialWS(ctx context.Context, address string) error {
 	url := fmt.Sprintf("wss://%s%s", address, relay.WebSocketURLPath)
 
-	conn, _, err := websocket.Dial(ctx, url, nil)
+	conn, resp, err := websocket.Dial(ctx, url, nil)
+	if resp != nil {
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+
+	}
 	if err != nil {
 		return fmt.Errorf("failed to connect to websocket: %w", err)
 	}
