@@ -198,7 +198,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 					Metric:      9999,
 					Masquerade:  false,
 					Enabled:     true,
-					IsSelected:  true,
+					IsNotForced: false,
 				},
 			},
 			inputSerial:                          1,

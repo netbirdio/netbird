@@ -641,7 +641,7 @@ func (m *DefaultManager) categorizeUserSelection(netID route.NetID, info *exitNo
 
 func (m *DefaultManager) checkManagementSelection(routes []*route.Route, netID route.NetID, info *exitNodeInfo) {
 	for _, route := range routes {
-		if route.IsSelected {
+		if !route.IsNotForced {
 			info.selectedByManagement = append(info.selectedByManagement, netID)
 			break
 		}

@@ -231,7 +231,7 @@ func (rs *RouteSelector) hasUserSelections() bool {
 func collectSelected(rt []*route.Route) []*route.Route {
 	var sel []*route.Route
 	for _, r := range rt {
-		if r.IsSelected {
+		if !r.IsNotForced {
 			sel = append(sel, r)
 		}
 	}

@@ -397,7 +397,7 @@ message Route {
   string NetID = 7;
   repeated string Domains = 8;
   bool keepRoute = 9;
-  bool isSelected = 10;
+  bool isNotForced = 10;
 }
 
 // DNSConfig represents a dns.Update

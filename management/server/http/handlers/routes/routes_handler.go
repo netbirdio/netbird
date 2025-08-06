@@ -126,16 +126,16 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 		accessControlGroupIds = *req.AccessControlGroups
 	}
 
-	// Set default isSelected value for exit nodes (0.0.0.0/0 routes)
-	isSelected := true
-	if req.IsSelected != nil {
-		isSelected = *req.IsSelected
+	// Set default isNotForced value for exit nodes (0.0.0.0/0 routes)
+	isNotForced := false
+	if req.IsNotForced != nil {
+		isNotForced = *req.IsNotForced
 	} else if newPrefix.String() == exitNodeCIDR {
-		isSelected = true
+		isNotForced = false
 	}
 
 	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, newPrefix, networkType, domains, peerId, peerGroupIds,
-		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute, isSelected)
+		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute, isNotForced)
 
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -223,12 +223,12 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		peerID = *req.Peer
 	}
 
-	// Set default isSelected value for exit nodes (0.0.0.0/0 routes)
-	isSelected := true
-	if req.IsSelected != nil {
-		isSelected = *req.IsSelected
+	// Set default isNotForced value for exit nodes (0.0.0.0/0 routes)
+	isNotForced := false
+	if req.IsNotForced != nil {
+		isNotForced = *req.IsNotForced
 	} else if req.Network != nil && *req.Network == exitNodeCIDR {
-		isSelected = true
+		isNotForced = false
 	}
 
 	newRoute := &route.Route{
@@ -240,7 +240,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		Enabled:     req.Enabled,
 		Groups:      req.Groups,
 		KeepRoute:   req.KeepRoute,
-		IsSelected:  isSelected,
+		IsNotForced: isNotForced,
 	}
 
 	if req.Domains != nil {
@@ -360,7 +360,7 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 		Metric:      serverRoute.Metric,
 		Groups:      serverRoute.Groups,
 		KeepRoute:   serverRoute.KeepRoute,
-		IsSelected:  &serverRoute.IsSelected,
+		IsNotForced: &serverRoute.IsNotForced,
 	}
 
 	if len(serverRoute.PeerGroups) > 0 {

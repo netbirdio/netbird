@@ -279,25 +279,25 @@ func TestRouteSelector_FilterSelectedExitNodes(t *testing.T) {
 
 	// Create test routes
 	exitNode1 := &route.Route{
-		ID:         "route1",
-		NetID:      "net1",
-		Network:    netip.MustParsePrefix("0.0.0.0/0"),
-		Peer:       "peer1",
-		IsSelected: true,
+		ID:          "route1",
+		NetID:       "net1",
+		Network:     netip.MustParsePrefix("0.0.0.0/0"),
+		Peer:        "peer1",
+		IsNotForced: false,
 	}
 	exitNode2 := &route.Route{
-		ID:         "route2",
-		NetID:      "net1",
-		Network:    netip.MustParsePrefix("0.0.0.0/0"),
-		Peer:       "peer2",
-		IsSelected: false,
+		ID:          "route2",
+		NetID:       "net1",
+		Network:     netip.MustParsePrefix("0.0.0.0/0"),
+		Peer:        "peer2",
+		IsNotForced: true,
 	}
 	normalRoute := &route.Route{
-		ID:         "route3",
-		NetID:      "net2",
-		Network:    netip.MustParsePrefix("192.168.1.0/24"),
-		Peer:       "peer3",
-		IsSelected: true,
+		ID:          "route3",
+		NetID:       "net2",
+		Network:     netip.MustParsePrefix("192.168.1.0/24"),
+		Peer:        "peer3",
+		IsNotForced: false,
 	}
 
 	routes := route.HAMap{

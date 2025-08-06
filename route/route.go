@@ -107,8 +107,8 @@ type Route struct {
 	Enabled             bool
 	Groups              []string `gorm:"serializer:json"`
 	AccessControlGroups []string `gorm:"serializer:json"`
-	// IsSelected indicates if this exit node route (0.0.0.0/0) is selected for client routing
-	IsSelected bool
+	// IsNotForced indicates if this exit node route (0.0.0.0/0) is not forced for client routing
+	IsNotForced bool
 }
 
 // EventMeta returns activity event meta related to the route
@@ -134,7 +134,7 @@ func (r *Route) Copy() *Route {
 		Enabled:             r.Enabled,
 		Groups:              slices.Clone(r.Groups),
 		AccessControlGroups: slices.Clone(r.AccessControlGroups),
-		IsSelected:          r.IsSelected,
+		IsNotForced:         r.IsNotForced,
 	}
 	return route
 }
@@ -162,7 +162,7 @@ func (r *Route) Equal(other *Route) bool {
 		slices.Equal(r.Groups, other.Groups) &&
 		slices.Equal(r.PeerGroups, other.PeerGroups) &&
 		slices.Equal(r.AccessControlGroups, other.AccessControlGroups) &&
-		other.IsSelected == r.IsSelected
+		other.IsNotForced == r.IsNotForced
 }
 
 // IsDynamic returns if the route is dynamic, i.e. has domains

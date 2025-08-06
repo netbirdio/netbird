@@ -1971,7 +1971,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		_, err := manager.CreateRoute(
 			context.Background(), account.Id, route.Network, route.NetworkType, route.Domains, route.Peer,
 			route.PeerGroups, route.Description, route.NetID, route.Masquerade, route.Metric,
-			route.Groups, []string{}, true, userID, route.KeepRoute, route.IsSelected,
+			route.Groups, []string{}, true, userID, route.KeepRoute, route.IsNotForced,
 		)
 		require.NoError(t, err)
 

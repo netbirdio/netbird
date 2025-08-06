@@ -1505,8 +1505,8 @@ type Route struct {
 	// Id Route Id
 	Id string `json:"id"`
 
-	// IsSelected Indicate if this exit node route (0.0.0.0/0) is selected for client routing
-	IsSelected *bool `json:"is_selected,omitempty"`
+	// IsNotForced Indicate if this exit node route (0.0.0.0/0) is not forced for client routing
+	IsNotForced *bool `json:"is_not_forced,omitempty"`
 
 	// KeepRoute Indicate if the route should be kept after a domain doesn't resolve that IP anymore
 	KeepRoute bool `json:"keep_route"`
@@ -1550,8 +1550,8 @@ type RouteRequest struct {
 	// Groups Group IDs containing routing peers
 	Groups []string `json:"groups"`
 
-	// IsSelected Indicate if this exit node route (0.0.0.0/0) is selected for client routing
-	IsSelected *bool `json:"is_selected,omitempty"`
+	// IsNotForced Indicate if this exit node route (0.0.0.0/0) is not forced for client routing
+	IsNotForced *bool `json:"is_not_forced,omitempty"`
 
 	// KeepRoute Indicate if the route should be kept after a domain doesn't resolve that IP anymore
 	KeepRoute bool `json:"keep_route"`

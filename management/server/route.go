@@ -134,7 +134,7 @@ func getRouteDescriptor(prefix netip.Prefix, domains domain.List) string {
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, isSelected bool) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, isNotForced bool) (*route.Route, error) {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
@@ -170,7 +170,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			Enabled:             enabled,
 			Groups:              groups,
 			AccessControlGroups: accessControlGroupIDs,
-			IsSelected:          isSelected,
+			IsNotForced:         isNotForced,
 		}
 
 		if err = validateRoute(ctx, transaction, accountID, newRoute); err != nil {
@@ -389,7 +389,7 @@ func toProtocolRoute(route *route.Route) *proto.Route {
 		Metric:      int64(route.Metric),
 		Masquerade:  route.Masquerade,
 		KeepRoute:   route.KeepRoute,
-		IsSelected:  route.IsSelected,
+		IsNotForced: route.IsNotForced,
 	}
 }
 
