@@ -1,3 +1,3 @@
 package tls
 
-const nbalpn = "nb-quic"
+const NBalpn = "nb-quic"
