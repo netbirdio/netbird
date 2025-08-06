@@ -11,9 +11,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -45,7 +45,7 @@ func (m *managerImpl) ValidateUserPermissions(
 		return true, nil
 	}
 
-	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return false, err
 	}
