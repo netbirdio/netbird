@@ -20,8 +20,6 @@ const (
 	URLPath                   = relay.WebSocketURLPath
 )
 
-// URLPath is the path for the websocket connection.
-
 type Listener struct {
 	// Address is the address to listen on.
 	Address string

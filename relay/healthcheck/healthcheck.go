@@ -18,7 +18,7 @@ import (
 
 const (
 	statusHealthy   = "healthy"
-	statusUnHealthy = "unHealthy"
+	statusUnhealthy = "unhealthy"
 
 	path = "/health"
 
@@ -130,13 +130,13 @@ func (s *Server) getHealthStatus(ctx context.Context) (*HealthStatus, bool) {
 
 	listeners, ok := s.validateListeners()
 	if !ok {
-		status.Status = statusUnHealthy
+		status.Status = statusUnhealthy
 		healthy = false
 	}
 	status.Listeners = listeners
 
 	if ok := s.validateCertificate(ctx); !ok {
-		status.Status = statusUnHealthy
+		status.Status = statusUnhealthy
 		status.CertificateValid = false
 		healthy = false
 	}
