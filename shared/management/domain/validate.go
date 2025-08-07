@@ -22,17 +22,11 @@ func ValidateDomains(domains []string) (List, error) {
 	var domainList List
 
 	for _, d := range domains {
-		// handles length and idna conversion
-		punycode, err := FromString(d)
+		validDomain, err := ToValidDomain(d)
 		if err != nil {
-			return domainList, fmt.Errorf("convert domain to punycode: %s: %w", d, err)
+			return nil, fmt.Errorf("invalid domain %s: %w", d, err)
 		}
-
-		if !domainRegex.MatchString(string(punycode)) {
-			return domainList, fmt.Errorf("invalid domain format: %s", d)
-		}
-
-		domainList = append(domainList, punycode)
+		domainList = append(domainList, validDomain)
 	}
 	return domainList, nil
 }
@@ -53,4 +47,30 @@ func ValidateDomainsList(domains []string) error {
 		}
 	}
 	return nil
+}
+
+// IsValidDomain checks if the given domain is valid.
+func IsValidDomain(domain string) bool {
+	// handles length and idna conversion
+	punycode, err := FromString(domain)
+	if err != nil {
+		return false
+	}
+
+	return !domainRegex.MatchString(string(punycode))
+}
+
+// ToValidDomain converts a domain to a valid domain format.
+func ToValidDomain(domain string) (Domain, error) {
+	// handles length and idna conversion
+	punycode, err := FromString(domain)
+	if err != nil {
+		return "", fmt.Errorf("convert domain to punycode: %s: %w", domain, err)
+	}
+
+	if !domainRegex.MatchString(string(punycode)) {
+		return "", fmt.Errorf("invalid domain format: %s", domain)
+	}
+
+	return punycode, nil
 }
