@@ -8,7 +8,7 @@ import (
 
 const maxDomains = 32
 
-var domainRegex = regexp.MustCompile(`^(?:\*\.)?(?:(?:xn--)?[a-zA-Z0-9_](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?\.)*(?:xn--)?[a-zA-Z0-9](?:[a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?$`)
+var domainRegex = regexp.MustCompile(`^(?:\*\.)?(?:(?:xn--)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(?:\.(?:xn--)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
 
 // ValidateDomains checks if each domain in the list is valid and returns a punycode-encoded DomainList.
 func ValidateDomains(domains []string) (List, error) {
@@ -57,7 +57,7 @@ func IsValidDomain(domain string) bool {
 		return false
 	}
 
-	return !domainRegex.MatchString(string(punycode))
+	return domainRegex.MatchString(string(punycode))
 }
 
 // ToValidDomain converts a domain to a valid domain format.

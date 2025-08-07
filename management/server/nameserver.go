@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/rs/xid"
@@ -262,7 +263,10 @@ func validateDomainInput(primary bool, domains []string, searchDomainsEnabled bo
 	}
 
 	for _, domain := range domains {
-		if nbDomain.IsValidDomain(domain) {
+		if strings.HasPrefix(domain, "*") {
+			return status.Errorf(status.InvalidArgument, "wildcard prefix is not allowed: %s", domain)
+		}
+		if !nbDomain.IsValidDomain(domain) {
 			return status.Errorf(status.InvalidArgument, "nameserver group got an invalid domain: %s", domain)
 		}
 	}
