@@ -48,7 +48,7 @@ func (w *Worker) Work(ctx context.Context) {
 			}
 
 		case <-ctx.Done():
-			log.Debugf("Message worker stopping due to context cancellation")
+			log.Infof("Message worker stopping due to context cancellation")
 			return
 		}
 	}

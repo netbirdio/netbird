@@ -160,7 +160,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		c.notifyConnected()
 
 		// Start worker pool if not already started
-		c.startEncryptionWorker(ctx, msgHandler)
+		c.startEncryptionWorker(msgHandler)
 
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream)
@@ -427,15 +427,16 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) er
 	}
 }
 
-func (c *GrpcClient) startEncryptionWorker(ctx context.Context, handler func(msg *proto.Message) error) {
+func (c *GrpcClient) startEncryptionWorker(handler func(msg *proto.Message) error) {
 	if c.decryptionWorker != nil {
 		return
 	}
 
 	c.decryptionWorker = NewWorker(c.decryptMessage, handler)
-	c.decryptionWg.Add(1)
-	workerCtx, workerCancel := context.WithCancel(ctx)
+	workerCtx, workerCancel := context.WithCancel(context.Background())
 	c.decryptionWorkerCancel = workerCancel
+
+	c.decryptionWg.Add(1)
 	go func() {
 		defer workerCancel()
 		c.decryptionWorker.Work(workerCtx)
