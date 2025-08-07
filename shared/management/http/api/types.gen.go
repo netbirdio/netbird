@@ -1511,9 +1511,6 @@ type Route struct {
 	// Id Route Id
 	Id string `json:"id"`
 
-	// IsNotForced Indicate if this exit node route (0.0.0.0/0) is not forced for client routing
-	IsNotForced *bool `json:"is_not_forced,omitempty"`
-
 	// KeepRoute Indicate if the route should be kept after a domain doesn't resolve that IP anymore
 	KeepRoute bool `json:"keep_route"`
 
@@ -1537,6 +1534,9 @@ type Route struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+
+	// SkipAutoApply Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
 // RouteRequest defines model for RouteRequest.
@@ -1555,9 +1555,6 @@ type RouteRequest struct {
 
 	// Groups Group IDs containing routing peers
 	Groups []string `json:"groups"`
-
-	// IsNotForced Indicate if this exit node route (0.0.0.0/0) is not forced for client routing
-	IsNotForced *bool `json:"is_not_forced,omitempty"`
 
 	// KeepRoute Indicate if the route should be kept after a domain doesn't resolve that IP anymore
 	KeepRoute bool `json:"keep_route"`
@@ -1579,6 +1576,9 @@ type RouteRequest struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+
+	// SkipAutoApply Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
 // RulePortRange Policy rule affected ports range

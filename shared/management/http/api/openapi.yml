@@ -1323,8 +1323,8 @@ components:
           items:
             type: string
             example: "chacbco6lnnbn6cg5s91"
-        is_not_forced:
-          description: Indicate if this exit node route (0.0.0.0/0) is not forced for client routing
+        skip_auto_apply:
+          description: Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
           type: boolean
           example: false
       required:

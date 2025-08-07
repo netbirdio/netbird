@@ -368,9 +368,6 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 				}
 			})
 		},
-		func(db *gorm.DB) error {
-			return migration.MigrateNewField[route.Route](ctx, db, "is_not_forced", false)
-		},
 	}
 }
 

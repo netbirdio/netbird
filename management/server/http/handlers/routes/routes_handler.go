@@ -8,13 +8,13 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/route"
 )
 
 const failedToConvertRoute = "failed to convert route to response: %v"
@@ -126,16 +126,16 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 		accessControlGroupIds = *req.AccessControlGroups
 	}
 
-	// Set default isNotForced value for exit nodes (0.0.0.0/0 routes)
-	isNotForced := false
-	if req.IsNotForced != nil {
-		isNotForced = *req.IsNotForced
+	// Set default skipAutoApply value for exit nodes (0.0.0.0/0 routes)
+	skipAutoApply := false
+	if req.SkipAutoApply != nil {
+		skipAutoApply = *req.SkipAutoApply
 	} else if newPrefix.String() == exitNodeCIDR {
-		isNotForced = false
+		skipAutoApply = false
 	}
 
 	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, newPrefix, networkType, domains, peerId, peerGroupIds,
-		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute, isNotForced)
+		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute, skipAutoApply)
 
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -223,24 +223,24 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		peerID = *req.Peer
 	}
 
-	// Set default isNotForced value for exit nodes (0.0.0.0/0 routes)
-	isNotForced := false
-	if req.IsNotForced != nil {
-		isNotForced = *req.IsNotForced
+	// Set default skipAutoApply value for exit nodes (0.0.0.0/0 routes)
+	skipAutoApply := false
+	if req.SkipAutoApply != nil {
+		skipAutoApply = *req.SkipAutoApply
 	} else if req.Network != nil && *req.Network == exitNodeCIDR {
-		isNotForced = false
+		skipAutoApply = false
 	}
 
 	newRoute := &route.Route{
-		ID:          route.ID(routeID),
-		NetID:       route.NetID(req.NetworkId),
-		Masquerade:  req.Masquerade,
-		Metric:      req.Metric,
-		Description: req.Description,
-		Enabled:     req.Enabled,
-		Groups:      req.Groups,
-		KeepRoute:   req.KeepRoute,
-		IsNotForced: isNotForced,
+		ID:            route.ID(routeID),
+		NetID:         route.NetID(req.NetworkId),
+		Masquerade:    req.Masquerade,
+		Metric:        req.Metric,
+		Description:   req.Description,
+		Enabled:       req.Enabled,
+		Groups:        req.Groups,
+		KeepRoute:     req.KeepRoute,
+		SkipAutoApply: skipAutoApply,
 	}
 
 	if req.Domains != nil {
@@ -348,19 +348,19 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 	}
 	network := serverRoute.Network.String()
 	route := &api.Route{
-		Id:          string(serverRoute.ID),
-		Description: serverRoute.Description,
-		NetworkId:   string(serverRoute.NetID),
-		Enabled:     serverRoute.Enabled,
-		Peer:        &serverRoute.Peer,
-		Network:     &network,
-		Domains:     &domains,
-		NetworkType: serverRoute.NetworkType.String(),
-		Masquerade:  serverRoute.Masquerade,
-		Metric:      serverRoute.Metric,
-		Groups:      serverRoute.Groups,
-		KeepRoute:   serverRoute.KeepRoute,
-		IsNotForced: &serverRoute.IsNotForced,
+		Id:            string(serverRoute.ID),
+		Description:   serverRoute.Description,
+		NetworkId:     string(serverRoute.NetID),
+		Enabled:       serverRoute.Enabled,
+		Peer:          &serverRoute.Peer,
+		Network:       &network,
+		Domains:       &domains,
+		NetworkType:   serverRoute.NetworkType.String(),
+		Masquerade:    serverRoute.Masquerade,
+		Metric:        serverRoute.Metric,
+		Groups:        serverRoute.Groups,
+		KeepRoute:     serverRoute.KeepRoute,
+		SkipAutoApply: &serverRoute.SkipAutoApply,
 	}
 
 	if len(serverRoute.PeerGroups) > 0 {

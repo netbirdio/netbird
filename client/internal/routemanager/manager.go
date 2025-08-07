@@ -36,8 +36,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/route"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
 )
@@ -641,7 +641,7 @@ func (m *DefaultManager) categorizeUserSelection(netID route.NetID, info *exitNo
 
 func (m *DefaultManager) checkManagementSelection(routes []*route.Route, netID route.NetID, info *exitNodeInfo) {
 	for _, route := range routes {
-		if !route.IsNotForced {
+		if !route.SkipAutoApply {
 			info.selectedByManagement = append(info.selectedByManagement, netID)
 			break
 		}

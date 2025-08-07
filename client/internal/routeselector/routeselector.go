@@ -218,7 +218,7 @@ func (rs *RouteSelector) applyExitNodeFilter(
 		return
 	}
 
-	// no explicit selections: only include routes marked !IsNotForced (=Forced)
+	// no explicit selections: only include routes marked !SkipAutoApply (=AutoApply)
 	sel := collectSelected(rt)
 	if len(sel) > 0 {
 		out[id] = sel
@@ -232,7 +232,7 @@ func (rs *RouteSelector) hasUserSelections() bool {
 func collectSelected(rt []*route.Route) []*route.Route {
 	var sel []*route.Route
 	for _, r := range rt {
-		if !r.IsNotForced {
+		if !r.SkipAutoApply {
 			sel = append(sel, r)
 		}
 	}
