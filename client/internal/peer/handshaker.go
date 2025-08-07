@@ -94,7 +94,9 @@ func (h *Handshaker) Listen(ctx context.Context) {
 			for _, listener := range h.onNewOfferListeners {
 				listener(&remoteOfferAnswer)
 			}
+			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
+			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
 			for _, listener := range h.onNewOfferListeners {
 				listener(&remoteOfferAnswer)
 			}

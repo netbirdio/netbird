@@ -107,6 +107,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			return
 		}
 		if w.remoteSessionID == *remoteOfferAnswer.SessionID {
+			w.log.Debugf("agent already exists and session ID matches, skipping the offer: %s", remoteOfferAnswer.SessionIDString())
 			w.muxAgent.Unlock()
 			return
 		}
