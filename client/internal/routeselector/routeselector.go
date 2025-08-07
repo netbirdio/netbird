@@ -196,7 +196,7 @@ func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap
 
 func (rs *RouteSelector) isDeselected(netID route.NetID) bool {
 	_, deselected := rs.deselectedRoutes[netID]
-	return deselected
+	return deselected || rs.deselectAll
 }
 
 func isExitNode(rt []*route.Route) bool {
@@ -209,11 +209,6 @@ func (rs *RouteSelector) applyExitNodeFilter(
 	rt []*route.Route,
 	out route.HAMap,
 ) {
-	// include routes marked !IsNotForced (=Forced)
-	sel := collectSelected(rt)
-	if len(sel) > 0 {
-		out[id] = sel
-	}
 
 	if rs.hasUserSelections() {
 		// user made explicit selects/deselects
@@ -221,6 +216,12 @@ func (rs *RouteSelector) applyExitNodeFilter(
 			out[id] = rt
 		}
 		return
+	}
+
+	// no explicit selections: only include routes marked !IsNotForced (=Forced)
+	sel := collectSelected(rt)
+	if len(sel) > 0 {
+		out[id] = sel
 	}
 }
 
