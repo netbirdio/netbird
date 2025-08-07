@@ -40,12 +40,13 @@ func (s *serviceClient) showProfilesUI() {
 	list := widget.NewList(
 		func() int { return len(profiles) },
 		func() fyne.CanvasObject {
-			// Each item: Selected indicator, Name, spacer, Select, Logout & Remove buttons
+			// Each item: Selected indicator, Name (with email), spacer, Select, Edit (for active), Logout & Remove buttons
 			return container.NewHBox(
 				widget.NewLabel(""), // indicator
-				widget.NewLabel(""), // profile name
+				widget.NewLabel(""), // profile name with email
 				layout.NewSpacer(),
 				widget.NewButton("Select", nil),
+				widget.NewButton("Edit", nil), // Edit button for active profiles
 				widget.NewButton("Logout", nil),
 				widget.NewButton("Remove", nil),
 			)
@@ -56,8 +57,9 @@ func (s *serviceClient) showProfilesUI() {
 			indicator := row.Objects[0].(*widget.Label)
 			nameLabel := row.Objects[1].(*widget.Label)
 			selectBtn := row.Objects[3].(*widget.Button)
-			logoutBtn := row.Objects[4].(*widget.Button)
-			removeBtn := row.Objects[5].(*widget.Button)
+			editBtn := row.Objects[4].(*widget.Button)
+			logoutBtn := row.Objects[5].(*widget.Button)
+			removeBtn := row.Objects[6].(*widget.Button)
 
 			profile := profiles[i]
 			// Show a checkmark if selected
@@ -66,7 +68,13 @@ func (s *serviceClient) showProfilesUI() {
 			} else {
 				indicator.SetText("")
 			}
-			nameLabel.SetText(profile.Name)
+
+			// Display profile name with email if available
+			displayName := profile.Name
+			if profile.Email != "" {
+				displayName = fmt.Sprintf("%s (%s)", profile.Name, profile.Email)
+			}
+			nameLabel.SetText(displayName)
 
 			// Configure Select/Active button
 			selectBtn.SetText(func() string {
@@ -127,6 +135,18 @@ func (s *serviceClient) showProfilesUI() {
 				)
 			}
 
+			// Configure Edit button (only for active profiles)
+			if profile.IsActive {
+				editBtn.Show()
+				editBtn.SetText("Edit")
+				editBtn.OnTapped = func() {
+					// Open settings window
+					s.eventHandler.runSelfCommand(s.ctx, "settings", "true")
+				}
+			} else {
+				editBtn.Hide()
+			}
+
 			logoutBtn.Show()
 			logoutBtn.SetText("Logout")
 			logoutBtn.OnTapped = func() {
@@ -143,7 +163,7 @@ func (s *serviceClient) showProfilesUI() {
 						if !confirm {
 							return
 						}
-						
+
 						err = s.removeProfile(profile.Name)
 						if err != nil {
 							log.Errorf("failed to remove profile: %v", err)
@@ -221,7 +241,7 @@ func (s *serviceClient) showProfilesUI() {
 	content := container.NewBorder(nil, newBtn, nil, nil, list)
 	s.wProfiles = s.app.NewWindow("NetBird Profiles")
 	s.wProfiles.SetContent(content)
-	s.wProfiles.Resize(fyne.NewSize(400, 300))
+	s.wProfiles.Resize(fyne.NewSize(600, 300))
 	s.wProfiles.SetOnClosed(s.cancel)
 
 	s.wProfiles.Show()
@@ -301,6 +321,7 @@ func (s *serviceClient) removeProfile(profileName string) error {
 type Profile struct {
 	Name     string
 	IsActive bool
+	Email    string
 }
 
 func (s *serviceClient) getProfiles() ([]Profile, error) {
@@ -323,9 +344,17 @@ func (s *serviceClient) getProfiles() ([]Profile, error) {
 	var profiles []Profile
 
 	for _, profile := range profilesResp.Profiles {
+		// Try to get email from profile state
+		email := ""
+		profileState, err := s.profileManager.GetProfileState(profile.Name)
+		if err == nil && profileState.Email != "" {
+			email = profileState.Email
+		}
+
 		profiles = append(profiles, Profile{
 			Name:     profile.Name,
 			IsActive: profile.IsActive,
+			Email:    email,
 		})
 	}
 
@@ -340,21 +369,21 @@ func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback 
 			if !confirm {
 				return
 			}
-			
+
 			conn, err := s.getSrvClient(defaultFailTimeout)
 			if err != nil {
 				log.Errorf("failed to get service client: %v", err)
 				dialog.ShowError(fmt.Errorf("failed to connect to service"), s.wProfiles)
 				return
 			}
-			
+
 			currUser, err := user.Current()
 			if err != nil {
 				log.Errorf("failed to get current user: %v", err)
 				dialog.ShowError(fmt.Errorf("failed to get current user"), s.wProfiles)
 				return
 			}
-			
+
 			username := currUser.Username
 			_, err = conn.Logout(s.ctx, &proto.LogoutRequest{
 				ProfileName: &profileName,
@@ -365,13 +394,13 @@ func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback 
 				dialog.ShowError(fmt.Errorf("logout failed"), s.wProfiles)
 				return
 			}
-			
+
 			dialog.ShowInformation(
 				"Logged Out",
 				fmt.Sprintf("Successfully logged out from '%s'", profileName),
 				s.wProfiles,
 			)
-			
+
 			refreshCallback()
 		},
 		s.wProfiles,
@@ -457,9 +486,17 @@ func (p *profileMenu) getProfiles() ([]Profile, error) {
 	var profiles []Profile
 
 	for _, profile := range profilesResp.Profiles {
+		// Try to get email from profile state
+		email := ""
+		profileState, err := p.profileManager.GetProfileState(profile.Name)
+		if err == nil && profileState.Email != "" {
+			email = profileState.Email
+		}
+
 		profiles = append(profiles, Profile{
 			Name:     profile.Name,
 			IsActive: profile.IsActive,
+			Email:    email,
 		})
 	}
 
