@@ -59,7 +59,7 @@ func TestValidateDomains(t *testing.T) {
 		{
 			name:     "Multiple domains valid and invalid",
 			domains:  []string{"google.com", "invalid,nbdomain.com", "münchen.de"},
-			expected: List{"google.com"},
+			expected: nil,
 			wantErr:  true,
 		},
 		{
@@ -146,9 +146,9 @@ func TestValidateDomainsList(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "Valid wildcard domain",
+			name:    "Invalid wildcard domain",
 			domains: []string{"*.example.com"},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name:    "Wildcard with leading dot - invalid",

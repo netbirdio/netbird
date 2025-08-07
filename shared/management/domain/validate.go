@@ -56,7 +56,7 @@ func ValidateDomains(domains []string) (List, error) {
 	var domainList List
 
 	for _, d := range domains {
-		validDomain, err := ToValidDomain(d, false, false)
+		validDomain, err := ToValidDomain(d, true, false)
 		if err != nil {
 			return nil, fmt.Errorf("invalid domain %s: %w", d, err)
 		}
