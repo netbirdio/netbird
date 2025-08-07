@@ -224,7 +224,7 @@ func BuildManager(
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
 	am.singleAccountMode = singleAccountModeDomain != "" && accountsCounter <= 1
 	if am.singleAccountMode {
-		if !domain.IsValidDomain(singleAccountModeDomain) {
+		if !domain.IsValidDomain(singleAccountModeDomain, false, false) {
 			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for a single account mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
 		}
 		am.singleAccountModeDomain = singleAccountModeDomain
@@ -401,7 +401,7 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, tra
 		return status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	if newSettings.DNSDomain != "" && !domain.IsValidDomain(newSettings.DNSDomain) {
+	if newSettings.DNSDomain != "" && !domain.IsValidDomain(newSettings.DNSDomain, false, true) {
 		return status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
 	}
 
@@ -1518,7 +1518,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 		return userAuth.AccountId, nil
 	}
 
-	if userAuth.DomainCategory != types.PrivateCategory || !domain.IsValidDomain(userAuth.Domain) {
+	if userAuth.DomainCategory != types.PrivateCategory || !domain.IsValidDomain(userAuth.Domain, false, false) {
 		return am.GetAccountIDByUserID(ctx, userAuth.UserId, userAuth.Domain)
 	}
 

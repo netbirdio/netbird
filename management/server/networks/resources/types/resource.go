@@ -165,7 +165,7 @@ func GetResourceType(address string) (NetworkResourceType, string, netip.Prefix,
 		return Host, "", netip.PrefixFrom(ip, ip.BitLen()), nil
 	}
 
-	if domain, err := nbDomain.ToValidDomain(address); err == nil {
+	if domain, err := nbDomain.ToValidDomain(address, true, false); err == nil {
 		return Domain, string(domain), netip.Prefix{}, nil
 	}
 
