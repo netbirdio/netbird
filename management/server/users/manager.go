@@ -26,7 +26,7 @@ func NewManager(store store.Store) Manager {
 }
 
 func (m *managerImpl) GetUser(ctx context.Context, userID string) (*types.User, error) {
-	return m.store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	return m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 }
 
 func NewManagerMock() Manager {

@@ -12,7 +12,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
 	"github.com/netbirdio/netbird/client/internal/netflow"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()

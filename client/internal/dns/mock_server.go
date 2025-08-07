@@ -7,7 +7,7 @@ import (
 	"github.com/miekg/dns"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // MockServer is the mock instance of a dns server

@@ -49,19 +49,19 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	mgm "github.com/netbirdio/netbird/management/client"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
-	auth "github.com/netbirdio/netbird/relay/auth/hmac"
-	relayClient "github.com/netbirdio/netbird/relay/client"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/route"
-	signal "github.com/netbirdio/netbird/signal/client"
-	sProto "github.com/netbirdio/netbird/signal/proto"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
+	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -189,11 +189,11 @@ type Engine struct {
 	stateManager *statemanager.Manager
 	srWatcher    *guard.SRWatcher
 
-	// Network map persistence
-	persistNetworkMap bool
-	latestNetworkMap  *mgmProto.NetworkMap
-	connSemaphore     *semaphoregroup.SemaphoreGroup
-	flowManager       nftypes.FlowManager
+	// Sync response persistence
+	persistSyncResponse bool
+	latestSyncResponse  *mgmProto.SyncResponse
+	connSemaphore       *semaphoregroup.SemaphoreGroup
+	flowManager         nftypes.FlowManager
 }
 
 // Peer is an instance of the Connection Peer
@@ -238,7 +238,7 @@ func NewEngine(
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
 
-	sm := profilemanager.ServiceManager{}
+	sm := profilemanager.NewServiceManager("")
 
 	path := sm.GetStatePath()
 	if runtime.GOOS == "ios" {
@@ -697,10 +697,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return nil
 	}
 
-	// Store network map if persistence is enabled
-	if e.persistNetworkMap {
-		e.latestNetworkMap = nm
-		log.Debugf("network map persisted with serial %d", nm.GetSerial())
+	// Store sync response if persistence is enabled
+	if e.persistSyncResponse {
+		e.latestSyncResponse = update
+		log.Debugf("sync response persisted with serial %d", nm.GetSerial())
 	}
 
 	// only apply new changes and ignore old ones
@@ -861,15 +861,10 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		return errors.New("wireguard interface is not initialized")
 	}
 
+	// Cannot update the IP address without restarting the engine because
+	// the firewall, route manager, and other components cache the old address
 	if e.wgInterface.Address().String() != conf.Address {
-		oldAddr := e.wgInterface.Address().String()
-		log.Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
-		err := e.wgInterface.UpdateAddr(conf.Address)
-		if err != nil {
-			return err
-		}
-		e.config.WgAddr = conf.Address
-		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
+		log.Infof("peer IP address has changed from %s to %s", e.wgInterface.Address().String(), conf.Address)
 	}
 
 	if conf.GetSshConfig() != nil {
@@ -880,7 +875,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	}
 
 	state := e.statusRecorder.GetLocalPeerState()
-	state.IP = e.config.WgAddr
+	state.IP = e.wgInterface.Address().String()
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
 	state.KernelInterface = device.WireGuardModuleIsLoaded()
 	state.FQDN = conf.GetFqdn()
@@ -1771,44 +1766,43 @@ func (e *Engine) stopDNSServer() {
 	e.statusRecorder.UpdateDNSStates(nsGroupStates)
 }
 
-// SetNetworkMapPersistence enables or disables network map persistence
-func (e *Engine) SetNetworkMapPersistence(enabled bool) {
+// SetSyncResponsePersistence enables or disables sync response persistence
+func (e *Engine) SetSyncResponsePersistence(enabled bool) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if enabled == e.persistNetworkMap {
+	if enabled == e.persistSyncResponse {
 		return
 	}
-	e.persistNetworkMap = enabled
-	log.Debugf("Network map persistence is set to %t", enabled)
+	e.persistSyncResponse = enabled
+	log.Debugf("Sync response persistence is set to %t", enabled)
 
 	if !enabled {
-		e.latestNetworkMap = nil
+		e.latestSyncResponse = nil
 	}
 }
 
-// GetLatestNetworkMap returns the stored network map if persistence is enabled
-func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
+// GetLatestSyncResponse returns the stored sync response if persistence is enabled
+func (e *Engine) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if !e.persistNetworkMap {
-		return nil, errors.New("network map persistence is disabled")
+	if !e.persistSyncResponse {
+		return nil, errors.New("sync response persistence is disabled")
 	}
 
-	if e.latestNetworkMap == nil {
+	if e.latestSyncResponse == nil {
 		//nolint:nilnil
 		return nil, nil
 	}
 
-	log.Debugf("Retrieving latest network map with size %d bytes", proto.Size(e.latestNetworkMap))
-	nm, ok := proto.Clone(e.latestNetworkMap).(*mgmProto.NetworkMap)
+	log.Debugf("Retrieving latest sync response with size %d bytes", proto.Size(e.latestSyncResponse))
+	sr, ok := proto.Clone(e.latestSyncResponse).(*mgmProto.SyncResponse)
 	if !ok {
-
-		return nil, fmt.Errorf("failed to clone network map")
+		return nil, fmt.Errorf("failed to clone sync response")
 	}
 
-	return nm, nil
+	return sr, nil
 }
 
 // GetWgAddr returns the wireguard address

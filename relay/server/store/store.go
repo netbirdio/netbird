@@ -3,7 +3,7 @@ package store
 import (
 	"sync"
 
-	"github.com/netbirdio/netbird/relay/messages"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 )
 
 type IPeer interface {

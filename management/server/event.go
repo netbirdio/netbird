@@ -11,9 +11,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func isEnabled() bool {
@@ -103,7 +103,7 @@ func (am *DefaultAccountManager) fillEventsWithUserInfo(ctx context.Context, eve
 }
 
 func (am *DefaultAccountManager) getEventsUserInfo(ctx context.Context, events []*activity.Event, accountId string, userId string) (map[string]eventUserInfo, error) {
-	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountId)
+	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountId)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, 
 			continue
 		}
 
-		externalUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, id)
+		externalUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, id)
 		if err != nil {
 			// @todo consider logging
 			continue

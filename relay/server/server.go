@@ -10,7 +10,7 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/quic"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
-	quictls "github.com/netbirdio/netbird/relay/tls"
+	quictls "github.com/netbirdio/netbird/shared/relay/tls"
 	log "github.com/sirupsen/logrus"
 )
 

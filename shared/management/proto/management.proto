@@ -1,0 +1,543 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "/proto";
+
+package management;
+
+service ManagementService {
+
+  // Login logs in peer. In case server returns codes.PermissionDenied this endpoint can be used to register Peer providing LoginRequest.setupKey
+  // Returns encrypted LoginResponse in EncryptedMessage.Body
+  rpc Login(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // Sync enables peer synchronization. Each peer that is connected to this stream will receive updates from the server.
+  // For example, if a new peer has been added to an account all other connected peers will receive this peer's Wireguard public key as an update
+  // The initial SyncResponse contains all of the available peers so the local state can be refreshed
+  // Returns encrypted SyncResponse in EncryptedMessage.Body
+  rpc Sync(EncryptedMessage) returns (stream EncryptedMessage) {}
+
+  // Exposes a Wireguard public key of the Management service.
+  // This key is used to support message encryption between client and server
+  rpc GetServerKey(Empty) returns (ServerKeyResponse) {}
+
+  // health check endpoint
+  rpc isHealthy(Empty) returns (Empty) {}
+
+  // Exposes a device authorization flow information
+  // This is used for initiating a Oauth 2 device authorization grant flow
+  // which will be used by our clients to Login.
+  // EncryptedMessage of the request has a body of DeviceAuthorizationFlowRequest.
+  // EncryptedMessage of the response has a body of DeviceAuthorizationFlow.
+  rpc GetDeviceAuthorizationFlow(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // Exposes a PKCE authorization code flow information
+  // This is used for initiating a Oauth 2 authorization grant flow
+  // with Proof Key for Code Exchange (PKCE) which will be used by our clients to Login.
+  // EncryptedMessage of the request has a body of PKCEAuthorizationFlowRequest.
+  // EncryptedMessage of the response has a body of PKCEAuthorizationFlow.
+  rpc GetPKCEAuthorizationFlow(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // SyncMeta is used to sync metadata of the peer.
+  // After sync the peer if there is a change in peer posture check which  needs to be evaluated by the client,
+  // sync meta will evaluate the checks and update the peer meta with the result.
+  // EncryptedMessage of the request has a body of Empty.
+  rpc  SyncMeta(EncryptedMessage) returns (Empty) {}
+
+  // Logout logs out the peer and removes it from the management server
+  rpc Logout(EncryptedMessage) returns (Empty) {}
+}
+
+message EncryptedMessage {
+  // Wireguard public key
+  string wgPubKey = 1;
+
+  // encrypted message Body
+  bytes body = 2;
+  // Version of the Netbird Management Service protocol
+  int32 version = 3;
+}
+
+message SyncRequest {
+  // Meta data of the peer
+  PeerSystemMeta meta = 1;
+}
+
+// SyncResponse represents a state that should be applied to the local peer (e.g. Netbird servers config as well as local peer and remote peers configs)
+message SyncResponse {
+
+  // Global config
+  NetbirdConfig netbirdConfig = 1;
+
+  // Deprecated. Use NetworkMap.PeerConfig
+  PeerConfig peerConfig = 2;
+
+  // Deprecated. Use NetworkMap.RemotePeerConfig
+  repeated RemotePeerConfig remotePeers = 3;
+
+  // Indicates whether remotePeers array is empty or not to bypass protobuf null and empty array equality.
+  // Deprecated. Use NetworkMap.remotePeersIsEmpty
+  bool remotePeersIsEmpty = 4;
+
+  NetworkMap NetworkMap = 5;
+
+  // Posture checks to be evaluated by client
+  repeated Checks Checks = 6;
+}
+
+message  SyncMetaRequest {
+  // Meta data of the peer
+  PeerSystemMeta meta = 1;
+}
+
+message LoginRequest {
+  // Pre-authorized setup key (can be empty)
+  string setupKey = 1;
+  // Meta data of the peer (e.g. name, os_name, os_version,
+  PeerSystemMeta meta = 2;
+  // SSO token (can be empty)
+  string jwtToken = 3;
+  // Can be absent for now.
+  PeerKeys peerKeys = 4;
+
+  repeated string dnsLabels = 5;
+}
+
+// PeerKeys is additional peer info like SSH pub key and WireGuard public key.
+// This message is sent on Login or register requests, or when a key rotation has to happen.
+message PeerKeys {
+
+  // sshPubKey represents a public SSH key of the peer. Can be absent.
+  bytes sshPubKey = 1;
+  // wgPubKey represents a public WireGuard key of the peer. Can be absent.
+  bytes wgPubKey = 2;
+}
+
+// Environment is part of the PeerSystemMeta and describes the environment the agent is running in.
+message Environment {
+  // cloud is the cloud provider the agent is running in if applicable.
+  string cloud = 1;
+  // platform is the platform the agent is running on if applicable.
+  string platform = 2;
+}
+
+// File represents a file on the system.
+message File {
+  // path is the path to the file.
+  string path = 1;
+  // exist indicate whether the file exists.
+  bool exist = 2;
+  // processIsRunning indicates whether the file is a running process or not.
+  bool processIsRunning = 3;
+}
+
+message Flags {
+  bool rosenpassEnabled = 1;
+  bool rosenpassPermissive = 2;
+  bool serverSSHAllowed = 3;
+
+  bool disableClientRoutes = 4;
+  bool disableServerRoutes = 5;
+  bool disableDNS = 6;
+  bool disableFirewall = 7;
+  bool blockLANAccess = 8;
+  bool blockInbound = 9;
+
+  bool lazyConnectionEnabled = 10;
+}
+
+// PeerSystemMeta is machine meta data like OS and version.
+message PeerSystemMeta {
+  string hostname = 1;
+  string goOS = 2;
+  string kernel = 3;
+  string core = 4;
+  string platform = 5;
+  string OS = 6;
+  string netbirdVersion = 7;
+  string uiVersion = 8;
+  string kernelVersion = 9;
+  string OSVersion = 10;
+  repeated NetworkAddress networkAddresses = 11;
+  string sysSerialNumber = 12;
+  string sysProductName = 13;
+  string sysManufacturer = 14;
+  Environment environment = 15;
+  repeated File files = 16;
+  Flags flags = 17;
+}
+
+message LoginResponse {
+  // Global config
+  NetbirdConfig netbirdConfig = 1;
+  // Peer local config
+  PeerConfig peerConfig = 2;
+  // Posture checks to be evaluated by client
+  repeated Checks Checks = 3;
+}
+
+message ServerKeyResponse {
+  // Server's Wireguard public key
+  string key = 1;
+  // Key expiration timestamp after which the key should be fetched again by the client
+  google.protobuf.Timestamp expiresAt = 2;
+  // Version of the Netbird Management Service protocol
+  int32 version = 3;
+}
+
+message Empty {}
+
+// NetbirdConfig is a common configuration of any Netbird peer. It contains STUN, TURN, Signal and Management servers configurations
+message NetbirdConfig {
+  // a list of STUN servers
+  repeated HostConfig stuns = 1;
+  // a list of TURN servers
+  repeated ProtectedHostConfig turns = 2;
+
+  // a Signal server config
+  HostConfig signal = 3;
+
+  RelayConfig relay = 4;
+
+  FlowConfig flow = 5;
+}
+
+// HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
+message HostConfig {
+  // URI of the resource e.g. turns://stun.netbird.io:4430 or signal.netbird.io:10000
+  string uri = 1;
+  Protocol protocol = 2;
+
+  enum Protocol {
+    UDP = 0;
+    TCP = 1;
+    HTTP = 2;
+    HTTPS = 3;
+    DTLS = 4;
+  }
+}
+
+message RelayConfig {
+  repeated string urls = 1;
+  string tokenPayload = 2;
+  string tokenSignature = 3;
+}
+
+message FlowConfig {
+  string url = 1;
+  string tokenPayload = 2;
+  string tokenSignature = 3;
+  google.protobuf.Duration interval = 4;
+  bool enabled = 5;
+
+  // counters determines if flow packets and bytes counters should be sent
+  bool counters = 6;
+  // exitNodeCollection determines if event collection on exit nodes should be enabled
+  bool exitNodeCollection = 7;
+  // dnsCollection determines if DNS event collection should be enabled
+  bool dnsCollection = 8;
+}
+
+// ProtectedHostConfig is similar to HostConfig but has additional user and password
+// Mostly used for TURN servers
+message ProtectedHostConfig {
+  HostConfig hostConfig = 1;
+  string user = 2;
+  string password = 3;
+}
+
+// PeerConfig represents a configuration of a "our" peer.
+// The properties are used to configure local Wireguard
+message PeerConfig {
+  // Peer's virtual IP address within the Netbird VPN (a Wireguard address config)
+  string  address = 1;
+  // Netbird DNS server (a Wireguard DNS config)
+  string dns = 2;
+
+  // SSHConfig of the peer.
+  SSHConfig sshConfig = 3;
+  // Peer fully qualified domain name
+  string fqdn = 4;
+
+  bool RoutingPeerDnsResolutionEnabled = 5;
+
+  bool LazyConnectionEnabled = 6;
+}
+
+// NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
+message NetworkMap {
+  // Serial is an ID of the network state to be used by clients to order updates.
+  // The larger the Serial the newer the configuration.
+  // E.g. the client app should keep track of this id locally and discard all the configurations with a lower value
+  uint64 Serial = 1;
+
+  // PeerConfig represents configuration of a peer
+  PeerConfig peerConfig = 2;
+
+  // RemotePeerConfig represents a list of remote peers that the receiver can connect to
+  repeated RemotePeerConfig remotePeers = 3;
+
+  // Indicates whether remotePeers array is empty or not to bypass protobuf null and empty array equality.
+  bool remotePeersIsEmpty = 4;
+
+  // List of routes to be applied
+  repeated Route Routes = 5;
+
+  // DNS config to be applied
+  DNSConfig DNSConfig = 6;
+
+  // RemotePeerConfig represents a list of remote peers that the receiver can connect to
+  repeated RemotePeerConfig offlinePeers = 7;
+
+  // FirewallRule represents a list of firewall rules to be applied to peer
+  repeated FirewallRule FirewallRules = 8;
+
+  // firewallRulesIsEmpty indicates whether FirewallRule array is empty or not to bypass protobuf null and empty array equality.
+  bool firewallRulesIsEmpty = 9;
+
+  // RoutesFirewallRules represents a list of routes firewall rules to be applied to peer
+  repeated RouteFirewallRule routesFirewallRules = 10;
+
+  // RoutesFirewallRulesIsEmpty indicates whether RouteFirewallRule array is empty or not to bypass protobuf null and empty array equality.
+  bool routesFirewallRulesIsEmpty = 11;
+
+  repeated ForwardingRule forwardingRules = 12;
+}
+
+// RemotePeerConfig represents a configuration of a remote peer.
+// The properties are used to configure WireGuard Peers sections
+message RemotePeerConfig {
+
+  // A WireGuard public key of a remote peer
+  string wgPubKey = 1;
+
+  // WireGuard allowed IPs of a remote peer e.g. [10.30.30.1/32]
+  repeated string allowedIps = 2;
+
+  // SSHConfig is a SSH config of the remote peer. SSHConfig.sshPubKey should be ignored because peer knows it's SSH key.
+  SSHConfig sshConfig = 3;
+
+  // Peer fully qualified domain name
+  string fqdn = 4;
+
+  string agentVersion = 5;
+}
+
+// SSHConfig represents SSH configurations of a peer.
+message SSHConfig {
+  // sshEnabled indicates whether a SSH server is enabled on this peer
+  bool sshEnabled = 1;
+
+  // sshPubKey is a SSH public key of a peer to be added to authorized_hosts.
+  // This property should be ignore if SSHConfig comes from PeerConfig.
+  bytes sshPubKey = 2;
+}
+
+// DeviceAuthorizationFlowRequest empty struct for future expansion
+message DeviceAuthorizationFlowRequest {}
+// DeviceAuthorizationFlow represents Device Authorization Flow information
+// that can be used by the client to login initiate a Oauth 2.0 device authorization grant flow
+// see https://datatracker.ietf.org/doc/html/rfc8628
+message DeviceAuthorizationFlow {
+  // An IDP provider , (eg. Auth0)
+  provider Provider = 1;
+  ProviderConfig ProviderConfig = 2;
+
+  enum provider {
+    HOSTED = 0;
+  }
+}
+
+// PKCEAuthorizationFlowRequest empty struct for future expansion
+message PKCEAuthorizationFlowRequest {}
+
+// PKCEAuthorizationFlow represents Authorization Code Flow information
+// that can be used by the client to login initiate a Oauth 2.0 authorization code grant flow
+// with Proof Key for Code Exchange (PKCE). See https://datatracker.ietf.org/doc/html/rfc7636
+message PKCEAuthorizationFlow {
+  ProviderConfig ProviderConfig = 1;
+}
+
+// ProviderConfig has all attributes needed to initiate a device/pkce authorization flow
+message ProviderConfig {
+  // An IDP application client id
+  string ClientID = 1;
+  // An IDP application client secret
+  string ClientSecret = 2;
+  // An IDP API domain
+  // Deprecated. Use a DeviceAuthEndpoint and TokenEndpoint
+  string Domain = 3;
+  // An Audience for validation
+  string Audience = 4;
+  // DeviceAuthEndpoint is an endpoint to request device authentication code.
+  string DeviceAuthEndpoint = 5;
+  // TokenEndpoint is an endpoint to request auth token.
+  string TokenEndpoint = 6;
+  // Scopes provides the scopes to be included in the token request
+  string Scope = 7;
+  // UseIDToken indicates if the id token should be used for authentication
+  bool UseIDToken = 8;
+  // AuthorizationEndpoint is the endpoint of an IDP manager where clients can obtain authorization code.
+  string AuthorizationEndpoint = 9;
+  // RedirectURLs handles authorization code from IDP manager
+  repeated string RedirectURLs = 10;
+  // DisablePromptLogin makes the PKCE flow to not prompt the user for login
+  bool DisablePromptLogin = 11;
+  // LoginFlags sets the PKCE flow login details 
+  uint32 LoginFlag = 12;
+}
+
+// Route represents a route.Route object
+message Route {
+  string ID = 1;
+  string Network = 2;
+  int64  NetworkType = 3;
+  string Peer = 4;
+  int64  Metric = 5;
+  bool   Masquerade = 6;
+  string NetID = 7;
+  repeated string Domains = 8;
+  bool keepRoute = 9;
+  bool isNotForced = 10;
+}
+
+// DNSConfig represents a dns.Update
+message DNSConfig {
+  bool ServiceEnable = 1;
+  repeated NameServerGroup NameServerGroups = 2;
+  repeated CustomZone CustomZones = 3;
+}
+
+// CustomZone represents a dns.CustomZone
+message CustomZone {
+  string Domain = 1;
+  repeated SimpleRecord Records = 2;
+}
+
+// SimpleRecord represents a dns.SimpleRecord
+message SimpleRecord {
+  string Name = 1;
+  int64 Type = 2;
+  string Class = 3;
+  int64 TTL = 4;
+  string RData = 5;
+}
+
+// NameServerGroup represents a dns.NameServerGroup
+message NameServerGroup {
+  repeated NameServer NameServers = 1;
+  bool Primary = 2;
+  repeated string Domains = 3;
+  bool SearchDomainsEnabled = 4;
+}
+
+// NameServer represents a dns.NameServer
+message NameServer {
+  string IP = 1;
+  int64  NSType = 2;
+  int64  Port = 3;
+}
+
+enum RuleProtocol {
+  UNKNOWN = 0;
+  ALL = 1;
+  TCP = 2;
+  UDP = 3;
+  ICMP = 4;
+  CUSTOM = 5;
+}
+
+enum RuleDirection {
+  IN = 0;
+  OUT = 1;
+}
+
+enum RuleAction {
+  ACCEPT = 0;
+  DROP = 1;
+}
+
+
+// FirewallRule represents a firewall rule
+message FirewallRule {
+  string PeerIP = 1;
+  RuleDirection Direction = 2;
+  RuleAction Action = 3;
+  RuleProtocol Protocol = 4;
+  string Port = 5;
+  PortInfo PortInfo = 6;
+
+  // PolicyID is the ID of the policy that this rule belongs to
+  bytes PolicyID = 7;
+}
+
+message NetworkAddress {
+  string netIP = 1;
+  string mac = 2;
+}
+
+message Checks {
+  repeated string Files = 1;
+}
+
+
+message PortInfo {
+  oneof portSelection {
+    uint32 port = 1;
+    Range range = 2;
+  }
+
+  message Range {
+    uint32 start = 1;
+    uint32 end = 2;
+  }
+}
+
+// RouteFirewallRule signifies a firewall rule applicable for a routed network.
+message RouteFirewallRule {
+  // sourceRanges IP ranges of the routing peers.
+  repeated string sourceRanges = 1;
+
+  // Action to be taken by the firewall when the rule is applicable.
+  RuleAction action = 2;
+
+  // Network prefix for the routed network.
+  string destination = 3;
+
+  // Protocol of the routed network.
+  RuleProtocol protocol = 4;
+
+  // Details about the port.
+  PortInfo portInfo = 5;
+
+  // IsDynamic indicates if the route is a DNS route.
+  bool isDynamic = 6;
+
+  // Domains is a list of domains for which the rule is applicable.
+  repeated string domains = 7;
+
+  // CustomProtocol is a custom protocol ID.
+  uint32 customProtocol = 8;
+
+  // PolicyID is the ID of the policy that this rule belongs to
+  bytes PolicyID = 9;
+
+  // RouteID is the ID of the route that this rule belongs to
+  string RouteID = 10;
+}
+
+message ForwardingRule {
+  // Protocol of the forwarding rule
+  RuleProtocol protocol = 1;
+
+  // portInfo is the ingress destination port information, where the traffic arrives in the gateway node
+  PortInfo destinationPort = 2;
+
+  // IP address of the translated address (remote peer) to send traffic to
+  bytes translatedAddress = 3;
+
+  // Translated port information, where the traffic should be forwarded to
+  PortInfo translatedPort = 4;
+}
