@@ -3,7 +3,6 @@ package peer
 import (
 	"context"
 	"errors"
-	"strconv"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -41,14 +40,14 @@ type OfferAnswer struct {
 	// relay server address
 	RelaySrvAddress string
 	// SessionID is the unique identifier of the session, used to discard old messages
-	SessionID *int64
+	SessionID *ICESessionID
 }
 
 func (oa *OfferAnswer) SessionIDString() string {
 	if oa.SessionID == nil {
 		return "unknown"
 	}
-	return strconv.FormatInt(*oa.SessionID, 10)
+	return oa.SessionID.String()
 }
 
 type Handshaker struct {

@@ -47,12 +47,12 @@ type WorkerICE struct {
 	agentConnecting   bool      // while it is true, drop all incoming offers
 	lastSuccess       time.Time // with this avoid the too frequent ICE agent recreation
 	// remoteSessionID represents the peer's session identifier from the latest remote offer.
-	remoteSessionID int64
+	remoteSessionID ICESessionID
 	// sessionID is used to track the current session ID of the ICE agent
 	// increase by one when disconnecting the agent
 	// with it the remote peer can discard the already deprecated offer/answer
 	// Without it the remote peer may recreate a workable ICE connection
-	sessionID int64
+	sessionID ICESessionID
 	muxAgent  sync.Mutex
 
 	StunTurn []*stun.URI
@@ -67,6 +67,11 @@ type WorkerICE struct {
 }
 
 func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *Conn, signaler *Signaler, ifaceDiscover stdnet.ExternalIFaceDiscover, statusRecorder *Status, hasRelayOnLocally bool) (*WorkerICE, error) {
+	sessionID, err := NewICESessionID()
+	if err != nil {
+		return nil, err
+	}
+
 	w := &WorkerICE{
 		ctx:               ctx,
 		log:               log,
@@ -77,7 +82,7 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 		statusRecorder:    statusRecorder,
 		hasRelayOnLocally: hasRelayOnLocally,
 		lastKnownState:    ice.ConnectionStateDisconnected,
-		sessionID:         0,
+		sessionID:         sessionID,
 	}
 
 	localUfrag, localPwd, err := icemaker.GenerateICECredentials()
@@ -208,7 +213,7 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 	return agent, nil
 }
 
-func (w *WorkerICE) SessionID() int64 {
+func (w *WorkerICE) SessionID() ICESessionID {
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 
@@ -282,7 +287,12 @@ func (w *WorkerICE) closeAgent(agent *ice.Agent, cancel context.CancelFunc) {
 	}
 
 	w.muxAgent.Lock()
-	w.sessionID++
+	sessionID, err := NewICESessionID()
+	if err != nil {
+		w.log.Errorf("failed to create new session ID: %s", err)
+	}
+	w.sessionID = sessionID
+
 	if w.agent == agent {
 		w.agent = nil
 		w.agentConnecting = false

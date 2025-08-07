@@ -55,11 +55,11 @@ import (
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
@@ -1332,36 +1332,15 @@ func (e *Engine) receiveSignalEvents() {
 
 			switch msg.GetBody().Type {
 			case sProto.Body_OFFER, sProto.Body_ANSWER:
-				remoteCred, err := signal.UnMarshalCredential(msg)
+				offerAnswer, err := convertToOfferAnswer(msg)
 				if err != nil {
 					return err
 				}
 
-				var (
-					rosenpassPubKey []byte
-					rosenpassAddr   string
-				)
-				if cfg := msg.GetBody().GetRosenpassConfig(); cfg != nil {
-					rosenpassPubKey = cfg.GetRosenpassPubKey()
-					rosenpassAddr = cfg.GetRosenpassServerAddr()
-				}
-				offerAnswer := peer.OfferAnswer{
-					IceCredentials: peer.IceCredentials{
-						UFrag: remoteCred.UFrag,
-						Pwd:   remoteCred.Pwd,
-					},
-					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
-					Version:         msg.GetBody().GetNetBirdVersion(),
-					RosenpassPubKey: rosenpassPubKey,
-					RosenpassAddr:   rosenpassAddr,
-					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
-					SessionID:       msg.GetBody().SessionId,
-				}
-
 				if msg.Body.Type == sProto.Body_OFFER {
-					conn.OnRemoteOffer(offerAnswer)
+					conn.OnRemoteOffer(*offerAnswer)
 				} else {
-					conn.OnRemoteAnswer(offerAnswer)
+					conn.OnRemoteAnswer(*offerAnswer)
 				}
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
@@ -2059,4 +2038,45 @@ func createFile(path string) error {
 		return err
 	}
 	return file.Close()
+}
+
+func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
+	remoteCred, err := signal.UnMarshalCredential(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		rosenpassPubKey []byte
+		rosenpassAddr   string
+	)
+	if cfg := msg.GetBody().GetRosenpassConfig(); cfg != nil {
+		rosenpassPubKey = cfg.GetRosenpassPubKey()
+		rosenpassAddr = cfg.GetRosenpassServerAddr()
+	}
+
+	// Handle optional SessionID
+	var sessionID *peer.ICESessionID
+	if sessionBytes := msg.GetBody().GetSessionId(); sessionBytes != nil {
+		if id, err := peer.ICESessionIDFromBytes(sessionBytes); err != nil {
+			log.Warnf("Invalid session ID in message: %v", err)
+			sessionID = nil // Set to nil if conversion fails
+		} else {
+			sessionID = &id
+		}
+	}
+
+	offerAnswer := peer.OfferAnswer{
+		IceCredentials: peer.IceCredentials{
+			UFrag: remoteCred.UFrag,
+			Pwd:   remoteCred.Pwd,
+		},
+		WgListenPort:    int(msg.GetBody().GetWgListenPort()),
+		Version:         msg.GetBody().GetNetBirdVersion(),
+		RosenpassPubKey: rosenpassPubKey,
+		RosenpassAddr:   rosenpassAddr,
+		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
+		SessionID:       sessionID,
+	}
+	return &offerAnswer, nil
 }
