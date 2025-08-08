@@ -12,8 +12,9 @@ import (
 )
 
 var logoutCmd = &cobra.Command{
-	Use:   "logout",
-	Short: "logout from the NetBird Management Service and delete peer",
+	Use:     "deregister",
+	Aliases: []string{"logout"},
+	Short:   "deregister from the NetBird Management Service and delete peer",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
 
@@ -47,7 +48,7 @@ var logoutCmd = &cobra.Command{
 			return fmt.Errorf("logout: %v", err)
 		}
 
-		cmd.Println("Logged out successfully")
+		cmd.Println("Deregistered successfully")
 		return nil
 	},
 }
