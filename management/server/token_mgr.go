@@ -208,6 +208,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 		NetbirdConfig: &proto.NetbirdConfig{
 			Turns: turns,
 		},
+		AutoUpdateVersion: "skip",
 	}
 
 	// workaround for the case when client is unable to handle turn and relay updates at different time
@@ -244,6 +245,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 			},
 			// omit Turns to avoid updates there
 		},
+		AutoUpdateVersion: "skip",
 	}
 
 	m.extendNetbirdConfig(ctx, peerID, accountID, update)

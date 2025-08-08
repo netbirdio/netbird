@@ -51,6 +51,9 @@ type Settings struct {
 
 	// LazyConnectionEnabled indicates if the experimental feature is enabled or disabled
 	LazyConnectionEnabled bool `gorm:"default:false"`
+
+	// AutoUpdateVersion client auto-update version
+	AutoUpdateVersion string
 }
 
 // Copy copies the Settings struct
@@ -71,6 +74,7 @@ func (s *Settings) Copy() *Settings {
 		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,
+		AutoUpdateVersion:               s.AutoUpdateVersion,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()

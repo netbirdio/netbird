@@ -24,7 +24,7 @@ type Update struct {
 	httpAgent       string
 	uiVersion       *goversion.Version
 	daemonVersion   *goversion.Version
-	latestAvailable *goversion.Version
+	LatestAvailable *goversion.Version
 	versionsLock    sync.Mutex
 
 	fetchTicker *time.Ticker
@@ -45,7 +45,7 @@ func NewUpdate(httpAgent string) *Update {
 
 	u := &Update{
 		httpAgent:       httpAgent,
-		latestAvailable: latestAvailable,
+		LatestAvailable: latestAvailable,
 		uiVersion:       currentVersion,
 		fetchTicker:     time.NewTicker(fetchPeriod),
 		fetchDone:       make(chan struct{}),
@@ -154,10 +154,10 @@ func (u *Update) fetchVersion() bool {
 	u.versionsLock.Lock()
 	defer u.versionsLock.Unlock()
 
-	if u.latestAvailable.Equal(latestAvailable) {
+	if u.LatestAvailable.Equal(latestAvailable) {
 		return false
 	}
-	u.latestAvailable = latestAvailable
+	u.LatestAvailable = latestAvailable
 
 	return true
 }
@@ -181,7 +181,7 @@ func (u *Update) isUpdateAvailable() bool {
 	u.versionsLock.Lock()
 	defer u.versionsLock.Unlock()
 
-	if u.latestAvailable.GreaterThan(u.uiVersion) {
+	if u.LatestAvailable.GreaterThan(u.uiVersion) {
 		return true
 	}
 
@@ -189,7 +189,7 @@ func (u *Update) isUpdateAvailable() bool {
 		return false
 	}
 
-	if u.latestAvailable.GreaterThan(u.daemonVersion) {
+	if u.LatestAvailable.GreaterThan(u.daemonVersion) {
 		return true
 	}
 	return false
