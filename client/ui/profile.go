@@ -362,7 +362,7 @@ func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback 
 			})
 			if err != nil {
 				log.Errorf("logout failed: %v", err)
-				dialog.ShowError(fmt.Errorf("logout failed"), s.wProfiles)
+				dialog.ShowError(fmt.Errorf("deregister failed"), s.wProfiles)
 				return
 			}
 
@@ -616,7 +616,7 @@ func (p *profileMenu) refresh() {
 				}
 				if err := p.eventHandler.logout(p.ctx); err != nil {
 					log.Errorf("logout failed: %v", err)
-					p.app.SendNotification(fyne.NewNotification("Error", "Failed to logout"))
+					p.app.SendNotification(fyne.NewNotification("Error", "Failed to deregister"))
 				} else {
 					p.app.SendNotification(fyne.NewNotification("Success", "Deregistered successfully"))
 				}
