@@ -101,6 +101,10 @@ type MockWGIface struct {
 	LastActivitiesFunc         func() map[string]monotime.Time
 }
 
+func (m *MockWGIface) RemoveEndpointAddress(_ string) error {
+	return nil
+}
+
 func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
 	return nil, fmt.Errorf("not implemented")
 }
