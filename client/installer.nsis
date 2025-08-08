@@ -3,7 +3,7 @@
 !define WEB_SITE "Netbird.io"
 !define VERSION $%APPVER%
 !define COPYRIGHT "Netbird Authors, 2022"
-!define DESCRIPTION "A WireGuard®-based mesh network that connects your devices into a single private network"
+!define DESCRIPTION "Connect your devices into a secure WireGuard-based overlay network with SSO, MFA, and granular access controls."
 !define INSTALLER_NAME "netbird-installer.exe"
 !define MAIN_APP_EXE "Netbird"
 !define ICON "ui\\assets\\netbird.ico"
