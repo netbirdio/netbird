@@ -20,7 +20,7 @@ var logoutCmd = &cobra.Command{
 
 		cmd.SetOut(cmd.OutOrStdout())
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*7)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 		defer cancel()
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
