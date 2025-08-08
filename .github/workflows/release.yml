@@ -243,17 +243,3 @@ jobs:
           ref: ${{ env.SIGN_PIPE_VER }}
           token: ${{ secrets.SIGN_GITHUB_TOKEN }}
           inputs: '{ "tag": "${{ github.ref }}", "skipRelease": false }'
-
-  post_on_forum:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    needs: [trigger_signer]
-    steps:
-      - uses: Codixer/discourse-topic-github-release-action@v2.0.1
-        with:
-          discourse-api-key: ${{ secrets.DISCOURSE_RELEASES_API_KEY }}
-          discourse-base-url: https://forum.netbird.io
-          discourse-author-username: NetBird
-          discourse-category: 17
-          discourse-tags:
-            releases          
