@@ -62,6 +62,8 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	upstreamIP, err := netip.ParseAddr(upstreamHost)
 	if err != nil {
 		log.Warnf("failed to parse upstream host %s: %s", upstreamHost, err)
+	} else {
+		upstreamIP = upstreamIP.Unmap()
 	}
 	if u.lNet.Contains(upstreamIP) || upstreamIP.IsPrivate() {
 		log.Debugf("using private client to query upstream: %s", upstream)

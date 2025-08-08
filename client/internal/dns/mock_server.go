@@ -50,7 +50,7 @@ func (m *MockServer) DnsIP() netip.Addr {
 	return netip.MustParseAddr("100.10.254.255")
 }
 
-func (m *MockServer) OnUpdatedHostDNSServer(strings []string) {
+func (m *MockServer) OnUpdatedHostDNSServer(addrs []netip.AddrPort) {
 	// TODO implement me
 	panic("implement me")
 }

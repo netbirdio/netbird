@@ -122,7 +122,7 @@ func (s *serviceViaListener) RuntimePort() int {
 	defer s.listenerFlagLock.Unlock()
 
 	if s.ebpfService != nil {
-		return defaultPort
+		return DefaultPort
 	} else {
 		return int(s.listenPort)
 	}
@@ -148,9 +148,9 @@ func (s *serviceViaListener) evalListenAddress() (netip.Addr, uint16, error) {
 		return s.customAddr.Addr(), s.customAddr.Port(), nil
 	}
 
-	ip, ok := s.testFreePort(defaultPort)
+	ip, ok := s.testFreePort(DefaultPort)
 	if ok {
-		return ip, defaultPort, nil
+		return ip, DefaultPort, nil
 	}
 
 	ebpfSrv, port, ok := s.tryToUseeBPF()

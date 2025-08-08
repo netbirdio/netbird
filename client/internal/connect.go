@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -70,7 +71,7 @@ func (c *ConnectClient) RunOnAndroid(
 	tunAdapter device.TunAdapter,
 	iFaceDiscover stdnet.ExternalIFaceDiscover,
 	networkChangeListener listener.NetworkChangeListener,
-	dnsAddresses []string,
+	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
 ) error {
 	// in case of non Android os these variables will be nil

@@ -33,7 +33,7 @@ func NewServiceViaMemory(wgIface WGIface) *ServiceViaMemory {
 		dnsMux:      dns.NewServeMux(),
 
 		runtimeIP:   lastIP,
-		runtimePort: defaultPort,
+		runtimePort: DefaultPort,
 	}
 	return s
 }

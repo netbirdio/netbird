@@ -146,7 +146,7 @@ func isNbParamsMissing(nbSearchDomains []string, nbNameserverIP netip.Addr, rCon
 		return true
 	}
 
-	if rConf.nameServers[0] != nbNameserverIP.String() {
+	if rConf.nameServers[0] != nbNameserverIP {
 		return true
 	}
 
