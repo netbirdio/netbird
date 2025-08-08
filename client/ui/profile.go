@@ -46,7 +46,7 @@ func (s *serviceClient) showProfilesUI() {
 				widget.NewLabel(""), // profile name
 				layout.NewSpacer(),
 				widget.NewButton("Select", nil),
-				widget.NewButton("Logout", nil),
+				widget.NewButton("Deregister", nil),
 				widget.NewButton("Remove", nil),
 			)
 		},
@@ -128,7 +128,7 @@ func (s *serviceClient) showProfilesUI() {
 			}
 
 			logoutBtn.Show()
-			logoutBtn.SetText("Logout")
+			logoutBtn.SetText("Deregister")
 			logoutBtn.OnTapped = func() {
 				s.handleProfileLogout(profile.Name, refresh)
 			}
@@ -143,7 +143,7 @@ func (s *serviceClient) showProfilesUI() {
 						if !confirm {
 							return
 						}
-						
+
 						err = s.removeProfile(profile.Name)
 						if err != nil {
 							log.Errorf("failed to remove profile: %v", err)
@@ -334,27 +334,27 @@ func (s *serviceClient) getProfiles() ([]Profile, error) {
 
 func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback func()) {
 	dialog.ShowConfirm(
-		"Logout",
-		fmt.Sprintf("Are you sure you want to logout from '%s'?", profileName),
+		"Deregister",
+		fmt.Sprintf("Are you sure you want to deregister from '%s'?", profileName),
 		func(confirm bool) {
 			if !confirm {
 				return
 			}
-			
+
 			conn, err := s.getSrvClient(defaultFailTimeout)
 			if err != nil {
 				log.Errorf("failed to get service client: %v", err)
 				dialog.ShowError(fmt.Errorf("failed to connect to service"), s.wProfiles)
 				return
 			}
-			
+
 			currUser, err := user.Current()
 			if err != nil {
 				log.Errorf("failed to get current user: %v", err)
 				dialog.ShowError(fmt.Errorf("failed to get current user"), s.wProfiles)
 				return
 			}
-			
+
 			username := currUser.Username
 			_, err = conn.Logout(s.ctx, &proto.LogoutRequest{
 				ProfileName: &profileName,
@@ -362,16 +362,16 @@ func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback 
 			})
 			if err != nil {
 				log.Errorf("logout failed: %v", err)
-				dialog.ShowError(fmt.Errorf("logout failed"), s.wProfiles)
+				dialog.ShowError(fmt.Errorf("deregister failed"), s.wProfiles)
 				return
 			}
-			
+
 			dialog.ShowInformation(
-				"Logged Out",
-				fmt.Sprintf("Successfully logged out from '%s'", profileName),
+				"Deregistered",
+				fmt.Sprintf("Successfully deregistered from '%s'", profileName),
 				s.wProfiles,
 			)
-			
+
 			refreshCallback()
 		},
 		s.wProfiles,
@@ -602,7 +602,7 @@ func (p *profileMenu) refresh() {
 
 	// Add Logout menu item
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	logoutItem := p.profileMenuItem.AddSubMenuItem("Logout", "")
+	logoutItem := p.profileMenuItem.AddSubMenuItem("Deregister", "")
 	p.logoutSubItem = &subItem{logoutItem, ctx2, cancel2}
 
 	go func() {
@@ -616,9 +616,9 @@ func (p *profileMenu) refresh() {
 				}
 				if err := p.eventHandler.logout(p.ctx); err != nil {
 					log.Errorf("logout failed: %v", err)
-					p.app.SendNotification(fyne.NewNotification("Error", "Failed to logout"))
+					p.app.SendNotification(fyne.NewNotification("Error", "Failed to deregister"))
 				} else {
-					p.app.SendNotification(fyne.NewNotification("Success", "Logged out successfully"))
+					p.app.SendNotification(fyne.NewNotification("Success", "Deregistered successfully"))
 				}
 			}
 		}
