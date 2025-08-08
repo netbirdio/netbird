@@ -603,6 +603,16 @@ func GetConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
+	if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
+		cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
+		if err != nil {
+			log.Errorf("Failed to load mTLS cert/key pair from %s and %s: %v", config.ClientCertPath, config.ClientCertKeyPath, err)
+		} else {
+			config.ClientCertKeyPair = &cert
+			log.Info("Loaded client mTLS cert/key pair")
+		}
+	}
+
 	return config, nil
 }
 
