@@ -67,6 +67,27 @@ func ValidateFQDNs(fqdns []string) (List, error) {
 	return domainList, nil
 }
 
+// ValidateDomains checks if each domain in the list is valid and returns a punycode-encoded DomainList.
+func ValidateDomains(domains []string) (List, error) {
+	if len(domains) == 0 {
+		return nil, fmt.Errorf("domains list is empty")
+	}
+	if len(domains) > maxFQDN {
+		return nil, fmt.Errorf("domains list exceeds maximum allowed domains: %d", maxFQDN)
+	}
+
+	var domainList List
+
+	for _, d := range domains {
+		validDomain, err := ToValidDomain(d, true, true)
+		if err != nil {
+			return nil, fmt.Errorf("invalid domain %s: %w", d, err)
+		}
+		domainList = append(domainList, validDomain)
+	}
+	return domainList, nil
+}
+
 // ValidateFQDNsList checks if each domain in the list is valid
 func ValidateFQDNsList(fqdns []string) error {
 	if len(fqdns) == 0 {

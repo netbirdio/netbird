@@ -94,7 +94,7 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 	var networkType route.NetworkType
 	var newPrefix netip.Prefix
 	if req.Domains != nil {
-		d, err := domain.ValidateFQDNs(*req.Domains)
+		d, err := domain.ValidateDomains(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return
