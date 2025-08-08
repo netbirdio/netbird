@@ -609,7 +609,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		newPeer.DNSLabel = freeLabel
 		newPeer.IP = freeIP
 
-		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+		unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
 		defer func() {
 			if unlock != nil {
 				unlock()
