@@ -5,10 +5,16 @@ import (
 	"sync"
 	"time"
 
+	"errors"
+
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/shared/signal/proto"
+)
+
+var (
+	ErrPeerAlreadyRegistered = errors.New("peer already registered")
 )
 
 // Peer representation of a connected Peer
@@ -23,6 +29,8 @@ type Peer struct {
 
 	// registration time
 	RegisteredAt time.Time
+
+	Cancel context.CancelFunc
 }
 
 // NewPeer creates a new instance of a connected Peer
@@ -32,6 +40,17 @@ func NewPeer(id string, stream proto.SignalExchange_ConnectStreamServer) *Peer {
 		Stream:       stream,
 		StreamID:     time.Now().UnixNano(),
 		RegisteredAt: time.Now(),
+	}
+}
+
+// NewPeer creates a new instance of a connected Peer
+func NewPeerPool(id string, stream proto.SignalExchange_ConnectStreamServer, cancel context.CancelFunc) *Peer {
+	return &Peer{
+		Id:           id,
+		Stream:       stream,
+		StreamID:     time.Now().UnixNano(),
+		RegisteredAt: time.Now(),
+		Cancel:       cancel,
 	}
 }
 
@@ -94,6 +113,38 @@ func (registry *Registry) Register(peer *Peer) {
 	registry.metrics.Registrations.Add(context.Background(), 1)
 }
 
+// Register registers peer in the registry
+func (registry *Registry) RegisterPool(peer *Peer) error {
+	start := time.Now()
+
+	// can be that peer already exists, but it is fine (e.g. reconnect)
+	p, loaded := registry.Peers.LoadOrStore(peer.Id, peer)
+	if loaded {
+		pp := p.(*Peer)
+		if peer.StreamID > pp.StreamID {
+			log.Tracef("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
+				peer.Id, peer.StreamID, pp.StreamID)
+			if swapped := registry.Peers.CompareAndSwap(peer.Id, pp, peer); !swapped {
+				return registry.RegisterPool(peer)
+			}
+			pp.Cancel()
+			log.Debugf("peer re-registered [%s]", peer.Id)
+			return nil
+		}
+		return ErrPeerAlreadyRegistered
+	}
+
+	log.Debugf("peer registered [%s]", peer.Id)
+	registry.metrics.ActivePeers.Add(context.Background(), 1)
+
+	// record time as milliseconds
+	registry.metrics.RegistrationDelay.Record(context.Background(), float64(time.Since(start).Nanoseconds())/1e6)
+
+	registry.metrics.Registrations.Add(context.Background(), 1)
+
+	return nil
+}
+
 // Deregister Peer from the Registry (usually once it disconnects)
 func (registry *Registry) Deregister(peer *Peer) {
 	registry.regMutex.Lock()
@@ -108,6 +159,15 @@ func (registry *Registry) Deregister(peer *Peer) {
 				peer.Id, pp.StreamID, peer.StreamID)
 			return
 		}
+		registry.metrics.ActivePeers.Add(context.Background(), -1)
+		log.Debugf("peer deregistered [%s]", peer.Id)
+		registry.metrics.Deregistrations.Add(context.Background(), 1)
+	}
+}
+
+// Deregister Peer from the Registry (usually once it disconnects)
+func (registry *Registry) DeregisterPool(peer *Peer) {
+	if deleted := registry.Peers.CompareAndDelete(peer.Id, peer); deleted {
 		registry.metrics.ActivePeers.Add(context.Background(), -1)
 		log.Debugf("peer deregistered [%s]", peer.Id)
 		registry.metrics.Deregistrations.Add(context.Background(), 1)
