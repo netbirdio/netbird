@@ -74,7 +74,6 @@ jobs:
           pr_number: ${{ steps.extract.outputs.pr_number }}
           script: |
             const prNumber = parseInt(core.getInput('pr_number'), 10);
-            console.log(prNumber)
             const { data } = await github.rest.pulls.get({
               owner: 'netbirdio',
               repo: 'docs',
