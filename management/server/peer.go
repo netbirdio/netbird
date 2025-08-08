@@ -539,7 +539,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 	}
 
-	if err := domain.ValidateDomainsList(peer.ExtraDNSLabels); err != nil {
+	if err := domain.ValidateFQDNsList(peer.ExtraDNSLabels); err != nil {
 		return nil, nil, nil, status.Errorf(status.InvalidArgument, "invalid extra DNS labels: %v", err)
 	}
 

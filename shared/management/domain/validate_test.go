@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestValidateDomains(t *testing.T) {
+func TestValidateFQDNs(t *testing.T) {
 	tests := []struct {
 		name     string
 		domains  []string
@@ -63,10 +63,10 @@ func TestValidateDomains(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "Valid wildcard domain",
+			name:     "Invalid wildcard domain",
 			domains:  []string{"*.example.com"},
-			expected: List{"*.example.com"},
-			wantErr:  false,
+			expected: nil,
+			wantErr:  true,
 		},
 		{
 			name:     "Wildcard with dot domain",
@@ -90,16 +90,16 @@ func TestValidateDomains(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ValidateDomains(tt.domains)
+			got, err := ValidateFQDNs(tt.domains)
 			assert.Equal(t, tt.wantErr, err != nil)
 			assert.Equal(t, got, tt.expected)
 		})
 	}
 }
 
-func TestValidateDomainsList(t *testing.T) {
-	validDomains := make([]string, maxDomains)
-	for i := range maxDomains {
+func TestValidateFQDNsList(t *testing.T) {
+	validDomains := make([]string, maxFQDN)
+	for i := range maxFQDN {
 		validDomains[i] = fmt.Sprintf("example%d.com", i)
 	}
 
@@ -124,7 +124,7 @@ func TestValidateDomainsList(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			// Unlike ValidateDomains (which converts to punycode),
+			// Unlike ValidateFQDNs (which converts to punycode),
 			// ValidateDomainsStrSlice will fail on non-ASCII domain chars.
 			name:    "Unicode domain fails (no punycode conversion)",
 			domains: []string{"münchen.de"},
@@ -161,12 +161,12 @@ func TestValidateDomainsList(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "Exactly maxDomains items (valid)",
+			name:    "Exactly maxFQDN items (valid)",
 			domains: validDomains,
 			wantErr: false,
 		},
 		{
-			name:    "Exceeds maxDomains items",
+			name:    "Exceeds maxFQDN items",
 			domains: append(validDomains, "extra.com"),
 			wantErr: true,
 		},
@@ -174,12 +174,73 @@ func TestValidateDomainsList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateDomainsList(tt.domains)
+			err := ValidateFQDNsList(tt.domains)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestIsValidDomain(t *testing.T) {
+	tests := []struct {
+		name   string
+		domain string
+		valid  bool
+	}{
+		{
+			name:   "Empty domain",
+			domain: "",
+			valid:  false,
+		},
+		{
+			name:   "Single valid ASCII domain",
+			domain: "sub.ex-ample.com",
+			valid:  true,
+		},
+		{
+			name:   "Underscores in labels",
+			domain: "_jabber._tcp.gmail.com",
+			valid:  false,
+		},
+		{
+			name:   "Unicode domain fails (no punycode conversion)",
+			domain: "münchen.de",
+			valid:  true,
+		},
+		{
+			name:   "Invalid domain format - leading dash",
+			domain: "-example.com",
+			valid:  false,
+		},
+		{
+			name:   "Invalid domain format - trailing dash",
+			domain: "example-.com",
+			valid:  false,
+		},
+		{
+			name:   "Valid wildcard domain",
+			domain: "*.example.com",
+			valid:  true,
+		},
+		{
+			name:   "Wildcard with leading dot - invalid",
+			domain: ".*.example.com",
+			valid:  false,
+		},
+		{
+			name:   "Invalid wildcard with multiple asterisks",
+			domain: "a.*.example.com",
+			valid:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			valid := IsValidDomain(tt.domain, true, true)
+			assert.Equal(t, tt.valid, valid)
 		})
 	}
 }

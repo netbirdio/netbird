@@ -667,7 +667,7 @@ func validateDnsLabels(labels []string) (domain.List, error) {
 		return domains, nil
 	}
 
-	domains, err = domain.ValidateDomains(labels)
+	domains, err = domain.ValidateFQDNs(labels)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate dns labels: %v", err)
 	}

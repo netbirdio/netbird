@@ -8,13 +8,13 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/route"
 )
 
 const failedToConvertRoute = "failed to convert route to response: %v"
@@ -94,7 +94,7 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 	var networkType route.NetworkType
 	var newPrefix netip.Prefix
 	if req.Domains != nil {
-		d, err := domain.ValidateDomains(*req.Domains)
+		d, err := domain.ValidateFQDNs(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return
@@ -217,7 +217,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Domains != nil {
-		d, err := domain.ValidateDomains(*req.Domains)
+		d, err := domain.ValidateFQDNs(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return
