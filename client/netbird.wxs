@@ -30,7 +30,7 @@
                                      Id="NetBirdService"
                                      Name="NetBird"
                                      DisplayName="NetBird"
-                                     Description="A WireGuard-based mesh network that connects your devices into a single private network."
+                                     Description="Connect your devices into a secure WireGuard-based overlay network with SSO, MFA and granular access controls."
                                      Start="auto" Type="ownProcess"
                                      ErrorControl="normal"
                                      Account="LocalSystem"
