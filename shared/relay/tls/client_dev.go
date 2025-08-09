@@ -20,7 +20,7 @@ func ClientQUICTLSConfig() *tls.Config {
 
 	return &tls.Config{
 		InsecureSkipVerify: true,             // Debug mode allows insecure connections
-		NextProtos:         []string{nbalpn}, // Ensure this matches the server's ALPN
+		NextProtos:         []string{NBalpn}, // Ensure this matches the server's ALPN
 		RootCAs:            certPool,
 	}
 }
