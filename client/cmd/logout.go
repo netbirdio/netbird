@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/util"
 )
 
 var logoutCmd = &cobra.Command{
@@ -16,7 +17,7 @@ var logoutCmd = &cobra.Command{
 	Aliases: []string{"logout"},
 	Short:   "deregister from the NetBird Management Service and delete peer",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		SetFlagsFromEnvVars(rootCmd)
+		util.SetFlagsFromEnvVars(rootCmd)
 
 		cmd.SetOut(cmd.OutOrStdout())
 

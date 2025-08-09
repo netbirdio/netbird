@@ -88,7 +88,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
 
-	setFlagsFromEnvVars(rootCmd)
+	util.SetFlagsFromEnvVars(rootCmd)
 }
 
 func Execute() error {
