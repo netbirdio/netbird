@@ -1,8 +1,6 @@
 package hooks
 
 import (
-	"context"
-	"net"
 	"net/netip"
 	"slices"
 	"sync"
@@ -19,105 +17,77 @@ func GenerateConnID() ConnectionID {
 	return ConnectionID(uuid.NewString())
 }
 
-type DialerDialHookFunc func(ctx context.Context, connID ConnectionID, resolvedAddresses []net.IPAddr) error
-type DialerCloseHookFunc func(connID ConnectionID, conn *net.Conn) error
-type ListenerWriteHookFunc func(connID ConnectionID, ip *net.IPAddr, data []byte) error
-type ListenerCloseHookFunc func(connID ConnectionID, conn net.PacketConn) error
-type ListenerAddressRemoveHookFunc func(connID ConnectionID, prefix netip.Prefix) error
+type WriteHookFunc func(connID ConnectionID, prefix netip.Prefix) error
+type CloseHookFunc func(connID ConnectionID) error
+type AddressRemoveHookFunc func(connID ConnectionID, prefix netip.Prefix) error
 
 var (
 	hooksMutex sync.RWMutex
 
-	dialerDialHooks            []DialerDialHookFunc
-	dialerCloseHooks           []DialerCloseHookFunc
-	listenerWriteHooks         []ListenerWriteHookFunc
-	listenerCloseHooks         []ListenerCloseHookFunc
-	listenerAddressRemoveHooks []ListenerAddressRemoveHookFunc
+	writeHooks         []WriteHookFunc
+	closeHooks         []CloseHookFunc
+	addressRemoveHooks []AddressRemoveHookFunc
 )
 
-// AddDialerHook allows adding a new hook to be executed before dialing.
-func AddDialerHook(hook DialerDialHookFunc) {
+// AddWriteHook allows adding a new hook to be executed before writing/dialing.
+func AddWriteHook(hook WriteHookFunc) {
 	hooksMutex.Lock()
 	defer hooksMutex.Unlock()
-	dialerDialHooks = append(dialerDialHooks, hook)
+	writeHooks = append(writeHooks, hook)
 }
 
-// AddDialerCloseHook allows adding a new hook to be executed on connection close.
-func AddDialerCloseHook(hook DialerCloseHookFunc) {
+// AddCloseHook allows adding a new hook to be executed on connection close.
+func AddCloseHook(hook CloseHookFunc) {
 	hooksMutex.Lock()
 	defer hooksMutex.Unlock()
-	dialerCloseHooks = append(dialerCloseHooks, hook)
+	closeHooks = append(closeHooks, hook)
 }
 
-// RemoveDialerHooks removes all dialer hooks.
-func RemoveDialerHooks() {
+// RemoveWriteHooks removes all write hooks.
+func RemoveWriteHooks() {
 	hooksMutex.Lock()
 	defer hooksMutex.Unlock()
-	dialerDialHooks = nil
-	dialerCloseHooks = nil
+	writeHooks = nil
 }
 
-// AddListenerWriteHook allows adding a new write hook to be executed before a UDP packet is sent.
-func AddListenerWriteHook(hook ListenerWriteHookFunc) {
+// RemoveCloseHooks removes all close hooks.
+func RemoveCloseHooks() {
 	hooksMutex.Lock()
 	defer hooksMutex.Unlock()
-	listenerWriteHooks = append(listenerWriteHooks, hook)
+	closeHooks = nil
 }
 
-// AddListenerCloseHook allows adding a new hook to be executed upon closing a UDP connection.
-func AddListenerCloseHook(hook ListenerCloseHookFunc) {
+// AddAddressRemoveHook allows adding a new hook to be executed when an address is removed.
+func AddAddressRemoveHook(hook AddressRemoveHookFunc) {
 	hooksMutex.Lock()
 	defer hooksMutex.Unlock()
-	listenerCloseHooks = append(listenerCloseHooks, hook)
+	addressRemoveHooks = append(addressRemoveHooks, hook)
 }
 
-// AddListenerAddressRemoveHook allows adding a new hook to be executed when an address is removed.
-func AddListenerAddressRemoveHook(hook ListenerAddressRemoveHookFunc) {
+// RemoveAddressRemoveHooks removes all listener address hooks.
+func RemoveAddressRemoveHooks() {
 	hooksMutex.Lock()
 	defer hooksMutex.Unlock()
-	listenerAddressRemoveHooks = append(listenerAddressRemoveHooks, hook)
+	addressRemoveHooks = nil
 }
 
-// RemoveListenerHooks removes all listener hooks.
-func RemoveListenerHooks() {
-	hooksMutex.Lock()
-	defer hooksMutex.Unlock()
-	listenerWriteHooks = nil
-	listenerCloseHooks = nil
-	listenerAddressRemoveHooks = nil
-}
-
-// GetDialerHooks returns a copy of the current dialer dial hooks.
-func GetDialerHooks() []DialerDialHookFunc {
+// GetWriteHooks returns a copy of the current write hooks.
+func GetWriteHooks() []WriteHookFunc {
 	hooksMutex.RLock()
 	defer hooksMutex.RUnlock()
-	return slices.Clone(dialerDialHooks)
+	return slices.Clone(writeHooks)
 }
 
-// GetDialerCloseHooks returns a copy of the current dialer close hooks.
-func GetDialerCloseHooks() []DialerCloseHookFunc {
+// GetCloseHooks returns a copy of the current close hooks.
+func GetCloseHooks() []CloseHookFunc {
 	hooksMutex.RLock()
 	defer hooksMutex.RUnlock()
-	return slices.Clone(dialerCloseHooks)
+	return slices.Clone(closeHooks)
 }
 
-// GetListenerWriteHooks returns a copy of the current listener write hooks.
-func GetListenerWriteHooks() []ListenerWriteHookFunc {
+// GetAddressRemoveHooks returns a copy of the current listener address remove hooks.
+func GetAddressRemoveHooks() []AddressRemoveHookFunc {
 	hooksMutex.RLock()
 	defer hooksMutex.RUnlock()
-	return slices.Clone(listenerWriteHooks)
-}
-
-// GetListenerCloseHooks returns a copy of the current listener close hooks.
-func GetListenerCloseHooks() []ListenerCloseHookFunc {
-	hooksMutex.RLock()
-	defer hooksMutex.RUnlock()
-	return slices.Clone(listenerCloseHooks)
-}
-
-// GetListenerAddressRemoveHooks returns a copy of the current listener address remove hooks.
-func GetListenerAddressRemoveHooks() []ListenerAddressRemoveHookFunc {
-	hooksMutex.RLock()
-	defer hooksMutex.RUnlock()
-	return slices.Clone(listenerAddressRemoveHooks)
+	return slices.Clone(addressRemoveHooks)
 }

@@ -101,13 +101,8 @@ func (t *TunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 
-	var udpConn net.PacketConn = rawSock
-	if !nbnet.AdvancedRouting() {
-		udpConn = nbnet.WrapPacketConn(rawSock)
-	}
-
 	bindParams := bind.UniversalUDPMuxParams{
-		UDPConn:   udpConn,
+		UDPConn:   nbnet.WrapPacketConn(rawSock),
 		Net:       t.transportNet,
 		FilterFn:  t.filterFn,
 		WGAddress: t.address,

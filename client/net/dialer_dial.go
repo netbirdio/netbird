@@ -10,6 +10,8 @@ import (
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/net/hooks"
 )
 
@@ -17,21 +19,13 @@ import (
 func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	log.Debugf("Dialing %s %s", network, address)
 
-	if CustomRoutingDisabled() {
+	if CustomRoutingDisabled() || AdvancedRouting() {
 		return d.Dialer.DialContext(ctx, network, address)
 	}
 
-	var resolver *net.Resolver
-	if d.Resolver != nil {
-		resolver = d.Resolver
-	}
-
 	connID := hooks.GenerateConnID()
-	dialerDialHooks := hooks.GetDialerHooks()
-	if dialerDialHooks != nil {
-		if err := callDialerHooks(ctx, connID, address, resolver, dialerDialHooks); err != nil {
-			log.Errorf("Failed to call dialer hooks: %v", err)
-		}
+	if err := callDialerHooks(ctx, connID, address, d.Resolver); err != nil {
+		log.Errorf("Failed to call dialer hooks: %v", err)
 	}
 
 	conn, err := d.Dialer.DialContext(ctx, network, address)
@@ -48,11 +42,26 @@ func (d *Dialer) Dial(network, address string) (net.Conn, error) {
 	return d.DialContext(context.Background(), network, address)
 }
 
-func callDialerHooks(ctx context.Context, connID hooks.ConnectionID, address string, resolver *net.Resolver, dialerDialHooks []hooks.DialerDialHookFunc) error {
+func callDialerHooks(ctx context.Context, connID hooks.ConnectionID, address string, customResolver *net.Resolver) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	writeHooks := hooks.GetWriteHooks()
+	if len(writeHooks) == 0 {
+		return nil
+	}
+
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return fmt.Errorf("split host and port: %w", err)
 	}
+
+	resolver := customResolver
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+
 	ips, err := resolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		return fmt.Errorf("failed to resolve address %s: %w", address, err)
@@ -60,13 +69,19 @@ func callDialerHooks(ctx context.Context, connID hooks.ConnectionID, address str
 
 	log.Debugf("Dialer resolved IPs for %s: %v", address, ips)
 
-	var result *multierror.Error
-
-	for _, hook := range dialerDialHooks {
-		if err := hook(ctx, connID, ips); err != nil {
-			result = multierror.Append(result, fmt.Errorf("executing dial hook: %w", err))
+	var merr *multierror.Error
+	for _, ip := range ips {
+		prefix, err := util.GetPrefixFromIP(ip.IP)
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("convert IP %s to prefix: %w", ip.IP, err))
+			continue
+		}
+		for _, hook := range writeHooks {
+			if err := hook(connID, prefix); err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("executing dial hook for IP %s: %w", ip.IP, err))
+			}
 		}
 	}
 
-	return result.ErrorOrNil()
+	return nberrors.FormatErrorOrNil(merr)
 }

@@ -24,7 +24,7 @@ const (
 	Ipv6UnicastIf = 31
 
 	// https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ipv6-socket-options
-	IPV6_V6ONLY = 27
+	Ipv6V6only = 27
 )
 
 // nativeToBigEndian converts a uint32 from native byte order to big-endian
@@ -236,7 +236,7 @@ func setUnicastIfIPv6(fd uintptr, network string, selection *interfaceSelection,
 func checkDualStack(fd uintptr) bool {
 	var v6Only int
 	v6OnlyLen := int32(unsafe.Sizeof(v6Only))
-	err := windows.Getsockopt(windows.Handle(fd), windows.IPPROTO_IPV6, IPV6_V6ONLY, (*byte)(unsafe.Pointer(&v6Only)), &v6OnlyLen)
+	err := windows.Getsockopt(windows.Handle(fd), windows.IPPROTO_IPV6, Ipv6V6only, (*byte)(unsafe.Pointer(&v6Only)), &v6OnlyLen)
 	return err == nil && v6Only == 0
 }
 

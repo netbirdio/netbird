@@ -5,8 +5,6 @@ package net
 import (
 	"net"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/net/hooks"
 )
 
@@ -17,15 +15,18 @@ type Conn struct {
 }
 
 // Close overrides the net.Conn Close method to execute all registered hooks after closing the connection
+// Close overrides the net.Conn Close method to execute all registered hooks before closing the connection.
 func (c *Conn) Close() error {
-	err := c.Conn.Close()
+	return closeConn(c.ID, c.Conn)
+}
 
-	dialerCloseHooks := hooks.GetDialerCloseHooks()
-	for _, hook := range dialerCloseHooks {
-		if err := hook(c.ID, &c.Conn); err != nil {
-			log.Errorf("Error executing dialer close hook: %v", err)
-		}
-	}
+// TCPConn wraps net.TCPConn to override its Close method to include hook functionality.
+type TCPConn struct {
+	*net.TCPConn
+	ID hooks.ConnectionID
+}
 
-	return err
+// Close overrides the net.TCPConn Close method to execute all registered hooks before closing the connection.
+func (c *TCPConn) Close() error {
+	return closeConn(c.ID, c.TCPConn)
 }

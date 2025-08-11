@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/iface/netstack"
 )
 
 var (
@@ -31,8 +33,8 @@ func checkAdvancedRoutingSupport() bool {
 		}
 	}
 
-	if legacyRouting {
-		log.Info("Legacy routing requested via environment variable")
+	if legacyRouting || netstack.IsEnabled() {
+		log.Info("advanced routing has been requested to be disabled")
 		return false
 	}
 
@@ -41,7 +43,7 @@ func checkAdvancedRoutingSupport() bool {
 	return true
 }
 
-// AdvancedRouting returns true if advanced routing is supported
+// AdvancedRouting reports whether routing loops can be avoided without using exclusion routes
 func AdvancedRouting() bool {
 	return advancedRoutingSupported
 }
