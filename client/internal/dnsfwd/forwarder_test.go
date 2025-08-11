@@ -726,11 +726,12 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 	forwarder.UpdateDomains(entries)
 
 	tests := []struct {
-		name         string
-		queryType    uint16
-		setupMocks   func()
-		expectedCode int
-		description  string
+		name           string
+		queryType      uint16
+		setupMocks     func()
+		expectedCode   int
+		expectNoAnswer bool // true if we expect NOERROR with empty answer (NODATA case)
+		description    string
 	}{
 		{
 			name:      "domain exists but no AAAA records (NODATA)",
@@ -743,8 +744,9 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 				mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
 					Return([]netip.Addr{netip.MustParseAddr("1.2.3.4")}, nil).Once()
 			},
-			expectedCode: dns.RcodeSuccess, // NOERROR with empty answer
-			description:  "Should return NOERROR when domain exists but has no records of requested type",
+			expectedCode:   dns.RcodeSuccess,
+			expectNoAnswer: true,
+			description:    "Should return NOERROR when domain exists but has no records of requested type",
 		},
 		{
 			name:      "domain exists but no A records (NODATA)",
@@ -757,8 +759,9 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 				mockResolver.On("LookupNetIP", mock.Anything, "ip6", "example.com.").
 					Return([]netip.Addr{netip.MustParseAddr("2001:db8::1")}, nil).Once()
 			},
-			expectedCode: dns.RcodeSuccess, // NOERROR with empty answer
-			description:  "Should return NOERROR when domain exists but has no A records",
+			expectedCode:   dns.RcodeSuccess,
+			expectNoAnswer: true,
+			description:    "Should return NOERROR when domain exists but has no A records",
 		},
 		{
 			name:      "domain doesn't exist (NXDOMAIN)",
@@ -771,8 +774,9 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 				mockResolver.On("LookupNetIP", mock.Anything, "ip6", "example.com.").
 					Return([]netip.Addr{}, &net.DNSError{IsNotFound: true, Name: "example.com"}).Once()
 			},
-			expectedCode: dns.RcodeNameError, // NXDOMAIN
-			description:  "Should return NXDOMAIN when domain doesn't exist at all",
+			expectedCode:   dns.RcodeNameError,
+			expectNoAnswer: true,
+			description:    "Should return NXDOMAIN when domain doesn't exist at all",
 		},
 		{
 			name:      "domain exists with records (normal success)",
@@ -784,8 +788,9 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 				expectedPrefix := netip.PrefixFrom(netip.MustParseAddr("1.2.3.4"), 32)
 				mockFirewall.On("UpdateSet", set, []netip.Prefix{expectedPrefix}).Return(nil).Once()
 			},
-			expectedCode: dns.RcodeSuccess,
-			description:  "Should return NOERROR with answer when records exist",
+			expectedCode:   dns.RcodeSuccess,
+			expectNoAnswer: false,
+			description:    "Should return NOERROR with answer when records exist",
 		},
 	}
 
@@ -820,9 +825,8 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 			require.NotNil(t, writtenResp, "Expected response to be written")
 			assert.Equal(t, tt.expectedCode, writtenResp.Rcode, tt.description)
 
-			if tt.expectedCode == dns.RcodeSuccess && tt.name != "domain exists with records (normal success)" {
-				// For NODATA cases, ensure no answer records
-				assert.Empty(t, writtenResp.Answer, "NODATA response should have no answer records")
+			if tt.expectNoAnswer {
+				assert.Empty(t, writtenResp.Answer, "Response should have no answer records")
 			}
 
 			mockResolver.AssertExpectations(t)

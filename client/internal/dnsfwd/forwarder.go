@@ -165,7 +165,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns
 	defer cancel()
 	ips, err := f.resolver.LookupNetIP(ctx, network, domain)
 	if err != nil {
-		f.handleDNSError(ctx, w, query, resp, domain, err)
+		f.handleDNSError(ctx, w, question, resp, domain, err)
 		return nil
 	}
 
@@ -283,18 +283,18 @@ func (f *DNSForwarder) setResponseCodeForNotFound(ctx context.Context, resp *dns
 }
 
 // handleDNSError processes DNS lookup errors and sends an appropriate error response
-func (f *DNSForwarder) handleDNSError(ctx context.Context, w dns.ResponseWriter, query, resp *dns.Msg, domain string, err error) {
+func (f *DNSForwarder) handleDNSError(ctx context.Context, w dns.ResponseWriter, question dns.Question, resp *dns.Msg, domain string, err error) {
 	var dnsErr *net.DNSError
 
 	switch {
 	case errors.As(err, &dnsErr):
 		resp.Rcode = dns.RcodeServerFailure
 		if dnsErr.IsNotFound {
-			f.setResponseCodeForNotFound(ctx, resp, domain, query.Question[0].Qtype)
+			f.setResponseCodeForNotFound(ctx, resp, domain, question.Qtype)
 		}
 
 		if dnsErr.Server != "" {
-			log.Warnf("failed to resolve query for type=%s domain=%s server=%s: %v", dns.TypeToString[query.Question[0].Qtype], domain, dnsErr.Server, err)
+			log.Warnf("failed to resolve query for type=%s domain=%s server=%s: %v", dns.TypeToString[question.Qtype], domain, dnsErr.Server, err)
 		} else {
 			log.Warnf(errResolveFailed, domain, err)
 		}
