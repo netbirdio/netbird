@@ -26,6 +26,7 @@ func Init() {
 	advancedRoutingSupported = checkAdvancedRoutingSupport()
 }
 
+// AdvancedRouting reports whether routing loops can be avoided without using exclusion routes
 func AdvancedRouting() bool {
 	return advancedRoutingSupported
 }
@@ -72,7 +73,7 @@ func checkAdvancedRoutingSupport() bool {
 }
 
 func CheckFwmarkSupport() bool {
-	// temporarily enable advanced routing to check fwmarks are supported
+	// temporarily enable advanced routing to check if fwmarks are supported
 	old := advancedRoutingSupported
 	advancedRoutingSupported = true
 	defer func() {

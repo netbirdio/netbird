@@ -3,7 +3,6 @@
 package systemops
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -96,9 +95,9 @@ func (r *SysOps) cleanupRefCounter(stateManager *statemanager.Manager) error {
 		return nil
 	}
 
-	// TODO: Remove hooks selectively
-	hooks.RemoveDialerHooks()
-	hooks.RemoveListenerHooks()
+	hooks.RemoveWriteHooks()
+	hooks.RemoveCloseHooks()
+	hooks.RemoveAddressRemoveHooks()
 
 	if err := r.refCounter.Flush(); err != nil {
 		return fmt.Errorf("flush route manager: %w", err)
@@ -290,12 +289,7 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 }
 
 func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) error {
-	beforeHook := func(connID hooks.ConnectionID, ip net.IP) error {
-		prefix, err := util.GetPrefixFromIP(ip)
-		if err != nil {
-			return fmt.Errorf("convert ip to prefix: %w", err)
-		}
-
+	beforeHook := func(connID hooks.ConnectionID, prefix netip.Prefix) error {
 		if _, err := r.refCounter.IncrementWithID(string(connID), prefix, struct{}{}); err != nil {
 			return fmt.Errorf("adding route reference: %v", err)
 		}
@@ -317,36 +311,20 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 	var merr *multierror.Error
 
 	for _, ip := range initAddresses {
-		if err := beforeHook("init", ip); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("add initial route for %s: %w", ip, err))
+		prefix, err := util.GetPrefixFromIP(ip)
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("invalid IP address %s: %w", ip, err))
+			continue
+		}
+		if err := beforeHook("init", prefix); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add initial route for %s: %w", prefix, err))
 		}
 	}
 
-	hooks.AddDialerHook(func(ctx context.Context, connID hooks.ConnectionID, resolvedIPs []net.IPAddr) error {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
+	hooks.AddWriteHook(beforeHook)
+	hooks.AddCloseHook(afterHook)
 
-		var merr *multierror.Error
-		for _, ip := range resolvedIPs {
-			merr = multierror.Append(merr, beforeHook(connID, ip.IP))
-		}
-		return nberrors.FormatErrorOrNil(merr)
-	})
-
-	hooks.AddDialerCloseHook(func(connID hooks.ConnectionID, conn *net.Conn) error {
-		return afterHook(connID)
-	})
-
-	hooks.AddListenerWriteHook(func(connID hooks.ConnectionID, ip *net.IPAddr, data []byte) error {
-		return beforeHook(connID, ip.IP)
-	})
-
-	hooks.AddListenerCloseHook(func(connID hooks.ConnectionID, conn net.PacketConn) error {
-		return afterHook(connID)
-	})
-
-	hooks.AddListenerAddressRemoveHook(func(connID hooks.ConnectionID, prefix netip.Prefix) error {
+	hooks.AddAddressRemoveHook(func(connID hooks.ConnectionID, prefix netip.Prefix) error {
 		if _, err := r.refCounter.Decrement(prefix); err != nil {
 			return fmt.Errorf("remove route reference: %w", err)
 		}

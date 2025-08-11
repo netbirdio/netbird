@@ -192,7 +192,7 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 	if advancedRouting {
 		return nil
 	}
-	
+
 	log.Infof("Using legacy routing setup with ref counters")
 	return r.setupRefCounter(initAddresses, stateManager)
 }
@@ -201,7 +201,7 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRout
 	if advancedRouting {
 		return nil
 	}
-	
+
 	return r.cleanupRefCounter(stateManager)
 }
 
@@ -903,7 +903,7 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 		if iface, err := net.InterfaceByName(vpnIntf); err == nil {
 			skipInterfaceIndex = iface.Index
 		} else {
-			return nil, fmt.Errorf("failed to get VPN interface %s: %w", vpnIntf, err)
+			return nil, fmt.Errorf("get VPN interface %s: %w", vpnIntf, err)
 		}
 	}
 
@@ -934,11 +934,11 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 		}
 
 		if iface.Flags&net.FlagUp == 0 {
-			log.Debugf("Interface %s is down, trying next route", iface.Name)
+			log.Debugf("interface %s is down, trying next route", iface.Name)
 			continue
 		}
 
-		log.Debugf("Route lookup for %s: selected interface %s (index %d), route metric %d, interface metric %d",
+		log.Debugf("route lookup for %s: selected interface %s (index %d), route metric %d, interface metric %d",
 			dest, iface.Name, iface.Index, candidate.routeMetric, candidate.interfaceMetric)
 		return iface, nil
 	}

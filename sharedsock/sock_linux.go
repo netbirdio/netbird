@@ -93,7 +93,7 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 	}
 
 	if err = nbnet.SetSocketMark(rawSock.conn4); err != nil {
-		return nil, fmt.Errorf("failed to set SO_MARK on ipv4 socket: %w", err)
+		return nil, fmt.Errorf("set SO_MARK on ipv4 socket: %w", err)
 	}
 
 	var sockErr error
@@ -102,7 +102,7 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 		log.Errorf("Failed to create ipv6 raw socket: %v", err)
 	} else {
 		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
-			return nil, fmt.Errorf("failed to set SO_MARK on ipv6 socket: %w", err)
+			return nil, fmt.Errorf("set SO_MARK on ipv6 socket: %w", err)
 		}
 	}
 

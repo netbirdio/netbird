@@ -5,19 +5,23 @@ package net
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"sync"
 
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/net/hooks"
 )
 
 // ListenPacket listens on the network address and returns a PacketConn
 // which includes support for write hooks.
 func (l *ListenerConfig) ListenPacket(ctx context.Context, network, address string) (net.PacketConn, error) {
-	if CustomRoutingDisabled() {
+	if CustomRoutingDisabled() || AdvancedRouting() {
 		return l.ListenConfig.ListenPacket(ctx, network, address)
 	}
 
@@ -39,7 +43,9 @@ type PacketConn struct {
 
 // WriteTo writes a packet with payload b to addr, executing registered write hooks beforehand.
 func (c *PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
-	callWriteHooks(c.ID, c.seenAddrs, b, addr)
+	if err := callWriteHooks(c.ID, c.seenAddrs, addr); err != nil {
+		log.Errorf("Failed to call write hooks: %v", err)
+	}
 	return c.PacketConn.WriteTo(b, addr)
 }
 
@@ -58,7 +64,9 @@ type UDPConn struct {
 
 // WriteTo writes a packet with payload b to addr, executing registered write hooks beforehand.
 func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
-	callWriteHooks(c.ID, c.seenAddrs, b, addr)
+	if err := callWriteHooks(c.ID, c.seenAddrs, addr); err != nil {
+		log.Errorf("Failed to call write hooks: %v", err)
+	}
 	return c.UDPConn.WriteTo(b, addr)
 }
 
@@ -86,18 +94,26 @@ func (c *PacketConn) RemoveAddress(addr string) {
 		return
 	}
 
-	prefix := netip.PrefixFrom(ipAddr, ipAddr.BitLen())
+	prefix := netip.PrefixFrom(ipAddr.Unmap(), ipAddr.BitLen())
 
-	listenerAddressRemoveHooks := hooks.GetListenerAddressRemoveHooks()
-	for _, hook := range listenerAddressRemoveHooks {
+	addressRemoveHooks := hooks.GetAddressRemoveHooks()
+	if len(addressRemoveHooks) == 0 {
+		return
+	}
+
+	for _, hook := range addressRemoveHooks {
 		if err := hook(c.ID, prefix); err != nil {
 			log.Errorf("Error executing listener address remove hook: %v", err)
 		}
 	}
 }
 
-// WrapPacketConn wraps an existing net.PacketConn with nbnet functionality
-func WrapPacketConn(conn net.PacketConn) *PacketConn {
+// WrapPacketConn wraps an existing net.PacketConn with nbnet hook functionality
+func WrapPacketConn(conn net.PacketConn) net.PacketConn {
+	if AdvancedRouting() {
+		// hooks not required for advanced routing
+		return conn
+	}
 	return &PacketConn{
 		PacketConn: conn,
 		ID:         hooks.GenerateConnID(),
@@ -105,38 +121,46 @@ func WrapPacketConn(conn net.PacketConn) *PacketConn {
 	}
 }
 
-func callWriteHooks(id hooks.ConnectionID, seenAddrs *sync.Map, b []byte, addr net.Addr) {
-	// Lookup the address in the seenAddrs map to avoid calling the hooks for every write
-	if _, loaded := seenAddrs.LoadOrStore(addr.String(), true); !loaded {
-		ipStr, _, splitErr := net.SplitHostPort(addr.String())
-		if splitErr != nil {
-			log.Errorf("Error splitting IP address and port: %v", splitErr)
-			return
-		}
+func callWriteHooks(id hooks.ConnectionID, seenAddrs *sync.Map, addr net.Addr) error {
+	if _, loaded := seenAddrs.LoadOrStore(addr.String(), true); loaded {
+		return nil
+	}
 
-		ip, err := net.ResolveIPAddr("ip", ipStr)
-		if err != nil {
-			log.Errorf("Error resolving IP address: %v", err)
-			return
-		}
-		log.Debugf("Listener resolved IP for %s: %s", addr, ip)
+	writeHooks := hooks.GetWriteHooks()
+	if len(writeHooks) == 0 {
+		return nil
+	}
 
-		listenerWriteHooks := hooks.GetListenerWriteHooks()
-		for _, hook := range listenerWriteHooks {
-			if err := hook(id, ip, b); err != nil {
-				log.Errorf("Error executing listener write hook: %v", err)
-			}
+	udpAddr, ok := addr.(*net.UDPAddr)
+	if !ok {
+		return fmt.Errorf("expected *net.UDPAddr for packet connection, got %T", addr)
+	}
+
+	prefix, err := util.GetPrefixFromIP(udpAddr.IP)
+	if err != nil {
+		return fmt.Errorf("convert UDP IP %s to prefix: %w", udpAddr.IP, err)
+	}
+
+	log.Debugf("Listener resolved IP for %s: %s", addr, prefix)
+
+	var merr *multierror.Error
+	for _, hook := range writeHooks {
+		if err := hook(id, prefix); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("execute write hook: %w", err))
 		}
 	}
+
+	return nberrors.FormatErrorOrNil(merr)
 }
 
-func closeConn(id hooks.ConnectionID, conn net.PacketConn) error {
+// closeConn is a helper function to close connections and execute close hooks.
+func closeConn(id hooks.ConnectionID, conn io.Closer) error {
 	err := conn.Close()
 
-	listenerCloseHooks := hooks.GetListenerCloseHooks()
-	for _, hook := range listenerCloseHooks {
-		if err := hook(id, conn); err != nil {
-			log.Errorf("Error executing listener close hook: %v", err)
+	closeHooks := hooks.GetCloseHooks()
+	for _, hook := range closeHooks {
+		if err := hook(id); err != nil {
+			log.Errorf("Error executing close hook: %v", err)
 		}
 	}
 

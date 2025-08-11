@@ -24,14 +24,24 @@ func ListenUDP(network string, laddr *net.UDPAddr) (transport.UDPConn, error) {
 		return nil, fmt.Errorf("listen UDP: %w", err)
 	}
 
-	packetConn := conn.(*PacketConn)
-	udpConn, ok := packetConn.PacketConn.(*net.UDPConn)
-	if !ok {
-		if err := packetConn.Close(); err != nil {
-			log.Errorf("Failed to close connection: %v", err)
+	switch c := conn.(type) {
+	case *net.UDPConn:
+		// Advanced routing: plain connection
+		return c, nil
+	case *PacketConn:
+		// Legacy routing: wrapped connection for hooks
+		udpConn, ok := c.PacketConn.(*net.UDPConn)
+		if !ok {
+			if err := c.Close(); err != nil {
+				log.Errorf("Failed to close connection: %v", err)
+			}
+			return nil, fmt.Errorf("expected UDPConn, got %T", c.PacketConn)
 		}
-		return nil, fmt.Errorf("expected UDPConn, got different type: %T", udpConn)
+		return &UDPConn{UDPConn: udpConn, ID: c.ID, seenAddrs: &sync.Map{}}, nil
 	}
 
-	return &UDPConn{UDPConn: udpConn, ID: packetConn.ID, seenAddrs: &sync.Map{}}, nil
+	if err := conn.Close(); err != nil {
+		log.Errorf("failed to close connection: %v", err)
+	}
+	return nil, fmt.Errorf("unexpected connection type: %T", conn)
 }
