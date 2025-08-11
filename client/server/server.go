@@ -1197,8 +1197,14 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		if dnsState.Error != nil {
 			err = dnsState.Error.Error()
 		}
+
+		var servers []string
+		for _, server := range dnsState.Servers {
+			servers = append(servers, server.String())
+		}
+
 		pbDnsState := &proto.NSGroupState{
-			Servers: dnsState.Servers,
+			Servers: servers,
 			Domains: dnsState.Domains,
 			Enabled: dnsState.Enabled,
 			Error:   err,
