@@ -77,7 +77,12 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		conns = runtime.NumCPU()
 	}
 
-	if storeEngine == types.SqliteStoreEngine {
+	switch storeEngine {
+	case types.MysqlStoreEngine:
+		if err := db.Exec("SET GLOBAL FOREIGN_KEY_CHECKS = 0").Error; err != nil {
+			return nil, err
+		}
+	case types.SqliteStoreEngine:
 		if err == nil {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
 		}
