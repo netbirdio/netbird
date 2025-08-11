@@ -24,8 +24,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/route"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
@@ -200,19 +200,11 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.wg.Add(1)
 	go func() {
 		defer conn.wg.Done()
+
 		conn.waitInitialRandomSleepTime(conn.ctx)
 		conn.semaphore.Done(conn.ctx)
 
-		conn.dumpState.SendOffer()
-		if err := conn.handshaker.sendOffer(); err != nil {
-			conn.Log.Errorf("failed to send initial offer: %v", err)
-		}
-
-		conn.wg.Add(1)
-		go func() {
-			conn.guard.Start(conn.ctx, conn.onGuardEvent)
-			conn.wg.Done()
-		}()
+		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
 	conn.opened = true
 	return nil
@@ -671,7 +663,7 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 		}
 	}()
 
-	if conn.statusICE.Get() == worker.StatusDisconnected {
+	if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
 		return false
 	}
 
