@@ -1476,8 +1476,9 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 
 func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	engine := os.Getenv("NETBIRD_STORE_ENGINE")
-	if engine == "sqlite" || engine == "" {
-		t.Skip("Skipping test because sqlite test store is not respecting foreign keys")
+	if engine == "sqlite" || engine == "mysql" || engine == "" {
+		// we intentionally disabled foreign keys in mysql
+		t.Skip("Skipping test because store is not respecting foreign keys")
 	}
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
