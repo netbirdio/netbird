@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	defaultPort = 53
+	DefaultPort = 53
 )
 
 type service interface {

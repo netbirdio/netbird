@@ -29,7 +29,7 @@ type fileConfigurator struct {
 	repair              *repair
 	originalPerms       os.FileMode
 	nbNameserverIP      netip.Addr
-	originalNameservers []string
+	originalNameservers []netip.Addr
 }
 
 func newFileConfigurator() (*fileConfigurator, error) {
@@ -70,7 +70,7 @@ func (f *fileConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *st
 }
 
 // getOriginalNameservers returns the nameservers that were found in the original resolv.conf
-func (f *fileConfigurator) getOriginalNameservers() []string {
+func (f *fileConfigurator) getOriginalNameservers() []netip.Addr {
 	return f.originalNameservers
 }
 
@@ -128,20 +128,14 @@ func (f *fileConfigurator) backup() error {
 }
 
 func (f *fileConfigurator) restore() error {
-	err := removeFirstNbNameserver(fileDefaultResolvConfBackupLocation, f.nbNameserverIP)
-	if err != nil {
-		log.Errorf("Failed to remove netbird nameserver from %s on backup restore: %s", fileDefaultResolvConfBackupLocation, err)
-	}
-
-	err = copyFile(fileDefaultResolvConfBackupLocation, defaultResolvConfPath)
-	if err != nil {
+	if err := copyFile(fileDefaultResolvConfBackupLocation, defaultResolvConfPath); err != nil {
 		return fmt.Errorf("restoring %s from %s: %w", defaultResolvConfPath, fileDefaultResolvConfBackupLocation, err)
 	}
 
 	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
 }
 
-func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Addr) error {
+func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress netip.Addr) error {
 	resolvConf, err := parseDefaultResolvConf()
 	if err != nil {
 		return fmt.Errorf("parse current resolv.conf: %w", err)
@@ -152,16 +146,9 @@ func (f *fileConfigurator) restoreUncleanShutdownDNS(storedDNSAddress *netip.Add
 		return restoreResolvConfFile()
 	}
 
-	currentDNSAddress, err := netip.ParseAddr(resolvConf.nameServers[0])
-	// not a valid first nameserver -> restore
-	if err != nil {
-		log.Errorf("restoring unclean shutdown: parse dns address %s failed: %s", resolvConf.nameServers[0], err)
-		return restoreResolvConfFile()
-	}
-
 	// current address is still netbird's non-available dns address -> restore
-	// comparing parsed addresses only, to remove ambiguity
-	if currentDNSAddress.String() == storedDNSAddress.String() {
+	currentDNSAddress := resolvConf.nameServers[0]
+	if currentDNSAddress == storedDNSAddress {
 		return restoreResolvConfFile()
 	}
 
