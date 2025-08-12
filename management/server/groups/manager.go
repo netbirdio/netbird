@@ -6,7 +6,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -22,15 +21,13 @@ type Manager interface {
 	AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resourceID *types.Resource) error
 	AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID string, resourceID *types.Resource) (func(), error)
 	RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID, resourceID string) (func(), error)
-	GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error)
-	GetPeerGroupsMap(ctx context.Context, accountID, peerID string) (map[string]*types.Group, error)
+	GetPeerGroupIDs(ctx context.Context, accountID, peerID string) ([]string, error)
 }
 
 type managerImpl struct {
 	store              store.Store
 	permissionsManager permissions.Manager
 	accountManager     account.Manager
-	peers.Manager
 }
 
 type mockManager struct {
@@ -146,22 +143,8 @@ func (m *managerImpl) GetResourceGroupsInTransaction(ctx context.Context, transa
 	return transaction.GetResourceGroups(ctx, lockingStrength, accountID, resourceID)
 }
 
-func (m *managerImpl) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
-	return m.store.GetPeerGroups(ctx, store.LockingStrengthShare, accountID, peerID)
-}
-
-func (m *managerImpl) GetPeerGroupsMap(ctx context.Context, accountID, peerID string) (map[string]*types.Group, error) {
-	groups, err := m.GetPeerGroups(ctx, accountID, peerID)
-	if err != nil {
-		return nil, err
-	}
-
-	groupsMap := make(map[string]*types.Group, len(groups))
-	for _, group := range groups {
-		groupsMap[group.ID] = group
-	}
-
-	return groupsMap, nil
+func (m *managerImpl) GetPeerGroupIDs(ctx context.Context, accountID, peerID string) ([]string, error) {
+	return m.store.GetPeerGroupIDs(ctx, store.LockingStrengthShare, accountID, peerID)
 }
 
 func ToGroupsInfoMap(groups []*types.Group, idCount int) map[string][]api.GroupMinimum {
@@ -224,12 +207,8 @@ func (m *mockManager) RemoveResourceFromGroupInTransaction(ctx context.Context, 
 	}, nil
 }
 
-func (m *mockManager) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
-	return []*types.Group{}, nil
-}
-
-func (m *mockManager) GetPeerGroupsMap(ctx context.Context, accountID, peerID string) (map[string]*types.Group, error) {
-	return map[string]*types.Group{}, nil
+func (m *mockManager) GetPeerGroupIDs(ctx context.Context, accountID, peerID string) ([]string, error) {
+	return []string{}, nil
 }
 
 func NewManagerMock() Manager {

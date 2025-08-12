@@ -10,7 +10,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -261,11 +260,11 @@ func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, p
 		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
 	}
 
-	peerGroups, err := m.groupsManager.GetPeerGroupsMap(ctx, accountID, peerID)
+	peerGroups, err := m.groupsManager.GetPeerGroupIDs(ctx, accountID, peerID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peer groups: %v", err)
 	}
 
-	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peerID, maps.Keys(peerGroups), update.NetbirdConfig, extraSettings)
+	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peerID, peerGroups, update.NetbirdConfig, extraSettings)
 	update.NetbirdConfig = extendedConfig
 }
