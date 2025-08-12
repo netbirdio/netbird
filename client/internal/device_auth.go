@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	mgm "github.com/netbirdio/netbird/management/client"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
 )
 
 // DeviceAuthorizationFlow represents Device Authorization Flow information

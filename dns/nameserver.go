@@ -102,6 +102,11 @@ func (n *NameServer) IsEqual(other *NameServer) bool {
 		other.Port == n.Port
 }
 
+// AddrPort returns the nameserver as a netip.AddrPort
+func (n *NameServer) AddrPort() netip.AddrPort {
+	return netip.AddrPortFrom(n.IP, uint16(n.Port))
+}
+
 // ParseNameServerURL parses a nameserver url in the format <type>://<ip>:<port>, e.g., udp://1.1.1.1:53
 func ParseNameServerURL(nsURL string) (NameServer, error) {
 	parsedURL, err := url.Parse(nsURL)

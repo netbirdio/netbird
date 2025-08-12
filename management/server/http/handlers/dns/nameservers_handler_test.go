@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/status"
 
 	"github.com/gorilla/mux"
 

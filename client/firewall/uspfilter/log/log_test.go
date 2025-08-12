@@ -19,22 +19,17 @@ func (d *discard) Write(p []byte) (n int, err error) {
 func BenchmarkLogger(b *testing.B) {
 	simpleMessage := "Connection established"
 
-	conntrackMessage := "TCP connection %s:%d -> %s:%d state changed to %d"
 	srcIP := "192.168.1.1"
 	srcPort := uint16(12345)
 	dstIP := "10.0.0.1"
 	dstPort := uint16(443)
 	state := 4 // TCPStateEstablished
 
-	complexMessage := "Packet inspection result: protocol=%s, direction=%s, flags=0x%x, sequence=%d, acknowledged=%d, payload_size=%d, fragmented=%v, connection_id=%s"
 	protocol := "TCP"
 	direction := "outbound"
 	flags := uint16(0x18) // ACK + PSH
 	sequence := uint32(123456789)
 	acknowledged := uint32(987654321)
-	payloadSize := 1460
-	fragmented := false
-	connID := "f7a12b3e-c456-7890-d123-456789abcdef"
 
 	b.Run("SimpleMessage", func(b *testing.B) {
 		logger := createTestLogger()
@@ -52,7 +47,7 @@ func BenchmarkLogger(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			logger.Trace(conntrackMessage, srcIP, srcPort, dstIP, dstPort, state)
+			logger.Trace5("TCP connection %s:%d → %s:%d state %d", srcIP, srcPort, dstIP, dstPort, state)
 		}
 	})
 
@@ -62,7 +57,7 @@ func BenchmarkLogger(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			logger.Trace(complexMessage, protocol, direction, flags, sequence, acknowledged, payloadSize, fragmented, connID)
+			logger.Trace6("Complex trace: proto=%s dir=%s flags=%d seq=%d ack=%d size=%d", protocol, direction, flags, sequence, acknowledged, 1460)
 		}
 	})
 }
@@ -72,7 +67,6 @@ func BenchmarkLoggerParallel(b *testing.B) {
 	logger := createTestLogger()
 	defer cleanupLogger(logger)
 
-	conntrackMessage := "TCP connection %s:%d -> %s:%d state changed to %d"
 	srcIP := "192.168.1.1"
 	srcPort := uint16(12345)
 	dstIP := "10.0.0.1"
@@ -82,7 +76,7 @@ func BenchmarkLoggerParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			logger.Trace(conntrackMessage, srcIP, srcPort, dstIP, dstPort, state)
+			logger.Trace5("TCP connection %s:%d → %s:%d state %d", srcIP, srcPort, dstIP, dstPort, state)
 		}
 	})
 }
@@ -92,7 +86,6 @@ func BenchmarkLoggerBurst(b *testing.B) {
 	logger := createTestLogger()
 	defer cleanupLogger(logger)
 
-	conntrackMessage := "TCP connection %s:%d -> %s:%d state changed to %d"
 	srcIP := "192.168.1.1"
 	srcPort := uint16(12345)
 	dstIP := "10.0.0.1"
@@ -102,7 +95,7 @@ func BenchmarkLoggerBurst(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < 100; j++ {
-			logger.Trace(conntrackMessage, srcIP, srcPort, dstIP, dstPort, state)
+			logger.Trace5("TCP connection %s:%d → %s:%d state %d", srcIP, srcPort, dstIP, dstPort, state)
 		}
 	}
 }

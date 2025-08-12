@@ -27,7 +27,7 @@ func (s *ShutdownState) Cleanup() error {
 		return fmt.Errorf("create previous host manager: %w", err)
 	}
 
-	if err := manager.restoreUncleanShutdownDNS(&s.DNSAddress); err != nil {
+	if err := manager.restoreUncleanShutdownDNS(s.DNSAddress); err != nil {
 		return fmt.Errorf("restore unclean shutdown dns: %w", err)
 	}
 

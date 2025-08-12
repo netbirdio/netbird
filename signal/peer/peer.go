@@ -8,7 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/signal/metrics"
-	"github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/shared/signal/proto"
 )
 
 // Peer representation of a connected Peer

@@ -13,8 +13,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
-	mgm "github.com/netbirdio/netbird/management/client"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 // IsLoginRequired check that the server is support SSO or not

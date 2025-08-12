@@ -40,12 +40,13 @@ func (s *serviceClient) showProfilesUI() {
 	list := widget.NewList(
 		func() int { return len(profiles) },
 		func() fyne.CanvasObject {
-			// Each item: Selected indicator, Name, spacer, Select & Remove buttons
+			// Each item: Selected indicator, Name, spacer, Select, Logout & Remove buttons
 			return container.NewHBox(
 				widget.NewLabel(""), // indicator
 				widget.NewLabel(""), // profile name
 				layout.NewSpacer(),
 				widget.NewButton("Select", nil),
+				widget.NewButton("Deregister", nil),
 				widget.NewButton("Remove", nil),
 			)
 		},
@@ -55,7 +56,8 @@ func (s *serviceClient) showProfilesUI() {
 			indicator := row.Objects[0].(*widget.Label)
 			nameLabel := row.Objects[1].(*widget.Label)
 			selectBtn := row.Objects[3].(*widget.Button)
-			removeBtn := row.Objects[4].(*widget.Button)
+			logoutBtn := row.Objects[4].(*widget.Button)
+			removeBtn := row.Objects[5].(*widget.Button)
 
 			profile := profiles[i]
 			// Show a checkmark if selected
@@ -105,7 +107,7 @@ func (s *serviceClient) showProfilesUI() {
 							return
 						}
 
-						status, err := conn.Status(context.Background(), &proto.StatusRequest{})
+						status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 						if err != nil {
 							log.Errorf("failed to get status after switching profile: %v", err)
 							return
@@ -125,6 +127,12 @@ func (s *serviceClient) showProfilesUI() {
 				)
 			}
 
+			logoutBtn.Show()
+			logoutBtn.SetText("Deregister")
+			logoutBtn.OnTapped = func() {
+				s.handleProfileLogout(profile.Name, refresh)
+			}
+
 			// Remove profile
 			removeBtn.SetText("Remove")
 			removeBtn.OnTapped = func() {
@@ -135,7 +143,7 @@ func (s *serviceClient) showProfilesUI() {
 						if !confirm {
 							return
 						}
-						// remove
+
 						err = s.removeProfile(profile.Name)
 						if err != nil {
 							log.Errorf("failed to remove profile: %v", err)
@@ -230,7 +238,7 @@ func (s *serviceClient) addProfile(profileName string) error {
 		return fmt.Errorf("get current user: %w", err)
 	}
 
-	_, err = conn.AddProfile(context.Background(), &proto.AddProfileRequest{
+	_, err = conn.AddProfile(s.ctx, &proto.AddProfileRequest{
 		ProfileName: profileName,
 		Username:    currUser.Username,
 	})
@@ -253,7 +261,7 @@ func (s *serviceClient) switchProfile(profileName string) error {
 		return fmt.Errorf("get current user: %w", err)
 	}
 
-	if _, err := conn.SwitchProfile(context.Background(), &proto.SwitchProfileRequest{
+	if _, err := conn.SwitchProfile(s.ctx, &proto.SwitchProfileRequest{
 		ProfileName: &profileName,
 		Username:    &currUser.Username,
 	}); err != nil {
@@ -279,7 +287,7 @@ func (s *serviceClient) removeProfile(profileName string) error {
 		return fmt.Errorf("get current user: %w", err)
 	}
 
-	_, err = conn.RemoveProfile(context.Background(), &proto.RemoveProfileRequest{
+	_, err = conn.RemoveProfile(s.ctx, &proto.RemoveProfileRequest{
 		ProfileName: profileName,
 		Username:    currUser.Username,
 	})
@@ -305,7 +313,7 @@ func (s *serviceClient) getProfiles() ([]Profile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get current user: %w", err)
 	}
-	profilesResp, err := conn.ListProfiles(context.Background(), &proto.ListProfilesRequest{
+	profilesResp, err := conn.ListProfiles(s.ctx, &proto.ListProfilesRequest{
 		Username: currUser.Username,
 	})
 	if err != nil {
@@ -324,6 +332,52 @@ func (s *serviceClient) getProfiles() ([]Profile, error) {
 	return profiles, nil
 }
 
+func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback func()) {
+	dialog.ShowConfirm(
+		"Deregister",
+		fmt.Sprintf("Are you sure you want to deregister from '%s'?", profileName),
+		func(confirm bool) {
+			if !confirm {
+				return
+			}
+
+			conn, err := s.getSrvClient(defaultFailTimeout)
+			if err != nil {
+				log.Errorf("failed to get service client: %v", err)
+				dialog.ShowError(fmt.Errorf("failed to connect to service"), s.wProfiles)
+				return
+			}
+
+			currUser, err := user.Current()
+			if err != nil {
+				log.Errorf("failed to get current user: %v", err)
+				dialog.ShowError(fmt.Errorf("failed to get current user"), s.wProfiles)
+				return
+			}
+
+			username := currUser.Username
+			_, err = conn.Logout(s.ctx, &proto.LogoutRequest{
+				ProfileName: &profileName,
+				Username:    &username,
+			})
+			if err != nil {
+				log.Errorf("logout failed: %v", err)
+				dialog.ShowError(fmt.Errorf("deregister failed"), s.wProfiles)
+				return
+			}
+
+			dialog.ShowInformation(
+				"Deregistered",
+				fmt.Sprintf("Successfully deregistered from '%s'", profileName),
+				s.wProfiles,
+			)
+
+			refreshCallback()
+		},
+		s.wProfiles,
+	)
+}
+
 type subItem struct {
 	*systray.MenuItem
 	ctx    context.Context
@@ -339,6 +393,7 @@ type profileMenu struct {
 	emailMenuItem         *systray.MenuItem
 	profileSubItems       []*subItem
 	manageProfilesSubItem *subItem
+	logoutSubItem         *subItem
 	profilesState         []Profile
 	downClickCallback     func() error
 	upClickCallback       func() error
@@ -533,15 +588,38 @@ func (p *profileMenu) refresh() {
 		for {
 			select {
 			case <-ctx.Done():
-				return // context cancelled
+				return
 			case _, ok := <-manageItem.ClickedCh:
 				if !ok {
-					return // channel closed
+					return
 				}
-				// Handle manage profiles click
 				p.eventHandler.runSelfCommand(p.ctx, "profiles", "true")
 				p.refresh()
 				p.loadSettingsCallback()
+			}
+		}
+	}()
+
+	// Add Logout menu item
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	logoutItem := p.profileMenuItem.AddSubMenuItem("Deregister", "")
+	p.logoutSubItem = &subItem{logoutItem, ctx2, cancel2}
+
+	go func() {
+		for {
+			select {
+			case <-ctx2.Done():
+				return
+			case _, ok := <-logoutItem.ClickedCh:
+				if !ok {
+					return
+				}
+				if err := p.eventHandler.logout(p.ctx); err != nil {
+					log.Errorf("logout failed: %v", err)
+					p.app.SendNotification(fyne.NewNotification("Error", "Failed to deregister"))
+				} else {
+					p.app.SendNotification(fyne.NewNotification("Success", "Deregistered successfully"))
+				}
 			}
 		}
 	}()
@@ -556,7 +634,6 @@ func (p *profileMenu) refresh() {
 }
 
 func (p *profileMenu) clear(profiles []Profile) {
-	// Clear existing profile items
 	for _, item := range p.profileSubItems {
 		item.Remove()
 		item.cancel()
@@ -565,10 +642,15 @@ func (p *profileMenu) clear(profiles []Profile) {
 	p.profilesState = profiles
 
 	if p.manageProfilesSubItem != nil {
-		// Remove the manage profiles item if it exists
 		p.manageProfilesSubItem.Remove()
 		p.manageProfilesSubItem.cancel()
 		p.manageProfilesSubItem = nil
+	}
+
+	if p.logoutSubItem != nil {
+		p.logoutSubItem.Remove()
+		p.logoutSubItem.cancel()
+		p.logoutSubItem = nil
 	}
 }
 

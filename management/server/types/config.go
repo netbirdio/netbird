@@ -3,7 +3,7 @@ package types
 import (
 	"net/netip"
 
-	"github.com/netbirdio/netbird/management/client/common"
+	"github.com/netbirdio/netbird/shared/management/client/common"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/util"
 )
@@ -53,7 +53,7 @@ type Config struct {
 	StoreConfig StoreConfig
 
 	ReverseProxy ReverseProxy
-	
+
 	// disable default all-to-all policy
 	DisableDefaultPolicy bool
 }

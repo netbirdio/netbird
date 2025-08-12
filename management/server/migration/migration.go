@@ -15,6 +15,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func GetColumnName(db *gorm.DB, column string) string {
@@ -36,6 +37,11 @@ func MigrateFieldFromGobToJSON[T any, S any](ctx context.Context, db *gorm.DB, f
 
 	if !db.Migrator().HasTable(&model) {
 		log.WithContext(ctx).Debugf("Table for %T does not exist, no migration needed", model)
+		return nil
+	}
+
+	if !db.Migrator().HasColumn(&model, fieldName) {
+		log.WithContext(ctx).Debugf("Table for %T does not have column %s, no migration needed", model, fieldName)
 		return nil
 	}
 
@@ -420,5 +426,64 @@ func CreateIndexIfNotExists[T any](ctx context.Context, db *gorm.DB, indexName s
 	}
 
 	log.WithContext(ctx).Infof("successfully created index %s on table %s", indexName, tableName)
+	return nil
+}
+
+func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName string, mapperFunc func(accountID string, id string, value string) any) error {
+	var model T
+
+	if !db.Migrator().HasTable(&model) {
+		log.WithContext(ctx).Debugf("table for %T does not exist, no migration needed", model)
+		return nil
+	}
+
+	stmt := &gorm.Statement{DB: db}
+	err := stmt.Parse(&model)
+	if err != nil {
+		return fmt.Errorf("parse model: %w", err)
+	}
+	tableName := stmt.Schema.Table
+
+	if !db.Migrator().HasColumn(&model, columnName) {
+		log.WithContext(ctx).Debugf("column %s does not exist in table %s, no migration needed", columnName, tableName)
+		return nil
+	}
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		var rows []map[string]any
+		if err := tx.Table(tableName).Select("id", "account_id", columnName).Find(&rows).Error; err != nil {
+			return fmt.Errorf("find rows: %w", err)
+		}
+
+		for _, row := range rows {
+			jsonValue, ok := row[columnName].(string)
+			if !ok || jsonValue == "" {
+				continue
+			}
+
+			var data []string
+			if err := json.Unmarshal([]byte(jsonValue), &data); err != nil {
+				return fmt.Errorf("unmarshal json: %w", err)
+			}
+
+			for _, value := range data {
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(
+					mapperFunc(row["account_id"].(string), row["id"].(string), value),
+				).Error; err != nil {
+					return fmt.Errorf("failed to insert id %v: %w", row["id"], err)
+				}
+			}
+		}
+
+		if err := tx.Migrator().DropColumn(&model, columnName); err != nil {
+			return fmt.Errorf("drop column %s: %w", columnName, err)
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Infof("Migration of JSON field %s from table %s into separate table completed", columnName, tableName)
 	return nil
 }

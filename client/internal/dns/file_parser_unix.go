@@ -16,7 +16,7 @@ const (
 )
 
 type resolvConf struct {
-	nameServers   []string
+	nameServers   []netip.Addr
 	searchDomains []string
 	others        []string
 }
@@ -36,7 +36,7 @@ func parseBackupResolvConf() (*resolvConf, error) {
 func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 	rconf := &resolvConf{
 		searchDomains: make([]string, 0),
-		nameServers:   make([]string, 0),
+		nameServers:   make([]netip.Addr, 0),
 		others:        make([]string, 0),
 	}
 
@@ -94,7 +94,11 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 			if len(splitLines) != 2 {
 				continue
 			}
-			rconf.nameServers = append(rconf.nameServers, splitLines[1])
+			if addr, err := netip.ParseAddr(splitLines[1]); err == nil {
+				rconf.nameServers = append(rconf.nameServers, addr.Unmap())
+			} else {
+				log.Warnf("invalid nameserver address in resolv.conf: %s, skipping", splitLines[1])
+			}
 			continue
 		}
 
@@ -103,32 +107,4 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 		}
 	}
 	return rconf, nil
-}
-
-// removeFirstNbNameserver removes the given nameserver from the given file if it is in the first position
-// and writes the file back to the original location
-func removeFirstNbNameserver(filename string, nameserverIP netip.Addr) error {
-	resolvConf, err := parseResolvConfFile(filename)
-	if err != nil {
-		return fmt.Errorf("parse backup resolv.conf: %w", err)
-	}
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", filename, err)
-	}
-
-	if len(resolvConf.nameServers) > 1 && resolvConf.nameServers[0] == nameserverIP.String() {
-		newContent := strings.Replace(string(content), fmt.Sprintf("nameserver %s\n", nameserverIP), "", 1)
-
-		stat, err := os.Stat(filename)
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", filename, err)
-		}
-		if err := os.WriteFile(filename, []byte(newContent), stat.Mode()); err != nil {
-			return fmt.Errorf("write %s: %w", filename, err)
-		}
-
-	}
-
-	return nil
 }

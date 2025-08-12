@@ -32,7 +32,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
@@ -97,9 +97,9 @@ func init() {
 }
 
 func generateDummyHandler(domain string, servers []nbdns.NameServer) *upstreamResolverBase {
-	var srvs []string
+	var srvs []netip.AddrPort
 	for _, srv := range servers {
-		srvs = append(srvs, getNSHostPort(srv))
+		srvs = append(srvs, srv.AddrPort())
 	}
 	return &upstreamResolverBase{
 		domain:          domain,
@@ -705,7 +705,7 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 	}
 	defer wgIFace.Close()
 
-	var dnsList []string
+	var dnsList []netip.AddrPort
 	dnsConfig := nbdns.Config{}
 	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, dnsList, dnsConfig, nil, peer.NewRecorder("mgm"), false)
 	err = dnsServer.Initialize()
@@ -715,7 +715,8 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 	}
 	defer dnsServer.Stop()
 
-	dnsServer.OnUpdatedHostDNSServer([]string{"8.8.8.8"})
+	addrPort := netip.MustParseAddrPort("8.8.8.8:53")
+	dnsServer.OnUpdatedHostDNSServer([]netip.AddrPort{addrPort})
 
 	resolver := newDnsResolver(dnsServer.service.RuntimeIP(), dnsServer.service.RuntimePort())
 	_, err = resolver.LookupHost(context.Background(), "netbird.io")
@@ -731,7 +732,8 @@ func TestDNSPermanent_updateUpstream(t *testing.T) {
 	}
 	defer wgIFace.Close()
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
+	addrPort := netip.MustParseAddrPort("8.8.8.8:53")
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []netip.AddrPort{addrPort}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -823,7 +825,8 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 	}
 	defer wgIFace.Close()
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
+	addrPort := netip.MustParseAddrPort("8.8.8.8:53")
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []netip.AddrPort{addrPort}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
