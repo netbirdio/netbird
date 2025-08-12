@@ -68,6 +68,7 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 	// Once we migrate the peer approval to settings manager this merging is obsolete
 	if settings.Extra != nil {
 		settings.Extra.FlowEnabled = extraSettings.FlowEnabled
+		settings.Extra.FlowGroups = extraSettings.FlowGroups
 		settings.Extra.FlowPacketCounterEnabled = extraSettings.FlowPacketCounterEnabled
 		settings.Extra.FlowENCollectionEnabled = extraSettings.FlowENCollectionEnabled
 		settings.Extra.FlowDnsCollectionEnabled = extraSettings.FlowDnsCollectionEnabled
@@ -93,6 +94,7 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 	}
 
 	settings.Extra.FlowEnabled = extraSettings.FlowEnabled
+	settings.Extra.FlowGroups = extraSettings.FlowGroups
 
 	return settings.Extra, nil
 }
