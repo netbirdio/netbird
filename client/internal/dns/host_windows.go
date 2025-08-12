@@ -216,7 +216,7 @@ func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
 		return fmt.Errorf("adding dns setup for all failed: %w", err)
 	}
 	r.routingAll = true
-	log.Infof("configured %s:53 as main DNS forwarder for this peer", ip)
+	log.Infof("configured %s:%d as main DNS forwarder for this peer", ip, DefaultPort)
 	return nil
 }
 

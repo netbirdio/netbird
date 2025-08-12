@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -48,7 +49,7 @@ type upstreamResolverBase struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	upstreamClient   upstreamClient
-	upstreamServers  []string
+	upstreamServers  []netip.AddrPort
 	domain           string
 	disabled         bool
 	failsCount       atomic.Int32
@@ -79,17 +80,20 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, d
 
 // String returns a string representation of the upstream resolver
 func (u *upstreamResolverBase) String() string {
-	return fmt.Sprintf("upstream %v", u.upstreamServers)
+	return fmt.Sprintf("upstream %s", u.upstreamServers)
 }
 
 // ID returns the unique handler ID
 func (u *upstreamResolverBase) ID() types.HandlerID {
 	servers := slices.Clone(u.upstreamServers)
-	slices.Sort(servers)
+	slices.SortFunc(servers, func(a, b netip.AddrPort) int { return a.Compare(b) })
 
 	hash := sha256.New()
 	hash.Write([]byte(u.domain + ":"))
-	hash.Write([]byte(strings.Join(servers, ",")))
+	for _, s := range servers {
+		hash.Write([]byte(s.String()))
+		hash.Write([]byte("|"))
+	}
 	return types.HandlerID("upstream-" + hex.EncodeToString(hash.Sum(nil)[:8]))
 }
 
@@ -130,7 +134,7 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		func() {
 			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
 			defer cancel()
-			rm, t, err = u.upstreamClient.exchange(ctx, upstream, r)
+			rm, t, err = u.upstreamClient.exchange(ctx, upstream.String(), r)
 		}()
 
 		if err != nil {
@@ -197,7 +201,7 @@ func (u *upstreamResolverBase) checkUpstreamFails(err error) {
 		proto.SystemEvent_DNS,
 		"All upstream servers failed (fail count exceeded)",
 		"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
-		map[string]string{"upstreams": strings.Join(u.upstreamServers, ", ")},
+		map[string]string{"upstreams": u.upstreamServersString()},
 		// TODO add domain meta
 	)
 }
@@ -258,7 +262,7 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 			proto.SystemEvent_DNS,
 			"All upstream servers failed (probe failed)",
 			"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
-			map[string]string{"upstreams": strings.Join(u.upstreamServers, ", ")},
+			map[string]string{"upstreams": u.upstreamServersString()},
 		)
 	}
 }
@@ -278,7 +282,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 	operation := func() error {
 		select {
 		case <-u.ctx.Done():
-			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop for upstreams %s: parent context has been canceled", u.upstreamServers))
+			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop for upstreams %s: parent context has been canceled", u.upstreamServersString()))
 		default:
 		}
 
@@ -291,7 +295,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 			}
 		}
 
-		log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServers, exponentialBackOff.NextBackOff())
+		log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServersString(), exponentialBackOff.NextBackOff())
 		return fmt.Errorf("upstream check call error")
 	}
 
@@ -301,7 +305,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		return
 	}
 
-	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
+	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServersString())
 	u.failsCount.Store(0)
 	u.successCount.Add(1)
 	u.reactivate()
@@ -331,13 +335,21 @@ func (u *upstreamResolverBase) disable(err error) {
 	go u.waitUntilResponse()
 }
 
-func (u *upstreamResolverBase) testNameserver(server string, timeout time.Duration) error {
+func (u *upstreamResolverBase) upstreamServersString() string {
+	var servers []string
+	for _, server := range u.upstreamServers {
+		servers = append(servers, server.String())
+	}
+	return strings.Join(servers, ", ")
+}
+
+func (u *upstreamResolverBase) testNameserver(server netip.AddrPort, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(u.ctx, timeout)
 	defer cancel()
 
 	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
 
-	_, _, err := u.upstreamClient.exchange(ctx, server, r)
+	_, _, err := u.upstreamClient.exchange(ctx, server.String(), r)
 	return err
 }
 

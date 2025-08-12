@@ -12,14 +12,15 @@ import (
 )
 
 var logoutCmd = &cobra.Command{
-	Use:   "logout",
-	Short: "logout from the Netbird Management Service and delete peer",
+	Use:     "deregister",
+	Aliases: []string{"logout"},
+	Short:   "deregister from the NetBird Management Service and delete peer",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
 
 		cmd.SetOut(cmd.OutOrStdout())
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*7)
+		ctx, cancel := context.WithTimeout(cmd.Context(), time.Second*15)
 		defer cancel()
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
@@ -44,10 +45,10 @@ var logoutCmd = &cobra.Command{
 		}
 
 		if _, err := daemonClient.Logout(ctx, req); err != nil {
-			return fmt.Errorf("logout: %v", err)
+			return fmt.Errorf("deregister: %v", err)
 		}
 
-		cmd.Println("Logged out successfully")
+		cmd.Println("Deregistered successfully")
 		return nil
 	},
 }

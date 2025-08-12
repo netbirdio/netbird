@@ -53,7 +53,7 @@ func (m *managerImpl) GetAllGroups(ctx context.Context, accountID, userID string
 		return nil, err
 	}
 
-	groups, err := m.store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+	groups, err := m.store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting account groups: %w", err)
 	}
@@ -100,13 +100,13 @@ func (m *managerImpl) AddResourceToGroupInTransaction(ctx context.Context, trans
 		return nil, fmt.Errorf("error adding resource to group: %w", err)
 	}
 
-	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthShare, accountID, groupID)
+	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting group: %w", err)
 	}
 
 	// TODO: at some point, this will need to become a switch statement
-	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, resource.ID)
+	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, resource.ID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting network resource: %w", err)
 	}
@@ -124,13 +124,13 @@ func (m *managerImpl) RemoveResourceFromGroupInTransaction(ctx context.Context, 
 		return nil, fmt.Errorf("error removing resource from group: %w", err)
 	}
 
-	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthShare, accountID, groupID)
+	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting group: %w", err)
 	}
 
 	// TODO: at some point, this will need to become a switch statement
-	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, resourceID)
+	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, resourceID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting network resource: %w", err)
 	}
