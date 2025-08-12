@@ -21,6 +21,7 @@ type Manager interface {
 	AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resourceID *types.Resource) error
 	AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID string, resourceID *types.Resource) (func(), error)
 	RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID, resourceID string) (func(), error)
+	GetPeerGroupIDs(ctx context.Context, accountID, peerID string) ([]string, error)
 }
 
 type managerImpl struct {
@@ -142,6 +143,10 @@ func (m *managerImpl) GetResourceGroupsInTransaction(ctx context.Context, transa
 	return transaction.GetResourceGroups(ctx, lockingStrength, accountID, resourceID)
 }
 
+func (m *managerImpl) GetPeerGroupIDs(ctx context.Context, accountID, peerID string) ([]string, error) {
+	return m.store.GetPeerGroupIDs(ctx, store.LockingStrengthShare, accountID, peerID)
+}
+
 func ToGroupsInfoMap(groups []*types.Group, idCount int) map[string][]api.GroupMinimum {
 	groupsInfoMap := make(map[string][]api.GroupMinimum, idCount)
 	groupsChecked := make(map[string]struct{}, len(groups)) // not sure why this is needed (left over from old implementation)
@@ -200,6 +205,10 @@ func (m *mockManager) RemoveResourceFromGroupInTransaction(ctx context.Context, 
 	return func() {
 		// noop
 	}, nil
+}
+
+func (m *mockManager) GetPeerGroupIDs(ctx context.Context, accountID, peerID string) ([]string, error) {
+	return []string{}, nil
 }
 
 func NewManagerMock() Manager {
