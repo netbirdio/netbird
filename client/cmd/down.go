@@ -20,7 +20,7 @@ var downCmd = &cobra.Command{
 
 		cmd.SetOut(cmd.OutOrStdout())
 
-		err := util.InitLog(logLevel, "console")
+		err := util.InitLog(logLevel, util.LogConsole)
 		if err != nil {
 			log.Errorf("failed initializing log %v", err)
 			return err

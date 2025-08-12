@@ -10,9 +10,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -255,23 +255,12 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 		}
 
 		// validate policy object
-		switch pr.Protocol {
-		case types.PolicyRuleProtocolALL, types.PolicyRuleProtocolICMP:
+		if pr.Protocol == types.PolicyRuleProtocolALL || pr.Protocol == types.PolicyRuleProtocolICMP {
 			if len(pr.Ports) != 0 || len(pr.PortRanges) != 0 {
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
 				return
 			}
-			if !pr.Bidirectional {
-				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
-				return
-			}
-		case types.PolicyRuleProtocolTCP, types.PolicyRuleProtocolUDP:
-			if !pr.Bidirectional && (len(pr.Ports) == 0 || len(pr.PortRanges) != 0) {
-				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
-				return
-			}
 		}
-
 		policy.Rules = append(policy.Rules, &pr)
 	}
 
@@ -435,9 +424,10 @@ func toPolicyResponse(groups []*types.Group, policy *types.Policy) *api.Policy {
 			}
 			if group, ok := groupsMap[gid]; ok {
 				minimum := api.GroupMinimum{
-					Id:         group.ID,
-					Name:       group.Name,
-					PeersCount: len(group.Peers),
+					Id:             group.ID,
+					Name:           group.Name,
+					PeersCount:     len(group.Peers),
+					ResourcesCount: len(group.Resources),
 				}
 				destinations = append(destinations, minimum)
 				cache[gid] = minimum

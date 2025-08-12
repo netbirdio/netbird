@@ -6,3 +6,14 @@ package debug
 func (g *BundleGenerator) addFirewallRules() error {
 	return nil
 }
+
+func (g *BundleGenerator) trySystemdLogFallback() error {
+	// Systemd is only available on Linux
+	// TODO: Add BSD support
+	return nil
+}
+
+func (g *BundleGenerator) addIPRules() error {
+	// IP rules are only supported on Linux
+	return nil
+}

@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func Test_parseResolvConf(t *testing.T) {
@@ -97,9 +95,13 @@ options debug
 				t.Errorf("invalid parse result for search domains, expected: %v, got: %v", testCase.expectedSearch, cfg.searchDomains)
 			}
 
-			ok = compareLists(cfg.nameServers, testCase.expectedNS)
+			nsStrings := make([]string, len(cfg.nameServers))
+			for i, ns := range cfg.nameServers {
+				nsStrings[i] = ns.String()
+			}
+			ok = compareLists(nsStrings, testCase.expectedNS)
 			if !ok {
-				t.Errorf("invalid parse result for ns domains, expected: %v, got: %v", testCase.expectedNS, cfg.nameServers)
+				t.Errorf("invalid parse result for ns domains, expected: %v, got: %v", testCase.expectedNS, nsStrings)
 			}
 
 			ok = compareLists(cfg.others, testCase.expectedOther)
@@ -175,130 +177,3 @@ nameserver 192.168.0.1
 	}
 }
 
-func TestPrepareOptionsWithTimeout(t *testing.T) {
-	tests := []struct {
-		name     string
-		others   []string
-		timeout  int
-		attempts int
-		expected []string
-	}{
-		{
-			name:     "Append new options with timeout and attempts",
-			others:   []string{"some config"},
-			timeout:  2,
-			attempts: 2,
-			expected: []string{"some config", "options timeout:2 attempts:2"},
-		},
-		{
-			name:     "Modify existing options to exclude rotate and include timeout and attempts",
-			others:   []string{"some config", "options rotate someother"},
-			timeout:  3,
-			attempts: 2,
-			expected: []string{"some config", "options attempts:2 timeout:3 someother"},
-		},
-		{
-			name:     "Existing options with timeout and attempts are updated",
-			others:   []string{"some config", "options timeout:4 attempts:3"},
-			timeout:  5,
-			attempts: 4,
-			expected: []string{"some config", "options timeout:5 attempts:4"},
-		},
-		{
-			name:     "Modify existing options, add missing attempts before timeout",
-			others:   []string{"some config", "options timeout:4"},
-			timeout:  4,
-			attempts: 3,
-			expected: []string{"some config", "options attempts:3 timeout:4"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := prepareOptionsWithTimeout(tc.others, tc.timeout, tc.attempts)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
-
-func TestRemoveFirstNbNameserver(t *testing.T) {
-	testCases := []struct {
-		name       string
-		content    string
-		ipToRemove string
-		expected   string
-	}{
-		{
-			name: "Unrelated nameservers with comments and options",
-			content: `# This is a comment
-options rotate
-nameserver 1.1.1.1
-# Another comment
-nameserver 8.8.4.4
-search example.com`,
-			ipToRemove: "9.9.9.9",
-			expected: `# This is a comment
-options rotate
-nameserver 1.1.1.1
-# Another comment
-nameserver 8.8.4.4
-search example.com`,
-		},
-		{
-			name: "First nameserver matches",
-			content: `search example.com
-nameserver 9.9.9.9
-# oof, a comment
-nameserver 8.8.4.4
-options attempts:5`,
-			ipToRemove: "9.9.9.9",
-			expected: `search example.com
-# oof, a comment
-nameserver 8.8.4.4
-options attempts:5`,
-		},
-		{
-			name: "Target IP not the first nameserver",
-			// nolint:dupword
-			content: `# Comment about the first nameserver
-nameserver 8.8.4.4
-# Comment before our target
-nameserver 9.9.9.9
-options timeout:2`,
-			ipToRemove: "9.9.9.9",
-			// nolint:dupword
-			expected: `# Comment about the first nameserver
-nameserver 8.8.4.4
-# Comment before our target
-nameserver 9.9.9.9
-options timeout:2`,
-		},
-		{
-			name: "Only nameserver matches",
-			content: `options debug
-nameserver 9.9.9.9
-search localdomain`,
-			ipToRemove: "9.9.9.9",
-			expected: `options debug
-nameserver 9.9.9.9
-search localdomain`,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			tempDir := t.TempDir()
-			tempFile := filepath.Join(tempDir, "resolv.conf")
-			err := os.WriteFile(tempFile, []byte(tc.content), 0644)
-			assert.NoError(t, err)
-
-			err = removeFirstNbNameserver(tempFile, tc.ipToRemove)
-			assert.NoError(t, err)
-
-			content, err := os.ReadFile(tempFile)
-			assert.NoError(t, err)
-
-			assert.Equal(t, tc.expected, string(content), "The resulting content should match the expected output.")
-		})
-	}
-}

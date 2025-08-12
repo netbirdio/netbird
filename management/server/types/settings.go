@@ -1,6 +1,7 @@
 package types
 
 import (
+	"net/netip"
 	"time"
 )
 
@@ -42,8 +43,14 @@ type Settings struct {
 	// DNSDomain is the custom domain for that account
 	DNSDomain string
 
+	// NetworkRange is the custom network range for that account
+	NetworkRange netip.Prefix `gorm:"serializer:json"`
+
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
+
+	// LazyConnectionEnabled indicates if the experimental feature is enabled or disabled
+	LazyConnectionEnabled bool `gorm:"default:false"`
 }
 
 // Copy copies the Settings struct
@@ -61,7 +68,9 @@ func (s *Settings) Copy() *Settings {
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,
 
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
+		LazyConnectionEnabled:           s.LazyConnectionEnabled,
 		DNSDomain:                       s.DNSDomain,
+		NetworkRange:                    s.NetworkRange,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
@@ -73,6 +82,8 @@ type ExtraSettings struct {
 	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
 	PeerApprovalEnabled bool
 
+	// IntegratedValidator is the string enum for the integrated validator type
+	IntegratedValidator string
 	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
 	IntegratedValidatorGroups []string `gorm:"serializer:json"`
 
@@ -89,5 +100,10 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 	return &ExtraSettings{
 		PeerApprovalEnabled:       e.PeerApprovalEnabled,
 		IntegratedValidatorGroups: append(cpGroup, e.IntegratedValidatorGroups...),
+		IntegratedValidator:       e.IntegratedValidator,
+		FlowEnabled:               e.FlowEnabled,
+		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
+		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
+		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,
 	}
 }

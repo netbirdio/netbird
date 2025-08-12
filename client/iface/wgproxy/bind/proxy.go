@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
 type ProxyBind struct {
@@ -28,6 +29,17 @@ type ProxyBind struct {
 	pausedMu  sync.Mutex
 	paused    bool
 	isStarted bool
+
+	closeListener *listener.CloseListener
+}
+
+func NewProxyBind(bind *bind.ICEBind) *ProxyBind {
+	p := &ProxyBind{
+		Bind:          bind,
+		closeListener: listener.NewCloseListener(),
+	}
+
+	return p
 }
 
 // AddTurnConn adds a new connection to the bind.
@@ -52,6 +64,10 @@ func (p *ProxyBind) EndpointAddr() *net.UDPAddr {
 		Port: int(p.fakeNetIP.Port()),
 		Zone: p.fakeNetIP.Addr().Zone(),
 	}
+}
+
+func (p *ProxyBind) SetDisconnectListener(disconnected func()) {
+	p.closeListener.SetCloseListener(disconnected)
 }
 
 func (p *ProxyBind) Work() {
@@ -96,6 +112,9 @@ func (p *ProxyBind) close() error {
 	if p.closed {
 		return nil
 	}
+
+	p.closeListener.SetCloseListener(nil)
+
 	p.closed = true
 
 	p.cancel()
@@ -122,6 +141,7 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
+			p.closeListener.Notify()
 			log.Errorf("failed to read from remote conn: %s, %s", p.remoteConn.RemoteAddr(), err)
 			return
 		}
@@ -151,7 +171,7 @@ func fakeAddress(peerAddress *net.UDPAddr) (*netip.AddrPort, error) {
 
 	fakeIP, err := netip.ParseAddr(fmt.Sprintf("127.1.%s.%s", octets[2], octets[3]))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse new IP: %w", err)
+		return nil, fmt.Errorf("parse new IP: %w", err)
 	}
 
 	netipAddr := netip.AddrPortFrom(fakeIP, uint16(peerAddress.Port))

@@ -6,15 +6,12 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
-	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel/metric"
-
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/relay/auth"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/quic"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
-	quictls "github.com/netbirdio/netbird/relay/tls"
+	quictls "github.com/netbirdio/netbird/shared/relay/tls"
+	log "github.com/sirupsen/logrus"
 )
 
 // ListenerConfig is the configuration for the listener.
@@ -33,13 +30,22 @@ type Server struct {
 	listeners []listener.Listener
 }
 
-// NewServer creates a new relay server instance.
-// meter: the OpenTelemetry meter
-// exposedAddress: this address will be used as the instance URL. It should be a domain:port format.
-// tlsSupport: if true, the server will support TLS
-// authValidator: the auth validator to use for the server
-func NewServer(meter metric.Meter, exposedAddress string, tlsSupport bool, authValidator auth.Validator) (*Server, error) {
-	relay, err := NewRelay(meter, exposedAddress, tlsSupport, authValidator)
+// NewServer creates and returns a new relay server instance.
+//
+// Parameters:
+//
+//	config: A Config struct containing the necessary configuration:
+//	  - Meter: An OpenTelemetry metric.Meter used for recording metrics. If nil, a default no-op meter is used.
+//	  - ExposedAddress: The public address (in domain:port format) used as the server's instance URL. Required.
+//	  - TLSSupport: A boolean indicating whether TLS is enabled for the server.
+//	  - AuthValidator: A Validator used to authenticate peers. Required.
+//
+// Returns:
+//
+//	A pointer to a Server instance and an error. If the configuration is valid and initialization succeeds,
+//	the returned error will be nil. Otherwise, the error will describe the problem.
+func NewServer(config Config) (*Server, error) {
+	relay, err := NewRelay(config)
 	if err != nil {
 		return nil, err
 	}

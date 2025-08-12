@@ -57,7 +57,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		address := netHeader.DestinationAddress()
 		err := e.device.CreateOutboundPacket(data.AsSlice(), address.AsSlice())
 		if err != nil {
-			e.logger.Error("CreateOutboundPacket: %v", err)
+			e.logger.Error1("CreateOutboundPacket: %v", err)
 			continue
 		}
 		written++
@@ -86,5 +86,5 @@ type epID stack.TransportEndpointID
 
 func (i epID) String() string {
 	// src and remote is swapped
-	return fmt.Sprintf("%s:%d -> %s:%d", i.RemoteAddress, i.RemotePort, i.LocalAddress, i.LocalPort)
+	return fmt.Sprintf("%s:%d → %s:%d", i.RemoteAddress, i.RemotePort, i.LocalAddress, i.LocalPort)
 }

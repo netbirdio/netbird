@@ -20,14 +20,14 @@ type Peer struct {
 	// WireGuard public key
 	Key string `gorm:"index"`
 	// IP address of the Peer
-	IP net.IP `gorm:"serializer:json"`
+	IP net.IP `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
 	Name string
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
 	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
-	DNSLabel string
+	DNSLabel string // uniqueness index per accountID (check migrations)
 	// Status peer's management connection status
 	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_"`
 	// The user ID that registered the peer
@@ -94,6 +94,22 @@ type File struct {
 	ProcessIsRunning bool
 }
 
+// Flags defines a set of options to control feature behavior
+type Flags struct {
+	RosenpassEnabled    bool
+	RosenpassPermissive bool
+	ServerSSHAllowed    bool
+
+	DisableClientRoutes bool
+	DisableServerRoutes bool
+	DisableDNS          bool
+	DisableFirewall     bool
+	BlockLANAccess      bool
+	BlockInbound        bool
+
+	LazyConnectionEnabled bool
+}
+
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct { //nolint:revive
 	Hostname           string
@@ -111,6 +127,7 @@ type PeerSystemMeta struct { //nolint:revive
 	SystemProductName  string
 	SystemManufacturer string
 	Environment        Environment `gorm:"serializer:json"`
+	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
 }
 
@@ -155,7 +172,8 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.SystemProductName == other.SystemProductName &&
 		p.SystemManufacturer == other.SystemManufacturer &&
 		p.Environment.Cloud == other.Environment.Cloud &&
-		p.Environment.Platform == other.Environment.Platform
+		p.Environment.Platform == other.Environment.Platform &&
+		p.Flags.isEqual(other.Flags)
 }
 
 func (p PeerSystemMeta) isEmpty() bool {
@@ -314,4 +332,17 @@ func (p *Peer) UpdateLastLogin() *Peer {
 	newStatus.LoginExpired = false
 	p.Status = newStatus
 	return p
+}
+
+func (f Flags) isEqual(other Flags) bool {
+	return f.RosenpassEnabled == other.RosenpassEnabled &&
+		f.RosenpassPermissive == other.RosenpassPermissive &&
+		f.ServerSSHAllowed == other.ServerSSHAllowed &&
+		f.DisableClientRoutes == other.DisableClientRoutes &&
+		f.DisableServerRoutes == other.DisableServerRoutes &&
+		f.DisableDNS == other.DisableDNS &&
+		f.DisableFirewall == other.DisableFirewall &&
+		f.BlockLANAccess == other.BlockLANAccess &&
+		f.BlockInbound == other.BlockInbound &&
+		f.LazyConnectionEnabled == other.LazyConnectionEnabled
 }

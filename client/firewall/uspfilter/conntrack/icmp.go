@@ -3,6 +3,7 @@ package conntrack
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"sync"
 	"time"
@@ -19,6 +20,10 @@ const (
 	DefaultICMPTimeout = 30 * time.Second
 	// ICMPCleanupInterval is how often we check for stale ICMP connections
 	ICMPCleanupInterval = 15 * time.Second
+
+	// MaxICMPPayloadLength is the maximum length of ICMP payload we consider for original packet info,
+	// which includes the IP header (20 bytes) and transport header (8 bytes)
+	MaxICMPPayloadLength = 28
 )
 
 // ICMPConnKey uniquely identifies an ICMP connection
@@ -29,7 +34,7 @@ type ICMPConnKey struct {
 }
 
 func (i ICMPConnKey) String() string {
-	return fmt.Sprintf("%s -> %s (id %d)", i.SrcIP, i.DstIP, i.ID)
+	return fmt.Sprintf("%s → %s (id %d)", i.SrcIP, i.DstIP, i.ID)
 }
 
 // ICMPConnTrack represents an ICMP connection state
@@ -48,6 +53,72 @@ type ICMPTracker struct {
 	tickerCancel  context.CancelFunc
 	mutex         sync.RWMutex
 	flowLogger    nftypes.FlowLogger
+}
+
+// ICMPInfo holds ICMP type, code, and payload for lazy string formatting in logs
+type ICMPInfo struct {
+	TypeCode    layers.ICMPv4TypeCode
+	PayloadData [MaxICMPPayloadLength]byte
+	// actual length of valid data
+	PayloadLen int
+}
+
+// String implements fmt.Stringer for lazy evaluation in log messages
+func (info ICMPInfo) String() string {
+	if info.isErrorMessage() && info.PayloadLen >= MaxICMPPayloadLength {
+		if origInfo := info.parseOriginalPacket(); origInfo != "" {
+			return fmt.Sprintf("%s (original: %s)", info.TypeCode, origInfo)
+		}
+	}
+
+	return info.TypeCode.String()
+}
+
+// isErrorMessage returns true if this ICMP type carries original packet info
+func (info ICMPInfo) isErrorMessage() bool {
+	typ := info.TypeCode.Type()
+	return typ == 3 || // Destination Unreachable
+		typ == 5 || // Redirect
+		typ == 11 || // Time Exceeded
+		typ == 12 // Parameter Problem
+}
+
+// parseOriginalPacket extracts info about the original packet from ICMP payload
+func (info ICMPInfo) parseOriginalPacket() string {
+	if info.PayloadLen < MaxICMPPayloadLength {
+		return ""
+	}
+
+	// TODO: handle IPv6
+	if version := (info.PayloadData[0] >> 4) & 0xF; version != 4 {
+		return ""
+	}
+
+	protocol := info.PayloadData[9]
+	srcIP := net.IP(info.PayloadData[12:16])
+	dstIP := net.IP(info.PayloadData[16:20])
+
+	transportData := info.PayloadData[20:]
+
+	switch nftypes.Protocol(protocol) {
+	case nftypes.TCP:
+		srcPort := uint16(transportData[0])<<8 | uint16(transportData[1])
+		dstPort := uint16(transportData[2])<<8 | uint16(transportData[3])
+		return fmt.Sprintf("TCP %s:%d → %s:%d", srcIP, srcPort, dstIP, dstPort)
+
+	case nftypes.UDP:
+		srcPort := uint16(transportData[0])<<8 | uint16(transportData[1])
+		dstPort := uint16(transportData[2])<<8 | uint16(transportData[3])
+		return fmt.Sprintf("UDP %s:%d → %s:%d", srcIP, srcPort, dstIP, dstPort)
+
+	case nftypes.ICMP:
+		icmpType := transportData[0]
+		icmpCode := transportData[1]
+		return fmt.Sprintf("ICMP %s → %s (type %d code %d)", srcIP, dstIP, icmpType, icmpCode)
+
+	default:
+		return fmt.Sprintf("Proto %d %s → %s", protocol, srcIP, dstIP)
+	}
 }
 
 // NewICMPTracker creates a new ICMP connection tracker
@@ -93,30 +164,64 @@ func (t *ICMPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, id uint
 }
 
 // TrackOutbound records an outbound ICMP connection
-func (t *ICMPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, typecode layers.ICMPv4TypeCode, size int) {
+func (t *ICMPTracker) TrackOutbound(
+	srcIP netip.Addr,
+	dstIP netip.Addr,
+	id uint16,
+	typecode layers.ICMPv4TypeCode,
+	payload []byte,
+	size int,
+) {
 	if _, exists := t.updateIfExists(dstIP, srcIP, id, nftypes.Egress, size); !exists {
 		// if (inverted direction) conn is not tracked, track this direction
-		t.track(srcIP, dstIP, id, typecode, nftypes.Egress, nil, size)
+		t.track(srcIP, dstIP, id, typecode, nftypes.Egress, nil, payload, size)
 	}
 }
 
 // TrackInbound records an inbound ICMP Echo Request
-func (t *ICMPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, typecode layers.ICMPv4TypeCode, ruleId []byte, size int) {
-	t.track(srcIP, dstIP, id, typecode, nftypes.Ingress, ruleId, size)
+func (t *ICMPTracker) TrackInbound(
+	srcIP netip.Addr,
+	dstIP netip.Addr,
+	id uint16,
+	typecode layers.ICMPv4TypeCode,
+	ruleId []byte,
+	payload []byte,
+	size int,
+) {
+	t.track(srcIP, dstIP, id, typecode, nftypes.Ingress, ruleId, payload, size)
 }
 
 // track is the common implementation for tracking both inbound and outbound ICMP connections
-func (t *ICMPTracker) track(srcIP netip.Addr, dstIP netip.Addr, id uint16, typecode layers.ICMPv4TypeCode, direction nftypes.Direction, ruleId []byte, size int) {
+func (t *ICMPTracker) track(
+	srcIP netip.Addr,
+	dstIP netip.Addr,
+	id uint16,
+	typecode layers.ICMPv4TypeCode,
+	direction nftypes.Direction,
+	ruleId []byte,
+	payload []byte,
+	size int,
+) {
 	key, exists := t.updateIfExists(srcIP, dstIP, id, direction, size)
 	if exists {
 		return
 	}
 
 	typ, code := typecode.Type(), typecode.Code()
+	icmpInfo := ICMPInfo{
+		TypeCode: typecode,
+	}
+	if len(payload) > 0 {
+		icmpInfo.PayloadLen = len(payload)
+		if icmpInfo.PayloadLen > MaxICMPPayloadLength {
+			icmpInfo.PayloadLen = MaxICMPPayloadLength
+		}
+		copy(icmpInfo.PayloadData[:], payload[:icmpInfo.PayloadLen])
+	}
 
 	// non echo requests don't need tracking
 	if typ != uint8(layers.ICMPv4TypeEchoRequest) {
-		t.logger.Trace("New %s ICMP connection %s type %d code %d", direction, key, typ, code)
+		t.logger.Trace3("New %s ICMP connection %s - %s", direction, key, icmpInfo)
 		t.sendStartEvent(direction, srcIP, dstIP, typ, code, ruleId, size)
 		return
 	}
@@ -138,7 +243,7 @@ func (t *ICMPTracker) track(srcIP netip.Addr, dstIP netip.Addr, id uint16, typec
 	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	t.logger.Trace("New %s ICMP connection %s type %d code %d", direction, key, typ, code)
+	t.logger.Trace3("New %s ICMP connection %s - %s", direction, key, icmpInfo)
 	t.sendEvent(nftypes.TypeStart, conn, ruleId)
 }
 
@@ -189,7 +294,7 @@ func (t *ICMPTracker) cleanup() {
 		if conn.timeoutExceeded(t.timeout) {
 			delete(t.connections, key)
 
-			t.logger.Trace("Removed ICMP connection %s (timeout) [in: %d Pkts/%d B out: %d Pkts/%d B]",
+			t.logger.Trace5("Removed ICMP connection %s (timeout) [in: %d Pkts/%d B out: %d Pkts/%d B]",
 				key, conn.PacketsRx.Load(), conn.BytesRx.Load(), conn.PacketsTx.Load(), conn.BytesTx.Load())
 			t.sendEvent(nftypes.TypeEnd, conn, nil)
 		}

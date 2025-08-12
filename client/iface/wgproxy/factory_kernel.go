@@ -36,9 +36,8 @@ func (w *KernelFactory) GetProxy() Proxy {
 		return udpProxy.NewWGUDPProxy(w.wgPort)
 	}
 
-	return &ebpf.ProxyWrapper{
-		WgeBPFProxy: w.ebpfProxy,
-	}
+	return ebpf.NewProxyWrapper(w.ebpfProxy)
+
 }
 
 func (w *KernelFactory) Free() error {

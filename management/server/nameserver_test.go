@@ -778,8 +778,14 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+
 	permissionsManager := permissions.NewManager(store)
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.selfhosted", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 }
 
 func createNSStore(t *testing.T) (store.Store, error) {
@@ -848,7 +854,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 	userID := testUserID
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), accountID, userID, domain)
+	account := newAccountWithId(context.Background(), accountID, userID, domain, false)
 
 	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
 
@@ -899,13 +905,33 @@ func TestValidateDomain(t *testing.T) {
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Invalid domain name with double hyphen",
-			domain:  "test--example.com",
+			name:    "Valid domain name with only one label",
+			domain:  "example",
+			errFunc: require.NoError,
+		},
+		{
+			name:    "Valid domain name with trailing dot",
+			domain:  "example.",
+			errFunc: require.NoError,
+		},
+		{
+			name:    "Invalid wildcard domain name",
+			domain:  "*.example",
 			errFunc: require.Error,
 		},
 		{
-			name:    "Invalid domain name with only one label",
-			domain:  "com",
+			name:    "Invalid domain name with leading dot",
+			domain:  ".com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain name with dot only",
+			domain:  ".",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain name with double hyphen",
+			domain:  "test--example.com",
 			errFunc: require.Error,
 		},
 		{
@@ -954,18 +980,18 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	var newNameServerGroupA *nbdns.NameServerGroup
 	var newNameServerGroupB *nbdns.NameServerGroup
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
-		{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{},
-		},
-		{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		},
-	}, true)
+	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+		ID:    "groupA",
+		Name:  "GroupA",
+		Peers: []string{},
+	})
+	assert.NoError(t, err)
+
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+		ID:    "groupB",
+		Name:  "GroupB",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+	})
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)

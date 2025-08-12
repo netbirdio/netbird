@@ -37,16 +37,21 @@ If yes, which one?
 
 **Debug output**
 
-To help us resolve the problem, please attach the following debug output
+To help us resolve the problem, please attach the following anonymized status output
 
   netbird status -dA
 
-As well as the file created by
+Create and upload a debug bundle, and share the returned file key:
+
+  netbird debug for 1m -AS -U
+
+*Uploaded files are automatically deleted after 30 days.*
+
+
+Alternatively, create the file only and attach it here manually:
 
   netbird debug for 1m -AS
 
-  
-We advise reviewing the anonymized output for any remaining personal information.
 
 **Screenshots**
 
@@ -57,8 +62,10 @@ If applicable, add screenshots to help explain your problem.
 Add any other context about the problem here.
 
 **Have you tried these troubleshooting steps?**
+- [ ] Reviewed [client troubleshooting](https://docs.netbird.io/how-to/troubleshooting-client) (if applicable)
 - [ ] Checked for newer NetBird versions
 - [ ] Searched for similar issues on GitHub (including closed ones)
 - [ ] Restarted the NetBird client
 - [ ] Disabled other VPN software
 - [ ] Checked firewall settings
+

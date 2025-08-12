@@ -3,6 +3,7 @@ package types
 import (
 	"net/netip"
 
+	"github.com/netbirdio/netbird/shared/management/client/common"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/util"
 )
@@ -52,6 +53,9 @@ type Config struct {
 	StoreConfig StoreConfig
 
 	ReverseProxy ReverseProxy
+
+	// disable default all-to-all policy
+	DisableDefaultPolicy bool
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
@@ -156,6 +160,8 @@ type ProviderConfig struct {
 	RedirectURLs []string
 	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
 	DisablePromptLogin bool
+	// LoginFlag is used to configure the PKCE flow login behavior
+	LoginFlag common.LoginFlag
 }
 
 // StoreConfig contains Store configuration

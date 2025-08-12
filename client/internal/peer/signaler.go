@@ -4,8 +4,8 @@ import (
 	"github.com/pion/ice/v3"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	signal "github.com/netbirdio/netbird/signal/client"
-	sProto "github.com/netbirdio/netbird/signal/proto"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
+	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 )
 
 type Signaler struct {
@@ -67,4 +67,14 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 	}
 
 	return nil
+}
+
+func (s *Signaler) SignalIdle(remoteKey string) error {
+	return s.signal.Send(&sProto.Message{
+		Key:       s.wgPrivateKey.PublicKey().String(),
+		RemoteKey: remoteKey,
+		Body: &sProto.Body{
+			Type: sProto.Body_GO_IDLE,
+		},
+	})
 }

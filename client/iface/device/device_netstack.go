@@ -51,7 +51,11 @@ func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
 	log.Info("create nbnetstack tun interface")
 
 	// TODO: get from service listener runtime IP
-	dnsAddr := nbnet.GetLastIPFromNetwork(t.address.Network, 1)
+	dnsAddr, err := nbnet.GetLastIPFromNetwork(t.address.Network, 1)
+	if err != nil {
+		return nil, fmt.Errorf("last ip: %w", err)
+	}
+
 	log.Debugf("netstack using address: %s", t.address.IP)
 	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, t.address.IP, dnsAddr, t.mtu)
 	log.Debugf("netstack using dns address: %s", dnsAddr)
@@ -68,7 +72,7 @@ func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		_ = tunIface.Close()

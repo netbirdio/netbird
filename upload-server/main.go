@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	err := util.InitLog("info", "console")
+	err := util.InitLog("info", util.LogConsole)
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}

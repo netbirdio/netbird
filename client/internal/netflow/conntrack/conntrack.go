@@ -204,7 +204,7 @@ func (c *ConnTrack) handleEvent(event nfct.Event) {
 		eventStr = "Ended"
 	}
 
-	log.Tracef("%s %s %s connection: %s:%d -> %s:%d", eventStr, direction, proto, srcIP, srcPort, dstIP, dstPort)
+	log.Tracef("%s %s %s connection: %s:%d → %s:%d", eventStr, direction, proto, srcIP, srcPort, dstIP, dstPort)
 
 	c.flowLogger.StoreEvent(nftypes.EventFields{
 		FlowID:     flowID,
@@ -232,7 +232,7 @@ func (c *ConnTrack) relevantFlow(mark uint32, srcIP, dstIP netip.Addr) bool {
 
 	// fallback if mark rules are not in place
 	wgnet := c.iface.Address().Network
-	return wgnet.Contains(srcIP.AsSlice()) || wgnet.Contains(dstIP.AsSlice())
+	return wgnet.Contains(srcIP) || wgnet.Contains(dstIP)
 }
 
 // mapRxPackets maps packet counts to RX based on flow direction
@@ -293,17 +293,15 @@ func (c *ConnTrack) inferDirection(mark uint32, srcIP, dstIP netip.Addr) nftypes
 	// fallback if marks are not set
 	wgaddr := c.iface.Address().IP
 	wgnetwork := c.iface.Address().Network
-	src, dst := srcIP.AsSlice(), dstIP.AsSlice()
-
 	switch {
-	case wgaddr.Equal(src):
+	case wgaddr == srcIP:
 		return nftypes.Egress
-	case wgaddr.Equal(dst):
+	case wgaddr == dstIP:
 		return nftypes.Ingress
-	case wgnetwork.Contains(src):
+	case wgnetwork.Contains(srcIP):
 		// netbird network -> resource network
 		return nftypes.Ingress
-	case wgnetwork.Contains(dst):
+	case wgnetwork.Contains(dstIP):
 		// resource network -> netbird network
 		return nftypes.Egress
 	}

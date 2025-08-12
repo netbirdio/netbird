@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/relay/auth"
+	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/util"
@@ -73,7 +73,7 @@ var (
 )
 
 func init() {
-	_ = util.InitLog("trace", "console")
+	_ = util.InitLog("trace", util.LogConsole)
 	cobraConfig = &Config{}
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ListenAddress, "listen-address", "l", ":443", "listen address")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ExposedAddress, "exposed-address", "e", "", "instance domain address (or ip) and port, it will be distributes between peers")
@@ -141,7 +141,14 @@ func execute(cmd *cobra.Command, args []string) error {
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
 	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
 
-	srv, err := server.NewServer(metricsServer.Meter, cobraConfig.ExposedAddress, tlsSupport, authenticator)
+	cfg := server.Config{
+		Meter:          metricsServer.Meter,
+		ExposedAddress: cobraConfig.ExposedAddress,
+		AuthValidator:  authenticator,
+		TLSSupport:     tlsSupport,
+	}
+
+	srv, err := server.NewServer(cfg)
 	if err != nil {
 		log.Debugf("failed to create relay server: %v", err)
 		return fmt.Errorf("failed to create relay server: %v", err)

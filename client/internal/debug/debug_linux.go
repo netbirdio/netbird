@@ -4,16 +4,122 @@ package debug
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
+
+// addIPRules collects and adds IP rules to the archive
+func (g *BundleGenerator) addIPRules() error {
+	log.Info("Collecting IP rules")
+	ipRules, err := systemops.GetIPRules()
+	if err != nil {
+		return fmt.Errorf("get IP rules: %w", err)
+	}
+
+	rulesContent := formatIPRulesTable(ipRules, g.anonymize, g.anonymizer)
+	rulesReader := strings.NewReader(rulesContent)
+	if err := g.addFileToZip(rulesReader, "ip_rules.txt"); err != nil {
+		return fmt.Errorf("add IP rules file to zip: %w", err)
+	}
+
+	return nil
+}
+
+const (
+	maxLogEntries = 100000
+	maxLogAge     = 7 * 24 * time.Hour // Last 7 days
+)
+
+// trySystemdLogFallback attempts to get logs from systemd journal as fallback
+func (g *BundleGenerator) trySystemdLogFallback() error {
+	log.Debug("Attempting to collect systemd journal logs")
+
+	serviceName := getServiceName()
+	journalLogs, err := getSystemdLogs(serviceName)
+	if err != nil {
+		return fmt.Errorf("get systemd logs for %s: %w", serviceName, err)
+	}
+
+	if strings.Contains(journalLogs, "No recent log entries found") {
+		log.Debug("No recent log entries found in systemd journal")
+		return nil
+	}
+
+	if g.anonymize {
+		journalLogs = g.anonymizer.AnonymizeString(journalLogs)
+	}
+
+	logReader := strings.NewReader(journalLogs)
+	fileName := fmt.Sprintf("systemd-%s.log", serviceName)
+	if err := g.addFileToZip(logReader, fileName); err != nil {
+		return fmt.Errorf("add systemd logs to bundle: %w", err)
+	}
+
+	log.Infof("Added systemd journal logs for %s to debug bundle", serviceName)
+	return nil
+}
+
+// getServiceName gets the service name from environment or defaults to netbird
+func getServiceName() string {
+	if unitName := os.Getenv("SYSTEMD_UNIT"); unitName != "" {
+		log.Debugf("Detected SYSTEMD_UNIT environment variable: %s", unitName)
+		return unitName
+	}
+
+	return "netbird"
+}
+
+// getSystemdLogs retrieves logs from systemd journal for a specific service using journalctl
+func getSystemdLogs(serviceName string) (string, error) {
+	args := []string{
+		"-u", fmt.Sprintf("%s.service", serviceName),
+		"--since", fmt.Sprintf("-%s", maxLogAge.String()),
+		"--lines", fmt.Sprintf("%d", maxLogEntries),
+		"--no-pager",
+		"--output", "short-iso",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "journalctl", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("journalctl command timed out after 30 seconds")
+		}
+		if strings.Contains(err.Error(), "executable file not found") {
+			return "", fmt.Errorf("journalctl command not found: %w", err)
+		}
+		return "", fmt.Errorf("execute journalctl: %w (stderr: %s)", err, stderr.String())
+	}
+
+	logs := stdout.String()
+	if strings.TrimSpace(logs) == "" {
+		return "No recent log entries found in systemd journal", nil
+	}
+
+	header := fmt.Sprintf("=== Systemd Journal Logs for %s.service (last %d entries, max %s) ===\n",
+		serviceName, maxLogEntries, maxLogAge.String())
+
+	return header + logs, nil
+}
 
 // addFirewallRules collects and adds firewall rules to the archive
 func (g *BundleGenerator) addFirewallRules() error {
@@ -49,7 +155,6 @@ func (g *BundleGenerator) addFirewallRules() error {
 func collectIPTablesRules() (string, error) {
 	var builder strings.Builder
 
-	// First try using iptables-save
 	saveOutput, err := collectIPTablesSave()
 	if err != nil {
 		log.Warnf("Failed to collect iptables rules using iptables-save: %v", err)
@@ -59,7 +164,6 @@ func collectIPTablesRules() (string, error) {
 		builder.WriteString("\n")
 	}
 
-	// Collect ipset information
 	ipsetOutput, err := collectIPSets()
 	if err != nil {
 		log.Warnf("Failed to collect ipset information: %v", err)
@@ -145,11 +249,9 @@ func getTableStatistics(table string) (string, error) {
 
 // collectNFTablesRules attempts to collect nftables rules using either nft command or netlink
 func collectNFTablesRules() (string, error) {
-	// First try using nft command
 	rules, err := collectNFTablesFromCommand()
 	if err != nil {
 		log.Debugf("Failed to collect nftables rules using nft command: %v, falling back to netlink", err)
-		// Fall back to netlink
 		rules, err = collectNFTablesFromNetlink()
 		if err != nil {
 			return "", fmt.Errorf("collect nftables rules using both nft and netlink failed: %w", err)
@@ -364,7 +466,6 @@ func formatRule(rule *nftables.Rule) string {
 func formatExprSequence(builder *strings.Builder, exprs []expr.Any, i int) int {
 	curr := exprs[i]
 
-	// Handle Meta + Cmp sequence
 	if meta, ok := curr.(*expr.Meta); ok && i+1 < len(exprs) {
 		if cmp, ok := exprs[i+1].(*expr.Cmp); ok {
 			if formatted := formatMetaWithCmp(meta, cmp); formatted != "" {
@@ -374,7 +475,6 @@ func formatExprSequence(builder *strings.Builder, exprs []expr.Any, i int) int {
 		}
 	}
 
-	// Handle Payload + Cmp sequence
 	if payload, ok := curr.(*expr.Payload); ok && i+1 < len(exprs) {
 		if cmp, ok := exprs[i+1].(*expr.Cmp); ok {
 			builder.WriteString(formatPayloadWithCmp(payload, cmp))
@@ -406,13 +506,13 @@ func formatMetaWithCmp(meta *expr.Meta, cmp *expr.Cmp) string {
 func formatPayloadWithCmp(p *expr.Payload, cmp *expr.Cmp) string {
 	if p.Base == expr.PayloadBaseNetworkHeader {
 		switch p.Offset {
-		case 12: // Source IP
+		case 12:
 			if p.Len == 4 {
 				return fmt.Sprintf("ip saddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
 			} else if p.Len == 2 {
 				return fmt.Sprintf("ip saddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
 			}
-		case 16: // Destination IP
+		case 16:
 			if p.Len == 4 {
 				return fmt.Sprintf("ip daddr %s %s", formatCmpOp(cmp.Op), formatIPBytes(cmp.Data))
 			} else if p.Len == 2 {
@@ -481,7 +581,7 @@ func formatExpr(exp expr.Any) string {
 	case *expr.Fib:
 		return formatFib(e)
 	case *expr.Target:
-		return fmt.Sprintf("jump %s", e.Name) // Properly format jump targets
+		return fmt.Sprintf("jump %s", e.Name)
 	case *expr.Immediate:
 		if e.Register == 1 {
 			return formatImmediateData(e.Data)
@@ -493,7 +593,6 @@ func formatExpr(exp expr.Any) string {
 }
 
 func formatImmediateData(data []byte) string {
-	// For IP addresses (4 bytes)
 	if len(data) == 4 {
 		return fmt.Sprintf("%d.%d.%d.%d", data[0], data[1], data[2], data[3])
 	}
@@ -501,26 +600,21 @@ func formatImmediateData(data []byte) string {
 }
 
 func formatMeta(e *expr.Meta) string {
-	// Handle source register case first (meta mark set)
 	if e.SourceRegister {
 		return fmt.Sprintf("meta %s set reg %d", formatMetaKey(e.Key), e.Register)
 	}
 
-	// For interface names, handle register load operation
 	switch e.Key {
 	case expr.MetaKeyIIFNAME,
 		expr.MetaKeyOIFNAME,
 		expr.MetaKeyBRIIIFNAME,
 		expr.MetaKeyBRIOIFNAME:
-		// Simply the key name with no register reference
 		return formatMetaKey(e.Key)
 
 	case expr.MetaKeyMARK:
-		// For mark operations, we want just "mark"
 		return "mark"
 	}
 
-	// For other meta keys, show as loading into register
 	return fmt.Sprintf("meta %s => reg %d", formatMetaKey(e.Key), e.Register)
 }
 

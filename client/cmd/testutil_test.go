@@ -26,9 +26,9 @@ import (
 
 	clientProto "github.com/netbirdio/netbird/client/proto"
 	client "github.com/netbirdio/netbird/client/server"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
-	sigProto "github.com/netbirdio/netbird/signal/proto"
+	sigProto "github.com/netbirdio/netbird/shared/signal/proto"
 	sig "github.com/netbirdio/netbird/signal/server"
 )
 
@@ -103,13 +103,13 @@ func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc
 		Return(&types.Settings{}, nil).
 		AnyTimes()
 
-	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock)
+	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
-	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil)
+	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &mgmt.MockIntegratedValidator{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc
 }
 
 func startClientDaemon(
-	t *testing.T, ctx context.Context, _, configPath string,
+	t *testing.T, ctx context.Context, _, _ string,
 ) (*grpc.Server, net.Listener) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -134,7 +134,7 @@ func startClientDaemon(
 	s := grpc.NewServer()
 
 	server := client.New(ctx,
-		configPath, "")
+		"", "", false)
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}

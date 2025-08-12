@@ -11,7 +11,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -33,6 +33,7 @@ type Manager struct {
 	statusRecorder *peer.Status
 
 	fwRules      []firewall.Rule
+	tcpRules     []firewall.Rule
 	dnsForwarder *DNSForwarder
 }
 
@@ -107,6 +108,13 @@ func (m *Manager) allowDNSFirewall() error {
 	}
 	m.fwRules = dnsRules
 
+	tcpRules, err := m.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolTCP, nil, dport, firewall.ActionAccept, "")
+	if err != nil {
+		log.Errorf("failed to add allow DNS router rules, err: %v", err)
+		return err
+	}
+	m.tcpRules = tcpRules
+
 	return nil
 }
 
@@ -117,7 +125,13 @@ func (m *Manager) dropDNSFirewall() error {
 			mErr = multierror.Append(mErr, fmt.Errorf("failed to delete DNS router rules, err: %v", err))
 		}
 	}
+	for _, rule := range m.tcpRules {
+		if err := m.firewall.DeletePeerRule(rule); err != nil {
+			mErr = multierror.Append(mErr, fmt.Errorf("failed to delete DNS router rules, err: %v", err))
+		}
+	}
 
 	m.fwRules = nil
+	m.tcpRules = nil
 	return nberrors.FormatErrorOrNil(mErr)
 }

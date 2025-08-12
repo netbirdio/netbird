@@ -17,11 +17,11 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // createServiceUser creates a new service user under the given account.
@@ -46,7 +46,7 @@ func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountI
 	newUser.AccountID = accountID
 	log.WithContext(ctx).Debugf("New User: %v", newUser)
 
-	if err = am.Store.SaveUser(ctx, store.LockingStrengthUpdate, newUser); err != nil {
+	if err = am.Store.SaveUser(ctx, newUser); err != nil {
 		return nil, err
 	}
 
@@ -95,14 +95,14 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	inviterID := userID
 	if initiatorUser.IsServiceUser {
-		createdBy, err := am.Store.GetAccountCreatedBy(ctx, store.LockingStrengthShare, accountID)
+		createdBy, err := am.Store.GetAccountCreatedBy(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, err
 		}
@@ -124,7 +124,7 @@ func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, u
 		CreatedAt:            time.Now().UTC(),
 	}
 
-	if err = am.Store.SaveUser(ctx, store.LockingStrengthUpdate, newUser); err != nil {
+	if err = am.Store.SaveUser(ctx, newUser); err != nil {
 		return nil, err
 	}
 
@@ -178,13 +178,13 @@ func (am *DefaultAccountManager) createNewIdpUser(ctx context.Context, accountID
 }
 
 func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*types.User, error) {
-	return am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, id)
+	return am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, id)
 }
 
 // GetUser looks up a user by provided nbContext.UserAuths.
 // Expects account to have been created already.
 func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbContext.UserAuth) (*types.User, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		return nil, err
 	}
@@ -209,11 +209,11 @@ func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAu
 // ListUsers returns lists of all users under the account.
 // It doesn't populate user information such as email or name.
 func (am *DefaultAccountManager) ListUsers(ctx context.Context, accountID string) ([]*types.User, error) {
-	return am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
+	return am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (am *DefaultAccountManager) deleteServiceUser(ctx context.Context, accountID string, initiatorUserID string, targetUser *types.User) error {
-	if err := am.Store.DeleteUser(ctx, store.LockingStrengthUpdate, accountID, targetUser.Id); err != nil {
+	if err := am.Store.DeleteUser(ctx, accountID, targetUser.Id); err != nil {
 		return err
 	}
 	meta := map[string]any{"name": targetUser.ServiceUserName, "created_at": targetUser.CreatedAt}
@@ -230,7 +230,7 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return err
 	}
@@ -243,7 +243,7 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return status.NewPermissionDeniedError()
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
+	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return err
 	}
@@ -347,12 +347,12 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
+	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +367,7 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.Errorf(status.Internal, "failed to create PAT: %v", err)
 	}
 
-	if err = am.Store.SavePAT(ctx, store.LockingStrengthUpdate, &pat.PersonalAccessToken); err != nil {
+	if err = am.Store.SavePAT(ctx, &pat.PersonalAccessToken); err != nil {
 		return nil, err
 	}
 
@@ -390,12 +390,12 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 		return status.NewPermissionDeniedError()
 	}
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return err
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
+	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return err
 	}
@@ -404,12 +404,12 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 		return status.NewAdminPermissionError()
 	}
 
-	pat, err := am.Store.GetPATByID(ctx, store.LockingStrengthShare, targetUserID, tokenID)
+	pat, err := am.Store.GetPATByID(ctx, store.LockingStrengthNone, targetUserID, tokenID)
 	if err != nil {
 		return err
 	}
 
-	if err = am.Store.DeletePAT(ctx, store.LockingStrengthUpdate, targetUserID, tokenID); err != nil {
+	if err = am.Store.DeletePAT(ctx, targetUserID, tokenID); err != nil {
 		return err
 	}
 
@@ -429,12 +429,12 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
+	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +443,7 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, status.NewAdminPermissionError()
 	}
 
-	return am.Store.GetPATByID(ctx, store.LockingStrengthShare, targetUserID, tokenID)
+	return am.Store.GetPATByID(ctx, store.LockingStrengthNone, targetUserID, tokenID)
 }
 
 // GetAllPATs returns all PATs for a user
@@ -456,12 +456,12 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
+	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +470,7 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 		return nil, status.NewAdminPermissionError()
 	}
 
-	return am.Store.GetUserPATs(ctx, store.LockingStrengthShare, targetUserID)
+	return am.Store.GetUserPATs(ctx, store.LockingStrengthNone, targetUserID)
 }
 
 // SaveUser saves updates to the given user. If the user doesn't exist, it will throw status.NotFound error.
@@ -511,7 +511,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	if !allowed {
 		return nil, status.NewPermissionDeniedError()
 	}
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +521,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	var addUserEvents []func()
 	var usersToSave = make([]*types.User, 0, len(updates))
 
-	groups, err := am.Store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+	groups, err := am.Store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting account groups: %w", err)
 	}
@@ -531,9 +531,13 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		groupsMap[group.ID] = group
 	}
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
-	if err != nil {
-		return nil, err
+	var initiatorUser *types.User
+	if initiatorUserID != activity.SystemInitiator {
+		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
+		if err != nil {
+			return nil, err
+		}
+		initiatorUser = result
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -543,10 +547,10 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			}
 
 			userHadPeers, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
-				ctx, transaction, groupsMap, accountID, initiatorUser, update, addIfNotExists, settings,
+				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to process user update: %w", err)
+				return fmt.Errorf("failed to process update for user %s: %w", update.Id, err)
 			}
 			usersToSave = append(usersToSave, updatedUser)
 			addUserEvents = append(addUserEvents, userEvents...)
@@ -556,7 +560,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 				updateAccountPeers = true
 			}
 		}
-		return transaction.SaveUsers(ctx, store.LockingStrengthUpdate, usersToSave)
+		return transaction.SaveUsers(ctx, usersToSave)
 	})
 	if err != nil {
 		return nil, err
@@ -589,7 +593,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 	}
 
 	if settings.GroupsPropagationEnabled && updateAccountPeers {
-		if err = am.Store.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
 		am.UpdateAccountPeers(ctx, accountID)
@@ -629,7 +633,7 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 }
 
 func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transaction store.Store, groupsMap map[string]*types.Group,
-	accountID string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
+	accountID, initiatorUserId string, initiatorUser, update *types.User, addIfNotExists bool, settings *types.Settings) (bool, *types.User, []*nbpeer.Peer, []func(), error) {
 
 	if update == nil {
 		return false, nil, nil, nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
@@ -653,10 +657,12 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	updatedUser.Issued = update.Issued
 	updatedUser.IntegrationReference = update.IntegrationReference
 
-	transferredOwnerRole, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
+	var transferredOwnerRole bool
+	result, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)
 	if err != nil {
 		return false, nil, nil, nil, err
 	}
+	transferredOwnerRole = result
 
 	userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthUpdate, updatedUser.AccountID, update.Id)
 	if err != nil {
@@ -671,25 +677,30 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 
 	if update.AutoGroups != nil && settings.GroupsPropagationEnabled {
 		removedGroups := util.Difference(oldUser.AutoGroups, update.AutoGroups)
-		updatedGroups, err := updateUserPeersInGroups(groupsMap, userPeers, update.AutoGroups, removedGroups)
-		if err != nil {
-			return false, nil, nil, nil, fmt.Errorf("error modifying user peers in groups: %w", err)
-		}
-
-		if err = transaction.SaveGroups(ctx, store.LockingStrengthUpdate, updatedGroups); err != nil {
-			return false, nil, nil, nil, fmt.Errorf("error saving groups: %w", err)
+		addedGroups := util.Difference(update.AutoGroups, oldUser.AutoGroups)
+		for _, peer := range userPeers {
+			for _, groupID := range removedGroups {
+				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, groupID); err != nil {
+					return false, nil, nil, nil, fmt.Errorf("failed to remove peer %s from group %s: %w", peer.ID, groupID, err)
+				}
+			}
+			for _, groupID := range addedGroups {
+				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
+					return false, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
+				}
+			}
 		}
 	}
 
 	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUser.Id, oldUser, updatedUser, transferredOwnerRole)
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole)
 
 	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
 }
 
 // getUserOrCreateIfNotExists retrieves the existing user or creates a new one if it doesn't exist.
 func getUserOrCreateIfNotExists(ctx context.Context, transaction store.Store, accountID string, update *types.User, addIfNotExists bool) (*types.User, error) {
-	existingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthShare, update.Id)
+	existingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthNone, update.Id)
 	if err != nil {
 		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
 			if !addIfNotExists {
@@ -709,11 +720,11 @@ func getUserOrCreateIfNotExists(ctx context.Context, transaction store.Store, ac
 }
 
 func handleOwnerRoleTransfer(ctx context.Context, transaction store.Store, initiatorUser, update *types.User) (bool, error) {
-	if initiatorUser.Role == types.UserRoleOwner && initiatorUser.Id != update.Id && update.Role == types.UserRoleOwner {
+	if initiatorUser != nil && initiatorUser.Role == types.UserRoleOwner && initiatorUser.Id != update.Id && update.Role == types.UserRoleOwner {
 		newInitiatorUser := initiatorUser.Copy()
 		newInitiatorUser.Role = types.UserRoleAdmin
 
-		if err := transaction.SaveUser(ctx, store.LockingStrengthUpdate, newInitiatorUser); err != nil {
+		if err := transaction.SaveUser(ctx, newInitiatorUser); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -737,6 +748,10 @@ func (am *DefaultAccountManager) getUserInfo(ctx context.Context, user *types.Us
 
 // validateUserUpdate validates the update operation for a user.
 func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUser, update *types.User) error {
+	if initiatorUser == nil {
+		return nil
+	}
+
 	// @todo double check these
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
@@ -818,19 +833,23 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 		return nil, status.NewPermissionValidationError(err)
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+	var user *types.User
+	if initiatorUserID != activity.SystemInitiator {
+		result, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+		user = result
 	}
 
 	accountUsers := []*types.User{}
 	switch {
 	case allowed:
-		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountID)
+		accountUsers, err = am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, err
 		}
-	case user.AccountID == accountID:
+	case user != nil && user.AccountID == accountID:
 		accountUsers = append(accountUsers, user)
 	default:
 		return map[string]*types.UserInfo{}, nil
@@ -919,7 +938,8 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 
 // expireAndUpdatePeers expires all peers of the given user and updates them in the account
 func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accountID string, peers []*nbpeer.Peer) error {
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	log.WithContext(ctx).Debugf("Expiring %d peers for account %s", len(peers), accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return err
 	}
@@ -936,7 +956,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		peerIDs = append(peerIDs, peer.ID)
 		peer.MarkLoginExpired(true)
 
-		if err := am.Store.SavePeerStatus(ctx, store.LockingStrengthUpdate, accountID, peer.ID, *peer.Status); err != nil {
+		if err := am.Store.SavePeerStatus(ctx, accountID, peer.ID, *peer.Status); err != nil {
 			return err
 		}
 		am.StoreEvent(
@@ -949,7 +969,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
-		am.UpdateAccountPeers(ctx, accountID)
+		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 	return nil
 }
@@ -989,7 +1009,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 		return status.NewPermissionDeniedError()
 	}
 
-	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorUserID)
+	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return err
 	}
@@ -1003,7 +1023,7 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 			continue
 		}
 
-		targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserID)
+		targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 		if err != nil {
 			allErrors = errors.Join(allErrors, err)
 			continue
@@ -1067,12 +1087,12 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		targetUser, err = transaction.GetUserByUserID(ctx, store.LockingStrengthShare, targetUserInfo.ID)
+		targetUser, err = transaction.GetUserByUserID(ctx, store.LockingStrengthUpdate, targetUserInfo.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get user to delete: %w", err)
 		}
 
-		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthShare, accountID, targetUserInfo.ID)
+		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, targetUserInfo.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get user peers: %w", err)
 		}
@@ -1085,7 +1105,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			}
 		}
 
-		if err = transaction.DeleteUser(ctx, store.LockingStrengthUpdate, accountID, targetUserInfo.ID); err != nil {
+		if err = transaction.DeleteUser(ctx, accountID, targetUserInfo.ID); err != nil {
 			return fmt.Errorf("failed to delete user: %s %w", targetUserInfo.ID, err)
 		}
 
@@ -1106,7 +1126,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 // GetOwnerInfo retrieves the owner information for a given account ID.
 func (am *DefaultAccountManager) GetOwnerInfo(ctx context.Context, accountID string) (*types.UserInfo, error) {
-	owner, err := am.Store.GetAccountOwner(ctx, store.LockingStrengthShare, accountID)
+	owner, err := am.Store.GetAccountOwner(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -1121,72 +1141,6 @@ func (am *DefaultAccountManager) GetOwnerInfo(ctx context.Context, accountID str
 	}
 
 	return userInfo, nil
-}
-
-// updateUserPeersInGroups updates the user's peers in the specified groups by adding or removing them.
-func updateUserPeersInGroups(accountGroups map[string]*types.Group, peers []*nbpeer.Peer, groupsToAdd, groupsToRemove []string) (groupsToUpdate []*types.Group, err error) {
-	if len(groupsToAdd) == 0 && len(groupsToRemove) == 0 {
-		return
-	}
-
-	userPeerIDMap := make(map[string]struct{}, len(peers))
-	for _, peer := range peers {
-		userPeerIDMap[peer.ID] = struct{}{}
-	}
-
-	for _, gid := range groupsToAdd {
-		group, ok := accountGroups[gid]
-		if !ok {
-			return nil, errors.New("group not found")
-		}
-		addUserPeersToGroup(userPeerIDMap, group)
-		groupsToUpdate = append(groupsToUpdate, group)
-	}
-
-	for _, gid := range groupsToRemove {
-		group, ok := accountGroups[gid]
-		if !ok {
-			return nil, errors.New("group not found")
-		}
-		removeUserPeersFromGroup(userPeerIDMap, group)
-		groupsToUpdate = append(groupsToUpdate, group)
-	}
-
-	return groupsToUpdate, nil
-}
-
-// addUserPeersToGroup adds the user's peers to the group.
-func addUserPeersToGroup(userPeerIDs map[string]struct{}, group *types.Group) {
-	groupPeers := make(map[string]struct{}, len(group.Peers))
-	for _, pid := range group.Peers {
-		groupPeers[pid] = struct{}{}
-	}
-
-	for pid := range userPeerIDs {
-		groupPeers[pid] = struct{}{}
-	}
-
-	group.Peers = make([]string, 0, len(groupPeers))
-	for pid := range groupPeers {
-		group.Peers = append(group.Peers, pid)
-	}
-}
-
-// removeUserPeersFromGroup removes user's peers from the group.
-func removeUserPeersFromGroup(userPeerIDs map[string]struct{}, group *types.Group) {
-	// skip removing peers from group All
-	if group.Name == "All" {
-		return
-	}
-
-	updatedPeers := make([]string, 0, len(group.Peers))
-	for _, pid := range group.Peers {
-		if _, found := userPeerIDs[pid]; !found {
-			updatedPeers = append(updatedPeers, pid)
-		}
-	}
-
-	group.Peers = updatedPeers
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {
@@ -1222,7 +1176,7 @@ func validateUserInvite(invite *types.UserInfo) error {
 func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1239,7 +1193,7 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 		return nil, err
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}

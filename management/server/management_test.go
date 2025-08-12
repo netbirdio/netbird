@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/encryption"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -206,12 +206,12 @@ func startServer(
 		eventStore,
 		nil,
 		false,
-		server.MocIntegratedValidator{},
+		server.MockIntegratedValidator{},
 		metrics,
 		port_forwarding.NewControllerMock(),
 		settingsMockManager,
 		permissionsManager,
-	)
+		false)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
 	}
@@ -227,6 +227,7 @@ func startServer(
 		nil,
 		nil,
 		nil,
+		server.MockIntegratedValidator{},
 	)
 	if err != nil {
 		t.Fatalf("failed creating management server: %v", err)

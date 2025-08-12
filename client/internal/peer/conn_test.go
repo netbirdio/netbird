@@ -1,7 +1,6 @@
 package peer
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"sync"
@@ -11,12 +10,15 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
+
+var testDispatcher = dispatcher.NewConnectionDispatcher()
 
 var connConf = ConnConfig{
 	Key:         "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
@@ -29,7 +31,7 @@ var connConf = ConnConfig{
 }
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("trace", "console")
+	_ = util.InitLog("trace", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
@@ -48,7 +50,13 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 
 func TestConn_GetKey(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, nil, nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+
+	sd := ServiceDependencies{
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
@@ -60,7 +68,13 @@ func TestConn_GetKey(t *testing.T) {
 
 func TestConn_OnRemoteOffer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	sd := ServiceDependencies{
+		StatusRecorder:     NewRecorder("https://mgm"),
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
@@ -94,7 +108,13 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	sd := ServiceDependencies{
+		StatusRecorder:     NewRecorder("https://mgm"),
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
@@ -124,43 +144,6 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 	}()
 
 	wg.Wait()
-}
-func TestConn_Status(t *testing.T) {
-	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
-	if err != nil {
-		return
-	}
-
-	tables := []struct {
-		name        string
-		statusIce   ConnStatus
-		statusRelay ConnStatus
-		want        ConnStatus
-	}{
-		{"StatusConnected", StatusConnected, StatusConnected, StatusConnected},
-		{"StatusDisconnected", StatusDisconnected, StatusDisconnected, StatusDisconnected},
-		{"StatusConnecting", StatusConnecting, StatusConnecting, StatusConnecting},
-		{"StatusConnectingIce", StatusConnecting, StatusDisconnected, StatusConnecting},
-		{"StatusConnectingIceAlternative", StatusConnecting, StatusConnected, StatusConnected},
-		{"StatusConnectingRelay", StatusDisconnected, StatusConnecting, StatusConnecting},
-		{"StatusConnectingRelayAlternative", StatusConnected, StatusConnecting, StatusConnected},
-	}
-
-	for _, table := range tables {
-		t.Run(table.name, func(t *testing.T) {
-			si := NewAtomicConnStatus()
-			si.Set(table.statusIce)
-			conn.statusICE = si
-
-			sr := NewAtomicConnStatus()
-			sr.Set(table.statusRelay)
-			conn.statusRelay = sr
-
-			got := conn.Status()
-			assert.Equal(t, got, table.want, "they should be equal")
-		})
-	}
 }
 
 func TestConn_presharedKey(t *testing.T) {

@@ -8,10 +8,10 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 )
 
-func IsAnotherProcessRunning() (bool, error) {
+func IsAnotherProcessRunning() (int32, bool, error) {
 	processes, err := process.Processes()
 	if err != nil {
-		return false, err
+		return 0, false, err
 	}
 
 	pid := os.Getpid()
@@ -29,9 +29,9 @@ func IsAnotherProcessRunning() (bool, error) {
 		}
 
 		if strings.Contains(strings.ToLower(runningProcessPath), processName) && isProcessOwnedByCurrentUser(p) {
-			return true, nil
+			return p.Pid, true, nil
 		}
 	}
 
-	return false, nil
+	return 0, false, nil
 }

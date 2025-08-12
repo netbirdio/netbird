@@ -11,9 +11,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 func isEnabled() bool {
@@ -66,7 +66,7 @@ func (am *DefaultAccountManager) StoreEvent(ctx context.Context, initiatorID, ta
 		go func() {
 			_, err := am.eventStore.Save(ctx, &activity.Event{
 				Timestamp:   time.Now().UTC(),
-				Activity:    activityID,
+				Activity:    activityID.(activity.Activity),
 				InitiatorID: initiatorID,
 				TargetID:    targetID,
 				AccountID:   accountID,
@@ -103,7 +103,7 @@ func (am *DefaultAccountManager) fillEventsWithUserInfo(ctx context.Context, eve
 }
 
 func (am *DefaultAccountManager) getEventsUserInfo(ctx context.Context, events []*activity.Event, accountId string, userId string) (map[string]eventUserInfo, error) {
-	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthShare, accountId)
+	accountUsers, err := am.Store.GetAccountUsers(ctx, store.LockingStrengthNone, accountId)
 	if err != nil {
 		return nil, err
 	}
@@ -143,11 +143,10 @@ func (am *DefaultAccountManager) getEventsUserInfo(ctx context.Context, events [
 		return eventUserInfos, nil
 	}
 
-	return am.getEventsExternalUserInfo(ctx, externalUserIds, eventUserInfos, userId)
+	return am.getEventsExternalUserInfo(ctx, externalUserIds, eventUserInfos)
 }
 
-func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, externalUserIds []string, eventUserInfos map[string]eventUserInfo, userId string) (map[string]eventUserInfo, error) {
-	externalAccountId := ""
+func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, externalUserIds []string, eventUserInfos map[string]eventUserInfo) (map[string]eventUserInfo, error) {
 	fetched := make(map[string]struct{})
 	externalUsers := []*types.User{}
 	for _, id := range externalUserIds {
@@ -155,40 +154,36 @@ func (am *DefaultAccountManager) getEventsExternalUserInfo(ctx context.Context, 
 			continue
 		}
 
-		externalUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, id)
+		externalUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, id)
 		if err != nil {
 			// @todo consider logging
 			continue
-		}
-
-		if externalAccountId != "" && externalAccountId != externalUser.AccountID {
-			return nil, fmt.Errorf("multiple external user accounts in events")
-		}
-
-		if externalAccountId == "" {
-			externalAccountId = externalUser.AccountID
 		}
 
 		fetched[id] = struct{}{}
 		externalUsers = append(externalUsers, externalUser)
 	}
 
-	// if we couldn't determine an account, return what we have
-	if externalAccountId == "" {
-		log.WithContext(ctx).Warnf("failed to determine external user account from users: %v", externalUserIds)
-		return eventUserInfos, nil
+	usersByExternalAccount := map[string][]*types.User{}
+	for _, u := range externalUsers {
+		if _, ok := usersByExternalAccount[u.AccountID]; !ok {
+			usersByExternalAccount[u.AccountID] = make([]*types.User, 0)
+		}
+		usersByExternalAccount[u.AccountID] = append(usersByExternalAccount[u.AccountID], u)
 	}
 
-	externalUserInfos, err := am.BuildUserInfosForAccount(ctx, externalAccountId, userId, externalUsers)
-	if err != nil {
-		return nil, err
-	}
+	for externalAccountId, externalUsers := range usersByExternalAccount {
+		externalUserInfos, err := am.BuildUserInfosForAccount(ctx, externalAccountId, "", externalUsers)
+		if err != nil {
+			return nil, err
+		}
 
-	for i, k := range externalUserInfos {
-		eventUserInfos[i] = eventUserInfo{
-			email:     k.Email,
-			name:      k.Name,
-			accountId: externalAccountId,
+		for i, k := range externalUserInfos {
+			eventUserInfos[i] = eventUserInfo{
+				email:     k.Email,
+				name:      k.Name,
+				accountId: externalAccountId,
+			}
 		}
 	}
 

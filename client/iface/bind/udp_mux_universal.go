@@ -62,7 +62,7 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 
 	// wrap UDP connection, process server reflexive messages
 	// before they are passed to the UDPMux connection handler (connWorker)
-	m.params.UDPConn = &udpConn{
+	m.params.UDPConn = &UDPConn{
 		PacketConn: params.UDPConn,
 		mux:        m,
 		logger:     params.Logger,
@@ -70,7 +70,6 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 		address:    params.WGAddress,
 	}
 
-	// embed UDPMux
 	udpMuxParams := UDPMuxParams{
 		Logger:  params.Logger,
 		UDPConn: m.params.UDPConn,
@@ -114,8 +113,8 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 	}
 }
 
-// udpConn is a wrapper around UDPMux conn that overrides ReadFrom and handles STUN/TURN packets
-type udpConn struct {
+// UDPConn is a wrapper around UDPMux conn that overrides ReadFrom and handles STUN/TURN packets
+type UDPConn struct {
 	net.PacketConn
 	mux      *UniversalUDPMuxDefault
 	logger   logging.LeveledLogger
@@ -125,7 +124,12 @@ type udpConn struct {
 	address   wgaddr.Address
 }
 
-func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+// GetPacketConn returns the underlying PacketConn
+func (u *UDPConn) GetPacketConn() net.PacketConn {
+	return u.PacketConn
+}
+
+func (u *UDPConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	if u.filterFn == nil {
 		return u.PacketConn.WriteTo(b, addr)
 	}
@@ -137,21 +141,21 @@ func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	return u.handleUncachedAddress(b, addr)
 }
 
-func (u *udpConn) handleCachedAddress(isRouted bool, b []byte, addr net.Addr) (int, error) {
+func (u *UDPConn) handleCachedAddress(isRouted bool, b []byte, addr net.Addr) (int, error) {
 	if isRouted {
 		return 0, fmt.Errorf("address %s is part of a routed network, refusing to write", addr)
 	}
 	return u.PacketConn.WriteTo(b, addr)
 }
 
-func (u *udpConn) handleUncachedAddress(b []byte, addr net.Addr) (int, error) {
+func (u *UDPConn) handleUncachedAddress(b []byte, addr net.Addr) (int, error) {
 	if err := u.performFilterCheck(addr); err != nil {
 		return 0, err
 	}
 	return u.PacketConn.WriteTo(b, addr)
 }
 
-func (u *udpConn) performFilterCheck(addr net.Addr) error {
+func (u *UDPConn) performFilterCheck(addr net.Addr) error {
 	host, err := getHostFromAddr(addr)
 	if err != nil {
 		log.Errorf("Failed to get host from address %s: %v", addr, err)
@@ -164,7 +168,7 @@ func (u *udpConn) performFilterCheck(addr net.Addr) error {
 		return nil
 	}
 
-	if u.address.Network.Contains(a.AsSlice()) {
+	if u.address.Network.Contains(a) {
 		log.Warnf("Address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 		return fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 	}

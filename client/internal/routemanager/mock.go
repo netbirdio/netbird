@@ -9,12 +9,12 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/util/net"
 )
 
 // MockManager is the mock instance of a route manager
 type MockManager struct {
-	UpdateRoutesFunc             func(updateSerial uint64, newRoutes []*route.Route) error
+	ClassifyRoutesFunc           func(routes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
+	UpdateRoutesFunc             func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
 	TriggerSelectionFunc         func(haMap route.HAMap)
 	GetRouteSelectorFunc         func() *routeselector.RouteSelector
 	GetClientRoutesFunc          func() route.HAMap
@@ -22,8 +22,8 @@ type MockManager struct {
 	StopFunc                     func(manager *statemanager.Manager)
 }
 
-func (m *MockManager) Init() (net.AddHookFunc, net.RemoveHookFunc, error) {
-	return nil, nil, nil
+func (m *MockManager) Init() error {
+	return nil
 }
 
 // InitialRouteRange mock implementation of InitialRouteRange from Manager interface
@@ -32,11 +32,19 @@ func (m *MockManager) InitialRouteRange() []string {
 }
 
 // UpdateRoutes mock implementation of UpdateRoutes from Manager interface
-func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route, b bool) error {
+func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 	if m.UpdateRoutesFunc != nil {
-		return m.UpdateRoutesFunc(updateSerial, newRoutes)
+		return m.UpdateRoutesFunc(updateSerial, newRoutes, clientRoutes, useNewDNSRoute)
 	}
 	return nil
+}
+
+// ClassifyRoutes mock implementation of ClassifyRoutes from Manager interface
+func (m *MockManager) ClassifyRoutes(routes []*route.Route) (map[route.ID]*route.Route, route.HAMap) {
+	if m.ClassifyRoutesFunc != nil {
+		return m.ClassifyRoutesFunc(routes)
+	}
+	return nil, nil
 }
 
 func (m *MockManager) TriggerSelection(networks route.HAMap) {
@@ -78,7 +86,7 @@ func (m *MockManager) SetRouteChangeListener(listener listener.NetworkChangeList
 
 }
 
-func (m *MockManager) EnableServerRouter(firewall firewall.Manager) error {
+func (m *MockManager) SetFirewall(firewall.Manager) error {
 	panic("implement me")
 }
 

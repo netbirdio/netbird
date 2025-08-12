@@ -7,8 +7,8 @@ import (
 	"github.com/gorilla/mux"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 )
@@ -19,7 +19,8 @@ type routersHandler struct {
 
 func addRouterEndpoints(routersManager routers.Manager, router *mux.Router) {
 	routersHandler := newRoutersHandler(routersManager)
-	router.HandleFunc("/networks/{networkId}/routers", routersHandler.getAllRouters).Methods("GET", "OPTIONS")
+	router.HandleFunc("/networks/routers", routersHandler.getAllRouters).Methods("GET", "OPTIONS")
+	router.HandleFunc("/networks/{networkId}/routers", routersHandler.getNetworkRouters).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}/routers", routersHandler.createRouter).Methods("POST", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}/routers/{routerId}", routersHandler.getRouter).Methods("GET", "OPTIONS")
 	router.HandleFunc("/networks/{networkId}/routers/{routerId}", routersHandler.updateRouter).Methods("PUT", "OPTIONS")
@@ -33,6 +34,31 @@ func newRoutersHandler(routersManager routers.Manager) *routersHandler {
 }
 
 func (h *routersHandler) getAllRouters(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	accountID, userID := userAuth.AccountId, userAuth.UserId
+
+	routersMap, err := h.routersManager.GetAllRoutersInAccount(r.Context(), accountID, userID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	routersResponse := make([]*api.NetworkRouter, 0)
+	for _, routers := range routersMap {
+		for _, router := range routers {
+			routersResponse = append(routersResponse, router.ToAPIResponse())
+		}
+	}
+
+	util.WriteJSONObject(r.Context(), w, routersResponse)
+}
+
+func (h *routersHandler) getNetworkRouters(w http.ResponseWriter, r *http.Request) {
 	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		util.WriteError(r.Context(), err, w)

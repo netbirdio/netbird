@@ -3,6 +3,7 @@ package dns
 import (
 	"context"
 	"net"
+	"net/netip"
 	"syscall"
 	"time"
 
@@ -23,8 +24,8 @@ type upstreamResolver struct {
 func newUpstreamResolver(
 	ctx context.Context,
 	_ string,
-	_ net.IP,
-	_ *net.IPNet,
+	_ netip.Addr,
+	_ netip.Prefix,
 	statusRecorder *peer.Status,
 	hostsDNSHolder *hostsDNSHolder,
 	domain string,
@@ -78,8 +79,15 @@ func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream stri
 }
 
 func (u *upstreamResolver) isLocalResolver(upstream string) bool {
-	if u.hostsDNSHolder.isContain(upstream) {
-		return true
+	if addrPort, err := netip.ParseAddrPort(upstream); err == nil {
+		return u.hostsDNSHolder.contains(addrPort)
 	}
 	return false
+}
+
+func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {
+	return &dns.Client{
+		Timeout: dialTimeout,
+		Net:     "udp",
+	}, nil
 }

@@ -34,14 +34,14 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	// TODO: support non-root
 	conn, err := lc.ListenPacket(ctx, "ip4:icmp", "0.0.0.0")
 	if err != nil {
-		f.logger.Error("forwarder: Failed to create ICMP socket for %v: %v", epID(id), err)
+		f.logger.Error2("forwarder: Failed to create ICMP socket for %v: %v", epID(id), err)
 
 		// This will make netstack reply on behalf of the original destination, that's ok for now
 		return false
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			f.logger.Debug("forwarder: Failed to close ICMP socket: %v", err)
+			f.logger.Debug1("forwarder: Failed to close ICMP socket: %v", err)
 		}
 	}()
 
@@ -52,11 +52,11 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 	payload := fullPacket.AsSlice()
 
 	if _, err = conn.WriteTo(payload, dst); err != nil {
-		f.logger.Error("forwarder: Failed to write ICMP packet for %v: %v", epID(id), err)
+		f.logger.Error2("forwarder: Failed to write ICMP packet for %v: %v", epID(id), err)
 		return true
 	}
 
-	f.logger.Trace("forwarder: Forwarded ICMP packet %v type %v code %v",
+	f.logger.Trace3("forwarder: Forwarded ICMP packet %v type %v code %v",
 		epID(id), icmpHdr.Type(), icmpHdr.Code())
 
 	// For Echo Requests, send and handle response
@@ -72,7 +72,7 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt stack.PacketBuf
 
 func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, conn net.PacketConn, id stack.TransportEndpointID) int {
 	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		f.logger.Error("forwarder: Failed to set read deadline for ICMP response: %v", err)
+		f.logger.Error1("forwarder: Failed to set read deadline for ICMP response: %v", err)
 		return 0
 	}
 
@@ -80,7 +80,7 @@ func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, conn net.PacketCon
 	n, _, err := conn.ReadFrom(response)
 	if err != nil {
 		if !isTimeout(err) {
-			f.logger.Error("forwarder: Failed to read ICMP response: %v", err)
+			f.logger.Error1("forwarder: Failed to read ICMP response: %v", err)
 		}
 		return 0
 	}
@@ -101,12 +101,12 @@ func (f *Forwarder) handleEchoResponse(icmpHdr header.ICMPv4, conn net.PacketCon
 	fullPacket = append(fullPacket, response[:n]...)
 
 	if err := f.InjectIncomingPacket(fullPacket); err != nil {
-		f.logger.Error("forwarder: Failed to inject ICMP response: %v", err)
+		f.logger.Error1("forwarder: Failed to inject ICMP response: %v", err)
 
 		return 0
 	}
 
-	f.logger.Trace("forwarder: Forwarded ICMP echo reply for %v type %v code %v",
+	f.logger.Trace3("forwarder: Forwarded ICMP echo reply for %v type %v code %v",
 		epID(id), icmpHdr.Type(), icmpHdr.Code())
 
 	return len(fullPacket)

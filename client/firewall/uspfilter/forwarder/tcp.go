@@ -38,7 +38,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "tcp", dialAddr)
 	if err != nil {
 		r.Complete(true)
-		f.logger.Trace("forwarder: dial error for %v: %v", epID(id), err)
+		f.logger.Trace2("forwarder: dial error for %v: %v", epID(id), err)
 		return
 	}
 
@@ -47,9 +47,9 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 
 	ep, epErr := r.CreateEndpoint(&wq)
 	if epErr != nil {
-		f.logger.Error("forwarder: failed to create TCP endpoint: %v", epErr)
+		f.logger.Error1("forwarder: failed to create TCP endpoint: %v", epErr)
 		if err := outConn.Close(); err != nil {
-			f.logger.Debug("forwarder: outConn close error: %v", err)
+			f.logger.Debug1("forwarder: outConn close error: %v", err)
 		}
 		r.Complete(true)
 		return
@@ -61,7 +61,7 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	inConn := gonet.NewTCPConn(&wq, ep)
 
 	success = true
-	f.logger.Trace("forwarder: established TCP connection %v", epID(id))
+	f.logger.Trace1("forwarder: established TCP connection %v", epID(id))
 
 	go f.proxyTCP(id, inConn, outConn, ep, flowID)
 }
@@ -75,10 +75,10 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 		<-ctx.Done()
 		// Close connections and endpoint.
 		if err := inConn.Close(); err != nil && !isClosedError(err) {
-			f.logger.Debug("forwarder: inConn close error: %v", err)
+			f.logger.Debug1("forwarder: inConn close error: %v", err)
 		}
 		if err := outConn.Close(); err != nil && !isClosedError(err) {
-			f.logger.Debug("forwarder: outConn close error: %v", err)
+			f.logger.Debug1("forwarder: outConn close error: %v", err)
 		}
 
 		ep.Close()
@@ -111,12 +111,12 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 
 	if errInToOut != nil {
 		if !isClosedError(errInToOut) {
-			f.logger.Error("proxyTCP: copy error (in -> out): %v", errInToOut)
+			f.logger.Error2("proxyTCP: copy error (in → out) for %s: %v", epID(id), errInToOut)
 		}
 	}
 	if errOutToIn != nil {
 		if !isClosedError(errOutToIn) {
-			f.logger.Error("proxyTCP: copy error (out -> in): %v", errOutToIn)
+			f.logger.Error2("proxyTCP: copy error (out → in) for %s: %v", epID(id), errOutToIn)
 		}
 	}
 
@@ -127,7 +127,7 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 		txPackets = tcpStats.SegmentsReceived.Value()
 	}
 
-	f.logger.Trace("forwarder: Removed TCP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, bytesFromOutToIn, txPackets, bytesFromInToOut)
+	f.logger.Trace5("forwarder: Removed TCP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, bytesFromOutToIn, txPackets, bytesFromInToOut)
 
 	f.sendTCPEvent(nftypes.TypeEnd, flowID, id, uint64(bytesFromOutToIn), uint64(bytesFromInToOut), rxPackets, txPackets)
 }

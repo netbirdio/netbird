@@ -602,6 +602,7 @@ renderCaddyfile() {
     reverse_proxy /debug/* h2c://zitadel:8080
     reverse_proxy /device/* h2c://zitadel:8080
     reverse_proxy /device h2c://zitadel:8080
+    reverse_proxy /zitadel.user.v2.UserService/* h2c://zitadel:8080
     # Dashboard
     reverse_proxy /* dashboard:80
 }
@@ -779,7 +780,6 @@ EOF
 
 renderDockerCompose() {
   cat <<EOF
-version: "3.4"
 services:
   # Caddy reverse proxy
   caddy:
@@ -790,7 +790,6 @@ services:
       - '443:443'
       - '443:443/udp'
       - '80:80'
-      - '8080:8080'
     volumes:
       - netbird_caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile

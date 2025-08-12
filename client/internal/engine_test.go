@@ -28,8 +28,6 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
-	"github.com/netbirdio/netbird/management/server/types"
-
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -40,12 +38,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	mgmt "github.com/netbirdio/netbird/management/client"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	mgmt "github.com/netbirdio/netbird/shared/management/client"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -53,10 +52,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	relayClient "github.com/netbirdio/netbird/relay/client"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/monotime"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/route"
-	signal "github.com/netbirdio/netbird/signal/client"
-	"github.com/netbirdio/netbird/signal/proto"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
+	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
 )
@@ -86,17 +87,22 @@ type MockWGIface struct {
 	UpdateAddrFunc             func(newAddr string) error
 	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
-	AddAllowedIPFunc           func(peerKey string, allowedIP string) error
-	RemoveAllowedIPFunc        func(peerKey string, allowedIP string) error
+	AddAllowedIPFunc           func(peerKey string, allowedIP netip.Prefix) error
+	RemoveAllowedIPFunc        func(peerKey string, allowedIP netip.Prefix) error
 	CloseFunc                  func() error
 	SetFilterFunc              func(filter device.PacketFilter) error
 	GetFilterFunc              func() device.PacketFilter
 	GetDeviceFunc              func() *device.FilteredDevice
 	GetWGDeviceFunc            func() *wgdevice.Device
-	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
+	GetStatsFunc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
+	LastActivitiesFunc         func() map[string]monotime.Time
+}
+
+func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
@@ -143,11 +149,11 @@ func (m *MockWGIface) RemovePeer(peerKey string) error {
 	return m.RemovePeerFunc(peerKey)
 }
 
-func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP string) error {
+func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	return m.AddAllowedIPFunc(peerKey, allowedIP)
 }
 
-func (m *MockWGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
+func (m *MockWGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	return m.RemoveAllowedIPFunc(peerKey, allowedIP)
 }
 
@@ -171,8 +177,8 @@ func (m *MockWGIface) GetWGDevice() *wgdevice.Device {
 	return m.GetWGDeviceFunc()
 }
 
-func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
-	return m.GetStatsFunc(peerKey)
+func (m *MockWGIface) GetStats() (map[string]configurer.WGStats, error) {
+	return m.GetStatsFunc()
 }
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {
@@ -183,8 +189,15 @@ func (m *MockWGIface) GetNet() *netstack.Net {
 	return m.GetNetFunc()
 }
 
+func (m *MockWGIface) LastActivities() map[string]monotime.Time {
+	if m.LastActivitiesFunc != nil {
+		return m.LastActivitiesFunc()
+	}
+	return nil
+}
+
 func TestMain(m *testing.M) {
-	_ = util.InitLog("debug", "console")
+	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
@@ -371,12 +384,12 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
-				IP: net.ParseIP("10.20.0.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("10.20.0.0"),
-					Mask: net.IPv4Mask(255, 255, 255, 0),
-				},
+				IP:      netip.MustParseAddr("10.20.0.1"),
+				Network: netip.MustParsePrefix("10.20.0.0/24"),
 			}
+		},
+		UpdatePeerFunc: func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+			return nil
 		},
 	}
 	engine.wgInterface = wgIface
@@ -388,7 +401,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		StatusRecorder:   engine.statusRecorder,
 		RelayManager:     relayMgr,
 	})
-	_, _, err = engine.routeManager.Init()
+	err = engine.routeManager.Init()
 	require.NoError(t, err)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -400,6 +413,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
+	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface)
+	engine.connMgr.Start(ctx)
 
 	type testCase struct {
 		name       string
@@ -637,12 +652,12 @@ func TestEngine_Sync(t *testing.T) {
 
 func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 	testCases := []struct {
-		name           string
-		inputErr       error
-		networkMap     *mgmtProto.NetworkMap
-		expectedLen    int
-		expectedRoutes []*route.Route
-		expectedSerial uint64
+		name                 string
+		inputErr             error
+		networkMap           *mgmtProto.NetworkMap
+		expectedLen          int
+		expectedClientRoutes route.HAMap
+		expectedSerial       uint64
 	}{
 		{
 			name: "Routes Config Should Be Passed To Manager",
@@ -670,22 +685,26 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				},
 			},
 			expectedLen: 2,
-			expectedRoutes: []*route.Route{
-				{
-					ID:          "a",
-					Network:     netip.MustParsePrefix("192.168.0.0/24"),
-					NetID:       "n1",
-					Peer:        "p1",
-					NetworkType: 1,
-					Masquerade:  false,
+			expectedClientRoutes: route.HAMap{
+				"n1|192.168.0.0/24": []*route.Route{
+					{
+						ID:          "a",
+						Network:     netip.MustParsePrefix("192.168.0.0/24"),
+						NetID:       "n1",
+						Peer:        "p1",
+						NetworkType: 1,
+						Masquerade:  false,
+					},
 				},
-				{
-					ID:          "b",
-					Network:     netip.MustParsePrefix("192.168.1.0/24"),
-					NetID:       "n2",
-					Peer:        "p1",
-					NetworkType: 1,
-					Masquerade:  false,
+				"n2|192.168.1.0/24": []*route.Route{
+					{
+						ID:          "b",
+						Network:     netip.MustParsePrefix("192.168.1.0/24"),
+						NetID:       "n2",
+						Peer:        "p1",
+						NetworkType: 1,
+						Masquerade:  false,
+					},
 				},
 			},
 			expectedSerial: 1,
@@ -698,9 +717,9 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				RemotePeersIsEmpty: false,
 				Routes:             nil,
 			},
-			expectedLen:    0,
-			expectedRoutes: []*route.Route{},
-			expectedSerial: 1,
+			expectedLen:          0,
+			expectedClientRoutes: nil,
+			expectedSerial:       1,
 		},
 		{
 			name:     "Error Shouldn't Break Engine",
@@ -711,9 +730,9 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				RemotePeersIsEmpty: false,
 				Routes:             nil,
 			},
-			expectedLen:    0,
-			expectedRoutes: []*route.Route{},
-			expectedSerial: 1,
+			expectedLen:          0,
+			expectedClientRoutes: nil,
+			expectedSerial:       1,
 		},
 	}
 
@@ -756,20 +775,35 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			engine.wgInterface, err = iface.NewWGIFace(opts)
 			assert.NoError(t, err, "shouldn't return error")
 			input := struct {
-				inputSerial uint64
-				inputRoutes []*route.Route
+				inputSerial  uint64
+				clientRoutes route.HAMap
 			}{}
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 					input.inputSerial = updateSerial
-					input.inputRoutes = newRoutes
+					input.clientRoutes = clientRoutes
 					return testCase.inputErr
+				},
+				ClassifyRoutesFunc: func(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap) {
+					if len(newRoutes) == 0 {
+						return nil, nil
+					}
+
+					// Classify all routes as client routes (not matching our public key)
+					clientRoutes := make(route.HAMap)
+					for _, r := range newRoutes {
+						haID := r.GetHAUniqueID()
+						clientRoutes[haID] = append(clientRoutes[haID], r)
+					}
+					return nil, clientRoutes
 				},
 			}
 
 			engine.routeManager = mockRouteManager
 			engine.dnsServer = &dns.MockServer{}
+			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface)
+			engine.connMgr.Start(ctx)
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -781,8 +815,8 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			err = engine.updateNetworkMap(testCase.networkMap)
 			assert.NoError(t, err, "shouldn't return error")
 			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
-			assert.Len(t, input.inputRoutes, testCase.expectedLen, "clientRoutes len should match")
-			assert.Equal(t, testCase.expectedRoutes, input.inputRoutes, "clientRoutes should match")
+			assert.Len(t, input.clientRoutes, testCase.expectedLen, "clientRoutes len should match")
+			assert.Equal(t, testCase.expectedClientRoutes, input.clientRoutes, "clientRoutes should match")
 		})
 	}
 }
@@ -943,7 +977,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 					return nil
 				},
 			}
@@ -966,6 +1000,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}
 
 			engine.dnsServer = mockDNSServer
+			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface)
+			engine.connMgr.Start(ctx)
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -1114,25 +1150,25 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 	}{
 		{
 			name:                    "Parse Valid List Should Be OK",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1", "8.8.8.8/" + testingInterface},
 			expectedOutput:          []string{"1.1.1.1", "8.8.8.8/" + testingIP},
 		},
 		{
 			name:                    "Only Interface name Should Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{testingInterface},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid IP Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1000"},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid Mapping Element Should return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1/10.10.10.1/eth0"},
 			expectedOutput:          nil,
 		},
@@ -1234,6 +1270,82 @@ func Test_CheckFilesEqual(t *testing.T) {
 				},
 			},
 			expectedBool: false,
+		},
+		{
+			name: "Compared Slices with same files but different order should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile2",
+					},
+				},
+				{
+					Files: []string{
+						"testfile4",
+						"testfile3",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile3",
+						"testfile4",
+					},
+				},
+				{
+					Files: []string{
+						"testfile2",
+						"testfile1",
+					},
+				},
+			},
+			expectedBool: true,
+		},
+		{
+			name: "Compared Slices with same files but different order while first is equal should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile0",
+						"testfile1",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile2",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile3",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile0",
+						"testfile1",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile3",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile2",
+					},
+				},
+			},
+			expectedBool: true,
 		},
 	}
 	for _, testCase := range testCases {
@@ -1446,16 +1558,20 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&types.Settings{}, nil).
 		AnyTimes()
+	settingsMockManager.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
 
 	permissionsManager := permissions.NewManager(store)
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	if err != nil {
 		return nil, "", err
 	}
 
 	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &server.MockIntegratedValidator{})
 	if err != nil {
 		return nil, "", err
 	}
@@ -1476,7 +1592,7 @@ func getConnectedPeers(e *Engine) int {
 	i := 0
 	for _, id := range e.peerStore.PeersPubKey() {
 		conn, _ := e.peerStore.PeerConn(id)
-		if conn.Status() == peer.StatusConnected {
+		if conn.IsConnected() {
 			i++
 		}
 	}
