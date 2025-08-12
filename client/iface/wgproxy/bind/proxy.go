@@ -171,7 +171,7 @@ func fakeAddress(peerAddress *net.UDPAddr) (*netip.AddrPort, error) {
 
 	fakeIP, err := netip.ParseAddr(fmt.Sprintf("127.1.%s.%s", octets[2], octets[3]))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse new IP: %w", err)
+		return nil, fmt.Errorf("parse new IP: %w", err)
 	}
 
 	netipAddr := netip.AddrPortFrom(fakeIP, uint16(peerAddress.Port))

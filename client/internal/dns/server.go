@@ -24,7 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
@@ -45,7 +45,7 @@ type Server interface {
 	Stop()
 	DnsIP() netip.Addr
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
-	OnUpdatedHostDNSServer(strings []string)
+	OnUpdatedHostDNSServer(addrs []netip.AddrPort)
 	SearchDomains() []string
 	ProbeAvailability()
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
@@ -60,7 +60,7 @@ type nsGroupsByDomain struct {
 // hostManagerWithOriginalNS extends the basic hostManager interface
 type hostManagerWithOriginalNS interface {
 	hostManager
-	getOriginalNameservers() []string
+	getOriginalNameservers() []netip.Addr
 }
 
 // DefaultServer dns server object
@@ -146,7 +146,7 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 func NewDefaultServerPermanentUpstream(
 	ctx context.Context,
 	wgInterface WGIface,
-	hostsDnsList []string,
+	hostsDnsList []netip.AddrPort,
 	config nbdns.Config,
 	listener listener.NetworkChangeListener,
 	statusRecorder *peer.Status,
@@ -154,6 +154,7 @@ func NewDefaultServerPermanentUpstream(
 ) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
+
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.addHostRootZone()
@@ -354,7 +355,7 @@ func (s *DefaultServer) disableDNS() error {
 
 // OnUpdatedHostDNSServer update the DNS servers addresses for root zones
 // It will be applied if the mgm server do not enforce DNS settings for root zone
-func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
+func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []netip.AddrPort) {
 	s.hostsDNSHolder.set(hostsDnsList)
 
 	// Check if there's any root handler
@@ -498,7 +499,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
-	if s.service.RuntimePort() != defaultPort && !s.hostManager.supportCustomPort() {
+	if s.service.RuntimePort() != DefaultPort && !s.hostManager.supportCustomPort() {
 		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
 			"Learn more at: https://docs.netbird.io/how-to/manage-dns-in-your-network#local-resolver")
 		s.currentConfig.RouteAll = false
@@ -618,14 +619,13 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	}
 
 	for _, ns := range originalNameservers {
-		if ns == config.ServerIP.String() {
+		if ns == config.ServerIP {
 			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, config.ServerIP)
 			continue
 		}
 
-		ns = formatAddr(ns, defaultPort)
-
-		handler.upstreamServers = append(handler.upstreamServers, ns)
+		addrPort := netip.AddrPortFrom(ns, DefaultPort)
+		handler.upstreamServers = append(handler.upstreamServers, addrPort)
 	}
 	handler.deactivate = func(error) { /* always active */ }
 	handler.reactivate = func() { /* always active */ }
@@ -732,7 +732,13 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 					ns.IP.String(), ns.NSType.String(), nbdns.UDPNameServerType.String())
 				continue
 			}
-			handler.upstreamServers = append(handler.upstreamServers, getNSHostPort(ns))
+
+			if ns.IP == s.service.RuntimeIP() {
+				log.Warnf("skipping nameserver %s as it matches our DNS server IP, preventing potential loop", ns.IP)
+				continue
+			}
+
+			handler.upstreamServers = append(handler.upstreamServers, ns.AddrPort())
 		}
 
 		if len(handler.upstreamServers) == 0 {
@@ -805,18 +811,6 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	}
 
 	s.dnsMuxMap = muxUpdateMap
-}
-
-func getNSHostPort(ns nbdns.NameServer) string {
-	return formatAddr(ns.IP.String(), ns.Port)
-}
-
-// formatAddr formats a nameserver address with port, handling IPv6 addresses properly
-func formatAddr(address string, port int) string {
-	if ip, err := netip.ParseAddr(address); err == nil && ip.Is6() {
-		return fmt.Sprintf("[%s]:%d", address, port)
-	}
-	return fmt.Sprintf("%s:%d", address, port)
 }
 
 // upstreamCallbacks returns two functions, the first one is used to deactivate
@@ -916,10 +910,7 @@ func (s *DefaultServer) addHostRootZone() {
 		return
 	}
 
-	handler.upstreamServers = make([]string, 0)
-	for k := range hostDNSServers {
-		handler.upstreamServers = append(handler.upstreamServers, k)
-	}
+	handler.upstreamServers = maps.Keys(hostDNSServers)
 	handler.deactivate = func(error) {}
 	handler.reactivate = func() {}
 
@@ -930,9 +921,9 @@ func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {
 	var states []peer.NSGroupState
 
 	for _, group := range groups {
-		var servers []string
+		var servers []netip.AddrPort
 		for _, ns := range group.NameServers {
-			servers = append(servers, fmt.Sprintf("%s:%d", ns.IP, ns.Port))
+			servers = append(servers, ns.AddrPort())
 		}
 
 		state := peer.NSGroupState{
@@ -964,7 +955,7 @@ func (s *DefaultServer) updateNSState(nsGroup *nbdns.NameServerGroup, err error,
 func generateGroupKey(nsGroup *nbdns.NameServerGroup) string {
 	var servers []string
 	for _, ns := range nsGroup.NameServers {
-		servers = append(servers, fmt.Sprintf("%s:%d", ns.IP, ns.Port))
+		servers = append(servers, ns.AddrPort().String())
 	}
 	return fmt.Sprintf("%v_%v", servers, nsGroup.Domains)
 }

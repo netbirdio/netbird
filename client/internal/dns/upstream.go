@@ -51,7 +51,7 @@ type upstreamResolverBase struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	upstreamClient   upstreamClient
-	upstreamServers  []string
+	upstreamServers  []netip.AddrPort
 	domain           string
 	disabled         bool
 	successCount     atomic.Int32
@@ -79,17 +79,20 @@ func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, d
 
 // String returns a string representation of the upstream resolver
 func (u *upstreamResolverBase) String() string {
-	return fmt.Sprintf("Upstream %v", u.upstreamServers)
+	return fmt.Sprintf("Upstream %s", u.upstreamServers)
 }
 
 // ID returns the unique handler ID
 func (u *upstreamResolverBase) ID() types.HandlerID {
 	servers := slices.Clone(u.upstreamServers)
-	slices.Sort(servers)
+	slices.SortFunc(servers, func(a, b netip.AddrPort) int { return a.Compare(b) })
 
 	hash := sha256.New()
 	hash.Write([]byte(u.domain + ":"))
-	hash.Write([]byte(strings.Join(servers, ",")))
+	for _, s := range servers {
+		hash.Write([]byte(s.String()))
+		hash.Write([]byte("|"))
+	}
 	return types.HandlerID("upstream-" + hex.EncodeToString(hash.Sum(nil)[:8]))
 }
 
@@ -129,7 +132,6 @@ func (u *upstreamResolverBase) prepareRequest(r *dns.Msg) {
 	}
 }
 
-
 func (u *upstreamResolverBase) tryUpstreamServers(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) bool {
 	timeout := u.upstreamTimeout
 	if len(u.upstreamServers) > 1 {
@@ -151,7 +153,7 @@ func (u *upstreamResolverBase) tryUpstreamServers(w dns.ResponseWriter, r *dns.M
 	return false
 }
 
-func (u *upstreamResolverBase) queryUpstream(w dns.ResponseWriter, r *dns.Msg, upstream string, timeout time.Duration, logger *log.Entry) bool {
+func (u *upstreamResolverBase) queryUpstream(w dns.ResponseWriter, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration, logger *log.Entry) bool {
 	var rm *dns.Msg
 	var t time.Duration
 	var err error
@@ -161,7 +163,7 @@ func (u *upstreamResolverBase) queryUpstream(w dns.ResponseWriter, r *dns.Msg, u
 		ctx, cancel := context.WithTimeout(u.ctx, timeout)
 		defer cancel()
 		startTime = time.Now()
-		rm, t, err = u.upstreamClient.exchange(ctx, upstream, r)
+		rm, t, err = u.upstreamClient.exchange(ctx, upstream.String(), r)
 	}()
 
 	if err != nil {
@@ -177,7 +179,7 @@ func (u *upstreamResolverBase) queryUpstream(w dns.ResponseWriter, r *dns.Msg, u
 	return u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, logger)
 }
 
-func (u *upstreamResolverBase) handleUpstreamError(err error, upstream, domain string, startTime time.Time, timeout time.Duration, logger *log.Entry) {
+func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.AddrPort, domain string, startTime time.Time, timeout time.Duration, logger *log.Entry) {
 	if !errors.Is(err, context.DeadlineExceeded) && !isTimeout(err) {
 		logger.Warnf("failed to query upstream %s for question domain=%s: %s", upstream, domain, err)
 		return
@@ -192,7 +194,7 @@ func (u *upstreamResolverBase) handleUpstreamError(err error, upstream, domain s
 	logger.Warnf(timeoutMsg)
 }
 
-func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream, domain string, t time.Duration, logger *log.Entry) bool {
+func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, t time.Duration, logger *log.Entry) bool {
 	u.successCount.Add(1)
 	logger.Tracef("took %s to query the upstream %s for question domain=%s", t, upstream, domain)
 
@@ -268,7 +270,7 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 			proto.SystemEvent_DNS,
 			"All upstream servers failed (probe failed)",
 			"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
-			map[string]string{"upstreams": strings.Join(u.upstreamServers, ", ")},
+			map[string]string{"upstreams": u.upstreamServersString()},
 		)
 	}
 }
@@ -288,7 +290,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 	operation := func() error {
 		select {
 		case <-u.ctx.Done():
-			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop for upstreams %s: parent context has been canceled", u.upstreamServers))
+			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop for upstreams %s: parent context has been canceled", u.upstreamServersString()))
 		default:
 		}
 
@@ -301,7 +303,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 			}
 		}
 
-		log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServers, exponentialBackOff.NextBackOff())
+		log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServersString(), exponentialBackOff.NextBackOff())
 		return fmt.Errorf("upstream check call error")
 	}
 
@@ -311,7 +313,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		return
 	}
 
-	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
+	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServersString())
 	u.successCount.Add(1)
 	u.reactivate()
 	u.disabled = false
@@ -340,13 +342,21 @@ func (u *upstreamResolverBase) disable(err error) {
 	go u.waitUntilResponse()
 }
 
-func (u *upstreamResolverBase) testNameserver(server string, timeout time.Duration) error {
+func (u *upstreamResolverBase) upstreamServersString() string {
+	var servers []string
+	for _, server := range u.upstreamServers {
+		servers = append(servers, server.String())
+	}
+	return strings.Join(servers, ", ")
+}
+
+func (u *upstreamResolverBase) testNameserver(server netip.AddrPort, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(u.ctx, timeout)
 	defer cancel()
 
 	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
 
-	_, _, err := u.upstreamClient.exchange(ctx, server, r)
+	_, _, err := u.upstreamClient.exchange(ctx, server.String(), r)
 	return err
 }
 
@@ -484,17 +494,12 @@ func parseUpstreamIP(upstream string) (netip.Addr, error) {
 	return upstreamIP, nil
 }
 
-func (u *upstreamResolverBase) debugUpstreamTimeout(upstream string) string {
+func (u *upstreamResolverBase) debugUpstreamTimeout(upstream netip.AddrPort) string {
 	if u.statusRecorder == nil {
 		return ""
 	}
 
-	upstreamIP, err := parseUpstreamIP(upstream)
-	if err != nil {
-		return ""
-	}
-
-	peerInfo := findPeerForIP(upstreamIP, u.statusRecorder)
+	peerInfo := findPeerForIP(upstream.Addr(), u.statusRecorder)
 	if peerInfo == nil {
 		return ""
 	}

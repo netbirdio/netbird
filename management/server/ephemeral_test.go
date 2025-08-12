@@ -43,10 +43,10 @@ func (a *MockAccountManager) DeletePeer(_ context.Context, accountID, peerID, us
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.deletePeerCalls++
+	delete(a.store.account.Peers, peerID)
 	if a.wg != nil {
 		a.wg.Done()
 	}
-	delete(a.store.account.Peers, peerID)
 	return nil
 }
 

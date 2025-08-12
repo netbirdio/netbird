@@ -12,7 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 type Resolver struct {

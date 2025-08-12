@@ -82,8 +82,8 @@ func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream stri
 }
 
 func (u *upstreamResolver) isLocalResolver(upstream string) bool {
-	if u.hostsDNSHolder.isContain(upstream) {
-		return true
+	if addrPort, err := netip.ParseAddrPort(upstream); err == nil {
+		return u.hostsDNSHolder.contains(addrPort)
 	}
 	return false
 }

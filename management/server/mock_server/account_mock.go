@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -60,6 +60,7 @@ type MockAccountManager struct {
 	GetUsersFromAccountFunc               func(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
 	UpdatePeerMetaFunc                    func(ctx context.Context, peerID string, meta nbpeer.PeerSystemMeta) error
 	UpdatePeerFunc                        func(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
+	UpdatePeerIPFunc                      func(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error
 	CreateRouteFunc                       func(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peer string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
 	GetRouteFunc                          func(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
 	SaveRouteFunc                         func(ctx context.Context, accountID string, userID string, route *route.Route) error
@@ -481,6 +482,13 @@ func (am *MockAccountManager) UpdatePeer(ctx context.Context, accountID, userID 
 		return am.UpdatePeerFunc(ctx, accountID, userID, peer)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method UpdatePeer is not implemented")
+}
+
+func (am *MockAccountManager) UpdatePeerIP(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error {
+	if am.UpdatePeerIPFunc != nil {
+		return am.UpdatePeerIPFunc(ctx, accountID, userID, peerID, newIP)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdatePeerIP is not implemented")
 }
 
 // CreateRoute mock implementation of CreateRoute from server.AccountManager interface

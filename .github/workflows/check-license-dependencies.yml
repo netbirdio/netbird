@@ -1,0 +1,41 @@
+name: Check License Dependencies
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  check-dependencies:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check for problematic license dependencies
+      run: |
+        echo "Checking for dependencies on management/, signal/, and relay/ packages..."
+
+        # Find all directories except the problematic ones and system dirs
+        FOUND_ISSUES=0
+        find . -maxdepth 1 -type d -not -name "." -not -name "management" -not -name "signal" -not -name "relay" -not -name ".git*" | sort | while read dir; do
+          echo "=== Checking $dir ==="
+          # Search for problematic imports, excluding test files
+          RESULTS=$(grep -r "github.com/netbirdio/netbird/\(management\|signal\|relay\)" "$dir" --include="*.go" | grep -v "_test.go" | grep -v "test_" | grep -v "/test/" || true)
+          if [ ! -z "$RESULTS" ]; then
+            echo "❌ Found problematic dependencies:"
+            echo "$RESULTS"
+            FOUND_ISSUES=1
+          else
+            echo "✓ No problematic dependencies found"
+          fi
+        done
+        if [ $FOUND_ISSUES -eq 1 ]; then
+          echo ""
+          echo "❌ Found dependencies on management/, signal/, or relay/ packages"
+          echo "These packages will change license and should not be imported by client or shared code"
+          exit 1
+        else
+          echo ""
+          echo "✅ All license dependencies are clean"
+        fi

@@ -13,7 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 const dnsTimeout = 5 * time.Second

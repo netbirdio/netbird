@@ -59,7 +59,14 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
 			resolver, _ := newUpstreamResolver(ctx, "", netip.Addr{}, netip.Prefix{}, nil, nil, ".")
-			resolver.upstreamServers = testCase.InputServers
+			// Convert test servers to netip.AddrPort
+			var servers []netip.AddrPort
+			for _, server := range testCase.InputServers {
+				if addrPort, err := netip.ParseAddrPort(server); err == nil {
+					servers = append(servers, netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port()))
+				}
+			}
+			resolver.upstreamServers = servers
 			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {
 				cancel()
@@ -129,7 +136,8 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 		upstreamTimeout:  UpstreamTimeout,
 		reactivatePeriod: time.Microsecond * 100,
 	}
-	resolver.upstreamServers = []string{"0.0.0.0:-1"}
+	addrPort, _ := netip.ParseAddrPort("0.0.0.0:1") // Use valid port for parsing, test will still fail on connection
+	resolver.upstreamServers = []netip.AddrPort{netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port())}
 
 	failed := false
 	resolver.deactivate = func(error) {

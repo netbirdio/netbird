@@ -27,7 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -46,7 +46,7 @@ iptables.txt: Anonymized iptables rules with packet counters, if --system-info f
 nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
-network_map.json: Anonymized network map containing peer configurations, routes, DNS settings, and firewall rules.
+network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states.
 mutex.prof: Mutex profiling information.
 goroutine.prof: Goroutine profiling information.
@@ -73,7 +73,7 @@ Domains
 All domain names (except for the netbird domains) are replaced with randomly generated strings ending in ".domain". Anonymized domains are consistent across all files in the bundle.
 Reoccuring domain names are replaced with the same anonymized domain.
 
-Network Map
+Sync Response
 The network_map.json file contains the following anonymized information:
 - Peer configurations (addresses, FQDNs, DNS settings)
 - Remote and offline peer information (allowed IPs, FQDNs)
@@ -81,7 +81,7 @@ The network_map.json file contains the following anonymized information:
 - DNS configuration (nameservers, domains, custom zones)
 - Firewall rules (peer IPs, source/destination ranges)
 
-SSH keys in the network map are replaced with a placeholder value. All IP addresses and domains in the network map follow the same anonymization rules as described above.
+SSH keys in the sync response are replaced with a placeholder value. All IP addresses and domains in the sync response follow the same anonymization rules as described above.
 
 State File
 The state.json file contains anonymized internal state information of the NetBird client, including:
@@ -201,7 +201,7 @@ type BundleGenerator struct {
 	// deps
 	internalConfig *profilemanager.Config
 	statusRecorder *peer.Status
-	networkMap     *mgmProto.NetworkMap
+	syncResponse   *mgmProto.SyncResponse
 	logFile        string
 
 	anonymize         bool
@@ -222,7 +222,7 @@ type BundleConfig struct {
 type GeneratorDependencies struct {
 	InternalConfig *profilemanager.Config
 	StatusRecorder *peer.Status
-	NetworkMap     *mgmProto.NetworkMap
+	SyncResponse   *mgmProto.SyncResponse
 	LogFile        string
 }
 
@@ -238,7 +238,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 
 		internalConfig: deps.InternalConfig,
 		statusRecorder: deps.StatusRecorder,
-		networkMap:     deps.NetworkMap,
+		syncResponse:   deps.SyncResponse,
 		logFile:        deps.LogFile,
 
 		anonymize:         cfg.Anonymize,
@@ -311,8 +311,8 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add profiles to debug bundle: %v", err)
 	}
 
-	if err := g.addNetworkMap(); err != nil {
-		return fmt.Errorf("add network map: %w", err)
+	if err := g.addSyncResponse(); err != nil {
+		return fmt.Errorf("add sync response: %w", err)
 	}
 
 	if err := g.addStateFile(); err != nil {
@@ -526,15 +526,15 @@ func (g *BundleGenerator) addResolvedDomains() error {
 	return nil
 }
 
-func (g *BundleGenerator) addNetworkMap() error {
-	if g.networkMap == nil {
-		log.Debugf("skipping empty network map in debug bundle")
+func (g *BundleGenerator) addSyncResponse() error {
+	if g.syncResponse == nil {
+		log.Debugf("skipping empty sync response in debug bundle")
 		return nil
 	}
 
 	if g.anonymize {
-		if err := anonymizeNetworkMap(g.networkMap, g.anonymizer); err != nil {
-			return fmt.Errorf("anonymize network map: %w", err)
+		if err := anonymizeSyncResponse(g.syncResponse, g.anonymizer); err != nil {
+			return fmt.Errorf("anonymize sync response: %w", err)
 		}
 	}
 
@@ -545,20 +545,20 @@ func (g *BundleGenerator) addNetworkMap() error {
 		AllowPartial:    true,
 	}
 
-	jsonBytes, err := options.Marshal(g.networkMap)
+	jsonBytes, err := options.Marshal(g.syncResponse)
 	if err != nil {
 		return fmt.Errorf("generate json: %w", err)
 	}
 
 	if err := g.addFileToZip(bytes.NewReader(jsonBytes), "network_map.json"); err != nil {
-		return fmt.Errorf("add network map to zip: %w", err)
+		return fmt.Errorf("add sync response to zip: %w", err)
 	}
 
 	return nil
 }
 
 func (g *BundleGenerator) addStateFile() error {
-	sm := profilemanager.ServiceManager{}
+	sm := profilemanager.NewServiceManager("")
 	path := sm.GetStatePath()
 	if path == "" {
 		return nil
@@ -597,7 +597,7 @@ func (g *BundleGenerator) addStateFile() error {
 }
 
 func (g *BundleGenerator) addCorruptedStateFiles() error {
-	sm := profilemanager.ServiceManager{}
+	sm := profilemanager.NewServiceManager("")
 	pattern := sm.GetStatePath()
 	if pattern == "" {
 		return nil
@@ -921,6 +921,88 @@ func anonymizeNetworkMap(networkMap *mgmProto.NetworkMap, anonymizer *anonymize.
 	return nil
 }
 
+func anonymizeNetbirdConfig(config *mgmProto.NetbirdConfig, anonymizer *anonymize.Anonymizer) {
+	for _, stun := range config.Stuns {
+		if stun.Uri != "" {
+			stun.Uri = anonymizer.AnonymizeURI(stun.Uri)
+		}
+	}
+
+	for _, turn := range config.Turns {
+		if turn.HostConfig != nil && turn.HostConfig.Uri != "" {
+			turn.HostConfig.Uri = anonymizer.AnonymizeURI(turn.HostConfig.Uri)
+		}
+		if turn.User != "" {
+			turn.User = "turn-user-placeholder"
+		}
+		if turn.Password != "" {
+			turn.Password = "turn-password-placeholder"
+		}
+	}
+
+	if config.Signal != nil && config.Signal.Uri != "" {
+		config.Signal.Uri = anonymizer.AnonymizeURI(config.Signal.Uri)
+	}
+
+	if config.Relay != nil {
+		for i, url := range config.Relay.Urls {
+			config.Relay.Urls[i] = anonymizer.AnonymizeURI(url)
+		}
+		if config.Relay.TokenPayload != "" {
+			config.Relay.TokenPayload = "relay-token-payload-placeholder"
+		}
+		if config.Relay.TokenSignature != "" {
+			config.Relay.TokenSignature = "relay-token-signature-placeholder"
+		}
+	}
+
+	if config.Flow != nil {
+		if config.Flow.Url != "" {
+			config.Flow.Url = anonymizer.AnonymizeURI(config.Flow.Url)
+		}
+		if config.Flow.TokenPayload != "" {
+			config.Flow.TokenPayload = "flow-token-payload-placeholder"
+		}
+		if config.Flow.TokenSignature != "" {
+			config.Flow.TokenSignature = "flow-token-signature-placeholder"
+		}
+	}
+}
+
+func anonymizeSyncResponse(syncResponse *mgmProto.SyncResponse, anonymizer *anonymize.Anonymizer) error {
+	if syncResponse.NetbirdConfig != nil {
+		anonymizeNetbirdConfig(syncResponse.NetbirdConfig, anonymizer)
+	}
+
+	if syncResponse.PeerConfig != nil {
+		anonymizePeerConfig(syncResponse.PeerConfig, anonymizer)
+	}
+
+	for _, p := range syncResponse.RemotePeers {
+		anonymizeRemotePeer(p, anonymizer)
+	}
+
+	if syncResponse.NetworkMap != nil {
+		if err := anonymizeNetworkMap(syncResponse.NetworkMap, anonymizer); err != nil {
+			return err
+		}
+	}
+
+	for _, check := range syncResponse.Checks {
+		for i, file := range check.Files {
+			check.Files[i] = anonymizer.AnonymizeString(file)
+		}
+	}
+
+	return nil
+}
+
+func anonymizeSSHConfig(sshConfig *mgmProto.SSHConfig) {
+	if sshConfig != nil && len(sshConfig.SshPubKey) > 0 {
+		sshConfig.SshPubKey = []byte("ssh-placeholder-key")
+	}
+}
+
 func anonymizePeerConfig(config *mgmProto.PeerConfig, anonymizer *anonymize.Anonymizer) {
 	if config == nil {
 		return
@@ -930,9 +1012,7 @@ func anonymizePeerConfig(config *mgmProto.PeerConfig, anonymizer *anonymize.Anon
 		config.Address = anonymizer.AnonymizeIP(addr).String()
 	}
 
-	if config.SshConfig != nil && len(config.SshConfig.SshPubKey) > 0 {
-		config.SshConfig.SshPubKey = []byte("ssh-placeholder-key")
-	}
+	anonymizeSSHConfig(config.SshConfig)
 
 	config.Dns = anonymizer.AnonymizeString(config.Dns)
 	config.Fqdn = anonymizer.AnonymizeDomain(config.Fqdn)
@@ -954,9 +1034,7 @@ func anonymizeRemotePeer(peer *mgmProto.RemotePeerConfig, anonymizer *anonymize.
 
 	peer.Fqdn = anonymizer.AnonymizeDomain(peer.Fqdn)
 
-	if peer.SshConfig != nil && len(peer.SshConfig.SshPubKey) > 0 {
-		peer.SshConfig.SshPubKey = []byte("ssh-placeholder-key")
-	}
+	anonymizeSSHConfig(peer.SshConfig)
 }
 
 func anonymizeRoute(route *mgmProto.Route, anonymizer *anonymize.Anonymizer) {
