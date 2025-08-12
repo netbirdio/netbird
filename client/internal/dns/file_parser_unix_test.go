@@ -176,4 +176,3 @@ nameserver 192.168.0.1
 		t.Errorf("unexpected resolv.conf content: %v", cfg)
 	}
 }
-
