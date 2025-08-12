@@ -581,7 +581,7 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 			continue
 		}
 
-		newAccount := newAccountWithId(ctx, accountId, userID, domain)
+		newAccount := newAccountWithId(ctx, accountId, userID, domain, am.disableDefaultPolicy)
 		am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 		return newAccount, nil
 	}
@@ -1148,7 +1148,7 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
 			newUser := types.NewRegularUser(userAuth.UserId)
 			newUser.AccountID = domainAccountID
-			err = am.Store.SaveUser(ctx, store.LockingStrengthUpdate, newUser)
+			err = am.Store.SaveUser(ctx, newUser)
 			if err != nil {
 				return "", err
 			}
