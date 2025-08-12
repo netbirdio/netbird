@@ -482,18 +482,6 @@ func findPeerForIP(ip netip.Addr, statusRecorder *peer.Status) *peer.State {
 	return bestMatch
 }
 
-// parseUpstreamIP parses an upstream server address to extract the IP
-func parseUpstreamIP(upstream string) (netip.Addr, error) {
-	upstreamIP, err := netip.ParseAddr(upstream)
-	if err != nil {
-		if host, _, err := net.SplitHostPort(upstream); err == nil {
-			return netip.ParseAddr(host)
-		}
-		return netip.Addr{}, err
-	}
-	return upstreamIP, nil
-}
-
 func (u *upstreamResolverBase) debugUpstreamTimeout(upstream netip.AddrPort) string {
 	if u.statusRecorder == nil {
 		return ""
