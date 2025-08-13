@@ -40,13 +40,12 @@ func (s *serviceClient) showProfilesUI() {
 	list := widget.NewList(
 		func() int { return len(profiles) },
 		func() fyne.CanvasObject {
-			// Each item: Selected indicator, Name, spacer, Select, Logout & Remove buttons
+			// Each item: Selected indicator, Name, spacer, Select & Remove buttons
 			return container.NewHBox(
 				widget.NewLabel(""), // indicator
 				widget.NewLabel(""), // profile name
 				layout.NewSpacer(),
 				widget.NewButton("Select", nil),
-				widget.NewButton("Deregister", nil),
 				widget.NewButton("Remove", nil),
 			)
 		},
@@ -56,8 +55,7 @@ func (s *serviceClient) showProfilesUI() {
 			indicator := row.Objects[0].(*widget.Label)
 			nameLabel := row.Objects[1].(*widget.Label)
 			selectBtn := row.Objects[3].(*widget.Button)
-			logoutBtn := row.Objects[4].(*widget.Button)
-			removeBtn := row.Objects[5].(*widget.Button)
+			removeBtn := row.Objects[4].(*widget.Button)
 
 			profile := profiles[i]
 			// Show a checkmark if selected
@@ -125,12 +123,6 @@ func (s *serviceClient) showProfilesUI() {
 					},
 					s.wProfiles,
 				)
-			}
-
-			logoutBtn.Show()
-			logoutBtn.SetText("Deregister")
-			logoutBtn.OnTapped = func() {
-				s.handleProfileLogout(profile.Name, refresh)
 			}
 
 			// Remove profile
@@ -332,52 +324,6 @@ func (s *serviceClient) getProfiles() ([]Profile, error) {
 	return profiles, nil
 }
 
-func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback func()) {
-	dialog.ShowConfirm(
-		"Deregister",
-		fmt.Sprintf("Are you sure you want to deregister from '%s'?", profileName),
-		func(confirm bool) {
-			if !confirm {
-				return
-			}
-
-			conn, err := s.getSrvClient(defaultFailTimeout)
-			if err != nil {
-				log.Errorf("failed to get service client: %v", err)
-				dialog.ShowError(fmt.Errorf("failed to connect to service"), s.wProfiles)
-				return
-			}
-
-			currUser, err := user.Current()
-			if err != nil {
-				log.Errorf("failed to get current user: %v", err)
-				dialog.ShowError(fmt.Errorf("failed to get current user"), s.wProfiles)
-				return
-			}
-
-			username := currUser.Username
-			_, err = conn.Logout(s.ctx, &proto.LogoutRequest{
-				ProfileName: &profileName,
-				Username:    &username,
-			})
-			if err != nil {
-				log.Errorf("logout failed: %v", err)
-				dialog.ShowError(fmt.Errorf("deregister failed"), s.wProfiles)
-				return
-			}
-
-			dialog.ShowInformation(
-				"Deregistered",
-				fmt.Sprintf("Successfully deregistered from '%s'", profileName),
-				s.wProfiles,
-			)
-
-			refreshCallback()
-		},
-		s.wProfiles,
-	)
-}
-
 type subItem struct {
 	*systray.MenuItem
 	ctx    context.Context
@@ -393,7 +339,6 @@ type profileMenu struct {
 	emailMenuItem         *systray.MenuItem
 	profileSubItems       []*subItem
 	manageProfilesSubItem *subItem
-	logoutSubItem         *subItem
 	profilesState         []Profile
 	downClickCallback     func() error
 	upClickCallback       func() error
@@ -600,30 +545,6 @@ func (p *profileMenu) refresh() {
 		}
 	}()
 
-	// Add Logout menu item
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	logoutItem := p.profileMenuItem.AddSubMenuItem("Deregister", "")
-	p.logoutSubItem = &subItem{logoutItem, ctx2, cancel2}
-
-	go func() {
-		for {
-			select {
-			case <-ctx2.Done():
-				return
-			case _, ok := <-logoutItem.ClickedCh:
-				if !ok {
-					return
-				}
-				if err := p.eventHandler.logout(p.ctx); err != nil {
-					log.Errorf("logout failed: %v", err)
-					p.app.SendNotification(fyne.NewNotification("Error", "Failed to deregister"))
-				} else {
-					p.app.SendNotification(fyne.NewNotification("Success", "Deregistered successfully"))
-				}
-			}
-		}
-	}()
-
 	if activeProf.ProfileName == "default" || activeProf.Username == currUser.Username {
 		p.profileMenuItem.SetTitle(activeProf.ProfileName)
 	} else {
@@ -645,12 +566,6 @@ func (p *profileMenu) clear(profiles []Profile) {
 		p.manageProfilesSubItem.Remove()
 		p.manageProfilesSubItem.cancel()
 		p.manageProfilesSubItem = nil
-	}
-
-	if p.logoutSubItem != nil {
-		p.logoutSubItem.Remove()
-		p.logoutSubItem.cancel()
-		p.logoutSubItem = nil
 	}
 }
 
