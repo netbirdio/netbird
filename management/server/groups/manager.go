@@ -6,12 +6,12 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 type Manager interface {
@@ -21,6 +21,7 @@ type Manager interface {
 	AddResourceToGroup(ctx context.Context, accountID, userID, groupID string, resourceID *types.Resource) error
 	AddResourceToGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID string, resourceID *types.Resource) (func(), error)
 	RemoveResourceFromGroupInTransaction(ctx context.Context, transaction store.Store, accountID, userID, groupID, resourceID string) (func(), error)
+	GetPeerGroupIDs(ctx context.Context, accountID, peerID string) ([]string, error)
 }
 
 type managerImpl struct {
@@ -49,7 +50,7 @@ func (m *managerImpl) GetAllGroups(ctx context.Context, accountID, userID string
 		return nil, err
 	}
 
-	groups, err := m.store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+	groups, err := m.store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting account groups: %w", err)
 	}
@@ -96,13 +97,13 @@ func (m *managerImpl) AddResourceToGroupInTransaction(ctx context.Context, trans
 		return nil, fmt.Errorf("error adding resource to group: %w", err)
 	}
 
-	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthShare, accountID, groupID)
+	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting group: %w", err)
 	}
 
 	// TODO: at some point, this will need to become a switch statement
-	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, resource.ID)
+	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, resource.ID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting network resource: %w", err)
 	}
@@ -120,13 +121,13 @@ func (m *managerImpl) RemoveResourceFromGroupInTransaction(ctx context.Context, 
 		return nil, fmt.Errorf("error removing resource from group: %w", err)
 	}
 
-	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthShare, accountID, groupID)
+	group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting group: %w", err)
 	}
 
 	// TODO: at some point, this will need to become a switch statement
-	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthShare, accountID, resourceID)
+	networkResource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, resourceID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting network resource: %w", err)
 	}
@@ -140,6 +141,10 @@ func (m *managerImpl) RemoveResourceFromGroupInTransaction(ctx context.Context, 
 
 func (m *managerImpl) GetResourceGroupsInTransaction(ctx context.Context, transaction store.Store, lockingStrength store.LockingStrength, accountID, resourceID string) ([]*types.Group, error) {
 	return transaction.GetResourceGroups(ctx, lockingStrength, accountID, resourceID)
+}
+
+func (m *managerImpl) GetPeerGroupIDs(ctx context.Context, accountID, peerID string) ([]string, error) {
+	return m.store.GetPeerGroupIDs(ctx, store.LockingStrengthShare, accountID, peerID)
 }
 
 func ToGroupsInfoMap(groups []*types.Group, idCount int) map[string][]api.GroupMinimum {
@@ -200,6 +205,10 @@ func (m *mockManager) RemoveResourceFromGroupInTransaction(ctx context.Context, 
 	return func() {
 		// noop
 	}, nil
+}
+
+func (m *mockManager) GetPeerGroupIDs(ctx context.Context, accountID, peerID string) ([]string, error) {
+	return []string{}, nil
 }
 
 func NewManagerMock() Manager {
