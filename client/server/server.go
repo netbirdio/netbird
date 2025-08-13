@@ -1333,10 +1333,22 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 	}, nil
 }
 
+// GetFeatures returns the features supported by the daemon.
+func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest) (*proto.GetFeaturesResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	features := &proto.GetFeaturesResponse{
+		DisableProfiles:       s.checkProfilesDisabled(),
+		DisableUpdateSettings: s.checkUpdateSettingsDisabled(),
+	}
+
+	return features, nil
+}
+
 func (s *Server) checkProfilesDisabled() bool {
 	// Check if the environment variable is set to disable profiles
 	if s.profilesDisabled {
-		log.Warn("Profiles are disabled via the --disable-profiles command-line flag")
 		return true
 	}
 
@@ -1346,7 +1358,6 @@ func (s *Server) checkProfilesDisabled() bool {
 func (s *Server) checkUpdateSettingsDisabled() bool {
 	// Check if the environment variable is set to disable profiles
 	if s.updateSettingsDisabled {
-		log.Warn("Update settings are disabled via the --disable-update-settings command-line flag")
 		return true
 	}
 

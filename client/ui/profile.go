@@ -654,6 +654,19 @@ func (p *profileMenu) clear(profiles []Profile) {
 	}
 }
 
+// setEnabled enables or disables the profile menu based on the provided state
+func (p *profileMenu) setEnabled(enabled bool) {
+	if p.profileMenuItem != nil {
+		if enabled {
+			p.profileMenuItem.Enable()
+			p.profileMenuItem.SetTooltip("")
+		} else {
+			p.profileMenuItem.Disable()
+			p.profileMenuItem.SetTooltip("Profiles are disabled by daemon")
+		}
+	}
+}
+
 func (p *profileMenu) updateMenu() {
 	// check every second
 	ticker := time.NewTicker(time.Second)
@@ -662,7 +675,6 @@ func (p *profileMenu) updateMenu() {
 	for {
 		select {
 		case <-ticker.C:
-
 			// get profilesList
 			profiles, err := p.getProfiles()
 			if err != nil {
