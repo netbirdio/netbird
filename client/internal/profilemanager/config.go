@@ -75,6 +75,8 @@ type ConfigInput struct {
 	DNSLabels domain.List
 
 	LazyConnectionEnabled *bool
+
+	MTU *uint16
 }
 
 // Config Configuration type
@@ -141,6 +143,8 @@ type Config struct {
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
 	LazyConnectionEnabled bool
+
+	MTU uint16
 }
 
 var ConfigDirOverride string
@@ -490,6 +494,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
 		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
 		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
+		updated = true
+	}
+
+	if input.MTU != nil && *input.MTU != config.MTU {
+		log.Infof("updating MTU to %d (old value %d)", *input.MTU, config.MTU)
+		config.MTU = *input.MTU
+		updated = true
+	} else if config.MTU == 0 {
+		config.MTU = iface.DefaultMTU
+		log.Infof("using default MTU %d", config.MTU)
 		updated = true
 	}
 

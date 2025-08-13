@@ -63,20 +63,24 @@ type Manager struct {
 	onDisconnectedListeners map[string]*list.List
 	onReconnectedListenerFn func()
 	listenerLock            sync.Mutex
+
+	mtu uint16
 }
 
 // NewManager creates a new manager instance.
 // The serverURL address can be empty. In this case, the manager will not serve.
-func NewManager(ctx context.Context, serverURLs []string, peerID string) *Manager {
+func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uint16) *Manager {
 	tokenStore := &relayAuth.TokenStore{}
 
 	m := &Manager{
 		ctx:        ctx,
 		peerID:     peerID,
 		tokenStore: tokenStore,
+		mtu:        mtu,
 		serverPicker: &ServerPicker{
 			TokenStore: tokenStore,
 			PeerID:     peerID,
+			MTU:        mtu,
 		},
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]*list.List),
@@ -253,7 +257,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	m.relayClients[serverAddress] = rt
 	m.relayClientsMutex.Unlock()
 
-	relayClient := NewClient(serverAddress, m.tokenStore, m.peerID)
+	relayClient := NewClient(serverAddress, m.tokenStore, m.peerID, m.mtu)
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.err = err

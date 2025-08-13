@@ -257,6 +257,7 @@ type serviceClient struct {
 	iPreSharedKey  *widget.Entry
 	iInterfaceName *widget.Entry
 	iInterfacePort *widget.Entry
+	iMTU           *widget.Entry
 
 	// switch elements for settings form
 	sRosenpassPermissive *widget.Check
@@ -272,6 +273,7 @@ type serviceClient struct {
 	RosenpassPermissive bool
 	interfaceName       string
 	interfacePort       int
+	mtu                 uint16
 	networkMonitor      bool
 	disableDNS          bool
 	disableClientRoutes bool
@@ -403,6 +405,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.iPreSharedKey = widget.NewPasswordEntry()
 	s.iInterfaceName = widget.NewEntry()
 	s.iInterfacePort = widget.NewEntry()
+	s.iMTU = widget.NewEntry()
 
 	s.sRosenpassPermissive = widget.NewCheck("Enable Rosenpass permissive mode", nil)
 
@@ -436,6 +439,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
+			{Text: "MTU", Widget: s.iMTU},
 			{Text: "Management URL", Widget: s.iMngURL},
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Log File", Widget: s.iLogFile},
@@ -461,6 +465,21 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				return
 			}
 
+			var mtu int64
+			mtuText := strings.TrimSpace(s.iMTU.Text)
+			if mtuText != "" {
+				var err error
+				mtu, err = strconv.ParseInt(mtuText, 10, 64)
+				if err != nil {
+					dialog.ShowError(errors.New("Invalid MTU value"), s.wSettings)
+					return
+				}
+				if mtu < iface.MinMTU || mtu > iface.MaxMTU {
+					dialog.ShowError(fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU), s.wSettings)
+					return
+				}
+			}
+
 			iMngURL := strings.TrimSpace(s.iMngURL.Text)
 
 			defer s.wSettings.Close()
@@ -469,6 +488,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
 				s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
 				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
+				s.mtu != uint16(mtu) ||
 				s.networkMonitor != s.sNetworkMonitor.Checked ||
 				s.disableDNS != s.sDisableDNS.Checked ||
 				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
@@ -477,6 +497,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 
 				s.managementURL = iMngURL
 				s.preSharedKey = s.iPreSharedKey.Text
+				s.mtu = uint16(mtu)
 
 				currUser, err := user.Current()
 				if err != nil {
@@ -487,7 +508,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				var req proto.SetConfigRequest
 				req.ProfileName = activeProf.Name
 				req.Username = currUser.Username
-
+				
 				if iMngURL != "" {
 					req.ManagementUrl = iMngURL
 				}
@@ -495,6 +516,9 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
 				req.InterfaceName = &s.iInterfaceName.Text
 				req.WireguardPort = &port
+				if mtu > 0 {
+					req.Mtu = &mtu
+				}
 				req.NetworkMonitor = &s.sNetworkMonitor.Checked
 				req.DisableDns = &s.sDisableDNS.Checked
 				req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
@@ -996,6 +1020,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.RosenpassPermissive = cfg.RosenpassPermissive
 	s.interfaceName = cfg.WgIface
 	s.interfacePort = cfg.WgPort
+	s.mtu = cfg.MTU
 
 	s.networkMonitor = *cfg.NetworkMonitor
 	s.disableDNS = cfg.DisableDNS
@@ -1008,6 +1033,12 @@ func (s *serviceClient) getSrvConfig() {
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
 		s.iInterfaceName.SetText(cfg.WgIface)
 		s.iInterfacePort.SetText(strconv.Itoa(cfg.WgPort))
+		if cfg.MTU != 0 {
+			s.iMTU.SetText(strconv.Itoa(int(cfg.MTU)))
+		} else {
+			s.iMTU.SetText("")
+			s.iMTU.SetPlaceHolder(strconv.Itoa(int(iface.DefaultMTU)))
+		}
 		s.sRosenpassPermissive.SetChecked(cfg.RosenpassPermissive)
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()
@@ -1066,6 +1097,12 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 		config.WgPort = int(cfg.WireguardPort)
 	} else {
 		config.WgPort = iface.DefaultWgPort
+	}
+
+	if cfg.Mtu != 0 {
+		config.MTU = uint16(cfg.Mtu)
+	} else {
+		config.MTU = iface.DefaultMTU
 	}
 
 	config.DisableAutoConnect = cfg.DisableAutoConnect

@@ -336,7 +336,7 @@ func createIPForwardEntry2(route *MIB_IPFORWARD_ROW2) error {
 		if e1 != 0 {
 			return fmt.Errorf("CreateIpForwardEntry2: %w", e1)
 		}
-		return fmt.Errorf("CreateIpForwardEntry2: code %d", r1)
+		return fmt.Errorf("CreateIpForwardEntry2: code %d", windows.NTStatus(r1))
 	}
 	return nil
 }

@@ -397,6 +397,11 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.LazyConnectionEnabled = msg.LazyConnectionEnabled
 	config.BlockInbound = msg.BlockInbound
 
+	if msg.Mtu != nil {
+		mtu := uint16(*msg.Mtu)
+		config.MTU = &mtu
+	}
+
 	if _, err := profilemanager.UpdateConfig(config); err != nil {
 		log.Errorf("failed to update profile config: %v", err)
 		return nil, fmt.Errorf("failed to update profile config: %w", err)
@@ -481,6 +486,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		// nolint
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, msg.Hostname)
 	}
+
 	s.mutex.Unlock()
 
 	config, err := s.getConfig(activeProf)
@@ -1102,6 +1108,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		AdminURL:              adminURL.String(),
 		InterfaceName:         cfg.WgIface,
 		WireguardPort:         int64(cfg.WgPort),
+		Mtu:                   int64(cfg.MTU),
 		DisableAutoConnect:    cfg.DisableAutoConnect,
 		ServerSSHAllowed:      *cfg.ServerSSHAllowed,
 		RosenpassEnabled:      cfg.RosenpassEnabled,
