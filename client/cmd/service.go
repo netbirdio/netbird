@@ -19,7 +19,7 @@ import (
 
 var serviceCmd = &cobra.Command{
 	Use:   "service",
-	Short: "manages NetBird service",
+	Short: "Manage the NetBird daemon service",
 }
 
 var (

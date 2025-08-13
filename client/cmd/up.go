@@ -53,7 +53,8 @@ var (
 
 	upCmd = &cobra.Command{
 		Use:   "up",
-		Short: "install, login and start NetBird client",
+		Short: "Connect to the NetBird network",
+		Long:  "Connect to the NetBird network using the provided setup key or SSO auth. This command will bring up the WireGuard interface, connect to the management server, and establish peer-to-peer connections with other peers in the network if required.",
 		RunE:  upFunc,
 	}
 )

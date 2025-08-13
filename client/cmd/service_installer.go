@@ -107,7 +107,7 @@ func createServiceConfigForInstall() (*service.Config, error) {
 
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "installs NetBird service",
+	Short: "Install NetBird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := setupServiceCommand(cmd); err != nil {
 			return err
