@@ -326,7 +326,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	defer s.mutex.Unlock()
 
 	if s.checkUpdateSettingsDisabled() {
-		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+		return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
 	}
 
 	profState := profilemanager.ActiveProfileState{
