@@ -172,6 +172,13 @@ func (w *WorkerICE) GetLocalUserCredentials() (frag string, pwd string) {
 	return w.localUfrag, w.localPwd
 }
 
+func (w *WorkerICE) InProgress() bool {
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+
+	return w.agentConnecting
+}
+
 func (w *WorkerICE) Close() {
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
