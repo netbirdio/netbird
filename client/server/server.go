@@ -1346,7 +1346,7 @@ func (s *Server) checkProfilesDisabled() bool {
 func (s *Server) checkUpdateSettingsDisabled() bool {
 	// Check if the environment variable is set to disable profiles
 	if s.updateSettingsDisabled {
-		log.Warn("Profiles are disabled via the --disable-update-settings command-line flag")
+		log.Warn("Update settings are disabled via the --disable-update-settings command-line flag")
 		return true
 	}
 
