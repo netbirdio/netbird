@@ -661,7 +661,7 @@ func (p *profileMenu) setEnabled(enabled bool) {
 			p.profileMenuItem.Enable()
 			p.profileMenuItem.SetTooltip("")
 		} else {
-			p.profileMenuItem.Disable()
+			p.profileMenuItem.Hide()
 			p.profileMenuItem.SetTooltip("Profiles are disabled by daemon")
 		}
 	}

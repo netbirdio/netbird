@@ -994,7 +994,7 @@ func (s *serviceClient) setSettingsEnabled(enabled bool) {
 			s.mSettings.Enable()
 			s.mSettings.SetTooltip(settingsMenuDescr)
 		} else {
-			s.mSettings.Disable()
+			s.mSettings.Hide()
 			s.mSettings.SetTooltip("Settings are disabled by daemon")
 		}
 	}
