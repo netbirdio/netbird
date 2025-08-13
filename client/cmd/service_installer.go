@@ -49,6 +49,14 @@ func buildServiceArguments() []string {
 		args = append(args, "--log-file", logFile)
 	}
 
+	if profilesDisabled {
+		args = append(args, "--disable-profiles")
+	}
+
+	if updateSettingsDisabled {
+		args = append(args, "--disable-update-settings")
+	}
+
 	return args
 }
 

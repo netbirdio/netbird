@@ -46,8 +46,9 @@ const (
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
 	defaultRetryMultiplier  = 1.7
 
-	errRestoreResidualState = "failed to restore residual state: %v"
-	errProfilesDisabled     = "profiles are disabled, you cannot use this feature without profiles enabled"
+	errRestoreResidualState   = "failed to restore residual state: %v"
+	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
+	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
 )
 
 var ErrServiceNotUp = errors.New("service is not up")
@@ -74,8 +75,9 @@ type Server struct {
 	persistSyncResponse bool
 	isSessionActive     atomic.Bool
 
-	profileManager   *profilemanager.ServiceManager
-	profilesDisabled bool
+	profileManager         *profilemanager.ServiceManager
+	profilesDisabled       bool
+	updateSettingsDisabled bool
 }
 
 type oauthAuthFlow struct {
@@ -86,14 +88,15 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
 	return &Server{
-		rootCtx:             ctx,
-		logFile:             logFile,
-		persistSyncResponse: true,
-		statusRecorder:      peer.NewRecorder(""),
-		profileManager:      profilemanager.NewServiceManager(configFile),
-		profilesDisabled:    profilesDisabled,
+		rootCtx:                ctx,
+		logFile:                logFile,
+		persistSyncResponse:    true,
+		statusRecorder:         peer.NewRecorder(""),
+		profileManager:         profilemanager.NewServiceManager(configFile),
+		profilesDisabled:       profilesDisabled,
+		updateSettingsDisabled: updateSettingsDisabled,
 	}
 }
 
@@ -322,7 +325,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.checkProfilesDisabled() {
+	if s.checkUpdateSettingsDisabled() {
 		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
 	}
 
@@ -1333,7 +1336,17 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 func (s *Server) checkProfilesDisabled() bool {
 	// Check if the environment variable is set to disable profiles
 	if s.profilesDisabled {
-		log.Warn("Profiles are disabled via NB_DISABLE_PROFILES environment variable")
+		log.Warn("Profiles are disabled via the --disable-profiles command-line flag")
+		return true
+	}
+
+	return false
+}
+
+func (s *Server) checkUpdateSettingsDisabled() bool {
+	// Check if the environment variable is set to disable profiles
+	if s.updateSettingsDisabled {
+		log.Warn("Profiles are disabled via the --disable-update-settings command-line flag")
 		return true
 	}
 
