@@ -109,7 +109,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
 		}
 	} else {
-		util.WriteErrorResponse("no extra settings provided", http.StatusBadRequest, w)
+		util.WriteErrorResponse("missing required field: extra settings", http.StatusBadRequest, w)
 		return
 	}
 
