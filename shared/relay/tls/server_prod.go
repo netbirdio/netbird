@@ -12,6 +12,6 @@ func ServerQUICTLSConfig(originTLSCfg *tls.Config) (*tls.Config, error) {
 		return nil, fmt.Errorf("valid TLS config is required for QUIC listener")
 	}
 	cfg := originTLSCfg.Clone()
-	cfg.NextProtos = []string{nbalpn}
+	cfg.NextProtos = []string{NBalpn}
 	return cfg, nil
 }
