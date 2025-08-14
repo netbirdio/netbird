@@ -35,7 +35,7 @@ jobs:
         ports:
           - 5432:5432
       mysql:
-        image: ${{ (matrix.store == 'mysql') && 'mysql:8.4' || '' }}
+        image: ${{ (matrix.store == 'mysql') && 'mysql' || '' }}
         env:
           MYSQL_USER: netbird
           MYSQL_PASSWORD: mysql
@@ -47,6 +47,8 @@ jobs:
           --health-timeout 5s
         ports:
           - 3306:3306
+        volumes:
+          - ./infrastructure_files/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql
     steps:
       - name: Set Database Connection String
         run: |
