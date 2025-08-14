@@ -13,6 +13,7 @@ func GetPrefixFromIP(ip net.IP) (netip.Prefix, error) {
 		return netip.Prefix{}, fmt.Errorf("parse IP address: %s", ip)
 	}
 
-	prefix := netip.PrefixFrom(addr.Unmap(), addr.BitLen())
+	addr = addr.Unmap()
+	prefix := netip.PrefixFrom(addr, addr.BitLen())
 	return prefix, nil
 }
