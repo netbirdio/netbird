@@ -372,7 +372,7 @@ func isUnixRunningDesktop() bool {
 }
 
 func setEnvAndFlags(cmd *cobra.Command) error {
-	SetFlagsFromEnvVars(rootCmd)
+	util.SetFlagsFromEnvVars(rootCmd)
 
 	cmd.SetOut(cmd.OutOrStdout())
 
