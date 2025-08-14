@@ -85,6 +85,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup MySQL privileges
+        if: matrix.store == 'mysql'
+        run: |
+          sleep 10
+          mysql -h 127.0.0.1 -u root -pmysqlroot -e "
+            GRANT SYSTEM_VARIABLES_ADMIN ON *.* TO 'netbird'@'%';
+            FLUSH PRIVILEGES;
+          "
+
       - name: cp setup.env
         run: cp infrastructure_files/tests/setup.env infrastructure_files/
 
