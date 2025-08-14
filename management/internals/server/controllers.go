@@ -36,7 +36,7 @@ func (s *BaseServer) ProxyController() port_forwarding.Controller {
 
 func (s *BaseServer) SecretsManager() *server.TimeBasedAuthSecretsManager {
 	return Create(s, func() *server.TimeBasedAuthSecretsManager {
-		return server.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.config.TURNConfig, s.config.Relay, s.SettingsManager())
+		return server.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.config.TURNConfig, s.config.Relay, s.SettingsManager(), s.GroupsManager())
 	})
 }
 
