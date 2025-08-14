@@ -233,7 +233,7 @@ func (w *WorkerICE) SessionID() ICESessionID {
 func (w *WorkerICE) connect(ctx context.Context, agent *ice.Agent, remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("gather candidates")
 	if err := agent.GatherCandidates(); err != nil {
-		w.log.Debugf("failed to gather candidates: %s", err)
+		w.log.Warnf("failed to gather candidates: %s", err)
 		return
 	}
 
