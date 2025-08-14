@@ -929,7 +929,7 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 			continue
 		}
 
-		if iface.Flags&net.FlagLoopback != 0 {
+		if iface.Flags&net.FlagLoopback != 0 && !dest.IsLoopback() {
 			continue
 		}
 
