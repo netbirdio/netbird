@@ -571,19 +571,19 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 	for i := 0; i < 2; i++ {
 		accountId := xid.New().String()
 
-		_, err := am.Store.GetAccount(ctx, accountId)
-		statusErr, _ := status.FromError(err)
-		switch {
-		case err == nil:
-			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
-			continue
-		case statusErr.Type() == status.NotFound:
-			newAccount := newAccountWithId(ctx, accountId, userID, domain, am.disableDefaultPolicy)
-			am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
-			return newAccount, nil
-		default:
+		exists, err := am.Store.AccountExists(ctx, store.LockingStrengthShare, accountId)
+		if err != nil {
 			return nil, err
 		}
+
+		if exists {
+			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
+			continue
+		}
+
+		newAccount := newAccountWithId(ctx, accountId, userID, domain, am.disableDefaultPolicy)
+		am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
+		return newAccount, nil
 	}
 
 	return nil, status.Errorf(status.Internal, "error while creating new account")
@@ -1143,21 +1143,29 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, domainAccountID)
 	defer unlockAccount()
 
-	newUser := types.NewRegularUser(userAuth.UserId)
-	newUser.AccountID = domainAccountID
-	err := am.Store.SaveUser(ctx, newUser)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userAuth.UserId)
 	if err != nil {
+		if sErr, ok := status.FromError(err); ok && sErr.Type() == status.NotFound {
+			newUser := types.NewRegularUser(userAuth.UserId)
+			newUser.AccountID = domainAccountID
+			err = am.Store.SaveUser(ctx, newUser)
+			if err != nil {
+				return "", err
+			}
+
+			err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, domainAccountID)
+			if err != nil {
+				return "", err
+			}
+
+			am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
+			return domainAccountID, nil
+		}
+
 		return "", err
 	}
 
-	err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, domainAccountID)
-	if err != nil {
-		return "", err
-	}
-
-	am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
-
-	return domainAccountID, nil
+	return user.AccountID, nil
 }
 
 // redeemInvite checks whether user has been invited and redeems the invite
