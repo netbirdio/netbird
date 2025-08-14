@@ -97,11 +97,13 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		}
 	}
 
-	s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
+	err := s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
+	if err != nil {
+		return fmt.Errorf("failed to expose metrics: %v", err)
+	}
 	s.EphemeralManager().LoadInitialPeers(srvCtx)
 
 	var tlsConfig *tls.Config
-	var err error
 	tlsEnabled := false
 	if s.config.HttpConfig.LetsEncryptDomain != "" {
 		s.certManager, err = encryption.CreateCertManager(s.config.Datadir, s.config.HttpConfig.LetsEncryptDomain)
@@ -145,7 +147,8 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	}
 
 	rootHandler := handlerFunc(s.GRPCServer(), s.APIHandler())
-	if s.certManager != nil {
+	switch {
+	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
 		cml := s.certManager.Listener()
 		if s.mgmtPort == 443 {
@@ -160,12 +163,12 @@ func (s *BaseServer) Start(ctx context.Context) error {
 			log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
 			s.serveHTTP(ctx, cml, s.certManager.HTTPHandler(nil))
 		}
-	} else if tlsConfig != nil {
+	case tlsConfig != nil:
 		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), tlsConfig)
 		if err != nil {
 			return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
 		}
-	} else {
+	default:
 		s.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort))
 		if err != nil {
 			return fmt.Errorf("failed creating TCP listener on port %d: %v", s.mgmtPort, err)

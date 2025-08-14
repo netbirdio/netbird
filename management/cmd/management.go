@@ -120,7 +120,10 @@ var (
 			select {
 			case <-stopChan:
 				log.Info("Received shutdown signal, stopping server...")
-				srv.Stop()
+				err = srv.Stop()
+				if err != nil {
+					log.Errorf("Failed to stop server gracefully: %v", err)
+				}
 			case err := <-srv.Errors():
 				log.Fatalf("Server stopped unexpectedly: %v", err)
 			}
