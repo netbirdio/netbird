@@ -27,7 +27,7 @@ var downCmd = &cobra.Command{
 			return err
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*7)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 		defer cancel()
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)

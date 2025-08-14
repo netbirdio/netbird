@@ -14,7 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type TunNetstackDevice struct {
