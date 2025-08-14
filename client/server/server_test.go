@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/groups"
 
 	log "github.com/sirupsen/logrus"
@@ -32,7 +33,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
@@ -267,10 +267,10 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	t.Helper()
 	dataDir := t.TempDir()
 
-	config := &types.Config{
-		Stuns:      []*types.Host{},
-		TURNConfig: &types.TURNConfig{},
-		Signal: &types.Host{
+	config := &config.Config{
+		Stuns:      []*config.Host{},
+		TURNConfig: &config.TURNConfig{},
+		Signal: &config.Host{
 			Proto: "http",
 			URI:   signalAddr,
 		},

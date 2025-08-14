@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -35,7 +36,7 @@ import (
 
 func startTestingServices(t *testing.T) string {
 	t.Helper()
-	config := &types.Config{}
+	config := &config.Config{}
 	_, err := util.ReadJson("../testdata/management.json", config)
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +71,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 	return s, lis
 }
 
-func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc.Server, net.Listener) {
+func startManagement(t *testing.T, config *config.Config, testFile string) (*grpc.Server, net.Listener) {
 	t.Helper()
 
 	lis, err := net.Listen("tcp", ":0")
