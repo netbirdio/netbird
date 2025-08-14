@@ -234,6 +234,7 @@ func (w *WorkerICE) connect(ctx context.Context, agent *ice.Agent, remoteOfferAn
 	w.log.Debugf("gather candidates")
 	if err := agent.GatherCandidates(); err != nil {
 		w.log.Warnf("failed to gather candidates: %s", err)
+		w.closeAgent(agent, w.agentDialerCancel)
 		return
 	}
 
@@ -241,12 +242,14 @@ func (w *WorkerICE) connect(ctx context.Context, agent *ice.Agent, remoteOfferAn
 	remoteConn, err := w.turnAgentDial(ctx, remoteOfferAnswer)
 	if err != nil {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
+		w.closeAgent(agent, w.agentDialerCancel)
 		return
 	}
 	w.log.Debugf("agent dial succeeded")
 
 	pair, err := agent.GetSelectedCandidatePair()
 	if err != nil {
+		w.closeAgent(agent, w.agentDialerCancel)
 		return
 	}
 
