@@ -11,11 +11,14 @@ import (
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/relay/protocol"
 	"github.com/netbirdio/netbird/shared/relay"
 )
 
-// URLPath is the path for the websocket connection.
-const URLPath = relay.WebSocketURLPath
+const (
+	Proto   protocol.Protocol = "ws"
+	URLPath                   = relay.WebSocketURLPath
+)
 
 type Listener struct {
 	// Address is the address to listen on.
@@ -49,6 +52,10 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 		return nil
 	}
 	return err
+}
+
+func (l *Listener) Protocol() protocol.Protocol {
+	return Proto
 }
 
 func (l *Listener) Shutdown(ctx context.Context) error {

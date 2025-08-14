@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -26,8 +27,8 @@ import (
 
 	clientProto "github.com/netbirdio/netbird/client/proto"
 	client "github.com/netbirdio/netbird/client/server"
-	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	sigProto "github.com/netbirdio/netbird/shared/signal/proto"
 	sig "github.com/netbirdio/netbird/signal/server"
 )
@@ -97,6 +98,7 @@ func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc
 
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	groupsManager := groups.NewManagerMock()
 
 	settingsMockManager.EXPECT().
 		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -108,7 +110,7 @@ func startManagement(t *testing.T, config *types.Config, testFile string) (*grpc
 		t.Fatal(err)
 	}
 
-	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
+	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &mgmt.MockIntegratedValidator{})
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +136,7 @@ func startClientDaemon(
 	s := grpc.NewServer()
 
 	server := client.New(ctx,
-		"", "", false)
+		"", "", false, false)
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}
