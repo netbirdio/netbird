@@ -48,7 +48,7 @@ jobs:
         ports:
           - 3306:3306
         volumes:
-          - ./mysql-init.sql:/docker-entrypoint-initdb.d/init.sql          
+          - ./infrastructure_files/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql
     steps:
       - name: Set Database Connection String
         run: |
