@@ -178,6 +178,8 @@ const (
 	AccountNetworkRangeUpdated Activity = 87
 	PeerIPUpdated              Activity = 88
 
+	AccountAutoUpdateVersionUpdated Activity = 89
+
 	AccountDeleted Activity = 99999
 )
 
@@ -284,6 +286,8 @@ var activityMap = map[Activity]Code{
 	AccountNetworkRangeUpdated: {"Account network range updated", "account.network.range.update"},
 
 	PeerIPUpdated: {"Peer IP updated", "peer.ip.update"},
+
+	AccountAutoUpdateVersionUpdated: {"Account AutoUpdate Version updated", "account.settings.auto.version.update"},
 }
 
 // StringCode returns a string code of the activity
