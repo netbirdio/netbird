@@ -64,6 +64,7 @@ func TestServiceLifecycle(t *testing.T) {
 		t.Skipf("Skipping service lifecycle test on unsupported OS: %s", runtime.GOOS)
 	}
 
+	fmt.Printf("--- Running service lifecycle test on %s\n", os.Getenv("CONTAINER"))
 	if os.Getenv("CONTAINER") == "true" {
 		t.Skip("Skipping service lifecycle test in container environment")
 	}
