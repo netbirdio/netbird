@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -21,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 var _ account.Manager = (*MockAccountManager)(nil)
@@ -114,7 +114,7 @@ type MockAccountManager struct {
 	DeleteSetupKeyFunc                    func(ctx context.Context, accountID, userID, keyID string) error
 	BuildUserInfosForAccountFunc          func(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	GetStoreFunc                          func() store.Store
-	UpdateToPrimaryAccountFunc            func(ctx context.Context, accountId string) (*types.Account, error)
+	UpdateToPrimaryAccountFunc            func(ctx context.Context, accountId string) error
 	GetOwnerInfoFunc                      func(ctx context.Context, accountID string) (*types.UserInfo, error)
 	GetCurrentUserInfoFunc                func(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
 	GetAccountMetaFunc                    func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
@@ -933,11 +933,11 @@ func (am *MockAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.Cont
 	return nil, false, status.Errorf(codes.Unimplemented, "method GetOrCreateAccountByPrivateDomainFunc is not implemented")
 }
 
-func (am *MockAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
+func (am *MockAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) error {
 	if am.UpdateToPrimaryAccountFunc != nil {
 		return am.UpdateToPrimaryAccountFunc(ctx, accountId)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateToPrimaryAccount is not implemented")
+	return status.Errorf(codes.Unimplemented, "method UpdateToPrimaryAccount is not implemented")
 }
 
 func (am *MockAccountManager) GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error) {
