@@ -3,7 +3,10 @@
 package net
 
 import (
+	"io"
 	"net"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/net/hooks"
 )
@@ -29,4 +32,18 @@ type TCPConn struct {
 // Close overrides the net.TCPConn Close method to execute all registered hooks before closing the connection.
 func (c *TCPConn) Close() error {
 	return closeConn(c.ID, c.TCPConn)
+}
+
+// closeConn is a helper function to close connections and execute close hooks.
+func closeConn(id hooks.ConnectionID, conn io.Closer) error {
+	err := conn.Close()
+
+	closeHooks := hooks.GetCloseHooks()
+	for _, hook := range closeHooks {
+		if err := hook(id); err != nil {
+			log.Errorf("Error executing close hook: %v", err)
+		}
+	}
+
+	return err
 }
