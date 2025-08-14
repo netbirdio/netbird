@@ -75,6 +75,7 @@ func TestServiceLifecycle(t *testing.T) {
 		t.Skip("Skipping service lifecycle test in container environment")
 	}
 
+	t.Fatalf("--- Running service lifecycle test on %s, %s", runtime.GOOS, os.Getenv("CONTAINER"))
 	originalServiceName := serviceName
 	serviceName = "netbirdtest" + fmt.Sprintf("%d", time.Now().Unix())
 	defer func() {
