@@ -12,3 +12,13 @@ func Init() {
 func AdvancedRouting() bool {
 	return true
 }
+
+// SetVPNInterfaceName is a no-op on Android
+func SetVPNInterfaceName(name string) {
+	// No-op on Android - not needed for Android VPN service
+}
+
+// GetVPNInterfaceName returns empty string on Android
+func GetVPNInterfaceName() string {
+	return ""
+}
