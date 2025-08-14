@@ -93,9 +93,9 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4
 	github.com/zcalusic/sysinfo v1.1.3
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
-	go.opentelemetry.io/otel v1.26.0
+	go.opentelemetry.io/otel v1.37.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.48.0
-	go.opentelemetry.io/otel/metric v1.26.0
+	go.opentelemetry.io/otel/metric v1.37.0
 	go.opentelemetry.io/otel/sdk/metric v1.26.0
 	go.uber.org/zap v1.27.0
 	goauthentik.io/api/v3 v3.2023051.3
@@ -151,7 +151,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/docker v26.1.5+incompatible // indirect
+	github.com/docker/docker v28.0.0+incompatible // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -161,7 +161,7 @@ require (
 	github.com/fyne-io/image v0.0.0-20220602074514-4956b0afb3d2 // indirect
 	github.com/go-gl/gl v0.0.0-20211210172815-726fda9656d6 // indirect
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20240506104042-037f3cc74f2a // indirect
-	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
@@ -232,9 +232,10 @@ require (
 	github.com/yuin/goldmark v1.7.1 // indirect
 	github.com/zeebo/blake3 v0.2.3 // indirect
 	go.opencensus.io v0.24.0 // indirect
+	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.51.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.26.0 // indirect
-	go.opentelemetry.io/otel/trace v1.26.0 // indirect
+	go.opentelemetry.io/otel/trace v1.37.0 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/image v0.18.0 // indirect
