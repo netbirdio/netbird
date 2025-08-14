@@ -33,7 +33,7 @@ var (
 var debugCmd = &cobra.Command{
 	Use:   "debug",
 	Short: "Debugging commands",
-	Long:  "Provides commands for debugging and logging control within the NetBird daemon.",
+	Long:  "Commands for debugging and logging within the NetBird daemon.",
 }
 
 var debugBundleCmd = &cobra.Command{

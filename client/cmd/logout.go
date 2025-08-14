@@ -14,7 +14,8 @@ import (
 var logoutCmd = &cobra.Command{
 	Use:     "deregister",
 	Aliases: []string{"logout"},
-	Short:   "deregister from the NetBird Management Service and delete peer",
+	Short:   "Deregister from the NetBird management service and delete this peer",
+	Long:    "This command will deregister the current peer from the NetBird management service and all associated configuration. Use with caution as this will remove the peer from the network.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
 
