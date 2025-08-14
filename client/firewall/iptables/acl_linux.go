@@ -85,7 +85,7 @@ func (m *aclManager) AddPeerFiltering(
 ) ([]firewall.Rule, error) {
 	chain := chainNameInputRules
 
-	ipsetName = transformIPsetName(ipsetName, sPort, dPort)
+	ipsetName = transformIPsetName(ipsetName, sPort, dPort, action)
 	specs := filterRuleSpecs(ip, string(protocol), sPort, dPort, action, ipsetName)
 
 	mangleSpecs := slices.Clone(specs)
@@ -135,7 +135,14 @@ func (m *aclManager) AddPeerFiltering(
 		return nil, fmt.Errorf("rule already exists")
 	}
 
-	if err := m.iptablesClient.Append(tableFilter, chain, specs...); err != nil {
+	// Insert DROP rules at the beginning, append ACCEPT rules at the end
+	if action == firewall.ActionDrop {
+		// Insert at the beginning of the chain (position 1)
+		err = m.iptablesClient.Insert(tableFilter, chain, 1, specs...)
+	} else {
+		err = m.iptablesClient.Append(tableFilter, chain, specs...)
+	}
+	if err != nil {
 		return nil, err
 	}
 
@@ -388,17 +395,25 @@ func actionToStr(action firewall.Action) string {
 	return "DROP"
 }
 
-func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port) string {
-	switch {
-	case ipsetName == "":
+func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port, action firewall.Action) string {
+	if ipsetName == "" {
 		return ""
+	}
+
+	// Include action in the ipset name to prevent squashing rules with different actions
+	actionSuffix := ""
+	if action == firewall.ActionDrop {
+		actionSuffix = "-drop"
+	}
+
+	switch {
 	case sPort != nil && dPort != nil:
-		return ipsetName + "-sport-dport"
+		return ipsetName + "-sport-dport" + actionSuffix
 	case sPort != nil:
-		return ipsetName + "-sport"
+		return ipsetName + "-sport" + actionSuffix
 	case dPort != nil:
-		return ipsetName + "-dport"
+		return ipsetName + "-dport" + actionSuffix
 	default:
-		return ipsetName
+		return ipsetName + actionSuffix
 	}
 }
