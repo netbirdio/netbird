@@ -47,6 +47,8 @@ jobs:
           --health-timeout 5s
         ports:
           - 3306:3306
+        volumes:
+          - ./mysql-init.sql:/docker-entrypoint-initdb.d/init.sql          
     steps:
       - name: Set Database Connection String
         run: |
