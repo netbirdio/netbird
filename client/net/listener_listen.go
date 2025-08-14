@@ -5,7 +5,6 @@ package net
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/netip"
 	"sync"
@@ -51,7 +50,7 @@ func (c *PacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 
 // Close overrides the net.PacketConn Close method to execute all registered hooks before closing the connection.
 func (c *PacketConn) Close() error {
-	c.seenAddrs = &sync.Map{}
+	defer c.seenAddrs.Clear()
 	return closeConn(c.ID, c.PacketConn)
 }
 
@@ -72,7 +71,7 @@ func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 
 // Close overrides the net.UDPConn Close method to execute all registered hooks before closing the connection.
 func (c *UDPConn) Close() error {
-	c.seenAddrs = &sync.Map{}
+	defer c.seenAddrs.Clear()
 	return closeConn(c.ID, c.UDPConn)
 }
 
@@ -151,18 +150,4 @@ func callWriteHooks(id hooks.ConnectionID, seenAddrs *sync.Map, addr net.Addr) e
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
-}
-
-// closeConn is a helper function to close connections and execute close hooks.
-func closeConn(id hooks.ConnectionID, conn io.Closer) error {
-	err := conn.Close()
-
-	closeHooks := hooks.GetCloseHooks()
-	for _, hook := range closeHooks {
-		if err := hook(id); err != nil {
-			log.Errorf("Error executing close hook: %v", err)
-		}
-	}
-
-	return err
 }
