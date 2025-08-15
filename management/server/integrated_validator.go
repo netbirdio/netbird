@@ -50,23 +50,23 @@ func (am *DefaultAccountManager) UpdateIntegratedValidator(ctx context.Context, 
 	defer unlock()
 
 	return am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		a, err := transaction.GetAccount(ctx, accountID)
+		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthUpdate, accountID)
 		if err != nil {
 			return err
 		}
 
 		var extra *types.ExtraSettings
 
-		if a.Settings.Extra != nil {
-			extra = a.Settings.Extra
+		if settings.Extra != nil {
+			extra = settings.Extra
 		} else {
 			extra = &types.ExtraSettings{}
-			a.Settings.Extra = extra
+			settings.Extra = extra
 		}
 
 		extra.IntegratedValidator = validator
 		extra.IntegratedValidatorGroups = groups
-		return transaction.SaveAccount(ctx, a)
+		return transaction.SaveAccountSettings(ctx, accountID, settings)
 	})
 }
 

@@ -202,6 +202,9 @@ type Store interface {
 	GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error)
 	GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error)
 	GetAccountGroupPeers(ctx context.Context, lockStrength LockingStrength, accountID string) (map[string]map[string]struct{}, error)
+	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
+	MarkAccountPrimary(ctx context.Context, accountID string) error
+	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
 }
 
 const (

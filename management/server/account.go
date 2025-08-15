@@ -1952,20 +1952,19 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 	return nil, false, status.Errorf(status.Internal, "failed to get or create new account by private domain")
 }
 
-func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
-	var account *types.Account
+func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) error {
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
-		account, err = transaction.GetAccount(ctx, accountId)
+		ok, domain, err := transaction.IsPrimaryAccount(ctx, accountId)
 		if err != nil {
 			return err
 		}
 
-		if account.IsDomainPrimaryAccount {
+		if ok {
 			return nil
 		}
 
-		existingPrimaryAccountID, err := transaction.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, account.Domain)
+		existingPrimaryAccountID, err := transaction.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
 
 		// error is not a not found error
 		if handleNotFound(err) != nil {
@@ -1981,9 +1980,7 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 			return status.Errorf(status.Internal, "cannot update account to primary")
 		}
 
-		account.IsDomainPrimaryAccount = true
-
-		if err := transaction.SaveAccount(ctx, account); err != nil {
+		if err := transaction.MarkAccountPrimary(ctx, accountId); err != nil {
 			log.WithContext(ctx).WithFields(log.Fields{
 				"accountId": accountId,
 			}).Errorf("failed to update account to primary: %v", err)
@@ -1993,10 +1990,10 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return account, nil
+	return nil
 }
 
 // propagateUserGroupMemberships propagates all account users' group memberships to their peers.
@@ -2067,14 +2064,12 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 		Mask: net.CIDRMask(newNetworkRange.Bits(), newNetworkRange.Addr().BitLen()),
 	}
 
-	account, err := transaction.GetAccount(ctx, accountID)
+	err := transaction.UpdateAccountNetwork(ctx, accountID, newIPNet)
 	if err != nil {
 		return err
 	}
 
-	account.Network.Net = newIPNet
-
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "")
 	if err != nil {
 		return err
 	}
@@ -2092,10 +2087,6 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 
 		peer.IP = newIP
 		takenIPs = append(takenIPs, newIP)
-	}
-
-	if err = transaction.SaveAccount(ctx, account); err != nil {
-		return err
 	}
 
 	for _, peer := range peers {
