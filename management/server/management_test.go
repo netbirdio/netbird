@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/encryption"
-	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -60,7 +61,7 @@ func setupTest(t *testing.T) *testSuite {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
 
-	config := &types.Config{}
+	config := &config.Config{}
 	_, err = util.ReadJson("testdata/management.json", config)
 	if err != nil {
 		t.Fatalf("failed to read management.json: %v", err)
@@ -158,7 +159,7 @@ func createRawClient(t *testing.T, addr string) (mgmtProto.ManagementServiceClie
 
 func startServer(
 	t *testing.T,
-	config *types.Config,
+	config *config.Config,
 	dataDir string,
 	testFile string,
 ) (*grpc.Server, net.Listener) {
