@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/user"
 	"runtime"
 	"testing"
 	"time"
@@ -59,8 +60,13 @@ func waitForServiceStatus(expectedStatus service.Status, timeout time.Duration) 
 
 // TestServiceLifecycle tests the complete service lifecycle
 func TestServiceLifecycle(t *testing.T) {
-	fmt.Printf("--- Started TestServiceLifecycle test on %s\n", runtime.GOOS)
-	t.Log("--- Running service lifecycle test")
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Fatalf("Failed to get current user: %v", err)
+	}
+
+	fmt.Printf("--- Started TestServiceLifecycle test on %s %s\n", runtime.GOOS, currentUser.Username)
+	t.Log("--- Running service lifecycle test: %s, %s", runtime.GOOS, currentUser.Username)
 
 	// TODO: Add support for Windows and macOS
 	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
