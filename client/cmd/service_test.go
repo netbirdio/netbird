@@ -65,23 +65,19 @@ func TestServiceLifecycle(t *testing.T) {
 		t.Fatalf("Failed to get current user: %v", err)
 	}
 
-	fmt.Printf("--- Started TestServiceLifecycle test on %s %s\n", runtime.GOOS, currentUser.Username)
 	t.Logf("--- Running service lifecycle test: %s, %s", runtime.GOOS, currentUser.Username)
 
 	// TODO: Add support for Windows and macOS
 	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
-		fmt.Printf("--- skipping service lifecycle test on unsupported OS: %s\n", runtime.GOOS)
 		t.Logf("--- Running service lifecycle test: %s", runtime.GOOS)
 		t.Skipf("Skipping service lifecycle test on unsupported OS: %s", runtime.GOOS)
 	}
 
-	fmt.Printf("--- Running service lifecycle test on %s\n", os.Getenv("CONTAINER"))
 	t.Logf("--- Running service lifecycle test on: %s", os.Getenv("CONTAINER"))
 	if os.Getenv("CONTAINER") == "true" {
 		t.Skip("Skipping service lifecycle test in container environment")
 	}
 
-	t.Fatalf("--- Running service lifecycle test on %s, %s", runtime.GOOS, os.Getenv("CONTAINER"))
 	originalServiceName := serviceName
 	serviceName = "netbirdtest" + fmt.Sprintf("%d", time.Now().Unix())
 	defer func() {
