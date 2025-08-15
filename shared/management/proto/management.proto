@@ -48,6 +48,9 @@ service ManagementService {
 
   // Logout logs out the peer and removes it from the management server
   rpc Logout(EncryptedMessage) returns (Empty) {}
+
+  // Executes a job on a target peer (e.g., debug bundle)
+  rpc Job(EncryptedMessage) returns (stream EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -58,6 +61,31 @@ message EncryptedMessage {
   bytes body = 2;
   // Version of the Netbird Management Service protocol
   int32 version = 3;
+}
+
+message JobRequest {
+  JobType type = 1;
+  bytes ID = 2;
+  bytes Payload =3;
+}
+
+enum JobType {
+  unknownJob = 0; //placeholder
+  debug = 1;
+}
+
+enum JobStatus {
+  unknownStatus = 0; //placeholder
+  successed = 1;
+  failed = 2;
+}
+
+message JobResponse{
+  JobType type = 1;
+  bytes ID = 2;
+  JobStatus status=3;
+  bytes Reason=4;
+  bytes Result =5;
 }
 
 message SyncRequest {
