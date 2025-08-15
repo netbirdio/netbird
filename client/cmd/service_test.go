@@ -66,7 +66,7 @@ func TestServiceLifecycle(t *testing.T) {
 	}
 
 	fmt.Printf("--- Started TestServiceLifecycle test on %s %s\n", runtime.GOOS, currentUser.Username)
-	t.Log("--- Running service lifecycle test: %s, %s", runtime.GOOS, currentUser.Username)
+	t.Logf("--- Running service lifecycle test: %s, %s", runtime.GOOS, currentUser.Username)
 
 	// TODO: Add support for Windows and macOS
 	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
