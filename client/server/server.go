@@ -58,7 +58,8 @@ type Server struct {
 	rootCtx   context.Context
 	actCancel context.CancelFunc
 
-	logFile string
+	logFile  string
+	setupKey string
 
 	oauthAuthFlow oauthAuthFlow
 
@@ -88,10 +89,11 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool, setupKey string) *Server {
 	return &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
+		setupKey:               setupKey,
 		persistSyncResponse:    true,
 		statusRecorder:         peer.NewRecorder(""),
 		profileManager:         profilemanager.NewServiceManager(configFile),
@@ -172,7 +174,7 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil, s.setupKey)
 
 	return nil
 }
@@ -205,7 +207,7 @@ func (s *Server) setDefaultConfigIfNotExists(ctx context.Context) error {
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
 func (s *Server) connectWithRetryRuns(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status,
-	runningChan chan struct{},
+	runningChan chan struct{}, setupKey string,
 ) {
 	backOff := getConnectWithBackoff(ctx)
 	retryStarted := false
@@ -235,7 +237,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *profilemanage
 
 	runOperation := func() error {
 		log.Tracef("running client connection")
-		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
+		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, setupKey)
 		s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
 
 		err := s.connectClient.Run(runningChan)
@@ -711,7 +713,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	defer cancel()
 
 	runningChan := make(chan struct{}, 1) // buffered channel to do not lose the signal
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, runningChan)
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, runningChan, s.setupKey)
 	for {
 		select {
 		case <-runningChan:
