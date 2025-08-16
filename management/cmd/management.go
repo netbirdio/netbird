@@ -1,3 +1,4 @@
+
 package cmd
 
 import (
@@ -170,6 +171,7 @@ var (
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}
 			peersUpdateManager := server.NewPeersUpdateManager(appMetrics)
+			peersJobManager := server.NewPeersJobManager(appMetrics)
 
 			var idpManager idp.Manager
 			if config.IdpManagerConfig != nil {
@@ -214,7 +216,7 @@ var (
 			settingsManager := settings.NewManager(store, userManager, extraSettingsManager, permissionsManager)
 			peersManager := peers.NewManager(store, permissionsManager)
 			proxyController := integrations.NewController(store)
-			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
+			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, peersJobManager, idpManager, mgmtSingleAccModeDomain,
 				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager, config.DisableDefaultPolicy)
 			if err != nil {
 				return fmt.Errorf("build default manager: %v", err)
@@ -292,7 +294,7 @@ var (
 			ephemeralManager.LoadInitialPeers(ctx)
 
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(ctx, config, accountManager, settingsManager, peersUpdateManager, secretsManager, appMetrics, ephemeralManager, authManager, integratedPeerValidator)
+			srv, err := server.NewServer(ctx, config, accountManager, settingsManager, peersUpdateManager, peersJobManager,secretsManager, appMetrics, ephemeralManager, authManager, integratedPeerValidator)
 			if err != nil {
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}

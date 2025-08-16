@@ -55,11 +55,11 @@ import (
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
@@ -460,6 +460,7 @@ func (e *Engine) Start() error {
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
+	e.receiveJobEvents()
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
@@ -883,6 +884,45 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	e.statusRecorder.UpdateLocalPeerState(state)
 
 	return nil
+}
+
+func (e *Engine) receiveJobEvents() {
+	go func() {
+		info, err := system.GetInfoWithChecks(e.ctx, e.checks)
+		if err != nil {
+			log.Warnf("failed to get system info with checks: %v", err)
+			info = system.GetInfo(e.ctx)
+		}
+		info.SetFlags(
+			e.config.RosenpassEnabled,
+			e.config.RosenpassPermissive,
+			&e.config.ServerSSHAllowed,
+			e.config.DisableClientRoutes,
+			e.config.DisableServerRoutes,
+			e.config.DisableDNS,
+			e.config.DisableFirewall,
+			e.config.BlockLANAccess,
+			e.config.BlockInbound,
+			e.config.LazyConnectionEnabled,
+		)
+
+		// err = e.mgmClient.Sync(info, e.handleSync)
+		err = e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) error {
+			// Simple test handler — replace with real logic
+			log.Infof("Received job request: %+v", msg)
+			// TODO: trigger local debug bundle or other job
+			return nil
+		})
+		if err != nil {
+			// happens if management is unavailable for a long time.
+			// We want to cancel the operation of the whole client
+			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+			e.clientCancel()
+			return
+		}
+		log.Debugf("stopped receiving jobs from Management Service")
+	}()
+	log.Debugf("connecting to Management Service jobs stream")
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
