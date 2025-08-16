@@ -51,7 +51,7 @@ type ManagementServiceClient interface {
 	// Logout logs out the peer and removes it from the management server
 	Logout(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
-	Job(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (ManagementService_JobClient, error)
+	Job(ctx context.Context, opts ...grpc.CallOption) (ManagementService_JobClient, error)
 }
 
 type managementServiceClient struct {
@@ -157,28 +157,27 @@ func (c *managementServiceClient) Logout(ctx context.Context, in *EncryptedMessa
 	return out, nil
 }
 
-func (c *managementServiceClient) Job(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (ManagementService_JobClient, error) {
+func (c *managementServiceClient) Job(ctx context.Context, opts ...grpc.CallOption) (ManagementService_JobClient, error) {
 	stream, err := c.cc.NewStream(ctx, &ManagementService_ServiceDesc.Streams[1], "/management.ManagementService/Job", opts...)
 	if err != nil {
 		return nil, err
 	}
 	x := &managementServiceJobClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
 	return x, nil
 }
 
 type ManagementService_JobClient interface {
+	Send(*EncryptedMessage) error
 	Recv() (*EncryptedMessage, error)
 	grpc.ClientStream
 }
 
 type managementServiceJobClient struct {
 	grpc.ClientStream
+}
+
+func (x *managementServiceJobClient) Send(m *EncryptedMessage) error {
+	return x.ClientStream.SendMsg(m)
 }
 
 func (x *managementServiceJobClient) Recv() (*EncryptedMessage, error) {
@@ -226,7 +225,7 @@ type ManagementServiceServer interface {
 	// Logout logs out the peer and removes it from the management server
 	Logout(context.Context, *EncryptedMessage) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
-	Job(*EncryptedMessage, ManagementService_JobServer) error
+	Job(ManagementService_JobServer) error
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -258,7 +257,7 @@ func (UnimplementedManagementServiceServer) SyncMeta(context.Context, *Encrypted
 func (UnimplementedManagementServiceServer) Logout(context.Context, *EncryptedMessage) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Logout not implemented")
 }
-func (UnimplementedManagementServiceServer) Job(*EncryptedMessage, ManagementService_JobServer) error {
+func (UnimplementedManagementServiceServer) Job(ManagementService_JobServer) error {
 	return status.Errorf(codes.Unimplemented, "method Job not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}
@@ -422,15 +421,12 @@ func _ManagementService_Logout_Handler(srv interface{}, ctx context.Context, dec
 }
 
 func _ManagementService_Job_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(EncryptedMessage)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(ManagementServiceServer).Job(m, &managementServiceJobServer{stream})
+	return srv.(ManagementServiceServer).Job(&managementServiceJobServer{stream})
 }
 
 type ManagementService_JobServer interface {
 	Send(*EncryptedMessage) error
+	Recv() (*EncryptedMessage, error)
 	grpc.ServerStream
 }
 
@@ -440,6 +436,14 @@ type managementServiceJobServer struct {
 
 func (x *managementServiceJobServer) Send(m *EncryptedMessage) error {
 	return x.ServerStream.SendMsg(m)
+}
+
+func (x *managementServiceJobServer) Recv() (*EncryptedMessage, error) {
+	m := new(EncryptedMessage)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // ManagementService_ServiceDesc is the grpc.ServiceDesc for ManagementService service.
@@ -488,6 +492,7 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Job",
 			Handler:       _ManagementService_Job_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "management.proto",

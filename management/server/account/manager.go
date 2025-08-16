@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 type ExternalCacheManager nbcache.UserDataCache
@@ -123,4 +124,6 @@ type Manager interface {
 	UpdateToPrimaryAccount(ctx context.Context, accountId string) error
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
+	CreateJob(ctx context.Context, peerID string, job *proto.JobRequest) error
+	GetJob(ctx context.Context, jobID string) (*proto.JobResponse, error)
 }

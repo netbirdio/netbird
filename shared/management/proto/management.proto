@@ -50,7 +50,7 @@ service ManagementService {
   rpc Logout(EncryptedMessage) returns (Empty) {}
 
   // Executes a job on a target peer (e.g., debug bundle)
-  rpc Job(EncryptedMessage) returns (stream EncryptedMessage) {}
+  rpc Job(stream EncryptedMessage) returns (stream EncryptedMessage) {}
 }
 
 message EncryptedMessage {

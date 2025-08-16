@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"strings"
@@ -11,6 +13,7 @@ import (
 
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -45,6 +48,7 @@ type GRPCServer struct {
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peersUpdateManager      *PeersUpdateManager
+	jobManager              *JobManager
 	config                  *nbconfig.Config
 	secretsManager          SecretsManager
 	appMetrics              telemetry.AppMetrics
@@ -61,6 +65,7 @@ func NewServer(
 	accountManager account.Manager,
 	settingsManager settings.Manager,
 	peersUpdateManager *PeersUpdateManager,
+	jobManager *JobManager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
 	ephemeralManager *EphemeralManager,
@@ -77,6 +82,10 @@ func NewServer(
 		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
 			return int64(len(peersUpdateManager.peerChannels))
 		})
+		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
+			return int64(len(jobManager.jobChannels))
+		})
+
 		if err != nil {
 			return nil, err
 		}
@@ -86,6 +95,7 @@ func NewServer(
 		wgKey: key,
 		// peerKey -> event channel
 		peersUpdateManager:      peersUpdateManager,
+		jobManager:              jobManager,
 		accountManager:          accountManager,
 		settingsManager:         settingsManager,
 		config:                  config,
@@ -130,6 +140,110 @@ func getRealIP(ctx context.Context) net.IP {
 		return net.IP(addr.AsSlice())
 	}
 	return nil
+}
+
+func (s *GRPCServer) Job(srv proto.ManagementService_JobServer) error {
+	ctx := srv.Context()
+
+	// First message from client = hello
+	var hello proto.EncryptedMessage
+	if err := srv.RecvMsg(&hello); err != nil {
+		return status.Errorf(codes.InvalidArgument, "missing hello: %v", err)
+	}
+
+	jobReq := &proto.JobRequest{}
+	peerKey, err := s.parseRequest(ctx, &hello, jobReq)
+	if err != nil {
+		return err
+	}
+
+	// nolint:staticcheck
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
+	unlock := s.acquirePeerLockByUID(ctx, peerKey.String())
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
+
+	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
+	if err != nil {
+		// nolint:staticcheck
+		ctx = context.WithValue(ctx, nbContext.AccountIDKey, "UNKNOWN")
+		log.WithContext(ctx).Tracef("peer %s is not registered", peerKey.String())
+		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
+			return status.Errorf(codes.PermissionDenied, "peer is not registered")
+		}
+		return err
+	}
+
+	// nolint:staticcheck
+	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
+
+	realIP := getRealIP(ctx)
+	peer, _, _, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), nbpeer.PeerSystemMeta{}, realIP)
+	if err != nil {
+		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
+		return mapError(ctx, err)
+	}
+
+	if err := s.sendInitialJob(ctx, peerKey, srv); err != nil {
+		log.WithContext(ctx).Debugf("error while sending initial job for %s: %v", peerKey.String(), err)
+		return err
+	}
+
+	//Start a receiver goroutine to handle job responses from client
+	go func() {
+		for {
+			var msg proto.EncryptedMessage
+			if err := srv.RecvMsg(&msg); err != nil {
+				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+					return
+				}
+				log.WithContext(ctx).Warnf("recv job response error: %v", err)
+				return
+			}
+			jobResp := &proto.JobResponse{}
+			if _, err := s.parseRequest(ctx, &msg, jobResp); err != nil {
+				log.WithContext(ctx).Warnf("failed to parse job response: %v", err)
+				continue
+			}
+			log.WithContext(ctx).Warnf("recv job response: %v", jobResp)
+			if err := s.jobManager.HandleResponse(jobResp); err != nil {
+				log.WithContext(ctx).Warnf("failed to handle job response: %v", err)
+			}
+		}
+	}()
+
+	// Create per-peer job channel and send jobs as they arrive
+	updates := s.jobManager.CreateJobChannel(peer.ID)
+
+	s.ephemeralManager.OnPeerConnected(ctx, peer)
+	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
+
+	unlock()
+	unlock = nil
+
+	// optional: send initial handshake job if you want
+	if err := s.sendInitialJob(ctx, peerKey, srv); err != nil {
+		return err
+	}
+
+	// Main loop: send jobs; exit when client disconnects
+	for {
+		select {
+		case job, ok := <-updates:
+			if !ok {
+				return nil
+			}
+			if err := s.sendJob(ctx, accountID, peerKey, peer, job, srv); err != nil {
+				// log but don't kill the stream; the client may still be connected
+				log.WithContext(ctx).Warnf("send job failed: %v", err)
+			}
+		case <-srv.Context().Done():
+			return srv.Context().Err()
+		}
+	}
 }
 
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
@@ -185,7 +299,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return mapError(ctx, err)
 	}
 
-	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv)
+	err = s.sendInitialUpdate(ctx, peerKey, peer, netMap, postureChecks, srv)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		return err
@@ -209,6 +323,29 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
 }
 
+func (s *GRPCServer) sendInitialJob(ctx context.Context, peerKey wgtypes.Key, srv proto.ManagementService_JobServer) error {
+	req := &proto.JobRequest{
+		Type: proto.JobType_unknownJob,
+		ID:   []byte(uuid.New().String()),
+	}
+	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, req)
+	if err != nil {
+		return status.Errorf(codes.Internal, "error handling request")
+	}
+
+	err = srv.Send(&proto.EncryptedMessage{
+		WgPubKey: s.wgKey.PublicKey().String(),
+		Body:     encryptedResp,
+	})
+
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed sending SyncResponse %v", err)
+		return status.Errorf(codes.Internal, "error handling request")
+	}
+
+	return nil
+}
+
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
 func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
@@ -222,12 +359,12 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 
 			if !open {
 				log.WithContext(ctx).Debugf("updates channel for peer %s was closed", peerKey.String())
-				s.cancelPeerRoutines(ctx, accountID, peer)
+				s.closeUpdateChannel(ctx, accountID, peer)
 				return nil
 			}
 			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
-
 			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
+				s.closeUpdateChannel(ctx, accountID, peer)
 				return err
 			}
 
@@ -235,7 +372,7 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			s.cancelPeerRoutines(ctx, accountID, peer)
+			s.closeUpdateChannel(ctx, accountID, peer)
 			return srv.Context().Err()
 		}
 	}
@@ -246,7 +383,7 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
 	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.closeUpdateChannel(ctx, accountID, peer)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 	err = srv.SendMsg(&proto.EncryptedMessage{
@@ -254,26 +391,61 @@ func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey w
 		Body:     encryptedResp,
 	})
 	if err != nil {
-		s.cancelPeerRoutines(ctx, accountID, peer)
+		s.closeUpdateChannel(ctx, accountID, peer)
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
 	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
 	return nil
 }
 
-func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
+// sendJob encrypts the update message using the peer key and the server's wireguard key,
+// then sends the encrypted message to the connected peer via the sync server.
+func (s *GRPCServer) sendJob(
+	ctx context.Context,
+	accountID string,
+	peerKey wgtypes.Key,
+	peer *nbpeer.Peer,
+	job *JobEvent,
+	srv proto.ManagementService_JobServer,
+) error {
+	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, job.Request)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to encrypt job for peer %s: %v", peerKey.String(), err)
+		return nil // don't kill the whole stream
+	}
+
+	return srv.SendMsg(&proto.EncryptedMessage{
+		WgPubKey: s.wgKey.PublicKey().String(),
+		Body:     encryptedResp,
+	})
+}
+
+func (s *GRPCServer) disconnectPeer(ctx context.Context, accountID string, peer *nbpeer.Peer) {
 	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
 	defer unlock()
 
-	err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key)
-	if err != nil {
+	// Account-level cleanup
+	if err := s.accountManager.OnPeerDisconnected(ctx, accountID, peer.Key); err != nil {
 		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
 	}
-	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
+
+	// Secrets / ephemeral managers
 	s.secretsManager.CancelRefresh(peer.ID)
 	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 
-	log.WithContext(ctx).Tracef("peer %s has been disconnected", peer.Key)
+	log.WithContext(ctx).Tracef("peer %s has been fully disconnected", peer.Key)
+}
+
+// Only closes update channels (used when sync stream ends / errors)
+func (s *GRPCServer) closeUpdateChannel(ctx context.Context, accountID string, peer *nbpeer.Peer) {
+	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
+	s.disconnectPeer(ctx, accountID, peer)
+}
+
+// Only closes job channels (used when job stream ends / errors)
+func (s *GRPCServer) closeJobChannels(ctx context.Context, accountID string, peer *nbpeer.Peer) {
+	s.jobManager.CloseChannel(peer.ID)
+	s.disconnectPeer(ctx, accountID, peer)
 }
 
 func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string, error) {
@@ -727,7 +899,7 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) sendInitialUpdate(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer) error {
 	var err error
 
 	var turnToken *Token

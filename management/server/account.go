@@ -68,6 +68,7 @@ type DefaultAccountManager struct {
 	// cacheLoading keeps the accountIDs that are currently reloading. The accountID has to be removed once cache has been reloaded
 	cacheLoading         map[string]chan struct{}
 	peersUpdateManager   *PeersUpdateManager
+	jobManager           *JobManager
 	idpManager           idp.Manager
 	cacheManager         *nbcache.AccountUserDataCache
 	externalCacheManager nbcache.UserDataCache
@@ -174,6 +175,7 @@ func BuildManager(
 	ctx context.Context,
 	store store.Store,
 	peersUpdateManager *PeersUpdateManager,
+	peersJobManager *JobManager,
 	idpManager idp.Manager,
 	singleAccountModeDomain string,
 	dnsDomain string,
@@ -196,6 +198,7 @@ func BuildManager(
 		Store:                    store,
 		geo:                      geo,
 		peersUpdateManager:       peersUpdateManager,
+		jobManager:               peersJobManager,
 		idpManager:               idpManager,
 		ctx:                      context.Background(),
 		cacheMux:                 sync.Mutex{},
