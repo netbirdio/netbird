@@ -4,14 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"fmt"
-	"net"
-	"os/user"
-	"runtime"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
@@ -21,35 +14,9 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/util/embeddedroots"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func WithCustomDialer() grpc.DialOption {
-	return grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-		if runtime.GOOS == "linux" {
-			currentUser, err := user.Current()
-			if err != nil {
-				return nil, status.Errorf(codes.FailedPrecondition, "failed to get current user: %v", err)
-			}
-
-			// the custom dialer requires root permissions which are not required for use cases run as non-root
-			if currentUser.Uid != "0" {
-				log.Debug("Not running as root, using standard dialer")
-				dialer := &net.Dialer{}
-				return dialer.DialContext(ctx, "tcp", addr)
-			}
-		}
-
-		conn, err := nbnet.NewDialer().DialContext(ctx, "tcp", addr)
-		if err != nil {
-			log.Errorf("Failed to dial: %s", err)
-			return nil, fmt.Errorf("nbnet.NewDialer().DialContext: %w", err)
-		}
-		return conn, nil
-	})
-}
-
-// grpcDialBackoff is the backoff mechanism for the grpc calls
+// Backoff returns a backoff configuration for gRPC calls
 func Backoff(ctx context.Context) backoff.BackOff {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = 10 * time.Second
@@ -57,6 +24,7 @@ func Backoff(ctx context.Context) backoff.BackOff {
 	return backoff.WithContext(b, ctx)
 }
 
+// CreateConnection creates a gRPC client connection with the appropriate transport options
 func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 	if tlsEnabled {
@@ -78,7 +46,7 @@ func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 		connCtx,
 		addr,
 		transportOption,
-		WithCustomDialer(),
+		WithCustomDialer(tlsEnabled),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,
