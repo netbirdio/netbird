@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
@@ -14,11 +15,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // Handler is a handler that returns peers of the account
@@ -32,6 +34,53 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/accessible-peers", peersHandler.GetAccessiblePeers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/jobs", peersHandler.CreateJob).Methods("POST", "OPTIONS")
+}
+
+func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+	if len(peerID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
+		return
+	}
+
+	var req any
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		util.WriteErrorResponse("invalid JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	jobId := uuid.New().String()
+
+	// For testing, just log it and return a success  nbp_zkULHAnVa8W09CImVkyPLkP5ZFWcAI0l8jdq
+	if err := h.accountManager.CreateJob(ctx, peerID, &proto.JobRequest{
+		Type:    proto.JobType_debug,
+		ID:      []byte(jobId),
+		Payload: []byte("payload xxx"),
+	}); err != nil {
+		log.WithContext(ctx).Infof("Received job error: %+v", err)
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	response, err := h.accountManager.GetJob(ctx, jobId)
+	if err != nil {
+		log.WithContext(ctx).Infof("Received job error: %+v", err)
+		util.WriteError(ctx, err, w)
+		return
+
+	}
+
+	resp := map[string]any{
+		"status":   "ok",
+		"job":      req,
+		"peerId":   peerID,
+		"response": fmt.Sprintf("%v", response),
+	}
+	util.WriteJSONObject(ctx, w, resp)
 }
 
 // NewHandler creates a new peers Handler

@@ -7,4 +7,5 @@ const (
 	Read   Operation = "read"
 	Update Operation = "update"
 	Delete Operation = "delete"
+	Job    Operation = "job"
 )
