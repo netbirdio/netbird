@@ -702,13 +702,6 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 }
 
 func (e *Engine) handleAutoUpdateVersion(autoUpdateVersion string) {
-	if e.updateManager == nil && autoUpdateVersion != disableAutoUpdate {
-		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder)
-		e.updateManager.Start(e.ctx)
-	} else if e.updateManager != nil && autoUpdateVersion == disableAutoUpdate {
-		e.updateManager.Stop()
-		e.updateManager = nil
-	}
 	if e.updateManager != nil {
 		e.updateManager.SetVersion(autoUpdateVersion)
 	}

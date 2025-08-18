@@ -585,9 +585,10 @@ func (s *GRPCServer) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
-		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(settings), settings),
-		Checks:        toProtocolChecks(ctx, postureChecks),
+		NetbirdConfig:     toNetbirdConfig(s.config, nil, relayToken, nil),
+		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(settings), settings),
+		Checks:            toProtocolChecks(ctx, postureChecks),
+		AutoUpdateVersion: settings.AutoUpdateVersion,
 	}
 
 	return loginResp, nil
