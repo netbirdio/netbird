@@ -158,9 +158,31 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 		nil,
 	)
 
+	u.statusRecorder.PublishEvent(
+		cProto.SystemEvent_INFO,
+		cProto.SystemEvent_SYSTEM,
+		"Automatically updating client",
+		"Your client version is older than auto-update version set in Management, updating client now.",
+		map[string]string{"progress_window": "show"},
+	)
+
 	err := u.triggerUpdate(ctx, updateVersion.String())
 	if err != nil {
 		log.Errorf("Error triggering auto-update: %v", err)
+		u.statusRecorder.PublishEvent(
+			cProto.SystemEvent_INFO,
+			cProto.SystemEvent_SYSTEM,
+			"",
+			"",
+			map[string]string{"progress_window": "hide"},
+		)
+		u.statusRecorder.PublishEvent(
+			cProto.SystemEvent_ERROR,
+			cProto.SystemEvent_SYSTEM,
+			"Auto-update failed",
+			fmt.Sprintf("Auto-update failed: %v", err),
+			nil,
+		)
 	}
 }
 

@@ -3,6 +3,8 @@ package event
 import (
 	"context"
 	"fmt"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/widget"
 	"slices"
 	"strings"
 	"sync"
@@ -24,11 +26,12 @@ type Manager struct {
 	app  fyne.App
 	addr string
 
-	mu       sync.Mutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	enabled  bool
-	handlers []Handler
+	mu          sync.Mutex
+	ctx         context.Context
+	cancel      context.CancelFunc
+	enabled     bool
+	handlers    []Handler
+	eventWindow *fyne.Window
 }
 
 func NewManager(app fyne.App, addr string) *Manager {
@@ -109,6 +112,25 @@ func (e *Manager) handleEvent(event *proto.SystemEvent) {
 
 	// critical events are always shown
 	if !enabled && event.Severity != proto.SystemEvent_CRITICAL {
+		return
+	}
+
+	if windowAction, ok := event.Metadata["progress_window"]; ok {
+		if windowAction == "show" {
+			if e.eventWindow != nil {
+				(*e.eventWindow).Close()
+				e.eventWindow = nil
+			}
+			window := e.app.NewWindow(e.getEventTitle(event))
+			window.SetContent(container.NewGridWithRows(2, widget.NewLabel(event.UserMessage), widget.NewProgressBarInfinite()))
+			window.ShowAndRun()
+			e.eventWindow = &window
+		}
+		if windowAction == "hide" {
+			if e.eventWindow != nil {
+				(*e.eventWindow).Close()
+			}
+		}
 		return
 	}
 
