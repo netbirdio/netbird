@@ -189,6 +189,11 @@ func (c *GrpcClient) handleJobStream(
 			return err
 		}
 
+		if jobReq == nil || len(jobReq.ID) == 0 || jobReq.Type == proto.JobType_unknownJob {
+			log.WithContext(ctx).Debug("received unknown or empty job request, skipping")
+			continue
+		}
+
 		jobResp := c.processJobRequest(ctx, jobReq, msgHandler)
 		if err := c.sendJobResponse(ctx, stream, serverPubKey, jobResp); err != nil {
 			return err
@@ -230,11 +235,6 @@ func (c *GrpcClient) receiveJobRequest(
 		return nil, err
 	}
 
-	if len(jobReq.ID) == 0 || jobReq.Type == proto.JobType_unknownJob {
-		log.WithContext(ctx).Debug("received unknown or empty job request, skipping")
-		return nil, nil
-	}
-
 	return jobReq, nil
 }
 
@@ -244,10 +244,6 @@ func (c *GrpcClient) processJobRequest(
 	jobReq *proto.JobRequest,
 	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
 ) *proto.JobResponse {
-	if jobReq == nil {
-		return nil
-	}
-
 	jobResp := msgHandler(jobReq)
 	if jobResp == nil {
 		jobResp = &proto.JobResponse{
@@ -267,10 +263,6 @@ func (c *GrpcClient) sendJobResponse(
 	serverPubKey wgtypes.Key,
 	resp *proto.JobResponse,
 ) error {
-	if resp == nil {
-		return nil
-	}
-
 	encResp, err := encryption.EncryptMessage(serverPubKey, c.key, resp)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to encrypt job response for job %s: %v", string(resp.ID), err)

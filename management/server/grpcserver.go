@@ -79,7 +79,7 @@ func NewServer(
 
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
-		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
+		err := appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
 			return int64(len(peersUpdateManager.peerChannels))
 		})
 		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
@@ -150,6 +150,8 @@ func (s *GRPCServer) Job(srv proto.ManagementService_JobServer) error {
 	if err != nil {
 		return err
 	}
+
+	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 	unlock := s.acquirePeerLockByUID(ctx, peerKey.String())
 	defer func() {
@@ -314,14 +316,19 @@ func (s *GRPCServer) sendJobsLoop(
 ) error {
 	for {
 		select {
-		case job, ok := <-updates:
-			if !ok {
+		case job, open := <-updates:
+			if !open {
+				log.WithContext(ctx).Debugf("jobs channel for peer %s was closed", peerKey.String())
+				s.closeJobChannels(ctx, accountID, peer)
 				return nil
 			}
 			if err := s.sendJob(ctx, accountID, peerKey, peer, job, srv); err != nil {
 				log.WithContext(ctx).Warnf("send job failed: %v", err)
 			}
 		case <-ctx.Done():
+			// happens when connection drops, e.g. client disconnects
+			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
+			s.closeJobChannels(ctx, accountID, peer)
 			return ctx.Err()
 		}
 	}
@@ -408,13 +415,20 @@ func (s *GRPCServer) sendJob(ctx context.Context, accountID string, peerKey wgty
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, job.Request)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to encrypt job for peer %s: %v", peerKey.String(), err)
+		s.closeJobChannels(ctx, accountID, peer)
 		return nil
 	}
-
-	return srv.SendMsg(&proto.EncryptedMessage{
+	err = srv.SendMsg(&proto.EncryptedMessage{
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
 	})
+	if err != nil {
+		s.closeJobChannels(ctx, accountID, peer)
+		return status.Errorf(codes.Internal, "failed sending job message")
+	}
+
+	log.WithContext(ctx).Debugf("sent an job to peer %s", peerKey.String())
+	return nil
 }
 
 func (s *GRPCServer) disconnectPeer(ctx context.Context, accountID string, peer *nbpeer.Peer) {
