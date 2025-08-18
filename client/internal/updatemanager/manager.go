@@ -141,11 +141,25 @@ func (u *UpdateManager) CheckForUpdates(ctx context.Context) {
 				cProto.SystemEvent_SYSTEM,
 				"Automatically updating client",
 				"Your client version is older than auto-update version set in Management, updating client now.",
-				nil,
+				map[string]string{"progress_window": "show"},
 			)
 			err = u.triggerUpdate(ctx, updateVersionString)
 			if err != nil {
 				log.Errorf("Error triggering auto-update: %v", err)
+				u.statusRecorder.PublishEvent(
+					cProto.SystemEvent_INFO,
+					cProto.SystemEvent_SYSTEM,
+					"",
+					"",
+					map[string]string{"progress_window": "hide"},
+				)
+				u.statusRecorder.PublishEvent(
+					cProto.SystemEvent_INFO,
+					cProto.SystemEvent_SYSTEM,
+					"Auto-update failed",
+					fmt.Sprintf("Auto-update failed: %v", err),
+					nil,
+				)
 			}
 		}
 	} else {
