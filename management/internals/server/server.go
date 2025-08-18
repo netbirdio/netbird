@@ -90,6 +90,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	s.errCh = make(chan error, 4)
 
 	s.PeersManager()
+	s.GeoLocationManager()
 
 	for _, fn := range s.afterInit {
 		if fn != nil {
