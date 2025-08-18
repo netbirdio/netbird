@@ -272,6 +272,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engineMutex.Lock()
 		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
+		c.engine.updateManager.SetVersion(loginResp.AutoUpdateVersion)
 		c.engineMutex.Unlock()
 
 		if err := c.engine.Start(); err != nil {

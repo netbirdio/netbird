@@ -37,6 +37,8 @@ type UpdateManager struct {
 	mutex          sync.Mutex
 	updateChannel  chan string
 	doneChannel    chan struct{}
+	engineStartTime   time.Time
+	onlyUpdateOnStart bool
 }
 
 func NewUpdateManager(ctx context.Context, statusRecorder *peer.Status) *UpdateManager {
@@ -52,6 +54,11 @@ func NewUpdateManager(ctx context.Context, statusRecorder *peer.Status) *UpdateM
 		latestVersion:  unknownVersion,
 		updateChannel:  make(chan string, 4),
 		doneChannel:    make(chan struct{}),
+		engineStartTime:   time.Now(),
+		onlyUpdateOnStart: true, // Will be configurable from Management later
+	}
+	if manager.onlyUpdateOnStart {
+		manager.ctx, manager.cancel = context.WithDeadline(ctx, manager.engineStartTime.Add(time.Minute))
 	}
 	update.SetDaemonVersion(version.NetbirdVersion())
 	update.SetOnUpdateChannel(manager.updateChannel)
@@ -96,7 +103,7 @@ func (u *UpdateManager) UpdateLoop() {
 			u.mutex.Unlock()
 			ctx, cancel := context.WithDeadline(u.ctx, time.Now().Add(time.Minute))
 			u.CheckForUpdates(ctx)
-			cancel()
+			cancel()=
 		}
 	}
 }
