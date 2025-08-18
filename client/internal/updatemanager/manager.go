@@ -3,6 +3,7 @@ package updatemanager
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"io"
 	"net/http"
 	"os"
@@ -24,12 +25,26 @@ const (
 	latestVersion = "latest"
 )
 
+type UpdateState struct {
+	PreUpdateVersion string
+	TargetVersion    string
+}
+
+func (u UpdateState) Name() string {
+	return "autoUpdate"
+}
+
+func (u UpdateState) Cleanup() error {
+	return nil
+}
+
 type UpdateManager struct {
 	lastTrigger    time.Time
 	statusRecorder *peer.Status
 	mgmUpdateChan  chan struct{}
 	updateChannel  chan struct{}
 	wg             sync.WaitGroup
+	stateManager   *statemanager.Manager
 
 	cancel context.CancelFunc
 	update *version.Update
@@ -38,12 +53,32 @@ type UpdateManager struct {
 	expectedVersionMutex sync.Mutex
 }
 
-func NewUpdateManager(statusRecorder *peer.Status) *UpdateManager {
+func NewUpdateManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *UpdateManager {
 	manager := &UpdateManager{
 		statusRecorder: statusRecorder,
 		mgmUpdateChan:  make(chan struct{}, 1),
 		updateChannel:  make(chan struct{}, 1),
+		stateManager:   stateManager,
 	}
+
+	var updateState UpdateState
+	if err := stateManager.LoadState(&updateState); err != nil {
+		log.Warnf("failed to load state: %v", err)
+	} else {
+		if updateState.TargetVersion == version.NetbirdVersion() {
+			statusRecorder.PublishEvent(
+				cProto.SystemEvent_INFO,
+				cProto.SystemEvent_SYSTEM,
+				"Auto-update completed",
+				fmt.Sprintf("Your NetBird Client was auto-updated to version %s", version.NetbirdVersion()),
+				nil,
+			)
+		}
+		if err := stateManager.DeleteState(updateState); err != nil {
+			log.Warnf("failed to delete state: %v", err)
+		}
+	}
+
 	return manager
 }
 
