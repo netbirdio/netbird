@@ -2,6 +2,7 @@ package nftables
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"net/netip"
 	"os/exec"
@@ -20,7 +21,7 @@ import (
 
 var ifaceMock = &iFaceMock{
 	NameFunc: func() string {
-		return "lo"
+		return "wg-test"
 	},
 	AddressFunc: func() wgaddr.Address {
 		return wgaddr.Address{
@@ -103,9 +104,8 @@ func TestNftablesManager(t *testing.T) {
 			Kind: expr.VerdictAccept,
 		},
 	}
-	compareExprsIgnoringCounters(t, rules[0].Exprs, expectedExprs1)
-
-	expectedExprs2 := []expr.Any{
+	// Since DROP rules are inserted at position 0, the DROP rule comes first
+	expectedDropExprs := []expr.Any{
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
@@ -141,7 +141,12 @@ func TestNftablesManager(t *testing.T) {
 		},
 		&expr.Verdict{Kind: expr.VerdictDrop},
 	}
-	require.ElementsMatch(t, rules[1].Exprs, expectedExprs2, "expected the same expressions")
+
+	// Compare DROP rule at position 0 (inserted first due to InsertRule)
+	compareExprsIgnoringCounters(t, rules[0].Exprs, expectedDropExprs)
+
+	// Compare connection tracking rule at position 1 (pushed down by DROP rule insertion)
+	compareExprsIgnoringCounters(t, rules[1].Exprs, expectedExprs1)
 
 	for _, r := range rule {
 		err = manager.DeletePeerRule(r)
@@ -160,10 +165,90 @@ func TestNftablesManager(t *testing.T) {
 	require.NoError(t, err, "failed to reset")
 }
 
+func TestNftablesManagerRuleOrder(t *testing.T) {
+	// This test verifies rule insertion order in nftables peer ACLs
+	// We add accept rule first, then deny rule to test ordering behavior
+	manager, err := Create(ifaceMock)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		err = manager.Close(nil)
+		require.NoError(t, err)
+	}()
+
+	ip := netip.MustParseAddr("100.96.0.2").Unmap()
+	testClient := &nftables.Conn{}
+
+	// Add accept rule first
+	_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "accept-http")
+	require.NoError(t, err, "failed to add accept rule")
+
+	// Add deny rule second for the same traffic
+	_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop, "deny-http")
+	require.NoError(t, err, "failed to add deny rule")
+
+	err = manager.Flush()
+	require.NoError(t, err, "failed to flush")
+
+	rules, err := testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
+	require.NoError(t, err, "failed to get rules")
+
+	t.Logf("Found %d rules in nftables chain", len(rules))
+
+	// Find the accept and deny rules and verify deny comes before accept
+	var acceptRuleIndex, denyRuleIndex int = -1, -1
+	for i, rule := range rules {
+		hasAcceptHTTPSet := false
+		hasDenyHTTPSet := false
+		hasPort80 := false
+		var action string
+
+		for _, e := range rule.Exprs {
+			// Check for set lookup
+			if lookup, ok := e.(*expr.Lookup); ok {
+				if lookup.SetName == "accept-http" {
+					hasAcceptHTTPSet = true
+				} else if lookup.SetName == "deny-http" {
+					hasDenyHTTPSet = true
+				}
+			}
+			// Check for port 80
+			if cmp, ok := e.(*expr.Cmp); ok {
+				if cmp.Op == expr.CmpOpEq && len(cmp.Data) == 2 && binary.BigEndian.Uint16(cmp.Data) == 80 {
+					hasPort80 = true
+				}
+			}
+			// Check for verdict
+			if verdict, ok := e.(*expr.Verdict); ok {
+				if verdict.Kind == expr.VerdictAccept {
+					action = "ACCEPT"
+				} else if verdict.Kind == expr.VerdictDrop {
+					action = "DROP"
+				}
+			}
+		}
+
+		if hasAcceptHTTPSet && hasPort80 && action == "ACCEPT" {
+			t.Logf("Rule [%d]: accept-http set + Port 80 + ACCEPT", i)
+			acceptRuleIndex = i
+		} else if hasDenyHTTPSet && hasPort80 && action == "DROP" {
+			t.Logf("Rule [%d]: deny-http set + Port 80 + DROP", i)
+			denyRuleIndex = i
+		}
+	}
+
+	require.NotEqual(t, -1, acceptRuleIndex, "accept rule should exist in nftables")
+	require.NotEqual(t, -1, denyRuleIndex, "deny rule should exist in nftables")
+	require.Less(t, denyRuleIndex, acceptRuleIndex,
+		"deny rule should come before accept rule in nftables chain (deny at index %d, accept at index %d)",
+		denyRuleIndex, acceptRuleIndex)
+}
+
 func TestNFtablesCreatePerformance(t *testing.T) {
 	mock := &iFaceMock{
 		NameFunc: func() string {
-			return "lo"
+			return "wg-test"
 		},
 		AddressFunc: func() wgaddr.Address {
 			return wgaddr.Address{
