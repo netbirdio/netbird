@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	"net"
 	"net/netip"
 	"runtime"
@@ -271,7 +272,18 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		c.engineMutex.Lock()
 		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
+		if c.engine.updateManager == nil && loginResp.GetAutoUpdateVersion() != "disabled" {
+			c.engine.updateManager = updatemanager.NewUpdateManager(c.statusRecorder, c.engine.stateManager)
+			c.engine.updateManager.Start(engineCtx)
+		} else if c.engine.updateManager != nil && loginResp.GetAutoUpdateVersion() == "disabled" {
+			c.engine.updateManager.Stop()
+			c.engine.updateManager = nil
+		}
+		if c.engine.updateManager != nil {
+			c.engine.updateManager.SetVersion(loginResp.GetAutoUpdateVersion())
+		}
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
+		c.engine.updateManager.SetVersion(loginResp.AutoUpdateVersion)
 		c.engineMutex.Unlock()
 
 		if err := c.engine.Start(); err != nil {

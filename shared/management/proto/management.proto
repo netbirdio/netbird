@@ -179,6 +179,8 @@ message LoginResponse {
   PeerConfig peerConfig = 2;
   // Posture checks to be evaluated by client
   repeated Checks Checks = 3;
+  // Version for auto-updating client
+  string autoUpdateVersion = 4;
 }
 
 message ServerKeyResponse {
