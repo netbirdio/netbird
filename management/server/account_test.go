@@ -3250,11 +3250,13 @@ func Test_GetCreateAccountByPrivateDomain(t *testing.T) {
 	assert.Equal(t, 0, len(account2.Users))
 	assert.Equal(t, 0, len(account2.SetupKeys))
 
-	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	assert.NoError(t, err)
+	account, err = manager.Store.GetAccount(ctx, account.Id)
 	assert.NoError(t, err)
 	assert.True(t, account.IsDomainPrimaryAccount)
 
-	_, err = manager.UpdateToPrimaryAccount(ctx, account2.Id)
+	err = manager.UpdateToPrimaryAccount(ctx, account2.Id)
 	assert.Error(t, err, "should not be able to update a second account to primary")
 }
 
@@ -3275,7 +3277,9 @@ func Test_UpdateToPrimaryAccount(t *testing.T) {
 	assert.False(t, account.IsDomainPrimaryAccount)
 	assert.Equal(t, domain, account.Domain)
 
-	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	assert.NoError(t, err)
+	account, err = manager.Store.GetAccount(ctx, account.Id)
 	assert.NoError(t, err)
 	assert.True(t, account.IsDomainPrimaryAccount)
 

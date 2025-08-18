@@ -2832,3 +2832,57 @@ func getDebuggingCtx(grpcCtx context.Context) (context.Context, context.CancelFu
 	}()
 	return ctx, cancel
 }
+
+func (s *SqlStore) IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error) {
+	var info types.PrimaryAccountInfo
+	result := s.db.Model(&types.Account{}).
+		Select("is_domain_primary_account, domain").
+		Where(idQueryCondition, accountID).
+		Take(&info)
+
+	if result.Error != nil {
+		return false, "", status.Errorf(status.Internal, "failed to get account info: %v", result.Error)
+	}
+
+	return info.IsDomainPrimaryAccount, info.Domain, nil
+}
+
+func (s *SqlStore) MarkAccountPrimary(ctx context.Context, accountID string) error {
+	result := s.db.Model(&types.Account{}).
+		Where(idQueryCondition, accountID).
+		Update("is_domain_primary_account", true)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to mark account as primary: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to mark account as primary")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+
+	return nil
+}
+
+type accountNetworkPatch struct {
+	Network *types.Network `gorm:"embedded;embeddedPrefix:network_"`
+}
+
+func (s *SqlStore) UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error {
+	patch := accountNetworkPatch{
+		Network: &types.Network{Net: ipNet},
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&types.Account{}).
+		Where(idQueryCondition, accountID).
+		Updates(&patch)
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update account network: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update account network")
+	}
+	if result.RowsAffected == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+	return nil
+}
