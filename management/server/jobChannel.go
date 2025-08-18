@@ -20,7 +20,7 @@ type JobEvent struct {
 }
 
 type JobManager struct {
-	mu           sync.RWMutex
+	mu           *sync.RWMutex
 	jobChannels  map[string]chan *JobEvent // per-peer job streams
 	pending      map[string]*JobEvent      // jobID → event, todo replace with database
 	responseWait time.Duration
