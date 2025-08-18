@@ -3,6 +3,7 @@ package updatemanager
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"io"
 	"net/http"
 	"os"
@@ -26,6 +27,19 @@ const (
 	unknownVersion    = "Unknown"
 )
 
+type UpdateState struct {
+	PreUpdateVersion string
+	TargetVersion    string
+}
+
+func (u UpdateState) Name() string {
+	return "autoUpdate"
+}
+
+func (u UpdateState) Cleanup() error {
+	return nil
+}
+
 type UpdateManager struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -39,9 +53,10 @@ type UpdateManager struct {
 	doneChannel    chan struct{}
 	engineStartTime   time.Time
 	onlyUpdateOnStart bool
+	stateManager      *statemanager.Manager
 }
 
-func NewUpdateManager(ctx context.Context, statusRecorder *peer.Status) *UpdateManager {
+func NewUpdateManager(ctx context.Context, statusRecorder *peer.Status, stateManager *statemanager.Manager) *UpdateManager {
 	update := version.NewUpdate("nb/client")
 	ctx, cancel := context.WithCancel(ctx)
 	manager := &UpdateManager{
@@ -56,9 +71,27 @@ func NewUpdateManager(ctx context.Context, statusRecorder *peer.Status) *UpdateM
 		doneChannel:    make(chan struct{}),
 		engineStartTime:   time.Now(),
 		onlyUpdateOnStart: true, // Will be configurable from Management later
+		stateManager:      stateManager,
 	}
 	if manager.onlyUpdateOnStart {
 		manager.ctx, manager.cancel = context.WithDeadline(ctx, manager.engineStartTime.Add(time.Minute))
+	}
+	var updateState UpdateState
+	if err := stateManager.LoadState(&updateState); err != nil {
+		log.Warnf("failed to load state: %v", err)
+	} else {
+		if updateState.TargetVersion == version.NetbirdVersion() {
+			statusRecorder.PublishEvent(
+				cProto.SystemEvent_INFO,
+				cProto.SystemEvent_SYSTEM,
+				"Auto-update completed",
+				fmt.Sprintf("Your NetBird Client was auto-updated to version %s", version.NetbirdVersion()),
+				nil,
+			)
+		}
+		if err := stateManager.DeleteState(updateState); err != nil {
+			log.Warnf("failed to delete state: %v", err)
+		}
 	}
 	update.SetDaemonVersion(version.NetbirdVersion())
 	update.SetOnUpdateChannel(manager.updateChannel)
@@ -103,7 +136,7 @@ func (u *UpdateManager) UpdateLoop() {
 			u.mutex.Unlock()
 			ctx, cancel := context.WithDeadline(u.ctx, time.Now().Add(time.Minute))
 			u.CheckForUpdates(ctx)
-			cancel()=
+			cancel()
 		}
 	}
 }
@@ -143,6 +176,14 @@ func (u *UpdateManager) CheckForUpdates(ctx context.Context) {
 				"Your client version is older than auto-update version set in Management, updating client now.",
 				map[string]string{"progress_window": "show"},
 			)
+			u.stateManager.RegisterState(UpdateState{
+				PreUpdateVersion: currentVersionString,
+				TargetVersion:    updateVersionString,
+			})
+			err = u.stateManager.PersistState(ctx)
+			if err != nil {
+				log.Errorf("Error persisting state: %v", err)
+			}
 			err = u.triggerUpdate(ctx, updateVersionString)
 			if err != nil {
 				log.Errorf("Error triggering auto-update: %v", err)

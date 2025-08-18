@@ -222,6 +222,22 @@ func NewEngine(
 	statusRecorder *peer.Status,
 	checks []*mgmProto.Checks,
 ) *Engine {
+	sm := profilemanager.NewServiceManager("")
+
+	path := sm.GetStatePath()
+	if runtime.GOOS == "ios" {
+		if !fileExists(mobileDep.StateFilePath) {
+			err := createFile(mobileDep.StateFilePath)
+			if err != nil {
+				log.Errorf("failed to create state file: %v", err)
+				// we are not exiting as we can run without the state manager
+			}
+		}
+
+		path = mobileDep.StateFilePath
+	}
+	stateManager := statemanager.New(path)
+
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -240,24 +256,9 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
-		updateManager:  updatemanager.NewUpdateManager(clientCtx, statusRecorder),
+		updateManager:  updatemanager.NewUpdateManager(clientCtx, statusRecorder, stateManager),
+		stateManager:   stateManager,
 	}
-
-	sm := profilemanager.NewServiceManager("")
-
-	path := sm.GetStatePath()
-	if runtime.GOOS == "ios" {
-		if !fileExists(mobileDep.StateFilePath) {
-			err := createFile(mobileDep.StateFilePath)
-			if err != nil {
-				log.Errorf("failed to create state file: %v", err)
-				// we are not exiting as we can run without the state manager
-			}
-		}
-
-		path = mobileDep.StateFilePath
-	}
-	engine.stateManager = statemanager.New(path)
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
