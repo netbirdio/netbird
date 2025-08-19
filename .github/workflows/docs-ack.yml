@@ -64,7 +64,7 @@ jobs:
           BODY_B64: ${{ steps.body.outputs.body_b64 }}
         run: |
           set -euo pipefail
-          body="$(printf '%s' "$BODY_B64" | base64 -d || true)"
+          body="$(printf '%s' "$BODY_B64" | base64 -d)"
 
           # Strictly require HTTPS and that it's a PR in netbirdio/docs
           # e.g., https://github.com/netbirdio/docs/pull/1234
