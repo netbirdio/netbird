@@ -290,6 +290,9 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 		return transaction.DeleteRoute(ctx, accountID, string(routeID))
 	})
+	if err != nil {
+		return fmt.Errorf("failed to delete route %s: %w", routeID, err)
+	}
 
 	am.StoreEvent(ctx, userID, string(route.ID), accountID, activity.RouteRemoved, route.EventMeta())
 

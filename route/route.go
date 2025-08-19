@@ -111,7 +111,11 @@ type Route struct {
 
 // EventMeta returns activity event meta related to the route
 func (r *Route) EventMeta() map[string]any {
-	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": r.Domains.SafeString(), "peer_id": r.Peer, "peer_groups": r.PeerGroups}
+	domains := ""
+	if r.Domains != nil {
+		domains = r.Domains.SafeString()
+	}
+	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": domains, "peer_id": r.Peer, "peer_groups": r.PeerGroups}
 }
 
 // Copy copies a route object
@@ -181,7 +185,7 @@ func (r *Route) GetResourceID() ResID {
 // If the route is dynamic, it returns the domains as comma-separated punycode-encoded string.
 // If the route is not dynamic, it returns the network (prefix) string.
 func (r *Route) NetString() string {
-	if r.IsDynamic() {
+	if r.IsDynamic() && r.Domains != nil {
 		return r.Domains.SafeString()
 	}
 	return r.Network.String()
