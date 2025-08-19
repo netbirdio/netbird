@@ -12,12 +12,13 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -88,22 +89,36 @@ func NewValidator(issuer string, audienceList []string, keysLocation string, idp
 
 func (v *Validator) getKeyFunc(ctx context.Context) jwt.Keyfunc {
 	return func(token *jwt.Token) (interface{}, error) {
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			return nil, errors.New("invalid claims type")
+		}
+
 		// Verify 'aud' claim
-		var checkAud bool
+		audiences, err := claims.GetAudience()
+		if err != nil {
+			return nil, fmt.Errorf("get claim audience: %w", err)
+		}
+
+		checkAud := false
 		for _, audience := range v.audienceList {
-			checkAud = token.Claims.(jwt.MapClaims).VerifyAudience(audience, false)
-			if checkAud {
+			if slices.Contains(audiences, audience) {
+				checkAud = true
 				break
 			}
 		}
+
 		if !checkAud {
-			return token, errInvalidAudience
+			return nil, errInvalidAudience
 		}
 
 		// Verify 'issuer' claim
-		checkIss := token.Claims.(jwt.MapClaims).VerifyIssuer(v.issuer, false)
-		if !checkIss {
-			return token, errInvalidIssuer
+		issuer, err := claims.GetIssuer()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get claim issuer: %w", err)
+		}
+		if issuer != v.issuer {
+			return nil, errInvalidIssuer
 		}
 
 		// If keys are rotated, verify the keys prior to token validation
@@ -144,7 +159,7 @@ func (v *Validator) getKeyFunc(ctx context.Context) jwt.Keyfunc {
 }
 
 // ValidateAndParse validates the token and returns the parsed token
-func (m *Validator) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
+func (v *Validator) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {
 		// If we get here, the required token is missing
@@ -153,7 +168,7 @@ func (m *Validator) ValidateAndParse(ctx context.Context, token string) (*jwt.To
 	}
 
 	// Now parse the token
-	parsedToken, err := jwt.Parse(token, m.getKeyFunc(ctx))
+	parsedToken, err := jwt.Parse(token, v.getKeyFunc(ctx))
 
 	// Check if there was an error in parsing...
 	if err != nil {
