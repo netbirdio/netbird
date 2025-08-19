@@ -1541,6 +1541,9 @@ type Route struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+
+	// SkipAutoApply Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
 // RouteRequest defines model for RouteRequest.
@@ -1580,6 +1583,9 @@ type RouteRequest struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+
+	// SkipAutoApply Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
 // RulePortRange Policy rule affected ports range

@@ -1111,15 +1111,16 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 		}
 
 		convertedRoute := &route.Route{
-			ID:          route.ID(protoRoute.ID),
-			Network:     prefix.Masked(),
-			Domains:     domain.FromPunycodeList(protoRoute.Domains),
-			NetID:       route.NetID(protoRoute.NetID),
-			NetworkType: route.NetworkType(protoRoute.NetworkType),
-			Peer:        protoRoute.Peer,
-			Metric:      int(protoRoute.Metric),
-			Masquerade:  protoRoute.Masquerade,
-			KeepRoute:   protoRoute.KeepRoute,
+			ID:            route.ID(protoRoute.ID),
+			Network:       prefix.Masked(),
+			Domains:       domain.FromPunycodeList(protoRoute.Domains),
+			NetID:         route.NetID(protoRoute.NetID),
+			NetworkType:   route.NetworkType(protoRoute.NetworkType),
+			Peer:          protoRoute.Peer,
+			Metric:        int(protoRoute.Metric),
+			Masquerade:    protoRoute.Masquerade,
+			KeepRoute:     protoRoute.KeepRoute,
+			SkipAutoApply: protoRoute.SkipAutoApply,
 		}
 		routes = append(routes, convertedRoute)
 	}
