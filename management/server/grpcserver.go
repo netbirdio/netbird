@@ -239,6 +239,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 func (s *GRPCServer) syncPeer(ctx context.Context, syncReq *proto.SyncRequest, peerKey wgtypes.Key) (string, *nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
 	if err != nil {
+		// nolint:staticcheck
 		ctx = context.WithValue(ctx, nbContext.AccountIDKey, "UNKNOWN")
 		log.WithContext(ctx).Tracef("peer %s is not registered", peerKey.String())
 		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
@@ -301,7 +302,7 @@ func (s *GRPCServer) startResponseReceiver(ctx context.Context, srv proto.Manage
 				log.WithContext(ctx).Errorf("handle job response failed: %v", err)
 				return
 			}
-	
+
 		}
 	}()
 }
