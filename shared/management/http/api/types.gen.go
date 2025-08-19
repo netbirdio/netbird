@@ -1015,6 +1015,8 @@ type OSVersionCheck struct {
 
 // Peer defines model for Peer.
 type Peer struct {
+    // CreatedAt Peer creation date (UTC)
+    CreatedAt time.Time `json:"created_at"`
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired bool `json:"approval_required"`
 
@@ -1096,6 +1098,8 @@ type Peer struct {
 
 // PeerBatch defines model for PeerBatch.
 type PeerBatch struct {
+    // CreatedAt Peer creation date (UTC)
+    CreatedAt time.Time `json:"created_at"`
 	// AccessiblePeersCount Number of accessible peers
 	AccessiblePeersCount int `json:"accessible_peers_count"`
 
