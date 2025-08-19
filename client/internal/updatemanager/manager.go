@@ -61,15 +61,20 @@ func (u *UpdateManager) SetVersion(v string) {
 		log.Tracef("Auto-update version set to %s", v)
 		u.version = v
 		u.mutex.Unlock()
-		go u.Updated("N/A")
+		go u.Updated(unknownVersion)
 	} else {
 		u.mutex.Unlock()
 	}
 }
 
 func (u *UpdateManager) Stop() {
-	u.update.StopWatch()
 	u.cancel()
+	u.mutex.Lock()
+	defer u.mutex.Unlock()
+	if u.update != nil {
+		u.update.StopWatch()
+		u.update = nil
+	}
 	u.waitGroup.Wait()
 }
 
@@ -78,12 +83,7 @@ func (u *UpdateManager) Updated(latestVersion string) {
 	defer u.waitGroup.Done()
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
-	select {
-	case <-u.ctx.Done():
-		return
-	default:
-	}
-	if latestVersion != "N/A" {
+	if latestVersion != unknownVersion {
 		u.latestVersion = latestVersion
 	}
 	ctx, cancel := context.WithDeadline(u.ctx, time.Now().Add(time.Minute))
