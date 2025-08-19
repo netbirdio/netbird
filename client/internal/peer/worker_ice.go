@@ -13,7 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -325,7 +325,7 @@ func (w *WorkerICE) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int)
 		return
 	}
 
-	mux, ok := w.config.ICEConfig.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
+	mux, ok := w.config.ICEConfig.UDPMuxSrflx.(*udpmux.UniversalUDPMuxDefault)
 	if !ok {
 		w.log.Warn("invalid udp mux conversion")
 		return
@@ -359,19 +359,22 @@ func (w *WorkerICE) onICECandidate(candidate ice.Candidate) {
 
 	// sends an extra server reflexive candidate to the remote peer with our related port (usually the wireguard port)
 	// this is useful when network has an existing port forwarding rule for the wireguard port and this peer
-	extraSrflx, err := extraSrflxCandidate(candidate)
-	if err != nil {
-		w.log.Errorf("failed creating extra server reflexive candidate %s", err)
-		return
-	}
-	w.sentExtraSrflx = true
-
-	go func() {
-		err = w.signaler.SignalICECandidate(extraSrflx, w.config.Key)
+	/*
+		extraSrflx, err := extraSrflxCandidate(candidate)
 		if err != nil {
-			w.log.Errorf("failed signaling the extra server reflexive candidate: %s", err)
+			w.log.Errorf("failed creating extra server reflexive candidate %s", err)
+			return
 		}
-	}()
+		w.sentExtraSrflx = true
+
+		go func() {
+			err = w.signaler.SignalICECandidate(extraSrflx, w.config.Key)
+			if err != nil {
+				w.log.Errorf("failed signaling the extra server reflexive candidate: %s", err)
+			}
+		}()
+
+	*/
 }
 
 func (w *WorkerICE) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
@@ -413,8 +416,7 @@ func (w *WorkerICE) shouldSendExtraSrflxCandidate(candidate ice.Candidate) bool 
 }
 
 func (w *WorkerICE) turnAgentDial(ctx context.Context, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
-	isControlling := w.config.LocalKey > w.config.Key
-	if isControlling {
+	if isController(w.config) {
 		return w.agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
 		return w.agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -25,7 +26,7 @@ type USPDevice struct {
 
 	device         *device.Device
 	filteredDevice *FilteredDevice
-	udpMux         *bind.UniversalUDPMuxDefault
+	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 }
 
@@ -74,7 +75,7 @@ func (t *USPDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *USPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *USPDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	if t.device == nil {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
