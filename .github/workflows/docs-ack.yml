@@ -33,8 +33,9 @@ jobs:
           set -euo pipefail
           body="$(printf '%s' "$BODY_B64" | base64 -d || true)"
 
-          added_checked=$(printf '%s' "$body" | grep -Ei '^[[:space:]]*-\s*\[x\]\s*I added/updated documentation' | wc -l | tr -d '[:space:]')
-          noneed_checked=$(printf '%s' "$body" | grep -Ei '^[[:space:]]*-\s*\[x\]\s*Documentation is \*\*not needed\*\*' | wc -l | tr -d '[:space:]')
+          added_checked=$(printf '%s' "$body" | grep -Ei '^[[:space:]]*-\s*\[x\]\s*I added/updated documentation' | wc -l | tr -d '[:space:]' || true)
+          noneed_checked=$(printf '%s' "$body" | grep -Ei '^[[:space:]]*-\s*\[x\]\s*Documentation is \*\*not needed\*\*' | wc -l | tr -d '[:space:]' || true)
+
 
           if [ "$added_checked" -eq 1 ] && [ "$noneed_checked" -eq 1 ]; then
             echo "::error::Choose exactly one: either 'docs added' OR 'not needed'."
