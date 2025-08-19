@@ -77,7 +77,7 @@ type Manager interface {
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
 	ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
-	CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
+	CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, skipAutoApply bool) (*route.Route, error)
 	SaveRoute(ctx context.Context, accountID, userID string, route *route.Route) error
 	DeleteRoute(ctx context.Context, accountID string, routeID route.ID, userID string) error
 	ListRoutes(ctx context.Context, accountID, userID string) ([]*route.Route, error)

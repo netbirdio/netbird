@@ -107,6 +107,8 @@ type Route struct {
 	Enabled             bool
 	Groups              []string `gorm:"serializer:json"`
 	AccessControlGroups []string `gorm:"serializer:json"`
+	// SkipAutoApply indicates if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply bool
 }
 
 // EventMeta returns activity event meta related to the route
@@ -136,6 +138,7 @@ func (r *Route) Copy() *Route {
 		Enabled:             r.Enabled,
 		Groups:              slices.Clone(r.Groups),
 		AccessControlGroups: slices.Clone(r.AccessControlGroups),
+		SkipAutoApply:       r.SkipAutoApply,
 	}
 	return route
 }
@@ -162,7 +165,8 @@ func (r *Route) Equal(other *Route) bool {
 		other.Enabled == r.Enabled &&
 		slices.Equal(r.Groups, other.Groups) &&
 		slices.Equal(r.PeerGroups, other.PeerGroups) &&
-		slices.Equal(r.AccessControlGroups, other.AccessControlGroups)
+		slices.Equal(r.AccessControlGroups, other.AccessControlGroups) &&
+		other.SkipAutoApply == r.SkipAutoApply
 }
 
 // IsDynamic returns if the route is dynamic, i.e. has domains
