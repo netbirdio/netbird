@@ -464,6 +464,9 @@ func (e *Engine) Start() error {
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
+
+	// monitor WireGuard interface lifecycle and restart engine on changes
+	e.startWGIfaceMonitor()
 	return nil
 }
 
@@ -1699,6 +1702,63 @@ func (e *Engine) startNetworkMonitor() {
 		log.Infof("Network monitor: detected network change, restarting engine")
 		e.restartEngine()
 	}()
+}
+
+// startWGIfaceMonitor starts a background watcher that restarts the engine if
+// the WireGuard interface is created or deleted externally while the engine is running.
+// It relies on the engine context cancellation to stop.
+func (e *Engine) startWGIfaceMonitor() {
+	// wgInterface should be initialized at this point
+	if e.wgInterface == nil {
+		return
+	}
+
+	name := e.wgInterface.Name()
+	if name == "" {
+		return
+	}
+
+	// Polling approach for cross-platform simplicity
+	go func(ctx context.Context, ifaceName string) {
+		log.Infof("Interface monitor: watching %s", ifaceName)
+
+		// Determine initial state
+		prevExists := interfaceExists(ifaceName)
+
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Infof("Interface monitor: stopped for %s", ifaceName)
+				return
+			case <-ticker.C:
+				exists := interfaceExists(ifaceName)
+				if exists != prevExists {
+					state := "deleted"
+					if exists {
+						state = "created"
+					}
+					log.Infof("Interface monitor: %s %s, restarting engine", ifaceName, state)
+					e.restartEngine()
+					return
+				}
+			}
+		}
+	}(e.ctx, name)
+}
+
+// interfaceExists checks whether a network interface with the given name exists.
+func interfaceExists(name string) bool {
+	if name == "" {
+		return false
+	}
+	ifi, err := net.InterfaceByName(name)
+	if err != nil || ifi == nil {
+		return false
+	}
+	return true
 }
 
 func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
