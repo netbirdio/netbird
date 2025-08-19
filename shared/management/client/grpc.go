@@ -181,7 +181,7 @@ func (c *GrpcClient) handleJobStream(
 	for {
 		jobReq, err := c.receiveJobRequest(ctx, stream, serverPubKey)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
 				log.WithContext(ctx).Info("job stream closed by server")
 				return nil
 			}
@@ -212,7 +212,7 @@ func (c *GrpcClient) sendHandshake(ctx context.Context, stream proto.ManagementS
 		log.WithContext(ctx).Errorf("failed to encrypt handshake message: %v", err)
 		return err
 	}
-	return stream.SendMsg(&proto.EncryptedMessage{
+	return stream.Send(&proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encHello,
 	})
@@ -269,7 +269,7 @@ func (c *GrpcClient) sendJobResponse(
 		return err
 	}
 
-	if err := stream.SendMsg(&proto.EncryptedMessage{
+	if err := stream.Send(&proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encResp,
 	}); err != nil {

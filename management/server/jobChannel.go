@@ -22,7 +22,7 @@ type JobEvent struct {
 type JobManager struct {
 	mu           *sync.RWMutex
 	jobChannels  map[string]chan *JobEvent // per-peer job streams
-	pending      map[string]*JobEvent      // jobID → event, todo replace with database
+	pending      map[string]*JobEvent      // jobID → event
 	responseWait time.Duration
 	metrics      telemetry.AppMetrics
 }
@@ -33,6 +33,7 @@ func NewJobManager(metrics telemetry.AppMetrics) *JobManager {
 		pending:      make(map[string]*JobEvent),
 		responseWait: 5 * time.Minute,
 		metrics:      metrics,
+		mu:           &sync.RWMutex{},
 	}
 }
 
@@ -124,13 +125,13 @@ func (jm *JobManager) CloseChannel(peerID string) {
 
 	if ch, ok := jm.jobChannels[peerID]; ok {
 		close(ch)
+		jm.jobChannels[peerID] = nil
 		delete(jm.jobChannels, peerID)
 	}
 
 	for jobID, ev := range jm.pending {
 		if ev.PeerID == peerID {
-			close(ev.Done)
-			delete(jm.pending, jobID)
+				delete(jm.pending, jobID)
 		}
 	}
 }
