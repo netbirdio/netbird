@@ -5,8 +5,6 @@ import (
 	"math/big"
 	"net"
 	"net/netip"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -42,18 +40,6 @@ const (
 // IsDataPlaneMark determines if a fwmark is in the data plane range (0x1BD10-0x1BDFF)
 func IsDataPlaneMark(fwmark uint32) bool {
 	return fwmark >= DataPlaneMarkLower && fwmark <= DataPlaneMarkUpper
-}
-
-// ConnectionID provides a globally unique identifier for network connections.
-// It's used to track connections throughout their lifecycle so the close hook can correlate with the dial hook.
-type ConnectionID string
-
-type AddHookFunc func(connID ConnectionID, IP net.IP) error
-type RemoveHookFunc func(connID ConnectionID) error
-
-// GenerateConnID generates a unique identifier for each connection.
-func GenerateConnID() ConnectionID {
-	return ConnectionID(uuid.NewString())
 }
 
 func GetLastIPFromNetwork(network netip.Prefix, fromEnd int) (netip.Addr, error) {

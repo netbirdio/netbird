@@ -17,8 +17,8 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/monotime"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -402,7 +402,7 @@ func toBytes(s string) (int64, error) {
 }
 
 func getFwmark() int {
-	if nbnet.AdvancedRouting() {
+	if nbnet.AdvancedRouting() && runtime.GOOS == "linux" {
 		return nbnet.ControlPlaneMark
 	}
 	return 0

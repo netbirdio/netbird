@@ -36,9 +36,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	relayClient "github.com/netbirdio/netbird/shared/relay/client"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/route"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -107,6 +107,10 @@ func NewManager(config ManagerConfig) *DefaultManager {
 	mCTX, cancel := context.WithCancel(config.Context)
 	notifier := notifier.NewNotifier()
 	sysOps := systemops.NewSysOps(config.WGInterface, notifier)
+
+	if runtime.GOOS == "windows" && config.WGInterface != nil {
+		nbnet.SetVPNInterfaceName(config.WGInterface.Name())
+	}
 
 	dm := &DefaultManager{
 		ctx:                 mCTX,
@@ -208,7 +212,7 @@ func (m *DefaultManager) Init() error {
 		return nil
 	}
 
-	if err := m.sysOps.CleanupRouting(nil); err != nil {
+	if err := m.sysOps.CleanupRouting(nil, nbnet.AdvancedRouting()); err != nil {
 		log.Warnf("Failed cleaning up routing: %v", err)
 	}
 
@@ -219,7 +223,7 @@ func (m *DefaultManager) Init() error {
 
 	ips := resolveURLsToIPs(initialAddresses)
 
-	if err := m.sysOps.SetupRouting(ips, m.stateManager); err != nil {
+	if err := m.sysOps.SetupRouting(ips, m.stateManager, nbnet.AdvancedRouting()); err != nil {
 		return fmt.Errorf("setup routing: %w", err)
 	}
 
@@ -285,10 +289,14 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 	}
 
 	if !nbnet.CustomRoutingDisabled() && !m.disableClientRoutes {
-		if err := m.sysOps.CleanupRouting(stateManager); err != nil {
+		if err := m.sysOps.CleanupRouting(stateManager, nbnet.AdvancedRouting()); err != nil {
 			log.Errorf("Error cleaning up routing: %v", err)
 		} else {
 			log.Info("Routing cleanup complete")
+		}
+
+		if runtime.GOOS == "windows" {
+			nbnet.SetVPNInterfaceName("")
 		}
 	}
 
