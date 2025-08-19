@@ -12,7 +12,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,12 +63,10 @@ type Validator struct {
 }
 
 var (
-	errKeyNotFound     = errors.New("unable to find appropriate key")
-	errInvalidAudience = errors.New("invalid audience")
-	errInvalidIssuer   = errors.New("invalid issuer")
-	errTokenEmpty      = errors.New("required authorization token not found")
-	errTokenInvalid    = errors.New("token is invalid")
-	errTokenParsing    = errors.New("token could not be parsed")
+	errKeyNotFound  = errors.New("unable to find appropriate key")
+	errTokenEmpty   = errors.New("required authorization token not found")
+	errTokenInvalid = errors.New("token is invalid")
+	errTokenParsing = errors.New("token could not be parsed")
 )
 
 func NewValidator(issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) *Validator {
@@ -89,38 +86,6 @@ func NewValidator(issuer string, audienceList []string, keysLocation string, idp
 
 func (v *Validator) getKeyFunc(ctx context.Context) jwt.Keyfunc {
 	return func(token *jwt.Token) (interface{}, error) {
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			return nil, errors.New("invalid claims type")
-		}
-
-		// Verify 'aud' claim
-		audiences, err := claims.GetAudience()
-		if err != nil {
-			return nil, fmt.Errorf("get claim audience: %w", err)
-		}
-
-		checkAud := false
-		for _, audience := range v.audienceList {
-			if slices.Contains(audiences, audience) {
-				checkAud = true
-				break
-			}
-		}
-
-		if !checkAud {
-			return nil, errInvalidAudience
-		}
-
-		// Verify 'issuer' claim
-		issuer, err := claims.GetIssuer()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get claim issuer: %w", err)
-		}
-		if issuer != v.issuer {
-			return nil, errInvalidIssuer
-		}
-
 		// If keys are rotated, verify the keys prior to token validation
 		if v.idpSignkeyRefreshEnabled {
 			// If the keys are invalid, retrieve new ones
@@ -168,7 +133,13 @@ func (v *Validator) ValidateAndParse(ctx context.Context, token string) (*jwt.To
 	}
 
 	// Now parse the token
-	parsedToken, err := jwt.Parse(token, v.getKeyFunc(ctx))
+	parsedToken, err := jwt.Parse(
+		token,
+		v.getKeyFunc(ctx),
+		jwt.WithAudience(v.audienceList...),
+		jwt.WithIssuer(v.issuer),
+		jwt.WithIssuedAt(),
+	)
 
 	// Check if there was an error in parsing...
 	if err != nil {
