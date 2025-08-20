@@ -240,7 +240,7 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 	}
 
 	w.log.Debugf("turn agent dial")
-	remoteConn, err := w.turnAgentDial(ctx, remoteOfferAnswer)
+	remoteConn, err := w.turnAgentDial(ctx, agent, remoteOfferAnswer)
 	if err != nil {
 		w.log.Debugf("failed to dial the remote peer: %s", err)
 		w.closeAgent(agent, w.agentDialerCancel)
@@ -298,7 +298,7 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 	}
 
 	w.muxAgent.Lock()
-	// todo review does it make sense to generate new session ID all the of enough when w.agent==agent
+	// todo review does it make sense to generate new session ID all the time when w.agent==agent
 	sessionID, err := NewICESessionID()
 	if err != nil {
 		w.log.Errorf("failed to create new session ID: %s", err)
@@ -414,12 +414,12 @@ func (w *WorkerICE) shouldSendExtraSrflxCandidate(candidate ice.Candidate) bool 
 	return false
 }
 
-func (w *WorkerICE) turnAgentDial(ctx context.Context, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
+func (w *WorkerICE) turnAgentDial(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) (*ice.Conn, error) {
 	isControlling := w.config.LocalKey > w.config.Key
 	if isControlling {
-		return w.agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+		return agent.Dial(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
-		return w.agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
+		return agent.Accept(ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	}
 }
 
