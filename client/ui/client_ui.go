@@ -1176,7 +1176,7 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	return &config
 }
 
-func (s *serviceClient) onUpdateAvailable(_ string) {
+func (s *serviceClient) onUpdateAvailable() {
 	s.updateIndicationLock.Lock()
 	defer s.updateIndicationLock.Unlock()
 
