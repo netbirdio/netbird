@@ -199,6 +199,11 @@ const (
 	GetApiEventsNetworkTrafficParamsDirectionINGRESS          GetApiEventsNetworkTrafficParamsDirection = "INGRESS"
 )
 
+type JobRequest struct {
+	Type       string         `json:"type" binding:"required"`       // Job type, e.g., "bundle"
+	Parameters map[string]any `json:"parameters" binding:"required"` // Dynamic parameters
+}
+
 // AccessiblePeer defines model for AccessiblePeer.
 type AccessiblePeer struct {
 	// CityName Commonly used English name of the city
@@ -1015,8 +1020,8 @@ type OSVersionCheck struct {
 
 // Peer defines model for Peer.
 type Peer struct {
-    // CreatedAt Peer creation date (UTC)
-    CreatedAt time.Time `json:"created_at"`
+	// CreatedAt Peer creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired bool `json:"approval_required"`
 
@@ -1098,8 +1103,8 @@ type Peer struct {
 
 // PeerBatch defines model for PeerBatch.
 type PeerBatch struct {
-    // CreatedAt Peer creation date (UTC)
-    CreatedAt time.Time `json:"created_at"`
+	// CreatedAt Peer creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
 	// AccessiblePeersCount Number of accessible peers
 	AccessiblePeersCount int `json:"accessible_peers_count"`
 

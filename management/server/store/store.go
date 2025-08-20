@@ -205,6 +205,11 @@ type Store interface {
 	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
+	SaveJob(ctx context.Context, job *types.Job) error
+	GetJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
+	GetJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
+	CompleteJob(ctx context.Context, accountID, jobID, result string, failedReason string) error
+	MarkPendingJobsAsFailed(ctx context.Context, triggeredBy string) error
 }
 
 const (

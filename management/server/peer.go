@@ -333,6 +333,142 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	return peer, nil
 }
 
+func (am *DefaultAccountManager) CreateJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
+	if err := job.ValidateJobRequest(); err != nil {
+		return err
+	}
+
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
+	// todo: Create permissions for job
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return status.NewPermissionDeniedError()
+	}
+
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+	if err != nil {
+		return err
+	}
+
+	if peerAccountID != accountID {
+		return status.NewPeerNotPartOfAccountError()
+	}
+
+	// check if peer connected
+	// todo: implement jobManager.IsPeerConnected
+	// if !am.jobManager.IsPeerConnected(ctx, peerID) {
+	// 	return status.NewJobFailedError("peer not connected")
+	// }
+
+	// check if already has pending jobs
+	// todo: implement jobManager.GetPendingJobsByPeerID
+	// if pending := am.jobManager.GetPendingJobsByPeerID(ctx, peerID); len(pending) > 0 {
+	// 	return status.NewJobAlreadyPendingError(peerID)
+	// }
+
+	// try sending job first
+	// todo: implement am.jobManager.SendJob
+	// if err := am.jobManager.SendJob(ctx, peerID, job); err != nil {
+	// 	return status.NewJobFailedError(fmt.Sprintf("failed to send job: %v", err))
+	// }
+
+	var peer *nbpeer.Peer
+	var eventsToStore func()
+
+	// persist job in DB only if send succeeded
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		if err != nil {
+			return err
+		}
+		if err := transaction.SaveJob(ctx, job); err != nil {
+			return fmt.Errorf("failed to save job for peer %s: %w", peer.ID, err)
+		}
+
+		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+
+		if err != nil {
+			return err
+		}
+		dnsDomain := am.GetDNSDomain(settings)
+
+		eventsToStore = func() {
+			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.JobCreatedByUser, peer.EventMeta(dnsDomain))
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	eventsToStore()
+
+	return nil
+}
+
+func (am *DefaultAccountManager) GetAllJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
+	// todo: Create permissions for job
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if peerAccountID != accountID {
+		return []*types.Job{}, nil
+	}
+
+	accountJobs, err := am.Store.GetJobs(ctx, accountID, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	return accountJobs, nil
+}
+
+func (am *DefaultAccountManager) GetJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
+	// todo: Create permissions for job
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if peerAccountID != accountID {
+		return &types.Job{}, nil
+	}
+
+	job, err := am.Store.GetJobByID(ctx, accountID, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	return job, nil
+}
+
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)

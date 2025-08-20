@@ -178,6 +178,8 @@ const (
 	AccountNetworkRangeUpdated Activity = 87
 	PeerIPUpdated              Activity = 88
 
+	JobCreatedByUser Activity = 89
+
 	AccountDeleted Activity = 99999
 )
 

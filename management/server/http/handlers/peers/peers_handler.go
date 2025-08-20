@@ -14,11 +14,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // Handler is a handler that returns peers of the account
@@ -32,6 +32,10 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/accessible-peers", peersHandler.GetAccessiblePeers).Methods("GET", "OPTIONS")
+
+	router.HandleFunc("/peers/{peerId}/jobs", peersHandler.ListJobs).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/jobs", peersHandler.CreateJob).Methods("POST", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/jobs/{jobId}", peersHandler.GetJob).Methods("GET", "OPTIONS")
 }
 
 // NewHandler creates a new peers Handler
@@ -39,6 +43,80 @@ func NewHandler(accountManager account.Manager) *Handler {
 	return &Handler{
 		accountManager: accountManager,
 	}
+}
+
+func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+
+	req := &api.JobRequest{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		util.WriteErrorResponse("invalid JSON payload", http.StatusBadRequest, w)
+		return
+	}
+
+	job, err := types.NewJob(userAuth.UserId, userAuth.AccountId, peerID, types.JobType(req.Type), req.Parameters)
+	if err != nil {
+		error := fmt.Sprintf("invalid Job request %v", err)
+		util.WriteErrorResponse(error, http.StatusBadRequest, w)
+		return
+	}
+	if err := h.accountManager.CreateJob(ctx, userAuth.AccountId, peerID, userAuth.UserId, job); err != nil {
+		error := fmt.Sprintf("failed to create job %v", err)
+		util.WriteErrorResponse(error, http.StatusBadRequest, w)
+		return
+	}
+
+	util.WriteJSONObject(ctx, w, job)
+}
+
+func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+
+	jobs, err := h.accountManager.GetAllJobs(r.Context(), userAuth.AccountId, userAuth.UserId, peerID)
+	if err != nil {
+		error := fmt.Sprintf("failed to fetch jobs %v", err)
+		util.WriteErrorResponse(error, http.StatusBadRequest, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, jobs)
+}
+
+func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+	jobID := vars["jobId"]
+
+	job, err := h.accountManager.GetJobByID(ctx, userAuth.AccountId, userAuth.UserId, peerID, jobID)
+	if err != nil {
+		error := fmt.Sprintf("failed to fetch job %v", err)
+		util.WriteErrorResponse(error, http.StatusBadRequest, w)
+		return
+	}
+
+	util.WriteJSONObject(ctx, w, job)
 }
 
 func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
@@ -354,7 +432,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 	}
 
 	return &api.Peer{
-		CreatedAt:                  peer.CreatedAt,
+		CreatedAt:                   peer.CreatedAt,
 		Id:                          peer.ID,
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
@@ -391,7 +469,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	}
 
 	return &api.PeerBatch{
-		CreatedAt:             peer.CreatedAt,
+		CreatedAt:              peer.CreatedAt,
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),
