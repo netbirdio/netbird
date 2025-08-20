@@ -162,6 +162,12 @@ components:
           description: Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
           type: boolean
           example: true
+        network_traffic_logs_groups:
+          description: Limits traffic logging to these groups. If unset all peers are enabled.
+          type: array
+          items:
+            type: string
+            example: ch8i4ug6lnn4g9hqv7m0
         network_traffic_packet_counter_enabled:
           description: Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
           type: boolean
@@ -169,6 +175,7 @@ components:
       required:
         - peer_approval_enabled
         - network_traffic_logs_enabled
+        - network_traffic_logs_groups
         - network_traffic_packet_counter_enabled
     AccountRequest:
       type: object
@@ -362,6 +369,11 @@ components:
         - $ref: '#/components/schemas/PeerMinimum'
         - type: object
           properties:
+            created_at:
+              description: Peer creation date (UTC)
+              type: string
+              format: date-time
+              example: "2023-05-05T09:00:35.477782Z"
             ip:
               description: Peer's IP address
               type: string
@@ -464,6 +476,7 @@ components:
             - connected
             - connection_ip
             - country_code
+            - created_at
             - dns_label
             - geoname_id
             - groups
@@ -537,11 +550,17 @@ components:
         - $ref: '#/components/schemas/Peer'
         - type: object
           properties:
+            created_at:
+              description: Peer creation date (UTC)
+              type: string
+              format: date-time
+              example: "2023-05-05T09:00:35.477782Z"
             accessible_peers_count:
               description: Number of accessible peers
               type: integer
               example: 5
           required:
+            - created_at
             - accessible_peers_count
     SetupKeyBase:
       type: object
@@ -1323,6 +1342,10 @@ components:
           items:
             type: string
             example: "chacbco6lnnbn6cg5s91"
+        skip_auto_apply:
+          description: Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+          type: boolean
+          example: false
       required:
         - id
         - description

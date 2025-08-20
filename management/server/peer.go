@@ -609,13 +609,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		newPeer.DNSLabel = freeLabel
 		newPeer.IP = freeIP
 
-		unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-		defer func() {
-			if unlock != nil {
-				unlock()
-			}
-		}()
-
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			err = transaction.AddPeerToAccount(ctx, newPeer)
 			if err != nil {
@@ -667,14 +660,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			return nil
 		})
 		if err == nil {
-			unlock()
-			unlock = nil
 			break
 		}
 
 		if isUniqueConstraintError(err) {
-			unlock()
-			unlock = nil
 			log.WithContext(ctx).WithFields(log.Fields{"dns_label": freeLabel, "ip": freeIP}).Tracef("Failed to add peer in attempt %d, retrying: %v", attempt, err)
 			continue
 		}
@@ -833,15 +822,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 	}
 
-	unlockAccount := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer unlockAccount()
-	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, login.WireGuardPubKey)
-	defer func() {
-		if unlockPeer != nil {
-			unlockPeer()
-		}
-	}()
-
 	var peer *nbpeer.Peer
 	var updateRemotePeers bool
 	var isRequiresApproval bool
@@ -921,9 +901,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	unlockPeer()
-	unlockPeer = nil
 
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		am.BufferUpdateAccountPeers(ctx, accountID)
@@ -1275,8 +1252,9 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			}
 			am.metrics.UpdateChannelMetrics().CountMergeNetworkMapDuration(time.Since(start))
 
+			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting)
+			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups))
 			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
 
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
@@ -1386,7 +1364,8 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings)
+	peerGroups := account.GetPeerGroups(peerId)
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups))
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 

@@ -1639,11 +1639,6 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 		log.WithContext(ctx).Debugf("SyncAndMarkPeer: took %v", time.Since(start))
 	}()
 
-	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer accountUnlock()
-	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
-	defer peerUnlock()
-
 	peer, netMap, postureChecks, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("error syncing peer: %w", err)
@@ -1658,18 +1653,12 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 }
 
 func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error {
-	accountUnlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer accountUnlock()
-	peerUnlock := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
-	defer peerUnlock()
-
 	err := am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
 
 	return nil
-
 }
 
 func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error {
@@ -1677,12 +1666,6 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 	if err != nil {
 		return err
 	}
-
-	unlock := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer unlock()
-
-	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, peerPubKey)
-	defer unlockPeer()
 
 	_, _, _, err = am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta, UpdateAccountPeers: true}, accountID)
 	if err != nil {
@@ -1952,20 +1935,19 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 	return nil, false, status.Errorf(status.Internal, "failed to get or create new account by private domain")
 }
 
-func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error) {
-	var account *types.Account
+func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) error {
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var err error
-		account, err = transaction.GetAccount(ctx, accountId)
+		ok, domain, err := transaction.IsPrimaryAccount(ctx, accountId)
 		if err != nil {
 			return err
 		}
 
-		if account.IsDomainPrimaryAccount {
+		if ok {
 			return nil
 		}
 
-		existingPrimaryAccountID, err := transaction.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, account.Domain)
+		existingPrimaryAccountID, err := transaction.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
 
 		// error is not a not found error
 		if handleNotFound(err) != nil {
@@ -1981,9 +1963,7 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 			return status.Errorf(status.Internal, "cannot update account to primary")
 		}
 
-		account.IsDomainPrimaryAccount = true
-
-		if err := transaction.SaveAccount(ctx, account); err != nil {
+		if err := transaction.MarkAccountPrimary(ctx, accountId); err != nil {
 			log.WithContext(ctx).WithFields(log.Fields{
 				"accountId": accountId,
 			}).Errorf("failed to update account to primary: %v", err)
@@ -1993,10 +1973,10 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return account, nil
+	return nil
 }
 
 // propagateUserGroupMemberships propagates all account users' group memberships to their peers.
@@ -2067,14 +2047,12 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 		Mask: net.CIDRMask(newNetworkRange.Bits(), newNetworkRange.Addr().BitLen()),
 	}
 
-	account, err := transaction.GetAccount(ctx, accountID)
+	err := transaction.UpdateAccountNetwork(ctx, accountID, newIPNet)
 	if err != nil {
 		return err
 	}
 
-	account.Network.Net = newIPNet
-
-	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthUpdate, accountID, "", "")
 	if err != nil {
 		return err
 	}
@@ -2092,10 +2070,6 @@ func (am *DefaultAccountManager) reallocateAccountPeerIPs(ctx context.Context, t
 
 		peer.IP = newIP
 		takenIPs = append(takenIPs, newIP)
-	}
-
-	if err = transaction.SaveAccount(ctx, account); err != nil {
-		return err
 	}
 
 	for _, peer := range peers {

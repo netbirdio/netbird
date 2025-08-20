@@ -40,7 +40,7 @@ var sshCmd = &cobra.Command{
 
 		return nil
 	},
-	Short: "connect to a remote SSH server",
+	Short: "Connect to a remote SSH server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
 		SetFlagsFromEnvVars(cmd)

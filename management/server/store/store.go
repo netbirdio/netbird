@@ -170,8 +170,6 @@ type Store interface {
 
 	// AcquireWriteLockByUID should attempt to acquire a lock for write purposes and return a function that releases the lock
 	AcquireWriteLockByUID(ctx context.Context, uniqueID string) func()
-	// AcquireReadLockByUID should attempt to acquire lock for read purposes and return a function that releases the lock
-	AcquireReadLockByUID(ctx context.Context, uniqueID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock(ctx context.Context) func()
 
@@ -202,6 +200,9 @@ type Store interface {
 	GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error)
 	GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error)
 	GetAccountGroupPeers(ctx context.Context, lockStrength LockingStrength, accountID string) (map[string]map[string]struct{}, error)
+	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
+	MarkAccountPrimary(ctx context.Context, accountID string) error
+	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
 }
 
 const (

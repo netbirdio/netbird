@@ -107,11 +107,17 @@ type Route struct {
 	Enabled             bool
 	Groups              []string `gorm:"serializer:json"`
 	AccessControlGroups []string `gorm:"serializer:json"`
+	// SkipAutoApply indicates if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply bool
 }
 
 // EventMeta returns activity event meta related to the route
 func (r *Route) EventMeta() map[string]any {
-	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": r.Domains.SafeString(), "peer_id": r.Peer, "peer_groups": r.PeerGroups}
+	domains := ""
+	if r.Domains != nil {
+		domains = r.Domains.SafeString()
+	}
+	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": domains, "peer_id": r.Peer, "peer_groups": r.PeerGroups}
 }
 
 // Copy copies a route object
@@ -132,6 +138,7 @@ func (r *Route) Copy() *Route {
 		Enabled:             r.Enabled,
 		Groups:              slices.Clone(r.Groups),
 		AccessControlGroups: slices.Clone(r.AccessControlGroups),
+		SkipAutoApply:       r.SkipAutoApply,
 	}
 	return route
 }
@@ -158,7 +165,8 @@ func (r *Route) Equal(other *Route) bool {
 		other.Enabled == r.Enabled &&
 		slices.Equal(r.Groups, other.Groups) &&
 		slices.Equal(r.PeerGroups, other.PeerGroups) &&
-		slices.Equal(r.AccessControlGroups, other.AccessControlGroups)
+		slices.Equal(r.AccessControlGroups, other.AccessControlGroups) &&
+		other.SkipAutoApply == r.SkipAutoApply
 }
 
 // IsDynamic returns if the route is dynamic, i.e. has domains
@@ -181,7 +189,7 @@ func (r *Route) GetResourceID() ResID {
 // If the route is dynamic, it returns the domains as comma-separated punycode-encoded string.
 // If the route is not dynamic, it returns the network (prefix) string.
 func (r *Route) NetString() string {
-	if r.IsDynamic() {
+	if r.IsDynamic() && r.Domains != nil {
 		return r.Domains.SafeString()
 	}
 	return r.Network.String()
