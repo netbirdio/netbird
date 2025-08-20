@@ -123,6 +123,29 @@ type MockAccountManager struct {
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 	UpdateAccountPeersFunc                func(ctx context.Context, accountID string)
 	BufferUpdateAccountPeersFunc          func(ctx context.Context, accountID string)
+	CreatePeerJobFunc                     func(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
+	GetAllPeerJobsFunc                    func(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
+	GetPeerJobByIDFunc                    func(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
+}
+
+func (am *MockAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
+	if am.CreatePeerJobFunc != nil {
+		return am.CreatePeerJobFunc(ctx, accountID, peerID, userID, job)
+	}
+	return status.Errorf(codes.Unimplemented, "method CreateJob is not implemented")
+}
+
+func (am *MockAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
+	if am.CreatePeerJobFunc != nil {
+		return am.GetAllPeerJobsFunc(ctx, accountID, userID, peerID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllJobs is not implemented")
+}
+func (am *MockAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
+	if am.CreatePeerJobFunc != nil {
+		return am.GetPeerJobByIDFunc(ctx, accountID, userID, peerID, jobID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method CreateJob is not implemented")
 }
 
 func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {

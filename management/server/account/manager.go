@@ -123,4 +123,7 @@ type Manager interface {
 	UpdateToPrimaryAccount(ctx context.Context, accountId string) error
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
+	CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
+	GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
+	GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
 }
