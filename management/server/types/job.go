@@ -82,7 +82,7 @@ func NewJob(triggeredBy, accountID, peerID string, jobType JobType, parameters m
 	}
 
 	// Validate job
-	if err := job.ValidateJobRequest(); err != nil {
+	if err := job.validateJobRequest(); err != nil {
 		return nil, err
 	}
 
@@ -110,10 +110,6 @@ func (j *Job) encodeParameters(params map[string]any) error {
 	return nil
 }
 
-// IsPending returns true if job is pending
-func (j *Job) IsPending() bool {
-	return j.Status == JobStatusPending
-}
 
 // MarkSucceeded sets job as completed successfully
 func (j *Job) MarkSucceeded(result string) {
@@ -131,12 +127,8 @@ func (j *Job) MarkFailed(reason string) {
 	j.CompletedAt = &now
 }
 
-// HasCompleted checks if job is completed (success or fail)
-func (j *Job) HasCompleted() bool {
-	return j.Status == JobStatusSucceeded || j.Status == JobStatusFailed
-}
 
-func (j *Job) ValidateJobRequest() error {
+func (j *Job) validateJobRequest() error {
 	if j == nil {
 		return fmt.Errorf("job cannot be nil")
 	}

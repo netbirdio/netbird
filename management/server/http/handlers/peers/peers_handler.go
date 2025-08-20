@@ -68,7 +68,7 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.accountManager.CreateJob(ctx, userAuth.AccountId, peerID, userAuth.UserId, job); err != nil {
-		util.WriteErrorResponse(fmt.Sprintf("failed to create job %v", err), http.StatusBadRequest, w)
+		util.WriteErrorResponse(fmt.Sprintf("failed to create job %v", err), http.StatusInternalServerError, w)
 		return
 	}
 
@@ -76,7 +76,8 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -85,13 +86,13 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	peerID := vars["peerId"]
 
-	jobs, err := h.accountManager.GetAllJobs(r.Context(), userAuth.AccountId, userAuth.UserId, peerID)
+	jobs, err := h.accountManager.GetAllJobs(ctx, userAuth.AccountId, userAuth.UserId, peerID)
 	if err != nil {
-		util.WriteErrorResponse(fmt.Sprintf("failed to fetch jobs %v", err), http.StatusBadRequest, w)
+		util.WriteErrorResponse(fmt.Sprintf("failed to fetch jobs %v", err), http.StatusInternalServerError, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, jobs)
+	util.WriteJSONObject(ctx, w, jobs)
 }
 
 func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +109,7 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := h.accountManager.GetJobByID(ctx, userAuth.AccountId, userAuth.UserId, peerID, jobID)
 	if err != nil {
-		util.WriteErrorResponse(fmt.Sprintf("failed to fetch job %v", err), http.StatusBadRequest, w)
+		util.WriteErrorResponse(fmt.Sprintf("failed to fetch job %v", err), http.StatusInternalServerError, w)
 		return
 	}
 

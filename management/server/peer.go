@@ -334,10 +334,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 }
 
 func (am *DefaultAccountManager) CreateJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
-	if err := job.ValidateJobRequest(); err != nil {
-		return err
-	}
-
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
 	defer unlock()
 
