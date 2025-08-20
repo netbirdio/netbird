@@ -35,7 +35,8 @@ type UpdateManager struct {
 	lastTrigger    time.Time
 	statusRecorder *peer.Status
 	mutex          sync.Mutex
-	waitGroup      sync.WaitGroup
+	updateChannel  chan string
+	doneChannel    chan struct{}
 }
 
 func NewUpdateManager(ctx context.Context, statusRecorder *peer.Status) *UpdateManager {
@@ -49,9 +50,12 @@ func NewUpdateManager(ctx context.Context, statusRecorder *peer.Status) *UpdateM
 		cancel:         cancel,
 		version:        disableAutoUpdate,
 		latestVersion:  unknownVersion,
+		updateChannel:  make(chan string, 4),
+		doneChannel:    make(chan struct{}),
 	}
 	update.SetDaemonVersion(version.NetbirdVersion())
-	update.SetOnUpdateListener(manager.Updated)
+	update.SetOnUpdateChannel(manager.updateChannel)
+	go manager.UpdateLoop()
 	return manager
 }
 
@@ -61,7 +65,7 @@ func (u *UpdateManager) SetVersion(v string) {
 		log.Tracef("Auto-update version set to %s", v)
 		u.version = v
 		u.mutex.Unlock()
-		go u.Updated(unknownVersion)
+		u.updateChannel <- unknownVersion
 	} else {
 		u.mutex.Unlock()
 	}
@@ -75,20 +79,26 @@ func (u *UpdateManager) Stop() {
 		u.update.StopWatch()
 		u.update = nil
 	}
-	u.waitGroup.Wait()
+	<-u.doneChannel
 }
 
-func (u *UpdateManager) Updated(latestVersion string) {
-	u.waitGroup.Add(1)
-	defer u.waitGroup.Done()
-	u.mutex.Lock()
-	defer u.mutex.Unlock()
-	if latestVersion != unknownVersion {
-		u.latestVersion = latestVersion
+func (u *UpdateManager) UpdateLoop() {
+	for {
+		select {
+		case <-u.ctx.Done():
+			u.doneChannel <- struct{}{}
+			return
+		case latestVersion := <-u.updateChannel:
+			u.mutex.Lock()
+			if latestVersion != unknownVersion {
+				u.latestVersion = latestVersion
+			}
+			u.mutex.Unlock()
+			ctx, cancel := context.WithDeadline(u.ctx, time.Now().Add(time.Minute))
+			u.CheckForUpdates(ctx)
+			cancel()
+		}
 	}
-	ctx, cancel := context.WithDeadline(u.ctx, time.Now().Add(time.Minute))
-	defer cancel()
-	u.CheckForUpdates(ctx)
 }
 
 func (u *UpdateManager) CheckForUpdates(ctx context.Context) {
