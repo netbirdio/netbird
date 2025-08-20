@@ -42,7 +42,7 @@ type WorkerICE struct {
 	statusRecorder    *Status
 	hasRelayOnLocally bool
 
-	agent             *ice.Agent
+	agent             *icemaker.ThreadSafeAgent
 	agentDialerCancel context.CancelFunc
 	agentConnecting   bool      // while it is true, drop all incoming offers
 	lastSuccess       time.Time // with this avoid the too frequent ICE agent recreation
@@ -121,6 +121,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		if err := w.agent.Close(); err != nil {
 			w.log.Warnf("failed to close ICE agent: %s", err)
 		}
+		w.agent = nil
 		// todo consider to switch to Relay connection while establishing a new ICE connection
 	}
 
@@ -195,7 +196,7 @@ func (w *WorkerICE) Close() {
 	w.agent = nil
 }
 
-func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*ice.Agent, error) {
+func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []ice.CandidateType) (*icemaker.ThreadSafeAgent, error) {
 	agent, err := icemaker.NewAgent(w.iFaceDiscover, w.config.ICEConfig, candidates, w.localUfrag, w.localPwd)
 	if err != nil {
 		return nil, fmt.Errorf("create agent: %w", err)
@@ -230,7 +231,7 @@ func (w *WorkerICE) SessionID() ICESessionID {
 // will block until connection succeeded
 // but it won't release if ICE Agent went into Disconnected or Failed state,
 // so we have to cancel it with the provided context once agent detected a broken connection
-func (w *WorkerICE) connect(ctx context.Context, agent *ice.Agent, remoteOfferAnswer *OfferAnswer) {
+func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent, remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("gather candidates")
 	if err := agent.GatherCandidates(); err != nil {
 		w.log.Warnf("failed to gather candidates: %s", err)
@@ -290,13 +291,14 @@ func (w *WorkerICE) connect(ctx context.Context, agent *ice.Agent, remoteOfferAn
 	w.conn.onICEConnectionIsReady(selectedPriority(pair), ci)
 }
 
-func (w *WorkerICE) closeAgent(agent *ice.Agent, cancel context.CancelFunc) {
+func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.CancelFunc) {
 	cancel()
 	if err := agent.Close(); err != nil {
 		w.log.Warnf("failed to close ICE agent: %s", err)
 	}
 
 	w.muxAgent.Lock()
+	// todo review does it make sense to generate new session ID all the of enough when w.agent==agent
 	sessionID, err := NewICESessionID()
 	if err != nil {
 		w.log.Errorf("failed to create new session ID: %s", err)
@@ -379,7 +381,7 @@ func (w *WorkerICE) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidat
 		w.config.Key)
 }
 
-func (w *WorkerICE) onConnectionStateChange(agent *ice.Agent, dialerCancel context.CancelFunc) func(ice.ConnectionState) {
+func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dialerCancel context.CancelFunc) func(ice.ConnectionState) {
 	return func(state ice.ConnectionState) {
 		w.log.Debugf("ICE ConnectionState has changed to %s", state.String())
 		switch state {
