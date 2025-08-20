@@ -170,8 +170,6 @@ type Store interface {
 
 	// AcquireWriteLockByUID should attempt to acquire a lock for write purposes and return a function that releases the lock
 	AcquireWriteLockByUID(ctx context.Context, uniqueID string) func()
-	// AcquireReadLockByUID should attempt to acquire lock for read purposes and return a function that releases the lock
-	AcquireReadLockByUID(ctx context.Context, uniqueID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock(ctx context.Context) func()
 
