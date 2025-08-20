@@ -25,7 +25,7 @@ func TestNewUpdate(t *testing.T) {
 	onUpdate := false
 	u := NewUpdate(httpAgent)
 	defer u.StopWatch()
-	u.SetOnUpdateListener(func(_ string) {
+	u.SetOnUpdateListener(func() {
 		onUpdate = true
 		wg.Done()
 	})
@@ -50,7 +50,7 @@ func TestDoNotUpdate(t *testing.T) {
 	onUpdate := false
 	u := NewUpdate(httpAgent)
 	defer u.StopWatch()
-	u.SetOnUpdateListener(func(_ string) {
+	u.SetOnUpdateListener(func() {
 		onUpdate = true
 		wg.Done()
 	})
@@ -75,7 +75,7 @@ func TestDaemonUpdate(t *testing.T) {
 	onUpdate := false
 	u := NewUpdate(httpAgent)
 	defer u.StopWatch()
-	u.SetOnUpdateListener(func(_ string) {
+	u.SetOnUpdateListener(func() {
 		onUpdate = true
 		wg.Done()
 	})

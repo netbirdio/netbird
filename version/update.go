@@ -30,7 +30,8 @@ type Update struct {
 	fetchTicker *time.Ticker
 	fetchDone   chan struct{}
 
-	onUpdateListener func(latestVersion string)
+	onUpdateListener func()
+	onUpdateChannel  chan string
 	listenerLock     sync.Mutex
 }
 
@@ -57,7 +58,11 @@ func NewUpdate(httpAgent string) *Update {
 // StopWatch stop the version info fetch loop
 func (u *Update) StopWatch() {
 	u.fetchTicker.Stop()
-	u.fetchDone <- struct{}{}
+
+	select {
+	case u.fetchDone <- struct{}{}:
+	default:
+	}
 }
 
 // SetDaemonVersion update the currently running daemon version. If new version is available it will trigger
@@ -80,15 +85,24 @@ func (u *Update) SetDaemonVersion(newVersion string) bool {
 }
 
 // SetOnUpdateListener set new update listener
-func (u *Update) SetOnUpdateListener(updateFn func(string)) {
+func (u *Update) SetOnUpdateListener(updateFn func()) {
 	u.listenerLock.Lock()
 	defer u.listenerLock.Unlock()
 
 	u.onUpdateListener = updateFn
 	if u.isUpdateAvailable() {
+		u.onUpdateListener()
+	}
+}
+
+func (u *Update) SetOnUpdateChannel(updateChannel chan string) {
+	u.listenerLock.Lock()
+	defer u.listenerLock.Unlock()
+	u.onUpdateChannel = updateChannel
+	if u.isUpdateAvailable() {
 		u.versionsLock.Lock()
 		defer u.versionsLock.Unlock()
-		u.onUpdateListener(u.latestAvailable.String())
+		u.onUpdateChannel <- u.latestAvailable.String()
 	}
 }
 
@@ -167,11 +181,14 @@ func (u *Update) checkUpdate() bool {
 
 	u.listenerLock.Lock()
 	defer u.listenerLock.Unlock()
+	if u.onUpdateChannel != nil {
+		u.onUpdateChannel <- u.latestAvailable.String()
+	}
 	if u.onUpdateListener == nil {
 		return true
 	}
 
-	go u.onUpdateListener(u.latestAvailable.String())
+	go u.onUpdateListener()
 	return true
 }
 
