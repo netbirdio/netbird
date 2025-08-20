@@ -27,7 +27,6 @@ const (
 type ThreadSafeAgent struct {
 	*ice.Agent
 	once sync.Once
-	err  error
 }
 
 func (a *ThreadSafeAgent) Close() error {
