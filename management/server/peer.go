@@ -192,9 +192,6 @@ func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocatio
 
 // UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)

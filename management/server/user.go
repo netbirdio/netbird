@@ -26,9 +26,6 @@ import (
 
 // createServiceUser creates a new service user under the given account.
 func (am *DefaultAccountManager) createServiceUser(ctx context.Context, accountID string, initiatorUserID string, role types.UserRole, serviceUserName string, nonDeletable bool, autoGroups []string) (*types.UserInfo, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
