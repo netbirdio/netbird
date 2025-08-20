@@ -427,7 +427,7 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 	}
 	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id, peerID, account.Peers)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return nil, err
@@ -1033,7 +1033,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 
 	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return nil, nil, nil, err
@@ -1206,7 +1206,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountID)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMapsAll(ctx, accountID, account.Peers)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return
@@ -1345,7 +1345,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountId)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountId, peerId, account.Peers)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return
