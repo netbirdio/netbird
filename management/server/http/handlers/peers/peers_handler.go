@@ -64,13 +64,11 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := types.NewJob(userAuth.UserId, userAuth.AccountId, peerID, types.JobType(req.Type), req.Parameters)
 	if err != nil {
-		error := fmt.Sprintf("invalid Job request %v", err)
-		util.WriteErrorResponse(error, http.StatusBadRequest, w)
+		util.WriteErrorResponse(fmt.Sprintf("invalid Job request %v", err), http.StatusBadRequest, w)
 		return
 	}
 	if err := h.accountManager.CreateJob(ctx, userAuth.AccountId, peerID, userAuth.UserId, job); err != nil {
-		error := fmt.Sprintf("failed to create job %v", err)
-		util.WriteErrorResponse(error, http.StatusBadRequest, w)
+		util.WriteErrorResponse(fmt.Sprintf("failed to create job %v", err), http.StatusBadRequest, w)
 		return
 	}
 
@@ -89,8 +87,7 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 
 	jobs, err := h.accountManager.GetAllJobs(r.Context(), userAuth.AccountId, userAuth.UserId, peerID)
 	if err != nil {
-		error := fmt.Sprintf("failed to fetch jobs %v", err)
-		util.WriteErrorResponse(error, http.StatusBadRequest, w)
+		util.WriteErrorResponse(fmt.Sprintf("failed to fetch jobs %v", err), http.StatusBadRequest, w)
 		return
 	}
 
@@ -111,8 +108,7 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := h.accountManager.GetJobByID(ctx, userAuth.AccountId, userAuth.UserId, peerID, jobID)
 	if err != nil {
-		error := fmt.Sprintf("failed to fetch job %v", err)
-		util.WriteErrorResponse(error, http.StatusBadRequest, w)
+		util.WriteErrorResponse(fmt.Sprintf("failed to fetch job %v", err), http.StatusBadRequest, w)
 		return
 	}
 
