@@ -209,7 +209,7 @@ type Store interface {
 	GetJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error)
 	GetJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error)
 	CompleteJob(ctx context.Context, accountID, jobID, result string, failedReason string) error
-	MarkPendingJobsAsFailed(ctx context.Context) error
+	MarkPendingJobsAsFailed(ctx context.Context, peerID string) error
 }
 
 const (

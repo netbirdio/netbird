@@ -142,11 +142,11 @@ func (s *SqlStore) SaveJob(ctx context.Context, job *types.Job) error {
 
 // job was pending for too long and has been cancelled
 // todo call it when we first start the jobChannel to make sure no stuck jobs
-func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context) error {
+func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, peerID string) error {
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).
 		Model(&types.Job{}).
-		Where("status = ?", types.JobStatusPending).
+		Where("peer_id = ? AND status = ?", types.JobStatusPending, peerID).
 		Updates(map[string]any{
 			"status":        types.JobStatusFailed,
 			"failed_reason": "Pending job cleanup: marked as failed automatically due to being stuck too long",
