@@ -108,9 +108,6 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		return nil, fmt.Errorf("failed to create new network resource: %w", err)
 	}
 
-	unlock := m.store.AcquireWriteLockByUID(ctx, resource.AccountID)
-	defer unlock()
-
 	var eventsToStore []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		_, err = transaction.GetNetworkResourceByName(ctx, store.LockingStrengthNone, resource.AccountID, resource.Name)
@@ -203,9 +200,6 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	resource.Type = resourceType
 	resource.Domain = domain
 	resource.Prefix = prefix
-
-	unlock := m.store.AcquireWriteLockByUID(ctx, resource.AccountID)
-	defer unlock()
 
 	var eventsToStore []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -314,9 +308,6 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 	if !ok {
 		return status.NewPermissionDeniedError()
 	}
-
-	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
 
 	var events []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
