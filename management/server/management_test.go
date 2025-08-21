@@ -176,7 +176,7 @@ func startServer(
 	}
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
-	jobManager := server.NewJobManager(nil)
+	jobManager := server.NewJobManager(nil, str)
 	eventStore := &activity.InMemoryEventStore{}
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())

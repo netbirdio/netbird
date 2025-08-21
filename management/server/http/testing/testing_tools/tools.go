@@ -119,7 +119,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	}
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
-	jobManager := server.NewJobManager(nil)
+	jobManager := server.NewJobManager(nil, store)
 	updMsg := peersUpdateManager.CreateChannel(context.Background(), TestPeerId)
 	done := make(chan struct{})
 	if validateUpdate {

@@ -167,7 +167,7 @@ func (s *GRPCServer) Job(srv proto.ManagementService_JobServer) error {
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
 	// Start background response handler
-	s.startResponseReceiver(ctx, srv)
+	s.startResponseReceiver(ctx, accountID, srv)
 
 	// Prepare per-peer state
 	updates := s.jobManager.CreateJobChannel(peer.ID)
@@ -280,7 +280,7 @@ func (s *GRPCServer) handleHandshake(ctx context.Context, srv proto.ManagementSe
 	return peerKey, nil
 }
 
-func (s *GRPCServer) startResponseReceiver(ctx context.Context, srv proto.ManagementService_JobServer) {
+func (s *GRPCServer) startResponseReceiver(ctx context.Context, accountID string, srv proto.ManagementService_JobServer) {
 	go func() {
 		for {
 			msg, err := srv.Recv()
@@ -298,7 +298,7 @@ func (s *GRPCServer) startResponseReceiver(ctx context.Context, srv proto.Manage
 				return
 			}
 
-			if err := s.jobManager.HandleResponse(jobResp); err != nil {
+			if err := s.jobManager.HandleResponse(ctx, accountID, jobResp); err != nil {
 				log.WithContext(ctx).Errorf("handle job response failed: %v", err)
 				return
 			}
@@ -434,7 +434,7 @@ func (s *GRPCServer) closeUpdateChannel(ctx context.Context, accountID string, p
 
 // Only closes job channels (used when job stream ends / errors)
 func (s *GRPCServer) closeJobChannels(ctx context.Context, accountID string, peer *nbpeer.Peer) {
-	s.jobManager.CloseChannel(peer.ID)
+	s.jobManager.CloseChannel(ctx, accountID, peer.ID)
 	s.disconnectPeer(ctx, accountID, peer)
 }
 

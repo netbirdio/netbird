@@ -71,7 +71,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	t.Cleanup(cleanUp)
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
-	jobManager := mgmt.NewJobManager(nil)
+	jobManager := mgmt.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 	ia, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
 

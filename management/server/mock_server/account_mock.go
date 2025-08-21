@@ -21,7 +21,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
-	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 var _ account.Manager = (*MockAccountManager)(nil)
@@ -124,23 +123,8 @@ type MockAccountManager struct {
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 	UpdateAccountPeersFunc                func(ctx context.Context, accountID string)
 	BufferUpdateAccountPeersFunc          func(ctx context.Context, accountID string)
-	CreateJobFunc                         func(ctx context.Context, peerID string, job *proto.JobRequest) error
-	GetJobFunc                            func(ctx context.Context, jobID string) (*proto.JobResponse, error)
 }
 
-func (am *MockAccountManager) CreateJob(ctx context.Context, peerID string, job *proto.JobRequest) error {
-	if am.CreateJobFunc != nil {
-		return am.CreateJobFunc(ctx, peerID, job)
-	}
-	return status.Errorf(codes.Unimplemented, "method CreateJob is not implemented")
-}
-
-func (am *MockAccountManager) GetJob(ctx context.Context, jobID string) (*proto.JobResponse, error) {
-	if am.CreateJobFunc != nil {
-		return am.GetJobFunc(ctx, jobID)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method CreateJob is not implemented")
-}
 
 func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
 	if am.SaveGroupFunc != nil {

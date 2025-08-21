@@ -86,7 +86,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	t.Cleanup(cleanUp)
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
-	jobManager := mgmt.NewJobManager(nil)
+	jobManager := mgmt.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
 		return nil, nil

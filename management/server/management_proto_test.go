@@ -427,7 +427,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	}
 
 	peersUpdateManager := NewPeersUpdateManager(nil)
-	jobManager := NewJobManager(nil)
+	jobManager := NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 
 	ctx := context.WithValue(context.Background(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck

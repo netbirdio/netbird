@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -25,20 +26,26 @@ type JobManager struct {
 	pending      map[string]*JobEvent      // jobID → event
 	responseWait time.Duration
 	metrics      telemetry.AppMetrics
+	Store        store.Store
 }
 
-func NewJobManager(metrics telemetry.AppMetrics) *JobManager {
+func NewJobManager(metrics telemetry.AppMetrics, store store.Store) *JobManager {
+
 	return &JobManager{
 		jobChannels:  make(map[string]chan *JobEvent),
 		pending:      make(map[string]*JobEvent),
 		responseWait: 5 * time.Minute,
 		metrics:      metrics,
 		mu:           &sync.RWMutex{},
+		Store:        store,
 	}
 }
 
 // CreateJobChannel creates or replaces a channel for a peer
 func (jm *JobManager) CreateJobChannel(peerID string) chan *JobEvent {
+	// TODO: all pending jobs stored in db for this peer should be failed
+	// jm.Store.MarkPendingJobsAsFailed(peerID)
+
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -91,7 +98,7 @@ func (jm *JobManager) SendJob(ctx context.Context, peerID string, req *proto.Job
 }
 
 // HandleResponse marks a job as finished and moves it to completed
-func (jm *JobManager) HandleResponse(resp *proto.JobResponse) error {
+func (jm *JobManager) HandleResponse(ctx context.Context, accountID string, resp *proto.JobResponse) error {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -101,25 +108,17 @@ func (jm *JobManager) HandleResponse(resp *proto.JobResponse) error {
 	}
 
 	event.Response = resp
+	//TODO: update the store for job response
+	unlock := jm.Store.AcquireWriteLockByUID(ctx, accountID)
+	// jm.store.CompleteJob(ctx,accountID, string(resp.GetID()), string(resp.GetResult()),string(resp.GetReason()))
+	unlock()
 	close(event.Done)
 
 	return nil
 }
 
-// GetJobResponse returns the job response if available
-func (jm *JobManager) GetJobResponse(jobID string) (*proto.JobResponse, error) {
-	jm.mu.RLock()
-	defer jm.mu.RUnlock()
-
-	if event, ok := jm.pending[jobID]; ok {
-		return event.Response, nil
-	}
-
-	return nil, fmt.Errorf("job %s not found", jobID)
-}
-
 // CloseChannel closes a peer’s channel and cleans up its jobs
-func (jm *JobManager) CloseChannel(peerID string) {
+func (jm *JobManager) CloseChannel(ctx context.Context, accountID, peerID string) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -131,7 +130,12 @@ func (jm *JobManager) CloseChannel(peerID string) {
 
 	for jobID, ev := range jm.pending {
 		if ev.PeerID == peerID {
-				delete(jm.pending, jobID)
+			// if the client disconnect and there is pending job then marke it as failed
+			unlock := jm.Store.AcquireWriteLockByUID(ctx, accountID)
+			// jm.store.CompleteJob(ctx,accountID, jobID,"", "Time out ")
+			unlock()
+
+			delete(jm.pending, jobID)
 		}
 	}
 }

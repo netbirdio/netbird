@@ -1544,7 +1544,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	t.Cleanup(cleanUp)
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
-	jobManager := server.NewJobManager(nil)
+	jobManager := server.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
 		return nil, "", err

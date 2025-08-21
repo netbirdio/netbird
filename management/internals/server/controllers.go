@@ -20,7 +20,7 @@ func (s *BaseServer) PeersUpdateManager() *server.PeersUpdateManager {
 
 func (s *BaseServer) JobManager() *server.JobManager {
 	return Create(s, func() *server.JobManager {
-		return server.NewJobManager(s.Metrics())
+		return server.NewJobManager(s.Metrics(), s.Store())
 	})
 }
 
