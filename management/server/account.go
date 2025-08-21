@@ -492,8 +492,6 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(ctx context.Context, acc
 		ctx := context.WithValue(ctx, nbcontext.AccountIDKey, accountID)
 		//nolint
 		ctx = context.WithValue(ctx, hook.ExecutionContextKey, fmt.Sprintf("%s-PEER-EXPIRATION", hook.SystemSource))
-		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-		defer unlock()
 
 		expiredPeers, err := am.getExpiredPeers(ctx, accountID)
 		if err != nil {
@@ -529,9 +527,6 @@ func (am *DefaultAccountManager) schedulePeerLoginExpiration(ctx context.Context
 // peerInactivityExpirationJob marks login expired for all inactive peers and returns the minimum duration in which the next peer of the account will expire by inactivity if found
 func (am *DefaultAccountManager) peerInactivityExpirationJob(ctx context.Context, accountID string) func() (time.Duration, bool) {
 	return func() (time.Duration, bool) {
-		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-		defer unlock()
-
 		inactivePeers, err := am.getInactivePeers(ctx, accountID)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed getting inactive peers for account %s", accountID)
@@ -672,8 +667,6 @@ func (am *DefaultAccountManager) isCacheCold(ctx context.Context, store cacheSto
 
 // DeleteAccount deletes an account and all its users from local store and from the remote IDP if the requester is an admin and account owner
 func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
 	account, err := am.Store.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
@@ -1345,13 +1338,6 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 		return nil
 	}
 
-	unlockAccount := am.Store.AcquireWriteLockByUID(ctx, userAuth.AccountId)
-	defer func() {
-		if unlockAccount != nil {
-			unlockAccount()
-		}
-	}()
-
 	var addNewGroups []string
 	var removeOldGroups []string
 	var hasChanges bool
@@ -1414,8 +1400,6 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
 		}
-		unlockAccount()
-		unlockAccount = nil
 
 		return nil
 	})

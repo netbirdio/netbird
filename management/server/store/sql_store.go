@@ -51,7 +51,6 @@ const (
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
 	db                *gorm.DB
-	resourceLocks     sync.Map
 	globalAccountLock sync.Mutex
 	metrics           telemetry.AppMetrics
 	installationPK    int
@@ -139,25 +138,6 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	log.WithContext(ctx).Tracef("took %v to acquire global lock", took)
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
-	}
-
-	return unlock
-}
-
-// AcquireWriteLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
-func (s *SqlStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
-	log.WithContext(ctx).Tracef("acquiring write lock for ID %s", uniqueID)
-
-	startWait := time.Now()
-	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
-	mtx := value.(*sync.RWMutex)
-	mtx.Lock()
-	log.WithContext(ctx).Tracef("waiting to acquire write lock for ID %s in %v", uniqueID, time.Since(startWait))
-	startHold := time.Now()
-
-	unlock = func() {
-		mtx.Unlock()
-		log.WithContext(ctx).Tracef("released write lock for ID %s in %v", uniqueID, time.Since(startHold))
 	}
 
 	return unlock
