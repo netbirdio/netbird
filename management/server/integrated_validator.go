@@ -46,9 +46,6 @@ func (am *DefaultAccountManager) UpdateIntegratedValidator(ctx context.Context, 
 		groups = []string{}
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	return am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthUpdate, accountID)
 		if err != nil {
