@@ -60,7 +60,7 @@ func (jm *JobManager) CreateJobChannel(peerID string) chan *JobEvent {
 }
 
 // SendJob sends a job to a peer and tracks it as pending
-func (jm *JobManager) SendJob(ctx context.Context, peerID string, req *proto.JobRequest) error {
+func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req *proto.JobRequest) error {
 	jm.mu.RLock()
 	ch, ok := jm.jobChannels[peerID]
 	jm.mu.RUnlock()
@@ -81,7 +81,7 @@ func (jm *JobManager) SendJob(ctx context.Context, peerID string, req *proto.Job
 	select {
 	case ch <- event:
 	case <-time.After(5 * time.Second):
-		jm.cleanup(string(req.ID))
+		jm.cleanup(ctx, accountID, string(req.ID))
 		return fmt.Errorf("job channel full for peer %s", peerID)
 	}
 
@@ -89,10 +89,10 @@ func (jm *JobManager) SendJob(ctx context.Context, peerID string, req *proto.Job
 	case <-event.Done:
 		return nil
 	case <-time.After(jm.responseWait):
-		jm.cleanup(string(req.ID))
+		jm.cleanup(ctx, accountID, string(req.ID))
 		return fmt.Errorf("job %s timed out", req.ID)
 	case <-ctx.Done():
-		jm.cleanup(string(req.ID))
+		jm.cleanup(ctx, accountID, string(req.ID))
 		return ctx.Err()
 	}
 }
@@ -134,19 +134,21 @@ func (jm *JobManager) CloseChannel(ctx context.Context, accountID, peerID string
 			unlock := jm.Store.AcquireWriteLockByUID(ctx, accountID)
 			// jm.store.CompleteJob(ctx,accountID, jobID,"", "Time out ")
 			unlock()
-
 			delete(jm.pending, jobID)
 		}
 	}
 }
 
 // cleanup removes a pending job safely
-func (jm *JobManager) cleanup(jobID string) {
+func (jm *JobManager) cleanup(ctx context.Context, accountID, jobID string) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
 	if ev, ok := jm.pending[jobID]; ok {
 		close(ev.Done)
+		unlock := jm.Store.AcquireWriteLockByUID(ctx, accountID)
+		// jm.store.CompleteJob(ctx,accountID, jobID,"", "Time out ")
+		unlock()
 		delete(jm.pending, jobID)
 	}
 }
