@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/pion/ice/v3"
-	"github.com/pion/stun/v2"
+	"github.com/pion/ice/v4"
+	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"

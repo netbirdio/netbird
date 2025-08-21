@@ -13,7 +13,6 @@ require (
 	github.com/kardianos/service v1.2.3-0.20240613133416-becf2eb62b83
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.27.6
-	github.com/pion/ice/v3 v3.0.2
 	github.com/rs/cors v1.8.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.7.0
@@ -69,10 +68,12 @@ require (
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/petermattis/goid v0.0.0-20250303134427-723919f7f203
-	github.com/pion/logging v0.2.2
+	github.com/pion/ice/v4 v4.0.0-00010101000000-000000000000
+	github.com/pion/logging v0.2.4
 	github.com/pion/randutil v0.1.0
 	github.com/pion/stun/v2 v2.0.0
-	github.com/pion/transport/v3 v3.0.1
+	github.com/pion/stun/v3 v3.0.0
+	github.com/pion/transport/v3 v3.0.7
 	github.com/pion/turn/v3 v3.0.1
 	github.com/prometheus/client_golang v1.22.0
 	github.com/quic-go/quic-go v0.48.2
@@ -212,8 +213,10 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
 	github.com/pion/dtls/v2 v2.2.10 // indirect
-	github.com/pion/mdns v0.0.12 // indirect
+	github.com/pion/dtls/v3 v3.0.7 // indirect
+	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/transport/v2 v2.2.4 // indirect
+	github.com/pion/turn/v4 v4.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
@@ -229,6 +232,7 @@ require (
 	github.com/tklauser/numcpus v0.8.0 // indirect
 	github.com/vishvananda/netns v0.0.4 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	github.com/wlynxg/anet v0.0.3 // indirect
 	github.com/yuin/goldmark v1.7.1 // indirect
 	github.com/zeebo/blake3 v0.2.3 // indirect
 	go.opencensus.io v0.24.0 // indirect
@@ -257,6 +261,6 @@ replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-2
 
 replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
-replace github.com/pion/ice/v3 => github.com/netbirdio/ice/v3 v3.0.0-20240315174635-e72a50fcb64e
+replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250821103530-46324b2fc047
 
 replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944
