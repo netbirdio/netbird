@@ -427,6 +427,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	}
 
 	peersUpdateManager := NewPeersUpdateManager(nil)
+	jobManager := NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 
 	ctx := context.WithValue(context.Background(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck
@@ -450,7 +451,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	permissionsManager := permissions.NewManager(store)
 	groupsManager := groups.NewManagerMock()
 
-	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
+	accountManager, err := BuildManager(ctx, store, peersUpdateManager, jobManager, nil, "", "netbird.selfhosted",
 		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 
 	if err != nil {
@@ -461,7 +462,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{})
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, jobManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{})
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
