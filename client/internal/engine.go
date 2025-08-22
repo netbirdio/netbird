@@ -1705,9 +1705,15 @@ func (e *Engine) startNetworkMonitor() {
 }
 
 // startWGIfaceMonitor starts a background watcher that restarts the engine if
-// the WireGuard interface is created or deleted externally while the engine is running.
+// the WireGuard interface is deleted externally while the engine is running.
 // It relies on the engine context cancellation to stop.
 func (e *Engine) startWGIfaceMonitor() {
+	// Skip on mobile platforms as they handle interface lifecycle differently
+	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
+		log.Debugf("Interface monitor: skipped on %s platform", runtime.GOOS)
+		return
+	}
+
 	// wgInterface should be initialized at this point
 	if e.wgInterface == nil {
 		return
@@ -1718,12 +1724,16 @@ func (e *Engine) startWGIfaceMonitor() {
 		return
 	}
 
-	// Polling approach for cross-platform simplicity
-	go func(ctx context.Context, ifaceName string) {
-		log.Infof("Interface monitor: watching %s", ifaceName)
+	// Get initial interface index to track the specific interface instance
+	initialIndex, err := getInterfaceIndex(name)
+	if err != nil {
+		log.Debugf("Interface monitor: interface %s not found, skipping monitor", name)
+		return
+	}
 
-		// Determine initial state
-		prevExists := interfaceExists(ifaceName)
+	// Polling approach for cross-platform simplicity
+	go func(ctx context.Context, ifaceName string, expectedIndex int) {
+		log.Infof("Interface monitor: watching %s (index: %d)", ifaceName, expectedIndex)
 
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -1734,31 +1744,45 @@ func (e *Engine) startWGIfaceMonitor() {
 				log.Infof("Interface monitor: stopped for %s", ifaceName)
 				return
 			case <-ticker.C:
-				exists := interfaceExists(ifaceName)
-				if exists != prevExists {
-					state := "deleted"
-					if exists {
-						state = "created"
-					}
-					log.Infof("Interface monitor: %s %s, restarting engine", ifaceName, state)
+				currentIndex, err := getInterfaceIndex(ifaceName)
+				if err != nil {
+					// Interface was deleted
+					log.Infof("Interface monitor: %s deleted, restarting engine", ifaceName)
+					e.restartEngine()
+					return
+				}
+
+				// Check if interface index changed (interface was recreated)
+				if currentIndex != expectedIndex {
+					log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
+						ifaceName, expectedIndex, currentIndex)
 					e.restartEngine()
 					return
 				}
 			}
 		}
-	}(e.ctx, name)
+	}(e.ctx, name, initialIndex)
 }
 
-// interfaceExists checks whether a network interface with the given name exists.
-func interfaceExists(name string) bool {
+// getInterfaceIndex returns the index of a network interface by name.
+// Returns an error if the interface is not found.
+func getInterfaceIndex(name string) (int, error) {
 	if name == "" {
-		return false
+		return 0, fmt.Errorf("empty interface name")
 	}
 	ifi, err := net.InterfaceByName(name)
-	if err != nil || ifi == nil {
-		return false
+	if err != nil {
+		// Check if it's specifically a "not found" error
+		if errors.Is(err, &net.OpError{}) {
+			// On some systems, this might be a "not found" error
+			return 0, fmt.Errorf("interface not found: %w", err)
+		}
+		return 0, fmt.Errorf("failed to lookup interface: %w", err)
 	}
-	return true
+	if ifi == nil {
+		return 0, fmt.Errorf("interface not found")
+	}
+	return ifi.Index, nil
 }
 
 func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
