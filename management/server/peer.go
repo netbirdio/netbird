@@ -333,10 +333,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	return peer, nil
 }
 
-func (am *DefaultAccountManager) CreateJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
+func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
 	// todo: Create permissions for job
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
@@ -382,23 +379,20 @@ func (am *DefaultAccountManager) CreateJob(ctx context.Context, accountID, peerI
 		if err != nil {
 			return err
 		}
-		if err := transaction.SaveJob(ctx, job); err != nil {
+		if err := transaction.CreatePeerJob(ctx, job); err != nil {
 			return fmt.Errorf("failed to save job for peer %s: %w", peer.ID, err)
 		}
-
-		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-
-		if err != nil {
-			return err
+		
+		jobMeta := map[string]any{
+			"job_id": job.ID,
+			"for_peer_id": job.PeerID,
+			"job_type": job.Type,
+			"job_status": job.Status,
+			"job_parameters": job.Parameters,
 		}
-		dnsDomain := am.GetDNSDomain(settings)
 
 		eventsToStore = func() {
-			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.JobCreatedByUser, peer.EventMeta(dnsDomain))
-		}
-
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
+			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.JobCreatedByUser, jobMeta)
 		}
 		return nil
 	})
@@ -411,7 +405,7 @@ func (am *DefaultAccountManager) CreateJob(ctx context.Context, accountID, peerI
 	return nil
 }
 
-func (am *DefaultAccountManager) GetAllJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
+func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
 	// todo: Create permissions for job
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
@@ -430,7 +424,7 @@ func (am *DefaultAccountManager) GetAllJobs(ctx context.Context, accountID, user
 		return []*types.Job{}, nil
 	}
 
-	accountJobs, err := am.Store.GetJobs(ctx, accountID, peerID)
+	accountJobs, err := am.Store.GetPeerJobs(ctx, accountID, peerID)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +432,7 @@ func (am *DefaultAccountManager) GetAllJobs(ctx context.Context, accountID, user
 	return accountJobs, nil
 }
 
-func (am *DefaultAccountManager) GetJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
+func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
 	// todo: Create permissions for job
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
@@ -457,7 +451,7 @@ func (am *DefaultAccountManager) GetJobByID(ctx context.Context, accountID, user
 		return &types.Job{}, nil
 	}
 
-	job, err := am.Store.GetJobByID(ctx, accountID, jobID)
+	job, err := am.Store.GetPeerJobByID(ctx, accountID, jobID)
 	if err != nil {
 		return nil, err
 	}

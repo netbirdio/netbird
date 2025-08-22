@@ -36,7 +36,7 @@ type Job struct {
 	// TriggeredBy user that triggered this job
 	TriggeredBy string `gorm:"index"`
 
-	PeerID    string `gorm:"index"`
+	PeerID string `gorm:"index"`
 
 	AccountID string `gorm:"index"`
 
@@ -110,31 +110,9 @@ func (j *Job) encodeParameters(params map[string]any) error {
 	return nil
 }
 
-
-// MarkSucceeded sets job as completed successfully
-func (j *Job) MarkSucceeded(result string) {
-	now := time.Now().UTC()
-	j.Status = JobStatusSucceeded
-	j.Result = result
-	j.CompletedAt = &now
-}
-
-// MarkFailed sets job as failed with reason
-func (j *Job) MarkFailed(reason string) {
-	now := time.Now().UTC()
-	j.Status = JobStatusFailed
-	j.FailedReason = reason
-	j.CompletedAt = &now
-}
-
-
 func (j *Job) validateJobRequest() error {
 	if j == nil {
 		return fmt.Errorf("job cannot be nil")
-	}
-
-	if j.Type == "" {
-		return fmt.Errorf("job type must be specified")
 	}
 
 	if len(j.Parameters) == 0 {
@@ -143,24 +121,30 @@ func (j *Job) validateJobRequest() error {
 
 	switch j.Type {
 	case JobTypeBundle:
-		var params JobParametersBundle
-		if err := json.Unmarshal(j.Parameters, &params); err != nil {
-			return fmt.Errorf("invalid parameters for bundle job: %w", err)
-		}
-
-		// validate bundle_for_time <= 5 minutes
-		if params.BundleForTime < 0 || params.BundleForTime > 5 {
-			return fmt.Errorf("bundle_for_time must be between 0 and 5, got %d", params.BundleForTime)
-		}
-
-		// validate log-file-count ≥ 1 and ≤ 1000
-		if params.LogFileCount < 1 || params.LogFileCount > 1000 {
-			return fmt.Errorf("log-file-count must be between 1 and 1000, got %d", params.LogFileCount)
+		if err := j.validateDebugBundleJobParams(); err != nil {
+			return err
 		}
 
 	default:
 		return fmt.Errorf("unsupported job type: %s", j.Type)
 	}
 
+	return nil
+}
+
+func (j *Job) validateDebugBundleJobParams() error {
+	var params JobParametersBundle
+	if err := j.DecodeParameters(&params); err != nil {
+		return fmt.Errorf("invalid parameters for bundle job: %w", err)
+	}
+	// validate bundle_for_time <= 5 minutes
+	if params.BundleForTime < 0 || params.BundleForTime > 5 {
+		return fmt.Errorf("bundle_for_time must be between 0 and 5, got %d", params.BundleForTime)
+	}
+
+	// validate log-file-count ≥ 1 and ≤ 1000
+	if params.LogFileCount < 1 || params.LogFileCount > 1000 {
+		return fmt.Errorf("log-file-count must be between 1 and 1000, got %d", params.LogFileCount)
+	}
 	return nil
 }

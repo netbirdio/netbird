@@ -286,6 +286,8 @@ var activityMap = map[Activity]Code{
 	AccountNetworkRangeUpdated: {"Account network range updated", "account.network.range.update"},
 
 	PeerIPUpdated: {"Peer IP updated", "peer.ip.update"},
+
+	JobCreatedByUser: {"Create Job for peer", "peer.job.created"},
 }
 
 // StringCode returns a string code of the activity

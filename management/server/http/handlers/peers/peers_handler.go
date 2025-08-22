@@ -58,17 +58,17 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	req := &api.JobRequest{}
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
-		util.WriteErrorResponse("invalid JSON payload", http.StatusBadRequest, w)
+		util.WriteError(ctx, err, w)
 		return
 	}
 
 	job, err := types.NewJob(userAuth.UserId, userAuth.AccountId, peerID, types.JobType(req.Type), req.Parameters)
 	if err != nil {
-		util.WriteErrorResponse(fmt.Sprintf("invalid Job request %v", err), http.StatusBadRequest, w)
+		util.WriteError(ctx, err, w)
 		return
 	}
-	if err := h.accountManager.CreateJob(ctx, userAuth.AccountId, peerID, userAuth.UserId, job); err != nil {
-		util.WriteErrorResponse(fmt.Sprintf("failed to create job %v", err), http.StatusInternalServerError, w)
+	if err := h.accountManager.CreatePeerJob(ctx, userAuth.AccountId, peerID, userAuth.UserId, job); err != nil {
+		util.WriteError(ctx, err, w)
 		return
 	}
 
@@ -79,16 +79,16 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
 	if err != nil {
-		util.WriteError(r.Context(), err, w)
+		util.WriteError(ctx, err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	peerID := vars["peerId"]
 
-	jobs, err := h.accountManager.GetAllJobs(ctx, userAuth.AccountId, userAuth.UserId, peerID)
+	jobs, err := h.accountManager.GetAllPeerJobs(ctx, userAuth.AccountId, userAuth.UserId, peerID)
 	if err != nil {
-		util.WriteErrorResponse(fmt.Sprintf("failed to fetch jobs %v", err), http.StatusInternalServerError, w)
+		util.WriteError(ctx, err, w)
 		return
 	}
 
@@ -107,9 +107,9 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 	peerID := vars["peerId"]
 	jobID := vars["jobId"]
 
-	job, err := h.accountManager.GetJobByID(ctx, userAuth.AccountId, userAuth.UserId, peerID, jobID)
+	job, err := h.accountManager.GetPeerJobByID(ctx, userAuth.AccountId, userAuth.UserId, peerID, jobID)
 	if err != nil {
-		util.WriteErrorResponse(fmt.Sprintf("failed to fetch job %v", err), http.StatusInternalServerError, w)
+		util.WriteError(ctx, err, w)
 		return
 	}
 

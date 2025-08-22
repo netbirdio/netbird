@@ -104,6 +104,23 @@ const (
 	IngressPortAllocationRequestPortRangeProtocolUdp    IngressPortAllocationRequestPortRangeProtocol = "udp"
 )
 
+// Defines values for JobStatus.
+const (
+	JobStatusFailed    JobStatus = "failed"
+	JobStatusPending   JobStatus = "pending"
+	JobStatusSucceeded JobStatus = "succeeded"
+)
+
+// Defines values for JobType.
+const (
+	JobTypeBundle JobType = "bundle"
+)
+
+// Defines values for JobRequestType.
+const (
+	JobRequestTypeBundle JobRequestType = "bundle"
+)
+
 // Defines values for NameserverNsType.
 const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
@@ -198,11 +215,6 @@ const (
 	GetApiEventsNetworkTrafficParamsDirectionEGRESS           GetApiEventsNetworkTrafficParamsDirection = "EGRESS"
 	GetApiEventsNetworkTrafficParamsDirectionINGRESS          GetApiEventsNetworkTrafficParamsDirection = "INGRESS"
 )
-
-type JobRequest struct {
-	Type       string         `json:"type" binding:"required"`       // Job type, e.g., "bundle"
-	Parameters map[string]any `json:"parameters" binding:"required"` // Dynamic parameters
-}
 
 // AccessiblePeer defines model for AccessiblePeer.
 type AccessiblePeer struct {
@@ -648,6 +660,56 @@ type IngressPortAllocationRequestPortRange struct {
 // IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
 type IngressPortAllocationRequestPortRangeProtocol string
 
+// Job defines model for Job.
+type Job struct {
+	// AccountId Associated account ID
+	AccountId string `json:"accountId"`
+
+	// CompletedAt When the job finished, null if still running
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+
+	// CreatedAt When the job was created (UTC)
+	CreatedAt time.Time `json:"createdAt"`
+
+	// FailedReason Why the job failed (if failed)
+	FailedReason *string `json:"failedReason,omitempty"`
+
+	// Id Primary identifier
+	Id string `json:"id"`
+
+	// Parameters Job configuration parameters
+	Parameters *map[string]interface{} `json:"parameters,omitempty"`
+
+	// PeerId Associated peer ID
+	PeerId string `json:"peerId"`
+
+	// Result Job output (JSON, URL, etc.)
+	Result *string   `json:"result,omitempty"`
+	Status JobStatus `json:"status"`
+
+	// TriggeredBy User that triggered this job
+	TriggeredBy string  `json:"triggeredBy"`
+	Type        JobType `json:"type"`
+}
+
+// JobStatus defines model for Job.Status.
+type JobStatus string
+
+// JobType defines model for Job.Type.
+type JobType string
+
+// JobRequest defines model for JobRequest.
+type JobRequest struct {
+	// Parameters Key-value parameters required for the job
+	Parameters map[string]interface{} `json:"parameters"`
+
+	// Type The type of job to execute
+	Type JobRequestType `json:"type"`
+}
+
+// JobRequestType The type of job to execute
+type JobRequestType string
+
 // Location Describe geographical location information
 type Location struct {
 	// CityName Commonly used English name of the city
@@ -1020,8 +1082,6 @@ type OSVersionCheck struct {
 
 // Peer defines model for Peer.
 type Peer struct {
-	// CreatedAt Peer creation date (UTC)
-	CreatedAt time.Time `json:"created_at"`
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired bool `json:"approval_required"`
 
@@ -1036,6 +1096,9 @@ type Peer struct {
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode CountryCode `json:"country_code"`
+
+	// CreatedAt Peer creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
@@ -1103,8 +1166,6 @@ type Peer struct {
 
 // PeerBatch defines model for PeerBatch.
 type PeerBatch struct {
-	// CreatedAt Peer creation date (UTC)
-	CreatedAt time.Time `json:"created_at"`
 	// AccessiblePeersCount Number of accessible peers
 	AccessiblePeersCount int `json:"accessible_peers_count"`
 
@@ -1122,6 +1183,9 @@ type PeerBatch struct {
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode CountryCode `json:"country_code"`
+
+	// CreatedAt Peer creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
@@ -1939,6 +2003,9 @@ type PostApiPeersPeerIdIngressPortsJSONRequestBody = IngressPortAllocationReques
 
 // PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody defines body for PutApiPeersPeerIdIngressPortsAllocationId for application/json ContentType.
 type PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody = IngressPortAllocationRequest
+
+// PostApiPeersPeerIdJobsJSONRequestBody defines body for PostApiPeersPeerIdJobs for application/json ContentType.
+type PostApiPeersPeerIdJobsJSONRequestBody = JobRequest
 
 // PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
 type PostApiPoliciesJSONRequestBody = PolicyUpdate
