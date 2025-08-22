@@ -1,4 +1,4 @@
-package bind
+package udpmux
 
 /*
  Most of this code was copied from https://github.com/pion/ice and modified to fulfill NetBird's requirements.
@@ -28,7 +28,7 @@ type FilterFn func(address netip.Addr) (bool, netip.Prefix, error)
 // UniversalUDPMuxDefault handles STUN and TURN servers packets by wrapping the original UDPConn
 // It then passes packets to the UDPMux that does the actual connection muxing.
 type UniversalUDPMuxDefault struct {
-	*UDPMuxDefault
+	*SingleSocketUDPMux
 	params UniversalUDPMuxParams
 
 	// since we have a shared socket, for srflx candidates it makes sense to have a shared mapped address across all the agents
@@ -75,7 +75,7 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 		UDPConn: m.params.UDPConn,
 		Net:     m.params.Net,
 	}
-	m.UDPMuxDefault = NewUDPMuxDefault(udpMuxParams)
+	m.SingleSocketUDPMux = NewSingleSocketUDPMux(udpMuxParams)
 
 	return m
 }
@@ -209,8 +209,8 @@ func (m *UniversalUDPMuxDefault) GetRelayedAddr(turnAddr net.Addr, deadline time
 
 // GetConnForURL add uniques to the muxed connection by concatenating ufrag and URL (e.g. STUN URL) to be able to support multiple STUN/TURN servers
 // and return a unique connection per server.
-func (m *UniversalUDPMuxDefault) GetConnForURL(ufrag string, url string, addr net.Addr) (net.PacketConn, error) {
-	return m.UDPMuxDefault.GetConn(fmt.Sprintf("%s%s", ufrag, url), addr)
+func (m *UniversalUDPMuxDefault) GetConnForURL(ufrag string, url string, addr net.Addr, candidateID string) (net.PacketConn, error) {
+	return m.SingleSocketUDPMux.GetConn(fmt.Sprintf("%s%s", ufrag, url), addr, candidateID)
 }
 
 // HandleSTUNMessage discovers STUN packets that carry a XOR mapped address from a STUN server.
@@ -231,7 +231,7 @@ func (m *UniversalUDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.A
 		}
 		return nil
 	}
-	return m.UDPMuxDefault.HandleSTUNMessage(msg, addr)
+	return m.SingleSocketUDPMux.HandleSTUNMessage(msg, addr)
 }
 
 // isXORMappedResponse indicates whether the message is a XORMappedAddress and is coming from the known STUN server.
