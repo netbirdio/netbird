@@ -354,6 +354,10 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	var eventsToStore []func()
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
 		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
 		if err != nil {
 			return err
@@ -375,10 +379,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
 		if err != nil {
 			return fmt.Errorf("failed to delete peer: %w", err)
-		}
-
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
 		return nil
