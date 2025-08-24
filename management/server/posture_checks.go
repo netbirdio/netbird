@@ -59,15 +59,19 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 				return err
 			}
 
-			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-				return err
-			}
-
 			action = activity.PostureCheckUpdated
 		}
 
 		postureChecks.AccountID = accountID
-		return transaction.SavePostureChecks(ctx, postureChecks)
+		if err = transaction.SavePostureChecks(ctx, postureChecks); err != nil {
+			return err
+		}
+
+		if isUpdate {
+			return transaction.IncrementNetworkSerial(ctx, accountID)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -104,11 +108,11 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.DeletePostureChecks(ctx, accountID, postureChecksID); err != nil {
 			return err
 		}
 
-		return transaction.DeletePostureChecks(ctx, accountID, postureChecksID)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
