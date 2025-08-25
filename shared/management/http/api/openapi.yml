@@ -34,6 +34,86 @@ tags:
     x-cloud-only: true
 components:
   schemas:
+    JobRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          description: The type of job to execute
+          example: bundle
+          enum: [ "bundle" ]
+        parameters:
+          type: object
+          description: Key-value parameters required for the job
+          additionalProperties: true
+          example:
+            bundle_for: true
+            bundle_for_time: 5
+            log_file_count: 2
+            anonymize: false
+      required:
+        - type
+        - parameters
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Primary identifier
+          example: "123456"
+        createdAt:
+          type: string
+          format: date-time
+          description: When the job was created (UTC)
+        completedAt:
+          type: string
+          format: date-time
+          description: When the job finished, null if still running
+        triggeredBy:
+          type: string
+          description: User that triggered this job
+          example: "user_42"
+        peerId:
+          type: string
+          description: Associated peer ID
+          example: "peer_99"
+        accountId:
+          type: string
+          description: Associated account ID
+          example: "acc_77"
+        type:
+          type: string
+          enum: [ bundle ]
+          example: bundle
+        status:
+          type: string
+          enum: [ pending, succeeded, failed ]
+          example: pending
+        failedReason:
+          type: string
+          description: Why the job failed (if failed)
+          example: "Connection timeout"
+        result:
+          type: string
+          description: Job output (JSON, URL, etc.)
+          example: "https://example.com/bundle.zip"
+        parameters:
+          type: object
+          additionalProperties: true
+          description: Job configuration parameters
+          example:
+            bundle_for: true
+            bundle_for_time: 60
+            log_file_count: 10
+            anonymize: false
+      required:
+        - id
+        - createdAt
+        - triggeredBy
+        - peerId
+        - accountId
+        - type
+        - status
     Account:
       type: object
       properties:
@@ -2170,6 +2250,108 @@ security:
   - BearerAuth: [ ]
   - TokenAuth: [ ]
 paths:
+  /api/peers/{peerId}/jobs:
+    get:
+      summary: List Jobs
+      description: Retrieve all jobs for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a peer
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/bad_request'
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '500':
+          $ref: '#/components/responses/internal_error'    
+    post:
+      summary: Create Job
+      description: Create a new job for a given peer
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a peer
+      requestBody:
+        description: Create job request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+        required: true
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/jobs/{jobId}:
+    get:
+      summary: Get Job
+      description: Retrieve details of a specific job
+      tags: [ Jobs ]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - in: path
+          name: peerId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A Job object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/accounts:
     get:
       summary: List all Accounts
