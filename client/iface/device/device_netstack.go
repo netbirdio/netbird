@@ -1,6 +1,3 @@
-//go:build !android
-// +build !android
-
 package device
 
 import (
@@ -47,7 +44,7 @@ func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key stri
 	}
 }
 
-func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
+func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 	log.Info("create nbnetstack tun interface")
 
 	// TODO: get from service listener runtime IP
