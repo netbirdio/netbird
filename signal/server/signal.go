@@ -16,9 +16,9 @@ import (
 
 	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
+	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
-	"github.com/netbirdio/netbird/shared/signal/proto"
 )
 
 const (
@@ -28,6 +28,8 @@ const (
 	labelTypeNotRegistered = "not_registered"
 	labelTypeStream        = "stream"
 	labelTypeMessage       = "message"
+	labelTypeTimeout       = "timeout"
+	labelTypeDisconnected  = "disconnected"
 
 	labelError                   = "error"
 	labelErrorMissingId          = "missing_id"
@@ -38,6 +40,8 @@ const (
 	labelRegistrationStatus   = "status"
 	labelRegistrationFound    = "found"
 	labelRegistrationNotFound = "not_found"
+
+	sendTimeout = 10 * time.Second
 )
 
 var (
@@ -161,15 +165,31 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 	s.metrics.GetRegistrationDelay.Record(ctx, float64(time.Since(getRegistrationStart).Nanoseconds())/1e6, metric.WithAttributes(attribute.String(labelType, labelTypeStream), attribute.String(labelRegistrationStatus, labelRegistrationFound)))
 	start := time.Now()
 
-	// forward the message to the target peer
-	if err := dstPeer.Stream.Send(msg); err != nil {
-		log.Tracef("error while forwarding message from peer [%s] to peer [%s] %v", msg.Key, msg.RemoteKey, err)
-		// todo respond to the sender?
-		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeError)))
-		return
+	sendResultChan := make(chan error, 1)
+	go func() {
+		sendResultChan <- dstPeer.Stream.Send(msg)
+	}()
+
+	select {
+	case err := <-sendResultChan:
+		if err != nil {
+			log.Tracef("error while forwarding message from peer [%s] to peer [%s]: %v", msg.Key, msg.RemoteKey, err)
+			s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeError)))
+			return
+		}
+		s.metrics.MessageForwardLatency.Record(ctx, float64(time.Since(start).Nanoseconds())/1e6, metric.WithAttributes(attribute.String(labelType, labelTypeStream)))
+		s.metrics.MessagesForwarded.Add(ctx, 1)
+		s.metrics.MessageSize.Record(ctx, int64(gproto.Size(msg)), metric.WithAttributes(attribute.String(labelType, labelTypeMessage)))
+
+	case <-dstPeer.Stream.Context().Done():
+		log.Warnf("failed to forward message from peer [%s] to peer [%s]: destination peer disconnected", msg.Key, msg.RemoteKey)
+		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeDisconnected)))
+
+	case <-time.After(sendTimeout):
+		log.Warnf("failed to forward message from peer [%s] to peer [%s]: send timeout", msg.Key, msg.RemoteKey)
+		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeTimeout)))
 	}
 
-	// in milliseconds
 	s.metrics.MessageForwardLatency.Record(ctx, float64(time.Since(start).Nanoseconds())/1e6, metric.WithAttributes(attribute.String(labelType, labelTypeStream)))
 	s.metrics.MessagesForwarded.Add(ctx, 1)
 	s.metrics.MessageSize.Record(ctx, int64(gproto.Size(msg)), metric.WithAttributes(attribute.String(labelType, labelTypeMessage)))
