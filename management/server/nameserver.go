@@ -70,11 +70,11 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.SaveNameServerGroup(ctx, newNSGroup); err != nil {
 			return err
 		}
 
-		return transaction.SaveNameServerGroup(ctx, newNSGroup)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return nil, err
@@ -121,11 +121,11 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.SaveNameServerGroup(ctx, nsGroupToSave); err != nil {
 			return err
 		}
 
-		return transaction.SaveNameServerGroup(ctx, nsGroupToSave)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -164,11 +164,11 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.DeleteNameServerGroup(ctx, accountID, nsGroupID); err != nil {
 			return err
 		}
 
-		return transaction.DeleteNameServerGroup(ctx, accountID, nsGroupID)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err

@@ -58,17 +58,17 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return err
-		}
-
 		saveFunc := transaction.CreatePolicy
 		if isUpdate {
 			action = activity.PolicyUpdated
 			saveFunc = transaction.SavePolicy
 		}
 
-		return saveFunc(ctx, policy)
+		if err = saveFunc(ctx, policy); err != nil {
+			return err
+		}
+
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return nil, err
@@ -107,11 +107,11 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.DeletePolicy(ctx, accountID, policyID); err != nil {
 			return err
 		}
 
-		return transaction.DeletePolicy(ctx, accountID, policyID)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
