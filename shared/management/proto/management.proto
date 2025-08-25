@@ -85,6 +85,9 @@ message SyncResponse {
 
   // Posture checks to be evaluated by client
   repeated Checks Checks = 6;
+
+  // Auto-update config
+  string autoUpdateVersion = 7;
 }
 
 message  SyncMetaRequest {
