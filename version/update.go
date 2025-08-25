@@ -31,7 +31,6 @@ type Update struct {
 	fetchDone   chan struct{}
 
 	onUpdateListener func()
-	onUpdateChannel  chan string
 	listenerLock     sync.Mutex
 }
 
@@ -42,14 +41,11 @@ func NewUpdate(httpAgent string) *Update {
 		currentVersion, _ = goversion.NewVersion("0.0.0")
 	}
 
-	latestAvailable, _ := goversion.NewVersion("0.0.0")
-
 	u := &Update{
-		httpAgent:       httpAgent,
-		latestAvailable: latestAvailable,
-		uiVersion:       currentVersion,
-		fetchTicker:     time.NewTicker(fetchPeriod),
-		fetchDone:       make(chan struct{}),
+		httpAgent:   httpAgent,
+		uiVersion:   currentVersion,
+		fetchTicker: time.NewTicker(fetchPeriod),
+		fetchDone:   make(chan struct{}),
 	}
 	go u.startFetcher()
 	return u
@@ -95,15 +91,10 @@ func (u *Update) SetOnUpdateListener(updateFn func()) {
 	}
 }
 
-func (u *Update) SetOnUpdateChannel(updateChannel chan string) {
-	u.listenerLock.Lock()
-	defer u.listenerLock.Unlock()
-	u.onUpdateChannel = updateChannel
-	if u.isUpdateAvailable() {
-		u.versionsLock.Lock()
-		defer u.versionsLock.Unlock()
-		u.onUpdateChannel <- u.latestAvailable.String()
-	}
+func (u *Update) LatestVersion() *goversion.Version {
+	u.versionsLock.Lock()
+	defer u.versionsLock.Unlock()
+	return u.latestAvailable
 }
 
 func (u *Update) startFetcher() {
@@ -181,9 +172,6 @@ func (u *Update) checkUpdate() bool {
 
 	u.listenerLock.Lock()
 	defer u.listenerLock.Unlock()
-	if u.onUpdateChannel != nil {
-		u.onUpdateChannel <- u.latestAvailable.String()
-	}
 	if u.onUpdateListener == nil {
 		return true
 	}
@@ -195,6 +183,10 @@ func (u *Update) checkUpdate() bool {
 func (u *Update) isUpdateAvailable() bool {
 	u.versionsLock.Lock()
 	defer u.versionsLock.Unlock()
+
+	if u.latestAvailable == nil {
+		return false
+	}
 
 	if u.latestAvailable.GreaterThan(u.uiVersion) {
 		return true

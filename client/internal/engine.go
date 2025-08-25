@@ -244,7 +244,6 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
-		updateManager:  updatemanager.NewUpdateManager(clientCtx, statusRecorder),
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -705,7 +704,14 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if update.GetAutoUpdateVersion() != "skip" {
+	if e.updateManager == nil && update.GetAutoUpdateVersion() != "disabled" {
+		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder)
+		e.updateManager.Start(e.ctx)
+	} else if e.updateManager != nil && update.GetAutoUpdateVersion() == "disabled" {
+		e.updateManager.Stop()
+		e.updateManager = nil
+	}
+	if e.updateManager != nil {
 		e.updateManager.SetVersion(update.GetAutoUpdateVersion())
 	}
 	if update.GetNetbirdConfig() != nil {
