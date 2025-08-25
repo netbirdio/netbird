@@ -179,11 +179,11 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.SaveRoute(ctx, newRoute); err != nil {
 			return err
 		}
 
-		return transaction.SaveRoute(ctx, newRoute)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return nil, err
@@ -233,11 +233,11 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		}
 		routeToSave.AccountID = accountID
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.SaveRoute(ctx, routeToSave); err != nil {
 			return err
 		}
 
-		return transaction.SaveRoute(ctx, routeToSave)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -276,11 +276,11 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.DeleteRoute(ctx, accountID, string(routeID)); err != nil {
 			return err
 		}
 
-		return transaction.DeleteRoute(ctx, accountID, string(routeID))
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to delete route %s: %w", routeID, err)

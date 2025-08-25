@@ -342,13 +342,17 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			}
 		}
 
+		if err = transaction.SaveAccountSettings(ctx, accountID, newSettings); err != nil {
+			return err
+		}
+
 		if updateAccountPeers || groupsUpdated {
 			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 				return err
 			}
 		}
 
-		return transaction.SaveAccountSettings(ctx, accountID, newSettings)
+		return nil
 	})
 	if err != nil {
 		return nil, err

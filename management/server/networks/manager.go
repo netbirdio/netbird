@@ -158,14 +158,14 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 			return fmt.Errorf("failed to delete network: %w", err)
 		}
 
+		eventsToStore = append(eventsToStore, func() {
+			m.accountManager.StoreEvent(ctx, userID, networkID, accountID, activity.NetworkDeleted, network.EventMeta())
+		})
+
 		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
-
-		eventsToStore = append(eventsToStore, func() {
-			m.accountManager.StoreEvent(ctx, userID, networkID, accountID, activity.NetworkDeleted, network.EventMeta())
-		})
 
 		return nil
 	})
