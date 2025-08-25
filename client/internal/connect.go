@@ -43,6 +43,7 @@ type ConnectClient struct {
 	statusRecorder *peer.Status
 	engine         *Engine
 	engineMutex    sync.Mutex
+	setupKey       string
 
 	persistSyncResponse bool
 }
@@ -51,13 +52,14 @@ func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
-
+	setupKey string,
 ) *ConnectClient {
 	return &ConnectClient{
 		ctx:            ctx,
 		config:         config,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
+		setupKey:       setupKey,
 	}
 }
 
@@ -192,7 +194,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}()
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Netbird config
-		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config)
+		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey, c.config, c.setupKey)
 		if err != nil {
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
@@ -485,7 +487,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 }
 
 // loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
-func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
+func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config, setupKey string) (*mgmProto.LoginResponse, error) {
 
 	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {
@@ -505,7 +507,12 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockInbound,
 		config.LazyConnectionEnabled,
 	)
-	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
+	var loginResp *mgmProto.LoginResponse
+	if setupKey != "" {
+		loginResp, err = client.Register(*serverPublicKey, setupKey, "", sysInfo, pubSSHKey, config.DNSLabels)
+	} else {
+		loginResp, err = client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
+	}
 	if err != nil {
 		return nil, err
 	}
