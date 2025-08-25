@@ -41,7 +41,7 @@ const (
 	labelRegistrationFound    = "found"
 	labelRegistrationNotFound = "not_found"
 
-	sendTimeout = 10 * time.Second
+	sendTimeout = 20 * time.Second
 )
 
 var (
@@ -189,8 +189,4 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 		log.Warnf("failed to forward message from peer [%s] to peer [%s]: send timeout", msg.Key, msg.RemoteKey)
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeTimeout)))
 	}
-
-	s.metrics.MessageForwardLatency.Record(ctx, float64(time.Since(start).Nanoseconds())/1e6, metric.WithAttributes(attribute.String(labelType, labelTypeStream)))
-	s.metrics.MessagesForwarded.Add(ctx, 1)
-	s.metrics.MessageSize.Record(ctx, int64(gproto.Size(msg)), metric.WithAttributes(attribute.String(labelType, labelTypeMessage)))
 }
