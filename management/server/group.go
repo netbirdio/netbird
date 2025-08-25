@@ -93,10 +93,6 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return err
-		}
-
 		if err := transaction.CreateGroup(ctx, newGroup); err != nil {
 			return status.Errorf(status.Internal, "failed to create group: %v", err)
 		}
@@ -106,7 +102,8 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 				return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, newGroup.ID, err)
 			}
 		}
-		return nil
+
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -170,11 +167,11 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err
 		}
 
-		return transaction.UpdateGroup(ctx, newGroup)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -228,11 +225,11 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.CreateGroups(ctx, accountID, groupsToSave); err != nil {
 			return err
 		}
 
-		return transaction.CreateGroups(ctx, accountID, groupsToSave)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -286,11 +283,11 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.UpdateGroups(ctx, accountID, groupsToSave); err != nil {
 			return err
 		}
 
-		return transaction.UpdateGroups(ctx, accountID, groupsToSave)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -415,11 +412,11 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 			deletedGroups = append(deletedGroups, group)
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.DeleteGroups(ctx, accountID, groupIDsToDelete); err != nil {
 			return err
 		}
 
-		return transaction.DeleteGroups(ctx, accountID, groupIDsToDelete)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -443,11 +440,11 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
 			return err
 		}
 
-		return transaction.AddPeerToGroup(ctx, accountID, peerID, groupID)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -481,11 +478,11 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.UpdateGroup(ctx, group); err != nil {
 			return err
 		}
 
-		return transaction.UpdateGroup(ctx, group)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -509,11 +506,11 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
 			return err
 		}
 
-		return transaction.RemovePeerFromGroup(ctx, peerID, groupID)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -547,11 +544,11 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.UpdateGroup(ctx, group); err != nil {
 			return err
 		}
 
-		return transaction.UpdateGroup(ctx, group)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err

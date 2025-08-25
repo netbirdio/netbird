@@ -354,7 +354,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	var eventsToStore []func()
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			return err
 		}
@@ -1527,7 +1527,7 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 	}
 	dnsDomain := am.GetDNSDomain(settings)
 
-	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
