@@ -703,7 +703,7 @@ func (a *Account) getRoutingPeerRoutes(ctx context.Context, peerID string) (enab
 
 	peer := a.GetPeer(peerID)
 	if peer == nil {
-		log.WithContext(ctx).Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
+		// log.WithContext(ctx).Errorf("peer %s that doesn't exist under account %s", peerID, a.Id)
 		return enabledRoutes, disabledRoutes
 	}
 
