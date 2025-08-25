@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"os"
 	"reflect"
 	"runtime"
 	"slices"
@@ -41,27 +42,27 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	mgm "github.com/netbirdio/netbird/management/client"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
-	auth "github.com/netbirdio/netbird/relay/auth/hmac"
-	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
-	signal "github.com/netbirdio/netbird/signal/client"
-	sProto "github.com/netbirdio/netbird/signal/proto"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
+	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -138,9 +139,6 @@ type Engine struct {
 
 	connMgr *ConnMgr
 
-	beforePeerHook nbnet.AddHookFunc
-	afterPeerHook  nbnet.RemoveHookFunc
-
 	// rpManager is a Rosenpass manager
 	rpManager *rosenpass.Manager
 
@@ -191,11 +189,11 @@ type Engine struct {
 	stateManager *statemanager.Manager
 	srWatcher    *guard.SRWatcher
 
-	// Network map persistence
-	persistNetworkMap bool
-	latestNetworkMap  *mgmProto.NetworkMap
-	connSemaphore     *semaphoregroup.SemaphoreGroup
-	flowManager       nftypes.FlowManager
+	// Sync response persistence
+	persistSyncResponse bool
+	latestSyncResponse  *mgmProto.SyncResponse
+	connSemaphore       *semaphoregroup.SemaphoreGroup
+	flowManager         nftypes.FlowManager
 }
 
 // Peer is an instance of the Connection Peer
@@ -240,7 +238,9 @@ func NewEngine(
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 	}
 
-	path := statemanager.GetDefaultStatePath()
+	sm := profilemanager.NewServiceManager("")
+
+	path := sm.GetStatePath()
 	if runtime.GOOS == "ios" {
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
@@ -254,6 +254,7 @@ func NewEngine(
 	}
 	engine.stateManager = statemanager.New(path)
 
+	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
 }
 
@@ -409,12 +410,8 @@ func (e *Engine) Start() error {
 		DisableClientRoutes: e.config.DisableClientRoutes,
 		DisableServerRoutes: e.config.DisableServerRoutes,
 	})
-	beforePeerHook, afterPeerHook, err := e.routeManager.Init()
-	if err != nil {
+	if err := e.routeManager.Init(); err != nil {
 		log.Errorf("Failed to initialize route manager: %s", err)
-	} else {
-		e.beforePeerHook = beforePeerHook
-		e.afterPeerHook = afterPeerHook
 	}
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
@@ -701,10 +698,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return nil
 	}
 
-	// Store network map if persistence is enabled
-	if e.persistNetworkMap {
-		e.latestNetworkMap = nm
-		log.Debugf("network map persisted with serial %d", nm.GetSerial())
+	// Store sync response if persistence is enabled
+	if e.persistSyncResponse {
+		e.latestSyncResponse = update
+		log.Debugf("sync response persisted with serial %d", nm.GetSerial())
 	}
 
 	// only apply new changes and ignore old ones
@@ -865,15 +862,10 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		return errors.New("wireguard interface is not initialized")
 	}
 
+	// Cannot update the IP address without restarting the engine because
+	// the firewall, route manager, and other components cache the old address
 	if e.wgInterface.Address().String() != conf.Address {
-		oldAddr := e.wgInterface.Address().String()
-		log.Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
-		err := e.wgInterface.UpdateAddr(conf.Address)
-		if err != nil {
-			return err
-		}
-		e.config.WgAddr = conf.Address
-		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
+		log.Infof("peer IP address has changed from %s to %s", e.wgInterface.Address().String(), conf.Address)
 	}
 
 	if conf.GetSshConfig() != nil {
@@ -884,7 +876,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	}
 
 	state := e.statusRecorder.GetLocalPeerState()
-	state.IP = e.config.WgAddr
+	state.IP = e.wgInterface.Address().String()
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
 	state.KernelInterface = device.WireGuardModuleIsLoaded()
 	state.FQDN = conf.GetFqdn()
@@ -1119,15 +1111,16 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 		}
 
 		convertedRoute := &route.Route{
-			ID:          route.ID(protoRoute.ID),
-			Network:     prefix.Masked(),
-			Domains:     domain.FromPunycodeList(protoRoute.Domains),
-			NetID:       route.NetID(protoRoute.NetID),
-			NetworkType: route.NetworkType(protoRoute.NetworkType),
-			Peer:        protoRoute.Peer,
-			Metric:      int(protoRoute.Metric),
-			Masquerade:  protoRoute.Masquerade,
-			KeepRoute:   protoRoute.KeepRoute,
+			ID:            route.ID(protoRoute.ID),
+			Network:       prefix.Masked(),
+			Domains:       domain.FromPunycodeList(protoRoute.Domains),
+			NetID:         route.NetID(protoRoute.NetID),
+			NetworkType:   route.NetworkType(protoRoute.NetworkType),
+			Peer:          protoRoute.Peer,
+			Metric:        int(protoRoute.Metric),
+			Masquerade:    protoRoute.Masquerade,
+			KeepRoute:     protoRoute.KeepRoute,
+			SkipAutoApply: protoRoute.SkipAutoApply,
 		}
 		routes = append(routes, convertedRoute)
 	}
@@ -1261,10 +1254,6 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 
-	if e.beforePeerHook != nil && e.afterPeerHook != nil {
-		conn.AddBeforeAddPeerHook(e.beforePeerHook)
-		conn.AddAfterRemovePeerHook(e.afterPeerHook)
-	}
 	return nil
 }
 
@@ -1343,52 +1332,17 @@ func (e *Engine) receiveSignalEvents() {
 			}
 
 			switch msg.GetBody().Type {
-			case sProto.Body_OFFER:
-				remoteCred, err := signal.UnMarshalCredential(msg)
+			case sProto.Body_OFFER, sProto.Body_ANSWER:
+				offerAnswer, err := convertToOfferAnswer(msg)
 				if err != nil {
 					return err
 				}
 
-				var rosenpassPubKey []byte
-				rosenpassAddr := ""
-				if msg.GetBody().GetRosenpassConfig() != nil {
-					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
-					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
+				if msg.Body.Type == sProto.Body_OFFER {
+					conn.OnRemoteOffer(*offerAnswer)
+				} else {
+					conn.OnRemoteAnswer(*offerAnswer)
 				}
-				conn.OnRemoteOffer(peer.OfferAnswer{
-					IceCredentials: peer.IceCredentials{
-						UFrag: remoteCred.UFrag,
-						Pwd:   remoteCred.Pwd,
-					},
-					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
-					Version:         msg.GetBody().GetNetBirdVersion(),
-					RosenpassPubKey: rosenpassPubKey,
-					RosenpassAddr:   rosenpassAddr,
-					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
-				})
-			case sProto.Body_ANSWER:
-				remoteCred, err := signal.UnMarshalCredential(msg)
-				if err != nil {
-					return err
-				}
-
-				var rosenpassPubKey []byte
-				rosenpassAddr := ""
-				if msg.GetBody().GetRosenpassConfig() != nil {
-					rosenpassPubKey = msg.GetBody().GetRosenpassConfig().GetRosenpassPubKey()
-					rosenpassAddr = msg.GetBody().GetRosenpassConfig().GetRosenpassServerAddr()
-				}
-				conn.OnRemoteAnswer(peer.OfferAnswer{
-					IceCredentials: peer.IceCredentials{
-						UFrag: remoteCred.UFrag,
-						Pwd:   remoteCred.Pwd,
-					},
-					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
-					Version:         msg.GetBody().GetNetBirdVersion(),
-					RosenpassPubKey: rosenpassPubKey,
-					RosenpassAddr:   rosenpassAddr,
-					RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
-				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
 				if err != nil {
@@ -1562,7 +1516,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 func (e *Engine) wgInterfaceCreate() (err error) {
 	switch runtime.GOOS {
 	case "android":
-		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP(), e.dnsServer.SearchDomains())
+		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP().String(), e.dnsServer.SearchDomains())
 	case "ios":
 		e.mobileDep.NetworkChangeListener.SetInterfaceIP(e.config.WgAddr)
 		err = e.wgInterface.Create()
@@ -1778,44 +1732,43 @@ func (e *Engine) stopDNSServer() {
 	e.statusRecorder.UpdateDNSStates(nsGroupStates)
 }
 
-// SetNetworkMapPersistence enables or disables network map persistence
-func (e *Engine) SetNetworkMapPersistence(enabled bool) {
+// SetSyncResponsePersistence enables or disables sync response persistence
+func (e *Engine) SetSyncResponsePersistence(enabled bool) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if enabled == e.persistNetworkMap {
+	if enabled == e.persistSyncResponse {
 		return
 	}
-	e.persistNetworkMap = enabled
-	log.Debugf("Network map persistence is set to %t", enabled)
+	e.persistSyncResponse = enabled
+	log.Debugf("Sync response persistence is set to %t", enabled)
 
 	if !enabled {
-		e.latestNetworkMap = nil
+		e.latestSyncResponse = nil
 	}
 }
 
-// GetLatestNetworkMap returns the stored network map if persistence is enabled
-func (e *Engine) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
+// GetLatestSyncResponse returns the stored sync response if persistence is enabled
+func (e *Engine) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if !e.persistNetworkMap {
-		return nil, errors.New("network map persistence is disabled")
+	if !e.persistSyncResponse {
+		return nil, errors.New("sync response persistence is disabled")
 	}
 
-	if e.latestNetworkMap == nil {
+	if e.latestSyncResponse == nil {
 		//nolint:nilnil
 		return nil, nil
 	}
 
-	log.Debugf("Retrieving latest network map with size %d bytes", proto.Size(e.latestNetworkMap))
-	nm, ok := proto.Clone(e.latestNetworkMap).(*mgmProto.NetworkMap)
+	log.Debugf("Retrieving latest sync response with size %d bytes", proto.Size(e.latestSyncResponse))
+	sr, ok := proto.Clone(e.latestSyncResponse).(*mgmProto.SyncResponse)
 	if !ok {
-
-		return nil, fmt.Errorf("failed to clone network map")
+		return nil, fmt.Errorf("failed to clone sync response")
 	}
 
-	return nm, nil
+	return sr, nil
 }
 
 // GetWgAddr returns the wireguard address
@@ -1980,21 +1933,24 @@ func (e *Engine) toExcludedLazyPeers(rules []firewallManager.ForwardRule, peers 
 }
 
 // isChecksEqual checks if two slices of checks are equal.
-func isChecksEqual(checks []*mgmProto.Checks, oChecks []*mgmProto.Checks) bool {
-	for _, check := range checks {
-		sort.Slice(check.Files, func(i, j int) bool {
-			return check.Files[i] < check.Files[j]
-		})
-	}
-	for _, oCheck := range oChecks {
-		sort.Slice(oCheck.Files, func(i, j int) bool {
-			return oCheck.Files[i] < oCheck.Files[j]
-		})
+func isChecksEqual(checks1, checks2 []*mgmProto.Checks) bool {
+	normalize := func(checks []*mgmProto.Checks) []string {
+		normalized := make([]string, len(checks))
+
+		for i, check := range checks {
+			sortedFiles := slices.Clone(check.Files)
+			sort.Strings(sortedFiles)
+			normalized[i] = strings.Join(sortedFiles, "|")
+		}
+
+		sort.Strings(normalized)
+		return normalized
 	}
 
-	return slices.EqualFunc(checks, oChecks, func(checks, oChecks *mgmProto.Checks) bool {
-		return slices.Equal(checks.Files, oChecks.Files)
-	})
+	n1 := normalize(checks1)
+	n2 := normalize(checks2)
+
+	return slices.Equal(n1, n2)
 }
 
 func getInterfacePrefixes() ([]netip.Prefix, error) {
@@ -2070,4 +2026,58 @@ func compareNetIPLists(list1 []netip.Prefix, list2 []string) bool {
 		}
 	}
 	return true
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
+func createFile(path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
+	remoteCred, err := signal.UnMarshalCredential(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		rosenpassPubKey []byte
+		rosenpassAddr   string
+	)
+	if cfg := msg.GetBody().GetRosenpassConfig(); cfg != nil {
+		rosenpassPubKey = cfg.GetRosenpassPubKey()
+		rosenpassAddr = cfg.GetRosenpassServerAddr()
+	}
+
+	// Handle optional SessionID
+	var sessionID *peer.ICESessionID
+	if sessionBytes := msg.GetBody().GetSessionId(); sessionBytes != nil {
+		if id, err := peer.ICESessionIDFromBytes(sessionBytes); err != nil {
+			log.Warnf("Invalid session ID in message: %v", err)
+			sessionID = nil // Set to nil if conversion fails
+		} else {
+			sessionID = &id
+		}
+	}
+
+	offerAnswer := peer.OfferAnswer{
+		IceCredentials: peer.IceCredentials{
+			UFrag: remoteCred.UFrag,
+			Pwd:   remoteCred.Pwd,
+		},
+		WgListenPort:    int(msg.GetBody().GetWgListenPort()),
+		Version:         msg.GetBody().GetNetBirdVersion(),
+		RosenpassPubKey: rosenpassPubKey,
+		RosenpassAddr:   rosenpassAddr,
+		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
+		SessionID:       sessionID,
+	}
+	return &offerAnswer, nil
 }

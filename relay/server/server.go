@@ -7,14 +7,13 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel/metric"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/relay/auth"
+	"github.com/netbirdio/netbird/relay/protocol"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/quic"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
-	quictls "github.com/netbirdio/netbird/relay/tls"
+	quictls "github.com/netbirdio/netbird/shared/relay/tls"
 )
 
 // ListenerConfig is the configuration for the listener.
@@ -29,17 +28,29 @@ type ListenerConfig struct {
 // It is the gate between the WebSocket listener and the Relay server logic.
 // In a new HTTP connection, the server will accept the connection and pass it to the Relay server via the Accept method.
 type Server struct {
-	relay     *Relay
-	listeners []listener.Listener
+	listenAddr string
+
+	relay       *Relay
+	listeners   []listener.Listener
+	listenerMux sync.Mutex
 }
 
-// NewServer creates a new relay server instance.
-// meter: the OpenTelemetry meter
-// exposedAddress: this address will be used as the instance URL. It should be a domain:port format.
-// tlsSupport: if true, the server will support TLS
-// authValidator: the auth validator to use for the server
-func NewServer(meter metric.Meter, exposedAddress string, tlsSupport bool, authValidator auth.Validator) (*Server, error) {
-	relay, err := NewRelay(meter, exposedAddress, tlsSupport, authValidator)
+// NewServer creates and returns a new relay server instance.
+//
+// Parameters:
+//
+//	config: A Config struct containing the necessary configuration:
+//	  - Meter: An OpenTelemetry metric.Meter used for recording metrics. If nil, a default no-op meter is used.
+//	  - ExposedAddress: The public address (in domain:port format) used as the server's instance URL. Required.
+//	  - TLSSupport: A boolean indicating whether TLS is enabled for the server.
+//	  - AuthValidator: A Validator used to authenticate peers. Required.
+//
+// Returns:
+//
+//	A pointer to a Server instance and an error. If the configuration is valid and initialization succeeds,
+//	the returned error will be nil. Otherwise, the error will describe the problem.
+func NewServer(config Config) (*Server, error) {
+	relay, err := NewRelay(config)
 	if err != nil {
 		return nil, err
 	}
@@ -51,10 +62,14 @@ func NewServer(meter metric.Meter, exposedAddress string, tlsSupport bool, authV
 
 // Listen starts the relay server.
 func (r *Server) Listen(cfg ListenerConfig) error {
+	r.listenAddr = cfg.Address
+
 	wSListener := &ws.Listener{
 		Address:   cfg.Address,
 		TLSConfig: cfg.TLSConfig,
 	}
+
+	r.listenerMux.Lock()
 	r.listeners = append(r.listeners, wSListener)
 
 	tlsConfigQUIC, err := quictls.ServerQUICTLSConfig(cfg.TLSConfig)
@@ -79,6 +94,8 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 		}(l)
 	}
 
+	r.listenerMux.Unlock()
+
 	wg.Wait()
 	close(errChan)
 	var multiErr *multierror.Error
@@ -94,16 +111,34 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 func (r *Server) Shutdown(ctx context.Context) error {
 	r.relay.Shutdown(ctx)
 
+	r.listenerMux.Lock()
 	var multiErr *multierror.Error
 	for _, l := range r.listeners {
 		if err := l.Shutdown(ctx); err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
+	r.listeners = r.listeners[:0]
+	r.listenerMux.Unlock()
 	return nberrors.FormatErrorOrNil(multiErr)
 }
 
 // InstanceURL returns the instance URL of the relay server.
 func (r *Server) InstanceURL() string {
 	return r.relay.instanceURL
+}
+
+func (r *Server) ListenerProtocols() []protocol.Protocol {
+	result := make([]protocol.Protocol, 0)
+
+	r.listenerMux.Lock()
+	for _, l := range r.listeners {
+		result = append(result, l.Protocol())
+	}
+	r.listenerMux.Unlock()
+	return result
+}
+
+func (r *Server) ListenAddress() string {
+	return r.listenAddr
 }

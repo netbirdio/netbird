@@ -190,14 +190,15 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			name: "No Small Client Route Should Be Added",
 			inputRoutes: []*route.Route{
 				{
-					ID:          "a",
-					NetID:       "routeA",
-					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("0.0.0.0/0"),
-					NetworkType: route.IPv4Network,
-					Metric:      9999,
-					Masquerade:  false,
-					Enabled:     true,
+					ID:            "a",
+					NetID:         "routeA",
+					Peer:          remotePeerKey1,
+					Network:       netip.MustParsePrefix("0.0.0.0/0"),
+					NetworkType:   route.IPv4Network,
+					Metric:        9999,
+					Masquerade:    false,
+					Enabled:       true,
+					SkipAutoApply: false,
 				},
 			},
 			inputSerial:                          1,
@@ -430,7 +431,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				StatusRecorder: statusRecorder,
 			})
 
-			_, _, err = routeManager.Init()
+			err = routeManager.Init()
 
 			require.NoError(t, err, "should init route manager")
 			defer routeManager.Stop(nil)

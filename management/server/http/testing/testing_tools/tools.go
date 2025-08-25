@@ -1,4 +1,5 @@
 package testing_tools
+
 import (
 	"bytes"
 	"context"
@@ -13,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -132,7 +133,7 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	}
 
 	geoMock := &geolocation.Mock{}
-	validatorMock := server.MocIntegratedValidator{}
+	validatorMock := server.MockIntegratedValidator{}
 	proxyController := integrations.NewController(store)
 	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)

@@ -27,6 +27,8 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -38,12 +40,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	mgmt "github.com/netbirdio/netbird/management/client"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -52,10 +53,13 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
-	relayClient "github.com/netbirdio/netbird/relay/client"
+	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
-	signal "github.com/netbirdio/netbird/signal/client"
-	"github.com/netbirdio/netbird/signal/proto"
+	mgmt "github.com/netbirdio/netbird/shared/management/client"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
+	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
 )
@@ -96,7 +100,7 @@ type MockWGIface struct {
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
-	LastActivitiesFunc         func() map[string]time.Time
+	LastActivitiesFunc         func() map[string]monotime.Time
 }
 
 func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
@@ -187,7 +191,7 @@ func (m *MockWGIface) GetNet() *netstack.Net {
 	return m.GetNetFunc()
 }
 
-func (m *MockWGIface) LastActivities() map[string]time.Time {
+func (m *MockWGIface) LastActivities() map[string]monotime.Time {
 	if m.LastActivitiesFunc != nil {
 		return m.LastActivitiesFunc()
 	}
@@ -195,7 +199,7 @@ func (m *MockWGIface) LastActivities() map[string]time.Time {
 }
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("debug", "console")
+	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
@@ -399,7 +403,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		StatusRecorder:   engine.statusRecorder,
 		RelayManager:     relayMgr,
 	})
-	_, _, err = engine.routeManager.Init()
+	err = engine.routeManager.Init()
 	require.NoError(t, err)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -1148,25 +1152,25 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 	}{
 		{
 			name:                    "Parse Valid List Should Be OK",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1", "8.8.8.8/" + testingInterface},
 			expectedOutput:          []string{"1.1.1.1", "8.8.8.8/" + testingIP},
 		},
 		{
 			name:                    "Only Interface name Should Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{testingInterface},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid IP Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1000"},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid Mapping Element Should return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1/10.10.10.1/eth0"},
 			expectedOutput:          nil,
 		},
@@ -1268,6 +1272,82 @@ func Test_CheckFilesEqual(t *testing.T) {
 				},
 			},
 			expectedBool: false,
+		},
+		{
+			name: "Compared Slices with same files but different order should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile2",
+					},
+				},
+				{
+					Files: []string{
+						"testfile4",
+						"testfile3",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile3",
+						"testfile4",
+					},
+				},
+				{
+					Files: []string{
+						"testfile2",
+						"testfile1",
+					},
+				},
+			},
+			expectedBool: true,
+		},
+		{
+			name: "Compared Slices with same files but different order while first is equal should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile0",
+						"testfile1",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile2",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile3",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile0",
+						"testfile1",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile3",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile2",
+					},
+				},
+			},
+			expectedBool: true,
 		},
 	}
 	for _, testCase := range testCases {
@@ -1435,15 +1515,15 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, string, error) {
 	t.Helper()
 
-	config := &types.Config{
-		Stuns:      []*types.Host{},
-		TURNConfig: &types.TURNConfig{},
-		Relay: &types.Relay{
+	config := &config.Config{
+		Stuns:      []*config.Host{},
+		TURNConfig: &config.TURNConfig{},
+		Relay: &config.Relay{
 			Addresses:      []string{"127.0.0.1:1234"},
 			CredentialsTTL: util.Duration{Duration: time.Hour},
 			Secret:         "222222222222222222",
 		},
-		Signal: &types.Host{
+		Signal: &config.Host{
 			Proto: "http",
 			URI:   "localhost:10000",
 		},
@@ -1480,16 +1560,21 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(&types.Settings{}, nil).
 		AnyTimes()
+	settingsMockManager.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
 
 	permissionsManager := permissions.NewManager(store)
+	groupsManager := groups.NewManagerMock()
 
 	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	if err != nil {
 		return nil, "", err
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &server.MockIntegratedValidator{})
 	if err != nil {
 		return nil, "", err
 	}

@@ -6,15 +6,15 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/proto"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // GetPolicy from the store
@@ -27,14 +27,11 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policyID)
+	return am.Store.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policyID)
 }
 
 // SavePolicy in the store
 func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	operation := operations.Create
 	if !create {
 		operation = operations.Update
@@ -61,7 +58,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
@@ -71,7 +68,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			saveFunc = transaction.SavePolicy
 		}
 
-		return saveFunc(ctx, store.LockingStrengthUpdate, policy)
+		return saveFunc(ctx, policy)
 	})
 	if err != nil {
 		return nil, err
@@ -88,9 +85,6 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 // DeletePolicy from the store
 func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, policyID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -113,11 +107,11 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.DeletePolicy(ctx, store.LockingStrengthUpdate, accountID, policyID)
+		return transaction.DeletePolicy(ctx, accountID, policyID)
 	})
 	if err != nil {
 		return err
@@ -142,13 +136,13 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthShare, accountID)
+	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
 // arePolicyChangesAffectPeers checks if changes to a policy will affect any associated peers.
 func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy, isUpdate bool) (bool, error) {
 	if isUpdate {
-		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policy.ID)
+		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
 		if err != nil {
 			return false, err
 		}
@@ -173,7 +167,7 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 // validatePolicy validates the policy and its rules.
 func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) error {
 	if policy.ID != "" {
-		_, err := transaction.GetPolicyByID(ctx, store.LockingStrengthShare, accountID, policy.ID)
+		_, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
 		if err != nil {
 			return err
 		}
@@ -182,12 +176,12 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 		policy.AccountID = accountID
 	}
 
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, policy.RuleGroups())
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, policy.RuleGroups())
 	if err != nil {
 		return err
 	}
 
-	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthShare, accountID, policy.SourcePostureChecks)
+	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthNone, accountID, policy.SourcePostureChecks)
 	if err != nil {
 		return err
 	}

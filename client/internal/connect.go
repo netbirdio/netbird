@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -21,15 +22,16 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
-	mgm "github.com/netbirdio/netbird/management/client"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/relay/auth/hmac"
-	relayClient "github.com/netbirdio/netbird/relay/client"
-	signal "github.com/netbirdio/netbird/signal/client"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/relay/auth/hmac"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
 	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
@@ -37,17 +39,17 @@ import (
 
 type ConnectClient struct {
 	ctx            context.Context
-	config         *Config
+	config         *profilemanager.Config
 	statusRecorder *peer.Status
 	engine         *Engine
 	engineMutex    sync.Mutex
 
-	persistNetworkMap bool
+	persistSyncResponse bool
 }
 
 func NewConnectClient(
 	ctx context.Context,
-	config *Config,
+	config *profilemanager.Config,
 	statusRecorder *peer.Status,
 
 ) *ConnectClient {
@@ -69,7 +71,7 @@ func (c *ConnectClient) RunOnAndroid(
 	tunAdapter device.TunAdapter,
 	iFaceDiscover stdnet.ExternalIFaceDiscover,
 	networkChangeListener listener.NetworkChangeListener,
-	dnsAddresses []string,
+	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
 ) error {
 	// in case of non Android os these variables will be nil
@@ -269,7 +271,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		c.engineMutex.Lock()
 		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
-		c.engine.SetNetworkMapPersistence(c.persistNetworkMap)
+		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
 		if err := c.engine.Start(); err != nil {
@@ -348,23 +350,23 @@ func (c *ConnectClient) Engine() *Engine {
 	return e
 }
 
-// GetLatestNetworkMap returns the latest network map from the engine.
-func (c *ConnectClient) GetLatestNetworkMap() (*mgmProto.NetworkMap, error) {
+// GetLatestSyncResponse returns the latest sync response from the engine.
+func (c *ConnectClient) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
 	engine := c.Engine()
 	if engine == nil {
 		return nil, errors.New("engine is not initialized")
 	}
 
-	networkMap, err := engine.GetLatestNetworkMap()
+	syncResponse, err := engine.GetLatestSyncResponse()
 	if err != nil {
-		return nil, fmt.Errorf("get latest network map: %w", err)
+		return nil, fmt.Errorf("get latest sync response: %w", err)
 	}
 
-	if networkMap == nil {
-		return nil, errors.New("network map is not available")
+	if syncResponse == nil {
+		return nil, errors.New("sync response is not available")
 	}
 
-	return networkMap, nil
+	return syncResponse, nil
 }
 
 // Status returns the current client status
@@ -397,23 +399,23 @@ func (c *ConnectClient) Stop() error {
 	return nil
 }
 
-// SetNetworkMapPersistence enables or disables network map persistence.
-// When enabled, the last received network map will be stored and can be retrieved
-// through the Engine's getLatestNetworkMap method. When disabled, any stored
-// network map will be cleared.
-func (c *ConnectClient) SetNetworkMapPersistence(enabled bool) {
+// SetSyncResponsePersistence enables or disables sync response persistence.
+// When enabled, the last received sync response will be stored and can be retrieved
+// through the Engine's GetLatestSyncResponse method. When disabled, any stored
+// sync response will be cleared.
+func (c *ConnectClient) SetSyncResponsePersistence(enabled bool) {
 	c.engineMutex.Lock()
-	c.persistNetworkMap = enabled
+	c.persistSyncResponse = enabled
 	c.engineMutex.Unlock()
 
 	engine := c.Engine()
 	if engine != nil {
-		engine.SetNetworkMapPersistence(enabled)
+		engine.SetSyncResponsePersistence(enabled)
 	}
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
 	nm := false
 	if config.NetworkMonitor != nil {
 		nm = *config.NetworkMonitor
@@ -483,7 +485,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 }
 
 // loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
-func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *Config) (*mgmProto.LoginResponse, error) {
+func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
 
 	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {

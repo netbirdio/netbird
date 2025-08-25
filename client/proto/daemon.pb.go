@@ -273,9 +273,11 @@ type LoginRequest struct {
 	// cleanDNSLabels clean map list of DNS labels.
 	// This is needed because the generated code
 	// omits initialized empty slices due to omitempty tags
-	CleanDNSLabels        bool  `protobuf:"varint,27,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
-	LazyConnectionEnabled *bool `protobuf:"varint,28,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
-	BlockInbound          *bool `protobuf:"varint,29,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
+	CleanDNSLabels        bool    `protobuf:"varint,27,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
+	LazyConnectionEnabled *bool   `protobuf:"varint,28,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
+	BlockInbound          *bool   `protobuf:"varint,29,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
+	ProfileName           *string `protobuf:"bytes,30,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
+	Username              *string `protobuf:"bytes,31,opt,name=username,proto3,oneof" json:"username,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -514,6 +516,20 @@ func (x *LoginRequest) GetBlockInbound() bool {
 	return false
 }
 
+func (x *LoginRequest) GetProfileName() string {
+	if x != nil && x.ProfileName != nil {
+		return *x.ProfileName
+	}
+	return ""
+}
+
+func (x *LoginRequest) GetUsername() string {
+	if x != nil && x.Username != nil {
+		return *x.Username
+	}
+	return ""
+}
+
 type LoginResponse struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
 	NeedsSSOLogin           bool                   `protobuf:"varint,1,opt,name=needsSSOLogin,proto3" json:"needsSSOLogin,omitempty"`
@@ -636,6 +652,7 @@ func (x *WaitSSOLoginRequest) GetHostname() string {
 
 type WaitSSOLoginResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -670,8 +687,17 @@ func (*WaitSSOLoginResponse) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{4}
 }
 
+func (x *WaitSSOLoginResponse) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
 type UpRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProfileName   *string                `protobuf:"bytes,1,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
+	Username      *string                `protobuf:"bytes,2,opt,name=username,proto3,oneof" json:"username,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -704,6 +730,20 @@ func (x *UpRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UpRequest.ProtoReflect.Descriptor instead.
 func (*UpRequest) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *UpRequest) GetProfileName() string {
+	if x != nil && x.ProfileName != nil {
+		return *x.ProfileName
+	}
+	return ""
+}
+
+func (x *UpRequest) GetUsername() string {
+	if x != nil && x.Username != nil {
+		return *x.Username
+	}
+	return ""
 }
 
 type UpResponse struct {
@@ -930,6 +970,8 @@ func (*DownResponse) Descriptor() ([]byte, []int) {
 
 type GetConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProfileName   string                 `protobuf:"bytes,1,opt,name=profileName,proto3" json:"profileName,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -962,6 +1004,20 @@ func (x *GetConfigRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetConfigRequest.ProtoReflect.Descriptor instead.
 func (*GetConfigRequest) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetConfigRequest) GetProfileName() string {
+	if x != nil {
+		return x.ProfileName
+	}
+	return ""
+}
+
+func (x *GetConfigRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
 }
 
 type GetConfigResponse struct {
@@ -2903,27 +2959,27 @@ func (x *DeleteStateResponse) GetDeletedStates() int32 {
 	return 0
 }
 
-type SetNetworkMapPersistenceRequest struct {
+type SetSyncResponsePersistenceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SetNetworkMapPersistenceRequest) Reset() {
-	*x = SetNetworkMapPersistenceRequest{}
+func (x *SetSyncResponsePersistenceRequest) Reset() {
+	*x = SetSyncResponsePersistenceRequest{}
 	mi := &file_daemon_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SetNetworkMapPersistenceRequest) String() string {
+func (x *SetSyncResponsePersistenceRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SetNetworkMapPersistenceRequest) ProtoMessage() {}
+func (*SetSyncResponsePersistenceRequest) ProtoMessage() {}
 
-func (x *SetNetworkMapPersistenceRequest) ProtoReflect() protoreflect.Message {
+func (x *SetSyncResponsePersistenceRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_daemon_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2935,38 +2991,38 @@ func (x *SetNetworkMapPersistenceRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SetNetworkMapPersistenceRequest.ProtoReflect.Descriptor instead.
-func (*SetNetworkMapPersistenceRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetSyncResponsePersistenceRequest.ProtoReflect.Descriptor instead.
+func (*SetSyncResponsePersistenceRequest) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{42}
 }
 
-func (x *SetNetworkMapPersistenceRequest) GetEnabled() bool {
+func (x *SetSyncResponsePersistenceRequest) GetEnabled() bool {
 	if x != nil {
 		return x.Enabled
 	}
 	return false
 }
 
-type SetNetworkMapPersistenceResponse struct {
+type SetSyncResponsePersistenceResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SetNetworkMapPersistenceResponse) Reset() {
-	*x = SetNetworkMapPersistenceResponse{}
+func (x *SetSyncResponsePersistenceResponse) Reset() {
+	*x = SetSyncResponsePersistenceResponse{}
 	mi := &file_daemon_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SetNetworkMapPersistenceResponse) String() string {
+func (x *SetSyncResponsePersistenceResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SetNetworkMapPersistenceResponse) ProtoMessage() {}
+func (*SetSyncResponsePersistenceResponse) ProtoMessage() {}
 
-func (x *SetNetworkMapPersistenceResponse) ProtoReflect() protoreflect.Message {
+func (x *SetSyncResponsePersistenceResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_daemon_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2978,8 +3034,8 @@ func (x *SetNetworkMapPersistenceResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SetNetworkMapPersistenceResponse.ProtoReflect.Descriptor instead.
-func (*SetNetworkMapPersistenceResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetSyncResponsePersistenceResponse.ProtoReflect.Descriptor instead.
+func (*SetSyncResponsePersistenceResponse) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{43}
 }
 
@@ -3503,6 +3559,965 @@ func (x *GetEventsResponse) GetEvents() []*SystemEvent {
 	return nil
 }
 
+type SwitchProfileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProfileName   *string                `protobuf:"bytes,1,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
+	Username      *string                `protobuf:"bytes,2,opt,name=username,proto3,oneof" json:"username,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SwitchProfileRequest) Reset() {
+	*x = SwitchProfileRequest{}
+	mi := &file_daemon_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SwitchProfileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SwitchProfileRequest) ProtoMessage() {}
+
+func (x *SwitchProfileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SwitchProfileRequest.ProtoReflect.Descriptor instead.
+func (*SwitchProfileRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *SwitchProfileRequest) GetProfileName() string {
+	if x != nil && x.ProfileName != nil {
+		return *x.ProfileName
+	}
+	return ""
+}
+
+func (x *SwitchProfileRequest) GetUsername() string {
+	if x != nil && x.Username != nil {
+		return *x.Username
+	}
+	return ""
+}
+
+type SwitchProfileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SwitchProfileResponse) Reset() {
+	*x = SwitchProfileResponse{}
+	mi := &file_daemon_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SwitchProfileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SwitchProfileResponse) ProtoMessage() {}
+
+func (x *SwitchProfileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SwitchProfileResponse.ProtoReflect.Descriptor instead.
+func (*SwitchProfileResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{53}
+}
+
+type SetConfigRequest struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Username    string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	ProfileName string                 `protobuf:"bytes,2,opt,name=profileName,proto3" json:"profileName,omitempty"`
+	// managementUrl to authenticate.
+	ManagementUrl string `protobuf:"bytes,3,opt,name=managementUrl,proto3" json:"managementUrl,omitempty"`
+	// adminUrl to manage keys.
+	AdminURL              string   `protobuf:"bytes,4,opt,name=adminURL,proto3" json:"adminURL,omitempty"`
+	RosenpassEnabled      *bool    `protobuf:"varint,5,opt,name=rosenpassEnabled,proto3,oneof" json:"rosenpassEnabled,omitempty"`
+	InterfaceName         *string  `protobuf:"bytes,6,opt,name=interfaceName,proto3,oneof" json:"interfaceName,omitempty"`
+	WireguardPort         *int64   `protobuf:"varint,7,opt,name=wireguardPort,proto3,oneof" json:"wireguardPort,omitempty"`
+	OptionalPreSharedKey  *string  `protobuf:"bytes,8,opt,name=optionalPreSharedKey,proto3,oneof" json:"optionalPreSharedKey,omitempty"`
+	DisableAutoConnect    *bool    `protobuf:"varint,9,opt,name=disableAutoConnect,proto3,oneof" json:"disableAutoConnect,omitempty"`
+	ServerSSHAllowed      *bool    `protobuf:"varint,10,opt,name=serverSSHAllowed,proto3,oneof" json:"serverSSHAllowed,omitempty"`
+	RosenpassPermissive   *bool    `protobuf:"varint,11,opt,name=rosenpassPermissive,proto3,oneof" json:"rosenpassPermissive,omitempty"`
+	NetworkMonitor        *bool    `protobuf:"varint,12,opt,name=networkMonitor,proto3,oneof" json:"networkMonitor,omitempty"`
+	DisableClientRoutes   *bool    `protobuf:"varint,13,opt,name=disable_client_routes,json=disableClientRoutes,proto3,oneof" json:"disable_client_routes,omitempty"`
+	DisableServerRoutes   *bool    `protobuf:"varint,14,opt,name=disable_server_routes,json=disableServerRoutes,proto3,oneof" json:"disable_server_routes,omitempty"`
+	DisableDns            *bool    `protobuf:"varint,15,opt,name=disable_dns,json=disableDns,proto3,oneof" json:"disable_dns,omitempty"`
+	DisableFirewall       *bool    `protobuf:"varint,16,opt,name=disable_firewall,json=disableFirewall,proto3,oneof" json:"disable_firewall,omitempty"`
+	BlockLanAccess        *bool    `protobuf:"varint,17,opt,name=block_lan_access,json=blockLanAccess,proto3,oneof" json:"block_lan_access,omitempty"`
+	DisableNotifications  *bool    `protobuf:"varint,18,opt,name=disable_notifications,json=disableNotifications,proto3,oneof" json:"disable_notifications,omitempty"`
+	LazyConnectionEnabled *bool    `protobuf:"varint,19,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
+	BlockInbound          *bool    `protobuf:"varint,20,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
+	NatExternalIPs        []string `protobuf:"bytes,21,rep,name=natExternalIPs,proto3" json:"natExternalIPs,omitempty"`
+	CleanNATExternalIPs   bool     `protobuf:"varint,22,opt,name=cleanNATExternalIPs,proto3" json:"cleanNATExternalIPs,omitempty"`
+	CustomDNSAddress      []byte   `protobuf:"bytes,23,opt,name=customDNSAddress,proto3" json:"customDNSAddress,omitempty"`
+	ExtraIFaceBlacklist   []string `protobuf:"bytes,24,rep,name=extraIFaceBlacklist,proto3" json:"extraIFaceBlacklist,omitempty"`
+	DnsLabels             []string `protobuf:"bytes,25,rep,name=dns_labels,json=dnsLabels,proto3" json:"dns_labels,omitempty"`
+	// cleanDNSLabels clean map list of DNS labels.
+	CleanDNSLabels   bool                 `protobuf:"varint,26,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
+	DnsRouteInterval *durationpb.Duration `protobuf:"bytes,27,opt,name=dnsRouteInterval,proto3,oneof" json:"dnsRouteInterval,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SetConfigRequest) Reset() {
+	*x = SetConfigRequest{}
+	mi := &file_daemon_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetConfigRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetConfigRequest) ProtoMessage() {}
+
+func (x *SetConfigRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetConfigRequest.ProtoReflect.Descriptor instead.
+func (*SetConfigRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *SetConfigRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *SetConfigRequest) GetProfileName() string {
+	if x != nil {
+		return x.ProfileName
+	}
+	return ""
+}
+
+func (x *SetConfigRequest) GetManagementUrl() string {
+	if x != nil {
+		return x.ManagementUrl
+	}
+	return ""
+}
+
+func (x *SetConfigRequest) GetAdminURL() string {
+	if x != nil {
+		return x.AdminURL
+	}
+	return ""
+}
+
+func (x *SetConfigRequest) GetRosenpassEnabled() bool {
+	if x != nil && x.RosenpassEnabled != nil {
+		return *x.RosenpassEnabled
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetInterfaceName() string {
+	if x != nil && x.InterfaceName != nil {
+		return *x.InterfaceName
+	}
+	return ""
+}
+
+func (x *SetConfigRequest) GetWireguardPort() int64 {
+	if x != nil && x.WireguardPort != nil {
+		return *x.WireguardPort
+	}
+	return 0
+}
+
+func (x *SetConfigRequest) GetOptionalPreSharedKey() string {
+	if x != nil && x.OptionalPreSharedKey != nil {
+		return *x.OptionalPreSharedKey
+	}
+	return ""
+}
+
+func (x *SetConfigRequest) GetDisableAutoConnect() bool {
+	if x != nil && x.DisableAutoConnect != nil {
+		return *x.DisableAutoConnect
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetServerSSHAllowed() bool {
+	if x != nil && x.ServerSSHAllowed != nil {
+		return *x.ServerSSHAllowed
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetRosenpassPermissive() bool {
+	if x != nil && x.RosenpassPermissive != nil {
+		return *x.RosenpassPermissive
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetNetworkMonitor() bool {
+	if x != nil && x.NetworkMonitor != nil {
+		return *x.NetworkMonitor
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetDisableClientRoutes() bool {
+	if x != nil && x.DisableClientRoutes != nil {
+		return *x.DisableClientRoutes
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetDisableServerRoutes() bool {
+	if x != nil && x.DisableServerRoutes != nil {
+		return *x.DisableServerRoutes
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetDisableDns() bool {
+	if x != nil && x.DisableDns != nil {
+		return *x.DisableDns
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetDisableFirewall() bool {
+	if x != nil && x.DisableFirewall != nil {
+		return *x.DisableFirewall
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetBlockLanAccess() bool {
+	if x != nil && x.BlockLanAccess != nil {
+		return *x.BlockLanAccess
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetDisableNotifications() bool {
+	if x != nil && x.DisableNotifications != nil {
+		return *x.DisableNotifications
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetLazyConnectionEnabled() bool {
+	if x != nil && x.LazyConnectionEnabled != nil {
+		return *x.LazyConnectionEnabled
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetBlockInbound() bool {
+	if x != nil && x.BlockInbound != nil {
+		return *x.BlockInbound
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetNatExternalIPs() []string {
+	if x != nil {
+		return x.NatExternalIPs
+	}
+	return nil
+}
+
+func (x *SetConfigRequest) GetCleanNATExternalIPs() bool {
+	if x != nil {
+		return x.CleanNATExternalIPs
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetCustomDNSAddress() []byte {
+	if x != nil {
+		return x.CustomDNSAddress
+	}
+	return nil
+}
+
+func (x *SetConfigRequest) GetExtraIFaceBlacklist() []string {
+	if x != nil {
+		return x.ExtraIFaceBlacklist
+	}
+	return nil
+}
+
+func (x *SetConfigRequest) GetDnsLabels() []string {
+	if x != nil {
+		return x.DnsLabels
+	}
+	return nil
+}
+
+func (x *SetConfigRequest) GetCleanDNSLabels() bool {
+	if x != nil {
+		return x.CleanDNSLabels
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetDnsRouteInterval() *durationpb.Duration {
+	if x != nil {
+		return x.DnsRouteInterval
+	}
+	return nil
+}
+
+type SetConfigResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetConfigResponse) Reset() {
+	*x = SetConfigResponse{}
+	mi := &file_daemon_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetConfigResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetConfigResponse) ProtoMessage() {}
+
+func (x *SetConfigResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetConfigResponse.ProtoReflect.Descriptor instead.
+func (*SetConfigResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{55}
+}
+
+type AddProfileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	ProfileName   string                 `protobuf:"bytes,2,opt,name=profileName,proto3" json:"profileName,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddProfileRequest) Reset() {
+	*x = AddProfileRequest{}
+	mi := &file_daemon_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddProfileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddProfileRequest) ProtoMessage() {}
+
+func (x *AddProfileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddProfileRequest.ProtoReflect.Descriptor instead.
+func (*AddProfileRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *AddProfileRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *AddProfileRequest) GetProfileName() string {
+	if x != nil {
+		return x.ProfileName
+	}
+	return ""
+}
+
+type AddProfileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddProfileResponse) Reset() {
+	*x = AddProfileResponse{}
+	mi := &file_daemon_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddProfileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddProfileResponse) ProtoMessage() {}
+
+func (x *AddProfileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddProfileResponse.ProtoReflect.Descriptor instead.
+func (*AddProfileResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{57}
+}
+
+type RemoveProfileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	ProfileName   string                 `protobuf:"bytes,2,opt,name=profileName,proto3" json:"profileName,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveProfileRequest) Reset() {
+	*x = RemoveProfileRequest{}
+	mi := &file_daemon_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveProfileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveProfileRequest) ProtoMessage() {}
+
+func (x *RemoveProfileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveProfileRequest.ProtoReflect.Descriptor instead.
+func (*RemoveProfileRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *RemoveProfileRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *RemoveProfileRequest) GetProfileName() string {
+	if x != nil {
+		return x.ProfileName
+	}
+	return ""
+}
+
+type RemoveProfileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveProfileResponse) Reset() {
+	*x = RemoveProfileResponse{}
+	mi := &file_daemon_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveProfileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveProfileResponse) ProtoMessage() {}
+
+func (x *RemoveProfileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveProfileResponse.ProtoReflect.Descriptor instead.
+func (*RemoveProfileResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{59}
+}
+
+type ListProfilesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListProfilesRequest) Reset() {
+	*x = ListProfilesRequest{}
+	mi := &file_daemon_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListProfilesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListProfilesRequest) ProtoMessage() {}
+
+func (x *ListProfilesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListProfilesRequest.ProtoReflect.Descriptor instead.
+func (*ListProfilesRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *ListProfilesRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+type ListProfilesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Profiles      []*Profile             `protobuf:"bytes,1,rep,name=profiles,proto3" json:"profiles,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListProfilesResponse) Reset() {
+	*x = ListProfilesResponse{}
+	mi := &file_daemon_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListProfilesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListProfilesResponse) ProtoMessage() {}
+
+func (x *ListProfilesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListProfilesResponse.ProtoReflect.Descriptor instead.
+func (*ListProfilesResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{61}
+}
+
+func (x *ListProfilesResponse) GetProfiles() []*Profile {
+	if x != nil {
+		return x.Profiles
+	}
+	return nil
+}
+
+type Profile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	IsActive      bool                   `protobuf:"varint,2,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Profile) Reset() {
+	*x = Profile{}
+	mi := &file_daemon_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Profile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Profile) ProtoMessage() {}
+
+func (x *Profile) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Profile.ProtoReflect.Descriptor instead.
+func (*Profile) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{62}
+}
+
+func (x *Profile) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Profile) GetIsActive() bool {
+	if x != nil {
+		return x.IsActive
+	}
+	return false
+}
+
+type GetActiveProfileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetActiveProfileRequest) Reset() {
+	*x = GetActiveProfileRequest{}
+	mi := &file_daemon_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActiveProfileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActiveProfileRequest) ProtoMessage() {}
+
+func (x *GetActiveProfileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActiveProfileRequest.ProtoReflect.Descriptor instead.
+func (*GetActiveProfileRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{63}
+}
+
+type GetActiveProfileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProfileName   string                 `protobuf:"bytes,1,opt,name=profileName,proto3" json:"profileName,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetActiveProfileResponse) Reset() {
+	*x = GetActiveProfileResponse{}
+	mi := &file_daemon_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActiveProfileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActiveProfileResponse) ProtoMessage() {}
+
+func (x *GetActiveProfileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActiveProfileResponse.ProtoReflect.Descriptor instead.
+func (*GetActiveProfileResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{64}
+}
+
+func (x *GetActiveProfileResponse) GetProfileName() string {
+	if x != nil {
+		return x.ProfileName
+	}
+	return ""
+}
+
+func (x *GetActiveProfileResponse) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+type LogoutRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProfileName   *string                `protobuf:"bytes,1,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
+	Username      *string                `protobuf:"bytes,2,opt,name=username,proto3,oneof" json:"username,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogoutRequest) Reset() {
+	*x = LogoutRequest{}
+	mi := &file_daemon_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogoutRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogoutRequest) ProtoMessage() {}
+
+func (x *LogoutRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogoutRequest.ProtoReflect.Descriptor instead.
+func (*LogoutRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *LogoutRequest) GetProfileName() string {
+	if x != nil && x.ProfileName != nil {
+		return *x.ProfileName
+	}
+	return ""
+}
+
+func (x *LogoutRequest) GetUsername() string {
+	if x != nil && x.Username != nil {
+		return *x.Username
+	}
+	return ""
+}
+
+type LogoutResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogoutResponse) Reset() {
+	*x = LogoutResponse{}
+	mi := &file_daemon_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogoutResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogoutResponse) ProtoMessage() {}
+
+func (x *LogoutResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogoutResponse.ProtoReflect.Descriptor instead.
+func (*LogoutResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{66}
+}
+
+type GetFeaturesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFeaturesRequest) Reset() {
+	*x = GetFeaturesRequest{}
+	mi := &file_daemon_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFeaturesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFeaturesRequest) ProtoMessage() {}
+
+func (x *GetFeaturesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFeaturesRequest.ProtoReflect.Descriptor instead.
+func (*GetFeaturesRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{67}
+}
+
+type GetFeaturesResponse struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	DisableProfiles       bool                   `protobuf:"varint,1,opt,name=disable_profiles,json=disableProfiles,proto3" json:"disable_profiles,omitempty"`
+	DisableUpdateSettings bool                   `protobuf:"varint,2,opt,name=disable_update_settings,json=disableUpdateSettings,proto3" json:"disable_update_settings,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *GetFeaturesResponse) Reset() {
+	*x = GetFeaturesResponse{}
+	mi := &file_daemon_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFeaturesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFeaturesResponse) ProtoMessage() {}
+
+func (x *GetFeaturesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFeaturesResponse.ProtoReflect.Descriptor instead.
+func (*GetFeaturesResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *GetFeaturesResponse) GetDisableProfiles() bool {
+	if x != nil {
+		return x.DisableProfiles
+	}
+	return false
+}
+
+func (x *GetFeaturesResponse) GetDisableUpdateSettings() bool {
+	if x != nil {
+		return x.DisableUpdateSettings
+	}
+	return false
+}
+
 type PortInfo_Range struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Start         uint32                 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
@@ -3513,7 +4528,7 @@ type PortInfo_Range struct {
 
 func (x *PortInfo_Range) Reset() {
 	*x = PortInfo_Range{}
-	mi := &file_daemon_proto_msgTypes[53]
+	mi := &file_daemon_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3525,7 +4540,7 @@ func (x *PortInfo_Range) String() string {
 func (*PortInfo_Range) ProtoMessage() {}
 
 func (x *PortInfo_Range) ProtoReflect() protoreflect.Message {
-	mi := &file_daemon_proto_msgTypes[53]
+	mi := &file_daemon_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3560,7 +4575,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\xbf\r\n" +
+	"\fEmptyRequest\"\xa4\x0e\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -3594,7 +4609,9 @@ const file_daemon_proto_rawDesc = "" +
 	"dns_labels\x18\x1a \x03(\tR\tdnsLabels\x12&\n" +
 	"\x0ecleanDNSLabels\x18\x1b \x01(\bR\x0ecleanDNSLabels\x129\n" +
 	"\x15lazyConnectionEnabled\x18\x1c \x01(\bH\x0fR\x15lazyConnectionEnabled\x88\x01\x01\x12(\n" +
-	"\rblock_inbound\x18\x1d \x01(\bH\x10R\fblockInbound\x88\x01\x01B\x13\n" +
+	"\rblock_inbound\x18\x1d \x01(\bH\x10R\fblockInbound\x88\x01\x01\x12%\n" +
+	"\vprofileName\x18\x1e \x01(\tH\x11R\vprofileName\x88\x01\x01\x12\x1f\n" +
+	"\busername\x18\x1f \x01(\tH\x12R\busername\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -3611,7 +4628,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\x11_block_lan_accessB\x18\n" +
 	"\x16_disable_notificationsB\x18\n" +
 	"\x16_lazyConnectionEnabledB\x10\n" +
-	"\x0e_block_inbound\"\xb5\x01\n" +
+	"\x0e_block_inboundB\x0e\n" +
+	"\f_profileNameB\v\n" +
+	"\t_username\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -3619,9 +4638,14 @@ const file_daemon_proto_rawDesc = "" +
 	"\x17verificationURIComplete\x18\x04 \x01(\tR\x17verificationURIComplete\"M\n" +
 	"\x13WaitSSOLoginRequest\x12\x1a\n" +
 	"\buserCode\x18\x01 \x01(\tR\buserCode\x12\x1a\n" +
-	"\bhostname\x18\x02 \x01(\tR\bhostname\"\x16\n" +
-	"\x14WaitSSOLoginResponse\"\v\n" +
-	"\tUpRequest\"\f\n" +
+	"\bhostname\x18\x02 \x01(\tR\bhostname\",\n" +
+	"\x14WaitSSOLoginResponse\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\"p\n" +
+	"\tUpRequest\x12%\n" +
+	"\vprofileName\x18\x01 \x01(\tH\x00R\vprofileName\x88\x01\x01\x12\x1f\n" +
+	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
+	"\f_profileNameB\v\n" +
+	"\t_username\"\f\n" +
 	"\n" +
 	"UpResponse\"g\n" +
 	"\rStatusRequest\x12,\n" +
@@ -3634,8 +4658,10 @@ const file_daemon_proto_rawDesc = "" +
 	"fullStatus\x12$\n" +
 	"\rdaemonVersion\x18\x03 \x01(\tR\rdaemonVersion\"\r\n" +
 	"\vDownRequest\"\x0e\n" +
-	"\fDownResponse\"\x12\n" +
-	"\x10GetConfigRequest\"\xa3\x06\n" +
+	"\fDownResponse\"P\n" +
+	"\x10GetConfigRequest\x12 \n" +
+	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xa3\x06\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -3789,10 +4815,10 @@ const file_daemon_proto_rawDesc = "" +
 	"state_name\x18\x01 \x01(\tR\tstateName\x12\x10\n" +
 	"\x03all\x18\x02 \x01(\bR\x03all\"<\n" +
 	"\x13DeleteStateResponse\x12%\n" +
-	"\x0edeleted_states\x18\x01 \x01(\x05R\rdeletedStates\";\n" +
-	"\x1fSetNetworkMapPersistenceRequest\x12\x18\n" +
-	"\aenabled\x18\x01 \x01(\bR\aenabled\"\"\n" +
-	" SetNetworkMapPersistenceResponse\"v\n" +
+	"\x0edeleted_states\x18\x01 \x01(\x05R\rdeletedStates\"=\n" +
+	"!SetSyncResponsePersistenceRequest\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\"$\n" +
+	"\"SetSyncResponsePersistenceResponse\"v\n" +
 	"\bTCPFlags\x12\x10\n" +
 	"\x03syn\x18\x01 \x01(\bR\x03syn\x12\x10\n" +
 	"\x03ack\x18\x02 \x01(\bR\x03ack\x12\x10\n" +
@@ -3853,7 +4879,92 @@ const file_daemon_proto_rawDesc = "" +
 	"\x06SYSTEM\x10\x04\"\x12\n" +
 	"\x10GetEventsRequest\"@\n" +
 	"\x11GetEventsResponse\x12+\n" +
-	"\x06events\x18\x01 \x03(\v2\x13.daemon.SystemEventR\x06events*b\n" +
+	"\x06events\x18\x01 \x03(\v2\x13.daemon.SystemEventR\x06events\"{\n" +
+	"\x14SwitchProfileRequest\x12%\n" +
+	"\vprofileName\x18\x01 \x01(\tH\x00R\vprofileName\x88\x01\x01\x12\x1f\n" +
+	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
+	"\f_profileNameB\v\n" +
+	"\t_username\"\x17\n" +
+	"\x15SwitchProfileResponse\"\xef\f\n" +
+	"\x10SetConfigRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
+	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
+	"\rmanagementUrl\x18\x03 \x01(\tR\rmanagementUrl\x12\x1a\n" +
+	"\badminURL\x18\x04 \x01(\tR\badminURL\x12/\n" +
+	"\x10rosenpassEnabled\x18\x05 \x01(\bH\x00R\x10rosenpassEnabled\x88\x01\x01\x12)\n" +
+	"\rinterfaceName\x18\x06 \x01(\tH\x01R\rinterfaceName\x88\x01\x01\x12)\n" +
+	"\rwireguardPort\x18\a \x01(\x03H\x02R\rwireguardPort\x88\x01\x01\x127\n" +
+	"\x14optionalPreSharedKey\x18\b \x01(\tH\x03R\x14optionalPreSharedKey\x88\x01\x01\x123\n" +
+	"\x12disableAutoConnect\x18\t \x01(\bH\x04R\x12disableAutoConnect\x88\x01\x01\x12/\n" +
+	"\x10serverSSHAllowed\x18\n" +
+	" \x01(\bH\x05R\x10serverSSHAllowed\x88\x01\x01\x125\n" +
+	"\x13rosenpassPermissive\x18\v \x01(\bH\x06R\x13rosenpassPermissive\x88\x01\x01\x12+\n" +
+	"\x0enetworkMonitor\x18\f \x01(\bH\aR\x0enetworkMonitor\x88\x01\x01\x127\n" +
+	"\x15disable_client_routes\x18\r \x01(\bH\bR\x13disableClientRoutes\x88\x01\x01\x127\n" +
+	"\x15disable_server_routes\x18\x0e \x01(\bH\tR\x13disableServerRoutes\x88\x01\x01\x12$\n" +
+	"\vdisable_dns\x18\x0f \x01(\bH\n" +
+	"R\n" +
+	"disableDns\x88\x01\x01\x12.\n" +
+	"\x10disable_firewall\x18\x10 \x01(\bH\vR\x0fdisableFirewall\x88\x01\x01\x12-\n" +
+	"\x10block_lan_access\x18\x11 \x01(\bH\fR\x0eblockLanAccess\x88\x01\x01\x128\n" +
+	"\x15disable_notifications\x18\x12 \x01(\bH\rR\x14disableNotifications\x88\x01\x01\x129\n" +
+	"\x15lazyConnectionEnabled\x18\x13 \x01(\bH\x0eR\x15lazyConnectionEnabled\x88\x01\x01\x12(\n" +
+	"\rblock_inbound\x18\x14 \x01(\bH\x0fR\fblockInbound\x88\x01\x01\x12&\n" +
+	"\x0enatExternalIPs\x18\x15 \x03(\tR\x0enatExternalIPs\x120\n" +
+	"\x13cleanNATExternalIPs\x18\x16 \x01(\bR\x13cleanNATExternalIPs\x12*\n" +
+	"\x10customDNSAddress\x18\x17 \x01(\fR\x10customDNSAddress\x120\n" +
+	"\x13extraIFaceBlacklist\x18\x18 \x03(\tR\x13extraIFaceBlacklist\x12\x1d\n" +
+	"\n" +
+	"dns_labels\x18\x19 \x03(\tR\tdnsLabels\x12&\n" +
+	"\x0ecleanDNSLabels\x18\x1a \x01(\bR\x0ecleanDNSLabels\x12J\n" +
+	"\x10dnsRouteInterval\x18\x1b \x01(\v2\x19.google.protobuf.DurationH\x10R\x10dnsRouteInterval\x88\x01\x01B\x13\n" +
+	"\x11_rosenpassEnabledB\x10\n" +
+	"\x0e_interfaceNameB\x10\n" +
+	"\x0e_wireguardPortB\x17\n" +
+	"\x15_optionalPreSharedKeyB\x15\n" +
+	"\x13_disableAutoConnectB\x13\n" +
+	"\x11_serverSSHAllowedB\x16\n" +
+	"\x14_rosenpassPermissiveB\x11\n" +
+	"\x0f_networkMonitorB\x18\n" +
+	"\x16_disable_client_routesB\x18\n" +
+	"\x16_disable_server_routesB\x0e\n" +
+	"\f_disable_dnsB\x13\n" +
+	"\x11_disable_firewallB\x13\n" +
+	"\x11_block_lan_accessB\x18\n" +
+	"\x16_disable_notificationsB\x18\n" +
+	"\x16_lazyConnectionEnabledB\x10\n" +
+	"\x0e_block_inboundB\x13\n" +
+	"\x11_dnsRouteInterval\"\x13\n" +
+	"\x11SetConfigResponse\"Q\n" +
+	"\x11AddProfileRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
+	"\vprofileName\x18\x02 \x01(\tR\vprofileName\"\x14\n" +
+	"\x12AddProfileResponse\"T\n" +
+	"\x14RemoveProfileRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
+	"\vprofileName\x18\x02 \x01(\tR\vprofileName\"\x17\n" +
+	"\x15RemoveProfileResponse\"1\n" +
+	"\x13ListProfilesRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\"C\n" +
+	"\x14ListProfilesResponse\x12+\n" +
+	"\bprofiles\x18\x01 \x03(\v2\x0f.daemon.ProfileR\bprofiles\":\n" +
+	"\aProfile\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
+	"\tis_active\x18\x02 \x01(\bR\bisActive\"\x19\n" +
+	"\x17GetActiveProfileRequest\"X\n" +
+	"\x18GetActiveProfileResponse\x12 \n" +
+	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"t\n" +
+	"\rLogoutRequest\x12%\n" +
+	"\vprofileName\x18\x01 \x01(\tH\x00R\vprofileName\x88\x01\x01\x12\x1f\n" +
+	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
+	"\f_profileNameB\v\n" +
+	"\t_username\"\x10\n" +
+	"\x0eLogoutResponse\"\x14\n" +
+	"\x12GetFeaturesRequest\"x\n" +
+	"\x13GetFeaturesResponse\x12)\n" +
+	"\x10disable_profiles\x18\x01 \x01(\bR\x0fdisableProfiles\x126\n" +
+	"\x17disable_update_settings\x18\x02 \x01(\bR\x15disableUpdateSettings*b\n" +
 	"\bLogLevel\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05PANIC\x10\x01\x12\t\n" +
@@ -3862,7 +4973,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x04WARN\x10\x04\x12\b\n" +
 	"\x04INFO\x10\x05\x12\t\n" +
 	"\x05DEBUG\x10\x06\x12\t\n" +
-	"\x05TRACE\x10\a2\xb3\v\n" +
+	"\x05TRACE\x10\a2\x8f\x10\n" +
 	"\rDaemonService\x126\n" +
 	"\x05Login\x12\x14.daemon.LoginRequest\x1a\x15.daemon.LoginResponse\"\x00\x12K\n" +
 	"\fWaitSSOLogin\x12\x1b.daemon.WaitSSOLoginRequest\x1a\x1c.daemon.WaitSSOLoginResponse\"\x00\x12-\n" +
@@ -3881,11 +4992,20 @@ const file_daemon_proto_rawDesc = "" +
 	"ListStates\x12\x19.daemon.ListStatesRequest\x1a\x1a.daemon.ListStatesResponse\"\x00\x12E\n" +
 	"\n" +
 	"CleanState\x12\x19.daemon.CleanStateRequest\x1a\x1a.daemon.CleanStateResponse\"\x00\x12H\n" +
-	"\vDeleteState\x12\x1a.daemon.DeleteStateRequest\x1a\x1b.daemon.DeleteStateResponse\"\x00\x12o\n" +
-	"\x18SetNetworkMapPersistence\x12'.daemon.SetNetworkMapPersistenceRequest\x1a(.daemon.SetNetworkMapPersistenceResponse\"\x00\x12H\n" +
+	"\vDeleteState\x12\x1a.daemon.DeleteStateRequest\x1a\x1b.daemon.DeleteStateResponse\"\x00\x12u\n" +
+	"\x1aSetSyncResponsePersistence\x12).daemon.SetSyncResponsePersistenceRequest\x1a*.daemon.SetSyncResponsePersistenceResponse\"\x00\x12H\n" +
 	"\vTracePacket\x12\x1a.daemon.TracePacketRequest\x1a\x1b.daemon.TracePacketResponse\"\x00\x12D\n" +
 	"\x0fSubscribeEvents\x12\x18.daemon.SubscribeRequest\x1a\x13.daemon.SystemEvent\"\x000\x01\x12B\n" +
-	"\tGetEvents\x12\x18.daemon.GetEventsRequest\x1a\x19.daemon.GetEventsResponse\"\x00B\bZ\x06/protob\x06proto3"
+	"\tGetEvents\x12\x18.daemon.GetEventsRequest\x1a\x19.daemon.GetEventsResponse\"\x00\x12N\n" +
+	"\rSwitchProfile\x12\x1c.daemon.SwitchProfileRequest\x1a\x1d.daemon.SwitchProfileResponse\"\x00\x12B\n" +
+	"\tSetConfig\x12\x18.daemon.SetConfigRequest\x1a\x19.daemon.SetConfigResponse\"\x00\x12E\n" +
+	"\n" +
+	"AddProfile\x12\x19.daemon.AddProfileRequest\x1a\x1a.daemon.AddProfileResponse\"\x00\x12N\n" +
+	"\rRemoveProfile\x12\x1c.daemon.RemoveProfileRequest\x1a\x1d.daemon.RemoveProfileResponse\"\x00\x12K\n" +
+	"\fListProfiles\x12\x1b.daemon.ListProfilesRequest\x1a\x1c.daemon.ListProfilesResponse\"\x00\x12W\n" +
+	"\x10GetActiveProfile\x12\x1f.daemon.GetActiveProfileRequest\x1a .daemon.GetActiveProfileResponse\"\x00\x129\n" +
+	"\x06Logout\x12\x15.daemon.LogoutRequest\x1a\x16.daemon.LogoutResponse\"\x00\x12H\n" +
+	"\vGetFeatures\x12\x1a.daemon.GetFeaturesRequest\x1a\x1b.daemon.GetFeaturesResponse\"\x00B\bZ\x06/protob\x06proto3"
 
 var (
 	file_daemon_proto_rawDescOnce sync.Once
@@ -3900,75 +5020,92 @@ func file_daemon_proto_rawDescGZIP() []byte {
 }
 
 var file_daemon_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
+var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
 var file_daemon_proto_goTypes = []any{
-	(LogLevel)(0),                            // 0: daemon.LogLevel
-	(SystemEvent_Severity)(0),                // 1: daemon.SystemEvent.Severity
-	(SystemEvent_Category)(0),                // 2: daemon.SystemEvent.Category
-	(*EmptyRequest)(nil),                     // 3: daemon.EmptyRequest
-	(*LoginRequest)(nil),                     // 4: daemon.LoginRequest
-	(*LoginResponse)(nil),                    // 5: daemon.LoginResponse
-	(*WaitSSOLoginRequest)(nil),              // 6: daemon.WaitSSOLoginRequest
-	(*WaitSSOLoginResponse)(nil),             // 7: daemon.WaitSSOLoginResponse
-	(*UpRequest)(nil),                        // 8: daemon.UpRequest
-	(*UpResponse)(nil),                       // 9: daemon.UpResponse
-	(*StatusRequest)(nil),                    // 10: daemon.StatusRequest
-	(*StatusResponse)(nil),                   // 11: daemon.StatusResponse
-	(*DownRequest)(nil),                      // 12: daemon.DownRequest
-	(*DownResponse)(nil),                     // 13: daemon.DownResponse
-	(*GetConfigRequest)(nil),                 // 14: daemon.GetConfigRequest
-	(*GetConfigResponse)(nil),                // 15: daemon.GetConfigResponse
-	(*PeerState)(nil),                        // 16: daemon.PeerState
-	(*LocalPeerState)(nil),                   // 17: daemon.LocalPeerState
-	(*SignalState)(nil),                      // 18: daemon.SignalState
-	(*ManagementState)(nil),                  // 19: daemon.ManagementState
-	(*RelayState)(nil),                       // 20: daemon.RelayState
-	(*NSGroupState)(nil),                     // 21: daemon.NSGroupState
-	(*FullStatus)(nil),                       // 22: daemon.FullStatus
-	(*ListNetworksRequest)(nil),              // 23: daemon.ListNetworksRequest
-	(*ListNetworksResponse)(nil),             // 24: daemon.ListNetworksResponse
-	(*SelectNetworksRequest)(nil),            // 25: daemon.SelectNetworksRequest
-	(*SelectNetworksResponse)(nil),           // 26: daemon.SelectNetworksResponse
-	(*IPList)(nil),                           // 27: daemon.IPList
-	(*Network)(nil),                          // 28: daemon.Network
-	(*PortInfo)(nil),                         // 29: daemon.PortInfo
-	(*ForwardingRule)(nil),                   // 30: daemon.ForwardingRule
-	(*ForwardingRulesResponse)(nil),          // 31: daemon.ForwardingRulesResponse
-	(*DebugBundleRequest)(nil),               // 32: daemon.DebugBundleRequest
-	(*DebugBundleResponse)(nil),              // 33: daemon.DebugBundleResponse
-	(*GetLogLevelRequest)(nil),               // 34: daemon.GetLogLevelRequest
-	(*GetLogLevelResponse)(nil),              // 35: daemon.GetLogLevelResponse
-	(*SetLogLevelRequest)(nil),               // 36: daemon.SetLogLevelRequest
-	(*SetLogLevelResponse)(nil),              // 37: daemon.SetLogLevelResponse
-	(*State)(nil),                            // 38: daemon.State
-	(*ListStatesRequest)(nil),                // 39: daemon.ListStatesRequest
-	(*ListStatesResponse)(nil),               // 40: daemon.ListStatesResponse
-	(*CleanStateRequest)(nil),                // 41: daemon.CleanStateRequest
-	(*CleanStateResponse)(nil),               // 42: daemon.CleanStateResponse
-	(*DeleteStateRequest)(nil),               // 43: daemon.DeleteStateRequest
-	(*DeleteStateResponse)(nil),              // 44: daemon.DeleteStateResponse
-	(*SetNetworkMapPersistenceRequest)(nil),  // 45: daemon.SetNetworkMapPersistenceRequest
-	(*SetNetworkMapPersistenceResponse)(nil), // 46: daemon.SetNetworkMapPersistenceResponse
-	(*TCPFlags)(nil),                         // 47: daemon.TCPFlags
-	(*TracePacketRequest)(nil),               // 48: daemon.TracePacketRequest
-	(*TraceStage)(nil),                       // 49: daemon.TraceStage
-	(*TracePacketResponse)(nil),              // 50: daemon.TracePacketResponse
-	(*SubscribeRequest)(nil),                 // 51: daemon.SubscribeRequest
-	(*SystemEvent)(nil),                      // 52: daemon.SystemEvent
-	(*GetEventsRequest)(nil),                 // 53: daemon.GetEventsRequest
-	(*GetEventsResponse)(nil),                // 54: daemon.GetEventsResponse
-	nil,                                      // 55: daemon.Network.ResolvedIPsEntry
-	(*PortInfo_Range)(nil),                   // 56: daemon.PortInfo.Range
-	nil,                                      // 57: daemon.SystemEvent.MetadataEntry
-	(*durationpb.Duration)(nil),              // 58: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),            // 59: google.protobuf.Timestamp
+	(LogLevel)(0),                              // 0: daemon.LogLevel
+	(SystemEvent_Severity)(0),                  // 1: daemon.SystemEvent.Severity
+	(SystemEvent_Category)(0),                  // 2: daemon.SystemEvent.Category
+	(*EmptyRequest)(nil),                       // 3: daemon.EmptyRequest
+	(*LoginRequest)(nil),                       // 4: daemon.LoginRequest
+	(*LoginResponse)(nil),                      // 5: daemon.LoginResponse
+	(*WaitSSOLoginRequest)(nil),                // 6: daemon.WaitSSOLoginRequest
+	(*WaitSSOLoginResponse)(nil),               // 7: daemon.WaitSSOLoginResponse
+	(*UpRequest)(nil),                          // 8: daemon.UpRequest
+	(*UpResponse)(nil),                         // 9: daemon.UpResponse
+	(*StatusRequest)(nil),                      // 10: daemon.StatusRequest
+	(*StatusResponse)(nil),                     // 11: daemon.StatusResponse
+	(*DownRequest)(nil),                        // 12: daemon.DownRequest
+	(*DownResponse)(nil),                       // 13: daemon.DownResponse
+	(*GetConfigRequest)(nil),                   // 14: daemon.GetConfigRequest
+	(*GetConfigResponse)(nil),                  // 15: daemon.GetConfigResponse
+	(*PeerState)(nil),                          // 16: daemon.PeerState
+	(*LocalPeerState)(nil),                     // 17: daemon.LocalPeerState
+	(*SignalState)(nil),                        // 18: daemon.SignalState
+	(*ManagementState)(nil),                    // 19: daemon.ManagementState
+	(*RelayState)(nil),                         // 20: daemon.RelayState
+	(*NSGroupState)(nil),                       // 21: daemon.NSGroupState
+	(*FullStatus)(nil),                         // 22: daemon.FullStatus
+	(*ListNetworksRequest)(nil),                // 23: daemon.ListNetworksRequest
+	(*ListNetworksResponse)(nil),               // 24: daemon.ListNetworksResponse
+	(*SelectNetworksRequest)(nil),              // 25: daemon.SelectNetworksRequest
+	(*SelectNetworksResponse)(nil),             // 26: daemon.SelectNetworksResponse
+	(*IPList)(nil),                             // 27: daemon.IPList
+	(*Network)(nil),                            // 28: daemon.Network
+	(*PortInfo)(nil),                           // 29: daemon.PortInfo
+	(*ForwardingRule)(nil),                     // 30: daemon.ForwardingRule
+	(*ForwardingRulesResponse)(nil),            // 31: daemon.ForwardingRulesResponse
+	(*DebugBundleRequest)(nil),                 // 32: daemon.DebugBundleRequest
+	(*DebugBundleResponse)(nil),                // 33: daemon.DebugBundleResponse
+	(*GetLogLevelRequest)(nil),                 // 34: daemon.GetLogLevelRequest
+	(*GetLogLevelResponse)(nil),                // 35: daemon.GetLogLevelResponse
+	(*SetLogLevelRequest)(nil),                 // 36: daemon.SetLogLevelRequest
+	(*SetLogLevelResponse)(nil),                // 37: daemon.SetLogLevelResponse
+	(*State)(nil),                              // 38: daemon.State
+	(*ListStatesRequest)(nil),                  // 39: daemon.ListStatesRequest
+	(*ListStatesResponse)(nil),                 // 40: daemon.ListStatesResponse
+	(*CleanStateRequest)(nil),                  // 41: daemon.CleanStateRequest
+	(*CleanStateResponse)(nil),                 // 42: daemon.CleanStateResponse
+	(*DeleteStateRequest)(nil),                 // 43: daemon.DeleteStateRequest
+	(*DeleteStateResponse)(nil),                // 44: daemon.DeleteStateResponse
+	(*SetSyncResponsePersistenceRequest)(nil),  // 45: daemon.SetSyncResponsePersistenceRequest
+	(*SetSyncResponsePersistenceResponse)(nil), // 46: daemon.SetSyncResponsePersistenceResponse
+	(*TCPFlags)(nil),                           // 47: daemon.TCPFlags
+	(*TracePacketRequest)(nil),                 // 48: daemon.TracePacketRequest
+	(*TraceStage)(nil),                         // 49: daemon.TraceStage
+	(*TracePacketResponse)(nil),                // 50: daemon.TracePacketResponse
+	(*SubscribeRequest)(nil),                   // 51: daemon.SubscribeRequest
+	(*SystemEvent)(nil),                        // 52: daemon.SystemEvent
+	(*GetEventsRequest)(nil),                   // 53: daemon.GetEventsRequest
+	(*GetEventsResponse)(nil),                  // 54: daemon.GetEventsResponse
+	(*SwitchProfileRequest)(nil),               // 55: daemon.SwitchProfileRequest
+	(*SwitchProfileResponse)(nil),              // 56: daemon.SwitchProfileResponse
+	(*SetConfigRequest)(nil),                   // 57: daemon.SetConfigRequest
+	(*SetConfigResponse)(nil),                  // 58: daemon.SetConfigResponse
+	(*AddProfileRequest)(nil),                  // 59: daemon.AddProfileRequest
+	(*AddProfileResponse)(nil),                 // 60: daemon.AddProfileResponse
+	(*RemoveProfileRequest)(nil),               // 61: daemon.RemoveProfileRequest
+	(*RemoveProfileResponse)(nil),              // 62: daemon.RemoveProfileResponse
+	(*ListProfilesRequest)(nil),                // 63: daemon.ListProfilesRequest
+	(*ListProfilesResponse)(nil),               // 64: daemon.ListProfilesResponse
+	(*Profile)(nil),                            // 65: daemon.Profile
+	(*GetActiveProfileRequest)(nil),            // 66: daemon.GetActiveProfileRequest
+	(*GetActiveProfileResponse)(nil),           // 67: daemon.GetActiveProfileResponse
+	(*LogoutRequest)(nil),                      // 68: daemon.LogoutRequest
+	(*LogoutResponse)(nil),                     // 69: daemon.LogoutResponse
+	(*GetFeaturesRequest)(nil),                 // 70: daemon.GetFeaturesRequest
+	(*GetFeaturesResponse)(nil),                // 71: daemon.GetFeaturesResponse
+	nil,                                        // 72: daemon.Network.ResolvedIPsEntry
+	(*PortInfo_Range)(nil),                     // 73: daemon.PortInfo.Range
+	nil,                                        // 74: daemon.SystemEvent.MetadataEntry
+	(*durationpb.Duration)(nil),                // 75: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),              // 76: google.protobuf.Timestamp
 }
 var file_daemon_proto_depIdxs = []int32{
-	58, // 0: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	75, // 0: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
 	22, // 1: daemon.StatusResponse.fullStatus:type_name -> daemon.FullStatus
-	59, // 2: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
-	59, // 3: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
-	58, // 4: daemon.PeerState.latency:type_name -> google.protobuf.Duration
+	76, // 2: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
+	76, // 3: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
+	75, // 4: daemon.PeerState.latency:type_name -> google.protobuf.Duration
 	19, // 5: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
 	18, // 6: daemon.FullStatus.signalState:type_name -> daemon.SignalState
 	17, // 7: daemon.FullStatus.localPeerState:type_name -> daemon.LocalPeerState
@@ -3977,8 +5114,8 @@ var file_daemon_proto_depIdxs = []int32{
 	21, // 10: daemon.FullStatus.dns_servers:type_name -> daemon.NSGroupState
 	52, // 11: daemon.FullStatus.events:type_name -> daemon.SystemEvent
 	28, // 12: daemon.ListNetworksResponse.routes:type_name -> daemon.Network
-	55, // 13: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
-	56, // 14: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
+	72, // 13: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
+	73, // 14: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
 	29, // 15: daemon.ForwardingRule.destinationPort:type_name -> daemon.PortInfo
 	29, // 16: daemon.ForwardingRule.translatedPort:type_name -> daemon.PortInfo
 	30, // 17: daemon.ForwardingRulesResponse.rules:type_name -> daemon.ForwardingRule
@@ -3989,55 +5126,73 @@ var file_daemon_proto_depIdxs = []int32{
 	49, // 22: daemon.TracePacketResponse.stages:type_name -> daemon.TraceStage
 	1,  // 23: daemon.SystemEvent.severity:type_name -> daemon.SystemEvent.Severity
 	2,  // 24: daemon.SystemEvent.category:type_name -> daemon.SystemEvent.Category
-	59, // 25: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
-	57, // 26: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
+	76, // 25: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
+	74, // 26: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
 	52, // 27: daemon.GetEventsResponse.events:type_name -> daemon.SystemEvent
-	27, // 28: daemon.Network.ResolvedIPsEntry.value:type_name -> daemon.IPList
-	4,  // 29: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
-	6,  // 30: daemon.DaemonService.WaitSSOLogin:input_type -> daemon.WaitSSOLoginRequest
-	8,  // 31: daemon.DaemonService.Up:input_type -> daemon.UpRequest
-	10, // 32: daemon.DaemonService.Status:input_type -> daemon.StatusRequest
-	12, // 33: daemon.DaemonService.Down:input_type -> daemon.DownRequest
-	14, // 34: daemon.DaemonService.GetConfig:input_type -> daemon.GetConfigRequest
-	23, // 35: daemon.DaemonService.ListNetworks:input_type -> daemon.ListNetworksRequest
-	25, // 36: daemon.DaemonService.SelectNetworks:input_type -> daemon.SelectNetworksRequest
-	25, // 37: daemon.DaemonService.DeselectNetworks:input_type -> daemon.SelectNetworksRequest
-	3,  // 38: daemon.DaemonService.ForwardingRules:input_type -> daemon.EmptyRequest
-	32, // 39: daemon.DaemonService.DebugBundle:input_type -> daemon.DebugBundleRequest
-	34, // 40: daemon.DaemonService.GetLogLevel:input_type -> daemon.GetLogLevelRequest
-	36, // 41: daemon.DaemonService.SetLogLevel:input_type -> daemon.SetLogLevelRequest
-	39, // 42: daemon.DaemonService.ListStates:input_type -> daemon.ListStatesRequest
-	41, // 43: daemon.DaemonService.CleanState:input_type -> daemon.CleanStateRequest
-	43, // 44: daemon.DaemonService.DeleteState:input_type -> daemon.DeleteStateRequest
-	45, // 45: daemon.DaemonService.SetNetworkMapPersistence:input_type -> daemon.SetNetworkMapPersistenceRequest
-	48, // 46: daemon.DaemonService.TracePacket:input_type -> daemon.TracePacketRequest
-	51, // 47: daemon.DaemonService.SubscribeEvents:input_type -> daemon.SubscribeRequest
-	53, // 48: daemon.DaemonService.GetEvents:input_type -> daemon.GetEventsRequest
-	5,  // 49: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
-	7,  // 50: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
-	9,  // 51: daemon.DaemonService.Up:output_type -> daemon.UpResponse
-	11, // 52: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
-	13, // 53: daemon.DaemonService.Down:output_type -> daemon.DownResponse
-	15, // 54: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
-	24, // 55: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
-	26, // 56: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
-	26, // 57: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
-	31, // 58: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
-	33, // 59: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
-	35, // 60: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
-	37, // 61: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
-	40, // 62: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
-	42, // 63: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
-	44, // 64: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
-	46, // 65: daemon.DaemonService.SetNetworkMapPersistence:output_type -> daemon.SetNetworkMapPersistenceResponse
-	50, // 66: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
-	52, // 67: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
-	54, // 68: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
-	49, // [49:69] is the sub-list for method output_type
-	29, // [29:49] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	75, // 28: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	65, // 29: daemon.ListProfilesResponse.profiles:type_name -> daemon.Profile
+	27, // 30: daemon.Network.ResolvedIPsEntry.value:type_name -> daemon.IPList
+	4,  // 31: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
+	6,  // 32: daemon.DaemonService.WaitSSOLogin:input_type -> daemon.WaitSSOLoginRequest
+	8,  // 33: daemon.DaemonService.Up:input_type -> daemon.UpRequest
+	10, // 34: daemon.DaemonService.Status:input_type -> daemon.StatusRequest
+	12, // 35: daemon.DaemonService.Down:input_type -> daemon.DownRequest
+	14, // 36: daemon.DaemonService.GetConfig:input_type -> daemon.GetConfigRequest
+	23, // 37: daemon.DaemonService.ListNetworks:input_type -> daemon.ListNetworksRequest
+	25, // 38: daemon.DaemonService.SelectNetworks:input_type -> daemon.SelectNetworksRequest
+	25, // 39: daemon.DaemonService.DeselectNetworks:input_type -> daemon.SelectNetworksRequest
+	3,  // 40: daemon.DaemonService.ForwardingRules:input_type -> daemon.EmptyRequest
+	32, // 41: daemon.DaemonService.DebugBundle:input_type -> daemon.DebugBundleRequest
+	34, // 42: daemon.DaemonService.GetLogLevel:input_type -> daemon.GetLogLevelRequest
+	36, // 43: daemon.DaemonService.SetLogLevel:input_type -> daemon.SetLogLevelRequest
+	39, // 44: daemon.DaemonService.ListStates:input_type -> daemon.ListStatesRequest
+	41, // 45: daemon.DaemonService.CleanState:input_type -> daemon.CleanStateRequest
+	43, // 46: daemon.DaemonService.DeleteState:input_type -> daemon.DeleteStateRequest
+	45, // 47: daemon.DaemonService.SetSyncResponsePersistence:input_type -> daemon.SetSyncResponsePersistenceRequest
+	48, // 48: daemon.DaemonService.TracePacket:input_type -> daemon.TracePacketRequest
+	51, // 49: daemon.DaemonService.SubscribeEvents:input_type -> daemon.SubscribeRequest
+	53, // 50: daemon.DaemonService.GetEvents:input_type -> daemon.GetEventsRequest
+	55, // 51: daemon.DaemonService.SwitchProfile:input_type -> daemon.SwitchProfileRequest
+	57, // 52: daemon.DaemonService.SetConfig:input_type -> daemon.SetConfigRequest
+	59, // 53: daemon.DaemonService.AddProfile:input_type -> daemon.AddProfileRequest
+	61, // 54: daemon.DaemonService.RemoveProfile:input_type -> daemon.RemoveProfileRequest
+	63, // 55: daemon.DaemonService.ListProfiles:input_type -> daemon.ListProfilesRequest
+	66, // 56: daemon.DaemonService.GetActiveProfile:input_type -> daemon.GetActiveProfileRequest
+	68, // 57: daemon.DaemonService.Logout:input_type -> daemon.LogoutRequest
+	70, // 58: daemon.DaemonService.GetFeatures:input_type -> daemon.GetFeaturesRequest
+	5,  // 59: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
+	7,  // 60: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
+	9,  // 61: daemon.DaemonService.Up:output_type -> daemon.UpResponse
+	11, // 62: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
+	13, // 63: daemon.DaemonService.Down:output_type -> daemon.DownResponse
+	15, // 64: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
+	24, // 65: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
+	26, // 66: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
+	26, // 67: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
+	31, // 68: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
+	33, // 69: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
+	35, // 70: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
+	37, // 71: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
+	40, // 72: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
+	42, // 73: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
+	44, // 74: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
+	46, // 75: daemon.DaemonService.SetSyncResponsePersistence:output_type -> daemon.SetSyncResponsePersistenceResponse
+	50, // 76: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
+	52, // 77: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
+	54, // 78: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
+	56, // 79: daemon.DaemonService.SwitchProfile:output_type -> daemon.SwitchProfileResponse
+	58, // 80: daemon.DaemonService.SetConfig:output_type -> daemon.SetConfigResponse
+	60, // 81: daemon.DaemonService.AddProfile:output_type -> daemon.AddProfileResponse
+	62, // 82: daemon.DaemonService.RemoveProfile:output_type -> daemon.RemoveProfileResponse
+	64, // 83: daemon.DaemonService.ListProfiles:output_type -> daemon.ListProfilesResponse
+	67, // 84: daemon.DaemonService.GetActiveProfile:output_type -> daemon.GetActiveProfileResponse
+	69, // 85: daemon.DaemonService.Logout:output_type -> daemon.LogoutResponse
+	71, // 86: daemon.DaemonService.GetFeatures:output_type -> daemon.GetFeaturesResponse
+	59, // [59:87] is the sub-list for method output_type
+	31, // [31:59] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_daemon_proto_init() }
@@ -4046,19 +5201,23 @@ func file_daemon_proto_init() {
 		return
 	}
 	file_daemon_proto_msgTypes[1].OneofWrappers = []any{}
+	file_daemon_proto_msgTypes[5].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[26].OneofWrappers = []any{
 		(*PortInfo_Port)(nil),
 		(*PortInfo_Range_)(nil),
 	}
 	file_daemon_proto_msgTypes[45].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[46].OneofWrappers = []any{}
+	file_daemon_proto_msgTypes[52].OneofWrappers = []any{}
+	file_daemon_proto_msgTypes[54].OneofWrappers = []any{}
+	file_daemon_proto_msgTypes[65].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_daemon_proto_rawDesc), len(file_daemon_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   55,
+			NumMessages:   72,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

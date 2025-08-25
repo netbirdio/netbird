@@ -10,14 +10,15 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
-	mgm "github.com/netbirdio/netbird/management/client"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 // IsLoginRequired check that the server is support SSO or not
-func IsLoginRequired(ctx context.Context, config *Config) (bool, error) {
+func IsLoginRequired(ctx context.Context, config *profilemanager.Config) (bool, error) {
 	mgmURL := config.ManagementURL
 	mgmClient, err := getMgmClient(ctx, config.PrivateKey, mgmURL)
 	if err != nil {
@@ -47,7 +48,7 @@ func IsLoginRequired(ctx context.Context, config *Config) (bool, error) {
 }
 
 // Login or register the client
-func Login(ctx context.Context, config *Config, setupKey string, jwtToken string) error {
+func Login(ctx context.Context, config *profilemanager.Config, setupKey string, jwtToken string) error {
 	mgmClient, err := getMgmClient(ctx, config.PrivateKey, config.ManagementURL)
 	if err != nil {
 		return err
@@ -100,7 +101,7 @@ func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm
 	return mgmClient, err
 }
 
-func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte, config *Config) (*wgtypes.Key, error) {
+func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte, config *profilemanager.Config) (*wgtypes.Key, error) {
 	serverKey, err := mgmClient.GetServerPublicKey()
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
@@ -126,7 +127,7 @@ func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
-func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, pubSSHKey []byte, config *Config) (*mgmProto.LoginResponse, error) {
+func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
 	validSetupKey, err := uuid.Parse(setupKey)
 	if err != nil && jwtToken == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid setup-key or no sso information provided, err: %v", err)

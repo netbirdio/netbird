@@ -21,8 +21,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/management/domain"
-	relayClient "github.com/netbirdio/netbird/relay/client"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -140,7 +140,7 @@ type RosenpassState struct {
 // whether it's enabled, and the last error message encountered during probing.
 type NSGroupState struct {
 	ID      string
-	Servers []string
+	Servers []netip.AddrPort
 	Domains []string
 	Enabled bool
 	Error   error

@@ -3,6 +3,7 @@ package dnsfwd
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
@@ -16,8 +17,8 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 func Test_getMatchingEntries(t *testing.T) {
@@ -706,6 +707,131 @@ func TestDNSForwarder_MultipleOverlappingPatterns(t *testing.T) {
 	resID, matches := forwarder.getMatchingEntries("smtp.mail.example.com")
 	assert.Equal(t, route.ResID("res-smtp.mail.example.com"), resID)
 	assert.Len(t, matches, 3, "Should match 3 patterns")
+}
+
+// TestDNSForwarder_NodataVsNxdomain tests that the forwarder correctly distinguishes
+// between NXDOMAIN (domain doesn't exist) and NODATA (domain exists but no records of that type)
+func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
+	mockFirewall := &MockFirewall{}
+	mockResolver := &MockResolver{}
+
+	forwarder := NewDNSForwarder("127.0.0.1:0", 300, mockFirewall, &peer.Status{})
+	forwarder.resolver = mockResolver
+
+	d, err := domain.FromString("example.com")
+	require.NoError(t, err)
+
+	set := firewall.NewDomainSet([]domain.Domain{d})
+	entries := []*ForwarderEntry{{Domain: d, ResID: "test-res", Set: set}}
+	forwarder.UpdateDomains(entries)
+
+	tests := []struct {
+		name           string
+		queryType      uint16
+		setupMocks     func()
+		expectedCode   int
+		expectNoAnswer bool // true if we expect NOERROR with empty answer (NODATA case)
+		description    string
+	}{
+		{
+			name:      "domain exists but no AAAA records (NODATA)",
+			queryType: dns.TypeAAAA,
+			setupMocks: func() {
+				// First query for AAAA returns not found
+				mockResolver.On("LookupNetIP", mock.Anything, "ip6", "example.com.").
+					Return([]netip.Addr{}, &net.DNSError{IsNotFound: true, Name: "example.com"}).Once()
+				// Check query for A records succeeds (domain exists)
+				mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
+					Return([]netip.Addr{netip.MustParseAddr("1.2.3.4")}, nil).Once()
+			},
+			expectedCode:   dns.RcodeSuccess,
+			expectNoAnswer: true,
+			description:    "Should return NOERROR when domain exists but has no records of requested type",
+		},
+		{
+			name:      "domain exists but no A records (NODATA)",
+			queryType: dns.TypeA,
+			setupMocks: func() {
+				// First query for A returns not found
+				mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
+					Return([]netip.Addr{}, &net.DNSError{IsNotFound: true, Name: "example.com"}).Once()
+				// Check query for AAAA records succeeds (domain exists)
+				mockResolver.On("LookupNetIP", mock.Anything, "ip6", "example.com.").
+					Return([]netip.Addr{netip.MustParseAddr("2001:db8::1")}, nil).Once()
+			},
+			expectedCode:   dns.RcodeSuccess,
+			expectNoAnswer: true,
+			description:    "Should return NOERROR when domain exists but has no A records",
+		},
+		{
+			name:      "domain doesn't exist (NXDOMAIN)",
+			queryType: dns.TypeA,
+			setupMocks: func() {
+				// First query for A returns not found
+				mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
+					Return([]netip.Addr{}, &net.DNSError{IsNotFound: true, Name: "example.com"}).Once()
+				// Check query for AAAA also returns not found (domain doesn't exist)
+				mockResolver.On("LookupNetIP", mock.Anything, "ip6", "example.com.").
+					Return([]netip.Addr{}, &net.DNSError{IsNotFound: true, Name: "example.com"}).Once()
+			},
+			expectedCode:   dns.RcodeNameError,
+			expectNoAnswer: true,
+			description:    "Should return NXDOMAIN when domain doesn't exist at all",
+		},
+		{
+			name:      "domain exists with records (normal success)",
+			queryType: dns.TypeA,
+			setupMocks: func() {
+				mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
+					Return([]netip.Addr{netip.MustParseAddr("1.2.3.4")}, nil).Once()
+				// Expect firewall update for successful resolution
+				expectedPrefix := netip.PrefixFrom(netip.MustParseAddr("1.2.3.4"), 32)
+				mockFirewall.On("UpdateSet", set, []netip.Prefix{expectedPrefix}).Return(nil).Once()
+			},
+			expectedCode:   dns.RcodeSuccess,
+			expectNoAnswer: false,
+			description:    "Should return NOERROR with answer when records exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset mock expectations
+			mockResolver.ExpectedCalls = nil
+			mockResolver.Calls = nil
+			mockFirewall.ExpectedCalls = nil
+			mockFirewall.Calls = nil
+
+			tt.setupMocks()
+
+			query := &dns.Msg{}
+			query.SetQuestion(dns.Fqdn("example.com"), tt.queryType)
+
+			var writtenResp *dns.Msg
+			mockWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					writtenResp = m
+					return nil
+				},
+			}
+
+			resp := forwarder.handleDNSQuery(mockWriter, query)
+
+			// If a response was returned, it means it should be written (happens in wrapper functions)
+			if resp != nil && writtenResp == nil {
+				writtenResp = resp
+			}
+
+			require.NotNil(t, writtenResp, "Expected response to be written")
+			assert.Equal(t, tt.expectedCode, writtenResp.Rcode, tt.description)
+
+			if tt.expectNoAnswer {
+				assert.Empty(t, writtenResp.Answer, "Response should have no answer records")
+			}
+
+			mockResolver.AssertExpectations(t)
+		})
+	}
 }
 
 func TestDNSForwarder_EmptyQuery(t *testing.T) {

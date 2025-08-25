@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/monotime"
 )
 
 const (
@@ -237,7 +238,7 @@ func (w *WGIface) GetStats() (map[string]configurer.WGStats, error) {
 	return w.configurer.GetStats()
 }
 
-func (w *WGIface) LastActivities() map[string]time.Time {
+func (w *WGIface) LastActivities() map[string]monotime.Time {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

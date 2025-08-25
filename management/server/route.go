@@ -9,15 +9,15 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // GetRoute gets a route object from account and route IDs
@@ -30,7 +30,7 @@ func (am *DefaultAccountManager) GetRoute(ctx context.Context, accountID string,
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetRouteByID(ctx, store.LockingStrengthShare, accountID, string(routeID))
+	return am.Store.GetRouteByID(ctx, store.LockingStrengthNone, accountID, string(routeID))
 }
 
 // checkRoutePrefixOrDomainsExistForPeers checks if a route with a given prefix exists for a single peer or multiple peer groups.
@@ -59,7 +59,7 @@ func checkRoutePrefixOrDomainsExistForPeers(ctx context.Context, transaction sto
 			seenPeers[string(prefixRoute.ID)] = true
 		}
 
-		peerGroupsMap, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, prefixRoute.PeerGroups)
+		peerGroupsMap, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, prefixRoute.PeerGroups)
 		if err != nil {
 			return err
 		}
@@ -83,7 +83,7 @@ func checkRoutePrefixOrDomainsExistForPeers(ctx context.Context, transaction sto
 
 	if peerID := checkRoute.Peer; peerID != "" {
 		// check that peerID exists and is not in any route as single peer or part of the group
-		_, err = transaction.GetPeerByID(context.Background(), store.LockingStrengthShare, accountID, peerID)
+		_, err = transaction.GetPeerByID(context.Background(), store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			return status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 		}
@@ -104,7 +104,7 @@ func checkRoutePrefixOrDomainsExistForPeers(ctx context.Context, transaction sto
 		}
 
 		// check that the peers from peerGroupIDs groups are not the same peers we saw in routesWithPrefix
-		peersMap, err := transaction.GetPeersByIDs(ctx, store.LockingStrengthShare, accountID, group.Peers)
+		peersMap, err := transaction.GetPeersByIDs(ctx, store.LockingStrengthNone, accountID, group.Peers)
 		if err != nil {
 			return err
 		}
@@ -134,10 +134,7 @@ func getRouteDescriptor(prefix netip.Prefix, domains domain.List) string {
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
+func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, skipAutoApply bool) (*route.Route, error) {
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -170,6 +167,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			Enabled:             enabled,
 			Groups:              groups,
 			AccessControlGroups: accessControlGroupIDs,
+			SkipAutoApply:       skipAutoApply,
 		}
 
 		if err = validateRoute(ctx, transaction, accountID, newRoute); err != nil {
@@ -181,11 +179,11 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.SaveRoute(ctx, store.LockingStrengthUpdate, newRoute)
+		return transaction.SaveRoute(ctx, newRoute)
 	})
 	if err != nil {
 		return nil, err
@@ -202,9 +200,6 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 
 // SaveRoute saves route
 func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userID string, routeToSave *route.Route) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Update)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -238,11 +233,11 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		}
 		routeToSave.AccountID = accountID
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.SaveRoute(ctx, store.LockingStrengthUpdate, routeToSave)
+		return transaction.SaveRoute(ctx, routeToSave)
 	})
 	if err != nil {
 		return err
@@ -259,9 +254,6 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 
 // DeleteRoute deletes route with routeID
 func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID string, routeID route.ID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -284,12 +276,15 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.DeleteRoute(ctx, store.LockingStrengthUpdate, accountID, string(routeID))
+		return transaction.DeleteRoute(ctx, accountID, string(routeID))
 	})
+	if err != nil {
+		return fmt.Errorf("failed to delete route %s: %w", routeID, err)
+	}
 
 	am.StoreEvent(ctx, userID, string(route.ID), accountID, activity.RouteRemoved, route.EventMeta())
 
@@ -310,7 +305,7 @@ func (am *DefaultAccountManager) ListRoutes(ctx context.Context, accountID, user
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetAccountRoutes(ctx, store.LockingStrengthShare, accountID)
+	return am.Store.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
 }
 
 func validateRoute(ctx context.Context, transaction store.Store, accountID string, routeToSave *route.Route) error {
@@ -353,7 +348,7 @@ func validateRoute(ctx context.Context, transaction store.Store, accountID strin
 // validateRouteGroups validates the route groups and returns the validated groups map.
 func validateRouteGroups(ctx context.Context, transaction store.Store, accountID string, routeToSave *route.Route) (map[string]*types.Group, error) {
 	groupsToValidate := slices.Concat(routeToSave.Groups, routeToSave.PeerGroups, routeToSave.AccessControlGroups)
-	groupsMap, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, groupsToValidate)
+	groupsMap, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, groupsToValidate)
 	if err != nil {
 		return nil, err
 	}
@@ -379,15 +374,16 @@ func validateRouteGroups(ctx context.Context, transaction store.Store, accountID
 
 func toProtocolRoute(route *route.Route) *proto.Route {
 	return &proto.Route{
-		ID:          string(route.ID),
-		NetID:       string(route.NetID),
-		Network:     route.Network.String(),
-		Domains:     route.Domains.ToPunycodeList(),
-		NetworkType: int64(route.NetworkType),
-		Peer:        route.Peer,
-		Metric:      int64(route.Metric),
-		Masquerade:  route.Masquerade,
-		KeepRoute:   route.KeepRoute,
+		ID:            string(route.ID),
+		NetID:         string(route.NetID),
+		Network:       route.Network.String(),
+		Domains:       route.Domains.ToPunycodeList(),
+		NetworkType:   int64(route.NetworkType),
+		Peer:          route.Peer,
+		Metric:        int64(route.Metric),
+		Masquerade:    route.Masquerade,
+		KeepRoute:     route.KeepRoute,
+		SkipAutoApply: route.SkipAutoApply,
 	}
 }
 
@@ -494,7 +490,7 @@ func areRouteChangesAffectPeers(ctx context.Context, transaction store.Store, ro
 
 // GetRoutesByPrefixOrDomains return list of routes by account and route prefix
 func getRoutesByPrefixOrDomains(ctx context.Context, transaction store.Store, accountID string, prefix netip.Prefix, domains domain.List) ([]*route.Route, error) {
-	accountRoutes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthShare, accountID)
+	accountRoutes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}

@@ -1,19 +1,32 @@
 package accounts
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/gorilla/mux"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/types"
+)
+
+const (
+	// PeerBufferPercentage is the percentage of peers to add as buffer for network range calculations
+	PeerBufferPercentage = 0.5
+	// MinRequiredAddresses is the minimum number of addresses required in a network range
+	MinRequiredAddresses = 10
+	// MinNetworkBits is the minimum prefix length for IPv4 network ranges (e.g., /29 gives 8 addresses, /28 gives 16)
+	MinNetworkBitsIPv4 = 28
+	// MinNetworkBitsIPv6 is the minimum prefix length for IPv6 network ranges
+	MinNetworkBitsIPv6 = 120
 )
 
 // handler is a handler that handles the server.Account HTTP endpoints
@@ -35,6 +48,86 @@ func newHandler(accountManager account.Manager, settingsManager settings.Manager
 		accountManager:  accountManager,
 		settingsManager: settingsManager,
 	}
+}
+
+func validateIPAddress(addr netip.Addr) error {
+	if addr.IsLoopback() {
+		return status.Errorf(status.InvalidArgument, "loopback address range not allowed")
+	}
+
+	if addr.IsMulticast() {
+		return status.Errorf(status.InvalidArgument, "multicast address range not allowed")
+	}
+
+	if addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() {
+		return status.Errorf(status.InvalidArgument, "link-local address range not allowed")
+	}
+
+	return nil
+}
+
+func validateMinimumSize(prefix netip.Prefix) error {
+	addr := prefix.Addr()
+	if addr.Is4() && prefix.Bits() > MinNetworkBitsIPv4 {
+		return status.Errorf(status.InvalidArgument, "network range too small: minimum size is /%d for IPv4", MinNetworkBitsIPv4)
+	}
+	if addr.Is6() && prefix.Bits() > MinNetworkBitsIPv6 {
+		return status.Errorf(status.InvalidArgument, "network range too small: minimum size is /%d for IPv6", MinNetworkBitsIPv6)
+	}
+	return nil
+}
+
+func (h *handler) validateNetworkRange(ctx context.Context, accountID, userID string, networkRange netip.Prefix) error {
+	if !networkRange.IsValid() {
+		return nil
+	}
+
+	if err := validateIPAddress(networkRange.Addr()); err != nil {
+		return err
+	}
+
+	if err := validateMinimumSize(networkRange); err != nil {
+		return err
+	}
+
+	return h.validateCapacity(ctx, accountID, userID, networkRange)
+}
+
+func (h *handler) validateCapacity(ctx context.Context, accountID, userID string, prefix netip.Prefix) error {
+	peers, err := h.accountManager.GetPeers(ctx, accountID, userID, "", "")
+	if err != nil {
+		return status.Errorf(status.Internal, "get peer count: %v", err)
+	}
+
+	maxHosts := calculateMaxHosts(prefix)
+	requiredAddresses := calculateRequiredAddresses(len(peers))
+
+	if maxHosts < requiredAddresses {
+		return status.Errorf(status.InvalidArgument,
+			"network range too small: need at least %d addresses for %d peers + buffer, but range provides %d",
+			requiredAddresses, len(peers), maxHosts)
+	}
+
+	return nil
+}
+
+func calculateMaxHosts(prefix netip.Prefix) int64 {
+	availableAddresses := prefix.Addr().BitLen() - prefix.Bits()
+	maxHosts := int64(1) << availableAddresses
+
+	if prefix.Addr().Is4() {
+		maxHosts -= 2 // network and broadcast addresses
+	}
+
+	return maxHosts
+}
+
+func calculateRequiredAddresses(peerCount int) int64 {
+	requiredAddresses := int64(peerCount) + int64(float64(peerCount)*PeerBufferPercentage)
+	if requiredAddresses < MinRequiredAddresses {
+		requiredAddresses = MinRequiredAddresses
+	}
+	return requiredAddresses
 }
 
 // getAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
@@ -106,6 +199,7 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 		settings.Extra = &types.ExtraSettings{
 			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
 			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
+			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
 		}
 	}
@@ -130,6 +224,18 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Settings.LazyConnectionEnabled != nil {
 		settings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
+	}
+	if req.Settings.NetworkRange != nil && *req.Settings.NetworkRange != "" {
+		prefix, err := netip.ParsePrefix(*req.Settings.NetworkRange)
+		if err != nil {
+			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid CIDR format: %v", err), w)
+			return
+		}
+		if err := h.validateNetworkRange(r.Context(), accountID, userID, prefix); err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+		settings.NetworkRange = prefix
 	}
 
 	var onboarding *types.AccountOnboarding
@@ -208,6 +314,11 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		DnsDomain:                       &settings.DNSDomain,
 	}
 
+	if settings.NetworkRange.IsValid() {
+		networkRangeStr := settings.NetworkRange.String()
+		apiSettings.NetworkRange = &networkRangeStr
+	}
+
 	apiOnboarding := api.AccountOnboarding{
 		OnboardingFlowPending: onboarding.OnboardingFlowPending,
 		SignupFormPending:     onboarding.SignupFormPending,
@@ -217,6 +328,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		apiSettings.Extra = &api.AccountExtraSettings{
 			PeerApprovalEnabled:                settings.Extra.PeerApprovalEnabled,
 			NetworkTrafficLogsEnabled:          settings.Extra.FlowEnabled,
+			NetworkTrafficLogsGroups:           settings.Extra.FlowGroups,
 			NetworkTrafficPacketCounterEnabled: settings.Extra.FlowPacketCounterEnabled,
 		}
 	}

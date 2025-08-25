@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
 
