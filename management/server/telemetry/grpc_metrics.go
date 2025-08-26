@@ -4,8 +4,11 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+const AccountIDLabel = "account_id"
 
 // GRPCMetrics are gRPC server metrics
 type GRPCMetrics struct {
@@ -111,13 +114,13 @@ func (grpcMetrics *GRPCMetrics) CountLoginRequest() {
 }
 
 // CountLoginRequestDuration counts the duration of the login gRPC requests
-func (grpcMetrics *GRPCMetrics) CountLoginRequestDuration(duration time.Duration) {
-	grpcMetrics.loginRequestDuration.Record(grpcMetrics.ctx, duration.Milliseconds())
+func (grpcMetrics *GRPCMetrics) CountLoginRequestDuration(duration time.Duration, accountID string) {
+	grpcMetrics.loginRequestDuration.Record(grpcMetrics.ctx, duration.Milliseconds(), metric.WithAttributes(attribute.String(AccountIDLabel, accountID)))
 }
 
 // CountSyncRequestDuration counts the duration of the sync gRPC requests
-func (grpcMetrics *GRPCMetrics) CountSyncRequestDuration(duration time.Duration) {
-	grpcMetrics.syncRequestDuration.Record(grpcMetrics.ctx, duration.Milliseconds())
+func (grpcMetrics *GRPCMetrics) CountSyncRequestDuration(duration time.Duration, accountID string) {
+	grpcMetrics.syncRequestDuration.Record(grpcMetrics.ctx, duration.Milliseconds(), metric.WithAttributes(attribute.String(AccountIDLabel, accountID)))
 }
 
 // RegisterConnectedStreams registers a function that collects number of active streams and feeds it to the metrics gauge.
