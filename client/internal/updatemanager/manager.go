@@ -134,18 +134,22 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 
 	u.expectedVersionMutex.Lock()
 	expectedVersion := u.expectedVersion
+	useLatest := u.updateToLatestVersion
+	curLatestVersion := u.update.LatestVersion()
 	u.expectedVersionMutex.Unlock()
 
+	switch {
 	// Resolve "latest" to actual version
-	if u.updateToLatestVersion {
-		if !u.isVersionAvailable() {
+	case useLatest:
+		if curLatestVersion == nil {
 			log.Tracef("Latest version not fetched yet")
 			return
 		}
-		updateVersion = u.update.LatestVersion()
-	} else if u.expectedVersion != nil {
+		updateVersion = curLatestVersion
+	// Update to specific version
+	case u.expectedVersion != nil:
 		updateVersion = expectedVersion
-	} else {
+	default:
 		log.Debugf("No expected version information set")
 		return
 	}
@@ -190,13 +194,6 @@ func (u *UpdateManager) shouldUpdate(updateVersion *v.Version) bool {
 		return false
 	}
 
-	return true
-}
-
-func (u *UpdateManager) isVersionAvailable() bool {
-	if u.update.LatestVersion() == nil {
-		return false
-	}
 	return true
 }
 
