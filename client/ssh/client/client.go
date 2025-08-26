@@ -23,6 +23,13 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
+const (
+	// DefaultDaemonAddr is the default address for the NetBird daemon
+	DefaultDaemonAddr = "unix:///var/run/netbird.sock"
+	// DefaultDaemonAddrWindows is the default address for the NetBird daemon on Windows
+	DefaultDaemonAddrWindows = "tcp://127.0.0.1:41731"
+)
+
 // Client wraps crypto/ssh Client for simplified SSH operations
 type Client struct {
 	client        *ssh.Client
@@ -172,7 +179,7 @@ func (c *Client) ExecuteCommandWithIO(ctx context.Context, command string) error
 func (c *Client) ExecuteCommandWithPTY(ctx context.Context, command string) error {
 	session, cleanup, err := c.createSession(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("create session: %w", err)
 	}
 	defer cleanup()
 
@@ -335,7 +342,15 @@ func dial(ctx context.Context, network, addr string, config *ssh.ClientConfig) (
 
 // createHostKeyCallback creates a host key verification callback that checks daemon first, then known_hosts files
 func createHostKeyCallback(addr string) (ssh.HostKeyCallback, error) {
-	return createHostKeyCallbackWithDaemonAddr(addr, "unix:///var/run/netbird.sock")
+	daemonAddr := os.Getenv("NB_DAEMON_ADDR")
+	if daemonAddr == "" {
+		if runtime.GOOS == "windows" {
+			daemonAddr = DefaultDaemonAddrWindows
+		} else {
+			daemonAddr = DefaultDaemonAddr
+		}
+	}
+	return createHostKeyCallbackWithDaemonAddr(addr, daemonAddr)
 }
 
 // createHostKeyCallbackWithDaemonAddr creates a host key verification callback with specified daemon address
@@ -617,12 +632,12 @@ func (c *Client) handleLocalForward(localConn net.Conn, remoteAddr string) {
 func (c *Client) RemotePortForward(ctx context.Context, remoteAddr, localAddr string) error {
 	host, port, err := c.parseRemoteAddress(remoteAddr)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse remote address: %w", err)
 	}
 
 	req := c.buildTCPIPForwardRequest(host, port)
 	if err := c.sendTCPIPForwardRequest(req); err != nil {
-		return err
+		return fmt.Errorf("setup remote forward: %w", err)
 	}
 
 	go c.handleRemoteForwardChannels(ctx, localAddr)
