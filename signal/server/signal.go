@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -56,6 +57,8 @@ type Server struct {
 	metrics    *metrics.AppMetrics
 
 	successHeader metadata.MD
+
+	sendTimeout time.Duration
 }
 
 // NewServer creates a new Signal server
@@ -70,11 +73,19 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 		return nil, fmt.Errorf("creating dispatcher: %v", err)
 	}
 
+	sTimeout := sendTimeout
+	to := os.Getenv("NB_SIGNAL_SEND_TIMEOUT")
+	if parsed, err := time.ParseDuration(to); err == nil && parsed > 0 {
+		log.Trace("using custom send timeout ", parsed)
+		sTimeout = parsed
+	}
+
 	s := &Server{
 		dispatcher:    d,
 		registry:      peer.NewRegistry(appMetrics),
 		metrics:       appMetrics,
 		successHeader: metadata.Pairs(proto.HeaderRegistered, "1"),
+		sendTimeout:   sTimeout,
 	}
 
 	return s, nil
