@@ -16,6 +16,7 @@ import (
 	wgConn "golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type RecvMessage struct {
@@ -55,10 +56,11 @@ type ICEBind struct {
 	muUDPMux         sync.Mutex
 	udpMux           *UniversalUDPMuxDefault
 	address          wgaddr.Address
+	mtu              uint16
 	activityRecorder *ActivityRecorder
 }
 
-func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Address) *ICEBind {
+func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Address, mtu uint16) *ICEBind {
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:       b,
@@ -68,6 +70,7 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Ad
 		endpoints:        make(map[netip.Addr]net.Conn),
 		closedChan:       make(chan struct{}),
 		closed:           true,
+		mtu:              mtu,
 		address:          address,
 		activityRecorder: NewActivityRecorder(),
 	}
@@ -77,6 +80,10 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Ad
 	}
 	ib.StdNetBind = wgConn.NewStdNetBindWithReceiverCreator(rc)
 	return ib
+}
+
+func (s *ICEBind) MTU() uint16 {
+	return s.mtu
 }
 
 func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
@@ -153,10 +160,11 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 
 	s.udpMux = NewUniversalUDPMuxDefault(
 		UniversalUDPMuxParams{
-			UDPConn:   conn,
+			UDPConn:   nbnet.WrapPacketConn(conn),
 			Net:       s.transportNet,
 			FilterFn:  s.filterFn,
 			WGAddress: s.address,
+			MTU:       s.mtu,
 		},
 	)
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {

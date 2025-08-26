@@ -10,16 +10,16 @@ import (
 )
 
 func (g *BundleGenerator) addRoutes() error {
-	routes, err := systemops.GetRoutesFromTable()
+	detailedRoutes, err := systemops.GetDetailedRoutesFromTable()
 	if err != nil {
-		return fmt.Errorf("get routes: %w", err)
+		return fmt.Errorf("get detailed routes: %w", err)
 	}
 
-	// TODO: get routes including nexthop
-	routesContent := formatRoutes(routes, g.anonymize, g.anonymizer)
+	routesContent := formatRoutesTable(detailedRoutes, g.anonymize, g.anonymizer)
 	routesReader := strings.NewReader(routesContent)
 	if err := g.addFileToZip(routesReader, "routes.txt"); err != nil {
 		return fmt.Errorf("add routes file to zip: %w", err)
 	}
+
 	return nil
 }

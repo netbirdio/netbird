@@ -337,11 +337,11 @@ func (m *Manager) translateOutboundDNAT(packetData []byte, d *decoder) bool {
 	}
 
 	if err := m.rewritePacketDestination(packetData, d, translatedIP); err != nil {
-		m.logger.Error("rewrite packet destination: %v", err)
+		m.logger.Error1("rewrite packet destination: %v", err)
 		return false
 	}
 
-	m.logger.Trace("DNAT: %s -> %s", dstIP, translatedIP)
+	m.logger.Trace2("DNAT: %s -> %s", dstIP, translatedIP)
 	return true
 }
 
@@ -363,11 +363,11 @@ func (m *Manager) translateInboundReverse(packetData []byte, d *decoder) bool {
 	}
 
 	if err := m.rewritePacketSource(packetData, d, originalIP); err != nil {
-		m.logger.Error("rewrite packet source: %v", err)
+		m.logger.Error1("rewrite packet source: %v", err)
 		return false
 	}
 
-	m.logger.Trace("Reverse DNAT: %s -> %s", srcIP, originalIP)
+	m.logger.Trace2("Reverse DNAT: %s -> %s", srcIP, originalIP)
 	return true
 }
 
@@ -661,10 +661,10 @@ func (m *Manager) isTranslatedPortTraffic(srcIP netip.Addr, srcPort uint16) bool
 func (m *Manager) handleExistingNATConnection(packetData []byte, d *decoder, srcIP, dstIP netip.Addr, srcPort, dstPort uint16) bool {
 	if natConn, exists := m.portNATTracker.getConnectionNAT(dstIP, srcIP, dstPort, srcPort); exists {
 		if err := m.rewriteTCPDestinationPort(packetData, d, natConn.originalPort); err != nil {
-			m.logger.Error(errRewriteTCPDestinationPort, err)
+			m.logger.Error1(errRewriteTCPDestinationPort, err)
 			return false
 		}
-		m.logger.Trace("Inbound Port DNAT (return): %s:%d -> %s:%d", dstIP, srcPort, dstIP, natConn.originalPort)
+		m.logger.Trace4("Inbound Port DNAT (return): %s:%d -> %s:%d", dstIP, srcPort, dstIP, natConn.originalPort)
 		return true
 	}
 	return false
@@ -688,7 +688,7 @@ func (m *Manager) handleForwardTrafficInExistingConnections(packetData []byte, d
 		}
 
 		if err := m.rewriteTCPDestinationPort(packetData, d, rule.targetPort); err != nil {
-			m.logger.Error(errRewriteTCPDestinationPort, err)
+			m.logger.Error1(errRewriteTCPDestinationPort, err)
 			return false
 		}
 		return true
@@ -725,12 +725,12 @@ func (m *Manager) applyPortDNATRule(packetData []byte, d *decoder, rule portDNAT
 	}
 
 	if err := m.rewriteTCPDestinationPort(packetData, d, rule.targetPort); err != nil {
-		m.logger.Error(errRewriteTCPDestinationPort, err)
+		m.logger.Error1(errRewriteTCPDestinationPort, err)
 		return false
 	}
 
 	m.portNATTracker.trackConnection(srcIP, dstIP, srcPort, dstPort, rule)
-	m.logger.Trace("Inbound Port DNAT (new): %s:%d -> %s:%d (tracked: %s:%d -> %s:%d)", dstIP, rule.sourcePort, dstIP, rule.targetPort, srcIP, srcPort, dstIP, rule.targetPort)
+	m.logger.Trace8("Inbound Port DNAT (new): %s:%d -> %s:%d (tracked: %s:%d -> %s:%d)", dstIP, rule.sourcePort, dstIP, rule.targetPort, srcIP, srcPort, dstIP, rule.targetPort)
 	return true
 }
 
@@ -836,7 +836,7 @@ func (m *Manager) translateOutboundPortReverse(packetData []byte, d *decoder) bo
 	// So for return traffic (srcIP=server, dstIP=client), we need: dstIP, srcIP, dstPort, srcPort
 	if natConn, exists := m.portNATTracker.getConnectionNAT(dstIP, srcIP, dstPort, srcPort); exists {
 		if err := m.rewriteTCPSourcePort(packetData, d, natConn.rule.sourcePort); err != nil {
-			m.logger.Error("rewrite TCP source port: %v", err)
+			m.logger.Error1("rewrite TCP source port: %v", err)
 			return false
 		}
 

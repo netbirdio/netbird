@@ -17,27 +17,28 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 
-	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +48,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, status.NewPermissionValidationError(err)
 	}
 
-	accountPeers, err := am.Store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, nameFilter, ipFilter)
+	accountPeers, err := am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +58,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return accountPeers, nil
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account settings: %w", err)
 	}
@@ -87,7 +88,7 @@ func (am *DefaultAccountManager) getUserAccessiblePeers(ctx context.Context, acc
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +130,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	}
 
 	if peer.AddedWithSSOLogin() {
-		settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+		settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return err
 		}
@@ -172,7 +173,7 @@ func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocatio
 			peer.Location.CountryCode = location.Country.ISOCode
 			peer.Location.CityName = location.City.Names.En
 			peer.Location.GeoNameID = location.City.GeonameID
-			err = transaction.SavePeerLocation(ctx, store.LockingStrengthUpdate, accountID, peer)
+			err = transaction.SavePeerLocation(ctx, accountID, peer)
 			if err != nil {
 				log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
 			}
@@ -181,7 +182,7 @@ func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocatio
 
 	log.WithContext(ctx).Tracef("saving peer status for peer %s is connected: %t", peer.ID, connected)
 
-	err := transaction.SavePeerStatus(ctx, store.LockingStrengthUpdate, accountID, peer.ID, *newStatus)
+	err := transaction.SavePeerStatus(ctx, accountID, peer.ID, *newStatus)
 	if err != nil {
 		return false, err
 	}
@@ -191,9 +192,6 @@ func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocatio
 
 // UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -218,7 +216,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			return err
 		}
 
-		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return err
 		}
@@ -280,7 +278,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			inactivityExpirationChanged = true
 		}
 
-		return transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer)
+		return transaction.SavePeer(ctx, accountID, peer)
 	})
 	if err != nil {
 		return nil, err
@@ -334,9 +332,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -345,7 +340,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return status.NewPermissionDeniedError()
 	}
 
-	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthShare, peerID)
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 	if err != nil {
 		return err
 	}
@@ -359,7 +354,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	var eventsToStore []func()
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			return err
 		}
@@ -373,12 +368,20 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
-			return err
+		if err = transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
+			return fmt.Errorf("failed to remove peer from groups: %w", err)
 		}
 
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
-		return err
+		if err != nil {
+			return fmt.Errorf("failed to delete peer: %w", err)
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return err
@@ -412,13 +415,13 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		groups[groupID] = group.Peers
 	}
 
-	validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
 	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id, peerID, account.Peers)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return nil, err
@@ -477,7 +480,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 
 	var newPeer *nbpeer.Peer
-	var updateAccountPeers bool
 
 	var setupKeyID string
 	var setupKeyName string
@@ -601,31 +603,24 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		newPeer.DNSLabel = freeLabel
 		newPeer.IP = freeIP
 
-		unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-		defer func() {
-			if unlock != nil {
-				unlock()
-			}
-		}()
-
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			err = transaction.AddPeerToAccount(ctx, store.LockingStrengthUpdate, newPeer)
+			err = transaction.AddPeerToAccount(ctx, newPeer)
 			if err != nil {
 				return err
 			}
 
-			err = transaction.AddPeerToAllGroup(ctx, store.LockingStrengthUpdate, accountID, newPeer.ID)
-			if err != nil {
-				return fmt.Errorf("failed adding peer to All group: %w", err)
-			}
-
 			if len(groupsToAdd) > 0 {
 				for _, g := range groupsToAdd {
-					err = transaction.AddPeerToGroup(ctx, store.LockingStrengthUpdate, accountID, newPeer.ID, g)
+					err = transaction.AddPeerToGroup(ctx, newPeer.AccountID, newPeer.ID, g)
 					if err != nil {
 						return err
 					}
 				}
+			}
+
+			err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
+			if err != nil {
+				return fmt.Errorf("failed adding peer to All group: %w", err)
 			}
 
 			if addedByUser {
@@ -650,7 +645,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 				}
 			}
 
-			err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+			err = transaction.IncrementNetworkSerial(ctx, accountID)
 			if err != nil {
 				return fmt.Errorf("failed to increment network serial: %w", err)
 			}
@@ -659,14 +654,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			return nil
 		})
 		if err == nil {
-			unlock()
-			unlock = nil
 			break
 		}
 
 		if isUniqueConstraintError(err) {
-			unlock()
-			unlock = nil
 			log.WithContext(ctx).WithFields(log.Fields{"dns_label": freeLabel, "ip": freeIP}).Tracef("Failed to add peer in attempt %d, retrying: %v", attempt, err)
 			continue
 		}
@@ -677,7 +668,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database after %d attempts: %w", maxAttempts, err)
 	}
 
-	updateAccountPeers, err = isPeerInActiveGroup(ctx, am.Store, accountID, newPeer.ID)
+	updateAccountPeers, err := isPeerInActiveGroup(ctx, am.Store, accountID, newPeer.ID)
 	if err != nil {
 		updateAccountPeers = true
 	}
@@ -726,7 +717,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	var err error
 	var postureChecks []*posture.Checks
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -738,7 +729,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		}
 
 		if peer.UserID != "" {
-			user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthShare, peer.UserID)
+			user, err := transaction.GetUserByUserID(ctx, store.LockingStrengthNone, peer.UserID)
 			if err != nil {
 				return err
 			}
@@ -766,7 +757,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		if updated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
-			if err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer); err != nil {
+			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
 
@@ -825,15 +816,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 	}
 
-	unlockAccount := am.Store.AcquireReadLockByUID(ctx, accountID)
-	defer unlockAccount()
-	unlockPeer := am.Store.AcquireWriteLockByUID(ctx, login.WireGuardPubKey)
-	defer func() {
-		if unlockPeer != nil {
-			unlockPeer()
-		}
-	}()
-
 	var peer *nbpeer.Peer
 	var updateRemotePeers bool
 	var isRequiresApproval bool
@@ -841,7 +823,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	var isPeerUpdated bool
 	var postureChecks []*posture.Checks
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -903,7 +885,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		}
 
 		if shouldStorePeer {
-			if err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, accountID, peer); err != nil {
+			if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
 				return err
 			}
 		}
@@ -914,9 +896,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, err
 	}
 
-	unlockPeer()
-	unlockPeer = nil
-
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
@@ -926,7 +905,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 // getPeerPostureChecks returns the posture checks for the peer.
 func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID, peerID string) ([]*posture.Checks, error) {
-	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthShare, accountID)
+	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -950,7 +929,7 @@ func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountI
 		peerPostureChecksIDs = append(peerPostureChecksIDs, postureChecksIDs...)
 	}
 
-	peerPostureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthShare, accountID, peerPostureChecksIDs)
+	peerPostureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthNone, accountID, peerPostureChecksIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -965,7 +944,7 @@ func processPeerPostureChecks(ctx context.Context, transaction store.Store, poli
 			continue
 		}
 
-		sourceGroups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, rule.Sources)
+		sourceGroups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, rule.Sources)
 		if err != nil {
 			return nil, err
 		}
@@ -990,7 +969,7 @@ func processPeerPostureChecks(ctx context.Context, transaction store.Store, poli
 // with no JWT token and usually no setup-key. As the client can send up to two login request to check if it is expired
 // and before starting the engine, we do the checks without an account lock to avoid piling up requests.
 func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Context, accountID string, login types.PeerLogin) error {
-	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthShare, login.WireGuardPubKey)
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, login.WireGuardPubKey)
 	if err != nil {
 		return err
 	}
@@ -1001,7 +980,7 @@ func (am *DefaultAccountManager) checkIFPeerNeedsLoginWithoutLock(ctx context.Co
 		return nil
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return err
 	}
@@ -1020,7 +999,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	}()
 
 	if isRequiresApproval {
-		network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+		network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -1036,7 +1015,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1048,7 +1027,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 
 	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return nil, nil, nil, err
@@ -1072,7 +1051,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, transact
 	// If peer was expired before and if it reached this point, it is re-authenticated.
 	// UserID is present, meaning that JWT validation passed successfully in the API layer.
 	peer = peer.UpdateLastLogin()
-	err = transaction.SavePeer(ctx, store.LockingStrengthUpdate, peer.AccountID, peer)
+	err = transaction.SavePeer(ctx, peer.AccountID, peer)
 	if err != nil {
 		return err
 	}
@@ -1082,7 +1061,7 @@ func (am *DefaultAccountManager) handleExpiredPeer(ctx context.Context, transact
 		log.WithContext(ctx).Debugf("failed to update user last login: %v", err)
 	}
 
-	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, peer.AccountID)
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, peer.AccountID)
 	if err != nil {
 		return fmt.Errorf("failed to get account settings: %w", err)
 	}
@@ -1124,7 +1103,7 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Se
 
 // GetPeer for a given accountID, peerID and userID error if not found.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
-	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthShare, accountID, peerID)
+	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
 		return nil, err
 	}
@@ -1137,7 +1116,7 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return peer, nil
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1156,14 +1135,14 @@ func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accoun
 		return nil, err
 	}
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		return nil, err
 	}
 
 	// it is also possible that user doesn't own the peer but some of his peers have access to it,
 	// this is a valid case, show the peer as well.
-	userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthShare, accountID, userID)
+	userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1183,6 +1162,8 @@ func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accoun
 // UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+	log.WithContext(ctx).Tracef("updating peers for account %s from %s", accountID, util.GetCallerName())
+
 	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers. failed to get account: %v", err)
@@ -1204,7 +1185,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		return
 	}
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send out updates to peers, failed to get validate peers: %v", err)
 		return
@@ -1219,7 +1200,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountID)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMapsAll(ctx, accountID, account.Peers)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return
@@ -1265,8 +1246,9 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			}
 			am.metrics.UpdateChannelMetrics().CountMergeNetworkMapDuration(time.Since(start))
 
+			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting)
+			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups))
 			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
 
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
@@ -1288,6 +1270,8 @@ type bufferUpdate struct {
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+	log.WithContext(ctx).Tracef("buffer updating peers for account %s from %s", accountID, util.GetCallerName())
+
 	bufUpd, _ := am.accountUpdateLocks.LoadOrStore(accountID, &bufferUpdate{})
 	b := bufUpd.(*bufferUpdate)
 
@@ -1337,7 +1321,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to send update to peer %s, failed to validate peers: %v", peerId, err)
 		return
@@ -1355,7 +1339,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountId)
+	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountId, peerId, account.Peers)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
 		return
@@ -1374,7 +1358,8 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings)
+	peerGroups := account.GetPeerGroups(peerId)
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups))
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 
@@ -1382,7 +1367,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 // If there is no peer that expires this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet and that are connected.
 func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, accountID string) (time.Duration, bool) {
-	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthShare, accountID)
+	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with expiration: %v", err)
 		return peerSchedulerRetryInterval, true
@@ -1392,7 +1377,7 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 		return 0, false
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
 		return peerSchedulerRetryInterval, true
@@ -1426,7 +1411,7 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 // If there is no peer that expires this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet and that are not connected.
 func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Context, accountID string) (time.Duration, bool) {
-	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthShare, accountID)
+	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with inactivity: %v", err)
 		return peerSchedulerRetryInterval, true
@@ -1436,7 +1421,7 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 		return 0, false
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
 		return peerSchedulerRetryInterval, true
@@ -1467,12 +1452,12 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 
 // getExpiredPeers returns peers that have been expired.
 func (am *DefaultAccountManager) getExpiredPeers(ctx context.Context, accountID string) ([]*nbpeer.Peer, error) {
-	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthShare, accountID)
+	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -1490,12 +1475,12 @@ func (am *DefaultAccountManager) getExpiredPeers(ctx context.Context, accountID 
 
 // getInactivePeers returns peers that have been expired by inactivity
 func (am *DefaultAccountManager) getInactivePeers(ctx context.Context, accountID string) ([]*nbpeer.Peer, error) {
-	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthShare, accountID)
+	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -1513,22 +1498,12 @@ func (am *DefaultAccountManager) getInactivePeers(ctx context.Context, accountID
 
 // GetPeerGroups returns groups that the peer is part of.
 func (am *DefaultAccountManager) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
-	return am.Store.GetPeerGroups(ctx, store.LockingStrengthShare, accountID, peerID)
+	return am.Store.GetPeerGroups(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
 // getPeerGroupIDs returns the IDs of the groups that the peer is part of.
 func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID string, peerID string) ([]string, error) {
-	groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthShare, accountID, peerID)
-	if err != nil {
-		return nil, err
-	}
-
-	groupIDs := make([]string, 0, len(groups))
-	for _, group := range groups {
-		groupIDs = append(groupIDs, group.ID)
-	}
-
-	return groupIDs, err
+	return transaction.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
 // IsPeerInActiveGroup checks if the given peer is part of a group that is used
@@ -1546,36 +1521,27 @@ func isPeerInActiveGroup(ctx context.Context, transaction store.Store, accountID
 func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction store.Store, accountID, userID string, peers []*nbpeer.Peer) ([]func(), error) {
 	var peerDeletedEvents []func()
 
-	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
 	dnsDomain := am.GetDNSDomain(settings)
 
-	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, peer := range peers {
-		groups, err := transaction.GetPeerGroups(ctx, store.LockingStrengthUpdate, accountID, peer.ID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get peer groups: %w", err)
+		if err := transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
+			return nil, fmt.Errorf("failed to remove peer %s from groups", peer.ID)
 		}
 
-		for _, group := range groups {
-			group.RemovePeer(peer.ID)
-			err = transaction.SaveGroup(ctx, store.LockingStrengthUpdate, group)
-			if err != nil {
-				return nil, fmt.Errorf("failed to save group: %w", err)
-			}
-		}
-
-		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID); err != nil {
+		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID, settings.Extra); err != nil {
 			return nil, err
 		}
 
-		if err = transaction.DeletePeer(ctx, store.LockingStrengthUpdate, accountID, peer.ID); err != nil {
+		if err = transaction.DeletePeer(ctx, accountID, peer.ID); err != nil {
 			return nil, err
 		}
 
@@ -1631,7 +1597,7 @@ func (am *DefaultAccountManager) validatePeerDelete(ctx context.Context, transac
 
 // isPeerLinkedToNetworkRouter checks if a peer is linked to any network router in the account.
 func isPeerLinkedToNetworkRouter(ctx context.Context, transaction store.Store, accountID string, peerID string) (bool, *routerTypes.NetworkRouter) {
-	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthShare, accountID)
+	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error retrieving network routers while checking peer linkage: %v", err)
 		return false, nil

@@ -15,7 +15,7 @@ import (
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	sshserver "github.com/netbirdio/netbird/client/ssh/server"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 type sshServer interface {

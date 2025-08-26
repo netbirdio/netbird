@@ -1,6 +1,7 @@
 package ice
 
 import (
+	"sync"
 	"time"
 
 	"github.com/pion/ice/v3"
@@ -18,17 +19,28 @@ const (
 
 	iceKeepAliveDefault           = 4 * time.Second
 	iceDisconnectedTimeoutDefault = 6 * time.Second
+	iceFailedTimeoutDefault       = 6 * time.Second
 	// iceRelayAcceptanceMinWaitDefault is the same as in the Pion ICE package
 	iceRelayAcceptanceMinWaitDefault = 2 * time.Second
 )
 
-var (
-	failedTimeout = 6 * time.Second
-)
+type ThreadSafeAgent struct {
+	*ice.Agent
+	once sync.Once
+}
 
-func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ice.Agent, error) {
+func (a *ThreadSafeAgent) Close() error {
+	var err error
+	a.once.Do(func() {
+		err = a.Agent.Close()
+	})
+	return err
+}
+
+func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ThreadSafeAgent, error) {
 	iceKeepAlive := iceKeepAlive()
 	iceDisconnectedTimeout := iceDisconnectedTimeout()
+	iceFailedTimeout := iceFailedTimeout()
 	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
 	transportNet, err := newStdNet(iFaceDiscover, config.InterfaceBlackList)
@@ -50,7 +62,7 @@ func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candida
 		UDPMuxSrflx:            config.UDPMuxSrflx,
 		NAT1To1IPs:             config.NATExternalIPs,
 		Net:                    transportNet,
-		FailedTimeout:          &failedTimeout,
+		FailedTimeout:          &iceFailedTimeout,
 		DisconnectedTimeout:    &iceDisconnectedTimeout,
 		KeepaliveInterval:      &iceKeepAlive,
 		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
@@ -63,7 +75,12 @@ func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candida
 		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
 	}
 
-	return ice.NewAgent(agentConfig)
+	agent, err := ice.NewAgent(agentConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ThreadSafeAgent{Agent: agent}, nil
 }
 
 func GenerateICECredentials() (string, string, error) {

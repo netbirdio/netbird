@@ -89,21 +89,16 @@ func (s *systemdDbusConfigurator) supportCustomPort() bool {
 }
 
 func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
-	parsedIP, err := netip.ParseAddr(config.ServerIP)
-	if err != nil {
-		return fmt.Errorf("unable to parse ip address, error: %w", err)
-	}
-	ipAs4 := parsedIP.As4()
 	defaultLinkInput := systemdDbusDNSInput{
 		Family:  unix.AF_INET,
-		Address: ipAs4[:],
+		Address: config.ServerIP.AsSlice(),
 	}
-	if err = s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput}); err != nil {
+	if err := s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput}); err != nil {
 		return fmt.Errorf("set interface DNS server %s:%d: %w", config.ServerIP, config.ServerPort, err)
 	}
 
 	// We don't support dnssec. On some machines this is default on so we explicitly set it to off
-	if err = s.callLinkMethod(systemdDbusSetDNSSECMethodSuffix, dnsSecDisabled); err != nil {
+	if err := s.callLinkMethod(systemdDbusSetDNSSECMethodSuffix, dnsSecDisabled); err != nil {
 		log.Warnf("failed to set DNSSEC to 'no': %v", err)
 	}
 
@@ -129,8 +124,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 	}
 
 	if config.RouteAll {
-		err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
-		if err != nil {
+		if err := s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true); err != nil {
 			return fmt.Errorf("set link as default dns router: %w", err)
 		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
@@ -139,7 +133,7 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 		})
 		log.Infof("configured %s:%d as main DNS forwarder for this peer", config.ServerIP, config.ServerPort)
 	} else {
-		if err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, false); err != nil {
+		if err := s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, false); err != nil {
 			return fmt.Errorf("remove link as default dns router: %w", err)
 		}
 	}
@@ -153,9 +147,8 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 	}
 
 	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
-	err = s.setDomainsForInterface(domainsInput)
-	if err != nil {
-		log.Error(err)
+	if err := s.setDomainsForInterface(domainsInput); err != nil {
+		log.Error("failed to set domains for interface: ", err)
 	}
 
 	if err := s.flushDNSCache(); err != nil {
@@ -242,7 +235,7 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	return nil
 }
 
-func (s *systemdDbusConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
+func (s *systemdDbusConfigurator) restoreUncleanShutdownDNS(netip.Addr) error {
 	if err := s.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via systemd: %w", err)
 	}

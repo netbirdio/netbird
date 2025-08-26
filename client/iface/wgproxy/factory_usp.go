@@ -20,9 +20,7 @@ func NewUSPFactory(iceBind *bind.ICEBind) *USPFactory {
 }
 
 func (w *USPFactory) GetProxy() Proxy {
-	return &proxyBind.ProxyBind{
-		Bind: w.bind,
-	}
+	return proxyBind.NewProxyBind(w.bind)
 }
 
 func (w *USPFactory) Free() error {

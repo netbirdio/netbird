@@ -59,14 +59,31 @@ service DaemonService {
   // Delete specific state or all states
   rpc DeleteState(DeleteStateRequest) returns (DeleteStateResponse) {}
 
-  // SetNetworkMapPersistence enables or disables network map persistence
-  rpc SetNetworkMapPersistence(SetNetworkMapPersistenceRequest) returns (SetNetworkMapPersistenceResponse) {}
+  // SetSyncResponsePersistence enables or disables sync response persistence
+  rpc SetSyncResponsePersistence(SetSyncResponsePersistenceRequest) returns (SetSyncResponsePersistenceResponse) {}
 
   rpc TracePacket(TracePacketRequest) returns (TracePacketResponse) {}
 
   rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
+
+  rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
+
+  rpc SetConfig(SetConfigRequest) returns (SetConfigResponse) {}
+
+  rpc AddProfile(AddProfileRequest) returns (AddProfileResponse) {}
+
+  rpc RemoveProfile(RemoveProfileRequest) returns (RemoveProfileResponse) {}
+
+  rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse) {}
+
+  rpc GetActiveProfile(GetActiveProfileRequest) returns (GetActiveProfileResponse) {}
+
+  // Logout disconnects from the network and deletes the peer from the management server
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {}
+
+  rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
 
   // GetPeerSSHHostKey retrieves SSH host key for a specific peer
   rpc GetPeerSSHHostKey(GetPeerSSHHostKeyRequest) returns (GetPeerSSHHostKeyResponse) {}
@@ -112,10 +129,6 @@ message LoginRequest {
   optional bool disableAutoConnect = 14;
 
   optional bool serverSSHAllowed = 15;
-  optional bool enableSSHRoot = 30;
-  optional bool enableSSHSFTP = 33;
-  optional bool enableSSHLocalPortForwarding = 31;
-  optional bool enableSSHRemotePortForwarding = 32;
 
   optional bool rosenpassPermissive = 16;
 
@@ -143,6 +156,16 @@ message LoginRequest {
   optional bool lazyConnectionEnabled = 28;
 
   optional bool block_inbound = 29;
+
+  optional string profileName = 30;
+  optional string username = 31;
+
+  optional int64 mtu = 32;
+
+  optional bool enableSSHRoot = 33;
+  optional bool enableSSHSFTP = 34;
+  optional bool enableSSHLocalPortForwarding = 35;
+  optional bool enableSSHRemotePortForwarding = 36;
 }
 
 message LoginResponse {
@@ -157,15 +180,20 @@ message WaitSSOLoginRequest {
   string hostname = 2;
 }
 
-message WaitSSOLoginResponse {}
+message WaitSSOLoginResponse {
+  string email = 1;
+}
 
-message UpRequest {}
+message UpRequest {
+  optional string profileName = 1;
+  optional string username = 2;
+}
 
 message UpResponse {}
 
 message StatusRequest{
   bool getFullPeerStatus = 1;
-  bool shouldRunProbes   = 2;
+  bool shouldRunProbes = 2;
 }
 
 message StatusResponse{
@@ -180,7 +208,10 @@ message DownRequest {}
 
 message DownResponse {}
 
-message GetConfigRequest {}
+message GetConfigRequest {
+  string profileName = 1;
+  string username = 2;
+}
 
 message GetConfigResponse {
   // managementUrl settings value.
@@ -202,17 +233,11 @@ message GetConfigResponse {
 
   int64 wireguardPort = 7;
 
+  int64 mtu = 8;
+
   bool disableAutoConnect = 9;
 
   bool serverSSHAllowed = 10;
-
-  bool enableSSHRoot = 21;
-
-  bool enableSSHSFTP = 24;
-
-  bool enableSSHLocalPortForwarding = 22;
-
-  bool enableSSHRemotePortForwarding = 23;
 
   bool rosenpassEnabled = 11;
 
@@ -233,6 +258,14 @@ message GetConfigResponse {
   bool disable_server_routes = 19;
 
   bool block_lan_access = 20;
+
+  bool enableSSHRoot = 21;
+
+  bool enableSSHSFTP = 24;
+
+  bool enableSSHLocalPortForwarding = 22;
+
+  bool enableSSHRemotePortForwarding = 23;
 }
 
 // PeerState contains the latest state of a peer
@@ -442,11 +475,11 @@ message DeleteStateResponse {
 }
 
 
-message SetNetworkMapPersistenceRequest {
+message SetSyncResponsePersistenceRequest {
   bool enabled = 1;
 }
 
-message SetNetworkMapPersistenceResponse {}
+message SetSyncResponsePersistenceResponse {}
 
 message TCPFlags {
   bool syn = 1;
@@ -512,6 +545,121 @@ message GetEventsRequest {}
 
 message GetEventsResponse {
   repeated SystemEvent events = 1;
+}
+
+message SwitchProfileRequest {
+  optional string profileName = 1;
+  optional string username = 2;
+}
+
+message SwitchProfileResponse {}
+
+message SetConfigRequest {
+  string username = 1;
+  string profileName = 2;
+  // managementUrl to authenticate.
+  string managementUrl = 3;
+
+  // adminUrl to manage keys.
+  string adminURL = 4;
+
+  optional bool rosenpassEnabled = 5;
+
+  optional string interfaceName = 6;
+
+  optional int64 wireguardPort = 7;
+
+  optional string optionalPreSharedKey = 8;
+
+  optional bool disableAutoConnect = 9;
+
+  optional bool serverSSHAllowed = 10;
+
+  optional bool rosenpassPermissive = 11;
+
+  optional bool networkMonitor = 12;
+
+  optional bool disable_client_routes = 13;
+  optional bool disable_server_routes = 14;
+  optional bool disable_dns = 15;
+  optional bool disable_firewall = 16;
+  optional bool block_lan_access = 17;
+
+  optional bool disable_notifications = 18;
+
+  optional bool lazyConnectionEnabled = 19;
+
+  optional bool block_inbound = 20;
+
+  repeated string natExternalIPs = 21;
+  bool cleanNATExternalIPs = 22;
+
+  bytes customDNSAddress = 23;
+
+  repeated string extraIFaceBlacklist = 24;
+
+  repeated string dns_labels = 25;
+  // cleanDNSLabels clean map list of DNS labels.
+  bool cleanDNSLabels = 26;
+
+  optional google.protobuf.Duration dnsRouteInterval = 27;
+
+  optional int64 mtu = 28;
+
+  optional bool enableSSHRoot = 29;
+  optional bool enableSSHSFTP = 30;
+  optional bool enableSSHLocalPortForward = 31;
+  optional bool enableSSHRemotePortForward = 32;
+}
+
+message SetConfigResponse{}
+
+message AddProfileRequest {
+  string username = 1;
+  string profileName = 2;
+}
+
+message AddProfileResponse {}
+
+message RemoveProfileRequest {
+  string username = 1;
+  string profileName = 2;
+}
+
+message RemoveProfileResponse {}
+
+message ListProfilesRequest {
+  string username = 1;
+}
+
+message ListProfilesResponse {
+  repeated Profile profiles = 1;
+}
+
+message Profile {
+  string name = 1;
+  bool is_active = 2;
+}
+
+message GetActiveProfileRequest {}
+
+message GetActiveProfileResponse {
+  string profileName = 1;
+  string username = 2;
+}
+
+message LogoutRequest {
+  optional string profileName = 1;
+  optional string username = 2;
+}
+
+message LogoutResponse {}
+
+message GetFeaturesRequest{}
+
+message GetFeaturesResponse{
+  bool disable_profiles = 1;
+  bool disable_update_settings = 2;
 }
 
 // GetPeerSSHHostKeyRequest for retrieving SSH host key for a specific peer

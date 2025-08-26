@@ -36,15 +36,15 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
 )
 
 // Manager is a route manager interface
 type Manager interface {
-	Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
+	Init() error
 	UpdateRoutes(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error
 	ClassifyRoutes(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap)
 	TriggerSelection(route.HAMap)
@@ -201,11 +201,11 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 }
 
 // Init sets up the routing
-func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (m *DefaultManager) Init() error {
 	m.routeSelector = m.initSelector()
 
 	if nbnet.CustomRoutingDisabled() || m.disableClientRoutes {
-		return nil, nil, nil
+		return nil
 	}
 
 	if err := m.sysOps.CleanupRouting(nil); err != nil {
@@ -219,13 +219,12 @@ func (m *DefaultManager) Init() (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error)
 
 	ips := resolveURLsToIPs(initialAddresses)
 
-	beforePeerHook, afterPeerHook, err := m.sysOps.SetupRouting(ips, m.stateManager)
-	if err != nil {
-		return nil, nil, fmt.Errorf("setup routing: %w", err)
+	if err := m.sysOps.SetupRouting(ips, m.stateManager); err != nil {
+		return fmt.Errorf("setup routing: %w", err)
 	}
 
 	log.Info("Routing setup complete")
-	return beforePeerHook, afterPeerHook, nil
+	return nil
 }
 
 func (m *DefaultManager) initSelector() *routeselector.RouteSelector {
@@ -369,7 +368,11 @@ func (m *DefaultManager) UpdateRoutes(
 
 	var merr *multierror.Error
 	if !m.disableClientRoutes {
-		filteredClientRoutes := m.routeSelector.FilterSelected(clientRoutes)
+
+		// Update route selector based on management server's isSelected status
+		m.updateRouteSelectorFromManagement(clientRoutes)
+
+		filteredClientRoutes := m.routeSelector.FilterSelectedExitNodes(clientRoutes)
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("update system routes: %w", err))
@@ -431,7 +434,7 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
-	networks = m.routeSelector.FilterSelected(networks)
+	networks = m.routeSelector.FilterSelectedExitNodes(networks)
 
 	m.notifier.OnNewRoutes(networks)
 
@@ -583,4 +586,107 @@ func resolveURLsToIPs(urls []string) []net.IP {
 		ips = append(ips, ipAddrs...)
 	}
 	return ips
+}
+
+// updateRouteSelectorFromManagement updates the route selector based on the isSelected status from the management server
+func (m *DefaultManager) updateRouteSelectorFromManagement(clientRoutes route.HAMap) {
+	exitNodeInfo := m.collectExitNodeInfo(clientRoutes)
+	if len(exitNodeInfo.allIDs) == 0 {
+		return
+	}
+
+	m.updateExitNodeSelections(exitNodeInfo)
+	m.logExitNodeUpdate(exitNodeInfo)
+}
+
+type exitNodeInfo struct {
+	allIDs               []route.NetID
+	selectedByManagement []route.NetID
+	userSelected         []route.NetID
+	userDeselected       []route.NetID
+}
+
+func (m *DefaultManager) collectExitNodeInfo(clientRoutes route.HAMap) exitNodeInfo {
+	var info exitNodeInfo
+
+	for haID, routes := range clientRoutes {
+		if !m.isExitNodeRoute(routes) {
+			continue
+		}
+
+		netID := haID.NetID()
+		info.allIDs = append(info.allIDs, netID)
+
+		if m.routeSelector.HasUserSelectionForRoute(netID) {
+			m.categorizeUserSelection(netID, &info)
+		} else {
+			m.checkManagementSelection(routes, netID, &info)
+		}
+	}
+
+	return info
+}
+
+func (m *DefaultManager) isExitNodeRoute(routes []*route.Route) bool {
+	return len(routes) > 0 && routes[0].Network.String() == vars.ExitNodeCIDR
+}
+
+func (m *DefaultManager) categorizeUserSelection(netID route.NetID, info *exitNodeInfo) {
+	if m.routeSelector.IsSelected(netID) {
+		info.userSelected = append(info.userSelected, netID)
+	} else {
+		info.userDeselected = append(info.userDeselected, netID)
+	}
+}
+
+func (m *DefaultManager) checkManagementSelection(routes []*route.Route, netID route.NetID, info *exitNodeInfo) {
+	for _, route := range routes {
+		if !route.SkipAutoApply {
+			info.selectedByManagement = append(info.selectedByManagement, netID)
+			break
+		}
+	}
+}
+
+func (m *DefaultManager) updateExitNodeSelections(info exitNodeInfo) {
+	routesToDeselect := m.getRoutesToDeselect(info.allIDs)
+	m.deselectExitNodes(routesToDeselect)
+	m.selectExitNodesByManagement(info.selectedByManagement, info.allIDs)
+}
+
+func (m *DefaultManager) getRoutesToDeselect(allIDs []route.NetID) []route.NetID {
+	var routesToDeselect []route.NetID
+	for _, netID := range allIDs {
+		if !m.routeSelector.HasUserSelectionForRoute(netID) {
+			routesToDeselect = append(routesToDeselect, netID)
+		}
+	}
+	return routesToDeselect
+}
+
+func (m *DefaultManager) deselectExitNodes(routesToDeselect []route.NetID) {
+	if len(routesToDeselect) == 0 {
+		return
+	}
+
+	err := m.routeSelector.DeselectRoutes(routesToDeselect, routesToDeselect)
+	if err != nil {
+		log.Warnf("Failed to deselect exit nodes: %v", err)
+	}
+}
+
+func (m *DefaultManager) selectExitNodesByManagement(selectedByManagement []route.NetID, allIDs []route.NetID) {
+	if len(selectedByManagement) == 0 {
+		return
+	}
+
+	err := m.routeSelector.SelectRoutes(selectedByManagement, true, allIDs)
+	if err != nil {
+		log.Warnf("Failed to select exit nodes: %v", err)
+	}
+}
+
+func (m *DefaultManager) logExitNodeUpdate(info exitNodeInfo) {
+	log.Debugf("Updated route selector: %d exit nodes available, %d selected by management, %d user-selected, %d user-deselected",
+		len(info.allIDs), len(info.selectedByManagement), len(info.userSelected), len(info.userDeselected))
 }

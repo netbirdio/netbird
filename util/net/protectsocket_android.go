@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"syscall"
+
+	"github.com/netbirdio/netbird/client/iface/netstack"
 )
 
 var (
@@ -19,6 +21,9 @@ func SetAndroidProtectSocketFn(fn func(fd int32) bool) {
 
 // ControlProtectSocket is a Control function that sets the fwmark on the socket
 func ControlProtectSocket(_, _ string, c syscall.RawConn) error {
+	if netstack.IsEnabled() {
+		return nil
+	}
 	var aErr error
 	err := c.Control(func(fd uintptr) {
 		androidProtectSocketLock.Lock()

@@ -21,10 +21,13 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/monotime"
 )
 
 const (
 	DefaultMTU         = 1280
+	MinMTU             = 576
+	MaxMTU             = 8192
 	DefaultWgPort      = 51820
 	WgInterfaceDefault = configurer.WgInterfaceDefault
 )
@@ -33,6 +36,17 @@ var (
 	// ErrIfaceNotFound is returned when the WireGuard interface is not found
 	ErrIfaceNotFound = fmt.Errorf("wireguard interface not found")
 )
+
+// ValidateMTU validates that MTU is within acceptable range
+func ValidateMTU(mtu uint16) error {
+	if mtu < MinMTU {
+		return fmt.Errorf("MTU %d below minimum (%d bytes)", mtu, MinMTU)
+	}
+	if mtu > MaxMTU {
+		return fmt.Errorf("MTU %d exceeds maximum supported size (%d bytes)", mtu, MaxMTU)
+	}
+	return nil
+}
 
 type wgProxyFactory interface {
 	GetProxy() wgproxy.Proxy
@@ -44,7 +58,7 @@ type WGIFaceOpts struct {
 	Address      string
 	WGPort       int
 	WGPrivKey    string
-	MTU          int
+	MTU          uint16
 	MobileArgs   *device.MobileIFaceArguments
 	TransportNet transport.Net
 	FilterFn     bind.FilterFn
@@ -79,6 +93,10 @@ func (w *WGIface) Name() string {
 // Address returns the interface address
 func (w *WGIface) Address() wgaddr.Address {
 	return w.tun.WgAddress()
+}
+
+func (w *WGIface) MTU() uint16 {
+	return w.tun.MTU()
 }
 
 // ToInterface returns the net.Interface for the Wireguard interface
@@ -237,7 +255,7 @@ func (w *WGIface) GetStats() (map[string]configurer.WGStats, error) {
 	return w.configurer.GetStats()
 }
 
-func (w *WGIface) LastActivities() map[string]time.Time {
+func (w *WGIface) LastActivities() map[string]monotime.Time {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

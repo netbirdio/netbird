@@ -17,8 +17,6 @@ builds:
       - 386
     ignore:
       - goos: windows
-        goarch: arm64
-      - goos: windows
         goarch: arm
       - goos: windows
         goarch: 386
@@ -155,13 +153,15 @@ dockers:
     goarch: amd64
     use: buildx
     dockerfile: client/Dockerfile
+    extra_files:
+      - client/netbird-entrypoint.sh
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.created={{.Date}}"
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/netbird:{{ .Version }}-arm64v8
@@ -171,6 +171,8 @@ dockers:
     goarch: arm64
     use: buildx
     dockerfile: client/Dockerfile
+    extra_files:
+      - client/netbird-entrypoint.sh
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -188,6 +190,8 @@ dockers:
     goarm: 6
     use: buildx
     dockerfile: client/Dockerfile
+    extra_files:
+      - client/netbird-entrypoint.sh
     build_flag_templates:
       - "--platform=linux/arm"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -205,6 +209,8 @@ dockers:
     goarch: amd64
     use: buildx
     dockerfile: client/Dockerfile-rootless
+    extra_files:
+      - client/netbird-entrypoint.sh
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -221,6 +227,8 @@ dockers:
     goarch: arm64
     use: buildx
     dockerfile: client/Dockerfile-rootless
+    extra_files:
+      - client/netbird-entrypoint.sh
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -238,6 +246,8 @@ dockers:
     goarm: 6
     use: buildx
     dockerfile: client/Dockerfile-rootless
+    extra_files:
+      - client/netbird-entrypoint.sh
     build_flag_templates:
       - "--platform=linux/arm"
       - "--label=org.opencontainers.image.created={{.Date}}"

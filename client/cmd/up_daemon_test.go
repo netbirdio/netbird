@@ -3,18 +3,55 @@ package cmd
 import (
 	"context"
 	"os"
+	"os/user"
 	"testing"
 	"time"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 var cliAddr string
 
 func TestUpDaemon(t *testing.T) {
-	mgmAddr := startTestingServices(t)
 
 	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.ConfigDirOverride = tempDir
+
+	currUser, err := user.Current()
+	if err != nil {
+		t.Fatalf("failed to get current user: %v", err)
+		return
+	}
+
+	sm := profilemanager.ServiceManager{}
+	err = sm.AddProfile("test1", currUser.Username)
+	if err != nil {
+		t.Fatalf("failed to add profile: %v", err)
+		return
+	}
+
+	err = sm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name:     "test1",
+		Username: currUser.Username,
+	})
+	if err != nil {
+		t.Fatalf("failed to set active profile state: %v", err)
+		return
+	}
+
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.ConfigDirOverride = ""
+	})
+
+	mgmAddr := startTestingServices(t)
+
 	confPath := tempDir + "/config.json"
 
 	ctx := internal.CtxInitState(context.Background())

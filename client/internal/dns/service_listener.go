@@ -18,8 +18,11 @@ import (
 
 const (
 	customPort = 5053
-	defaultIP  = "127.0.0.1"
-	customIP   = "127.0.0.153"
+)
+
+var (
+	defaultIP = netip.MustParseAddr("127.0.0.1")
+	customIP  = netip.MustParseAddr("127.0.0.153")
 )
 
 type serviceViaListener struct {
@@ -27,7 +30,7 @@ type serviceViaListener struct {
 	dnsMux            *dns.ServeMux
 	customAddr        *netip.AddrPort
 	server            *dns.Server
-	listenIP          string
+	listenIP          netip.Addr
 	listenPort        uint16
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
@@ -65,6 +68,7 @@ func (s *serviceViaListener) Listen() error {
 		log.Errorf("failed to eval runtime address: %s", err)
 		return fmt.Errorf("eval listen address: %w", err)
 	}
+	s.listenIP = s.listenIP.Unmap()
 	s.server.Addr = fmt.Sprintf("%s:%d", s.listenIP, s.listenPort)
 	log.Debugf("starting dns on %s", s.server.Addr)
 	go func() {
@@ -118,13 +122,13 @@ func (s *serviceViaListener) RuntimePort() int {
 	defer s.listenerFlagLock.Unlock()
 
 	if s.ebpfService != nil {
-		return defaultPort
+		return DefaultPort
 	} else {
 		return int(s.listenPort)
 	}
 }
 
-func (s *serviceViaListener) RuntimeIP() string {
+func (s *serviceViaListener) RuntimeIP() netip.Addr {
 	return s.listenIP
 }
 
@@ -139,20 +143,20 @@ func (s *serviceViaListener) setListenerStatus(running bool) {
 // first check the 53 port availability on WG interface or lo, if not success
 // pick a random port on WG interface for eBPF, if not success
 // check the 5053 port availability on WG interface or lo without eBPF usage,
-func (s *serviceViaListener) evalListenAddress() (string, uint16, error) {
+func (s *serviceViaListener) evalListenAddress() (netip.Addr, uint16, error) {
 	if s.customAddr != nil {
-		return s.customAddr.Addr().String(), s.customAddr.Port(), nil
+		return s.customAddr.Addr(), s.customAddr.Port(), nil
 	}
 
-	ip, ok := s.testFreePort(defaultPort)
+	ip, ok := s.testFreePort(DefaultPort)
 	if ok {
-		return ip, defaultPort, nil
+		return ip, DefaultPort, nil
 	}
 
 	ebpfSrv, port, ok := s.tryToUseeBPF()
 	if ok {
 		s.ebpfService = ebpfSrv
-		return s.wgInterface.Address().IP.String(), port, nil
+		return s.wgInterface.Address().IP, port, nil
 	}
 
 	ip, ok = s.testFreePort(customPort)
@@ -160,15 +164,15 @@ func (s *serviceViaListener) evalListenAddress() (string, uint16, error) {
 		return ip, customPort, nil
 	}
 
-	return "", 0, fmt.Errorf("failed to find a free port for DNS server")
+	return netip.Addr{}, 0, fmt.Errorf("failed to find a free port for DNS server")
 }
 
-func (s *serviceViaListener) testFreePort(port int) (string, bool) {
-	var ips []string
+func (s *serviceViaListener) testFreePort(port int) (netip.Addr, bool) {
+	var ips []netip.Addr
 	if runtime.GOOS != "darwin" {
-		ips = []string{s.wgInterface.Address().IP.String(), defaultIP, customIP}
+		ips = []netip.Addr{s.wgInterface.Address().IP, defaultIP, customIP}
 	} else {
-		ips = []string{defaultIP, customIP}
+		ips = []netip.Addr{defaultIP, customIP}
 	}
 
 	for _, ip := range ips {
@@ -178,10 +182,10 @@ func (s *serviceViaListener) testFreePort(port int) (string, bool) {
 
 		return ip, true
 	}
-	return "", false
+	return netip.Addr{}, false
 }
 
-func (s *serviceViaListener) tryToBind(ip string, port int) bool {
+func (s *serviceViaListener) tryToBind(ip netip.Addr, port int) bool {
 	addrString := fmt.Sprintf("%s:%d", ip, port)
 	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addrString))
 	probeListener, err := net.ListenUDP("udp", udpAddr)
@@ -224,7 +228,7 @@ func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, uint16, bool) {
 }
 
 func (s *serviceViaListener) generateFreePort() (uint16, error) {
-	ok := s.tryToBind(s.wgInterface.Address().IP.String(), customPort)
+	ok := s.tryToBind(s.wgInterface.Address().IP, customPort)
 	if ok {
 		return customPort, nil
 	}

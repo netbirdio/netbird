@@ -17,7 +17,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("trace", "console")
+	_ = util.InitLog("trace", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
@@ -84,12 +84,12 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 	}{
 		{
 			name:  "userspace proxy",
-			proxy: udpProxy.NewWGUDPProxy(51830),
+			proxy: udpProxy.NewWGUDPProxy(51830, 1280),
 		},
 	}
 
 	if runtime.GOOS == "linux" && os.Getenv("GITHUB_ACTIONS") != "true" {
-		ebpfProxy := ebpf.NewWGEBPFProxy(51831)
+		ebpfProxy := ebpf.NewWGEBPFProxy(51831, 1280)
 		if err := ebpfProxy.Listen(); err != nil {
 			t.Fatalf("failed to initialize ebpf proxy: %s", err)
 		}
@@ -98,9 +98,7 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 				t.Errorf("failed to free ebpf proxy: %s", err)
 			}
 		}()
-		proxyWrapper := &ebpf.ProxyWrapper{
-			WgeBPFProxy: ebpfProxy,
-		}
+		proxyWrapper := ebpf.NewProxyWrapper(ebpfProxy)
 
 		tests = append(tests, struct {
 			name  string

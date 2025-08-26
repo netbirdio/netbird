@@ -25,11 +25,12 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 
 	"github.com/netbirdio/netbird/management/server/util"
 
@@ -38,8 +39,6 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -47,6 +46,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestPeer_LoginExpired(t *testing.T) {
@@ -310,12 +311,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1, true)
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &group1)
 	if err != nil {
 		t.Errorf("expecting group1 to be added, got failure %v", err)
 		return
 	}
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2, true)
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &group2)
 	if err != nil {
 		t.Errorf("expecting group2 to be added, got failure %v", err)
 		return
@@ -1063,16 +1064,16 @@ func TestToSyncResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	config := &types.Config{
-		Signal: &types.Host{
+	config := &config.Config{
+		Signal: &config.Host{
 			Proto:    "https",
 			URI:      "signal.uri",
 			Username: "",
 			Password: "",
 		},
-		Stuns: []*types.Host{{URI: "stun.uri", Proto: types.UDP}},
-		TURNConfig: &types.TURNConfig{
-			Turns: []*types.Host{{URI: "turn.uri", Proto: types.UDP, Username: "turn-user", Password: "turn-pass"}},
+		Stuns: []*config.Host{{URI: "stun.uri", Proto: config.UDP}},
+		TURNConfig: &config.TURNConfig{
+			Turns: []*config.Host{{URI: "turn.uri", Proto: config.UDP, Username: "turn-user", Password: "turn-pass"}},
 		},
 	}
 	peer := &nbpeer.Peer{
@@ -1164,7 +1165,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 	accountSettings := &types.Settings{RoutingPeerDNSResolutionEnabled: true}
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil)
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{})
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1273,7 +1274,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1307,7 +1308,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels)
 
-	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, addedPeer.Key)
+	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, addedPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 	assert.Equal(t, peer.UserID, existingUserID)
@@ -1353,7 +1354,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1442,7 +1443,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			assert.NotNil(t, addedPeer, "addedPeer should not be nil on success")
 			assert.Equal(t, currentPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels, "ExtraDNSLabels mismatch")
 
-			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, currentPeer.Key)
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, currentPeer.Key)
 			require.NoError(t, err, "Failed to get peer by pub key: %s", currentPeer.Key)
 			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
 			assert.Equal(t, currentPeer.ExtraDNSLabels, peerFromStore.ExtraDNSLabels, "ExtraDNSLabels mismatch for peer from store")
@@ -1475,6 +1476,11 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 }
 
 func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
+	engine := os.Getenv("NETBIRD_STORE_ENGINE")
+	if engine == "sqlite" || engine == "mysql" || engine == "" {
+		// we intentionally disabled foreign keys in mysql
+		t.Skip("Skipping test because store is not respecting foreign keys")
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
@@ -1496,7 +1502,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1524,7 +1530,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	_, _, _, err = am.AddPeer(context.Background(), faultyKey, "", newPeer)
 	require.Error(t, err)
 
-	_, err = s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, newPeer.Key)
+	_, err = s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, newPeer.Key)
 	require.Error(t, err)
 
 	account, err := s.GetAccount(context.Background(), existingAccountID)
@@ -1570,7 +1576,7 @@ func Test_LoginPeer(t *testing.T) {
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1695,7 +1701,7 @@ func Test_LoginPeer(t *testing.T) {
 
 			assert.Equal(t, existingAccountID, loggedinPeer.AccountID, "AccountID mismatch for logged peer")
 
-			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, loginInput.WireGuardPubKey)
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, loginInput.WireGuardPubKey)
 			require.NoError(t, err, "Failed to get peer by pub key: %s", loginInput.WireGuardPubKey)
 			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
 			assert.Equal(t, loggedinPeer.ID, peerFromStore.ID, "Peer ID mismatch between loggedinPeer and peerFromStore")
@@ -1709,7 +1715,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
 	require.NoError(t, err)
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	g := []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -1725,8 +1731,11 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupC",
 			Peers: []string{},
 		},
-	}, true)
-	require.NoError(t, err)
+	}
+	for _, group := range g {
+		err = manager.CreateGroup(context.Background(), account.Id, userID, group)
+		require.NoError(t, err)
+	}
 
 	// create a user with auto groups
 	_, err = manager.SaveOrAddUsers(context.Background(), account.Id, userID, []*types.User{
@@ -1785,7 +1794,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg) //
 			close(done)
 		}()
 
@@ -1848,7 +1857,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			return update, true, nil
 		}
 
-		manager.integratedPeerValidator = MocIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
+		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -1870,7 +1879,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			return update, false, nil
 		}
 
-		manager.integratedPeerValidator = MocIntegratedValidator{ValidatePeerFunc: requireNoUpdateFunc}
+		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireNoUpdateFunc}
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1964,7 +1973,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		_, err := manager.CreateRoute(
 			context.Background(), account.Id, route.Network, route.NetworkType, route.Domains, route.Peer,
 			route.PeerGroups, route.Description, route.NetID, route.Masquerade, route.Metric,
-			route.Groups, []string{}, true, userID, route.KeepRoute,
+			route.Groups, []string{}, true, userID, route.KeepRoute, route.SkipAutoApply,
 		)
 		require.NoError(t, err)
 
@@ -2153,10 +2162,10 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 			}
 			t.Cleanup(cleanup)
 
-			err = s.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
+			err = s.AddPeerToAccount(context.Background(), peer)
 			assert.NoError(t, err)
 
-			err = s.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
+			err = s.AddPeerToAccount(context.Background(), peer)
 			result := isUniqueConstraintError(err)
 			assert.True(t, result)
 		})
@@ -2164,7 +2173,6 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 }
 
 func Test_AddPeer(t *testing.T) {
-	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -2176,7 +2184,7 @@ func Test_AddPeer(t *testing.T) {
 
 	_, err = createAccount(manager, accountID, userID, "domain.com")
 	if err != nil {
-		t.Fatal("error creating account")
+		t.Fatalf("error creating account: %v", err)
 		return
 	}
 
@@ -2186,22 +2194,21 @@ func Test_AddPeer(t *testing.T) {
 		return
 	}
 
-	const totalPeers = 300 // totalPeers / differentHostnames should be less than 10 (due to concurrent retries)
-	const differentHostnames = 50
+	const totalPeers = 300
 
 	var wg sync.WaitGroup
-	errs := make(chan error, totalPeers+differentHostnames)
+	errs := make(chan error, totalPeers)
 	start := make(chan struct{})
 	for i := 0; i < totalPeers; i++ {
 		wg.Add(1)
-		hostNameID := i % differentHostnames
 
 		go func(i int) {
 			defer wg.Done()
 
 			newPeer := &nbpeer.Peer{
-				Key:  "key" + strconv.Itoa(i),
-				Meta: nbpeer.PeerSystemMeta{Hostname: "peer" + strconv.Itoa(hostNameID), GoOS: "linux"},
+				AccountID: accountID,
+				Key:       "key" + strconv.Itoa(i),
+				Meta:      nbpeer.PeerSystemMeta{Hostname: "peer" + strconv.Itoa(i), GoOS: "linux"},
 			}
 
 			<-start

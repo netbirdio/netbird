@@ -2,11 +2,12 @@ package dns
 
 import (
 	"fmt"
+	"net/netip"
 
 	"github.com/miekg/dns"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // MockServer is the mock instance of a dns server
@@ -45,11 +46,11 @@ func (m *MockServer) Stop() {
 	}
 }
 
-func (m *MockServer) DnsIP() string {
-	return ""
+func (m *MockServer) DnsIP() netip.Addr {
+	return netip.MustParseAddr("100.10.254.255")
 }
 
-func (m *MockServer) OnUpdatedHostDNSServer(strings []string) {
+func (m *MockServer) OnUpdatedHostDNSServer(addrs []netip.AddrPort) {
 	// TODO implement me
 	panic("implement me")
 }

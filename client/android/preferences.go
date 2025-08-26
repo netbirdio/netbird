@@ -1,17 +1,17 @@
 package android
 
 import (
-	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 // Preferences exports a subset of the internal config for gomobile
 type Preferences struct {
-	configInput internal.ConfigInput
+	configInput profilemanager.ConfigInput
 }
 
 // NewPreferences creates a new Preferences instance
 func NewPreferences(configPath string) *Preferences {
-	ci := internal.ConfigInput{
+	ci := profilemanager.ConfigInput{
 		ConfigPath: configPath,
 	}
 	return &Preferences{ci}
@@ -23,7 +23,7 @@ func (p *Preferences) GetManagementURL() (string, error) {
 		return p.configInput.ManagementURL, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return "", err
 	}
@@ -41,7 +41,7 @@ func (p *Preferences) GetAdminURL() (string, error) {
 		return p.configInput.AdminURL, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return "", err
 	}
@@ -59,7 +59,7 @@ func (p *Preferences) GetPreSharedKey() (string, error) {
 		return *p.configInput.PreSharedKey, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return "", err
 	}
@@ -82,7 +82,7 @@ func (p *Preferences) GetRosenpassEnabled() (bool, error) {
 		return *p.configInput.RosenpassEnabled, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -100,7 +100,7 @@ func (p *Preferences) GetRosenpassPermissive() (bool, error) {
 		return *p.configInput.RosenpassPermissive, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -113,7 +113,7 @@ func (p *Preferences) GetDisableClientRoutes() (bool, error) {
 		return *p.configInput.DisableClientRoutes, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -131,7 +131,7 @@ func (p *Preferences) GetDisableServerRoutes() (bool, error) {
 		return *p.configInput.DisableServerRoutes, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -149,7 +149,7 @@ func (p *Preferences) GetDisableDNS() (bool, error) {
 		return *p.configInput.DisableDNS, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -167,7 +167,7 @@ func (p *Preferences) GetDisableFirewall() (bool, error) {
 		return *p.configInput.DisableFirewall, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -185,7 +185,7 @@ func (p *Preferences) GetServerSSHAllowed() (bool, error) {
 		return *p.configInput.ServerSSHAllowed, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -207,7 +207,7 @@ func (p *Preferences) GetEnableSSHRoot() (bool, error) {
 		return *p.configInput.EnableSSHRoot, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -229,7 +229,7 @@ func (p *Preferences) GetEnableSSHSFTP() (bool, error) {
 		return *p.configInput.EnableSSHSFTP, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -251,7 +251,7 @@ func (p *Preferences) GetEnableSSHLocalPortForwarding() (bool, error) {
 		return *p.configInput.EnableSSHLocalPortForwarding, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -273,7 +273,7 @@ func (p *Preferences) GetEnableSSHRemotePortForwarding() (bool, error) {
 		return *p.configInput.EnableSSHRemotePortForwarding, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -295,7 +295,7 @@ func (p *Preferences) GetBlockInbound() (bool, error) {
 		return *p.configInput.BlockInbound, nil
 	}
 
-	cfg, err := internal.ReadConfig(p.configInput.ConfigPath)
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
 	if err != nil {
 		return false, err
 	}
@@ -309,6 +309,6 @@ func (p *Preferences) SetBlockInbound(block bool) {
 
 // Commit writes out the changes to the config file
 func (p *Preferences) Commit() error {
-	_, err := internal.UpdateOrCreateConfig(p.configInput)
+	_, err := profilemanager.UpdateOrCreateConfig(p.configInput)
 	return err
 }

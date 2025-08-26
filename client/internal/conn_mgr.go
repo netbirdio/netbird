@@ -226,7 +226,6 @@ func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
 	}
 
 	if found := e.lazyConnMgr.ActivatePeer(conn.GetKey()); found {
-		conn.Log.Infof("activated peer from inactive state")
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/netip"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -13,10 +14,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -108,6 +109,19 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		// todo: looks like that we reset all status property, is it right?
 		update.Status = &nbpeer.PeerStatus{
 			RequiresApproval: *req.ApprovalRequired,
+		}
+	}
+
+	if req.Ip != nil {
+		addr, err := netip.ParseAddr(*req.Ip)
+		if err != nil {
+			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "invalid IP address %s: %v", *req.Ip, err), w)
+			return
+		}
+
+		if err = h.accountManager.UpdatePeerIP(ctx, accountID, userID, peerID, addr); err != nil {
+			util.WriteError(ctx, err, w)
+			return
 		}
 	}
 
@@ -340,6 +354,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 	}
 
 	return &api.Peer{
+		CreatedAt:                  peer.CreatedAt,
 		Id:                          peer.ID,
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
@@ -376,6 +391,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	}
 
 	return &api.PeerBatch{
+		CreatedAt:             peer.CreatedAt,
 		Id:                     peer.ID,
 		Name:                   peer.Name,
 		Ip:                     peer.IP.String(),

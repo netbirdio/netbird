@@ -13,6 +13,7 @@ const (
 	envICEForceRelayConn            = "NB_ICE_FORCE_RELAY_CONN"
 	envICEKeepAliveIntervalSec      = "NB_ICE_KEEP_ALIVE_INTERVAL_SEC"
 	envICEDisconnectedTimeoutSec    = "NB_ICE_DISCONNECTED_TIMEOUT_SEC"
+	envICEFailedTimeoutSec          = "NB_ICE_FAILED_TIMEOUT_SEC"
 	envICERelayAcceptanceMinWaitSec = "NB_ICE_RELAY_ACCEPTANCE_MIN_WAIT_SEC"
 
 	msgWarnInvalidValue = "invalid value %s set for %s, using default %v"
@@ -53,6 +54,22 @@ func iceDisconnectedTimeout() time.Duration {
 	}
 
 	return time.Duration(disconnectedTimeoutSec) * time.Second
+}
+
+func iceFailedTimeout() time.Duration {
+	failedTimeoutEnv := os.Getenv(envICEFailedTimeoutSec)
+	if failedTimeoutEnv == "" {
+		return iceFailedTimeoutDefault
+	}
+
+	log.Infof("setting ICE failed timeout to %s seconds", failedTimeoutEnv)
+	failedTimeoutSec, err := strconv.Atoi(failedTimeoutEnv)
+	if err != nil {
+		log.Warnf(msgWarnInvalidValue, failedTimeoutEnv, envICEFailedTimeoutSec, iceFailedTimeoutDefault)
+		return iceFailedTimeoutDefault
+	}
+
+	return time.Duration(failedTimeoutSec) * time.Second
 }
 
 func iceRelayAcceptanceMinWait() time.Duration {

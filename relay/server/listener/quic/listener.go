@@ -9,7 +9,11 @@ import (
 
 	"github.com/quic-go/quic-go"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/relay/protocol"
 )
+
+const Proto protocol.Protocol = "quic"
 
 type Listener struct {
 	// Address is the address to listen on
@@ -18,12 +22,9 @@ type Listener struct {
 	TLSConfig *tls.Config
 
 	listener *quic.Listener
-	acceptFn func(conn net.Conn)
 }
 
 func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
-	l.acceptFn = acceptFn
-
 	quicCfg := &quic.Config{
 		EnableDatagrams:   true,
 		InitialPacketSize: 1452,
@@ -49,8 +50,12 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 
 		log.Infof("QUIC client connected from: %s", session.RemoteAddr())
 		conn := NewConn(session)
-		l.acceptFn(conn)
+		acceptFn(conn)
 	}
+}
+
+func (l *Listener) Protocol() protocol.Protocol {
+	return Proto
 }
 
 func (l *Listener) Shutdown(ctx context.Context) error {

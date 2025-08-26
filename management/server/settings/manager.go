@@ -11,10 +11,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -60,7 +60,7 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 		return nil, fmt.Errorf("get extra settings: %w", err)
 	}
 
-	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get account settings: %w", err)
 	}
@@ -68,6 +68,7 @@ func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string)
 	// Once we migrate the peer approval to settings manager this merging is obsolete
 	if settings.Extra != nil {
 		settings.Extra.FlowEnabled = extraSettings.FlowEnabled
+		settings.Extra.FlowGroups = extraSettings.FlowGroups
 		settings.Extra.FlowPacketCounterEnabled = extraSettings.FlowPacketCounterEnabled
 		settings.Extra.FlowENCollectionEnabled = extraSettings.FlowENCollectionEnabled
 		settings.Extra.FlowDnsCollectionEnabled = extraSettings.FlowDnsCollectionEnabled
@@ -82,7 +83,7 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 		return nil, fmt.Errorf("get extra settings: %w", err)
 	}
 
-	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("get account settings: %w", err)
 	}
@@ -93,6 +94,7 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 	}
 
 	settings.Extra.FlowEnabled = extraSettings.FlowEnabled
+	settings.Extra.FlowGroups = extraSettings.FlowGroups
 
 	return settings.Extra, nil
 }
