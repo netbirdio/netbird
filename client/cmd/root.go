@@ -39,6 +39,7 @@ const (
 	extraIFaceBlackListFlag  = "extra-iface-blacklist"
 	dnsRouteIntervalFlag     = "dns-router-interval"
 	enableLazyConnectionFlag = "enable-lazy-connection"
+	mtuFlag                  = "mtu"
 )
 
 var (
@@ -72,6 +73,7 @@ var (
 	anonymizeFlag           bool
 	dnsRouteInterval        time.Duration
 	lazyConnEnabled         bool
+	mtu                     uint16
 	profilesDisabled        bool
 	updateSettingsDisabled  bool
 
