@@ -32,9 +32,6 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 
 // SavePolicy in the store
 func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	operation := operations.Create
 	if !create {
 		operation = operations.Update
@@ -61,17 +58,17 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return err
-		}
-
 		saveFunc := transaction.CreatePolicy
 		if isUpdate {
 			action = activity.PolicyUpdated
 			saveFunc = transaction.SavePolicy
 		}
 
-		return saveFunc(ctx, policy)
+		if err = saveFunc(ctx, policy); err != nil {
+			return err
+		}
+
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return nil, err
@@ -88,9 +85,6 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 // DeletePolicy from the store
 func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, policyID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -113,11 +107,11 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.DeletePolicy(ctx, accountID, policyID); err != nil {
 			return err
 		}
 
-		return transaction.DeletePolicy(ctx, accountID, policyID)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err

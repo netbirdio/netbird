@@ -82,6 +82,8 @@ service DaemonService {
 
   // Logout disconnects from the network and deletes the peer from the management server
   rpc Logout(LogoutRequest) returns (LogoutResponse) {}
+
+  rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
 }
 
 
@@ -630,3 +632,10 @@ message LogoutRequest {
 }
 
 message LogoutResponse {}
+
+message GetFeaturesRequest{}
+
+message GetFeaturesResponse{
+  bool disable_profiles = 1;
+  bool disable_update_settings = 2;
+}

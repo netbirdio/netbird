@@ -52,7 +52,7 @@ func UnMarshalCredential(msg *proto.Message) (*Credential, error) {
 }
 
 // MarshalCredential marshal a Credential instance and returns a Message object
-func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey string, credential *Credential, t proto.Body_Type, rosenpassPubKey []byte, rosenpassAddr string, relaySrvAddress string) (*proto.Message, error) {
+func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey string, credential *Credential, t proto.Body_Type, rosenpassPubKey []byte, rosenpassAddr string, relaySrvAddress string, sessionID []byte) (*proto.Message, error) {
 	return &proto.Message{
 		Key:       myKey.PublicKey().String(),
 		RemoteKey: remoteKey,
@@ -66,6 +66,7 @@ func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey string, credenti
 				RosenpassServerAddr: rosenpassAddr,
 			},
 			RelayServerAddress: relaySrvAddress,
+			SessionId:          sessionID,
 		},
 	}, nil
 }

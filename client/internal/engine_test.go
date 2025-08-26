@@ -27,6 +27,8 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -43,8 +45,6 @@ import (
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	mgmt "github.com/netbirdio/netbird/shared/management/client"
-	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -54,8 +54,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/monotime"
-	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/route"
+	mgmt "github.com/netbirdio/netbird/shared/management/client"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
@@ -1520,15 +1522,15 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, string, error) {
 	t.Helper()
 
-	config := &types.Config{
-		Stuns:      []*types.Host{},
-		TURNConfig: &types.TURNConfig{},
-		Relay: &types.Relay{
+	config := &config.Config{
+		Stuns:      []*config.Host{},
+		TURNConfig: &config.TURNConfig{},
+		Relay: &config.Relay{
 			Addresses:      []string{"127.0.0.1:1234"},
 			CredentialsTTL: util.Duration{Duration: time.Hour},
 			Secret:         "222222222222222222",
 		},
-		Signal: &types.Host{
+		Signal: &config.Host{
 			Proto: "http",
 			URI:   "localhost:10000",
 		},
@@ -1571,13 +1573,14 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(store)
+	groupsManager := groups.NewManagerMock()
 
 	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	if err != nil {
 		return nil, "", err
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &server.MockIntegratedValidator{})
 	if err != nil {
 		return nil, "", err

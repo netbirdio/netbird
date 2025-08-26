@@ -113,11 +113,11 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		events := am.prepareDNSSettingsEvents(ctx, transaction, accountID, userID, addedGroups, removedGroups)
 		eventsToStore = append(eventsToStore, events...)
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.SaveDNSSettings(ctx, accountID, dnsSettingsToSave); err != nil {
 			return err
 		}
 
-		return transaction.SaveDNSSettings(ctx, accountID, dnsSettingsToSave)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err

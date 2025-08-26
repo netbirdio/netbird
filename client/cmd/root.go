@@ -75,6 +75,7 @@ var (
 	lazyConnEnabled         bool
 	mtu                     uint16
 	profilesDisabled        bool
+	updateSettingsDisabled  bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",

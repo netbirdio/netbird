@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -26,9 +28,9 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/encryption"
-	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -51,7 +53,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
-	config := &types.Config{}
+	config := &config.Config{}
 	_, err := util.ReadJson("../../../management/server/testdata/management.json", config)
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +113,9 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 
-	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
+	groupsManager := groups.NewManagerMock()
+
+	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, mgmt.MockIntegratedValidator{})
 	if err != nil {
 		t.Fatal(err)

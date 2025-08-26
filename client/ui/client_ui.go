@@ -394,6 +394,16 @@ func (s *serviceClient) updateIcon() {
 }
 
 func (s *serviceClient) showSettingsUI() {
+	// Check if update settings are disabled by daemon
+	features, err := s.getFeatures()
+	if err != nil {
+		log.Errorf("failed to get features from daemon: %v", err)
+		// Continue with default behavior if features can't be retrieved
+	} else if features != nil && features.DisableUpdateSettings {
+		log.Warn("Update settings are disabled by daemon")
+		return
+	}
+
 	// add settings window UI elements.
 	s.wSettings = s.app.NewWindow("NetBird Settings")
 	s.wSettings.SetOnClosed(s.cancel)
@@ -451,6 +461,17 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 		},
 		SubmitText: "Save",
 		OnSubmit: func() {
+			// Check if update settings are disabled by daemon
+			features, err := s.getFeatures()
+			if err != nil {
+				log.Errorf("failed to get features from daemon: %v", err)
+				// Continue with default behavior if features can't be retrieved
+			} else if features != nil && features.DisableUpdateSettings {
+				log.Warn("Configuration updates are disabled by daemon")
+				dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
+				return
+			}
+
 			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 				// validate preSharedKey if it added
 				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
@@ -860,6 +881,20 @@ func (s *serviceClient) onTrayReady() {
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()
 
+	// Disable settings menu if update settings are disabled by daemon
+	features, err := s.getFeatures()
+	if err != nil {
+		log.Errorf("failed to get features from daemon: %v", err)
+		// Continue with default behavior if features can't be retrieved
+	} else {
+		if features != nil && features.DisableUpdateSettings {
+			s.setSettingsEnabled(false)
+		}
+		if features != nil && features.DisableProfiles {
+			s.mProfile.setEnabled(false)
+		}
+	}
+
 	s.exitNodeMu.Lock()
 	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
 	s.mExitNode.Disable()
@@ -900,6 +935,10 @@ func (s *serviceClient) onTrayReady() {
 			if err != nil {
 				log.Errorf("error while updating status: %v", err)
 			}
+
+			// Check features periodically to handle daemon restarts
+			s.checkAndUpdateFeatures()
+
 			time.Sleep(2 * time.Second)
 		}
 	}()
@@ -970,6 +1009,59 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
+}
+
+// setSettingsEnabled enables or disables the settings menu based on the provided state
+func (s *serviceClient) setSettingsEnabled(enabled bool) {
+	if s.mSettings != nil {
+		if enabled {
+			s.mSettings.Enable()
+			s.mSettings.SetTooltip(settingsMenuDescr)
+		} else {
+			s.mSettings.Hide()
+			s.mSettings.SetTooltip("Settings are disabled by daemon")
+		}
+	}
+}
+
+// checkAndUpdateFeatures checks the current features and updates the UI accordingly
+func (s *serviceClient) checkAndUpdateFeatures() {
+	features, err := s.getFeatures()
+	if err != nil {
+		log.Errorf("failed to get features from daemon: %v", err)
+		return
+	}
+
+	// Update settings menu based on current features
+	if features != nil && features.DisableUpdateSettings {
+		s.setSettingsEnabled(false)
+	} else {
+		s.setSettingsEnabled(true)
+	}
+
+	// Update profile menu based on current features
+	if s.mProfile != nil {
+		if features != nil && features.DisableProfiles {
+			s.mProfile.setEnabled(false)
+		} else {
+			s.mProfile.setEnabled(true)
+		}
+	}
+}
+
+// getFeatures from the daemon to determine which features are enabled/disabled.
+func (s *serviceClient) getFeatures() (*proto.GetFeaturesResponse, error) {
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("get client for features: %w", err)
+	}
+
+	features, err := conn.GetFeatures(s.ctx, &proto.GetFeaturesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("get features from daemon: %w", err)
+	}
+
+	return features, nil
 }
 
 // getSrvConfig from the service to show it in the settings window.

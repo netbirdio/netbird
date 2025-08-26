@@ -134,10 +134,7 @@ func getRouteDescriptor(prefix netip.Prefix, domains domain.List) string {
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
+func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, skipAutoApply bool) (*route.Route, error) {
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -170,6 +167,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			Enabled:             enabled,
 			Groups:              groups,
 			AccessControlGroups: accessControlGroupIDs,
+			SkipAutoApply:       skipAutoApply,
 		}
 
 		if err = validateRoute(ctx, transaction, accountID, newRoute); err != nil {
@@ -181,11 +179,11 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.SaveRoute(ctx, newRoute); err != nil {
 			return err
 		}
 
-		return transaction.SaveRoute(ctx, newRoute)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return nil, err
@@ -202,9 +200,6 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 
 // SaveRoute saves route
 func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userID string, routeToSave *route.Route) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Update)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -238,11 +233,11 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 		}
 		routeToSave.AccountID = accountID
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.SaveRoute(ctx, routeToSave); err != nil {
 			return err
 		}
 
-		return transaction.SaveRoute(ctx, routeToSave)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -259,9 +254,6 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 
 // DeleteRoute deletes route with routeID
 func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID string, routeID route.ID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -284,12 +276,15 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+		if err = transaction.DeleteRoute(ctx, accountID, string(routeID)); err != nil {
 			return err
 		}
 
-		return transaction.DeleteRoute(ctx, accountID, string(routeID))
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
+	if err != nil {
+		return fmt.Errorf("failed to delete route %s: %w", routeID, err)
+	}
 
 	am.StoreEvent(ctx, userID, string(route.ID), accountID, activity.RouteRemoved, route.EventMeta())
 
@@ -379,15 +374,16 @@ func validateRouteGroups(ctx context.Context, transaction store.Store, accountID
 
 func toProtocolRoute(route *route.Route) *proto.Route {
 	return &proto.Route{
-		ID:          string(route.ID),
-		NetID:       string(route.NetID),
-		Network:     route.Network.String(),
-		Domains:     route.Domains.ToPunycodeList(),
-		NetworkType: int64(route.NetworkType),
-		Peer:        route.Peer,
-		Metric:      int64(route.Metric),
-		Masquerade:  route.Masquerade,
-		KeepRoute:   route.KeepRoute,
+		ID:            string(route.ID),
+		NetID:         string(route.NetID),
+		Network:       route.Network.String(),
+		Domains:       route.Domains.ToPunycodeList(),
+		NetworkType:   int64(route.NetworkType),
+		Peer:          route.Peer,
+		Metric:        int64(route.Metric),
+		Masquerade:    route.Masquerade,
+		KeepRoute:     route.KeepRoute,
+		SkipAutoApply: route.SkipAutoApply,
 	}
 }
 

@@ -260,6 +260,9 @@ type AccountExtraSettings struct {
 	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
 	NetworkTrafficLogsEnabled bool `json:"network_traffic_logs_enabled"`
 
+	// NetworkTrafficLogsGroups Limits traffic logging to these groups. If unset all peers are enabled.
+	NetworkTrafficLogsGroups []string `json:"network_traffic_logs_groups"`
+
 	// NetworkTrafficPacketCounterEnabled Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
 	NetworkTrafficPacketCounterEnabled bool `json:"network_traffic_packet_counter_enabled"`
 
@@ -1012,6 +1015,8 @@ type OSVersionCheck struct {
 
 // Peer defines model for Peer.
 type Peer struct {
+    // CreatedAt Peer creation date (UTC)
+    CreatedAt time.Time `json:"created_at"`
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired bool `json:"approval_required"`
 
@@ -1093,6 +1098,8 @@ type Peer struct {
 
 // PeerBatch defines model for PeerBatch.
 type PeerBatch struct {
+    // CreatedAt Peer creation date (UTC)
+    CreatedAt time.Time `json:"created_at"`
 	// AccessiblePeersCount Number of accessible peers
 	AccessiblePeersCount int `json:"accessible_peers_count"`
 
@@ -1534,6 +1541,9 @@ type Route struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+
+	// SkipAutoApply Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
 // RouteRequest defines model for RouteRequest.
@@ -1573,6 +1583,9 @@ type RouteRequest struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+
+	// SkipAutoApply Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
 // RulePortRange Policy rule affected ports range
