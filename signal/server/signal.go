@@ -167,7 +167,12 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 
 	sendResultChan := make(chan error, 1)
 	go func() {
-		sendResultChan <- dstPeer.Stream.Send(msg)
+		select {
+		case sendResultChan <- dstPeer.Stream.Send(msg):
+			return
+		case <-dstPeer.Stream.Context().Done():
+			return
+		}
 	}()
 
 	select {
