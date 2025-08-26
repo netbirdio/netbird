@@ -54,7 +54,7 @@ func (c *Client) OpenTerminal(ctx context.Context) error {
 		return err
 	}
 
-	c.setupSessionIO(ctx, session)
+	c.setupSessionIO(session)
 
 	if err := session.Shell(); err != nil {
 		return fmt.Errorf("start shell: %w", err)
@@ -64,7 +64,7 @@ func (c *Client) OpenTerminal(ctx context.Context) error {
 }
 
 // setupSessionIO connects session streams to local terminal
-func (c *Client) setupSessionIO(ctx context.Context, session *ssh.Session) {
+func (c *Client) setupSessionIO(session *ssh.Session) {
 	session.Stdout = os.Stdout
 	session.Stderr = os.Stderr
 	session.Stdin = os.Stdin
@@ -143,7 +143,7 @@ func (c *Client) ExecuteCommandWithIO(ctx context.Context, command string) error
 	}
 	defer cleanup()
 
-	c.setupSessionIO(ctx, session)
+	c.setupSessionIO(session)
 
 	if err := session.Start(command); err != nil {
 		return fmt.Errorf("start command: %w", err)
@@ -180,7 +180,7 @@ func (c *Client) ExecuteCommandWithPTY(ctx context.Context, command string) erro
 		return fmt.Errorf("setup terminal mode: %w", err)
 	}
 
-	c.setupSessionIO(ctx, session)
+	c.setupSessionIO(session)
 
 	if err := session.Start(command); err != nil {
 		return fmt.Errorf("start command: %w", err)

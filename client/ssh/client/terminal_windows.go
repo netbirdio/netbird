@@ -1,5 +1,3 @@
-//go:build windows
-
 package client
 
 import (
@@ -12,6 +10,21 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
+)
+
+const (
+	enableProcessedInput            = 0x0001
+	enableLineInput                 = 0x0002
+	enableEchoInput                 = 0x0004 // Input mode: ENABLE_ECHO_INPUT
+	enableVirtualTerminalProcessing = 0x0004 // Output mode: ENABLE_VIRTUAL_TERMINAL_PROCESSING (same value, different mode)
+	enableVirtualTerminalInput      = 0x0200
+)
+
+var (
+	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
+	procGetConsoleMode             = kernel32.NewProc("GetConsoleMode")
+	procSetConsoleMode             = kernel32.NewProc("SetConsoleMode")
+	procGetConsoleScreenBufferInfo = kernel32.NewProc("GetConsoleScreenBufferInfo")
 )
 
 // ConsoleUnavailableError indicates that Windows console handles are not available
@@ -28,21 +41,6 @@ func (e *ConsoleUnavailableError) Error() string {
 func (e *ConsoleUnavailableError) Unwrap() error {
 	return e.Err
 }
-
-var (
-	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
-	procGetConsoleMode             = kernel32.NewProc("GetConsoleMode")
-	procSetConsoleMode             = kernel32.NewProc("SetConsoleMode")
-	procGetConsoleScreenBufferInfo = kernel32.NewProc("GetConsoleScreenBufferInfo")
-)
-
-const (
-	enableProcessedInput            = 0x0001
-	enableLineInput                 = 0x0002
-	enableEchoInput                 = 0x0004
-	enableVirtualTerminalProcessing = 0x0004
-	enableVirtualTerminalInput      = 0x0200
-)
 
 type coord struct {
 	x, y int16

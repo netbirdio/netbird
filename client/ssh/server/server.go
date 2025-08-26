@@ -89,7 +89,6 @@ type sshConnectionState struct {
 
 // Server is the SSH server implementation
 type Server struct {
-	listener       net.Listener
 	sshServer      *ssh.Server
 	authorizedKeys map[string]ssh.PublicKey
 	mu             sync.RWMutex
@@ -138,16 +137,20 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 		return fmt.Errorf("create listener: %w", err)
 	}
 
-	sshServer, err := s.createSSHServer(ln)
+	sshServer, err := s.createSSHServer(ln.Addr())
 	if err != nil {
 		s.cleanupOnError(ln)
 		return fmt.Errorf("create SSH server: %w", err)
 	}
 
-	s.initializeServerState(ln, sshServer)
+	s.sshServer = sshServer
 	log.Infof("SSH server started on %s", addrDesc)
 
-	go s.serve(ln, sshServer)
+	go func() {
+		if err := sshServer.Serve(ln); !isShutdownError(err) {
+			log.Errorf("SSH server error: %v", err)
+		}
+	}()
 	return nil
 }
 
@@ -186,12 +189,6 @@ func (s *Server) cleanupOnError(ln net.Listener) {
 	s.closeListener(ln)
 }
 
-// initializeServerState sets up server state after successful setup
-func (s *Server) initializeServerState(ln net.Listener, sshServer *ssh.Server) {
-	s.listener = ln
-	s.sshServer = sshServer
-}
-
 // Stop closes the SSH server
 func (s *Server) Stop() error {
 	s.mu.Lock()
@@ -206,7 +203,6 @@ func (s *Server) Stop() error {
 	}
 
 	s.sshServer = nil
-	s.listener = nil
 
 	return nil
 }
@@ -253,7 +249,6 @@ func (s *Server) SetSocketFilter(ifIdx int) {
 	defer s.mu.Unlock()
 	s.ifIdx = ifIdx
 }
-
 
 func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	s.mu.RLock()
@@ -370,25 +365,6 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	return conn
 }
 
-// serve runs the SSH server in a goroutine
-func (s *Server) serve(ln net.Listener, sshServer *ssh.Server) {
-	if ln == nil {
-		log.Debug("SSH server serve called with nil listener")
-		return
-	}
-
-	err := sshServer.Serve(ln)
-	if err == nil {
-		return
-	}
-
-	if isShutdownError(err) {
-		return
-	}
-
-	log.Errorf("SSH server error: %v", err)
-}
-
 // isShutdownError checks if the error is expected during normal shutdown
 func isShutdownError(err error) bool {
 	if errors.Is(err, net.ErrClosed) {
@@ -404,13 +380,13 @@ func isShutdownError(err error) bool {
 }
 
 // createSSHServer creates and configures the SSH server
-func (s *Server) createSSHServer(listener net.Listener) (*ssh.Server, error) {
+func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 	if err := enableUserSwitching(); err != nil {
 		log.Warnf("failed to enable user switching: %v", err)
 	}
 
 	server := &ssh.Server{
-		Addr:    listener.Addr().String(),
+		Addr:    addr.String(),
 		Handler: s.sessionHandler,
 		SubsystemHandlers: map[string]ssh.SubsystemHandler{
 			"sftp": s.sftpSubsystemHandler,
