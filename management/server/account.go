@@ -52,6 +52,8 @@ const (
 	peerSchedulerRetryInterval = 3 * time.Second
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
+	// skipAutoUpdateVersion used as a placeholder for autoUpdateVersion in proto responses to indicate response contains no new updates
+	skipAutoUpdateVersion = "skip"
 )
 
 type userLoggedInOnce bool

@@ -34,8 +34,9 @@ type UpdateManager struct {
 	cancel context.CancelFunc
 	update *version.Update
 
-	expectedVersion      string
-	expectedVersionMutex sync.Mutex
+	expectedVersion       *v.Version
+	updateToLatestVersion bool
+	expectedVersionMutex  sync.Mutex
 }
 
 func NewUpdateManager(statusRecorder *peer.Status) *UpdateManager {
@@ -69,7 +70,7 @@ func (u *UpdateManager) Start(ctx context.Context) {
 	go u.updateLoop(ctx)
 }
 
-func (u *UpdateManager) SetVersion(v string) {
+func (u *UpdateManager) SetVersion(expectedVersion string) {
 	if u.cancel == nil {
 		log.Errorf("UpdateManager not started")
 		return
@@ -77,11 +78,21 @@ func (u *UpdateManager) SetVersion(v string) {
 
 	u.expectedVersionMutex.Lock()
 	defer u.expectedVersionMutex.Unlock()
-	if u.expectedVersion == v {
-		return
+	if expectedVersion == latestVersion {
+		u.updateToLatestVersion = true
+		u.expectedVersion = nil
+	} else {
+		expectedSemVer, err := v.NewVersion(expectedVersion)
+		if err != nil {
+			log.Errorf("Error parsing version: %v", err)
+			return
+		}
+		if u.expectedVersion.Equal(expectedSemVer) {
+			return
+		}
+		u.expectedVersion = expectedSemVer
+		u.updateToLatestVersion = false
 	}
-
-	u.expectedVersion = v
 
 	select {
 	case u.mgmUpdateChan <- struct{}{}:
@@ -126,19 +137,17 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 	u.expectedVersionMutex.Unlock()
 
 	// Resolve "latest" to actual version
-	if expectedVersion == latestVersion {
+	if u.updateToLatestVersion {
 		if !u.isVersionAvailable() {
 			log.Tracef("Latest version not fetched yet")
 			return
 		}
 		updateVersion = u.update.LatestVersion()
+	} else if u.expectedVersion != nil {
+		updateVersion = expectedVersion
 	} else {
-		var err error
-		updateVersion, err = v.NewSemver(expectedVersion)
-		if err != nil {
-			log.Errorf("Failed to parse latest version: %v", err)
-			return
-		}
+		log.Debugf("No expected version information set")
+		return
 	}
 
 	if !u.shouldUpdate(updateVersion) {
