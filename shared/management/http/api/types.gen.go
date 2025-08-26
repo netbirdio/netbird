@@ -111,14 +111,14 @@ const (
 	JobStatusSucceeded JobStatus = "succeeded"
 )
 
-// Defines values for JobType.
+// Defines values for JobWorkloadType.
 const (
-	JobTypeBundle JobType = "bundle"
+	JobWorkloadTypeBundle JobWorkloadType = "bundle"
 )
 
-// Defines values for JobRequestType.
+// Defines values for JobRequestWorkloadType.
 const (
-	JobRequestTypeBundle JobRequestType = "bundle"
+	JobRequestWorkloadTypeBundle JobRequestWorkloadType = "bundle"
 )
 
 // Defines values for NameserverNsType.
@@ -662,53 +662,52 @@ type IngressPortAllocationRequestPortRangeProtocol string
 
 // Job defines model for Job.
 type Job struct {
-	// AccountId Associated account ID
-	AccountId string `json:"accountId"`
-
 	// CompletedAt When the job finished, null if still running
-	CompletedAt *time.Time `json:"completedAt,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 
 	// CreatedAt When the job was created (UTC)
-	CreatedAt time.Time `json:"createdAt"`
+	CreatedAt time.Time `json:"created_at"`
 
 	// FailedReason Why the job failed (if failed)
-	FailedReason *string `json:"failedReason,omitempty"`
+	FailedReason *string `json:"failed_reason,omitempty"`
 
 	// Id Primary identifier
-	Id string `json:"id"`
-
-	// Parameters Job configuration parameters
-	Parameters *map[string]interface{} `json:"parameters,omitempty"`
-
-	// PeerId Associated peer ID
-	PeerId string `json:"peerId"`
-
-	// Result Job output (JSON, URL, etc.)
-	Result *string   `json:"result,omitempty"`
-	Status JobStatus `json:"status"`
+	Id     string     `json:"id"`
+	Status *JobStatus `json:"status,omitempty"`
 
 	// TriggeredBy User that triggered this job
-	TriggeredBy string  `json:"triggeredBy"`
-	Type        JobType `json:"type"`
+	TriggeredBy string `json:"triggered_by"`
+	Workload    struct {
+		// Parameters Key-value parameters required for the job
+		Parameters *map[string]interface{} `json:"parameters,omitempty"`
+
+		// Result Job output (JSON, URL, etc.)
+		Result *string `json:"result,omitempty"`
+
+		// Type The type of job to execute
+		Type *JobWorkloadType `json:"type,omitempty"`
+	} `json:"workload"`
 }
 
 // JobStatus defines model for Job.Status.
 type JobStatus string
 
-// JobType defines model for Job.Type.
-type JobType string
+// JobWorkloadType The type of job to execute
+type JobWorkloadType string
 
 // JobRequest defines model for JobRequest.
 type JobRequest struct {
-	// Parameters Key-value parameters required for the job
-	Parameters map[string]interface{} `json:"parameters"`
+	Workload struct {
+		// Parameters Key-value parameters required for the job
+		Parameters *map[string]interface{} `json:"parameters,omitempty"`
 
-	// Type The type of job to execute
-	Type JobRequestType `json:"type"`
+		// Type The type of job to execute
+		Type *JobRequestWorkloadType `json:"type,omitempty"`
+	} `json:"workload"`
 }
 
-// JobRequestType The type of job to execute
-type JobRequestType string
+// JobRequestWorkloadType The type of job to execute
+type JobRequestWorkloadType string
 
 // Location Describe geographical location information
 type Location struct {

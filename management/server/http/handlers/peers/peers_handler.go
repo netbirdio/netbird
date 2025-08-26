@@ -62,7 +62,7 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := types.NewJob(userAuth.UserId, userAuth.AccountId, peerID, types.JobType(req.Type), req.Parameters)
+	job, err := types.NewJob(userAuth.UserId, userAuth.AccountId, peerID, req)
 	if err != nil {
 		util.WriteError(ctx, err, w)
 		return
@@ -72,7 +72,7 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(ctx, w, job)
+	util.WriteJSONObject(ctx, w, toSingleJobResponse(job))
 }
 
 func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +92,12 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(ctx, w, jobs)
+	respBody := make([]*api.Job, 0, len(jobs))
+	for _, job := range jobs {
+		respBody = append(respBody, toSingleJobResponse(job))
+	}
+
+	util.WriteJSONObject(ctx, w, respBody)
 }
 
 func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +118,7 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(ctx, w, job)
+	util.WriteJSONObject(ctx, w, toSingleJobResponse(job))
 }
 
 func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
@@ -493,6 +498,29 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		SerialNumber:           peer.Meta.SystemSerialNumber,
 
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
+	}
+}
+
+func toSingleJobResponse(job *types.Job) *api.Job {
+	var parameters map[string]any
+	job.DecodeParameters(&parameters)
+
+	return &api.Job{
+		Id:           job.ID,
+		Status:       (*api.JobStatus)(&job.Status),
+		CompletedAt:  job.CompletedAt,
+		CreatedAt:    job.CreatedAt,
+		FailedReason: &job.FailedReason,
+		TriggeredBy:  job.TriggeredBy,
+		Workload: struct {
+			Parameters *map[string]any      "json:\"parameters,omitempty\""
+			Result     *string              "json:\"result,omitempty\""
+			Type       *api.JobWorkloadType "json:\"type,omitempty\""
+		}{
+			Type:       (*api.JobWorkloadType)(&job.Type),
+			Parameters: &parameters,
+			Result:     &job.Result,
+		},
 	}
 }
 

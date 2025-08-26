@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 type JobStatus string
@@ -65,19 +66,27 @@ type JobParametersBundle struct {
 }
 
 // NewJob creates a new job with default fields and validation
-func NewJob(triggeredBy, accountID, peerID string, jobType JobType, parameters map[string]any) (*Job, error) {
+func NewJob(triggeredBy, accountID, peerID string, req *api.JobRequest) (*Job, error) {
+	if req.Workload.Type == nil {
+		return nil, fmt.Errorf("Job type required")
+	}
+
+	if req.Workload.Parameters == nil {
+		return nil, fmt.Errorf("Job parameters required")
+	}
+
 	job := &Job{
 		ID:          uuid.New().String(),
 		TriggeredBy: triggeredBy,
 		PeerID:      peerID,
 		AccountID:   accountID,
-		Type:        jobType,
+		Type:        JobType(*req.Workload.Type),
 		Status:      JobStatusPending,
 		CreatedAt:   time.Now().UTC(),
 	}
 
 	// Encode parameters
-	if err := job.encodeParameters(parameters); err != nil {
+	if err := job.encodeParameters(*req.Workload.Parameters); err != nil {
 		return nil, fmt.Errorf("failed to encode job parameters: %w", err)
 	}
 
