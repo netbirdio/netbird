@@ -438,7 +438,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.sEnableSSHLocalPortForward = widget.NewCheck("Enable SSH Local Port Forwarding", nil)
 	s.sEnableSSHRemotePortForward = widget.NewCheck("Enable SSH Remote Port Forwarding", nil)
 
-	s.wSettings.SetContent(s.getSettingsFormWithTabs())
+	s.wSettings.SetContent(s.getSettingsForm())
 	s.wSettings.Resize(fyne.NewSize(600, 400))
 	s.wSettings.SetFixedSize(true)
 
@@ -468,125 +468,147 @@ func (s *serviceClient) getConnectionForm() *widget.Form {
 	}
 }
 
-func (s *serviceClient) getSettingsFormFlat() *widget.Form {
-	allItems := append(s.getConnectionForm().Items, s.getNetworkForm().Items...)
-	allItems = append(allItems, s.getSSHForm().Items...)
-	
-	return &widget.Form{
-		Items: allItems,
-		SubmitText: "Save",
-		OnSubmit: func() {
-			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
-				// validate preSharedKey if it added
-				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
-					dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
-					return
-				}
-			}
+func (s *serviceClient) saveSettings() {
+	if err := s.validateSettings(); err != nil {
+		dialog.ShowError(err, s.wSettings)
+		return
+	}
 
-			port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
-			if err != nil {
-				dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
-				return
-			}
+	port, mtu, err := s.parseNumericSettings()
+	if err != nil {
+		dialog.ShowError(err, s.wSettings)
+		return
+	}
 
-			var mtu int64
-			mtuText := strings.TrimSpace(s.iMTU.Text)
-			if mtuText != "" {
-				var err error
-				mtu, err = strconv.ParseInt(mtuText, 10, 64)
-				if err != nil {
-					dialog.ShowError(errors.New("Invalid MTU value"), s.wSettings)
-					return
-				}
-				if mtu < iface.MinMTU || mtu > iface.MaxMTU {
-					dialog.ShowError(fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU), s.wSettings)
-					return
-				}
-			}
+	iMngURL := strings.TrimSpace(s.iMngURL.Text)
+	defer s.wSettings.Close()
 
-			iMngURL := strings.TrimSpace(s.iMngURL.Text)
-
-			defer s.wSettings.Close()
-
-			// Check if any settings have changed
-			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
-				s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
-				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
-				s.mtu != uint16(mtu) ||
-				s.networkMonitor != s.sNetworkMonitor.Checked ||
-				s.disableDNS != s.sDisableDNS.Checked ||
-				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
-				s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
-				s.blockLANAccess != s.sBlockLANAccess.Checked ||
-				s.hasSSHChanges() {
-
-				s.managementURL = iMngURL
-				s.preSharedKey = s.iPreSharedKey.Text
-				s.mtu = uint16(mtu)
-
-				currUser, err := user.Current()
-				if err != nil {
-					log.Errorf("get current user: %v", err)
-					return
-				}
-
-				activeProf, err := s.profileManager.GetActiveProfile()
-				if err != nil {
-					log.Errorf("get active profile: %v", err)
-					return
-				}
-
-				var req proto.SetConfigRequest
-				req.ProfileName = activeProf.Name
-				req.Username = currUser.Username
-
-				if iMngURL != "" {
-					req.ManagementUrl = iMngURL
-				}
-
-				req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
-				req.InterfaceName = &s.iInterfaceName.Text
-				req.WireguardPort = &port
-				if mtu > 0 {
-					req.Mtu = &mtu
-				}
-				req.NetworkMonitor = &s.sNetworkMonitor.Checked
-				req.DisableDns = &s.sDisableDNS.Checked
-				req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
-				req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
-				req.BlockLanAccess = &s.sBlockLANAccess.Checked
-
-				req.EnableSSHRoot = &s.sEnableSSHRoot.Checked
-				req.EnableSSHSFTP = &s.sEnableSSHSFTP.Checked
-				req.EnableSSHLocalPortForward = &s.sEnableSSHLocalPortForward.Checked
-				req.EnableSSHRemotePortForward = &s.sEnableSSHRemotePortForward.Checked
-
-				if s.iPreSharedKey.Text != censoredPreSharedKey {
-					req.OptionalPreSharedKey = &s.iPreSharedKey.Text
-				}
-
-				conn, err := s.getSrvClient(failFastTimeout)
-				if err != nil {
-					log.Errorf("get client: %v", err)
-					dialog.ShowError(fmt.Errorf("Failed to connect to the service: %v", err), s.wSettings)
-					return
-				}
-				_, err = conn.SetConfig(s.ctx, &req)
-				if err != nil {
-					log.Errorf("set config: %v", err)
-					dialog.ShowError(fmt.Errorf("Failed to set configuration: %v", err), s.wSettings)
-					return
-				}
-			}
-		},
-		OnCancel: func() {
-			s.wSettings.Close()
-		},
+	if s.hasSettingsChanged(iMngURL, port, mtu) {
+		s.applySettingsChanges(iMngURL, port, mtu)
 	}
 }
 
-func (s *serviceClient) getSettingsFormWithTabs() fyne.CanvasObject {
+func (s *serviceClient) validateSettings() error {
+	if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
+		if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
+			return fmt.Errorf("Invalid Pre-shared Key Value")
+		}
+	}
+	return nil
+}
+
+func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
+	port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
+	if err != nil {
+		return 0, 0, errors.New("Invalid interface port")
+	}
+
+	var mtu int64
+	mtuText := strings.TrimSpace(s.iMTU.Text)
+	if mtuText != "" {
+		mtu, err = strconv.ParseInt(mtuText, 10, 64)
+		if err != nil {
+			return 0, 0, errors.New("Invalid MTU value")
+		}
+		if mtu < iface.MinMTU || mtu > iface.MaxMTU {
+			return 0, 0, fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU)
+		}
+	}
+
+	return port, mtu, nil
+}
+
+func (s *serviceClient) hasSettingsChanged(iMngURL string, port, mtu int64) bool {
+	return s.managementURL != iMngURL ||
+		s.preSharedKey != s.iPreSharedKey.Text ||
+		s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
+		s.interfaceName != s.iInterfaceName.Text ||
+		s.interfacePort != int(port) ||
+		s.mtu != uint16(mtu) ||
+		s.networkMonitor != s.sNetworkMonitor.Checked ||
+		s.disableDNS != s.sDisableDNS.Checked ||
+		s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
+		s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
+		s.blockLANAccess != s.sBlockLANAccess.Checked ||
+		s.hasSSHChanges()
+}
+
+func (s *serviceClient) applySettingsChanges(iMngURL string, port, mtu int64) {
+	s.managementURL = iMngURL
+	s.preSharedKey = s.iPreSharedKey.Text
+	s.mtu = uint16(mtu)
+
+	req, err := s.buildSetConfigRequest(iMngURL, port, mtu)
+	if err != nil {
+		log.Errorf("build config request: %v", err)
+		return
+	}
+
+	if err := s.sendConfigUpdate(req); err != nil {
+		dialog.ShowError(fmt.Errorf("Failed to set configuration: %v", err), s.wSettings)
+	}
+}
+
+func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (*proto.SetConfigRequest, error) {
+	currUser, err := user.Current()
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		return nil, fmt.Errorf("get active profile: %w", err)
+	}
+
+	req := &proto.SetConfigRequest{
+		ProfileName: activeProf.Name,
+		Username:    currUser.Username,
+	}
+
+	if iMngURL != "" {
+		req.ManagementUrl = iMngURL
+	}
+
+	req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
+	req.InterfaceName = &s.iInterfaceName.Text
+	req.WireguardPort = &port
+	if mtu > 0 {
+		req.Mtu = &mtu
+	}
+
+	req.NetworkMonitor = &s.sNetworkMonitor.Checked
+	req.DisableDns = &s.sDisableDNS.Checked
+	req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
+	req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
+	req.BlockLanAccess = &s.sBlockLANAccess.Checked
+
+	req.EnableSSHRoot = &s.sEnableSSHRoot.Checked
+	req.EnableSSHSFTP = &s.sEnableSSHSFTP.Checked
+	req.EnableSSHLocalPortForward = &s.sEnableSSHLocalPortForward.Checked
+	req.EnableSSHRemotePortForward = &s.sEnableSSHRemotePortForward.Checked
+
+	if s.iPreSharedKey.Text != censoredPreSharedKey {
+		req.OptionalPreSharedKey = &s.iPreSharedKey.Text
+	}
+
+	return req, nil
+}
+
+func (s *serviceClient) sendConfigUpdate(req *proto.SetConfigRequest) error {
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		return fmt.Errorf("get client: %w", err)
+	}
+
+	_, err = conn.SetConfig(s.ctx, req)
+	if err != nil {
+		return fmt.Errorf("set config: %w", err)
+	}
+
+	return nil
+}
+
+func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
 	connectionForm := s.getConnectionForm()
 	networkForm := s.getNetworkForm()
 	sshForm := s.getSSHForm()
@@ -595,7 +617,7 @@ func (s *serviceClient) getSettingsFormWithTabs() fyne.CanvasObject {
 		container.NewTabItem("Network", networkForm),
 		container.NewTabItem("SSH", sshForm),
 	)
-	saveButton := widget.NewButton("Save", s.handleSaveSettings)
+	saveButton := widget.NewButton("Save", s.saveSettings)
 	cancelButton := widget.NewButton("Cancel", func() {
 		s.wSettings.Close()
 	})
@@ -628,10 +650,6 @@ func (s *serviceClient) getSSHForm() *widget.Form {
 			{Text: "Enable SSH Remote Port Forwarding", Widget: s.sEnableSSHRemotePortForward},
 		},
 	}
-}
-
-func (s *serviceClient) handleSaveSettings() {
-	s.getSettingsFormFlat().OnSubmit()
 }
 
 func (s *serviceClient) hasSSHChanges() bool {
@@ -1169,6 +1187,19 @@ func (s *serviceClient) getSrvConfig() {
 	s.disableServerRoutes = cfg.DisableServerRoutes
 	s.blockLANAccess = cfg.BlockLANAccess
 
+	if cfg.EnableSSHRoot != nil {
+		s.enableSSHRoot = *cfg.EnableSSHRoot
+	}
+	if cfg.EnableSSHSFTP != nil {
+		s.enableSSHSFTP = *cfg.EnableSSHSFTP
+	}
+	if cfg.EnableSSHLocalPortForwarding != nil {
+		s.enableSSHLocalPortForward = *cfg.EnableSSHLocalPortForwarding
+	}
+	if cfg.EnableSSHRemotePortForwarding != nil {
+		s.enableSSHRemotePortForward = *cfg.EnableSSHRemotePortForwarding
+	}
+
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
@@ -1270,6 +1301,19 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.DisableClientRoutes = cfg.DisableClientRoutes
 	config.DisableServerRoutes = cfg.DisableServerRoutes
 	config.BlockLANAccess = cfg.BlockLanAccess
+
+	if cfg.EnableSSHRoot {
+		config.EnableSSHRoot = &cfg.EnableSSHRoot
+	}
+	if cfg.EnableSSHSFTP {
+		config.EnableSSHSFTP = &cfg.EnableSSHSFTP
+	}
+	if cfg.EnableSSHLocalPortForwarding {
+		config.EnableSSHLocalPortForwarding = &cfg.EnableSSHLocalPortForwarding
+	}
+	if cfg.EnableSSHRemotePortForwarding {
+		config.EnableSSHRemotePortForwarding = &cfg.EnableSSHRemotePortForwarding
+	}
 
 	return &config
 }

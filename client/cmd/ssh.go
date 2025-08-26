@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -229,6 +230,7 @@ func findSSHCommandPosition(args []string) int {
 const (
 	configFlag   = "config"
 	logLevelFlag = "log-level"
+	logFileFlag  = "log-file"
 )
 
 // parseGlobalArgs processes the global arguments and sets the corresponding variables
@@ -236,6 +238,11 @@ func parseGlobalArgs(globalArgs []string) {
 	flagHandlers := map[string]func(string){
 		configFlag:   func(value string) { configPath = value },
 		logLevelFlag: func(value string) { logLevel = value },
+		logFileFlag: func(value string) {
+			if !slices.Contains(logFiles, value) {
+				logFiles = append(logFiles, value)
+			}
+		},
 	}
 
 	shortFlags := map[string]string{
