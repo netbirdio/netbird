@@ -28,7 +28,9 @@ const (
 	// MinNetworkBits is the minimum prefix length for IPv4 network ranges (e.g., /29 gives 8 addresses, /28 gives 16)
 	MinNetworkBitsIPv4 = 28
 	// MinNetworkBitsIPv6 is the minimum prefix length for IPv6 network ranges
-	MinNetworkBitsIPv6 = 120
+	MinNetworkBitsIPv6      = 120
+	disableAutoUpdate       = "disabled"
+	autoUpdateLatestVersion = "latest"
 )
 
 // handler is a handler that handles the server.Account HTTP endpoints
@@ -206,8 +208,8 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	}
 	if req.Settings.AutoUpdateVersion != nil {
 		_, err := goversion.NewSemver(*req.Settings.AutoUpdateVersion)
-		if *req.Settings.AutoUpdateVersion == "latest" ||
-			*req.Settings.AutoUpdateVersion == "disabled" ||
+		if *req.Settings.AutoUpdateVersion == autoUpdateLatestVersion ||
+			*req.Settings.AutoUpdateVersion == disableAutoUpdate ||
 			err == nil {
 			returnSettings.AutoUpdateVersion = *req.Settings.AutoUpdateVersion
 		} else if *req.Settings.AutoUpdateVersion != "" {

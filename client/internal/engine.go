@@ -76,6 +76,9 @@ const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
 	connInitLimit            = 200
+	// skipAutoUpdateVersion used as a placeholder for autoUpdateVersion in proto responses to indicate response contains no new updates
+	skipAutoUpdateVersion = "skip"
+	disableAutoUpdate     = "disabled"
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -704,15 +707,17 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if e.updateManager == nil && update.GetAutoUpdateVersion() != "disabled" {
-		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder)
-		e.updateManager.Start(e.ctx)
-	} else if e.updateManager != nil && update.GetAutoUpdateVersion() == "disabled" {
-		e.updateManager.Stop()
-		e.updateManager = nil
-	}
-	if e.updateManager != nil {
-		e.updateManager.SetVersion(update.GetAutoUpdateVersion())
+	if update.GetAutoUpdateVersion() != skipAutoUpdateVersion {
+		if e.updateManager == nil && update.GetAutoUpdateVersion() != disableAutoUpdate {
+			e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder)
+			e.updateManager.Start(e.ctx)
+		} else if e.updateManager != nil && update.GetAutoUpdateVersion() == disableAutoUpdate {
+			e.updateManager.Stop()
+			e.updateManager = nil
+		}
+		if e.updateManager != nil {
+			e.updateManager.SetVersion(update.GetAutoUpdateVersion())
+		}
 	}
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()
