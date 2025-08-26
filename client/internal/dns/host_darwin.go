@@ -167,8 +167,10 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 func (s *systemConfigurator) addLocalDNS() error {
 	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
 		err := s.recordSystemDNSSettings(true)
-		log.Errorf("Unable to get system DNS configuration")
-		return err
+		if err != nil {
+			log.Errorf("Unable to get system DNS configuration")
+			return err
+		}
 	}
 	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
 	if s.systemDNSSettings.ServerIP.IsValid() && len(s.systemDNSSettings.Domains) != 0 {
