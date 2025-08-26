@@ -166,8 +166,7 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 
 func (s *systemConfigurator) addLocalDNS() error {
 	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
-		err := s.recordSystemDNSSettings(true)
-		if err != nil {
+		if err := s.recordSystemDNSSettings(true); err != nil {
 			log.Errorf("Unable to get system DNS configuration")
 			return err
 		}
