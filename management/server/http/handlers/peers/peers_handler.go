@@ -72,7 +72,13 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(ctx, w, toSingleJobResponse(job))
+	resp, err := toSingleJobResponse(job)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	util.WriteJSONObject(ctx, w, resp)
 }
 
 func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +100,12 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 
 	respBody := make([]*api.Job, 0, len(jobs))
 	for _, job := range jobs {
-		respBody = append(respBody, toSingleJobResponse(job))
+		resp, err := toSingleJobResponse(job)
+		if err != nil {
+			util.WriteError(ctx, err, w)
+			return
+		}
+		respBody = append(respBody, resp)
 	}
 
 	util.WriteJSONObject(ctx, w, respBody)
@@ -118,7 +129,13 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(ctx, w, toSingleJobResponse(job))
+	resp, err := toSingleJobResponse(job)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	util.WriteJSONObject(ctx, w, resp)
 }
 
 func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
@@ -501,10 +518,11 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	}
 }
 
-func toSingleJobResponse(job *types.Job) *api.Job {
+func toSingleJobResponse(job *types.Job) (*api.Job, error) {
 	var parameters map[string]any
-	job.DecodeParameters(&parameters)
-
+	if err := job.DecodeParameters(&parameters); err != nil {
+		return nil, err
+	}
 	return &api.Job{
 		Id:           job.ID,
 		Status:       (*api.JobStatus)(&job.Status),
@@ -521,7 +539,7 @@ func toSingleJobResponse(job *types.Job) *api.Job {
 			Parameters: &parameters,
 			Result:     &job.Result,
 		},
-	}
+	}, nil
 }
 
 func fqdn(peer *nbpeer.Peer, dnsDomain string) string {
