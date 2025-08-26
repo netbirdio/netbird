@@ -15,7 +15,7 @@ const jobChannelBuffer = 100
 
 type JobEvent struct {
 	PeerID   string
-	Request  *proto.JobRequest
+	Request  *proto.JobCreateRequest
 	Response *proto.JobResponse
 	Done     chan struct{} // closed when response arrives
 }
@@ -60,7 +60,7 @@ func (jm *JobManager) CreateJobChannel(peerID string) chan *JobEvent {
 }
 
 // SendJob sends a job to a peer and tracks it as pending
-func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req *proto.JobRequest) error {
+func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req *proto.JobCreateRequest) error {
 	jm.mu.RLock()
 	ch, ok := jm.jobChannels[peerID]
 	jm.mu.RUnlock()
@@ -109,9 +109,7 @@ func (jm *JobManager) HandleResponse(ctx context.Context, accountID string, resp
 
 	event.Response = resp
 	//TODO: update the store for job response
-	unlock := jm.Store.AcquireWriteLockByUID(ctx, accountID)
 	// jm.store.CompleteJob(ctx,accountID, string(resp.GetID()), string(resp.GetResult()),string(resp.GetReason()))
-	unlock()
 	close(event.Done)
 
 	return nil
@@ -131,9 +129,7 @@ func (jm *JobManager) CloseChannel(ctx context.Context, accountID, peerID string
 	for jobID, ev := range jm.pending {
 		if ev.PeerID == peerID {
 			// if the client disconnect and there is pending job then marke it as failed
-			unlock := jm.Store.AcquireWriteLockByUID(ctx, accountID)
 			// jm.store.CompleteJob(ctx,accountID, jobID,"", "Time out ")
-			unlock()
 			delete(jm.pending, jobID)
 		}
 	}
@@ -146,9 +142,7 @@ func (jm *JobManager) cleanup(ctx context.Context, accountID, jobID string) {
 
 	if ev, ok := jm.pending[jobID]; ok {
 		close(ev.Done)
-		unlock := jm.Store.AcquireWriteLockByUID(ctx, accountID)
 		// jm.store.CompleteJob(ctx,accountID, jobID,"", "Time out ")
-		unlock()
 		delete(jm.pending, jobID)
 	}
 }

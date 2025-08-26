@@ -271,7 +271,7 @@ func (s *GRPCServer) handleHandshake(ctx context.Context, srv proto.ManagementSe
 		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "missing hello: %v", err)
 	}
 
-	jobReq := &proto.JobRequest{}
+	jobReq := &proto.JobCreateRequest{}
 	peerKey, err := s.parseRequest(ctx, hello, jobReq)
 	if err != nil {
 		return wgtypes.Key{}, err

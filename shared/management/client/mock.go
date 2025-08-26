@@ -20,7 +20,7 @@ type MockClient struct {
 	GetPKCEAuthorizationFlowFunc   func(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
 	SyncMetaFunc                   func(sysInfo *system.Info) error
 	LogoutFunc                     func() error
-	JobFunc                        func(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error
+	JobFunc                        func(ctx context.Context, msgHandler func(msg *proto.JobCreateRequest) *proto.JobResponse) error
 }
 
 func (m *MockClient) IsHealthy() bool {
@@ -41,7 +41,7 @@ func (m *MockClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 	return m.SyncFunc(ctx, sysInfo, msgHandler)
 }
 
-func (m *MockClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
+func (m *MockClient) Job(ctx context.Context, msgHandler func(msg *proto.JobCreateRequest) *proto.JobResponse) error {
 	if m.JobFunc == nil {
 		return nil
 	}

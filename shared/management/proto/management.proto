@@ -63,29 +63,40 @@ message EncryptedMessage {
   int32 version = 3;
 }
 
-message JobRequest {
-  JobType type = 1;
-  bytes ID = 2;
-  bytes Payload =3;
-}
+message JobCreateRequest {
+  bytes ID = 1;
 
-enum JobType {
-  unknownJob = 0; //placeholder
-  debug = 1;
+  oneof workload_parameters {
+    BundleParameters bundle = 10;
+    //OtherParameters other = 11;
+  }
 }
 
 enum JobStatus {
-  unknownStatus = 0; //placeholder
+  unknown_status = 0; //placeholder
   successed = 1;
   failed = 2;
 }
 
 message JobResponse{
-  JobType type = 1;
-  bytes ID = 2;
-  JobStatus status=3;
-  bytes Reason=4;
-  bytes Result =5;
+  bytes ID = 1;
+  JobStatus status=2;
+  bytes Reason=3;
+  oneof workload_results {
+    BundleResult bundle = 10;
+    //OtherResult other = 11;
+  }
+}
+
+message BundleParameters {
+  bool   bundle_for       = 1;
+  int64  bundle_for_time  = 2;
+  int32  log_file_count   = 3;
+  bool   anonymize        = 4;
+}
+
+message BundleResult {
+  string upload_key = 1;
 }
 
 message SyncRequest {

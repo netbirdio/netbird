@@ -119,7 +119,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 
 // Job wraps the real client's Job endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
-func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
+func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobCreateRequest) *proto.JobResponse) error {
 	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
 		return c.handleJobStream(ctx, serverPubKey, msgHandler)
 	})
@@ -162,7 +162,7 @@ func (c *GrpcClient) withMgmtStream(
 func (c *GrpcClient) handleJobStream(
 	ctx context.Context,
 	serverPubKey wgtypes.Key,
-	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
+	msgHandler func(msg *proto.JobCreateRequest) *proto.JobResponse,
 ) error {
 	stream, err := c.realClient.Job(ctx)
 	if err != nil {
@@ -189,7 +189,7 @@ func (c *GrpcClient) handleJobStream(
 			return err
 		}
 
-		if jobReq == nil || len(jobReq.ID) == 0 || jobReq.Type == proto.JobType_unknownJob {
+		if jobReq == nil || len(jobReq.ID) == 0  {
 			log.WithContext(ctx).Debug("received unknown or empty job request, skipping")
 			continue
 		}
@@ -203,8 +203,7 @@ func (c *GrpcClient) handleJobStream(
 
 // sendHandshake sends the initial handshake message
 func (c *GrpcClient) sendHandshake(ctx context.Context, stream proto.ManagementService_JobClient, serverPubKey wgtypes.Key) error {
-	handshakeReq := &proto.JobRequest{
-		Type: proto.JobType_unknownJob,
+	handshakeReq := &proto.JobCreateRequest{
 		ID:   []byte(uuid.New().String()),
 	}
 	encHello, err := encryption.EncryptMessage(serverPubKey, c.key, handshakeReq)
@@ -223,13 +222,13 @@ func (c *GrpcClient) receiveJobRequest(
 	ctx context.Context,
 	stream proto.ManagementService_JobClient,
 	serverPubKey wgtypes.Key,
-) (*proto.JobRequest, error) {
+) (*proto.JobCreateRequest, error) {
 	encryptedMsg, err := stream.Recv()
 	if err != nil {
 		return nil, err
 	}
 
-	jobReq := &proto.JobRequest{}
+	jobReq := &proto.JobCreateRequest{}
 	if err := encryption.DecryptMessage(serverPubKey, c.key, encryptedMsg.Body, jobReq); err != nil {
 		log.WithContext(ctx).Warnf("failed to decrypt job request: %v", err)
 		return nil, err
@@ -241,8 +240,8 @@ func (c *GrpcClient) receiveJobRequest(
 // processJobRequest executes the handler and ensures a valid response
 func (c *GrpcClient) processJobRequest(
 	ctx context.Context,
-	jobReq *proto.JobRequest,
-	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
+	jobReq *proto.JobCreateRequest,
+	msgHandler func(msg *proto.JobCreateRequest) *proto.JobResponse,
 ) *proto.JobResponse {
 	jobResp := msgHandler(jobReq)
 	if jobResp == nil {

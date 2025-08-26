@@ -907,16 +907,17 @@ func (e *Engine) receiveJobEvents() {
 			e.config.LazyConnectionEnabled,
 		)
 
-		err = e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
+		err = e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobCreateRequest) *mgmProto.JobResponse {
 			// Simple test handler — replace with real logic
 			log.Infof("Received job request: %+v", msg)
 			// TODO: trigger local debug bundle or other job
 			return &mgmProto.JobResponse{
-				ID:     msg.ID,
-				Type:   msg.Type,
-				Status: mgmProto.JobStatus_successed,
-				Reason: []byte(""),
-				Result: []byte(""),
+				ID: msg.ID,
+				WorkloadResults: &mgmProto.JobResponse_Bundle{
+					Bundle: &mgmProto.BundleResult{
+						UploadKey: "upload-key",
+					},
+				},
 			}
 		})
 		if err != nil {
