@@ -210,13 +210,6 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 
-	unlock := s.acquirePeerLockByUID(ctx, peerKey.String())
-	defer func() {
-		if unlock != nil {
-			unlock()
-		}
-	}()
-
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
 	if err != nil {
 		// nolint:staticcheck
@@ -230,8 +223,20 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return err
 	}
 
+	log.WithContext(ctx).Debugf("Sync: GetAccountIDForPeerKey since start %v", time.Since(reqStart))
+
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
+
+	start := time.Now()
+	unlock := s.acquirePeerLockByUID(ctx, peerKey.String())
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
+	log.WithContext(ctx).Tracef("acquired peer lock for peer %s took %v", peerKey.String(), time.Since(start))
+	log.WithContext(ctx).Debugf("Sync: acquirePeerLockByUID since start %v", time.Since(reqStart))
 
 	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
@@ -246,18 +251,27 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return mapError(ctx, err)
 	}
 
+	log.WithContext(ctx).Debugf("Sync: SyncAndMarkPeer since start %v", time.Since(reqStart))
+
 	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
 		return err
 	}
+	log.WithContext(ctx).Debugf("Sync: sendInitialSync since start %v", time.Since(reqStart))
 
 	updates := s.peersUpdateManager.CreateChannel(ctx, peer.ID)
 
+	log.WithContext(ctx).Debugf("Sync: CreateChannel since start %v", time.Since(reqStart))
+
 	s.ephemeralManager.OnPeerConnected(ctx, peer)
 
+	log.WithContext(ctx).Debugf("Sync: OnPeerConnected since start %v", time.Since(reqStart))
+
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
+
+	log.WithContext(ctx).Debugf("Sync: SetupRefresh since start %v", time.Since(reqStart))
 
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
@@ -542,9 +556,15 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
+	log.WithContext(ctx).Debugf("Login: GetAccountIDForPeerKey since start %v", time.Since(reqStart))
+
 	defer func() {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart), accountID)
+		}
+		took := time.Since(reqStart)
+		if took > 7*time.Second {
+			log.WithContext(ctx).Debugf("Login: took %v", time.Since(reqStart))
 		}
 	}()
 
@@ -579,9 +599,12 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, mapError(ctx, err)
 	}
 
+	log.WithContext(ctx).Debugf("Login: LoginPeer since start %v", time.Since(reqStart))
+
 	// if the login request contains setup key then it is a registration request
 	if loginReq.GetSetupKey() != "" {
 		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
+		log.WithContext(ctx).Debugf("Login: OnPeerDisconnected since start %v", time.Since(reqStart))
 	}
 
 	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
@@ -589,6 +612,8 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		log.WithContext(ctx).Warnf("failed preparing login response for peer %s: %s", peerKey, err)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
+
+	log.WithContext(ctx).Debugf("Login: prepareLoginResponse since start %v", time.Since(reqStart))
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -749,6 +774,11 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 }
 
 func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("toSyncResponse: took %s", time.Since(start))
+	}()
+
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
 		NetworkMap: &proto.NetworkMap{
@@ -813,6 +843,11 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer) error {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("sendInitialSync: took %s", time.Since(start))
+	}()
+
 	var err error
 
 	var turnToken *Token
@@ -855,10 +890,12 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
+	sendStart := time.Now()
 	err = srv.Send(&proto.EncryptedMessage{
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
 	})
+	log.WithContext(ctx).Debugf("sendInitialSync: sending response took %s", time.Since(sendStart))
 
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed sending SyncResponse %v", err)

@@ -822,6 +822,10 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 }
 
 func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, login types.PeerLogin, err error) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("handlePeerNotFound: took %s", time.Since(start))
+	}()
 	if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
 		// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 		// Try registering it.
@@ -843,6 +847,11 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("LoginPeer: took %s", time.Since(start))
+	}()
+
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
 		return am.handlePeerLoginNotFound(ctx, login, err)
@@ -870,6 +879,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, err
 	}
 
+	startTransaction := time.Now()
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
 		if err != nil {
@@ -939,11 +949,15 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, err
 	}
 
+	log.WithContext(ctx).Debugf("LoginPeer: transaction took %v", time.Since(startTransaction))
+
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		if am.experimentalNetworkMap(accountID) {
 			am.updatePeerInNetworkMapCache(peer.AccountID, peer)
 		}
+		startBuffer := time.Now()
 		am.BufferUpdateAccountPeers(ctx, accountID)
+		log.WithContext(ctx).Debugf("LoginPeer: BufferUpdateAccountPeers took %v", time.Since(startBuffer))
 	}
 
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peer)
@@ -951,6 +965,11 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 // getPeerPostureChecks returns the posture checks for the peer.
 func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID, peerID string) ([]*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("getPostureChecks: took %s", time.Since(start))
+	}()
+
 	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
@@ -1074,10 +1093,12 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
+	startPosture := time.Now()
 	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	log.WithContext(ctx).Debugf("getPeerPostureChecks took %s", time.Since(startPosture))
 
 	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 
@@ -1590,6 +1611,10 @@ func (am *DefaultAccountManager) GetPeerGroups(ctx context.Context, accountID, p
 
 // getPeerGroupIDs returns the IDs of the groups that the peer is part of.
 func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID string, peerID string) ([]string, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("getPeerGroupIDs: took %s", time.Since(start))
+	}()
 	return transaction.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
