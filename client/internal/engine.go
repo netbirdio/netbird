@@ -703,22 +703,26 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 	return nil
 }
 
-func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-
-	if update.GetAutoUpdateVersion() != skipAutoUpdateVersion {
-		if e.updateManager == nil && update.GetAutoUpdateVersion() != disableAutoUpdate {
+func (e *Engine) handleAutoUpdateVersion(autoUpdateVersion string) {
+	if autoUpdateVersion != skipAutoUpdateVersion {
+		if e.updateManager == nil && autoUpdateVersion != disableAutoUpdate {
 			e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder)
 			e.updateManager.Start(e.ctx)
-		} else if e.updateManager != nil && update.GetAutoUpdateVersion() == disableAutoUpdate {
+		} else if e.updateManager != nil && autoUpdateVersion == disableAutoUpdate {
 			e.updateManager.Stop()
 			e.updateManager = nil
 		}
 		if e.updateManager != nil {
-			e.updateManager.SetVersion(update.GetAutoUpdateVersion())
+			e.updateManager.SetVersion(autoUpdateVersion)
 		}
 	}
+}
+
+func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	e.handleAutoUpdateVersion(update.AutoUpdateVersion)
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()
 		err := e.updateTURNs(wCfg.GetTurns())
