@@ -617,8 +617,9 @@ func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
 		container.NewTabItem("Network", networkForm),
 		container.NewTabItem("SSH", sshForm),
 	)
-	saveButton := widget.NewButton("Save", s.saveSettings)
-	cancelButton := widget.NewButton("Cancel", func() {
+	saveButton := widget.NewButtonWithIcon("Save", theme.ConfirmIcon(), s.saveSettings)
+	saveButton.Importance = widget.HighImportance
+	cancelButton := widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
 		s.wSettings.Close()
 	})
 	buttonContainer := container.NewHBox(
