@@ -4,7 +4,11 @@
 package api
 
 import (
+	"encoding/json"
+	"errors"
 	"time"
+
+	"github.com/deepmap/oapi-codegen/pkg/runtime"
 )
 
 const (
@@ -104,21 +108,11 @@ const (
 	IngressPortAllocationRequestPortRangeProtocolUdp    IngressPortAllocationRequestPortRangeProtocol = "udp"
 )
 
-// Defines values for JobStatus.
+// Defines values for JobResponseStatus.
 const (
-	JobStatusFailed    JobStatus = "failed"
-	JobStatusPending   JobStatus = "pending"
-	JobStatusSucceeded JobStatus = "succeeded"
-)
-
-// Defines values for JobWorkloadType.
-const (
-	JobWorkloadTypeBundle JobWorkloadType = "bundle"
-)
-
-// Defines values for JobRequestWorkloadType.
-const (
-	JobRequestWorkloadTypeBundle JobRequestWorkloadType = "bundle"
+	JobResponseStatusFailed    JobResponseStatus = "failed"
+	JobResponseStatusPending   JobResponseStatus = "pending"
+	JobResponseStatusSucceeded JobResponseStatus = "succeeded"
 )
 
 // Defines values for NameserverNsType.
@@ -193,6 +187,12 @@ const (
 	UserStatusActive  UserStatus = "active"
 	UserStatusBlocked UserStatus = "blocked"
 	UserStatusInvited UserStatus = "invited"
+)
+
+// Defines values for WorkloadType.
+const (
+	WorkloadTypeBundle WorkloadType = "bundle"
+	WorkloadTypeOther  WorkloadType = "other"
 )
 
 // Defines values for GetApiEventsNetworkTrafficParamsType.
@@ -352,6 +352,32 @@ type AvailablePorts struct {
 
 	// Udp Number of available UDP ports left on the ingress peer
 	Udp int `json:"udp"`
+}
+
+// BundleParameters defines model for BundleParameters.
+type BundleParameters struct {
+	Anonymize     bool  `json:"anonymize"`
+	BundleFor     bool  `json:"bundle_for"`
+	BundleForTime int64 `json:"bundle_for_time"`
+	LogFileCount  int32 `json:"log_file_count"`
+}
+
+// BundleResult defines model for BundleResult.
+type BundleResult struct {
+	UploadKey string `json:"upload_key"`
+}
+
+// BundleWorkloadRequest defines model for BundleWorkloadRequest.
+type BundleWorkloadRequest struct {
+	Parameters BundleParameters `json:"parameters"`
+	Type       WorkloadType     `json:"type"`
+}
+
+// BundleWorkloadResponse defines model for BundleWorkloadResponse.
+type BundleWorkloadResponse struct {
+	Parameters BundleParameters `json:"parameters"`
+	Result     BundleResult     `json:"result"`
+	Type       WorkloadType     `json:"type"`
 }
 
 // Checks List of objects that perform the actual checks
@@ -660,54 +686,24 @@ type IngressPortAllocationRequestPortRange struct {
 // IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
 type IngressPortAllocationRequestPortRangeProtocol string
 
-// Job defines model for Job.
-type Job struct {
-	// CompletedAt When the job finished, null if still running
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-
-	// CreatedAt When the job was created (UTC)
-	CreatedAt time.Time `json:"created_at"`
-
-	// FailedReason Why the job failed (if failed)
-	FailedReason *string `json:"failed_reason,omitempty"`
-
-	// Id Primary identifier
-	Id     string     `json:"id"`
-	Status *JobStatus `json:"status,omitempty"`
-
-	// TriggeredBy User that triggered this job
-	TriggeredBy string `json:"triggered_by"`
-	Workload    struct {
-		// Parameters Key-value parameters required for the job
-		Parameters *map[string]interface{} `json:"parameters,omitempty"`
-
-		// Result Job output (JSON, URL, etc.)
-		Result *string `json:"result,omitempty"`
-
-		// Type The type of job to execute
-		Type *JobWorkloadType `json:"type,omitempty"`
-	} `json:"workload"`
-}
-
-// JobStatus defines model for Job.Status.
-type JobStatus string
-
-// JobWorkloadType The type of job to execute
-type JobWorkloadType string
-
 // JobRequest defines model for JobRequest.
 type JobRequest struct {
-	Workload struct {
-		// Parameters Key-value parameters required for the job
-		Parameters *map[string]interface{} `json:"parameters,omitempty"`
-
-		// Type The type of job to execute
-		Type *JobRequestWorkloadType `json:"type,omitempty"`
-	} `json:"workload"`
+	Workload WorkloadRequest `json:"workload"`
 }
 
-// JobRequestWorkloadType The type of job to execute
-type JobRequestWorkloadType string
+// JobResponse defines model for JobResponse.
+type JobResponse struct {
+	CompletedAt  *time.Time        `json:"completed_at"`
+	CreatedAt    time.Time         `json:"created_at"`
+	FailedReason *string           `json:"failed_reason"`
+	Id           string            `json:"id"`
+	Status       JobResponseStatus `json:"status"`
+	TriggeredBy  string            `json:"triggered_by"`
+	Workload     WorkloadResponse  `json:"workload"`
+}
+
+// JobResponseStatus defines model for JobResponse.Status.
+type JobResponseStatus string
 
 // Location Describe geographical location information
 type Location struct {
@@ -1077,6 +1073,29 @@ type OSVersionCheck struct {
 
 	// Windows Posture check with the kernel version
 	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
+}
+
+// OtherParameters defines model for OtherParameters.
+type OtherParameters struct {
+	ExampleParam string `json:"example_param"`
+}
+
+// OtherResult defines model for OtherResult.
+type OtherResult struct {
+	UploadKey string `json:"upload_key"`
+}
+
+// OtherWorkloadRequest defines model for OtherWorkloadRequest.
+type OtherWorkloadRequest struct {
+	Parameters OtherParameters `json:"parameters"`
+	Type       WorkloadType    `json:"type"`
+}
+
+// OtherWorkloadResponse defines model for OtherWorkloadResponse.
+type OtherWorkloadResponse struct {
+	Parameters OtherParameters `json:"parameters"`
+	Result     OtherResult     `json:"result"`
+	Type       WorkloadType    `json:"type"`
 }
 
 // Peer defines model for Peer.
@@ -1886,6 +1905,19 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
+// WorkloadRequest defines model for WorkloadRequest.
+type WorkloadRequest struct {
+	union json.RawMessage
+}
+
+// WorkloadResponse defines model for WorkloadResponse.
+type WorkloadResponse struct {
+	union json.RawMessage
+}
+
+// WorkloadType defines model for WorkloadType.
+type WorkloadType string
+
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParams struct {
 	// Page Page number
@@ -2038,3 +2070,181 @@ type PutApiUsersUserIdJSONRequestBody = UserRequest
 
 // PostApiUsersUserIdTokensJSONRequestBody defines body for PostApiUsersUserIdTokens for application/json ContentType.
 type PostApiUsersUserIdTokensJSONRequestBody = PersonalAccessTokenRequest
+
+// AsBundleWorkloadRequest returns the union data inside the WorkloadRequest as a BundleWorkloadRequest
+func (t WorkloadRequest) AsBundleWorkloadRequest() (BundleWorkloadRequest, error) {
+	var body BundleWorkloadRequest
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBundleWorkloadRequest overwrites any union data inside the WorkloadRequest as the provided BundleWorkloadRequest
+func (t *WorkloadRequest) FromBundleWorkloadRequest(v BundleWorkloadRequest) error {
+	v.Type = "bundle"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBundleWorkloadRequest performs a merge with any union data inside the WorkloadRequest, using the provided BundleWorkloadRequest
+func (t *WorkloadRequest) MergeBundleWorkloadRequest(v BundleWorkloadRequest) error {
+	v.Type = "bundle"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(b, t.union)
+	t.union = merged
+	return err
+}
+
+// AsOtherWorkloadRequest returns the union data inside the WorkloadRequest as a OtherWorkloadRequest
+func (t WorkloadRequest) AsOtherWorkloadRequest() (OtherWorkloadRequest, error) {
+	var body OtherWorkloadRequest
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOtherWorkloadRequest overwrites any union data inside the WorkloadRequest as the provided OtherWorkloadRequest
+func (t *WorkloadRequest) FromOtherWorkloadRequest(v OtherWorkloadRequest) error {
+	v.Type = "other"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOtherWorkloadRequest performs a merge with any union data inside the WorkloadRequest, using the provided OtherWorkloadRequest
+func (t *WorkloadRequest) MergeOtherWorkloadRequest(v OtherWorkloadRequest) error {
+	v.Type = "other"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(b, t.union)
+	t.union = merged
+	return err
+}
+
+func (t WorkloadRequest) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t WorkloadRequest) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "bundle":
+		return t.AsBundleWorkloadRequest()
+	case "other":
+		return t.AsOtherWorkloadRequest()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t WorkloadRequest) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *WorkloadRequest) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsBundleWorkloadResponse returns the union data inside the WorkloadResponse as a BundleWorkloadResponse
+func (t WorkloadResponse) AsBundleWorkloadResponse() (BundleWorkloadResponse, error) {
+	var body BundleWorkloadResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBundleWorkloadResponse overwrites any union data inside the WorkloadResponse as the provided BundleWorkloadResponse
+func (t *WorkloadResponse) FromBundleWorkloadResponse(v BundleWorkloadResponse) error {
+	v.Type = "bundle"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBundleWorkloadResponse performs a merge with any union data inside the WorkloadResponse, using the provided BundleWorkloadResponse
+func (t *WorkloadResponse) MergeBundleWorkloadResponse(v BundleWorkloadResponse) error {
+	v.Type = "bundle"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(b, t.union)
+	t.union = merged
+	return err
+}
+
+// AsOtherWorkloadResponse returns the union data inside the WorkloadResponse as a OtherWorkloadResponse
+func (t WorkloadResponse) AsOtherWorkloadResponse() (OtherWorkloadResponse, error) {
+	var body OtherWorkloadResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOtherWorkloadResponse overwrites any union data inside the WorkloadResponse as the provided OtherWorkloadResponse
+func (t *WorkloadResponse) FromOtherWorkloadResponse(v OtherWorkloadResponse) error {
+	v.Type = "other"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOtherWorkloadResponse performs a merge with any union data inside the WorkloadResponse, using the provided OtherWorkloadResponse
+func (t *WorkloadResponse) MergeOtherWorkloadResponse(v OtherWorkloadResponse) error {
+	v.Type = "other"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JsonMerge(b, t.union)
+	t.union = merged
+	return err
+}
+
+func (t WorkloadResponse) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t WorkloadResponse) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "bundle":
+		return t.AsBundleWorkloadResponse()
+	case "other":
+		return t.AsOtherWorkloadResponse()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t WorkloadResponse) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *WorkloadResponse) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}

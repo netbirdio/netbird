@@ -98,10 +98,11 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respBody := make([]*api.Job, 0, len(jobs))
+	respBody := make([]*api.JobResponse, 0, len(jobs))
 	for _, job := range jobs {
 		resp, err := toSingleJobResponse(job)
 		if err != nil {
+			log.WithContext(ctx).Errorf("failed xxx: %v", err)
 			util.WriteError(ctx, err, w)
 			return
 		}
@@ -518,27 +519,25 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	}
 }
 
-func toSingleJobResponse(job *types.Job) (*api.Job, error) {
-	var parameters map[string]any
-	if err := job.DecodeParameters(&parameters); err != nil {
+func toSingleJobResponse(job *types.Job) (*api.JobResponse, error) {
+	var workloadResponse api.WorkloadResponse
+	if err := job.BuildWorkloadResponse(&workloadResponse); err != nil {
 		return nil, err
 	}
-	return &api.Job{
+
+	var failed *string
+	if job.FailedReason != "" {
+		failed = &job.FailedReason
+	}
+
+	return &api.JobResponse{
 		Id:           job.ID,
-		Status:       (*api.JobStatus)(&job.Status),
-		CompletedAt:  job.CompletedAt,
 		CreatedAt:    job.CreatedAt,
-		FailedReason: &job.FailedReason,
+		CompletedAt:  job.CompletedAt,
 		TriggeredBy:  job.TriggeredBy,
-		Workload: struct {
-			Parameters *map[string]any      "json:\"parameters,omitempty\""
-			Result     *string              "json:\"result,omitempty\""
-			Type       *api.JobWorkloadType "json:\"type,omitempty\""
-		}{
-			Type:       (*api.JobWorkloadType)(&job.Type),
-			Parameters: &parameters,
-			Result:     &job.Result,
-		},
+		Status:       api.JobResponseStatus(job.Status),
+		FailedReason: failed,
+		Workload:     workloadResponse,
 	}, nil
 }
 

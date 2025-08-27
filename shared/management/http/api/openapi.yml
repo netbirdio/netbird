@@ -34,80 +34,150 @@ tags:
     x-cloud-only: true
 components:
   schemas:
+    WorkloadType:
+      type: string
+      enum:
+        - bundle
+        - other
+    BundleParameters:
+      type: object
+      properties:
+        bundle_for:
+          type: boolean
+        bundle_for_time:
+          type: integer
+          format: int64
+          minimum: 0
+        log_file_count:
+          type: integer
+          format: int32
+          minimum: 0
+        anonymize:
+          type: boolean
+      required: 
+        - bundle_for 
+        - bundle_for_time 
+        - log_file_count 
+        - anonymize
+    BundleResult:
+      type: object
+      properties:
+        upload_key:
+          type: string
+      required: 
+        - upload_key
+    BundleWorkloadRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+      required: 
+      - type 
+      - parameters
+    BundleWorkloadResponse:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/BundleParameters'
+        result:
+          $ref: '#/components/schemas/BundleResult'
+      required: 
+        - type 
+        - parameters 
+        - result
+    OtherParameters:
+      type: object
+      properties:
+        example_param:
+          type: string
+      required: 
+        - example_param
+    OtherResult:
+      type: object
+      properties:
+        upload_key:
+          type: string
+      required: 
+        - upload_key
+    OtherWorkloadRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/OtherParameters'
+      required: 
+        - type 
+        - parameters
+    OtherWorkloadResponse:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/WorkloadType'
+        parameters:
+          $ref: '#/components/schemas/OtherParameters'
+        result:
+          $ref: '#/components/schemas/OtherResult'
+      required: 
+        - type 
+        - parameters 
+        - result
+    WorkloadRequest:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadRequest'
+        - $ref: '#/components/schemas/OtherWorkloadRequest'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadRequest'
+          other:  '#/components/schemas/OtherWorkloadRequest'
+    WorkloadResponse:
+      oneOf:
+        - $ref: '#/components/schemas/BundleWorkloadResponse'
+        - $ref: '#/components/schemas/OtherWorkloadResponse'
+      discriminator:
+        propertyName: type
+        mapping:
+          bundle: '#/components/schemas/BundleWorkloadResponse'
+          other:  '#/components/schemas/OtherWorkloadResponse'
     JobRequest:
       type: object
       properties:
         workload:
-          type: object
-          properties: 
-            type:
-              type: string
-              description: The type of job to execute
-              example: bundle
-              enum: [ "bundle" ]
-            parameters:
-              type: object
-              description: Key-value parameters required for the job
-              additionalProperties: true
-              example:
-                bundle_for: true
-                bundle_for_time: 5
-                log_file_count: 2
-                anonymize: false
-      required:
+          $ref: '#/components/schemas/WorkloadRequest'
+      required: 
         - workload
-    Job:
+    JobResponse:
       type: object
       properties:
         id:
           type: string
-          description: Primary identifier
-          example: "123456"
         created_at:
           type: string
           format: date-time
-          description: When the job was created (UTC)
         completed_at:
           type: string
           format: date-time
-          description: When the job finished, null if still running
+          nullable: true
         triggered_by:
           type: string
-          description: User that triggered this job
-          example: "user_42"
         status:
           type: string
-          enum: [ pending, succeeded, failed ]
-          example: pending
+          enum: [pending, succeeded, failed]
         failed_reason:
           type: string
-          description: Why the job failed (if failed)
-          example: "Connection timeout"
+          nullable: true
         workload:
-          type: object
-          properties: 
-            type:
-              type: string
-              description: The type of job to execute
-              example: bundle
-              enum: [ "bundle" ]
-            parameters:
-              type: object
-              description: Key-value parameters required for the job
-              additionalProperties: true
-              example:
-                bundle_for: true
-                bundle_for_time: 5
-                log_file_count: 2
-                anonymize: false
-            result:
-              type: string
-              description: Job output (JSON, URL, etc.)
-              example: "https://example.com/bundle.zip"
-      required:
-        - id
-        - created_at
-        - triggered_by
+          $ref: '#/components/schemas/WorkloadResponse'
+      required: 
+        - id 
+        - created_at 
+        - status 
+        - triggered_by 
         - workload
     Account:
       type: object
@@ -2268,7 +2338,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Job'
+                  $ref: '#/components/schemas/JobResponse'
         '400':
           $ref: '#/components/responses/bad_request'
         '401':
@@ -2304,7 +2374,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Job'
+                $ref: '#/components/schemas/JobResponse'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -2338,7 +2408,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Job'
+                $ref: '#/components/schemas/JobResponse'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
