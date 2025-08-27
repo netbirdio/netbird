@@ -439,7 +439,7 @@ func (w *WorkerICE) turnAgentDial(ctx context.Context, agent *icemaker.ThreadSaf
 
 func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive, error) {
 	relatedAdd := candidate.RelatedAddress()
-	return ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
+	ec, err := ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
 		Network:   candidate.NetworkType().String(),
 		Address:   candidate.Address(),
 		Port:      relatedAdd.Port,
@@ -447,6 +447,17 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 		RelAddr:   relatedAdd.Address,
 		RelPort:   relatedAdd.Port,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, e := range candidate.Extensions() {
+		if err := ec.AddExtension(e); err != nil {
+			return nil, err
+		}
+	}
+
+	return ec, nil
 }
 
 func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {
