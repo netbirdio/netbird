@@ -75,16 +75,9 @@ func NewJob(triggeredBy, accountID, peerID string, req *api.JobRequest) (*Job, e
 
 	switch jobType {
 	case JobTypeBundle:
-		bundle, err := req.Workload.AsBundleWorkloadRequest()
+		params, err = validateDebugBundleJobParams(req.Workload)
 		if err != nil {
-			return nil, fmt.Errorf("invalid parameters for bundle job: %w", err)
-		}
-		if err := validateDebugBundleJobParams(bundle); err != nil {
 			return nil, err
-		}
-		params, err = json.Marshal(bundle.Parameters)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal workload parameters: %w", err)
 		}
 	default:
 		return nil, fmt.Errorf("unsupported job type: %s", jobType)
@@ -151,14 +144,23 @@ func (j *Job) buildOtherWorkload(wl *api.WorkloadResponse) error {
 	})
 }
 
-func validateDebugBundleJobParams(bundle api.BundleWorkloadRequest) error {
+func validateDebugBundleJobParams(req api.WorkloadRequest) ([]byte, error) {
+	bundle, err := req.AsBundleWorkloadRequest()
+	if err != nil {
+		return nil, fmt.Errorf("invalid parameters for bundle job: %w", err)
+	}
 	// validate bundle_for_time <= 5 minutes
 	if bundle.Parameters.BundleForTime < 0 || bundle.Parameters.BundleForTime > 5 {
-		return fmt.Errorf("bundle_for_time must be between 0 and 5, got %d", bundle.Parameters.BundleForTime)
+		return nil, fmt.Errorf("bundle_for_time must be between 0 and 5, got %d", bundle.Parameters.BundleForTime)
 	}
 	// validate log-file-count ≥ 1 and ≤ 1000
 	if bundle.Parameters.LogFileCount < 1 || bundle.Parameters.LogFileCount > 1000 {
-		return fmt.Errorf("log-file-count must be between 1 and 1000, got %d", bundle.Parameters.LogFileCount)
+		return nil, fmt.Errorf("log-file-count must be between 1 and 1000, got %d", bundle.Parameters.LogFileCount)
 	}
-	return nil
+
+	params, err := json.Marshal(bundle.Parameters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal workload parameters: %w", err)
+	}
+	return params, nil
 }
