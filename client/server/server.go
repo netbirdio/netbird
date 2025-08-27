@@ -399,6 +399,10 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.DisableNotifications = msg.DisableNotifications
 	config.LazyConnectionEnabled = msg.LazyConnectionEnabled
 	config.BlockInbound = msg.BlockInbound
+	config.EnableSSHRoot = msg.EnableSSHRoot
+	config.EnableSSHSFTP = msg.EnableSSHSFTP
+	config.EnableSSHLocalPortForwarding = msg.EnableSSHLocalPortForward
+	config.EnableSSHRemotePortForwarding = msg.EnableSSHRemotePortForward
 
 	if msg.Mtu != nil {
 		mtu := uint16(*msg.Mtu)
