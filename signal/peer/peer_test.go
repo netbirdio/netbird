@@ -24,11 +24,13 @@ func TestRegistry_ShouldNotDeregisterWhenHasNewerStreamRegistered(t *testing.T) 
 
 	peerID := "peer"
 
-	olderPeer := NewPeer(peerID, nil)
+	_, cancel1 := context.WithCancel(context.Background())
+	olderPeer := NewPeer(peerID, nil, cancel1)
 	r.Register(olderPeer)
 	time.Sleep(time.Nanosecond)
 
-	newerPeer := NewPeer(peerID, nil)
+	_, cancel2 := context.WithCancel(context.Background())
+	newerPeer := NewPeer(peerID, nil, cancel2)
 	r.Register(newerPeer)
 	registered, _ := r.Get(olderPeer.Id)
 
@@ -64,8 +66,10 @@ func TestRegistry_Register(t *testing.T) {
 	require.NoError(t, err)
 
 	r := NewRegistry(metrics)
-	peer1 := NewPeer("test_peer_1", nil)
-	peer2 := NewPeer("test_peer_2", nil)
+	_, cancel1 := context.WithCancel(context.Background())
+	peer1 := NewPeer("test_peer_1", nil, cancel1)
+	_, cancel2 := context.WithCancel(context.Background())
+	peer2 := NewPeer("test_peer_2", nil, cancel2)
 	r.Register(peer1)
 	r.Register(peer2)
 
@@ -83,8 +87,10 @@ func TestRegistry_Deregister(t *testing.T) {
 	require.NoError(t, err)
 
 	r := NewRegistry(metrics)
-	peer1 := NewPeer("test_peer_1", nil)
-	peer2 := NewPeer("test_peer_2", nil)
+	_, cancel1 := context.WithCancel(context.Background())
+	peer1 := NewPeer("test_peer_1", nil, cancel1)
+	_, cancel2 := context.WithCancel(context.Background())
+	peer2 := NewPeer("test_peer_2", nil, cancel2)
 	r.Register(peer1)
 	r.Register(peer2)
 
@@ -98,20 +104,6 @@ func TestRegistry_Deregister(t *testing.T) {
 		t.Errorf("expected test_peer_2 not found in the registry")
 	}
 
-}
-
-func BenchmarkPeerAllocation(b *testing.B) {
-	b.Run("no pool", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			_ = NewPeer("peer", nil)
-		}
-	})
-	// b.Run("with pool", func(b *testing.B) {
-	// 	for i := 0; i < b.N; i++ {
-	// 		p := NewPeerPool("peer", nil, nil)
-	// 		p.Reset()
-	// 	}
-	// })
 }
 
 func TestRegistry_MultipleRegister_Concurrency(t *testing.T) {
@@ -132,8 +124,8 @@ func TestRegistry_MultipleRegister_Concurrency(t *testing.T) {
 			defer wg.Done()
 
 			_, cancel := context.WithCancel(context.Background())
-			peer := NewPeerPool(peerID, nil, cancel)
-			_ = registry.RegisterPool(peer)
+			peer := NewPeer(peerID, nil, cancel)
+			_ = registry.Register(peer)
 			ids <- peer.StreamID
 		}(i)
 	}
@@ -159,24 +151,8 @@ func Benchmark_MultipleRegister_Concurrency(b *testing.B) {
 
 	var wg sync.WaitGroup
 	peerID := "peer-concurrent"
-	b.Run("old", func(b *testing.B) {
-		registry := NewRegistry(metrics)
-		b.ResetTimer()
-		for j := 0; j < b.N; j++ {
-			wg.Add(numGoroutines)
-			for i := range numGoroutines {
-				go func(routineIndex int) {
-					defer wg.Done()
-
-					peer := NewPeer(peerID, nil)
-					registry.Register(peer)
-				}(i)
-			}
-			wg.Wait()
-		}
-	})
 	_, cancel := context.WithCancel(context.Background())
-	b.Run("new", func(b *testing.B) {
+	b.Run("multiple-register", func(b *testing.B) {
 		registry := NewRegistry(metrics)
 		b.ResetTimer()
 		for j := 0; j < b.N; j++ {
@@ -185,8 +161,8 @@ func Benchmark_MultipleRegister_Concurrency(b *testing.B) {
 				go func(routineIndex int) {
 					defer wg.Done()
 
-					peer := NewPeerPool(peerID, nil, cancel)
-					_ = registry.RegisterPool(peer)
+					peer := NewPeer(peerID, nil, cancel)
+					_ = registry.Register(peer)
 				}(i)
 			}
 			wg.Wait()
@@ -212,10 +188,10 @@ func TestRegistry_MultipleDeregister_Concurrency(t *testing.T) {
 			defer wg.Done()
 
 			_, cancel := context.WithCancel(context.Background())
-			peer := NewPeerPool(peerID, nil, cancel)
-			_ = registry.RegisterPool(peer)
+			peer := NewPeer(peerID, nil, cancel)
+			_ = registry.Register(peer)
 			ids <- peer.StreamID
-			registry.DeregisterPool(peer)
+			registry.Deregister(peer)
 		}(i)
 	}
 
@@ -239,7 +215,8 @@ func Benchmark_MultipleDeregister_Concurrency(b *testing.B) {
 
 	var wg sync.WaitGroup
 	peerID := "peer-concurrent"
-	b.Run("old", func(b *testing.B) {
+	_, cancel := context.WithCancel(context.Background())
+	b.Run("register-deregister", func(b *testing.B) {
 		registry := NewRegistry(metrics)
 		b.ResetTimer()
 		for j := 0; j < b.N; j++ {
@@ -248,29 +225,10 @@ func Benchmark_MultipleDeregister_Concurrency(b *testing.B) {
 				go func(routineIndex int) {
 					defer wg.Done()
 
-					peer := NewPeer(peerID, nil)
-					registry.Register(peer)
+					peer := NewPeer(peerID, nil, cancel)
+					_ = registry.Register(peer)
 					time.Sleep(time.Nanosecond)
 					registry.Deregister(peer)
-				}(i)
-			}
-			wg.Wait()
-		}
-	})
-	_, cancel := context.WithCancel(context.Background())
-	b.Run("new", func(b *testing.B) {
-		registry := NewRegistry(metrics)
-		b.ResetTimer()
-		for j := 0; j < b.N; j++ {
-			wg.Add(numGoroutines)
-			for i := range numGoroutines {
-				go func(routineIndex int) {
-					defer wg.Done()
-
-					peer := NewPeerPool(peerID, nil, cancel)
-					_ = registry.RegisterPool(peer)
-					time.Sleep(time.Nanosecond)
-					registry.DeregisterPool(peer)
 				}(i)
 			}
 			wg.Wait()
@@ -309,9 +267,9 @@ func TestReconnectHandling(t *testing.T) {
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	defer cancel1()
 	stream1 := &mockConnectStreamServer{ctx: ctx1}
-	peer1 := NewPeerPool(peerID, stream1, cancel1)
+	peer1 := NewPeer(peerID, stream1, cancel1)
 
-	err = registry.RegisterPool(peer1)
+	err = registry.Register(peer1)
 	require.NoError(t, err, "first registration should succeed")
 
 	p, found := registry.Get(peerID)
@@ -322,9 +280,9 @@ func TestReconnectHandling(t *testing.T) {
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
 	stream2 := &mockConnectStreamServer{ctx: ctx2}
-	peer2 := NewPeerPool(peerID, stream2, cancel2)
+	peer2 := NewPeer(peerID, stream2, cancel2)
 
-	err = registry.RegisterPool(peer2)
+	err = registry.Register(peer2)
 	require.NoError(t, err, "reconnect registration should succeed")
 
 	select {
@@ -341,10 +299,10 @@ func TestReconnectHandling(t *testing.T) {
 	ctx3, cancel3 := context.WithCancel(context.Background())
 	defer cancel3()
 	stream3 := &mockConnectStreamServer{ctx: ctx3}
-	stalePeer := NewPeerPool(peerID, stream3, cancel3)
+	stalePeer := NewPeer(peerID, stream3, cancel3)
 	stalePeer.StreamID = peer1.StreamID
 
-	err = registry.RegisterPool(stalePeer)
+	err = registry.Register(stalePeer)
 	require.ErrorIs(t, err, ErrPeerAlreadyRegistered, "reconnecting with an old StreamID should return an error")
 
 	p, found = registry.Get(peerID)

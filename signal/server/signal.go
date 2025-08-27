@@ -139,8 +139,8 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, c
 		return nil, status.Errorf(codes.FailedPrecondition, "missing connection header: %s", proto.HeaderId)
 	}
 
-	p := peer.NewPeerPool(id[0], stream, cancel)
-	if err := s.registry.RegisterPool(p); err != nil {
+	p := peer.NewPeer(id[0], stream, cancel)
+	if err := s.registry.Register(p); err != nil {
 		return nil, err
 	}
 	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
@@ -155,7 +155,7 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, c
 func (s *Server) DeregisterPeer(p *peer.Peer) {
 	log.Debugf("peer disconnected [%s] [streamID %d] ", p.Id, p.StreamID)
 	s.metrics.PeerConnectionDuration.Record(p.Stream.Context(), int64(time.Since(p.RegisteredAt).Seconds()))
-	s.registry.DeregisterPool(p)
+	s.registry.Deregister(p)
 }
 
 func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedMessage) {

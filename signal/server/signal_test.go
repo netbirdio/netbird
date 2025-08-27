@@ -167,7 +167,8 @@ func (s *Server) registerPeer(stream proto.SignalExchange_ConnectStreamServer) (
 		return nil, status.Errorf(codes.FailedPrecondition, "missing connection header: %s", proto.HeaderId)
 	}
 
-	p := peer.NewPeer(id[0], stream)
+	_, cancel := context.WithCancel(context.Background())
+	p := peer.NewPeer(id[0], stream, cancel)
 	s.registry.Register(p)
 	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
 	if err != nil {

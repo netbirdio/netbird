@@ -3,13 +3,11 @@ package cmd
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"net/http"
-	"runtime"
 
 	// nolint:gosec
 	_ "net/http/pprof"
@@ -179,29 +177,9 @@ var (
 
 func startPprof() {
 	go func() {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
-		mux.HandleFunc("/debug/pprof/heap", http.DefaultServeMux.ServeHTTP)
-		mux.HandleFunc("/debug/pprof/block", http.DefaultServeMux.ServeHTTP)
-		mux.HandleFunc("/debug/pprof/mutex", http.DefaultServeMux.ServeHTTP)
-		mux.HandleFunc("/debug/pprof/cmdline", http.DefaultServeMux.ServeHTTP)
-		mux.HandleFunc("/debug/pprof/profile", http.DefaultServeMux.ServeHTTP)
-		mux.HandleFunc("/debug/pprof/symbol", http.DefaultServeMux.ServeHTTP)
-		mux.HandleFunc("/debug/pprof/trace", http.DefaultServeMux.ServeHTTP)
-		mux.HandleFunc("/debug/pprof/threadcreate", http.DefaultServeMux.ServeHTTP)
-
-		mux.HandleFunc("/debug/memstats", func(w http.ResponseWriter, r *http.Request) {
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(m)
-		})
-
-		debugAddr := "127.0.0.1:6060"
-		log.Infof("started pprof and memstats server on %s", debugAddr)
-		err := http.ListenAndServe(debugAddr, mux)
-		if err != nil {
-			log.Errorf("failed to serve debug endpoint: %s", err)
+		log.Debugf("Starting pprof server on 127.0.0.1:6060")
+		if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
+			log.Fatalf("pprof server failed: %v", err)
 		}
 	}()
 }
