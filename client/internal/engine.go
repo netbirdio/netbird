@@ -889,25 +889,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 
 func (e *Engine) receiveJobEvents() {
 	go func() {
-		info, err := system.GetInfoWithChecks(e.ctx, e.checks)
-		if err != nil {
-			log.Warnf("failed to get system info with checks: %v", err)
-			info = system.GetInfo(e.ctx)
-		}
-		info.SetFlags(
-			e.config.RosenpassEnabled,
-			e.config.RosenpassPermissive,
-			&e.config.ServerSSHAllowed,
-			e.config.DisableClientRoutes,
-			e.config.DisableServerRoutes,
-			e.config.DisableDNS,
-			e.config.DisableFirewall,
-			e.config.BlockLANAccess,
-			e.config.BlockInbound,
-			e.config.LazyConnectionEnabled,
-		)
-
-		err = e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
+		err := e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
 			// Simple test handler — replace with real logic
 			log.Infof("Received job request: %+v", msg)
 			// TODO: trigger local debug bundle or other job

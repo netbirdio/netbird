@@ -81,7 +81,7 @@ func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req
 	select {
 	case ch <- event:
 	case <-time.After(5 * time.Second):
-		jm.cleanup(ctx, accountID, string(req.ID))
+		jm.cleanup(ctx, accountID, string(req.ID), "timed out")
 		return fmt.Errorf("job channel full for peer %s", peerID)
 	}
 
@@ -89,10 +89,10 @@ func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req
 	case <-event.Done:
 		return nil
 	case <-time.After(jm.responseWait):
-		jm.cleanup(ctx, accountID, string(req.ID))
+		jm.cleanup(ctx, accountID, string(req.ID), "timed out")
 		return fmt.Errorf("job %s timed out", req.ID)
 	case <-ctx.Done():
-		jm.cleanup(ctx, accountID, string(req.ID))
+		jm.cleanup(ctx, accountID, string(req.ID), ctx.Err().Error())
 		return ctx.Err()
 	}
 }
@@ -111,6 +111,7 @@ func (jm *JobManager) HandleResponse(ctx context.Context, accountID string, resp
 	//TODO: update the store for job response
 	// jm.store.CompleteJob(ctx,accountID, string(resp.GetID()), string(resp.GetResult()),string(resp.GetReason()))
 	close(event.Done)
+	delete(jm.pending, string(resp.ID))
 
 	return nil
 }
@@ -136,13 +137,13 @@ func (jm *JobManager) CloseChannel(ctx context.Context, accountID, peerID string
 }
 
 // cleanup removes a pending job safely
-func (jm *JobManager) cleanup(ctx context.Context, accountID, jobID string) {
+func (jm *JobManager) cleanup(ctx context.Context, accountID, jobID string, reason string) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
 	if ev, ok := jm.pending[jobID]; ok {
 		close(ev.Done)
-		// jm.store.CompleteJob(ctx,accountID, jobID,"", "Time out ")
+		// jm.store.CompleteJob(ctx, accountID, jobID, "", reason)
 		delete(jm.pending, jobID)
 	}
 }
