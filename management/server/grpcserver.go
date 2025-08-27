@@ -157,7 +157,7 @@ func (s *GRPCServer) Job(srv proto.ManagementService_JobServer) error {
 	}
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
-	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthKeyShare, peerKey.String())
+	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
 	if err != nil {
 		return status.Errorf(codes.Unauthenticated, "peer is not registered")
 	}
@@ -280,7 +280,6 @@ func (s *GRPCServer) startResponseReceiver(ctx context.Context, accountID string
 
 			if err := s.jobManager.HandleResponse(ctx, accountID, jobResp); err != nil {
 				log.WithContext(ctx).Errorf("handle job response failed: %v", err)
-				continue
 			}
 
 		}
