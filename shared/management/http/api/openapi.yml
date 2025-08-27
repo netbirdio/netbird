@@ -38,22 +38,23 @@ components:
       type: string
       enum:
         - bundle
-        - other
     BundleParameters:
       type: object
       properties:
         bundle_for:
           type: boolean
+          example: true
         bundle_for_time:
           type: integer
-          format: int64
           minimum: 0
+          example: 2
         log_file_count:
           type: integer
-          format: int32
           minimum: 0
+          example: 100
         anonymize:
           type: boolean
+          example: false
       required: 
         - bundle_for 
         - bundle_for_time 
@@ -64,8 +65,8 @@ components:
       properties:
         upload_key:
           type: string
-      required: 
-        - upload_key
+          example: "upload_key_123"
+          nullable: true
     BundleWorkloadRequest:
       type: object
       properties:
@@ -89,61 +90,20 @@ components:
         - type 
         - parameters 
         - result
-    OtherParameters:
-      type: object
-      properties:
-        example_param:
-          type: string
-      required: 
-        - example_param
-    OtherResult:
-      type: object
-      properties:
-        upload_key:
-          type: string
-      required: 
-        - upload_key
-    OtherWorkloadRequest:
-      type: object
-      properties:
-        type:
-          $ref: '#/components/schemas/WorkloadType'
-        parameters:
-          $ref: '#/components/schemas/OtherParameters'
-      required: 
-        - type 
-        - parameters
-    OtherWorkloadResponse:
-      type: object
-      properties:
-        type:
-          $ref: '#/components/schemas/WorkloadType'
-        parameters:
-          $ref: '#/components/schemas/OtherParameters'
-        result:
-          $ref: '#/components/schemas/OtherResult'
-      required: 
-        - type 
-        - parameters 
-        - result
     WorkloadRequest:
       oneOf:
         - $ref: '#/components/schemas/BundleWorkloadRequest'
-        - $ref: '#/components/schemas/OtherWorkloadRequest'
       discriminator:
         propertyName: type
         mapping:
           bundle: '#/components/schemas/BundleWorkloadRequest'
-          other:  '#/components/schemas/OtherWorkloadRequest'
     WorkloadResponse:
       oneOf:
         - $ref: '#/components/schemas/BundleWorkloadResponse'
-        - $ref: '#/components/schemas/OtherWorkloadResponse'
       discriminator:
         propertyName: type
         mapping:
           bundle: '#/components/schemas/BundleWorkloadResponse'
-          other:  '#/components/schemas/OtherWorkloadResponse'
     JobRequest:
       type: object
       properties:

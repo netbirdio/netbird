@@ -192,7 +192,6 @@ const (
 // Defines values for WorkloadType.
 const (
 	WorkloadTypeBundle WorkloadType = "bundle"
-	WorkloadTypeOther  WorkloadType = "other"
 )
 
 // Defines values for GetApiEventsNetworkTrafficParamsType.
@@ -356,15 +355,15 @@ type AvailablePorts struct {
 
 // BundleParameters defines model for BundleParameters.
 type BundleParameters struct {
-	Anonymize     bool  `json:"anonymize"`
-	BundleFor     bool  `json:"bundle_for"`
-	BundleForTime int64 `json:"bundle_for_time"`
-	LogFileCount  int32 `json:"log_file_count"`
+	Anonymize     bool `json:"anonymize"`
+	BundleFor     bool `json:"bundle_for"`
+	BundleForTime int  `json:"bundle_for_time"`
+	LogFileCount  int  `json:"log_file_count"`
 }
 
 // BundleResult defines model for BundleResult.
 type BundleResult struct {
-	UploadKey string `json:"upload_key"`
+	UploadKey *string `json:"upload_key"`
 }
 
 // BundleWorkloadRequest defines model for BundleWorkloadRequest.
@@ -1073,29 +1072,6 @@ type OSVersionCheck struct {
 
 	// Windows Posture check with the kernel version
 	Windows *MinKernelVersionCheck `json:"windows,omitempty"`
-}
-
-// OtherParameters defines model for OtherParameters.
-type OtherParameters struct {
-	ExampleParam string `json:"example_param"`
-}
-
-// OtherResult defines model for OtherResult.
-type OtherResult struct {
-	UploadKey string `json:"upload_key"`
-}
-
-// OtherWorkloadRequest defines model for OtherWorkloadRequest.
-type OtherWorkloadRequest struct {
-	Parameters OtherParameters `json:"parameters"`
-	Type       WorkloadType    `json:"type"`
-}
-
-// OtherWorkloadResponse defines model for OtherWorkloadResponse.
-type OtherWorkloadResponse struct {
-	Parameters OtherParameters `json:"parameters"`
-	Result     OtherResult     `json:"result"`
-	Type       WorkloadType    `json:"type"`
 }
 
 // Peer defines model for Peer.
@@ -2099,34 +2075,6 @@ func (t *WorkloadRequest) MergeBundleWorkloadRequest(v BundleWorkloadRequest) er
 	return err
 }
 
-// AsOtherWorkloadRequest returns the union data inside the WorkloadRequest as a OtherWorkloadRequest
-func (t WorkloadRequest) AsOtherWorkloadRequest() (OtherWorkloadRequest, error) {
-	var body OtherWorkloadRequest
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromOtherWorkloadRequest overwrites any union data inside the WorkloadRequest as the provided OtherWorkloadRequest
-func (t *WorkloadRequest) FromOtherWorkloadRequest(v OtherWorkloadRequest) error {
-	v.Type = "other"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeOtherWorkloadRequest performs a merge with any union data inside the WorkloadRequest, using the provided OtherWorkloadRequest
-func (t *WorkloadRequest) MergeOtherWorkloadRequest(v OtherWorkloadRequest) error {
-	v.Type = "other"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JsonMerge(b, t.union)
-	t.union = merged
-	return err
-}
-
 func (t WorkloadRequest) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"type"`
@@ -2143,8 +2091,6 @@ func (t WorkloadRequest) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "bundle":
 		return t.AsBundleWorkloadRequest()
-	case "other":
-		return t.AsOtherWorkloadRequest()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}
@@ -2188,34 +2134,6 @@ func (t *WorkloadResponse) MergeBundleWorkloadResponse(v BundleWorkloadResponse)
 	return err
 }
 
-// AsOtherWorkloadResponse returns the union data inside the WorkloadResponse as a OtherWorkloadResponse
-func (t WorkloadResponse) AsOtherWorkloadResponse() (OtherWorkloadResponse, error) {
-	var body OtherWorkloadResponse
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromOtherWorkloadResponse overwrites any union data inside the WorkloadResponse as the provided OtherWorkloadResponse
-func (t *WorkloadResponse) FromOtherWorkloadResponse(v OtherWorkloadResponse) error {
-	v.Type = "other"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeOtherWorkloadResponse performs a merge with any union data inside the WorkloadResponse, using the provided OtherWorkloadResponse
-func (t *WorkloadResponse) MergeOtherWorkloadResponse(v OtherWorkloadResponse) error {
-	v.Type = "other"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JsonMerge(b, t.union)
-	t.union = merged
-	return err
-}
-
 func (t WorkloadResponse) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"type"`
@@ -2232,8 +2150,6 @@ func (t WorkloadResponse) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "bundle":
 		return t.AsBundleWorkloadResponse()
-	case "other":
-		return t.AsOtherWorkloadResponse()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}

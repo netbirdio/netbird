@@ -58,7 +58,7 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	req := &api.JobRequest{}
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
-		util.WriteError(ctx, err, w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -102,7 +102,6 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	for _, job := range jobs {
 		resp, err := toSingleJobResponse(job)
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed xxx: %v", err)
 			util.WriteError(ctx, err, w)
 			return
 		}

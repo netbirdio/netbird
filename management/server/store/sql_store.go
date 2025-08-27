@@ -157,7 +157,7 @@ func (s *SqlStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) 
 		Where(accountAndIDQueryCondition, accountID, jobID).
 		First(&job).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, fmt.Errorf("job %s not found", jobID)
+		return nil, status.Errorf(status.NotFound, "job %s not found", jobID)
 	}
 	return &job, err
 }

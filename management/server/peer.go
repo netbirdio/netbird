@@ -380,15 +380,15 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 			return err
 		}
 		if err := transaction.CreatePeerJob(ctx, job); err != nil {
-			return fmt.Errorf("failed to save job for peer %s: %w", peer.ID, err)
+			return status.Errorf(status.Internal, "failed to save job for peer %s: %v", peer.ID, err)
 		}
-		
+
 		jobMeta := map[string]any{
-			"job_id": job.ID,
-			"for_peer_id": job.PeerID,
-			"job_type": job.Type,
-			"job_status": job.Status,
-			"job_parameters": job.Parameters,
+			"job_id":         job.ID,
+			"for_peer_id":    job.PeerID,
+			"job_type":       job.Workload.Type,
+			"job_status":     job.Status,
+			"job_parameters": job.Workload.Parameters,
 		}
 
 		eventsToStore = func() {
@@ -399,9 +399,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	if err != nil {
 		return err
 	}
-
 	eventsToStore()
-
 	return nil
 }
 
