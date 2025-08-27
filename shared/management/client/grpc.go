@@ -383,7 +383,7 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 		update, err := stream.Recv()
 		if err == io.EOF {
 			log.Debugf("Management stream has been closed by server: %s", err)
-			return nil
+			return err
 		}
 		if err != nil {
 			log.Debugf("disconnected from Management Service sync stream: %v", err)
