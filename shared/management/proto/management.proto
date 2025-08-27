@@ -63,7 +63,7 @@ message EncryptedMessage {
   int32 version = 3;
 }
 
-message JobCreateRequest {
+message JobRequest {
   bytes ID = 1;
 
   oneof workload_parameters {

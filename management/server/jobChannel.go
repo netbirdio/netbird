@@ -15,7 +15,7 @@ const jobChannelBuffer = 100
 
 type JobEvent struct {
 	PeerID   string
-	Request  *proto.JobCreateRequest
+	Request  *proto.JobRequest
 	Response *proto.JobResponse
 	Done     chan struct{} // closed when response arrives
 }
@@ -60,7 +60,7 @@ func (jm *JobManager) CreateJobChannel(peerID string) chan *JobEvent {
 }
 
 // SendJob sends a job to a peer and tracks it as pending
-func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req *proto.JobCreateRequest) error {
+func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req *proto.JobRequest) error {
 	jm.mu.RLock()
 	ch, ok := jm.jobChannels[peerID]
 	jm.mu.RUnlock()

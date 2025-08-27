@@ -907,7 +907,7 @@ func (e *Engine) receiveJobEvents() {
 			e.config.LazyConnectionEnabled,
 		)
 
-		err = e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobCreateRequest) *mgmProto.JobResponse {
+		err = e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
 			// Simple test handler — replace with real logic
 			log.Infof("Received job request: %+v", msg)
 			// TODO: trigger local debug bundle or other job
