@@ -26,12 +26,14 @@ func TestRegistry_ShouldNotDeregisterWhenHasNewerStreamRegistered(t *testing.T) 
 
 	_, cancel1 := context.WithCancel(context.Background())
 	olderPeer := NewPeer(peerID, nil, cancel1)
-	r.Register(olderPeer)
+	err = r.Register(olderPeer)
+	require.NoError(t, err)
 	time.Sleep(time.Nanosecond)
 
 	_, cancel2 := context.WithCancel(context.Background())
 	newerPeer := NewPeer(peerID, nil, cancel2)
-	r.Register(newerPeer)
+	err = r.Register(newerPeer)
+	require.NoError(t, err)
 	registered, _ := r.Get(olderPeer.Id)
 
 	assert.NotNil(t, registered, "peer can't be nil")
@@ -70,8 +72,10 @@ func TestRegistry_Register(t *testing.T) {
 	peer1 := NewPeer("test_peer_1", nil, cancel1)
 	_, cancel2 := context.WithCancel(context.Background())
 	peer2 := NewPeer("test_peer_2", nil, cancel2)
-	r.Register(peer1)
-	r.Register(peer2)
+	err = r.Register(peer1)
+	require.NoError(t, err)
+	err = r.Register(peer2)
+	require.NoError(t, err)
 
 	if _, ok := r.Get("test_peer_1"); !ok {
 		t.Errorf("expected test_peer_1 not found in the registry")
@@ -91,8 +95,10 @@ func TestRegistry_Deregister(t *testing.T) {
 	peer1 := NewPeer("test_peer_1", nil, cancel1)
 	_, cancel2 := context.WithCancel(context.Background())
 	peer2 := NewPeer("test_peer_2", nil, cancel2)
-	r.Register(peer1)
-	r.Register(peer2)
+	err = r.Register(peer1)
+	require.NoError(t, err)
+	err = r.Register(peer2)
+	require.NoError(t, err)
 
 	r.Deregister(peer1)
 
