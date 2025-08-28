@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/wsproxy"
+	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -147,7 +150,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
-	rootHandler := handlerFunc(s.GRPCServer(), s.APIHandler())
+	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler())
 	switch {
 	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
@@ -247,13 +250,17 @@ func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config)
 	return util.DirectWriteJson(ctx, path, config)
 }
 
-func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handler {
+func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handler {
+	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), ManagementLegacyPort))
+
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		grpcHeader := strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
-			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")
-		if request.ProtoMajor == 2 && grpcHeader {
+		switch {
+		case request.ProtoMajor == 2 && (strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
+			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")):
 			gRPCHandler.ServeHTTP(writer, request)
-		} else {
+		case request.URL.Path == wsproxy.ProxyPath:
+			wsProxy.Handler().ServeHTTP(writer, request)
+		default:
 			httpHandler.ServeHTTP(writer, request)
 		}
 	})
