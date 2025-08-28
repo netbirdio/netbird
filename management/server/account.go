@@ -1134,12 +1134,12 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 	newUser := types.NewRegularUser(userAuth.UserId)
 	newUser.AccountID = domainAccountID
 
-	account, err := am.Store.GetAccount(ctx, domainAccountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, domainAccountID)
 	if err != nil {
 		return "", err
 	}
 
-	if account.Settings != nil && account.Settings.Extra != nil && account.Settings.Extra.UserApprovalRequired {
+	if settings != nil && settings.Extra != nil && settings.Extra.UserApprovalRequired {
 		newUser.Blocked = true
 		newUser.PendingApproval = true
 	}

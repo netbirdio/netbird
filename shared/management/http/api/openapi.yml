@@ -178,6 +178,7 @@ components:
           example: true
       required:
         - peer_approval_enabled
+        - user_approval_required
         - network_traffic_logs_enabled
         - network_traffic_logs_groups
         - network_traffic_packet_counter_enabled
@@ -242,7 +243,6 @@ components:
         pending_approval:
           description: Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
           type: boolean
-          readOnly: true
           example: false
         issued:
           description: How user was issued by API or Integration
@@ -258,6 +258,7 @@ components:
         - auto_groups
         - status
         - is_blocked
+        - pending_approval
     UserPermissions:
       type: object
       properties:

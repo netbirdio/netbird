@@ -326,25 +326,20 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 
 	isCurrent := user.ID == currenUserID
 
-	apiUser := &api.User{
-		Id:            user.ID,
-		Name:          user.Name,
-		Email:         user.Email,
-		Role:          user.Role,
-		AutoGroups:    autoGroups,
-		Status:        userStatus,
-		IsCurrent:     &isCurrent,
-		IsServiceUser: &user.IsServiceUser,
-		IsBlocked:     user.IsBlocked,
-		LastLogin:     &user.LastLogin,
-		Issued:        &user.Issued,
+	return &api.User{
+		Id:              user.ID,
+		Name:            user.Name,
+		Email:           user.Email,
+		Role:            user.Role,
+		AutoGroups:      autoGroups,
+		Status:          userStatus,
+		IsCurrent:       &isCurrent,
+		IsServiceUser:   &user.IsServiceUser,
+		IsBlocked:       user.IsBlocked,
+		LastLogin:       &user.LastLogin,
+		Issued:          &user.Issued,
+		PendingApproval: user.PendingApproval,
 	}
-
-	if user.PendingApproval {
-		apiUser.PendingApproval = &user.PendingApproval
-	}
-
-	return apiUser
 }
 
 // approveUser is a POST request to approve a user that is pending approval

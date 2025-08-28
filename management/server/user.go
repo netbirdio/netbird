@@ -1259,5 +1259,12 @@ func (am *DefaultAccountManager) RejectUser(ctx context.Context, accountID, init
 		return status.Errorf(status.InvalidArgument, "user %s is not pending approval", targetUserID)
 	}
 
-	return am.DeleteUser(ctx, accountID, initiatorUserID, targetUserID)
+	err = am.DeleteUser(ctx, accountID, initiatorUserID, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	am.StoreEvent(ctx, initiatorUserID, targetUserID, accountID, activity.UserRejected, nil)
+
+	return nil
 }

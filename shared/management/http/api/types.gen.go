@@ -270,7 +270,7 @@ type AccountExtraSettings struct {
 	PeerApprovalEnabled bool `json:"peer_approval_enabled"`
 
 	// UserApprovalRequired Enables manual approval for new users joining via domain matching. When enabled, users are blocked with pending approval status until explicitly approved by an admin.
-	UserApprovalRequired *bool `json:"user_approval_required,omitempty"`
+	UserApprovalRequired bool `json:"user_approval_required"`
 }
 
 // AccountOnboarding defines model for AccountOnboarding.
@@ -1782,7 +1782,7 @@ type User struct {
 	Name string `json:"name"`
 
 	// PendingApproval Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
-	PendingApproval *bool            `json:"pending_approval,omitempty"`
+	PendingApproval bool             `json:"pending_approval"`
 	Permissions     *UserPermissions `json:"permissions,omitempty"`
 
 	// Role User's NetBird account role
