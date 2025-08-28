@@ -213,23 +213,29 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 			}
 
 			newGroup.AccountID = accountID
-			groupIDs = append(groupIDs, newGroup.ID)
-
-			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-			eventsToStore = append(eventsToStore, events...)
 
 			if err = transaction.CreateGroup(ctx, newGroup); err != nil {
 				return err
 			}
 
-			return transaction.IncrementNetworkSerial(ctx, accountID)
+			err = transaction.IncrementNetworkSerial(ctx, accountID)
+			if err != nil {
+				return err
+			}
+
+			groupIDs = append(groupIDs, newGroup.ID)
+
+			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+			eventsToStore = append(eventsToStore, events...)
+
+			return nil
 		})
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
 			if len(groupIDs) == 1 {
 				return err
 			}
-			globalErr = err
+			globalErr = errors.Join(globalErr, err)
 			// continue updating other groups
 		}
 	}
@@ -275,23 +281,29 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 			}
 
 			newGroup.AccountID = accountID
-			groupIDs = append(groupIDs, newGroup.ID)
-
-			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-			eventsToStore = append(eventsToStore, events...)
 
 			if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
 				return err
 			}
 
-			return transaction.IncrementNetworkSerial(ctx, accountID)
+			err = transaction.IncrementNetworkSerial(ctx, accountID)
+			if err != nil {
+				return err
+			}
+
+			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+			eventsToStore = append(eventsToStore, events...)
+
+			groupIDs = append(groupIDs, newGroup.ID)
+
+			return nil
 		})
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
-			if len(groupIDs) == 1 {
+			if len(groups) == 1 {
 				return err
 			}
-			globalErr = err
+			globalErr = errors.Join(globalErr, err)
 			// continue updating other groups
 		}
 	}

@@ -532,21 +532,28 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 			if err != nil {
 				return fmt.Errorf("failed to process update for user %s: %w", update.Id, err)
 			}
-			usersToSave = append(usersToSave, updatedUser)
-			addUserEvents = append(addUserEvents, userEvents...)
-			peersToExpire = append(peersToExpire, userPeersToExpire...)
 
 			if userHadPeers {
 				updateAccountPeers = true
 			}
-			return transaction.SaveUsers(ctx, usersToSave)
+
+			err = transaction.SaveUser(ctx, updatedUser)
+			if err != nil {
+				return fmt.Errorf("failed to save updated user %s: %w", update.Id, err)
+			}
+
+			usersToSave = append(usersToSave, updatedUser)
+			addUserEvents = append(addUserEvents, userEvents...)
+			peersToExpire = append(peersToExpire, userPeersToExpire...)
+
+			return nil
 		})
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to save user %s: %s", update.Id, err)
 			if len(updates) == 1 {
 				return nil, err
 			}
-			globalErr = err
+			globalErr = errors.Join(globalErr, err)
 			// continue when updating multiple users
 		}
 	}
