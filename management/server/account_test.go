@@ -3642,16 +3642,20 @@ func TestAddNewUserToDomainAccountWithoutApproval(t *testing.T) {
 	}
 
 	// Create a domain-based account without user approval
-	existingAccountID := "existing-account"
-	account := newAccountWithId(context.Background(), existingAccountID, "owner-user", "example.com", false)
+	ownerUserAuth := nbcontext.UserAuth{
+		UserId:         "owner-user",
+		Domain:         "example.com",
+		DomainCategory: types.PrivateCategory,
+	}
+	existingAccountID, err := manager.getAccountIDWithAuthorizationClaims(context.Background(), ownerUserAuth)
+	require.NoError(t, err)
+
+	// Modify the account to disable user approval
+	account, err := manager.Store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
 	account.Settings.Extra = &types.ExtraSettings{
 		UserApprovalRequired: false,
 	}
-	err = manager.Store.SaveAccount(context.Background(), account)
-	require.NoError(t, err)
-
-	// Set the account as domain primary account
-	account.IsDomainPrimaryAccount = true
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 

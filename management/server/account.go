@@ -1801,6 +1801,9 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string, dis
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 			RoutingPeerDNSResolutionEnabled: true,
+			Extra: &types.ExtraSettings{
+				UserApprovalRequired: true,
+			},
 		},
 		Onboarding: types.AccountOnboarding{
 			OnboardingFlowPending: true,
@@ -1907,6 +1910,9 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 				PeerInactivityExpirationEnabled: false,
 				PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 				RoutingPeerDNSResolutionEnabled: true,
+				Extra: &types.ExtraSettings{
+					UserApprovalRequired: true,
+				},
 			},
 		}
 
