@@ -801,8 +801,7 @@ func TestApproveUserEndpoint(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "pending-user", response.Id)
 				assert.False(t, response.IsBlocked)
-				// PendingApproval should be nil for approved users (not pending anymore)
-				assert.Nil(t, response.PendingApproval)
+				assert.False(t, response.PendingApproval)
 			}
 		})
 	}
