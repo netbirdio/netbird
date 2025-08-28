@@ -52,6 +52,8 @@ const (
 	peerSchedulerRetryInterval = 3 * time.Second
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
+	// skipAutoUpdateVersion used as a placeholder for autoUpdateVersion in proto responses to indicate response contains no new updates
+	skipAutoUpdateVersion = "skip"
 )
 
 type userLoggedInOnce bool
@@ -331,7 +333,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 
 		if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled ||
 			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
-			oldSettings.DNSDomain != newSettings.DNSDomain {
+			oldSettings.DNSDomain != newSettings.DNSDomain ||
+			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion {
 			updateAccountPeers = true
 		}
 
@@ -367,6 +370,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handleLazyConnectionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -465,6 +469,15 @@ func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Con
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.UserGroupPropagationDisabled, nil)
 		}
+	}
+}
+
+func (am *DefaultAccountManager) handleAutoUpdateVersionSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateVersionUpdated, map[string]any{
+			"old_value": oldSettings.AutoUpdateVersion,
+			"new_value": newSettings.AutoUpdateVersion,
+		})
 	}
 }
 
