@@ -176,6 +176,7 @@ func startServer(
 	}
 
 	peersUpdateManager := server.NewPeersUpdateManager(nil)
+	jobManager := server.NewJobManager(nil, str)
 	eventStore := &activity.InMemoryEventStore{}
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
@@ -202,6 +203,7 @@ func startServer(
 		context.Background(),
 		str,
 		peersUpdateManager,
+		jobManager,
 		nil,
 		"",
 		"netbird.selfhosted",
@@ -226,6 +228,7 @@ func startServer(
 		accountManager,
 		settingsMockManager,
 		peersUpdateManager,
+		jobManager,
 		secretsManager,
 		nil,
 		nil,
