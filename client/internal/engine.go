@@ -478,6 +478,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
+	e.receiveJobEvents()
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
@@ -945,6 +946,33 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	e.statusRecorder.UpdateLocalPeerState(state)
 
 	return nil
+}
+
+func (e *Engine) receiveJobEvents() {
+	go func() {
+		err := e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
+			// Simple test handler — replace with real logic
+			log.Infof("Received job request: %+v", msg)
+			// TODO: trigger local debug bundle or other job
+			return &mgmProto.JobResponse{
+				ID: msg.ID,
+				WorkloadResults: &mgmProto.JobResponse_Bundle{
+					Bundle: &mgmProto.BundleResult{
+						UploadKey: "upload-key",
+					},
+				},
+			}
+		})
+		if err != nil {
+			// happens if management is unavailable for a long time.
+			// We want to cancel the operation of the whole client
+			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+			e.clientCancel()
+			return
+		}
+		log.Debugf("stopped receiving jobs from Management Service")
+	}()
+	log.Debugf("connecting to Management Service jobs stream")
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service

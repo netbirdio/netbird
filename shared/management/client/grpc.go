@@ -12,6 +12,7 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -112,6 +113,25 @@ func (c *GrpcClient) ready() bool {
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
+	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
+		return c.handleSyncStream(ctx, serverPubKey, sysInfo, msgHandler)
+	})
+}
+
+// Job wraps the real client's Job endpoint call and takes care of retries and encryption/decryption of messages
+// Blocking request. The result will be sent via msgHandler callback function
+func (c *GrpcClient) Job(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error {
+	return c.withMgmtStream(ctx, func(ctx context.Context, serverPubKey wgtypes.Key) error {
+		return c.handleJobStream(ctx, serverPubKey, msgHandler)
+	})
+}
+
+// withMgmtStream runs a streaming operation against the ManagementService
+// It takes care of retries, connection readiness, and fetching server public key.
+func (c *GrpcClient) withMgmtStream(
+	ctx context.Context,
+	handler func(ctx context.Context, serverPubKey wgtypes.Key) error,
+) error {
 	operation := func() error {
 		log.Debugf("management connection state %v", c.conn.GetState())
 		connState := c.conn.GetState()
@@ -129,7 +149,7 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 			return err
 		}
 
-		return c.handleStream(ctx, *serverPubKey, sysInfo, msgHandler)
+		return handler(ctx, *serverPubKey)
 	}
 
 	err := backoff.Retry(operation, defaultBackoff(ctx))
@@ -140,12 +160,132 @@ func (c *GrpcClient) Sync(ctx context.Context, sysInfo *system.Info, msgHandler 
 	return err
 }
 
-func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info,
-	msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) handleJobStream(
+	ctx context.Context,
+	serverPubKey wgtypes.Key,
+	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
+) error {
+	stream, err := c.realClient.Job(ctx)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to open job stream: %v", err)
+		return err
+	}
+
+	// Handshake with the server
+	if err := c.sendHandshake(ctx, stream, serverPubKey); err != nil {
+		return err
+	}
+
+	log.WithContext(ctx).Debug("job stream handshake sent successfully")
+
+	// Main loop: receive, process, respond
+	for {
+		jobReq, err := c.receiveJobRequest(ctx, stream, serverPubKey)
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+				log.WithContext(ctx).Info("job stream closed by server")
+				return nil
+			}
+			log.WithContext(ctx).Errorf("error receiving job request: %v", err)
+			return err
+		}
+
+		if jobReq == nil || len(jobReq.ID) == 0 {
+			log.WithContext(ctx).Debug("received unknown or empty job request, skipping")
+			continue
+		}
+
+		jobResp := c.processJobRequest(ctx, jobReq, msgHandler)
+		if err := c.sendJobResponse(ctx, stream, serverPubKey, jobResp); err != nil {
+			return err
+		}
+	}
+}
+
+// sendHandshake sends the initial handshake message
+func (c *GrpcClient) sendHandshake(ctx context.Context, stream proto.ManagementService_JobClient, serverPubKey wgtypes.Key) error {
+	handshakeReq := &proto.JobRequest{
+		ID: []byte(uuid.New().String()),
+	}
+	encHello, err := encryption.EncryptMessage(serverPubKey, c.key, handshakeReq)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to encrypt handshake message: %v", err)
+		return err
+	}
+	return stream.Send(&proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encHello,
+	})
+}
+
+// receiveJobRequest waits for and decrypts a job request
+func (c *GrpcClient) receiveJobRequest(
+	ctx context.Context,
+	stream proto.ManagementService_JobClient,
+	serverPubKey wgtypes.Key,
+) (*proto.JobRequest, error) {
+	encryptedMsg, err := stream.Recv()
+	if err != nil {
+		return nil, err
+	}
+
+	jobReq := &proto.JobRequest{}
+	if err := encryption.DecryptMessage(serverPubKey, c.key, encryptedMsg.Body, jobReq); err != nil {
+		log.WithContext(ctx).Warnf("failed to decrypt job request: %v", err)
+		return nil, err
+	}
+
+	return jobReq, nil
+}
+
+// processJobRequest executes the handler and ensures a valid response
+func (c *GrpcClient) processJobRequest(
+	ctx context.Context,
+	jobReq *proto.JobRequest,
+	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
+) *proto.JobResponse {
+	jobResp := msgHandler(jobReq)
+	if jobResp == nil {
+		jobResp = &proto.JobResponse{
+			ID:     jobReq.ID,
+			Status: proto.JobStatus_failed,
+			Reason: []byte("handler returned nil response"),
+		}
+		log.WithContext(ctx).Warnf("job handler returned nil for job %s", string(jobReq.ID))
+	}
+	return jobResp
+}
+
+// sendJobResponse encrypts and sends a job response
+func (c *GrpcClient) sendJobResponse(
+	ctx context.Context,
+	stream proto.ManagementService_JobClient,
+	serverPubKey wgtypes.Key,
+	resp *proto.JobResponse,
+) error {
+	encResp, err := encryption.EncryptMessage(serverPubKey, c.key, resp)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to encrypt job response for job %s: %v", string(resp.ID), err)
+		return err
+	}
+
+	if err := stream.Send(&proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encResp,
+	}); err != nil {
+		log.WithContext(ctx).Errorf("failed to send job response for job %s: %v", string(resp.ID), err)
+		return err
+	}
+
+	log.WithContext(ctx).Debugf("job response sent successfully for job %s", string(resp.ID))
+	return nil
+}
+
+func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error {
 	ctx, cancelStream := context.WithCancel(ctx)
 	defer cancelStream()
 
-	stream, err := c.connectToStream(ctx, serverPubKey, sysInfo)
+	stream, err := c.connectToSyncStream(ctx, serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
@@ -158,7 +298,7 @@ func (c *GrpcClient) handleStream(ctx context.Context, serverPubKey wgtypes.Key,
 	c.notifyConnected()
 
 	// blocking until error
-	err = c.receiveEvents(stream, serverPubKey, msgHandler)
+	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
 		c.notifyDisconnected(err)
 		s, _ := gstatus.FromError(err)
@@ -187,7 +327,7 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 
 	ctx, cancelStream := context.WithCancel(c.ctx)
 	defer cancelStream()
-	stream, err := c.connectToStream(ctx, *serverPubKey, sysInfo)
+	stream, err := c.connectToSyncStream(ctx, *serverPubKey, sysInfo)
 	if err != nil {
 		log.Debugf("failed to open Management Service stream: %s", err)
 		return nil, err
@@ -220,7 +360,7 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 	return decryptedResp.GetNetworkMap(), nil
 }
 
-func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
+func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
 	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
 
 	myPrivateKey := c.key
@@ -239,7 +379,7 @@ func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.K
 	return sync, nil
 }
 
-func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
+func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {

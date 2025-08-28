@@ -130,6 +130,7 @@ type MockAccountManager struct {
 	BufferUpdateAccountPeersFunc func(ctx context.Context, accountID string)
 }
 
+
 func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
 	if am.SaveGroupFunc != nil {
 		return am.SaveGroupFunc(ctx, accountID, userID, group, true)
