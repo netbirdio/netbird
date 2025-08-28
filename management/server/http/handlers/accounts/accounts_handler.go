@@ -11,11 +11,11 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
-	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
@@ -196,8 +196,13 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Settings.Extra != nil {
+		userApprovalRequired := false
+		if req.Settings.Extra.UserApprovalRequired != nil {
+			userApprovalRequired = *req.Settings.Extra.UserApprovalRequired
+		}
 		settings.Extra = &types.ExtraSettings{
 			PeerApprovalEnabled:      req.Settings.Extra.PeerApprovalEnabled,
+			UserApprovalRequired:     userApprovalRequired,
 			FlowEnabled:              req.Settings.Extra.NetworkTrafficLogsEnabled,
 			FlowGroups:               req.Settings.Extra.NetworkTrafficLogsGroups,
 			FlowPacketCounterEnabled: req.Settings.Extra.NetworkTrafficPacketCounterEnabled,
@@ -327,6 +332,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 	if settings.Extra != nil {
 		apiSettings.Extra = &api.AccountExtraSettings{
 			PeerApprovalEnabled:                settings.Extra.PeerApprovalEnabled,
+			UserApprovalRequired:               &settings.Extra.UserApprovalRequired,
 			NetworkTrafficLogsEnabled:          settings.Extra.FlowEnabled,
 			NetworkTrafficLogsGroups:           settings.Extra.FlowGroups,
 			NetworkTrafficPacketCounterEnabled: settings.Extra.FlowPacketCounterEnabled,

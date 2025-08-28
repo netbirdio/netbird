@@ -1194,3 +1194,70 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 
 	return userWithPermissions, nil
 }
+
+// ApproveUser approves a user that is pending approval
+func (am *DefaultAccountManager) ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Update)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotFoundError(targetUserID)
+	}
+
+	if !user.PendingApproval {
+		return nil, status.Errorf(status.InvalidArgument, "user %s is not pending approval", targetUserID)
+	}
+
+	user.Blocked = false
+	user.PendingApproval = false
+
+	err = am.Store.SaveUser(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+
+	am.StoreEvent(ctx, initiatorUserID, targetUserID, accountID, activity.UserApproved, nil)
+
+	userInfo, err := am.getUserInfo(ctx, user, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return userInfo, nil
+}
+
+// RejectUser rejects a user that is pending approval by deleting them
+func (am *DefaultAccountManager) RejectUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) error {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return status.NewPermissionDeniedError()
+	}
+
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	if user.AccountID != accountID {
+		return status.NewUserNotFoundError(targetUserID)
+	}
+
+	if !user.PendingApproval {
+		return status.Errorf(status.InvalidArgument, "user %s is not pending approval", targetUserID)
+	}
+
+	return am.DeleteUser(ctx, accountID, initiatorUserID, targetUserID)
+}

@@ -1133,7 +1133,18 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, userAuth nbcontext.UserAuth) (string, error) {
 	newUser := types.NewRegularUser(userAuth.UserId)
 	newUser.AccountID = domainAccountID
-	err := am.Store.SaveUser(ctx, newUser)
+
+	account, err := am.Store.GetAccount(ctx, domainAccountID)
+	if err != nil {
+		return "", err
+	}
+
+	if account.Settings != nil && account.Settings.Extra != nil && account.Settings.Extra.UserApprovalRequired {
+		newUser.Blocked = true
+		newUser.PendingApproval = true
+	}
+
+	err = am.Store.SaveUser(ctx, newUser)
 	if err != nil {
 		return "", err
 	}
@@ -1143,7 +1154,11 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 		return "", err
 	}
 
-	am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
+	if newUser.PendingApproval {
+		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, map[string]any{"pending_approval": true})
+	} else {
+		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
+	}
 
 	return domainAccountID, nil
 }

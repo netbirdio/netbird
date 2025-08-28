@@ -32,6 +32,8 @@ type Manager interface {
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
 	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
+	ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error)
+	RejectUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) error
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *types.User) (*types.UserInfo, error)
 	SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *types.User, addIfNotExists bool) (*types.UserInfo, error)

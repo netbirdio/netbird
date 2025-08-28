@@ -3594,3 +3594,83 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 		require.Error(t, err, "should fail with invalid peer ID")
 	})
 }
+
+func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a domain-based account with user approval enabled
+	existingAccountID := "existing-account"
+	account := newAccountWithId(context.Background(), existingAccountID, "owner-user", "example.com", false)
+	account.Settings.Extra = &types.ExtraSettings{
+		UserApprovalRequired: true,
+	}
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Set the account as domain primary account
+	account.IsDomainPrimaryAccount = true
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Test adding new user to existing account with approval required
+	newUserID := "new-user-id"
+	userAuth := nbcontext.UserAuth{
+		UserId:         newUserID,
+		Domain:         "example.com",
+		DomainCategory: types.PrivateCategory,
+	}
+
+	returnedAccountID, err := manager.getAccountIDWithAuthorizationClaims(context.Background(), userAuth)
+	require.NoError(t, err)
+	require.Equal(t, existingAccountID, returnedAccountID)
+
+	// Verify user was created with pending approval
+	user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, newUserID)
+	require.NoError(t, err)
+	assert.True(t, user.Blocked, "User should be blocked when approval is required")
+	assert.True(t, user.PendingApproval, "User should be pending approval")
+	assert.Equal(t, existingAccountID, user.AccountID)
+}
+
+func TestAddNewUserToDomainAccountWithoutApproval(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a domain-based account without user approval
+	existingAccountID := "existing-account"
+	account := newAccountWithId(context.Background(), existingAccountID, "owner-user", "example.com", false)
+	account.Settings.Extra = &types.ExtraSettings{
+		UserApprovalRequired: false,
+	}
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Set the account as domain primary account
+	account.IsDomainPrimaryAccount = true
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Test adding new user to existing account without approval required
+	newUserID := "new-user-id"
+	userAuth := nbcontext.UserAuth{
+		UserId:         newUserID,
+		Domain:         "example.com",
+		DomainCategory: types.PrivateCategory,
+	}
+
+	returnedAccountID, err := manager.getAccountIDWithAuthorizationClaims(context.Background(), userAuth)
+	require.NoError(t, err)
+	require.Equal(t, existingAccountID, returnedAccountID)
+
+	// Verify user was created without pending approval
+	user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, newUserID)
+	require.NoError(t, err)
+	assert.False(t, user.Blocked, "User should not be blocked when approval is not required")
+	assert.False(t, user.PendingApproval, "User should not be pending approval")
+	assert.Equal(t, existingAccountID, user.AccountID)
+}
