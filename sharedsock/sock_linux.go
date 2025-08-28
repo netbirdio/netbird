@@ -230,10 +230,8 @@ func (s *SharedSocket) Close() error {
 
 // read start a read loop for a specific receiver and sends the packet to the packetDemux channel
 func (s *SharedSocket) read(receiver receiver) {
-	// Buffer reuse is safe: packetDemux is unbuffered, so read() blocks until
-	// ReadFrom() synchronously processes the packet before next iteration
-	buf := make([]byte, s.mtu+maxIPUDPOverhead)
 	for {
+		buf := make([]byte, s.mtu+maxIPUDPOverhead)
 		n, addr, err := receiver(s.ctx, buf, 0)
 		select {
 		case <-s.ctx.Done():
