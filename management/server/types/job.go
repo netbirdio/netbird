@@ -104,21 +104,28 @@ func (j *Job) BuildWorkloadResponse() (*api.WorkloadResponse, error) {
 
 	switch j.Workload.Type {
 	case JobTypeBundle:
-		if j.Workload.BundleParameters == nil {
-			return nil, status.Errorf(status.InvalidArgument, "missing bundle parameters")
-		}
-		if err := wl.FromBundleWorkloadResponse(api.BundleWorkloadResponse{
-			Type:       api.WorkloadTypeBundle,
-			Parameters: *j.Workload.BundleParameters,
-			Result:     *j.Workload.BundleResult,
-		}); err != nil {
-			return nil, status.Errorf(status.InvalidArgument, "unknown job parameters: %v", err)
+		if err := j.buildBundleResponse(&wl); err != nil {
+			return nil, status.Errorf(status.InvalidArgument, err.Error())
 		}
 		return &wl, nil
 
 	default:
 		return nil, status.Errorf(status.InvalidArgument, "unknown job type: %v", j.Workload.Type)
 	}
+}
+
+func (j *Job) buildBundleResponse(wl *api.WorkloadResponse) error {
+	if j.Workload.BundleParameters == nil {
+		return fmt.Errorf("missing bundle parameters")
+	}
+	if err := wl.FromBundleWorkloadResponse(api.BundleWorkloadResponse{
+		Type:       api.WorkloadTypeBundle,
+		Parameters: *j.Workload.BundleParameters,
+		Result:     *j.Workload.BundleResult,
+	}); err != nil {
+		return fmt.Errorf("unknown job parameters: %v", err)
+	}
+	return nil
 }
 
 func validateBundleParams(req api.WorkloadRequest, workload *Workload) error {
