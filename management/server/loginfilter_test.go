@@ -4,7 +4,6 @@ import (
 	"hash/fnv"
 	"math"
 	"math/rand"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,7 +29,6 @@ type LoginFilterTestSuite struct {
 }
 
 func (s *LoginFilterTestSuite) SetupTest() {
-	os.Setenv(envBlockPeers, "true")
 	s.filter = newLoginFilterWithCfg(testAdvancedCfg())
 }
 
