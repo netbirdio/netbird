@@ -333,6 +333,130 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	return peer, nil
 }
 
+func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
+	// todo: Create permissions for job
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return status.NewPermissionDeniedError()
+	}
+
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+	if err != nil {
+		return err
+	}
+
+	if peerAccountID != accountID {
+		return status.NewPeerNotPartOfAccountError()
+	}
+
+	// check if peer connected
+	// todo: implement jobManager.IsPeerConnected
+	// if !am.jobManager.IsPeerConnected(ctx, peerID) {
+	// 	return status.NewJobFailedError("peer not connected")
+	// }
+
+	// check if already has pending jobs
+	// todo: implement jobManager.GetPendingJobsByPeerID
+	// if pending := am.jobManager.GetPendingJobsByPeerID(ctx, peerID); len(pending) > 0 {
+	// 	return status.NewJobAlreadyPendingError(peerID)
+	// }
+
+	// try sending job first
+	// todo: implement am.jobManager.SendJob
+	// if err := am.jobManager.SendJob(ctx, peerID, job); err != nil {
+	// 	return status.NewJobFailedError(fmt.Sprintf("failed to send job: %v", err))
+	// }
+
+	var peer *nbpeer.Peer
+	var eventsToStore func()
+
+	// persist job in DB only if send succeeded
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		if err != nil {
+			return err
+		}
+		if err := transaction.CreatePeerJob(ctx, job); err != nil {
+			return err
+		}
+
+		jobMeta := map[string]any{
+			"job_id":       job.ID,
+			"for_peer_id":  job.PeerID,
+			"job_type":     job.Workload.Type,
+			"job_status":   job.Status,
+			"job_workload": job.Workload,
+		}
+
+		eventsToStore = func() {
+			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.JobCreatedByUser, jobMeta)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	eventsToStore()
+	return nil
+}
+
+func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
+	// todo: Create permissions for job
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if peerAccountID != accountID {
+		return []*types.Job{}, nil
+	}
+
+	accountJobs, err := am.Store.GetPeerJobs(ctx, accountID, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	return accountJobs, nil
+}
+
+func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
+	// todo: Create permissions for job
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	peerAccountID, err := am.Store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if peerAccountID != accountID {
+		return &types.Job{}, nil
+	}
+
+	job, err := am.Store.GetPeerJobByID(ctx, accountID, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	return job, nil
+}
+
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
 	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)

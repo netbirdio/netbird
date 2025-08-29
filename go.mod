@@ -65,6 +65,7 @@ require (
 	github.com/nadoo/ipset v0.5.0
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20250812185008-dfc66fa49a2e
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
+	github.com/oapi-codegen/runtime v1.1.2
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -125,6 +126,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/Microsoft/hcsshim v0.12.3 // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.10 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.67 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.30 // indirect
@@ -220,6 +222,7 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
+	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/rymdport/portal v0.3.0 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
