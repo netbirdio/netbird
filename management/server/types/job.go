@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -50,14 +51,9 @@ type Job struct {
 }
 
 type Workload struct {
-	Type JobType `gorm:"column:workload_type;index;type:varchar(50)"`
-
-	// Only one branch is valid depending on Type. The other branch stays zero-valued.
-	BundleParameters *api.BundleParameters `gorm:"embedded" json:"-"`
-	BundleResult     *api.BundleResult     `gorm:"embedded" json:"-"`
-
-	// OTHER Jobs
-
+	Type       JobType         `gorm:"column:workload_type;index;type:varchar(50)"`
+	Parameters json.RawMessage `gorm:"type:json"`
+	Result     json.RawMessage `gorm:"type:json"`
 }
 
 // NewJob creates a new job with default fields and validation
@@ -81,7 +77,7 @@ func NewJob(triggeredBy, accountID, peerID string, req *api.JobRequest) (*Job, e
 
 	switch jobType {
 	case JobTypeBundle:
-		if err := validateBundleParams(req.Workload, &workload); err != nil {
+		if err := validateAndBuildBundleParams(req.Workload, &workload); err != nil {
 			return nil, status.Errorf(status.BadRequest, "%v", err)
 		}
 	default:
@@ -115,20 +111,26 @@ func (j *Job) BuildWorkloadResponse() (*api.WorkloadResponse, error) {
 }
 
 func (j *Job) buildBundleResponse(wl *api.WorkloadResponse) error {
-	if j.Workload.BundleParameters == nil {
-		return fmt.Errorf("missing bundle parameters")
+	var p api.BundleParameters
+	if err := json.Unmarshal(j.Workload.Parameters, &p); err != nil {
+		return fmt.Errorf("invalid parameters for bundle job: %w", err)
 	}
+	var r api.BundleResult
+	if err := json.Unmarshal(j.Workload.Result, &r); err != nil {
+		return fmt.Errorf("invalid result for bundle job: %w", err)
+	}
+
 	if err := wl.FromBundleWorkloadResponse(api.BundleWorkloadResponse{
 		Type:       api.WorkloadTypeBundle,
-		Parameters: *j.Workload.BundleParameters,
-		Result:     *j.Workload.BundleResult,
+		Parameters: p,
+		Result:     r,
 	}); err != nil {
 		return fmt.Errorf("unknown job parameters: %v", err)
 	}
 	return nil
 }
 
-func validateBundleParams(req api.WorkloadRequest, workload *Workload) error {
+func validateAndBuildBundleParams(req api.WorkloadRequest, workload *Workload) error {
 	bundle, err := req.AsBundleWorkloadRequest()
 	if err != nil {
 		return fmt.Errorf("invalid parameters for bundle job")
@@ -141,8 +143,13 @@ func validateBundleParams(req api.WorkloadRequest, workload *Workload) error {
 	if bundle.Parameters.LogFileCount < 1 || bundle.Parameters.LogFileCount > 1000 {
 		return fmt.Errorf("log-file-count must be between 1 and 1000, got %d", bundle.Parameters.LogFileCount)
 	}
-	workload.BundleParameters = &bundle.Parameters
-	workload.BundleResult = &api.BundleResult{}
-	workload.Type = JobTypeBundle
+	
+	workload.Parameters, err = json.Marshal(bundle.Parameters)
+	if err != nil {
+		return fmt.Errorf("failed to marshal workload parameters: %w", err)
+	}
+	workload.Result = []byte("{}")
+	workload.Type = JobType(api.WorkloadTypeBundle)
+
 	return nil
 }
