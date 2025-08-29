@@ -127,7 +127,6 @@ func (p *Proxy) wsToTCP(ctx context.Context, wg *sync.WaitGroup, wsConn *websock
 			log.Errorf("TCP write error: %v", err)
 			return
 		}
-		log.Tracef("Forwarded %d bytes from WebSocket to TCP", len(data))
 	}
 }
 
@@ -152,6 +151,5 @@ func (p *Proxy) tcpToWS(ctx context.Context, wg *sync.WaitGroup, wsConn *websock
 			log.Errorf("WebSocket write error: %v", err)
 			return
 		}
-		log.Tracef("Forwarded %d bytes from TCP to WebSocket", n)
 	}
 }
