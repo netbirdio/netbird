@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
@@ -14,6 +15,12 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
+type Bind interface {
+	conn.Bind
+	GetICEMux() (*bind.UniversalUDPMuxDefault, error)
+	ActivityRecorder() *bind.ActivityRecorder
+}
+
 type TunNetstackDevice struct {
 	name          string
 	address       wgaddr.Address
@@ -21,7 +28,7 @@ type TunNetstackDevice struct {
 	key           string
 	mtu           uint16
 	listenAddress string
-	iceBind       *bind.ICEBind
+	bind          Bind
 
 	device         *device.Device
 	filteredDevice *FilteredDevice
@@ -32,7 +39,7 @@ type TunNetstackDevice struct {
 	net *netstack.Net
 }
 
-func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
+func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, bind Bind, listenAddress string) *TunNetstackDevice {
 	return &TunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -40,7 +47,7 @@ func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key stri
 		key:           key,
 		mtu:           mtu,
 		listenAddress: listenAddress,
-		iceBind:       iceBind,
+		bind:          bind,
 	}
 }
 
@@ -65,11 +72,11 @@ func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 
 	t.device = device.NewDevice(
 		t.filteredDevice,
-		t.iceBind,
+		t.bind,
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.bind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		_ = tunIface.Close()
@@ -90,7 +97,7 @@ func (t *TunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 
-	udpMux, err := t.iceBind.GetICEMux()
+	udpMux, err := t.bind.GetICEMux()
 	if err != nil {
 		return nil, err
 	}
