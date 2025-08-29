@@ -6,8 +6,6 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
@@ -64,11 +62,9 @@ func newLoginFilterWithCfg(cfg *lfConfig) *loginFilter {
 }
 
 func (l *loginFilter) allowLogin(wgPubKey string, metaHash uint64) bool {
-	now := time.Now()
 	l.mu.RLock()
 	defer func() {
 		l.mu.RUnlock()
-		log.Debugf("allowLogin duration for %s: %v", wgPubKey, time.Since(now))
 	}()
 	state, ok := l.logged[wgPubKey]
 	if !ok {
@@ -90,7 +86,6 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 	l.mu.Lock()
 	defer func() {
 		l.mu.Unlock()
-		log.Debugf("addLogin duration for %s: %v", wgPubKey, time.Since(now))
 	}()
 
 	state, ok := l.logged[wgPubKey]
