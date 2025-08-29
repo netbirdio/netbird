@@ -1,0 +1,636 @@
+syntax = "proto3";
+
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "/proto";
+
+package daemon;
+
+message EmptyRequest {}
+
+service DaemonService {
+  // Login uses setup key to prepare configuration for the daemon.
+  rpc Login(LoginRequest) returns (LoginResponse) {}
+
+  // WaitSSOLogin uses the userCode to validate the TokenInfo and
+  // waits for the user to continue with the login on a browser
+  rpc WaitSSOLogin(WaitSSOLoginRequest) returns (WaitSSOLoginResponse) {}
+
+  // Up starts engine work in the daemon.
+  rpc Up(UpRequest) returns (UpResponse) {}
+
+  // Status of the service.
+  rpc Status(StatusRequest) returns (StatusResponse) {}
+
+  // Down engine work in the daemon.
+  rpc Down(DownRequest) returns (DownResponse) {}
+
+  // GetConfig of the daemon.
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
+
+  // List available networks
+  rpc ListNetworks(ListNetworksRequest) returns (ListNetworksResponse) {}
+
+  // Select specific routes
+  rpc SelectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
+
+  // Deselect specific routes
+  rpc DeselectNetworks(SelectNetworksRequest) returns (SelectNetworksResponse) {}
+
+  rpc ForwardingRules(EmptyRequest) returns (ForwardingRulesResponse) {}
+
+  // DebugBundle creates a debug bundle
+  rpc DebugBundle(DebugBundleRequest) returns (DebugBundleResponse) {}
+
+  // GetLogLevel gets the log level of the daemon
+  rpc GetLogLevel(GetLogLevelRequest) returns (GetLogLevelResponse) {}
+
+  // SetLogLevel sets the log level of the daemon
+  rpc SetLogLevel(SetLogLevelRequest) returns (SetLogLevelResponse) {}
+
+  // List all states
+  rpc ListStates(ListStatesRequest) returns (ListStatesResponse) {}
+
+  // Clean specific state or all states
+  rpc CleanState(CleanStateRequest) returns (CleanStateResponse) {}
+
+  // Delete specific state or all states
+  rpc DeleteState(DeleteStateRequest) returns (DeleteStateResponse) {}
+
+  // SetSyncResponsePersistence enables or disables sync response persistence
+  rpc SetSyncResponsePersistence(SetSyncResponsePersistenceRequest) returns (SetSyncResponsePersistenceResponse) {}
+
+  rpc TracePacket(TracePacketRequest) returns (TracePacketResponse) {}
+
+  rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
+
+  rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
+
+  rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
+
+  rpc SetConfig(SetConfigRequest) returns (SetConfigResponse) {}
+
+  rpc AddProfile(AddProfileRequest) returns (AddProfileResponse) {}
+
+  rpc RemoveProfile(RemoveProfileRequest) returns (RemoveProfileResponse) {}
+
+  rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse) {}
+
+  rpc GetActiveProfile(GetActiveProfileRequest) returns (GetActiveProfileResponse) {}
+
+  // Logout disconnects from the network and deletes the peer from the management server
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {}
+
+  rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
+}
+
+
+message LoginRequest {
+  // setupKey netbird setup key.
+  string setupKey = 1;
+
+  // This is the old PreSharedKey field which will be deprecated in favor of optionalPreSharedKey field that is defined as optional
+  // to allow clearing of preshared key while being able to persist in the config file.
+  string preSharedKey = 2 [deprecated = true];
+
+  // managementUrl to authenticate.
+  string managementUrl = 3;
+
+  // adminUrl to manage keys.
+  string adminURL = 4;
+
+  // natExternalIPs map list of external IPs
+  repeated string natExternalIPs = 5;
+
+  // cleanNATExternalIPs clean map list of external IPs.
+  // This is needed because the generated code
+  // omits initialized empty slices due to omitempty tags
+  bool cleanNATExternalIPs = 6;
+
+  bytes customDNSAddress = 7;
+
+  bool isUnixDesktopClient = 8;
+
+  string hostname = 9;
+
+  optional bool rosenpassEnabled = 10;
+
+  optional string interfaceName = 11;
+
+  optional int64 wireguardPort = 12;
+
+  optional string optionalPreSharedKey = 13;
+
+  optional bool disableAutoConnect = 14;
+
+  optional bool serverSSHAllowed = 15;
+
+  optional bool rosenpassPermissive = 16;
+
+  repeated string extraIFaceBlacklist = 17;
+
+  optional bool networkMonitor = 18;
+
+  optional google.protobuf.Duration dnsRouteInterval = 19;
+
+  optional bool disable_client_routes = 20;
+  optional bool disable_server_routes = 21;
+  optional bool disable_dns = 22;
+  optional bool disable_firewall = 23;
+  optional bool block_lan_access = 24;
+
+  optional bool disable_notifications = 25;
+
+  repeated string dns_labels = 26;
+
+  // cleanDNSLabels clean map list of DNS labels.
+  // This is needed because the generated code
+  // omits initialized empty slices due to omitempty tags
+  bool cleanDNSLabels = 27;
+
+  optional bool lazyConnectionEnabled = 28;
+
+  optional bool block_inbound = 29;
+
+  optional string profileName = 30;
+  optional string username = 31;
+}
+
+message LoginResponse {
+  bool   needsSSOLogin = 1;
+  string userCode = 2;
+  string verificationURI = 3;
+  string verificationURIComplete = 4;
+}
+
+message WaitSSOLoginRequest {
+  string userCode = 1;
+  string hostname = 2;
+}
+
+message WaitSSOLoginResponse {
+  string email = 1;
+}
+
+message UpRequest {
+  optional string profileName = 1;
+  optional string username = 2;
+}
+
+message UpResponse {}
+
+message StatusRequest{
+  bool getFullPeerStatus = 1;
+  bool shouldRunProbes   = 2;
+}
+
+message StatusResponse{
+  // status of the server.
+  string status = 1;
+  FullStatus fullStatus = 2;
+  // NetBird daemon version
+  string daemonVersion = 3;
+}
+
+message DownRequest {}
+
+message DownResponse {}
+
+message GetConfigRequest {
+  string profileName = 1;
+  string username = 2;
+}
+
+message GetConfigResponse {
+  // managementUrl settings value.
+  string managementUrl = 1;
+
+  // configFile settings value.
+  string configFile = 2;
+
+  // logFile settings value.
+  string logFile = 3;
+
+  // preSharedKey settings value.
+  string preSharedKey = 4;
+
+  // adminURL settings value.
+  string adminURL = 5;
+
+  string interfaceName = 6;
+
+  int64 wireguardPort = 7;
+
+  bool disableAutoConnect = 9;
+
+  bool serverSSHAllowed = 10;
+
+  bool rosenpassEnabled = 11;
+
+  bool rosenpassPermissive = 12;
+
+  bool disable_notifications = 13;
+
+  bool lazyConnectionEnabled = 14;
+
+  bool blockInbound = 15;
+
+  bool networkMonitor = 16;
+
+  bool disable_dns = 17;
+
+  bool disable_client_routes = 18;
+
+  bool disable_server_routes = 19;
+
+  bool block_lan_access = 20;
+}
+
+// PeerState contains the latest state of a peer
+message PeerState {
+  string IP = 1;
+  string pubKey = 2;
+  string connStatus = 3;
+  google.protobuf.Timestamp connStatusUpdate = 4;
+  bool relayed = 5;
+  string localIceCandidateType = 7;
+  string remoteIceCandidateType = 8;
+  string fqdn = 9;
+  string localIceCandidateEndpoint = 10;
+  string remoteIceCandidateEndpoint = 11;
+  google.protobuf.Timestamp lastWireguardHandshake = 12;
+  int64 bytesRx = 13;
+  int64 bytesTx = 14;
+  bool rosenpassEnabled = 15;
+  repeated string networks = 16;
+  google.protobuf.Duration latency = 17;
+  string relayAddress = 18;
+}
+
+// LocalPeerState contains the latest state of the local peer
+message LocalPeerState {
+  string IP = 1;
+  string pubKey = 2;
+  bool  kernelInterface = 3;
+  string fqdn = 4;
+  bool rosenpassEnabled = 5;
+  bool rosenpassPermissive = 6;
+  repeated string networks = 7;
+}
+
+// SignalState contains the latest state of a signal connection
+message SignalState {
+  string URL = 1;
+  bool connected = 2;
+  string error = 3;
+}
+
+// ManagementState contains the latest state of a management connection
+message ManagementState {
+  string URL = 1;
+  bool connected = 2;
+  string error = 3;
+}
+
+// RelayState contains the latest state of the relay
+message RelayState {
+  string URI = 1;
+  bool available = 2;
+  string error = 3;
+}
+
+message NSGroupState {
+  repeated string servers = 1;
+  repeated string domains = 2;
+  bool enabled = 3;
+  string error = 4;
+}
+
+// FullStatus contains the full state held by the Status instance
+message FullStatus {
+  ManagementState managementState = 1;
+  SignalState     signalState = 2;
+  LocalPeerState  localPeerState = 3;
+  repeated PeerState peers = 4;
+  repeated RelayState relays = 5;
+  repeated NSGroupState dns_servers = 6;
+  int32 NumberOfForwardingRules = 8;
+
+  repeated SystemEvent events = 7;
+
+  bool lazyConnectionEnabled = 9;
+}
+
+// Networks
+message ListNetworksRequest {
+}
+
+message ListNetworksResponse {
+  repeated Network routes = 1;
+}
+
+message SelectNetworksRequest {
+  repeated string networkIDs = 1;
+  bool append = 2;
+  bool all = 3;
+}
+
+message SelectNetworksResponse {
+}
+
+message IPList {
+  repeated string ips = 1;
+}
+
+message Network {
+  string ID = 1;
+  string range = 2;
+  bool selected = 3;
+  repeated string domains = 4;
+  map<string, IPList> resolvedIPs = 5;
+}
+
+// ForwardingRules
+message PortInfo {
+  oneof portSelection {
+    uint32 port = 1;
+    Range range = 2;
+  }
+
+  message Range {
+    uint32 start = 1;
+    uint32 end = 2;
+  }
+}
+
+message ForwardingRule {
+  string protocol = 1;
+  PortInfo destinationPort = 2;
+  string translatedAddress = 3;
+  string translatedHostname = 4;
+  PortInfo translatedPort = 5;
+}
+
+message ForwardingRulesResponse {
+  repeated ForwardingRule rules = 1;
+}
+
+
+// DebugBundler
+message DebugBundleRequest {
+  bool anonymize = 1;
+  string status = 2;
+  bool systemInfo = 3;
+  string uploadURL = 4;
+  uint32 logFileCount = 5;
+}
+
+message DebugBundleResponse {
+  string path = 1;
+  string uploadedKey = 2;
+  string uploadFailureReason = 3;
+}
+
+enum LogLevel {
+  UNKNOWN = 0;
+  PANIC = 1;
+  FATAL = 2;
+  ERROR = 3;
+  WARN = 4;
+  INFO = 5;
+  DEBUG = 6;
+  TRACE = 7;
+}
+
+message GetLogLevelRequest {
+}
+
+message GetLogLevelResponse {
+  LogLevel level = 1;
+}
+
+message SetLogLevelRequest {
+  LogLevel level = 1;
+}
+
+message SetLogLevelResponse {
+}
+
+// State represents a daemon state entry
+message State {
+  string name = 1;
+}
+
+// ListStatesRequest is empty as it requires no parameters
+message ListStatesRequest {}
+
+// ListStatesResponse contains a list of states
+message ListStatesResponse {
+  repeated State states = 1;
+}
+
+// CleanStateRequest for cleaning states
+message CleanStateRequest {
+  string state_name = 1;
+  bool all = 2;
+}
+
+// CleanStateResponse contains the result of the clean operation
+message CleanStateResponse {
+  int32 cleaned_states = 1;
+}
+
+// DeleteStateRequest for deleting states
+message DeleteStateRequest {
+  string state_name = 1;
+  bool all = 2;
+}
+
+// DeleteStateResponse contains the result of the delete operation
+message DeleteStateResponse {
+  int32 deleted_states = 1;
+}
+
+
+message SetSyncResponsePersistenceRequest {
+  bool enabled = 1;
+}
+
+message SetSyncResponsePersistenceResponse {}
+
+message TCPFlags {
+  bool syn = 1;
+  bool ack = 2;
+  bool fin = 3;
+  bool rst = 4;
+  bool psh = 5;
+  bool urg = 6;
+}
+
+message TracePacketRequest {
+  string source_ip = 1;
+  string destination_ip = 2;
+  string protocol = 3;
+  uint32 source_port = 4;
+  uint32 destination_port = 5;
+  string direction = 6;
+  optional TCPFlags tcp_flags = 7;
+  optional uint32 icmp_type = 8;
+  optional uint32 icmp_code = 9;
+}
+
+message TraceStage {
+  string name = 1;
+  string message = 2;
+  bool allowed = 3;
+  optional string forwarding_details = 4;
+}
+
+message TracePacketResponse {
+  repeated TraceStage stages = 1;
+  bool final_disposition = 2;
+}
+
+message SubscribeRequest{}
+
+message SystemEvent {
+  enum Severity {
+    INFO = 0;
+    WARNING = 1;
+    ERROR = 2;
+    CRITICAL = 3;
+  }
+
+  enum Category {
+    NETWORK = 0;
+    DNS = 1;
+    AUTHENTICATION = 2;
+    CONNECTIVITY = 3;
+    SYSTEM = 4;
+  }
+
+  string id = 1;
+  Severity severity = 2;
+  Category category = 3;
+  string message = 4;
+  string userMessage = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  map<string, string> metadata = 7;
+}
+
+message GetEventsRequest {}
+
+message GetEventsResponse {
+  repeated SystemEvent events = 1;
+}
+
+message SwitchProfileRequest {
+  optional string profileName = 1;
+  optional string username = 2;
+}
+
+message SwitchProfileResponse {}
+
+message SetConfigRequest {
+    string username = 1;
+    string profileName = 2;
+    // managementUrl to authenticate.
+    string managementUrl = 3;
+  
+    // adminUrl to manage keys.
+    string adminURL = 4;
+        
+    optional bool rosenpassEnabled = 5;
+  
+    optional string interfaceName = 6;
+  
+    optional int64 wireguardPort = 7;
+  
+    optional string optionalPreSharedKey = 8;
+  
+    optional bool disableAutoConnect = 9;
+  
+    optional bool serverSSHAllowed = 10;
+  
+    optional bool rosenpassPermissive = 11;
+  
+    optional bool networkMonitor = 12;
+  
+    optional bool disable_client_routes = 13;
+    optional bool disable_server_routes = 14;
+    optional bool disable_dns = 15;
+    optional bool disable_firewall = 16;
+    optional bool block_lan_access = 17;
+  
+    optional bool disable_notifications = 18;
+  
+    optional bool lazyConnectionEnabled = 19;
+  
+    optional bool block_inbound = 20;
+
+    repeated string natExternalIPs = 21;
+    bool cleanNATExternalIPs = 22;
+
+    bytes customDNSAddress = 23;
+
+    repeated string extraIFaceBlacklist = 24;
+
+    repeated string dns_labels = 25;
+    // cleanDNSLabels clean map list of DNS labels.
+    bool cleanDNSLabels = 26;
+
+    optional google.protobuf.Duration dnsRouteInterval = 27;
+
+}
+
+message SetConfigResponse{}
+
+message AddProfileRequest {
+  string username = 1;
+  string profileName = 2;
+}
+
+message AddProfileResponse {}
+
+message RemoveProfileRequest {
+  string username = 1;
+  string profileName = 2;
+}
+
+message RemoveProfileResponse {}
+
+message ListProfilesRequest {
+  string username = 1;
+}
+
+message ListProfilesResponse {
+  repeated Profile profiles = 1;
+}
+
+message Profile {
+  string name = 1;
+  bool is_active = 2;
+}
+
+message GetActiveProfileRequest {}
+
+message GetActiveProfileResponse {
+  string profileName = 1;
+  string username = 2;
+}
+
+message LogoutRequest {
+  optional string profileName = 1;
+  optional string username = 2;
+}
+
+message LogoutResponse {}
+
+message GetFeaturesRequest{}
+
+message GetFeaturesResponse{
+  bool disable_profiles = 1;
+  bool disable_update_settings = 2;
+}

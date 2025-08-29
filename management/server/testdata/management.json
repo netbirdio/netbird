@@ -1,0 +1,52 @@
+{
+    "Stuns": [
+        {
+            "Proto": "udp",
+            "URI": "stun:stun.netbird.io:3468",
+            "Username": "",
+            "Password": null
+        }
+    ],
+    "TURNConfig": {
+        "Turns": [
+            {
+                "Proto": "udp",
+                "URI": "turn:stun.netbird.io:3468",
+                "Username": "some_user",
+                "Password": "some_password"
+            }
+        ],
+        "CredentialsTTL": "1h",
+        "Secret": "c29tZV9wYXNzd29yZA==",
+        "TimeBasedCredentials": true
+    },
+    "Relay":{
+      "Addresses":["rel://test.com:3535"],
+      "CredentialsTTL":"2h",
+      "Secret":"netbird"
+  },
+    "Signal": {
+        "Proto": "http",
+        "URI": "signal.netbird.io:10000",
+        "Username": "",
+        "Password": null
+    },
+    "DataDir": "",
+    "HttpConfig": {
+        "LetsEncryptDomain": "<PASTE YOUR LET'S ENCRYPT DOMAIN HERE>",
+        "Address": "0.0.0.0:3000",
+        "AuthIssuer": "<PASTE YOUR AUTH0 ISSUER HERE>,",
+        "AuthAudience": "<PASTE YOUR AUTH0 AUDIENCE HERE>",
+        "AuthKeysLocation": "<PASTE YOUR AUTH0 PUBLIC JWT KEYS LOCATION HERE>"
+    },
+    "IdpManagerConfig": {
+        "ManagerType": "<none|auth0>",
+        "Auth0ClientCredentials": {
+            "Audience": "<PASTE YOUR AUTH0 AUDIENCE HERE>",
+            "AuthIssuer": "https://<PASTE YOUR AUTH0 Auth Issuer HERE>",
+            "ClientID": "<PASTE YOUR AUTH0 Application Client ID HERE>",
+            "ClientSecret": "<PASTE YOUR AUTH0 Application Client Secret HERE>",
+            "GrantType": "client_credentials"
+        }
+    }
+}

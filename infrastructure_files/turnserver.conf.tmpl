@@ -1,0 +1,725 @@
+# Coturn TURN SERVER configuration file
+#
+# Boolean values note: where a boolean value is supposed to be used,
+# you can use '0', 'off', 'no', 'false', or 'f' as 'false,
+# and you can use '1', 'on', 'yes', 'true', or 't' as 'true'
+# If the value is missing, then it means 'true' by default.
+#
+
+# Listener interface device (optional, Linux only).
+# NOT RECOMMENDED.
+#
+#listening-device=eth0
+
+# TURN listener port for UDP and TCP (Default: 3478).
+# Note: actually, TLS & DTLS sessions can connect to the
+# "plain" TCP & UDP port(s), too - if allowed by configuration.
+#
+listening-port=3478
+
+# TURN listener port for TLS (Default: 5349).
+# Note: actually, "plain" TCP & UDP sessions can connect to the TLS & DTLS
+# port(s), too - if allowed by configuration. The TURN server
+# "automatically" recognizes the type of traffic. Actually, two listening
+# endpoints (the "plain" one and the "tls" one) are equivalent in terms of
+# functionality; but Coturn keeps both endpoints to satisfy the RFC 5766 specs.
+# For secure TCP connections, Coturn currently supports SSL version 3 and
+# TLS version 1.0, 1.1 and 1.2.
+# For secure UDP connections, Coturn supports DTLS version 1.
+#
+tls-listening-port=5349
+
+# Alternative listening port for UDP and TCP listeners;
+# default (or zero) value means "listening port plus one".
+# This is needed for RFC 5780 support
+# (STUN extension specs, NAT behavior discovery). The TURN Server
+# supports RFC 5780 only if it is started with more than one
+# listening IP address of the same family (IPv4 or IPv6).
+# RFC 5780 is supported only by UDP protocol, other protocols
+# are listening to that endpoint only for "symmetry".
+#
+#alt-listening-port=0
+
+# Alternative listening port for TLS and DTLS protocols.
+# Default (or zero) value means "TLS listening port plus one".
+#
+#alt-tls-listening-port=0
+
+# Some network setups will require using a TCP reverse proxy in front
+# of the STUN server. If the proxy port option is set a single listener
+# is started on the given port that accepts connections using the
+# haproxy proxy protocol v2.
+# (https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt)
+#
+#tcp-proxy-port=5555
+
+# Listener IP address of relay server. Multiple listeners can be specified.
+# If no IP(s) specified in the config file or in the command line options,
+# then all IPv4 and IPv6 system IPs will be used for listening.
+#
+#listening-ip=172.17.19.101
+#listening-ip=10.207.21.238
+#listening-ip=2607:f0d0:1002:51::4
+
+# Auxiliary STUN/TURN server listening endpoint.
+# Aux servers have almost full TURN and STUN functionality.
+# The (minor) limitations are:
+#
+# 1) Auxiliary servers do not have alternative ports and
+# they do not support STUN RFC 5780 functionality (CHANGE REQUEST).
+#
+# 2) Auxiliary servers also are never returning ALTERNATIVE-SERVER reply.
+#
+# Valid formats are 1.2.3.4:5555 for IPv4 and [1:2::3:4]:5555 for IPv6.
+#
+# There may be multiple aux-server options, each will be used for listening
+# to client requests.
+#
+#aux-server=172.17.19.110:33478
+#aux-server=[2607:f0d0:1002:51::4]:33478
+
+# (recommended for older Linuxes only)
+# Automatically balance UDP traffic over auxiliary servers (if configured).
+# The load balancing is using the ALTERNATE-SERVER mechanism.
+# The TURN client must support 300 ALTERNATE-SERVER response for this
+# functionality.
+#
+#udp-self-balance
+
+# Relay interface device for relay sockets (optional, Linux only).
+# NOT RECOMMENDED.
+#
+#relay-device=eth1
+
+# Relay address (the local IP address that will be used to relay the
+# packets to the peer).
+# Multiple relay addresses may be used.
+# The same IP(s) can be used as both listening IP(s) and relay IP(s).
+#
+# If no relay IP(s) specified, then the turnserver will apply the default
+# policy: it will decide itself which relay addresses to be used, and it
+# will always be using the client socket IP address as the relay IP address
+# of the TURN session (if the requested relay address family is the same
+# as the family of the client socket).
+#
+#relay-ip=172.17.19.105
+#relay-ip=2607:f0d0:1002:51::5
+
+# For Amazon EC2 users:
+#
+# TURN Server public/private address mapping, if the server is behind NAT.
+# In that situation, if a -X is used in form "-X <ip>" then that ip will be reported
+# as relay IP address of all allocations. This scenario works only in a simple case
+# when one single relay address is be used, and no RFC5780 functionality is required.
+# That single relay address must be mapped by NAT to the 'external' IP.
+# The "external-ip" value, if not empty, is returned in XOR-RELAYED-ADDRESS field.
+# For that 'external' IP, NAT must forward ports directly (relayed port 12345
+# must be always mapped to the same 'external' port 12345).
+#
+# In more complex case when more than one IP address is involved,
+# that option must be used several times, each entry must
+# have form "-X <public-ip/private-ip>", to map all involved addresses.
+# RFC5780 NAT discovery STUN functionality will work correctly,
+# if the addresses are mapped properly, even when the TURN server itself
+# is behind A NAT.
+#
+# By default, this value is empty, and no address mapping is used.
+#
+# external-ip=193.224.22.37
+#
+#OR:
+#
+#external-ip=60.70.80.91/172.17.19.101
+#external-ip=60.70.80.92/172.17.19.102
+
+$TURN_EXTERNAL_IP_CONFIG
+
+# Number of the relay threads to handle the established connections
+# (in addition to authentication thread and the listener thread).
+# If explicitly set to 0 then application runs relay process in a
+# single thread, in the same thread with the listener process
+# (the authentication thread will still be a separate thread).
+#
+# If this parameter is not set, then the default OS-dependent
+# thread pattern algorithm will be employed. Usually the default
+# algorithm is optimal, so you have to change this option
+# if you want to make some fine tweaks.
+#
+# In the older systems (Linux kernel before 3.9),
+# the number of UDP threads is always one thread per network listening
+# endpoint - including the auxiliary endpoints - unless 0 (zero) or
+# 1 (one) value is set.
+#
+#relay-threads=0
+
+# Lower and upper bounds of the UDP relay endpoints:
+# (default values are 49152 and 65535)
+#
+min-port=$TURN_MIN_PORT
+max-port=$TURN_MAX_PORT
+
+# Uncomment to run TURN server in 'normal' 'moderate' verbose mode.
+# By default the verbose mode is off.
+#verbose
+
+# Uncomment to run TURN server in 'extra' verbose mode.
+# This mode is very annoying and produces lots of output.
+# Not recommended under normal circumstances.
+#
+#Verbose
+
+# Uncomment to use fingerprints in the TURN messages.
+# By default the fingerprints are off.
+#
+fingerprint
+
+# Uncomment to use long-term credential mechanism.
+# By default no credentials mechanism is used (any user allowed).
+#
+lt-cred-mech
+
+# This option is the opposite of lt-cred-mech.
+# (TURN Server with no-auth option allows anonymous access).
+# If neither option is defined, and no users are defined,
+# then no-auth is default. If at least one user is defined,
+# in this file, in command line or in usersdb file, then
+# lt-cred-mech is default.
+#
+#no-auth
+
+# TURN REST API flag.
+# (Time Limited Long Term Credential)
+# Flag that sets a special authorization option that is based upon authentication secret.
+#
+# This feature's purpose is to support "TURN Server REST API", see
+# "TURN REST API" link in the project's page
+# https://github.com/coturn/coturn/
+#
+# This option is used with timestamp:
+#
+# usercombo -> "timestamp:userid"
+# turn user -> usercombo
+# turn password -> base64(hmac(secret key, usercombo))
+#
+# This allows TURN credentials to be accounted for a specific user id.
+# If you don't have a suitable id, then the timestamp alone can be used.
+# This option is enabled by turning on secret-based authentication.
+# The actual value of the secret is defined either by the option static-auth-secret,
+# or can be found in the turn_secret table in the database (see below).
+#
+# Read more about it:
+#  - https://tools.ietf.org/html/draft-uberti-behave-turn-rest-00
+#  - https://www.ietf.org/proceedings/87/slides/slides-87-behave-10.pdf
+#
+# Be aware that use-auth-secret overrides some parts of lt-cred-mech.
+# The use-auth-secret feature depends internally on lt-cred-mech, so if you set
+# this option then it automatically enables lt-cred-mech internally
+# as if you had enabled both.
+#
+# Note that you can use only one auth mechanism at the same time! This is because,
+# both mechanisms conduct username and password validation in different ways.
+#
+# Use either lt-cred-mech or use-auth-secret in the conf
+# to avoid any confusion.
+#
+#use-auth-secret
+
+# 'Static' authentication secret value (a string) for TURN REST API only.
+# If not set, then the turn server
+# will try to use the 'dynamic' value in the turn_secret table
+# in the user database (if present). The database-stored  value can be changed on-the-fly
+# by a separate program, so this is why that mode is considered 'dynamic'.
+#
+#static-auth-secret=north
+
+# Server name used for
+# the oAuth authentication purposes.
+# The default value is the realm name.
+#
+# server-name=stun.wiretrustee.com
+
+# Flag that allows oAuth authentication.
+#
+#oauth
+
+# 'Static' user accounts for the long term credentials mechanism, only.
+# This option cannot be used with TURN REST API.
+# 'Static' user accounts are NOT dynamically checked by the turnserver process,
+# so they can NOT be changed while the turnserver is running.
+#
+#user=username1:key1
+#user=username2:key2
+# OR:
+user=$TURN_USER:$TURN_PASSWORD
+#user=username2:password2
+#
+# Keys must be generated by turnadmin utility. The key value depends
+# on user name, realm, and password:
+#
+# Example:
+# $ turnadmin -k -u ninefingers -r north.gov -p youhavetoberealistic
+# Output: 0xbc807ee29df3c9ffa736523fb2c4e8ee
+# ('0x' in the beginning of the key is what differentiates the key from
+# password. If it has 0x then it is a key, otherwise it is a password).
+#
+# The corresponding user account entry in the config file will be:
+#
+#user=ninefingers:0xbc807ee29df3c9ffa736523fb2c4e8ee
+# Or, equivalently, with open clear password (less secure):
+#user=ninefingers:youhavetoberealistic
+#
+
+# SQLite database file name.
+#
+# The default file name is /var/db/turndb or /usr/local/var/db/turndb or
+# /var/lib/turn/turndb.
+#
+#userdb=/var/db/turndb
+
+# PostgreSQL database connection string in the case that you are using PostgreSQL
+# as the user database.
+# This database can be used for the long-term credential mechanism
+# and it can store the secret value for secret-based timed authentication in TURN REST API.
+# See http://www.postgresql.org/docs/8.4/static/libpq-connect.html for 8.x PostgreSQL
+# versions connection string format, see
+# http://www.postgresql.org/docs/9.2/static/libpq-connect.html#LIBPQ-CONNSTRING
+# for 9.x and newer connection string formats.
+#
+#psql-userdb="host=<host> dbname=<database-name> user=<database-user> password=<database-user-password> connect_timeout=30"
+
+# MySQL database connection string in the case that you are using MySQL
+# as the user database.
+# This database can be used for the long-term credential mechanism
+# and it can store the secret value for secret-based timed authentication in TURN REST API.
+#
+# Optional connection string parameters for the secure communications (SSL):
+# ca, capath, cert, key, cipher
+# (see http://dev.mysql.com/doc/refman/5.1/en/ssl-options.html for the
+# command options description).
+#
+# Use the string format below (space separated parameters, all optional):
+#
+# mysql-userdb="host=mysql dbname=coturn user=coturn password=CHANGE_ME port=3306 connect_timeout=10 read_timeout=10"
+
+# If you want to use an encrypted password in the MySQL connection string,
+# then set the MySQL password encryption secret key file with this option.
+#
+# Warning: If this option is set, then the mysql password must be set in "mysql-userdb" in an encrypted format!
+# If you want to use a cleartext password then do not set this option!
+#
+# This is the file path for the aes encrypted secret key used for password encryption.
+#
+#secret-key-file=/path/
+
+# MongoDB database connection string in the case that you are using MongoDB
+# as the user database.
+# This database can be used for long-term credential mechanism
+# and it can store the secret value for secret-based timed authentication in TURN REST API.
+# Use the string format described at http://hergert.me/docs/mongo-c-driver/mongoc_uri.html
+#
+#mongo-userdb="mongodb://[username:password@]host1[:port1][,host2[:port2],...[,hostN[:portN]]][/[database][?options]]"
+
+# Redis database connection string in the case that you are using Redis
+# as the user database.
+# This database can be used for long-term credential mechanism
+# and it can store the secret value for secret-based timed authentication in TURN REST API.
+# Use the string format below (space separated parameters, all optional):
+#
+#redis-userdb="ip=<ip-address> dbname=<database-number> password=<database-user-password> port=<port> connect_timeout=<seconds>"
+
+# Redis status and statistics database connection string, if used (default - empty, no Redis stats DB used).
+# This database keeps allocations status information, and it can be also used for publishing
+# and delivering traffic and allocation event notifications.
+# The connection string has the same parameters as redis-userdb connection string.
+# Use the string format below (space separated parameters, all optional):
+#
+#redis-statsdb="ip=<ip-address> dbname=<database-number> password=<database-user-password> port=<port> connect_timeout=<seconds>"
+
+# The default realm to be used for the users when no explicit
+# origin/realm relationship is found in the database, or if the TURN
+# server is not using any database (just the commands-line settings
+# and the userdb file). Must be used with long-term credentials
+# mechanism or with TURN REST API.
+#
+# Note: If the default realm is not specified, then realm falls back to the host domain name.
+#       If the domain name string is empty, or set to '(None)', then it is initialized as an empty string.
+#
+realm=wiretrustee.com
+# This flag sets the origin consistency
+# check. Across the session, all requests must have the same
+# main ORIGIN attribute value (if the ORIGIN was
+# initially used by the session).
+#
+#check-origin-consistency
+
+# Per-user allocation quota.
+# default value is 0 (no quota, unlimited number of sessions per user).
+# This option can also be set through the database, for a particular realm.
+#
+#user-quota=0
+
+# Total allocation quota.
+# default value is 0 (no quota).
+# This option can also be set through the database, for a particular realm.
+#
+#total-quota=0
+
+# Max bytes-per-second bandwidth a TURN session is allowed to handle
+# (input and output network streams are treated separately). Anything above
+# that limit will be dropped or temporarily suppressed (within
+# the available buffer limits).
+# This option can also be set through the database, for a particular realm.
+#
+#max-bps=0
+
+#
+# Maximum server capacity.
+# Total bytes-per-second bandwidth the TURN server is allowed to allocate
+# for the sessions, combined (input and output network streams are treated separately).
+#
+# bps-capacity=0
+
+# Uncomment if no UDP client listener is desired.
+# By default UDP client listener is always started.
+#
+#no-udp
+
+# Uncomment if no TCP client listener is desired.
+# By default TCP client listener is always started.
+#
+#no-tcp
+
+# Uncomment if no TLS client listener is desired.
+# By default TLS client listener is always started.
+#
+#no-tls
+
+# Uncomment if no DTLS client listener is desired.
+# By default DTLS client listener is always started.
+#
+#no-dtls
+
+# Uncomment if no UDP relay endpoints are allowed.
+# By default UDP relay endpoints are enabled (like in RFC 5766).
+#
+#no-udp-relay
+
+# Uncomment if no TCP relay endpoints are allowed.
+# By default TCP relay endpoints are enabled (like in RFC 6062).
+#
+#no-tcp-relay
+
+# Uncomment if extra security is desired,
+# with nonce value having a limited lifetime.
+# The nonce value is unique for a session.
+# Set this option to limit the nonce lifetime.
+# Set it to 0 for unlimited lifetime.
+# It defaults to 600 secs (10 min) if no value is provided. After that delay,
+# the client will get 438 error and will have to re-authenticate itself.
+#
+#stale-nonce=600
+
+# Uncomment if you want to set the maximum allocation
+# time before it has to be refreshed.
+# Default is 3600s.
+#
+#max-allocate-lifetime=3600
+
+
+# Uncomment to set the lifetime for the channel.
+# Default value is 600 secs (10 minutes).
+# This value MUST not be changed for production purposes.
+#
+#channel-lifetime=600
+
+# Uncomment to set the permission lifetime.
+# Default to 300 secs (5 minutes).
+# In production this value MUST not be changed,
+# however it can be useful for test purposes.
+#
+#permission-lifetime=300
+
+# Certificate file.
+# Use an absolute path or path relative to the
+# configuration file.
+# Use PEM file format.
+#
+cert=/etc/coturn/certs/cert.pem
+
+# Private key file.
+# Use an absolute path or path relative to the
+# configuration file.
+# Use PEM file format.
+#
+pkey=/etc/coturn/private/privkey.pem
+
+# Private key file password, if it is in encoded format.
+# This option has no default value.
+#
+#pkey-pwd=...
+
+# Allowed OpenSSL cipher list for TLS/DTLS connections.
+# Default value is "DEFAULT".
+#
+#cipher-list="DEFAULT"
+
+# CA file in OpenSSL format.
+# Forces TURN server to verify the client SSL certificates.
+# By default this is not set: there is no default value and the client
+# certificate is not checked.
+#
+# Example:
+#CA-file=/etc/ssh/id_rsa.cert
+
+# Curve name for EC ciphers, if supported by OpenSSL
+# library (TLS and DTLS). The default value is prime256v1,
+# if pre-OpenSSL 1.0.2 is used. With OpenSSL 1.0.2+,
+# an optimal curve will be automatically calculated, if not defined
+# by this option.
+#
+#ec-curve-name=prime256v1
+
+# Use 566 bits predefined DH TLS key. Default size of the key is 2066.
+#
+#dh566
+
+# Use 1066 bits predefined DH TLS key. Default size of the key is 2066.
+#
+#dh1066
+
+# Use custom DH TLS key, stored in PEM format in the file.
+# Flags --dh566 and --dh2066 are ignored when the DH key is taken from a file.
+#
+#dh-file=<DH-PEM-file-name>
+
+# Flag to prevent stdout log messages.
+# By default, all log messages go to both stdout and to
+# the configured log file. With this option everything will
+# go to the configured log only (unless the log file itself is stdout).
+#
+#no-stdout-log
+
+# Option to set the log file name.
+# By default, the turnserver tries to open a log file in
+# /var/log, /var/tmp, /tmp and the current directory
+# (Whichever file open operation succeeds first will be used).
+# With this option you can set the definite log file name.
+# The special names are "stdout" and "-" - they will force everything
+# to the stdout. Also, the "syslog" name will force everything to
+# the system log (syslog).
+# In the runtime, the logfile can be reset with the SIGHUP signal
+# to the turnserver process.
+#
+log-file=stdout
+
+# Option to redirect all log output into system log (syslog).
+#
+# syslog
+
+# This flag means that no log file rollover will be used, and the log file
+# name will be constructed as-is, without PID and date appendage.
+# This option can be used, for example, together with the logrotate tool.
+#
+#simple-log
+
+# Option to set the "redirection" mode. The value of this option
+# will be the address of the alternate server for UDP & TCP service in the form of
+# <ip>[:<port>]. The server will send this value in the attribute
+# ALTERNATE-SERVER, with error 300, on ALLOCATE request, to the client.
+# Client will receive only values with the same address family
+# as the client network endpoint address family.
+# See RFC 5389 and RFC 5766 for the description of ALTERNATE-SERVER functionality.
+# The client must use the obtained value for subsequent TURN communications.
+# If more than one --alternate-server option is provided, then the functionality
+# can be more accurately described as "load-balancing" than a mere "redirection".
+# If the port number is omitted, then the default port
+# number 3478 for the UDP/TCP protocols will be used.
+# Colon (:) characters in IPv6 addresses may conflict with the syntax of
+# the option. To alleviate this conflict, literal IPv6 addresses are enclosed
+# in square brackets in such resource identifiers, for example:
+# [2001:db8:85a3:8d3:1319:8a2e:370:7348]:3478 .
+# Multiple alternate servers can be set. They will be used in the
+# round-robin manner. All servers in the pool are considered of equal weight and
+# the load will be distributed equally. For example, if you have 4 alternate servers,
+# then each server will receive 25% of ALLOCATE requests. A alternate TURN server
+# address can be used more than one time with the alternate-server option, so this
+# can emulate "weighting" of the servers.
+#
+# Examples:
+#alternate-server=1.2.3.4:5678
+#alternate-server=11.22.33.44:56789
+#alternate-server=5.6.7.8
+#alternate-server=[2001:db8:85a3:8d3:1319:8a2e:370:7348]:3478
+
+# Option to set alternative server for TLS & DTLS services in form of
+# <ip>:<port>. If the port number is omitted, then the default port
+# number 5349 for the TLS/DTLS protocols will be used. See the previous
+# option for the functionality description.
+#
+# Examples:
+#tls-alternate-server=1.2.3.4:5678
+#tls-alternate-server=11.22.33.44:56789
+#tls-alternate-server=[2001:db8:85a3:8d3:1319:8a2e:370:7348]:3478
+
+# Option to suppress TURN functionality, only STUN requests will be processed.
+# Run as STUN server only, all TURN requests will be ignored.
+# By default, this option is NOT set.
+#
+#stun-only
+
+# Option to hide software version. Enhance security when used in production.
+# Revealing the specific software version of the agent through the
+# SOFTWARE attribute might allow them to become more vulnerable to
+# attacks against software that is known to contain security holes.
+# Implementers SHOULD make usage of the SOFTWARE attribute a
+# configurable option (https://tools.ietf.org/html/rfc5389#section-16.1.2)
+#
+no-software-attribute
+
+# Option to suppress STUN functionality, only TURN requests will be processed.
+# Run as TURN server only, all STUN requests will be ignored.
+# By default, this option is NOT set.
+#
+#no-stun
+
+# This is the timestamp/username separator symbol (character) in TURN REST API.
+# The default value is ':'.
+# rest-api-separator=:
+
+# Flag that can be used to allow peers on the loopback addresses (127.x.x.x and ::1).
+# This is an extra security measure.
+#
+# (To avoid any security issue that allowing loopback access may raise,
+# the no-loopback-peers option is replaced by allow-loopback-peers.)
+#
+# Allow it only for testing in a development environment!
+# In production it adds a possible security vulnerability, so for security reasons
+# it is not allowed using it together with empty cli-password.
+#
+#allow-loopback-peers
+
+# Flag that can be used to disallow peers on well-known broadcast addresses (224.0.0.0 and above, and FFXX:*).
+# This is an extra security measure.
+#
+#no-multicast-peers
+
+# Option to set the max time, in seconds, allowed for full allocation establishment.
+# Default is 60 seconds.
+#
+#max-allocate-timeout=60
+
+# Option to allow or ban specific ip addresses or ranges of ip addresses.
+# If an ip address is specified as both allowed and denied, then the ip address is
+# considered to be allowed. This is useful when you wish to ban a range of ip
+# addresses, except for a few specific ips within that range.
+#
+# This can be used when you do not want users of the turn server to be able to access
+# machines reachable by the turn server, but would otherwise be unreachable from the
+# internet (e.g. when the turn server is sitting behind a NAT)
+#
+# Examples:
+# denied-peer-ip=83.166.64.0-83.166.95.255
+# allowed-peer-ip=83.166.68.45
+
+# File name to store the pid of the process.
+# Default is /var/run/turnserver.pid (if superuser account is used) or
+# /var/tmp/turnserver.pid .
+#
+pidfile="/var/tmp/turnserver.pid"
+
+# Require authentication of the STUN Binding request.
+# By default, the clients are allowed anonymous access to the STUN Binding functionality.
+#
+#secure-stun
+
+# Mobility with ICE (MICE) specs support.
+#
+#mobility
+
+# Allocate Address Family according
+# If enabled then TURN server allocates address family according  the TURN
+# Client <=> Server communication address family.
+# (By default Coturn works according RFC 6156.)
+# !!Warning: Enabling this option breaks RFC6156 section-4.2 (violates use default IPv4)!!
+#
+#keep-address-family
+
+
+# User name to run the process. After the initialization, the turnserver process
+# will attempt to change the current user ID to that user.
+#
+#proc-user=<user-name>
+
+# Group name to run the process. After the initialization, the turnserver process
+# will attempt to change the current group ID to that group.
+#
+#proc-group=<group-name>
+
+# Turn OFF the CLI support.
+# By default it is always ON.
+# See also options cli-ip and cli-port.
+#
+no-cli
+
+#Local system IP address to be used for CLI server endpoint. Default value
+# is 127.0.0.1.
+#
+# cli-ip=127.0.0.1
+
+# CLI server port. Default is 5766.
+#
+# cli-port=5766
+
+# CLI access password. Default is empty (no password).
+# For the security reasons, it is recommended that you use the encrypted
+# form of the password (see the -P command in the turnadmin utility).
+#
+# Secure form for password 'qwerty':
+#
+#cli-password=$5$79a316b350311570$81df9cfb9af7f5e5a76eada31e7097b663a0670f99a3c07ded3f1c8e59c5658a
+#
+# Or insecure form for the same password:
+#
+# cli-password=CHANGE_ME
+
+# Enable Web-admin support on https. By default it is Disabled.
+# If it is enabled it also enables a http a simple static banner page
+# with a small reminder that the admin page is available only on https.
+#
+#web-admin
+
+# Local system IP address to be used for Web-admin server endpoint. Default value is 127.0.0.1.
+#
+#web-admin-ip=127.0.0.1
+
+# Web-admin server port. Default is 8080.
+#
+#web-admin-port=8080
+
+# Web-admin server listen on STUN/TURN worker threads
+# By default it is disabled for security reasons! (Not recommended in any production environment!)
+#
+#web-admin-listen-on-workers
+
+# Server relay. NON-STANDARD AND DANGEROUS OPTION.
+# Only for those applications when you want to run
+# server applications on the relay endpoints.
+# This option eliminates the IP permissions check on
+# the packets incoming to the relay endpoints.
+#
+#server-relay
+
+# Maximum number of output sessions in ps CLI command.
+# This value can be changed on-the-fly in CLI. The default value is 256.
+#
+#cli-max-output-sessions
+
+# Set network engine type for the process (for internal purposes).
+#
+#ne=[1|2|3]
+
+# Do not allow an TLS/DTLS version of protocol
+#
+#no-tlsv1
+#no-tlsv1_1
+#no-tlsv1_2

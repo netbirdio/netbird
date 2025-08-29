@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta content="width=device-width, initial-scale=1" name="viewport"/>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #f7f8f9;
+            font-family: sans-serif, Arial, Tahoma;
+        }
+
+        .container {
+            width: 100%;
+            background: white;
+            border: 1px solid #e8e9ea;
+            text-align: center;
+            padding: 20px;
+            padding-bottom: 50px;
+            max-width: 550px;
+            margin: 0 10px;
+        }
+
+        .logo {
+            height: 80px;
+            border-bottom: 1px solid #e8e9ea;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .logo img {
+            width: 130px;
+        }
+
+        .content {
+            font-size: 13px;
+            color: #525252;
+            line-height: 18px;
+            padding: 10px 0;
+        }
+
+        .content div {
+            font-size: 18px;
+            line-height: normal;
+            margin-bottom: 5px;
+            color: black;
+        }
+    </style>
+    <title>NetBird Login Successful</title>
+</head>
+<body>
+<div class="container">
+    <div class="logo">
+        <img alt="netbird_logo" src="https://img.mailinblue.com/6211297/images/content_library/original/64bd4ce82e1ea753e439b6a2.png">
+    </div>
+    <br>
+    {{ if .Error }}
+    <svg height="50" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" fill="none" r="45" stroke="red" stroke-width="3"/>
+        <path d="M30 30 L70 70 M30 70 L70 30" fill="none" stroke="red" stroke-width="3"/>
+    </svg>
+    <div class="content">
+        <div>
+            Login failed
+        </div>
+        {{ .Error }}.
+    </div>
+    {{ else }}
+    <svg height="50" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" fill="none" r="45" stroke="#5cb85c" stroke-width="3"/>
+        <path d="M30 50 L45 65 L70 35" fill="none" stroke="#5cb85c" stroke-width="5"/>
+    </svg>
+    <div class="content">
+        <div>
+            Login successful
+        </div>
+        Your device is now registered and logged in to NetBird.
+        <br>
+        You can now close this window.
+    </div>
+    {{ end }}
+</div>
+</body>
+</html>

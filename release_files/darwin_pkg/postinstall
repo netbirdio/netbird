@@ -1,0 +1,38 @@
+#!/bin/sh
+
+set -x
+
+APP=/Applications/NetBird.app
+AGENT=/usr/local/bin/netbird
+LOG_FILE=/var/log/netbird/client_post_install.log
+
+mkdir -p /var/log/netbird/
+mkdir -p /usr/local/bin/
+
+{
+    echo "Installing NetBird..."
+
+    if test -d $APP; then
+        echo "NetBird app copied successfully."
+    else
+        echo "NetBird app could not be copied to the Applications folder."
+        exit 1
+    fi
+
+    ln -fs $APP/Contents/MacOS/netbird $AGENT
+    if test -f $AGENT; then
+        echo "NetBird binary linked successfully."
+    else
+        echo "NetBird could not create symlink to /usr/local/bin"
+        exit 1
+    fi
+
+    $AGENT service install || true
+    $AGENT service start || true
+
+    open $APP
+
+    echo "Finished Netbird installation successfully"
+    exit 0 # all good
+} &> $LOG_FILE
+

@@ -1,0 +1,63 @@
+<Wix
+	xmlns="http://wixtoolset.org/schemas/v4/wxs"
+	xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+	<Package Name="NetBird" Version="$(env.NETBIRD_VERSION)" Manufacturer="NetBird GmbH" Language="1033" UpgradeCode="6456ec4e-3ad6-4b9b-a2be-98e81cb21ccf"
+        InstallerVersion="500" Compressed="yes"  Codepage="utf-8" >
+
+
+		<MediaTemplate EmbedCab="yes" />
+
+		<Feature Id="NetbirdFeature" Title="Netbird" Level="1">
+			<ComponentGroupRef Id="NetbirdFilesComponent" />
+		</Feature>
+
+		<MajorUpgrade AllowSameVersionUpgrades='yes' DowngradeErrorMessage="A newer version of [ProductName] is already installed. Setup will now exit."/>
+
+		<StandardDirectory Id="ProgramFiles64Folder">
+			<Directory Id="NetbirdInstallDir" Name="Netbird">
+				<Component Id="NetbirdFiles" Guid="db3165de-cc6e-4922-8396-9d892950e23e" Bitness="always64">
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird.exe" KeyPath="yes" />
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird-ui.exe">
+						<Shortcut Id="NetbirdDesktopShortcut" Directory="DesktopFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
+						<Shortcut Id="NetbirdStartMenuShortcut" Directory="StartMenuFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
+					</File>
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\wintun.dll" />
+					<?if $(var.ArchSuffix) = "amd64" ?>
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\opengl32.dll" />
+					<?endif ?>
+
+					<ServiceInstall
+                                     Id="NetBirdService"
+                                     Name="NetBird"
+                                     DisplayName="NetBird"
+                                     Description="Connect your devices into a secure WireGuard-based overlay network with SSO, MFA and granular access controls."
+                                     Start="auto" Type="ownProcess"
+                                     ErrorControl="normal"
+                                     Account="LocalSystem"
+                                     Vital="yes"
+                                     Interactive="no"
+                                     Arguments='service run config [CommonAppDataFolder]Netbird\config.json log-level info'
+                        />
+					<ServiceControl Id="NetBirdService" Name="NetBird" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+
+					<Environment Id="UpdatePath" Name="PATH" Value="[NetbirdInstallDir]" Part="last" Action="set" System="yes" />
+
+				</Component>
+			</Directory>
+		</StandardDirectory>
+
+		<ComponentGroup Id="NetbirdFilesComponent">
+			<ComponentRef Id="NetbirdFiles" />
+		</ComponentGroup>
+
+		<util:CloseApplication Id="CloseNetBird" CloseMessage="no" Target="netbird.exe" RebootPrompt="no" />
+		<util:CloseApplication Id="CloseNetBirdUI" CloseMessage="no" Target="netbird-ui.exe" RebootPrompt="no" />
+
+
+
+		<!-- Icons -->
+		<Icon Id="NetbirdIcon" SourceFile=".\client\ui\assets\netbird.ico" />
+		<Property Id="ARPPRODUCTICON" Value="NetbirdIcon" />
+
+	</Package>
+</Wix>

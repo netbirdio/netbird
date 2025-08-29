@@ -1,0 +1,41 @@
+[Unit]
+Description=Netbird Management
+Documentation=https://netbird.io/docs
+After=network-online.target syslog.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/netbird-management
+ExecStart=/usr/bin/netbird-mgmt management $FLAGS
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+CacheDirectory=netbird
+ConfigurationDirectory=netbird
+LogsDirectory=netbird
+RuntimeDirectory=netbird
+StateDirectory=netbird
+
+# sandboxing
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+NoNewPrivileges=yes
+PrivateMounts=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=yes
+RemoveIPC=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,22 @@
+name: sync main
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  trigger_sync_main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger main branch sync
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: sync-main.yml
+          repo: ${{ secrets.UPSTREAM_REPO }}
+          token: ${{ secrets.NC_GITHUB_TOKEN }}
+          inputs: '{ "sha": "${{ github.sha }}" }'

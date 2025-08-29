@@ -1,0 +1,114 @@
+version: 2
+
+project_name: netbird-ui
+builds:
+  - id: netbird-ui
+    dir: client/ui
+    binary: netbird-ui
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: netbird-ui-windows-amd64
+    dir: client/ui
+    binary: netbird-ui
+    env:
+      - CGO_ENABLED=1
+      - CC=x86_64-w64-mingw32-gcc
+    goos:
+      - windows
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+      - -H windowsgui
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: netbird-ui-windows-arm64
+    dir: client/ui
+    binary: netbird-ui
+    env:
+      - CGO_ENABLED=1
+      - CC=aarch64-w64-mingw32-clang
+      - CXX=aarch64-w64-mingw32-clang++
+    goos:
+      - windows
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+      - -H windowsgui
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: linux-arch
+    name_template: "{{ .ProjectName }}-linux_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - netbird-ui
+  - id: windows-arch
+    name_template: "{{ .ProjectName }}-windows_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - netbird-ui-windows-amd64
+      - netbird-ui-windows-arm64
+
+nfpms:
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    id: netbird-ui-deb
+    package_name: netbird-ui
+    builds:
+      - netbird-ui
+    formats:
+      - deb
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/netbird.desktop
+        dst: /usr/share/applications/netbird.desktop
+      - src: client/ui/assets/netbird.png
+        dst: /usr/share/pixmaps/netbird.png
+    dependencies:
+      - netbird
+
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    id: netbird-ui-rpm
+    package_name: netbird-ui
+    builds:
+      - netbird-ui
+    formats:
+      - rpm
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/netbird.desktop
+        dst: /usr/share/applications/netbird.desktop
+      - src: client/ui/assets/netbird.png
+        dst: /usr/share/pixmaps/netbird.png
+    dependencies:
+      - netbird
+
+uploads:
+  - name: debian
+    ids:
+      - netbird-ui-deb
+    mode: archive
+    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
+    username: dev@wiretrustee.com
+    method: PUT
+
+  - name: yum
+    ids:
+      - netbird-ui-rpm
+    mode: archive
+    target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    username: dev@wiretrustee.com
+    method: PUT

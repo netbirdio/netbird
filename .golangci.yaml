@@ -1,0 +1,139 @@
+run:
+  # Timeout for analysis, e.g. 30s, 5m.
+  # Default: 1m
+  timeout: 6m
+
+# This file contains only configs which differ from defaults.
+# All possible options can be found here https://github.com/golangci/golangci-lint/blob/master/.golangci.reference.yml
+linters-settings:
+  errcheck:
+    # Report about not checking of errors in type assertions: `a := b.(MyStruct)`.
+    # Such cases aren't reported by default.
+    # Default: false
+    check-type-assertions: false
+
+  gosec:
+    includes:
+      - G101 # Look for hard coded credentials
+      #- G102 # Bind to all interfaces
+      - G103 # Audit the use of unsafe block
+      - G104 # Audit errors not checked
+      - G106 # Audit the use of ssh.InsecureIgnoreHostKey
+      #- G107 # Url provided to HTTP request as taint input
+      - G108 # Profiling endpoint automatically exposed on /debug/pprof
+      - G109 # Potential Integer overflow made by strconv.Atoi result conversion to int16/32
+      - G110 # Potential DoS vulnerability via decompression bomb
+      - G111 # Potential directory traversal
+      #- G112 # Potential slowloris attack
+      - G113 # Usage of Rat.SetString in math/big with an overflow (CVE-2022-23772)
+      #- G114 # Use of net/http serve function that has no support for setting timeouts
+      - G201 # SQL query construction using format string
+      - G202 # SQL query construction using string concatenation
+      - G203 # Use of unescaped data in HTML templates
+      #- G204 # Audit use of command execution
+      - G301 # Poor file permissions used when creating a directory
+      - G302 # Poor file permissions used with chmod
+      - G303 # Creating tempfile using a predictable path
+      - G304 # File path provided as taint input
+      - G305 # File traversal when extracting zip/tar archive
+      - G306 # Poor file permissions used when writing to a new file
+      - G307 # Poor file permissions used when creating a file with os.Create
+      #- G401 # Detect the usage of DES, RC4, MD5 or SHA1
+      #- G402 # Look for bad TLS connection settings
+      - G403 # Ensure minimum RSA key length of 2048 bits
+      #- G404 # Insecure random number source (rand)
+      #- G501 # Import blocklist: crypto/md5
+      - G502 # Import blocklist: crypto/des
+      - G503 # Import blocklist: crypto/rc4
+      - G504 # Import blocklist: net/http/cgi
+      #- G505 # Import blocklist: crypto/sha1
+      - G601 # Implicit memory aliasing of items from a range statement
+      - G602 # Slice access out of bounds
+
+  gocritic:
+    disabled-checks:
+      - commentFormatting
+      - captLocal
+      - deprecatedComment
+
+  govet:
+    # Enable all analyzers.
+    # Default: false
+    enable-all: false
+    enable:
+      - nilness
+
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+        arguments:
+          - "checkPrivateReceivers"
+          - "sayRepetitiveInsteadOfStutters"
+  tenv:
+    # The option `all` will run against whole test files (`_test.go`) regardless of method/function signatures.
+    # Otherwise, only methods that take `*testing.T`, `*testing.B`, and `testing.TB` as arguments are checked.
+    # Default: false
+    all: true
+
+linters:
+  disable-all: true
+  enable:
+    ## enabled by default
+    - errcheck # checking for unchecked errors, these unchecked errors can be critical bugs in some cases
+    - gosimple # specializes in simplifying a code
+    - govet # reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
+    - ineffassign # detects when assignments to existing variables are not used
+    - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
+    - tenv # Tenv is analyzer that detects using os.Setenv instead of t.Setenv since Go1.17.
+    - typecheck # like the front-end of a Go compiler, parses and type-checks Go code
+    - unused # checks for unused constants, variables, functions and types
+    ## disable by default but the have interesting results so lets add them
+    - bodyclose # checks whether HTTP response body is closed successfully
+    - dupword # dupword checks for duplicate words in the source code
+    - durationcheck # durationcheck checks for two durations multiplied together
+    - forbidigo # forbidigo forbids identifiers
+    - gocritic # provides diagnostics that check for bugs, performance and style issues
+    - gosec # inspects source code for security problems
+    - mirror # mirror reports wrong mirror patterns of bytes/strings usage
+    - misspell # misspess finds commonly misspelled English words in comments
+    - nilerr # finds the code that returns nil even if it checks that the error is not nil
+    - nilnil # checks that there is no simultaneous return of nil error and an invalid value
+    - predeclared # predeclared finds code that shadows one of Go's predeclared identifiers
+    - revive # Fast, configurable, extensible, flexible, and beautiful linter for Go. Drop-in replacement of golint.
+    - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
+    # - thelper # thelper detects Go test helpers without t.Helper() call and checks the consistency of test helpers.
+    - wastedassign # wastedassign finds wasted assignment statements
+issues:
+  # Maximum count of issues with the same text.
+  # Set to 0 to disable.
+  # Default: 3
+  max-same-issues: 5
+
+  exclude-rules:
+    # allow fmt
+    - path: management/cmd/root\.go
+      linters: forbidigo
+    - path: signal/cmd/root\.go
+      linters: forbidigo
+    - path: sharedsock/filter\.go
+      linters:
+      - unused
+    - path: client/firewall/iptables/rule\.go
+      linters:
+      - unused
+    - path: test\.go
+      linters:
+      - mirror
+      - gosec
+    - path: mock\.go
+      linters:
+      - nilnil
+    # Exclude specific deprecation warnings for grpc methods
+    - linters:
+       - staticcheck
+      text: "grpc.DialContext is deprecated"
+    - linters:
+        - staticcheck
+      text: "grpc.WithBlock is deprecated"

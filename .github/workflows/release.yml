@@ -1,0 +1,245 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+    branches:
+      - main
+  pull_request:
+
+env:
+  SIGN_PIPE_VER: "v0.0.22"
+  GORELEASER_VER: "v2.3.2"
+  PRODUCT_NAME: "NetBird"
+  COPYRIGHT: "NetBird GmbH"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    env:
+      flags: ""
+    steps:
+      - name: Parse semver string
+        id: semver_parser
+        uses: booxmedialtd/ws-action-parse-semver@v1
+        with:
+          input_string: ${{ (startsWith(github.ref, 'refs/tags/v') && github.ref) || 'refs/tags/v0.0.0' }}
+          version_extractor_regex: '\/v(.*)$'
+
+      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "flags=--snapshot" >> $GITHUB_ENV
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # It is required for GoReleaser to work properly
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: false
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-releaser-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-releaser-
+      - name: Install modules
+        run: go mod tidy
+      - name: check git status
+        run: git --no-pager diff --exit-code
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Login to Docker hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      - name: Log in to the GitHub container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.CI_DOCKER_PUSH_GITHUB_TOKEN }}
+      - name: Install OS build dependencies
+        run: sudo apt update && sudo apt install -y -q gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
+
+      - name: Install goversioninfo
+        run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@233067e
+      - name: Generate windows syso amd64
+        run: goversioninfo  -icon client/ui/assets/netbird.ico -manifest client/manifest.xml -product-name ${{ env.PRODUCT_NAME }} -copyright "${{ env.COPYRIGHT }}" -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -ver-build 0 -file-version ${{ steps.semver_parser.outputs.fullversion }}.0 -product-version ${{ steps.semver_parser.outputs.fullversion }}.0 -o client/resources_windows_amd64.syso
+      - name: Generate windows syso arm64
+        run: goversioninfo -arm -64 -icon client/ui/assets/netbird.ico -manifest client/manifest.xml -product-name ${{ env.PRODUCT_NAME }} -copyright "${{ env.COPYRIGHT }}" -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -ver-build 0 -file-version ${{ steps.semver_parser.outputs.fullversion }}.0 -product-version ${{ steps.semver_parser.outputs.fullversion }}.0 -o client/resources_windows_arm64.syso
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v4
+        with:
+          version: ${{ env.GORELEASER_VER }}
+          args: release --clean ${{ env.flags }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+      - name: upload non tags for debug purposes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: dist/
+          retention-days: 7
+      - name: upload linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: dist/netbird_linux**
+          retention-days: 7
+      - name: upload windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: dist/netbird_windows**
+          retention-days: 7
+      - name: upload macos packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-packages
+          path: dist/netbird_darwin**
+          retention-days: 7
+
+  release_ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse semver string
+        id: semver_parser
+        uses: booxmedialtd/ws-action-parse-semver@v1
+        with:
+          input_string: ${{ (startsWith(github.ref, 'refs/tags/v') && github.ref) || 'refs/tags/v0.0.0' }}
+          version_extractor_regex: '\/v(.*)$'
+
+      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "flags=--snapshot" >> $GITHUB_ENV
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # It is required for GoReleaser to work properly
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: false
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-ui-go-releaser-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-ui-go-releaser-
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: check git status
+        run: git --no-pager diff --exit-code
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libappindicator3-dev gir1.2-appindicator3-0.1 libxxf86vm-dev gcc-mingw-w64-x86-64
+
+      - name: Install LLVM-MinGW for ARM64 cross-compilation
+        run: |
+          cd /tmp
+          wget -q https://github.com/mstorsjo/llvm-mingw/releases/download/20250709/llvm-mingw-20250709-ucrt-ubuntu-22.04-x86_64.tar.xz
+          echo "60cafae6474c7411174cff1d4ba21a8e46cadbaeb05a1bace306add301628337  llvm-mingw-20250709-ucrt-ubuntu-22.04-x86_64.tar.xz" | sha256sum -c
+          tar -xf llvm-mingw-20250709-ucrt-ubuntu-22.04-x86_64.tar.xz
+          echo "/tmp/llvm-mingw-20250709-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
+      - name: Install goversioninfo
+        run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@233067e
+      - name: Generate windows syso amd64
+        run: goversioninfo -64 -icon client/ui/assets/netbird.ico -manifest client/ui/manifest.xml -product-name ${{ env.PRODUCT_NAME }}-"UI" -copyright "${{ env.COPYRIGHT }}" -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -ver-build 0 -file-version ${{ steps.semver_parser.outputs.fullversion }}.0 -product-version ${{ steps.semver_parser.outputs.fullversion }}.0 -o client/ui/resources_windows_amd64.syso
+      - name: Generate windows syso arm64
+        run: goversioninfo -arm -64 -icon client/ui/assets/netbird.ico -manifest client/ui/manifest.xml -product-name ${{ env.PRODUCT_NAME }}-"UI" -copyright "${{ env.COPYRIGHT }}" -ver-major ${{ steps.semver_parser.outputs.major }} -ver-minor ${{ steps.semver_parser.outputs.minor }} -ver-patch ${{ steps.semver_parser.outputs.patch }} -ver-build 0 -file-version ${{ steps.semver_parser.outputs.fullversion }}.0 -product-version ${{ steps.semver_parser.outputs.fullversion }}.0 -o client/ui/resources_windows_arm64.syso
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v4
+        with:
+          version: ${{ env.GORELEASER_VER }}
+          args: release --config .goreleaser_ui.yaml --clean ${{ env.flags }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+      - name: upload non tags for debug purposes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-ui
+          path: dist/
+          retention-days: 3
+
+  release_ui_darwin:
+    runs-on: macos-latest
+    steps:
+      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "flags=--snapshot" >> $GITHUB_ENV
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # It is required for GoReleaser to work properly
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: false
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-ui-go-releaser-darwin-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-ui-go-releaser-darwin-
+      - name: Install modules
+        run: go mod tidy
+      - name: check git status
+        run: git --no-pager diff --exit-code
+      - name: Run GoReleaser
+        id: goreleaser
+        uses: goreleaser/goreleaser-action@v4
+        with:
+          version: ${{ env.GORELEASER_VER }}
+          args: release --config .goreleaser_ui_darwin.yaml --clean ${{ env.flags }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: upload non tags for debug purposes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-ui-darwin
+          path: dist/
+          retention-days: 3
+
+  trigger_signer:
+    runs-on: ubuntu-latest
+    needs: [release, release_ui, release_ui_darwin]
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Trigger binaries sign pipelines
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: Sign bin and installer
+          repo: netbirdio/sign-pipelines
+          ref: ${{ env.SIGN_PIPE_VER }}
+          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref }}", "skipRelease": false }'

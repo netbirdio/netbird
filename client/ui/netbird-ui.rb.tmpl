@@ -1,0 +1,39 @@
+{{ $projectName := env.Getenv "PROJECT" }}{{ $amdFilePath := env.Getenv "AMD" }}{{ $armFilePath := env.Getenv "ARM" }}
+{{ $amdURL := env.Getenv "AMD_URL" }}{{ $armURL := env.Getenv "ARM_URL" }}
+{{ $amdFile := filepath.Base $amdFilePath }}{{ $armFile := filepath.Base $armFilePath }}{{ $amdFileBytes := file.Read $amdFilePath }}
+{{ $armFileBytes := file.Read $armFilePath }}# Netbird's UI Client Cask Formula
+cask "{{ $projectName }}" do
+  version "{{ env.Getenv "VERSION" }}"
+
+  if Hardware::CPU.intel?
+      url "{{ $amdURL }}"
+      sha256 "{{ crypto.SHA256 $amdFileBytes }}"
+      app "netbird_ui_darwin", target: "Netbird UI.app"
+  else
+      url "{{ $armURL }}"
+      sha256 "{{ crypto.SHA256 $armFileBytes }}"
+      app "netbird_ui_darwin", target: "Netbird UI.app"
+  end
+
+  depends_on formula: "netbird"
+
+  postflight do
+    set_permissions "/Applications/Netbird UI.app/installer.sh", '0755'
+    set_permissions "/Applications/Netbird UI.app/uninstaller.sh", '0755'
+  end
+
+  postflight do
+    system_command "#{appdir}/Netbird UI.app/installer.sh",
+                   args: ["#{version}"],
+                   sudo: true
+  end
+
+  uninstall_preflight do
+    system_command "#{appdir}/Netbird UI.app/uninstaller.sh",
+                   sudo: false
+  end
+
+  name "Netbird UI"
+  desc "Netbird UI Client"
+  homepage "https://www.netbird.io/"
+end

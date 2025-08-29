@@ -1,0 +1,339 @@
+!define APP_NAME "Netbird"
+!define COMP_NAME "Netbird"
+!define WEB_SITE "Netbird.io"
+!define VERSION $%APPVER%
+!define COPYRIGHT "Netbird Authors, 2022"
+!define DESCRIPTION "Connect your devices into a secure WireGuard-based overlay network with SSO, MFA, and granular access controls."
+!define INSTALLER_NAME "netbird-installer.exe"
+!define MAIN_APP_EXE "Netbird"
+!define ICON "ui\\assets\\netbird.ico"
+!define BANNER "ui\\build\\banner.bmp"
+!define LICENSE_DATA "..\\LICENSE"
+
+!define INSTALL_DIR "$PROGRAMFILES64\${APP_NAME}"
+!define INSTALL_TYPE "SetShellVarContext all"
+!define REG_ROOT "HKLM"
+!define REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${MAIN_APP_EXE}"
+!define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
+
+!define UI_APP_NAME "Netbird UI"
+!define UI_APP_EXE "Netbird-ui"
+
+!define UI_REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${UI_APP_EXE}"
+!define UI_UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UI_APP_NAME}"
+
+!define AUTOSTART_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
+
+!define NETBIRD_DATA_DIR "$COMMONPROGRAMDATA\Netbird"
+
+Unicode True
+
+######################################################################
+
+VIProductVersion  "${VERSION}"
+VIAddVersionKey "ProductName"  "${APP_NAME}"
+VIAddVersionKey "CompanyName"  "${COMP_NAME}"
+VIAddVersionKey "LegalCopyright"  "${COPYRIGHT}"
+VIAddVersionKey "FileDescription"  "${DESCRIPTION}"
+VIAddVersionKey "FileVersion"  "${VERSION}"
+
+######################################################################
+
+SetCompressor /SOLID Lzma
+Name "${APP_NAME}"
+Caption "${APP_NAME}"
+OutFile "..\\${INSTALLER_NAME}"
+BrandingText "${APP_NAME}"
+InstallDirRegKey "${REG_ROOT}" "${REG_APP_PATH}" ""
+InstallDir "${INSTALL_DIR}"
+LicenseData "${LICENSE_DATA}"
+ShowInstDetails Show
+
+######################################################################
+
+!include "MUI2.nsh"
+!include LogicLib.nsh
+!include "nsDialogs.nsh"
+
+!define MUI_ICON "${ICON}"
+!define MUI_UNICON "${ICON}"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${BANNER}"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${BANNER}"
+!ifndef ARCH
+    !define ARCH "amd64"
+!endif
+
+!if ${ARCH} == "amd64"
+    !define MUI_FINISHPAGE_RUN
+    !define MUI_FINISHPAGE_RUN_TEXT "Start ${UI_APP_NAME}"
+    !define MUI_FINISHPAGE_RUN_FUNCTION "LaunchLink"
+!endif
+######################################################################
+
+!define MUI_ABORTWARNING
+!define MUI_UNABORTWARNING
+
+!insertmacro MUI_PAGE_WELCOME
+
+!insertmacro MUI_PAGE_LICENSE "${LICENSE_DATA}"
+
+!insertmacro MUI_PAGE_DIRECTORY
+
+Page custom AutostartPage AutostartPageLeave
+
+!insertmacro MUI_PAGE_INSTFILES
+
+!insertmacro MUI_PAGE_FINISH
+
+!insertmacro MUI_UNPAGE_WELCOME
+
+UninstPage custom un.DeleteDataPage un.DeleteDataPageLeave
+
+!insertmacro MUI_UNPAGE_CONFIRM
+
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_UNPAGE_FINISH
+
+!insertmacro MUI_LANGUAGE "English"
+
+; Variables for autostart option
+Var AutostartCheckbox
+Var AutostartEnabled
+
+; Variables for uninstall data deletion option
+Var DeleteDataCheckbox
+Var DeleteDataEnabled
+
+######################################################################
+
+; Function to create the autostart options page
+Function AutostartPage
+  !insertmacro MUI_HEADER_TEXT "Startup Options" "Configure how ${APP_NAME} launches with Windows."
+
+  nsDialogs::Create 1018
+  Pop $0
+
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateCheckbox} 0 20u 100% 10u "Start ${APP_NAME} UI automatically when Windows starts"
+  Pop $AutostartCheckbox
+  ${NSD_Check} $AutostartCheckbox
+  StrCpy $AutostartEnabled "1"
+
+  nsDialogs::Show
+FunctionEnd
+
+; Function to handle leaving the autostart page
+Function AutostartPageLeave
+  ${NSD_GetState} $AutostartCheckbox $AutostartEnabled
+FunctionEnd
+
+; Function to create the uninstall data deletion page
+Function un.DeleteDataPage
+  !insertmacro MUI_HEADER_TEXT "Uninstall Options" "Choose whether to delete ${APP_NAME} data."
+
+  nsDialogs::Create 1018
+  Pop $0
+
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateCheckbox} 0 20u 100% 10u "Delete all ${APP_NAME} configuration and state data (${NETBIRD_DATA_DIR})"
+  Pop $DeleteDataCheckbox
+  ${NSD_Uncheck} $DeleteDataCheckbox
+  StrCpy $DeleteDataEnabled "0"
+
+  nsDialogs::Show
+FunctionEnd
+
+; Function to handle leaving the data deletion page
+Function un.DeleteDataPageLeave
+  ${NSD_GetState} $DeleteDataCheckbox $DeleteDataEnabled
+FunctionEnd
+
+Function GetAppFromCommand
+Exch $1
+Push $2
+StrCpy $2 $1 1 0
+StrCmp $2 '"' 0 done
+Push $3
+StrCpy $3 ""
+loop:
+    IntOp $3 $3 + 1
+    StrCpy $2 $1 1 $3
+    StrCmp $2 '' +2
+    StrCmp $2 '"' 0 loop
+    StrCpy $1 $1 $3
+    StrCpy $1 $1 "" 1 ; Remove starting quote
+Pop $3
+done:
+Pop $2
+Exch $1
+FunctionEnd
+
+!macro GetAppFromCommand in out
+Push "${in}"
+Call GetAppFromCommand
+Pop ${out}
+!macroend
+
+!macro UninstallPreviousNSIS UninstCommand CustomParameters
+Push $0
+Push $1
+Push $2
+Push '${CustomParameters}'
+Push '${UninstCommand}'
+Call GetAppFromCommand ; Remove quotes and parameters from UninstCommand
+Pop $0
+Pop $1
+GetFullPathName $2 "$0\.."
+ExecWait '"$0" /S $1 _?=$2'
+Delete "$0" ; Extra cleanup because we used _?=
+RMDir "$2"
+Pop $2
+Pop $1
+Pop $0
+!macroend
+
+Function .onInit
+StrCpy $INSTDIR "${INSTALL_DIR}"
+ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+${If} $R0 != ""
+    # if silent install jump to uninstall step
+    IfSilent uninstall
+
+    MessageBox MB_YESNO|MB_ICONQUESTION "NetBird is already installed. We must remove it before installing upgrading NetBird. Proceed?" IDNO done IDYES uninstall
+
+    uninstall:
+      !insertmacro UninstallPreviousNSIS $R0 "/NoMsgBox"
+    done:
+
+${EndIf}
+FunctionEnd
+######################################################################
+Section -MainProgram
+    ${INSTALL_TYPE}
+    # SetOverwrite ifnewer
+    SetOutPath "$INSTDIR"
+    !ifndef ARCH
+        !define ARCH "amd64"
+    !endif
+
+    !if ${ARCH} == "arm64"
+        File /r "..\\dist\\netbird_windows_arm64\\"
+    !else
+        File /r "..\\dist\\netbird_windows_amd64\\"
+    !endif
+SectionEnd
+######################################################################
+
+Section -Icons_Reg
+SetOutPath "$INSTDIR"
+WriteUninstaller "$INSTDIR\netbird_uninstall.exe"
+
+WriteRegStr ${REG_ROOT} "${REG_APP_PATH}" "" "$INSTDIR\${MAIN_APP_EXE}"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayName" "${APP_NAME}"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\netbird_uninstall.exe"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${MAIN_APP_EXE}"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
+
+WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
+
+; Create autostart registry entry based on checkbox
+DetailPrint "Autostart enabled: $AutostartEnabled"
+${If} $AutostartEnabled == "1"
+    WriteRegStr HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}" "$INSTDIR\${UI_APP_EXE}.exe"
+    DetailPrint "Added autostart registry entry: $INSTDIR\${UI_APP_EXE}.exe"
+${Else}
+    DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+    DetailPrint "Autostart not enabled by user"
+${EndIf}
+
+EnVar::SetHKLM
+EnVar::AddValueEx "path" "$INSTDIR"
+
+SetShellVarContext all
+CreateShortCut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+SectionEnd
+
+Section -Post
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service install'
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service start'
+# sleep a bit for visibility
+Sleep 1000
+SectionEnd
+######################################################################
+
+Section Uninstall
+${INSTALL_TYPE}
+
+DetailPrint "Stopping Netbird service..."
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop'
+DetailPrint "Uninstalling Netbird service..."
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
+
+DetailPrint "Terminating Netbird UI process..."
+ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
+
+; Remove autostart registry entry
+DetailPrint "Removing autostart registry entry if exists..."
+DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+
+; Handle data deletion based on checkbox
+DetailPrint "Checking if user requested data deletion..."
+${If} $DeleteDataEnabled == "1"
+    DetailPrint "User opted to delete Netbird data. Removing ${NETBIRD_DATA_DIR}..."
+    ClearErrors
+    RMDir /r "${NETBIRD_DATA_DIR}"
+    IfErrors 0 +2 ; If no errors, jump over the message
+    DetailPrint "Error deleting Netbird data directory. It might be in use or already removed."
+    DetailPrint "Netbird data directory removal complete."
+${Else}
+    DetailPrint "User did not opt to delete Netbird data."
+${EndIf}
+
+# wait the service uninstall take unblock the executable
+DetailPrint "Waiting for service handle to be released..."
+Sleep 3000
+
+DetailPrint "Deleting application files..."
+Delete "$INSTDIR\${UI_APP_EXE}"
+Delete "$INSTDIR\${MAIN_APP_EXE}"
+Delete "$INSTDIR\wintun.dll"
+!if ${ARCH} == "amd64"
+Delete "$INSTDIR\opengl32.dll"
+!endif
+DetailPrint "Removing application directory..."
+RmDir /r "$INSTDIR"
+
+DetailPrint "Removing shortcuts..."
+SetShellVarContext all
+Delete "$DESKTOP\${APP_NAME}.lnk"
+Delete "$SMPROGRAMS\${APP_NAME}.lnk"
+
+DetailPrint "Removing registry keys..."
+DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
+DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
+DeleteRegKey ${REG_ROOT} "${UI_REG_APP_PATH}"
+
+DetailPrint "Removing application directory from PATH..."
+EnVar::SetHKLM
+EnVar::DeleteValue "path" "$INSTDIR"
+
+DetailPrint "Uninstallation finished."
+SectionEnd
+
+
+!if ${ARCH} == "amd64"
+Function LaunchLink
+SetShellVarContext all
+   SetOutPath $INSTDIR
+   ShellExecAsUser::ShellExecAsUser "" "$DESKTOP\${APP_NAME}.lnk"
+FunctionEnd
+!endif
