@@ -519,8 +519,8 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 }
 
 func toSingleJobResponse(job *types.Job) (*api.JobResponse, error) {
-	var workloadResponse api.WorkloadResponse
-	if err := job.BuildWorkloadResponse(&workloadResponse); err != nil {
+	workload, err := job.BuildWorkloadResponse()
+	if err != nil {
 		return nil, err
 	}
 
@@ -536,7 +536,7 @@ func toSingleJobResponse(job *types.Job) (*api.JobResponse, error) {
 		TriggeredBy:  job.TriggeredBy,
 		Status:       api.JobResponseStatus(job.Status),
 		FailedReason: failed,
-		Workload:     workloadResponse,
+		Workload:     *workload,
 	}, nil
 }
 
