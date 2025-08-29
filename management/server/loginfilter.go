@@ -66,7 +66,6 @@ func newLoginFilterWithCfg(cfg *lfConfig) *loginFilter {
 func (l *loginFilter) allowLogin(wgPubKey string, metaHash uint64) bool {
 	now := time.Now()
 	l.mu.RLock()
-	// defer l.mu.RUnlock()
 	defer func() {
 		l.mu.RUnlock()
 		log.Infof("allowLogin duration for %s: %v", wgPubKey, time.Since(now))
@@ -89,7 +88,6 @@ func (l *loginFilter) allowLogin(wgPubKey string, metaHash uint64) bool {
 func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 	now := time.Now()
 	l.mu.Lock()
-	// defer l.mu.Unlock()
 	defer func() {
 		l.mu.Unlock()
 		log.Infof("addLogin duration for %s: %v", wgPubKey, time.Since(now))

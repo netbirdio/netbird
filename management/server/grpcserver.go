@@ -42,6 +42,7 @@ import (
 
 const (
 	envLogBlockedPeers = "NB_LOG_BLOCKED_PEERS"
+	envBlockPeers      = "NB_BLOCK_SAME_PEERS"
 )
 
 // GRPCServer an instance of a Management gRPC API server
@@ -58,8 +59,9 @@ type GRPCServer struct {
 	peerLocks          sync.Map
 	authManager        auth.Manager
 
-	logBlockedPeers         bool
-	integratedPeerValidator integrated_validator.IntegratedValidator
+	logBlockedPeers          bool
+	blockPeersWithSameConfig bool
+	integratedPeerValidator  integrated_validator.IntegratedValidator
 }
 
 // NewServer creates a new Management server
@@ -90,21 +92,23 @@ func NewServer(
 		}
 	}
 
-	logBlockedPeers := os.Getenv(envLogBlockedPeers) == "true"
+	logBlockedPeers := strings.ToLower(os.Getenv(envLogBlockedPeers)) == "true"
+	blockPeersWithSameConfig := strings.ToLower(os.Getenv(envBlockPeers)) == "true"
 
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
-		peersUpdateManager:      peersUpdateManager,
-		accountManager:          accountManager,
-		settingsManager:         settingsManager,
-		config:                  config,
-		secretsManager:          secretsManager,
-		authManager:             authManager,
-		appMetrics:              appMetrics,
-		ephemeralManager:        ephemeralManager,
-		logBlockedPeers:         logBlockedPeers,
-		integratedPeerValidator: integratedPeerValidator,
+		peersUpdateManager:       peersUpdateManager,
+		accountManager:           accountManager,
+		settingsManager:          settingsManager,
+		config:                   config,
+		secretsManager:           secretsManager,
+		authManager:              authManager,
+		appMetrics:               appMetrics,
+		ephemeralManager:         ephemeralManager,
+		logBlockedPeers:          logBlockedPeers,
+		blockPeersWithSameConfig: blockPeersWithSameConfig,
+		integratedPeerValidator:  integratedPeerValidator,
 	}, nil
 }
 
@@ -166,7 +170,9 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		if s.logBlockedPeers {
 			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
 		}
-		return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
+		if s.blockPeersWithSameConfig {
+			return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
+		}
 	}
 
 	if s.appMetrics != nil {
@@ -482,7 +488,9 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestBlocked()
 		}
-		return nil, internalStatus.ErrPeerAlreadyLoggedIn
+		if s.blockPeersWithSameConfig {
+			return nil, internalStatus.ErrPeerAlreadyLoggedIn
+		}
 	}
 
 	if s.appMetrics != nil {
