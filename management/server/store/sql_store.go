@@ -1362,7 +1362,7 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peer
 	defer cancel()
 
 	var groupID string
-	_ = s.db.Model(types.Group{}).
+	_ = s.db.WithContext(ctx).Model(types.Group{}).
 		Select("id").
 		Where("account_id = ? AND name = ?", accountID, "All").
 		Limit(1).
