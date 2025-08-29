@@ -11,6 +11,6 @@ fi
 old_pwd=$(pwd)
 script_path=$(dirname $(realpath "$0"))
 cd "$script_path"
-go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@4a1477f6a8ba6ca8115cc23bb2fb67f0b9fca18e
+go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
 oapi-codegen --config cfg.yaml openapi.yml
 cd "$old_pwd"

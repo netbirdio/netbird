@@ -38,14 +38,15 @@ import (
 )
 
 const (
-	storeSqliteFileName         = "store.db"
-	idQueryCondition            = "id = ?"
-	keyQueryCondition           = "key = ?"
-	mysqlKeyQueryCondition      = "`key` = ?"
-	accountAndIDQueryCondition  = "account_id = ? and id = ?"
-	accountAndIDsQueryCondition = "account_id = ? AND id IN ?"
-	accountIDCondition          = "account_id = ?"
-	peerNotFoundFMT             = "peer %s not found"
+	storeSqliteFileName            = "store.db"
+	idQueryCondition               = "id = ?"
+	keyQueryCondition              = "key = ?"
+	mysqlKeyQueryCondition         = "`key` = ?"
+	accountAndIDQueryCondition     = "account_id = ? and id = ?"
+	accountAndPeerIDQueryCondition = "account_id = ? and peer_id = ?"
+	accountAndIDsQueryCondition    = "account_id = ? AND id IN ?"
+	accountIDCondition             = "account_id = ?"
+	peerNotFoundFMT                = "peer %s not found"
 )
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
@@ -105,6 +106,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
+		&types.Job{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -121,6 +123,79 @@ func GetKeyQueryCondition(s *SqlStore) string {
 		return mysqlKeyQueryCondition
 	}
 	return keyQueryCondition
+}
+
+// SaveJob persists a job in DB
+func (s *SqlStore) CreatePeerJob(ctx context.Context, job *types.Job) error {
+	result := s.db.Create(job)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to create job in store")
+	}
+	return nil
+}
+
+// job was pending for too long and has been cancelled
+// todo call it when we first start the jobChannel to make sure no stuck jobs
+func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, peerID string) error {
+	now := time.Now().UTC()
+	return s.db.
+		Model(&types.Job{}).
+		Where("peer_id = ? AND status = ?", types.JobStatusPending, peerID).
+		Updates(map[string]any{
+			"status":        types.JobStatusFailed,
+			"failed_reason": "Pending job cleanup: marked as failed automatically due to being stuck too long",
+			"completed_at":  now,
+		}).Error
+}
+
+// GetJobByID fetches job by ID
+func (s *SqlStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error) {
+	var job types.Job
+	err := s.db.
+		Where(accountAndIDQueryCondition, accountID, jobID).
+		First(&job).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, status.Errorf(status.NotFound, "job %s not found", jobID)
+	}
+	return &job, err
+}
+
+// get all jobs
+func (s *SqlStore) GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error) {
+	var jobs []*types.Job
+	err := s.db.
+		Where(accountAndPeerIDQueryCondition, accountID, peerID).
+		Order("created_at DESC").
+		Find(&jobs).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return jobs, nil
+}
+
+func (s *SqlStore) CompletePeerJob(accountID, jobID, result, failedReason string) error {
+	now := time.Now().UTC()
+
+	updates := map[string]any{
+		"completed_at": now,
+	}
+
+	if result != "" && failedReason == "" {
+		updates["status"] = types.JobStatusSucceeded
+		updates["result"] = result
+		updates["failed_reason"] = ""
+	} else {
+		updates["status"] = types.JobStatusFailed
+		updates["failed_reason"] = failedReason
+	}
+
+	return s.db.
+		Model(&types.Job{}).
+		Where(accountAndIDQueryCondition, accountID, jobID).
+		Updates(updates).Error
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
