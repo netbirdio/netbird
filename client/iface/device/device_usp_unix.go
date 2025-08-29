@@ -20,7 +20,7 @@ type USPDevice struct {
 	address wgaddr.Address
 	port    int
 	key     string
-	mtu     int
+	mtu     uint16
 	iceBind *bind.ICEBind
 
 	device         *device.Device
@@ -29,7 +29,7 @@ type USPDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu int, iceBind *bind.ICEBind) *USPDevice {
+func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *USPDevice {
 	log.Infof("using userspace bind mode")
 
 	return &USPDevice{
@@ -44,9 +44,9 @@ func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu
 
 func (t *USPDevice) Create() (WGConfigurer, error) {
 	log.Info("create tun interface")
-	tunIface, err := tun.CreateTUN(t.name, t.mtu)
+	tunIface, err := tun.CreateTUN(t.name, int(t.mtu))
 	if err != nil {
-		log.Debugf("failed to create tun interface (%s, %d): %s", t.name, t.mtu, err)
+		log.Debugf("failed to create tun interface (%s, %d): %s", t.name, int(t.mtu), err)
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
 	t.filteredDevice = newDeviceFilter(tunIface)
@@ -64,7 +64,7 @@ func (t *USPDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
@@ -116,6 +116,10 @@ func (t *USPDevice) Close() error {
 
 func (t *USPDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *USPDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *USPDevice) DeviceName() string {

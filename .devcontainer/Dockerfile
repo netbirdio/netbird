@@ -9,7 +9,7 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         libayatana-appindicator3-dev=0.5.5-2+deb11u2 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && go install -v golang.org/x/tools/gopls@latest
+    && go install -v golang.org/x/tools/gopls@v0.18.1
 
 
 WORKDIR /app

@@ -16,16 +16,16 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -73,7 +73,7 @@ type Account struct {
 	Users                  map[string]*User                  `gorm:"-"`
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
-	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	GroupsG                []*Group                          `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[route.ID]*route.Route         `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
@@ -82,11 +82,17 @@ type Account struct {
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
-	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
-
+	Settings         *Settings                        `gorm:"embedded;embeddedPrefix:settings_"`
 	Networks         []*networkTypes.Network          `gorm:"foreignKey:AccountID;references:id"`
 	NetworkRouters   []*routerTypes.NetworkRouter     `gorm:"foreignKey:AccountID;references:id"`
 	NetworkResources []*resourceTypes.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
+	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
+}
+
+// this class is used by gorm only
+type PrimaryAccountInfo struct {
+	IsDomainPrimaryAccount bool
+	Domain                 string
 }
 
 // Subclass used in gorm to only load network and not whole account
@@ -102,6 +108,20 @@ type AccountDNSSettings struct {
 // Subclass used in gorm to only load settings and not whole account
 type AccountSettings struct {
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
+}
+
+type AccountOnboarding struct {
+	AccountID             string `gorm:"primaryKey"`
+	OnboardingFlowPending bool
+	SignupFormPending     bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+// IsEqual compares two AccountOnboarding objects and returns true if they are equal
+func (o AccountOnboarding) IsEqual(onboarding AccountOnboarding) bool {
+	return o.OnboardingFlowPending == onboarding.OnboardingFlowPending &&
+		o.SignupFormPending == onboarding.SignupFormPending
 }
 
 // GetRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -866,6 +886,7 @@ func (a *Account) Copy() *Account {
 		Networks:               nets,
 		NetworkRouters:         networkRouters,
 		NetworkResources:       networkResources,
+		Onboarding:             a.Onboarding,
 	}
 }
 
@@ -1546,7 +1567,7 @@ func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[st
 }
 
 // AddAllGroup to account object if it doesn't exist
-func (a *Account) AddAllGroup() error {
+func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 	if len(a.Groups) == 0 {
 		allGroup := &Group{
 			ID:     xid.New().String(),
@@ -1557,6 +1578,10 @@ func (a *Account) AddAllGroup() error {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
 		}
 		a.Groups = map[string]*Group{allGroup.ID: allGroup}
+
+		if disableDefaultPolicy {
+			return nil
+		}
 
 		id := xid.New().String()
 

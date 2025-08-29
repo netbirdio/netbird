@@ -780,7 +780,6 @@ EOF
 
 renderDockerCompose() {
   cat <<EOF
-version: "3.4"
 services:
   # Caddy reverse proxy
   caddy:
@@ -791,7 +790,6 @@ services:
       - '443:443'
       - '443:443/udp'
       - '80:80'
-      - '8080:8080'
     volumes:
       - netbird_caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile

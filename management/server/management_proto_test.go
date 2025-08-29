@@ -22,14 +22,16 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -94,21 +96,21 @@ func getServerKey(client mgmtProto.ManagementServiceClient) (*wgtypes.Key, error
 
 func Test_SyncProtocol(t *testing.T) {
 	dir := t.TempDir()
-	mgmtServer, _, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &types.Config{
-		Stuns: []*types.Host{{
+	mgmtServer, _, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
+		Stuns: []*config.Host{{
 			Proto: "udp",
 			URI:   "stun:stun.netbird.io:3468",
 		}},
-		TURNConfig: &types.TURNConfig{
+		TURNConfig: &config.TURNConfig{
 			TimeBasedCredentials: false,
 			CredentialsTTL:       util.Duration{},
 			Secret:               "whatever",
-			Turns: []*types.Host{{
+			Turns: []*config.Host{{
 				Proto: "udp",
 				URI:   "turn:stun.netbird.io:3468",
 			}},
 		},
-		Signal: &types.Host{
+		Signal: &config.Host{
 			Proto: "http",
 			URI:   "signal.netbird.io:10000",
 		},
@@ -331,7 +333,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 
 	testCases := []struct {
 		name                   string
-		inputFlow              *types.DeviceAuthorizationFlow
+		inputFlow              *config.DeviceAuthorizationFlow
 		expectedFlow           *mgmtProto.DeviceAuthorizationFlow
 		expectedErrFunc        require.ErrorAssertionFunc
 		expectedErrMSG         string
@@ -346,9 +348,9 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 		},
 		{
 			name: "Testing Invalid Device Flow Provider Config",
-			inputFlow: &types.DeviceAuthorizationFlow{
+			inputFlow: &config.DeviceAuthorizationFlow{
 				Provider: "NoNe",
-				ProviderConfig: types.ProviderConfig{
+				ProviderConfig: config.ProviderConfig{
 					ClientID: "test",
 				},
 			},
@@ -357,9 +359,9 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 		},
 		{
 			name: "Testing Full Device Flow Config",
-			inputFlow: &types.DeviceAuthorizationFlow{
+			inputFlow: &config.DeviceAuthorizationFlow{
 				Provider: "hosted",
-				ProviderConfig: types.ProviderConfig{
+				ProviderConfig: config.ProviderConfig{
 					ClientID: "test",
 				},
 			},
@@ -380,7 +382,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			mgmtServer := &GRPCServer{
 				wgKey: testingServerKey,
-				config: &types.Config{
+				config: &config.Config{
 					DeviceAuthorizationFlow: testCase.inputFlow,
 				},
 			}
@@ -411,7 +413,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 	}
 }
 
-func startManagementForTest(t *testing.T, testFile string, config *types.Config) (*grpc.Server, *DefaultAccountManager, string, func(), error) {
+func startManagementForTest(t *testing.T, testFile string, config *config.Config) (*grpc.Server, *DefaultAccountManager, string, func(), error) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -440,21 +442,26 @@ func startManagementForTest(t *testing.T, testFile string, config *types.Config)
 		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
 		AnyTimes().
 		Return(&types.Settings{}, nil)
-
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
 	permissionsManager := permissions.NewManager(store)
+	groupsManager := groups.NewManagerMock()
 
 	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
-		eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 
 	if err != nil {
 		cleanup()
 		return nil, nil, "", cleanup, err
 	}
 
-	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
+	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 
 	ephemeralMgr := NewEphemeralManager(store, accountManager)
-	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, ephemeralMgr, nil)
+	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{})
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
@@ -509,21 +516,21 @@ func testSyncStatusRace(t *testing.T) {
 	t.Skip()
 	dir := t.TempDir()
 
-	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &types.Config{
-		Stuns: []*types.Host{{
+	mgmtServer, am, mgmtAddr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
+		Stuns: []*config.Host{{
 			Proto: "udp",
 			URI:   "stun:stun.netbird.io:3468",
 		}},
-		TURNConfig: &types.TURNConfig{
+		TURNConfig: &config.TURNConfig{
 			TimeBasedCredentials: false,
 			CredentialsTTL:       util.Duration{},
 			Secret:               "whatever",
-			Turns: []*types.Host{{
+			Turns: []*config.Host{{
 				Proto: "udp",
 				URI:   "turn:stun.netbird.io:3468",
 			}},
 		},
-		Signal: &types.Host{
+		Signal: &config.Host{
 			Proto: "http",
 			URI:   "signal.netbird.io:10000",
 		},
@@ -641,7 +648,7 @@ func testSyncStatusRace(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, peerWithInvalidStatus.PublicKey().String())
+	peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerWithInvalidStatus.PublicKey().String())
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -681,21 +688,21 @@ func Test_LoginPerformance(t *testing.T) {
 			t.Helper()
 			dir := t.TempDir()
 
-			mgmtServer, am, _, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &types.Config{
-				Stuns: []*types.Host{{
+			mgmtServer, am, _, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", &config.Config{
+				Stuns: []*config.Host{{
 					Proto: "udp",
 					URI:   "stun:stun.netbird.io:3468",
 				}},
-				TURNConfig: &types.TURNConfig{
+				TURNConfig: &config.TURNConfig{
 					TimeBasedCredentials: false,
 					CredentialsTTL:       util.Duration{},
 					Secret:               "whatever",
-					Turns: []*types.Host{{
+					Turns: []*config.Host{{
 						Proto: "udp",
 						URI:   "turn:stun.netbird.io:3468",
 					}},
 				},
-				Signal: &types.Host{
+				Signal: &config.Host{
 					Proto: "http",
 					URI:   "signal.netbird.io:10000",
 				},

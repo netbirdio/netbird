@@ -18,10 +18,9 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) (nbnet.AddHookFunc, nbnet.RemoveHookFunc, error) {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	return r.setupRefCounter(initAddresses, stateManager)
 }
 
@@ -108,7 +107,7 @@ func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Next
 		Type:    action,
 		Flags:   unix.RTF_UP,
 		Version: unix.RTM_VERSION,
-		Seq:     1,
+		Seq:     r.getSeq(),
 	}
 
 	const numAddrs = unix.RTAX_NETMASK + 1

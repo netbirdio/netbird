@@ -1,7 +1,9 @@
 <Wix
-	xmlns="http://wixtoolset.org/schemas/v4/wxs">
+	xmlns="http://wixtoolset.org/schemas/v4/wxs"
+	xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 	<Package Name="NetBird" Version="$(env.NETBIRD_VERSION)" Manufacturer="NetBird GmbH" Language="1033" UpgradeCode="6456ec4e-3ad6-4b9b-a2be-98e81cb21ccf"
         InstallerVersion="500" Compressed="yes"  Codepage="utf-8" >
+
 
 		<MediaTemplate EmbedCab="yes" />
 
@@ -14,19 +16,21 @@
 		<StandardDirectory Id="ProgramFiles64Folder">
 			<Directory Id="NetbirdInstallDir" Name="Netbird">
 				<Component Id="NetbirdFiles" Guid="db3165de-cc6e-4922-8396-9d892950e23e" Bitness="always64">
-					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\netbird.exe" KeyPath="yes" />
-					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\netbird-ui.exe">
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird.exe" KeyPath="yes" />
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird-ui.exe">
 						<Shortcut Id="NetbirdDesktopShortcut" Directory="DesktopFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
 						<Shortcut Id="NetbirdStartMenuShortcut" Directory="StartMenuFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
 					</File>
-					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\wintun.dll" />
-					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\opengl32.dll" />
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\wintun.dll" />
+					<?if $(var.ArchSuffix) = "amd64" ?>
+					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\opengl32.dll" />
+					<?endif ?>
 
 					<ServiceInstall
                                      Id="NetBirdService"
                                      Name="NetBird"
                                      DisplayName="NetBird"
-                                     Description="A WireGuard-based mesh network that connects your devices into a single private network."
+                                     Description="Connect your devices into a secure WireGuard-based overlay network with SSO, MFA and granular access controls."
                                      Start="auto" Type="ownProcess"
                                      ErrorControl="normal"
                                      Account="LocalSystem"
@@ -46,29 +50,10 @@
 			<ComponentRef Id="NetbirdFiles" />
 		</ComponentGroup>
 
-		<Property Id="cmd" Value="cmd.exe"/>
+		<util:CloseApplication Id="CloseNetBird" CloseMessage="no" Target="netbird.exe" RebootPrompt="no" />
+		<util:CloseApplication Id="CloseNetBirdUI" CloseMessage="no" Target="netbird-ui.exe" RebootPrompt="no" />
 
-		<CustomAction Id="KillDaemon"
-                      ExeCommand='/c "taskkill /im netbird.exe"'
-                      Execute="deferred"
-                      Property="cmd"
-                      Impersonate="no"
-                      Return="ignore"
-            />
 
-		<CustomAction Id="KillUI"
-                      ExeCommand='/c "taskkill /im netbird-ui.exe"'
-                      Execute="deferred"
-                      Property="cmd"
-                      Impersonate="no"
-                      Return="ignore"
-            />
-
-		<InstallExecuteSequence>
-			<!-- For Uninstallation -->
-			<Custom Action="KillDaemon" Before="RemoveFiles" Condition="Installed"/>
-			<Custom Action="KillUI" After="KillDaemon" Condition="Installed"/>
-		</InstallExecuteSequence>
 
 		<!-- Icons -->
 		<Icon Id="NetbirdIcon" SourceFile=".\client\ui\assets\netbird.ico" />

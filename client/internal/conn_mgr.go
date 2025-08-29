@@ -12,7 +12,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/route"
 )
@@ -26,11 +25,11 @@ import (
 //
 // The implementation is not thread-safe; it is protected by engine.syncMsgMux.
 type ConnMgr struct {
-	peerStore      *peerstore.Store
-	statusRecorder *peer.Status
-	iface          lazyconn.WGIface
-	dispatcher     *dispatcher.ConnectionDispatcher
-	enabledLocally bool
+	peerStore        *peerstore.Store
+	statusRecorder   *peer.Status
+	iface            lazyconn.WGIface
+	enabledLocally   bool
+	rosenpassEnabled bool
 
 	lazyConnMgr *manager.Manager
 
@@ -39,12 +38,12 @@ type ConnMgr struct {
 	lazyCtxCancel context.CancelFunc
 }
 
-func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface, dispatcher *dispatcher.ConnectionDispatcher) *ConnMgr {
+func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
 	e := &ConnMgr{
-		peerStore:      peerStore,
-		statusRecorder: statusRecorder,
-		iface:          iface,
-		dispatcher:     dispatcher,
+		peerStore:        peerStore,
+		statusRecorder:   statusRecorder,
+		iface:            iface,
+		rosenpassEnabled: engineConfig.RosenpassEnabled,
 	}
 	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
 		e.enabledLocally = true
@@ -61,6 +60,11 @@ func (e *ConnMgr) Start(ctx context.Context) {
 
 	if !e.enabledLocally {
 		log.Infof("lazy connection manager is disabled")
+		return
+	}
+
+	if e.rosenpassEnabled {
+		log.Warnf("rosenpass connection manager is enabled, lazy connection manager will not be started")
 		return
 	}
 
@@ -83,7 +87,12 @@ func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) er
 			return nil
 		}
 
-		log.Infof("lazy connection manager is enabled by management feature flag")
+		if e.rosenpassEnabled {
+			log.Infof("rosenpass connection manager is enabled, lazy connection manager will not be started")
+			return nil
+		}
+
+		log.Warnf("lazy connection manager is enabled by management feature flag")
 		e.initLazyManager(ctx)
 		e.statusRecorder.UpdateLazyConnection(true)
 		return e.addPeersToLazyConnManager()
@@ -133,7 +142,7 @@ func (e *ConnMgr) SetExcludeList(ctx context.Context, peerIDs map[string]bool) {
 		excludedPeers = append(excludedPeers, lazyPeerCfg)
 	}
 
-	added := e.lazyConnMgr.ExcludePeer(e.lazyCtx, excludedPeers)
+	added := e.lazyConnMgr.ExcludePeer(excludedPeers)
 	for _, peerID := range added {
 		var peerConn *peer.Conn
 		var exists bool
@@ -201,7 +210,7 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	if !ok {
 		return
 	}
-	defer conn.Close()
+	defer conn.Close(false)
 
 	if !e.isStartedWithLazyMgr() {
 		return
@@ -211,23 +220,27 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	conn.Log.Infof("removed peer from lazy conn manager")
 }
 
-func (e *ConnMgr) OnSignalMsg(ctx context.Context, peerKey string) (*peer.Conn, bool) {
-	conn, ok := e.peerStore.PeerConn(peerKey)
-	if !ok {
-		return nil, false
-	}
-
+func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
 	if !e.isStartedWithLazyMgr() {
-		return conn, true
+		return
 	}
 
-	if found := e.lazyConnMgr.ActivatePeer(e.lazyCtx, peerKey); found {
-		conn.Log.Infof("activated peer from inactive state")
+	if found := e.lazyConnMgr.ActivatePeer(conn.GetKey()); found {
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
 	}
-	return conn, true
+}
+
+// DeactivatePeer deactivates a peer connection in the lazy connection manager.
+// If locally the lazy connection is disabled, we force the peer connection open.
+func (e *ConnMgr) DeactivatePeer(conn *peer.Conn) {
+	if !e.isStartedWithLazyMgr() {
+		return
+	}
+
+	conn.Log.Infof("closing peer connection: remote peer initiated inactive, idle lazy state and sent GOAWAY")
+	e.lazyConnMgr.DeactivatePeer(conn.ConnID())
 }
 
 func (e *ConnMgr) Close() {
@@ -244,7 +257,7 @@ func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	cfg := manager.Config{
 		InactivityThreshold: inactivityThresholdEnv(),
 	}
-	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface, e.dispatcher)
+	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface)
 
 	e.lazyCtx, e.lazyCtxCancel = context.WithCancel(engineCtx)
 
@@ -275,7 +288,7 @@ func (e *ConnMgr) addPeersToLazyConnManager() error {
 		lazyPeerCfgs = append(lazyPeerCfgs, lazyPeerCfg)
 	}
 
-	return e.lazyConnMgr.AddActivePeers(e.lazyCtx, lazyPeerCfgs)
+	return e.lazyConnMgr.AddActivePeers(lazyPeerCfgs)
 }
 
 func (e *ConnMgr) closeManager(ctx context.Context) {

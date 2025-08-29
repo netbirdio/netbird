@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+
 	// nolint:gosec
 	_ "net/http/pprof"
 	"strings"
@@ -19,7 +20,7 @@ import (
 	"github.com/netbirdio/netbird/signal/metrics"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"

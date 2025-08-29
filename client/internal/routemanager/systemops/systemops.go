@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/routemanager/notifier"
@@ -15,6 +17,26 @@ import (
 type Nexthop struct {
 	IP   netip.Addr
 	Intf *net.Interface
+}
+
+// Route represents a basic network route with core routing information
+type Route struct {
+	Dst       netip.Prefix
+	Gw        netip.Addr
+	Interface *net.Interface
+}
+
+// DetailedRoute extends Route with additional metadata for display and debugging
+type DetailedRoute struct {
+	Route
+	Metric          int
+	InterfaceMetric int
+	InterfaceIndex  int
+	Protocol        string
+	Scope           string
+	Type            string
+	Table           string
+	Flags           string
 }
 
 // Equal checks if two nexthops are equal.
@@ -28,7 +50,10 @@ func (n Nexthop) String() string {
 	if n.Intf == nil {
 		return n.IP.String()
 	}
-	return fmt.Sprintf("%s @ %d (%s)", n.IP.String(), n.Intf.Index, n.Intf.Name)
+	if n.IP.IsValid() {
+		return fmt.Sprintf("%s @ %d (%s)", n.IP.String(), n.Intf.Index, n.Intf.Name)
+	}
+	return fmt.Sprintf("no-ip @ %d (%s)", n.Intf.Index, n.Intf.Name)
 }
 
 type wgIface interface {
@@ -49,6 +74,13 @@ type SysOps struct {
 	mu sync.Mutex
 	// notifier is used to notify the system of route changes (also used on mobile)
 	notifier *notifier.Notifier
+	// seq is an atomic counter for generating unique sequence numbers for route messages
+	//nolint:unused // only used on BSD systems
+	seq atomic.Uint32
+
+	localSubnetsCache     []*net.IPNet
+	localSubnetsCacheMu   sync.RWMutex
+	localSubnetsCacheTime time.Time
 }
 
 func NewSysOps(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {
@@ -56,6 +88,11 @@ func NewSysOps(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {
 		wgInterface: wgInterface,
 		notifier:    notifier,
 	}
+}
+
+//nolint:unused // only used on BSD systems
+func (r *SysOps) getSeq() int {
+	return int(r.seq.Add(1))
 }
 
 func (r *SysOps) validateRoute(prefix netip.Prefix) error {

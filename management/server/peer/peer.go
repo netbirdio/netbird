@@ -20,14 +20,14 @@ type Peer struct {
 	// WireGuard public key
 	Key string `gorm:"index"`
 	// IP address of the Peer
-	IP net.IP `gorm:"serializer:json"`
+	IP net.IP `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
-	Name string
+	Name string `gorm:"index"`
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
 	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
-	DNSLabel string
+	DNSLabel string // uniqueness index per accountID (check migrations)
 	// Status peer's management connection status
 	Status *PeerStatus `gorm:"embedded;embeddedPrefix:peer_status_"`
 	// The user ID that registered the peer

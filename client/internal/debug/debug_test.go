@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/anonymize"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestAnonymizeStateFile(t *testing.T) {

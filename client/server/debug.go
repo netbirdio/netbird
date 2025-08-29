@@ -16,7 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/proto"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
 
@@ -27,21 +27,23 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	networkMap, err := s.getLatestNetworkMap()
+	syncResponse, err := s.getLatestSyncResponse()
 	if err != nil {
-		log.Warnf("failed to get latest network map: %v", err)
+		log.Warnf("failed to get latest sync response: %v", err)
 	}
+
 	bundleGenerator := debug.NewBundleGenerator(
 		debug.GeneratorDependencies{
 			InternalConfig: s.config,
 			StatusRecorder: s.statusRecorder,
-			NetworkMap:     networkMap,
+			SyncResponse:   syncResponse,
 			LogFile:        s.logFile,
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),
 			ClientStatus:      req.GetStatus(),
 			IncludeSystemInfo: req.GetSystemInfo(),
+			LogFileCount:      req.GetLogFileCount(),
 		},
 	)
 
@@ -191,26 +193,25 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 	return &proto.SetLogLevelResponse{}, nil
 }
 
-// SetNetworkMapPersistence sets the network map persistence for the server.
-func (s *Server) SetNetworkMapPersistence(_ context.Context, req *proto.SetNetworkMapPersistenceRequest) (*proto.SetNetworkMapPersistenceResponse, error) {
+// SetSyncResponsePersistence sets the sync response persistence for the server.
+func (s *Server) SetSyncResponsePersistence(_ context.Context, req *proto.SetSyncResponsePersistenceRequest) (*proto.SetSyncResponsePersistenceResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
 	enabled := req.GetEnabled()
-	s.persistNetworkMap = enabled
+	s.persistSyncResponse = enabled
 	if s.connectClient != nil {
-		s.connectClient.SetNetworkMapPersistence(enabled)
+		s.connectClient.SetSyncResponsePersistence(enabled)
 	}
 
-	return &proto.SetNetworkMapPersistenceResponse{}, nil
+	return &proto.SetSyncResponsePersistenceResponse{}, nil
 }
 
-// getLatestNetworkMap returns the latest network map from the engine if network map persistence is enabled
-func (s *Server) getLatestNetworkMap() (*mgmProto.NetworkMap, error) {
+func (s *Server) getLatestSyncResponse() (*mgmProto.SyncResponse, error) {
 	cClient := s.connectClient
 	if cClient == nil {
 		return nil, errors.New("connect client is not initialized")
 	}
 
-	return cClient.GetLatestNetworkMap()
+	return cClient.GetLatestSyncResponse()
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -63,9 +64,10 @@ const (
 )
 
 type registryConfigurator struct {
-	guid       string
-	routingAll bool
-	gpo        bool
+	guid           string
+	routingAll     bool
+	gpo            bool
+	nrptEntryCount int
 }
 
 func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
@@ -176,7 +178,11 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	}
 
-	if err := stateManager.UpdateState(&ShutdownState{Guid: r.guid, GPO: r.gpo}); err != nil {
+	if err := stateManager.UpdateState(&ShutdownState{
+		Guid:           r.guid,
+		GPO:            r.gpo,
+		NRPTEntryCount: r.nrptEntryCount,
+	}); err != nil {
 		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
@@ -192,13 +198,24 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 	}
 
 	if len(matchDomains) != 0 {
-		if err := r.addDNSMatchPolicy(matchDomains, config.ServerIP); err != nil {
+		count, err := r.addDNSMatchPolicy(matchDomains, config.ServerIP)
+		if err != nil {
 			return fmt.Errorf("add dns match policy: %w", err)
 		}
+		r.nrptEntryCount = count
 	} else {
 		if err := r.removeDNSMatchPolicies(); err != nil {
 			return fmt.Errorf("remove dns match policies: %w", err)
 		}
+		r.nrptEntryCount = 0
+	}
+
+	if err := stateManager.UpdateState(&ShutdownState{
+		Guid:           r.guid,
+		GPO:            r.gpo,
+		NRPTEntryCount: r.nrptEntryCount,
+	}); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
 	if err := r.updateSearchDomains(searchDomains); err != nil {
@@ -210,38 +227,44 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 	return nil
 }
 
-func (r *registryConfigurator) addDNSSetupForAll(ip string) error {
-	if err := r.setInterfaceRegistryKeyStringValue(interfaceConfigNameServerKey, ip); err != nil {
+func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
+	if err := r.setInterfaceRegistryKeyStringValue(interfaceConfigNameServerKey, ip.String()); err != nil {
 		return fmt.Errorf("adding dns setup for all failed: %w", err)
 	}
 	r.routingAll = true
-	log.Infof("configured %s:53 as main DNS forwarder for this peer", ip)
+	log.Infof("configured %s:%d as main DNS forwarder for this peer", ip, DefaultPort)
 	return nil
 }
 
-func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip string) error {
+func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr) (int, error) {
 	// if the gpo key is present, we need to put our DNS settings there, otherwise our config might be ignored
 	// see https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpnrpt/8cc31cb9-20cb-4140-9e85-3e08703b4745
-	if r.gpo {
-		if err := r.configureDNSPolicy(gpoDnsPolicyConfigMatchPath, domains, ip); err != nil {
-			return fmt.Errorf("configure GPO DNS policy: %w", err)
+	for i, domain := range domains {
+		policyPath := fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i)
+		if r.gpo {
+			policyPath = fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, i)
 		}
 
+		singleDomain := []string{domain}
+
+		if err := r.configureDNSPolicy(policyPath, singleDomain, ip); err != nil {
+			return i, fmt.Errorf("configure DNS policy for domain %s: %w", domain, err)
+		}
+
+		log.Debugf("added NRPT entry for domain: %s", domain)
+	}
+
+	if r.gpo {
 		if err := refreshGroupPolicy(); err != nil {
 			log.Warnf("failed to refresh group policy: %v", err)
 		}
-	} else {
-		if err := r.configureDNSPolicy(dnsPolicyConfigMatchPath, domains, ip); err != nil {
-			return fmt.Errorf("configure local DNS policy: %w", err)
-		}
 	}
 
-	log.Infof("added %d match domains. Domain list: %s", len(domains), domains)
-	return nil
+	log.Infof("added %d separate NRPT entries. Domain list: %s", len(domains), domains)
+	return len(domains), nil
 }
 
-// configureDNSPolicy handles the actual configuration of a DNS policy at the specified path
-func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip string) error {
+func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip netip.Addr) error {
 	if err := removeRegistryKeyFromDNSPolicyConfig(policyPath); err != nil {
 		return fmt.Errorf("remove existing dns policy: %w", err)
 	}
@@ -260,7 +283,7 @@ func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []s
 		return fmt.Errorf("set %s: %w", dnsPolicyConfigNameKey, err)
 	}
 
-	if err := regKey.SetStringValue(dnsPolicyConfigGenericDNSServersKey, ip); err != nil {
+	if err := regKey.SetStringValue(dnsPolicyConfigGenericDNSServersKey, ip.String()); err != nil {
 		return fmt.Errorf("set %s: %w", dnsPolicyConfigGenericDNSServersKey, err)
 	}
 
@@ -373,12 +396,25 @@ func (r *registryConfigurator) restoreHostDNS() error {
 
 func (r *registryConfigurator) removeDNSMatchPolicies() error {
 	var merr *multierror.Error
+
+	// Try to remove the base entries (for backward compatibility)
 	if err := removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigMatchPath); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("remove local registry key: %w", err))
+		merr = multierror.Append(merr, fmt.Errorf("remove local base entry: %w", err))
+	}
+	if err := removeRegistryKeyFromDNSPolicyConfig(gpoDnsPolicyConfigMatchPath); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("remove GPO base entry: %w", err))
 	}
 
-	if err := removeRegistryKeyFromDNSPolicyConfig(gpoDnsPolicyConfigMatchPath); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("remove GPO registry key: %w", err))
+	for i := 0; i < r.nrptEntryCount; i++ {
+		localPath := fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i)
+		gpoPath := fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, i)
+
+		if err := removeRegistryKeyFromDNSPolicyConfig(localPath); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove local entry %d: %w", i, err))
+		}
+		if err := removeRegistryKeyFromDNSPolicyConfig(gpoPath); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove GPO entry %d: %w", i, err))
+		}
 	}
 
 	if err := refreshGroupPolicy(); err != nil {

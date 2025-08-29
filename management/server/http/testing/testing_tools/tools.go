@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -133,12 +133,12 @@ func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *serve
 	}
 
 	geoMock := &geolocation.Mock{}
-	validatorMock := server.MocIntegratedValidator{}
+	validatorMock := server.MockIntegratedValidator{}
 	proxyController := integrations.NewController(store)
 	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)
 	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager)
-	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager)
+	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager, false)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}

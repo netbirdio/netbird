@@ -7,7 +7,7 @@ import (
 	"net/netip"
 
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func convertToFirewallProtocol(protocol mgmProto.RuleProtocol) (firewallManager.Protocol, error) {

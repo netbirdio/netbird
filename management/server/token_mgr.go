@@ -11,13 +11,13 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/types"
-	auth "github.com/netbirdio/netbird/relay/auth/hmac"
-	authv2 "github.com/netbirdio/netbird/relay/auth/hmac/v2"
-
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/shared/management/proto"
+	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
+	authv2 "github.com/netbirdio/netbird/shared/relay/auth/hmac/v2"
 )
 
 const defaultDuration = 12 * time.Hour
@@ -33,19 +33,20 @@ type SecretsManager interface {
 // TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
 type TimeBasedAuthSecretsManager struct {
 	mux             sync.Mutex
-	turnCfg         *types.TURNConfig
-	relayCfg        *types.Relay
+	turnCfg         *nbconfig.TURNConfig
+	relayCfg        *nbconfig.Relay
 	turnHmacToken   *auth.TimedHMAC
 	relayHmacToken  *authv2.Generator
 	updateManager   *PeersUpdateManager
 	settingsManager settings.Manager
+	groupsManager   groups.Manager
 	turnCancelMap   map[string]chan struct{}
 	relayCancelMap  map[string]chan struct{}
 }
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *types.TURNConfig, relayCfg *types.Relay, settingsManager settings.Manager) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager) *TimeBasedAuthSecretsManager {
 	mgr := &TimeBasedAuthSecretsManager{
 		updateManager:   updateManager,
 		turnCfg:         turnCfg,
@@ -53,6 +54,7 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *
 		turnCancelMap:   make(map[string]chan struct{}),
 		relayCancelMap:  make(map[string]chan struct{}),
 		settingsManager: settingsManager,
+		groupsManager:   groupsManager,
 	}
 
 	if turnCfg != nil {
@@ -258,6 +260,11 @@ func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, p
 		log.WithContext(ctx).Errorf("failed to get extra settings: %v", err)
 	}
 
-	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peerID, update.NetbirdConfig, extraSettings)
+	peerGroups, err := m.groupsManager.GetPeerGroupIDs(ctx, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer groups: %v", err)
+	}
+
+	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peerID, peerGroups, update.NetbirdConfig, extraSettings)
 	update.NetbirdConfig = extendedConfig
 }

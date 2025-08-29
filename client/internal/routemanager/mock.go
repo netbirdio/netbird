@@ -9,7 +9,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/util/net"
 )
 
 // MockManager is the mock instance of a route manager
@@ -23,8 +22,8 @@ type MockManager struct {
 	StopFunc                     func(manager *statemanager.Manager)
 }
 
-func (m *MockManager) Init() (net.AddHookFunc, net.RemoveHookFunc, error) {
-	return nil, nil, nil
+func (m *MockManager) Init() error {
+	return nil
 }
 
 // InitialRouteRange mock implementation of InitialRouteRange from Manager interface
@@ -87,7 +86,7 @@ func (m *MockManager) SetRouteChangeListener(listener listener.NetworkChangeList
 
 }
 
-func (m *MockManager) EnableServerRouter(firewall firewall.Manager) error {
+func (m *MockManager) SetFirewall(firewall.Manager) error {
 	panic("implement me")
 }
 

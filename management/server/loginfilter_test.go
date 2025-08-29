@@ -14,8 +14,8 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
-func testAdvancedCfg() *config {
-	return &config{
+func testAdvancedCfg() *lfConfig {
+	return &lfConfig{
 		reconnThreshold:   50 * time.Millisecond,
 		baseBlockDuration: 100 * time.Millisecond,
 		reconnLimitForBan: 3,

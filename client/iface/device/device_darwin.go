@@ -21,7 +21,7 @@ type TunDevice struct {
 	address wgaddr.Address
 	port    int
 	key     string
-	mtu     int
+	mtu     uint16
 	iceBind *bind.ICEBind
 
 	device         *device.Device
@@ -30,7 +30,7 @@ type TunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu int, iceBind *bind.ICEBind) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
@@ -42,7 +42,7 @@ func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu
 }
 
 func (t *TunDevice) Create() (WGConfigurer, error) {
-	tunDevice, err := tun.CreateTUN(t.name, t.mtu)
+	tunDevice, err := tun.CreateTUN(t.name, int(t.mtu))
 	if err != nil {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
@@ -61,7 +61,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
@@ -109,6 +109,10 @@ func (t *TunDevice) Close() error {
 
 func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunDevice) DeviceName() string {

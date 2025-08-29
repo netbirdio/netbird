@@ -314,7 +314,7 @@ func (m *Manager) buildConntrackStateMessage(d *decoder) string {
 func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP netip.Addr) bool {
 	trace.AddResult(StageRouting, "Packet destined for local delivery", true)
 
-	ruleId, blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
+	ruleId, blocked := m.peerACLsBlock(srcIP, d, packetData)
 
 	strRuleId := "<no id>"
 	if ruleId != nil {
@@ -401,7 +401,7 @@ func (m *Manager) addForwardingResult(trace *PacketTrace, action, remoteAddr str
 
 func (m *Manager) traceOutbound(packetData []byte, trace *PacketTrace) *PacketTrace {
 	// will create or update the connection state
-	dropped := m.processOutgoingHooks(packetData, 0)
+	dropped := m.filterOutbound(packetData, 0)
 	if dropped {
 		trace.AddResult(StageCompleted, "Packet dropped by outgoing hook", false)
 	} else {

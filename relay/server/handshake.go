@@ -6,13 +6,18 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/relay/auth"
-	"github.com/netbirdio/netbird/relay/messages"
+	"github.com/netbirdio/netbird/shared/relay/messages"
 	//nolint:staticcheck
-	"github.com/netbirdio/netbird/relay/messages/address"
+	"github.com/netbirdio/netbird/shared/relay/messages/address"
 	//nolint:staticcheck
-	authmsg "github.com/netbirdio/netbird/relay/messages/auth"
+	authmsg "github.com/netbirdio/netbird/shared/relay/messages/auth"
 )
+
+type Validator interface {
+	Validate(any) error
+	// Deprecated: Use Validate instead.
+	ValidateHelloMsgType(any) error
+}
 
 // preparedMsg contains the marshalled success response messages
 type preparedMsg struct {
@@ -54,14 +59,14 @@ func marshalResponseHelloMsg(instanceURL string) ([]byte, error) {
 
 type handshake struct {
 	conn        net.Conn
-	validator   auth.Validator
+	validator   Validator
 	preparedMsg *preparedMsg
 
 	handshakeMethodAuth bool
-	peerID              string
+	peerID              *messages.PeerID
 }
 
-func (h *handshake) handshakeReceive() ([]byte, error) {
+func (h *handshake) handshakeReceive() (*messages.PeerID, error) {
 	buf := make([]byte, messages.MaxHandshakeSize)
 	n, err := h.conn.Read(buf)
 	if err != nil {
@@ -80,17 +85,14 @@ func (h *handshake) handshakeReceive() ([]byte, error) {
 		return nil, fmt.Errorf("determine message type from %s: %w", h.conn.RemoteAddr(), err)
 	}
 
-	var (
-		bytePeerID []byte
-		peerID     string
-	)
+	var peerID *messages.PeerID
 	switch msgType {
 	//nolint:staticcheck
 	case messages.MsgTypeHello:
-		bytePeerID, peerID, err = h.handleHelloMsg(buf)
+		peerID, err = h.handleHelloMsg(buf)
 	case messages.MsgTypeAuth:
 		h.handshakeMethodAuth = true
-		bytePeerID, peerID, err = h.handleAuthMsg(buf)
+		peerID, err = h.handleAuthMsg(buf)
 	default:
 		return nil, fmt.Errorf("invalid message type %d from %s", msgType, h.conn.RemoteAddr())
 	}
@@ -98,7 +100,7 @@ func (h *handshake) handshakeReceive() ([]byte, error) {
 		return nil, err
 	}
 	h.peerID = peerID
-	return bytePeerID, nil
+	return peerID, nil
 }
 
 func (h *handshake) handshakeResponse() error {
@@ -116,40 +118,37 @@ func (h *handshake) handshakeResponse() error {
 	return nil
 }
 
-func (h *handshake) handleHelloMsg(buf []byte) ([]byte, string, error) {
+func (h *handshake) handleHelloMsg(buf []byte) (*messages.PeerID, error) {
 	//nolint:staticcheck
-	rawPeerID, authData, err := messages.UnmarshalHelloMsg(buf)
+	peerID, authData, err := messages.UnmarshalHelloMsg(buf)
 	if err != nil {
-		return nil, "", fmt.Errorf("unmarshal hello message: %w", err)
+		return nil, fmt.Errorf("unmarshal hello message: %w", err)
 	}
 
-	peerID := messages.HashIDToString(rawPeerID)
 	log.Warnf("peer %s (%s) is using deprecated initial message type", peerID, h.conn.RemoteAddr())
 
 	authMsg, err := authmsg.UnmarshalMsg(authData)
 	if err != nil {
-		return nil, "", fmt.Errorf("unmarshal auth message: %w", err)
+		return nil, fmt.Errorf("unmarshal auth message: %w", err)
 	}
 
 	//nolint:staticcheck
 	if err := h.validator.ValidateHelloMsgType(authMsg.AdditionalData); err != nil {
-		return nil, "", fmt.Errorf("validate %s (%s): %w", peerID, h.conn.RemoteAddr(), err)
+		return nil, fmt.Errorf("validate %s (%s): %w", peerID, h.conn.RemoteAddr(), err)
 	}
 
-	return rawPeerID, peerID, nil
+	return peerID, nil
 }
 
-func (h *handshake) handleAuthMsg(buf []byte) ([]byte, string, error) {
+func (h *handshake) handleAuthMsg(buf []byte) (*messages.PeerID, error) {
 	rawPeerID, authPayload, err := messages.UnmarshalAuthMsg(buf)
 	if err != nil {
-		return nil, "", fmt.Errorf("unmarshal hello message: %w", err)
+		return nil, fmt.Errorf("unmarshal hello message: %w", err)
 	}
-
-	peerID := messages.HashIDToString(rawPeerID)
 
 	if err := h.validator.Validate(authPayload); err != nil {
-		return nil, "", fmt.Errorf("validate %s (%s): %w", peerID, h.conn.RemoteAddr(), err)
+		return nil, fmt.Errorf("validate %s (%s): %w", rawPeerID.String(), h.conn.RemoteAddr(), err)
 	}
 
-	return rawPeerID, peerID, nil
+	return rawPeerID, nil
 }

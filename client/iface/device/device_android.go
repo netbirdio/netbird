@@ -21,7 +21,7 @@ type WGTunDevice struct {
 	address    wgaddr.Address
 	port       int
 	key        string
-	mtu        int
+	mtu        uint16
 	iceBind    *bind.ICEBind
 	tunAdapter TunAdapter
 	disableDNS bool
@@ -33,7 +33,7 @@ type WGTunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(address wgaddr.Address, port int, key string, mtu int, iceBind *bind.ICEBind, tunAdapter TunAdapter, disableDNS bool) *WGTunDevice {
+func NewTunDevice(address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunAdapter TunAdapter, disableDNS bool) *WGTunDevice {
 	return &WGTunDevice{
 		address:    address,
 		port:       port,
@@ -58,7 +58,7 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 		searchDomainsToString = ""
 	}
 
-	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, dns, searchDomainsToString, routesString)
+	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), int(t.mtu), dns, searchDomainsToString, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err
@@ -79,7 +79,7 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
@@ -135,6 +135,10 @@ func (t *WGTunDevice) DeviceName() string {
 
 func (t *WGTunDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *WGTunDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *WGTunDevice) FilteredDevice() *FilteredDevice {

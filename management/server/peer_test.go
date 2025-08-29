@@ -10,7 +10,10 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,11 +22,15 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/shared/management/status"
 
 	"github.com/netbirdio/netbird/management/server/util"
 
@@ -32,8 +39,6 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -41,6 +46,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestPeer_LoginExpired(t *testing.T) {
@@ -304,12 +311,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group1, true)
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &group1)
 	if err != nil {
 		t.Errorf("expecting group1 to be added, got failure %v", err)
 		return
 	}
-	err = manager.SaveGroup(context.Background(), account.Id, userID, &group2, true)
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &group2)
 	if err != nil {
 		t.Errorf("expecting group2 to be added, got failure %v", err)
 		return
@@ -480,7 +487,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	accountID := "test_account"
 	adminUser := "account_creator"
 	someUser := "some_user"
-	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
 	account.Users[someUser] = &types.User{
 		Id:   someUser,
 		Role: types.UserRoleUser,
@@ -667,7 +674,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			accountID := "test_account"
 			adminUser := "account_creator"
 			someUser := "some_user"
-			account := newAccountWithId(context.Background(), accountID, adminUser, "")
+			account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
 			account.Users[someUser] = &types.User{
 				Id:            someUser,
 				Role:          testCase.role,
@@ -737,7 +744,7 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 	adminUser := "account_creator"
 	regularUser := "regular_user"
 
-	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
 	account.Users[regularUser] = &types.User{
 		Id:   regularUser,
 		Role: types.UserRoleUser,
@@ -1057,16 +1064,16 @@ func TestToSyncResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	config := &types.Config{
-		Signal: &types.Host{
+	config := &config.Config{
+		Signal: &config.Host{
 			Proto:    "https",
 			URI:      "signal.uri",
 			Username: "",
 			Password: "",
 		},
-		Stuns: []*types.Host{{URI: "stun.uri", Proto: types.UDP}},
-		TURNConfig: &types.TURNConfig{
-			Turns: []*types.Host{{URI: "turn.uri", Proto: types.UDP, Username: "turn-user", Password: "turn-pass"}},
+		Stuns: []*config.Host{{URI: "stun.uri", Proto: config.UDP}},
+		TURNConfig: &config.TURNConfig{
+			Turns: []*config.Host{{URI: "turn.uri", Proto: config.UDP, Username: "turn-user", Password: "turn-pass"}},
 		},
 	}
 	peer := &nbpeer.Peer{
@@ -1158,7 +1165,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 	accountSettings := &types.Settings{RoutingPeerDNSResolutionEnabled: true}
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil)
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{})
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1267,7 +1274,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1301,7 +1308,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels)
 
-	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, addedPeer.Key)
+	peer, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, addedPeer.Key)
 	require.NoError(t, err)
 	assert.Equal(t, peer.AccountID, existingAccountID)
 	assert.Equal(t, peer.UserID, existingUserID)
@@ -1340,9 +1347,14 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1373,6 +1385,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		existingSetupKeyID        string
 		expectedGroupIDsInAccount []string
 		expectAddPeerError        bool
+		errorType                 status.Type
 		expectedErrorMsgSubstring string
 	}{
 		{
@@ -1385,13 +1398,15 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			name:                      "Failed registration with setup key not allowing extra DNS labels",
 			existingSetupKeyID:        "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
 			expectAddPeerError:        true,
+			errorType:                 status.PreconditionFailed,
 			expectedErrorMsgSubstring: "setup key doesn't allow extra DNS labels",
 		},
 		{
 			name:                      "Absent setup key",
 			existingSetupKeyID:        "AAAAAAAA-38F5-4553-B31E-DD66C696CEBB",
 			expectAddPeerError:        true,
-			expectedErrorMsgSubstring: "failed adding new peer: account not found",
+			errorType:                 status.NotFound,
+			expectedErrorMsgSubstring: "couldn't add peer: setup key is invalid",
 		},
 	}
 
@@ -1416,6 +1431,11 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			if tc.expectAddPeerError {
 				require.Error(t, err, "Expected an error when adding peer with setup key: %s", tc.existingSetupKeyID)
 				assert.Contains(t, err.Error(), tc.expectedErrorMsgSubstring, "Error message mismatch")
+				e, ok := status.FromError(err)
+				if !ok {
+					t.Fatal("Failed to map error")
+				}
+				assert.Equal(t, e.Type(), tc.errorType)
 				return
 			}
 
@@ -1423,7 +1443,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 			assert.NotNil(t, addedPeer, "addedPeer should not be nil on success")
 			assert.Equal(t, currentPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels, "ExtraDNSLabels mismatch")
 
-			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, currentPeer.Key)
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, currentPeer.Key)
 			require.NoError(t, err, "Failed to get peer by pub key: %s", currentPeer.Key)
 			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
 			assert.Equal(t, currentPeer.ExtraDNSLabels, peerFromStore.ExtraDNSLabels, "ExtraDNSLabels mismatch for peer from store")
@@ -1456,6 +1476,11 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 }
 
 func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
+	engine := os.Getenv("NETBIRD_STORE_ENGINE")
+	if engine == "sqlite" || engine == "mysql" || engine == "" {
+		// we intentionally disabled foreign keys in mysql
+		t.Skip("Skipping test because store is not respecting foreign keys")
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
@@ -1477,7 +1502,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1505,7 +1530,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	_, _, _, err = am.AddPeer(context.Background(), faultyKey, "", newPeer)
 	require.Error(t, err)
 
-	_, err = s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, newPeer.Key)
+	_, err = s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, newPeer.Key)
 	require.Error(t, err)
 
 	account, err := s.GetAccount(context.Background(), existingAccountID)
@@ -1544,9 +1569,14 @@ func Test_LoginPeer(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MocIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager)
+	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1670,7 +1700,7 @@ func Test_LoginPeer(t *testing.T) {
 
 			assert.Equal(t, existingAccountID, loggedinPeer.AccountID, "AccountID mismatch for logged peer")
 
-			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthShare, loginInput.WireGuardPubKey)
+			peerFromStore, err := s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, loginInput.WireGuardPubKey)
 			require.NoError(t, err, "Failed to get peer by pub key: %s", loginInput.WireGuardPubKey)
 			assert.Equal(t, existingAccountID, peerFromStore.AccountID, "AccountID mismatch for peer from store")
 			assert.Equal(t, loggedinPeer.ID, peerFromStore.ID, "Peer ID mismatch between loggedinPeer and peerFromStore")
@@ -1684,7 +1714,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
 	require.NoError(t, err)
 
-	err = manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	g := []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -1700,8 +1730,11 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupC",
 			Peers: []string{},
 		},
-	}, true)
-	require.NoError(t, err)
+	}
+	for _, group := range g {
+		err = manager.CreateGroup(context.Background(), account.Id, userID, group)
+		require.NoError(t, err)
+	}
 
 	// create a user with auto groups
 	_, err = manager.SaveOrAddUsers(context.Background(), account.Id, userID, []*types.User{
@@ -1760,7 +1793,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg) //
 			close(done)
 		}()
 
@@ -1823,7 +1856,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			return update, true, nil
 		}
 
-		manager.integratedPeerValidator = MocIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
+		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg)
@@ -1845,7 +1878,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 			return update, false, nil
 		}
 
-		manager.integratedPeerValidator = MocIntegratedValidator{ValidatePeerFunc: requireNoUpdateFunc}
+		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireNoUpdateFunc}
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1939,7 +1972,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		_, err := manager.CreateRoute(
 			context.Background(), account.Id, route.Network, route.NetworkType, route.Domains, route.Peer,
 			route.PeerGroups, route.Description, route.NetID, route.Masquerade, route.Metric,
-			route.Groups, []string{}, true, userID, route.KeepRoute,
+			route.Groups, []string{}, true, userID, route.KeepRoute, route.SkipAutoApply,
 		)
 		require.NoError(t, err)
 
@@ -2051,15 +2084,19 @@ func Test_DeletePeer(t *testing.T) {
 	// account with an admin and a regular user
 	accountID := "test_account"
 	adminUser := "account_creator"
-	account := newAccountWithId(context.Background(), accountID, adminUser, "")
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
 	account.Peers = map[string]*nbpeer.Peer{
 		"peer1": {
 			ID:        "peer1",
 			AccountID: accountID,
+			IP:        net.IP{1, 1, 1, 1},
+			DNSLabel:  "peer1.test",
 		},
 		"peer2": {
 			ID:        "peer2",
 			AccountID: accountID,
+			IP:        net.IP{2, 2, 2, 2},
+			DNSLabel:  "peer2.test",
 		},
 	}
 	account.Groups = map[string]*types.Group{
@@ -2088,4 +2125,265 @@ func Test_DeletePeer(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotContains(t, group.Peers, "peer1")
 
+}
+
+func Test_IsUniqueConstraintError(t *testing.T) {
+	tests := []struct {
+		name   string
+		engine types.Engine
+	}{
+		{
+			name:   "PostgreSQL uniqueness error",
+			engine: types.PostgresStoreEngine,
+		},
+		{
+			name:   "MySQL uniqueness error",
+			engine: types.MysqlStoreEngine,
+		},
+		{
+			name:   "SQLite uniqueness error",
+			engine: types.SqliteStoreEngine,
+		},
+	}
+
+	peer := &nbpeer.Peer{
+		ID:        "test-peer-id",
+		AccountID: "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+		DNSLabel:  "test-peer-dns-label",
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("NETBIRD_STORE_ENGINE", string(tt.engine))
+			s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "testdata/extended-store.sql", t.TempDir())
+			if err != nil {
+				t.Fatalf("Error when creating store: %s", err)
+			}
+			t.Cleanup(cleanup)
+
+			err = s.AddPeerToAccount(context.Background(), peer)
+			assert.NoError(t, err)
+
+			err = s.AddPeerToAccount(context.Background(), peer)
+			result := isUniqueConstraintError(err)
+			assert.True(t, result)
+		})
+	}
+}
+
+func Test_AddPeer(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	accountID := "testaccount"
+	userID := "testuser"
+
+	_, err = createAccount(manager, accountID, userID, "domain.com")
+	if err != nil {
+		t.Fatalf("error creating account: %v", err)
+		return
+	}
+
+	setupKey, err := manager.CreateSetupKey(context.Background(), accountID, "test-key", types.SetupKeyReusable, time.Hour, nil, 10000, userID, false, false)
+	if err != nil {
+		t.Fatal("error creating setup key")
+		return
+	}
+
+	const totalPeers = 300
+
+	var wg sync.WaitGroup
+	errs := make(chan error, totalPeers)
+	start := make(chan struct{})
+	for i := 0; i < totalPeers; i++ {
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+
+			newPeer := &nbpeer.Peer{
+				AccountID: accountID,
+				Key:       "key" + strconv.Itoa(i),
+				Meta:      nbpeer.PeerSystemMeta{Hostname: "peer" + strconv.Itoa(i), GoOS: "linux"},
+			}
+
+			<-start
+
+			_, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", newPeer)
+			if err != nil {
+				errs <- fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
+				return
+			}
+
+		}(i)
+	}
+	startTime := time.Now()
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	t.Logf("time since start: %s", time.Since(startTime))
+
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	account, err := manager.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatalf("Failed to get account %s: %v", accountID, err)
+	}
+
+	assert.Equal(t, totalPeers, len(account.Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
+
+	seenIP := make(map[string]bool)
+	for _, p := range account.Peers {
+		ipStr := p.IP.String()
+		if seenIP[ipStr] {
+			t.Fatalf("Duplicate IP found in account %s: %s", accountID, ipStr)
+		}
+		seenIP[ipStr] = true
+	}
+
+	seenLabel := make(map[string]bool)
+	for _, p := range account.Peers {
+		if seenLabel[p.DNSLabel] {
+			t.Fatalf("Duplicate Label found in account %s: %s", accountID, p.DNSLabel)
+		}
+		seenLabel[p.DNSLabel] = true
+	}
+
+	assert.Equal(t, totalPeers, maps.Values(account.SetupKeys)[0].UsedTimes)
+	assert.Equal(t, uint64(totalPeers), account.Network.Serial)
+}
+
+func TestBufferUpdateAccountPeers(t *testing.T) {
+	const (
+		peersCount            = 1000
+		updateAccountInterval = 50 * time.Millisecond
+	)
+
+	var (
+		deletedPeers, updatePeersDeleted, updatePeersRuns atomic.Int32
+		uapLastRun, dpLastRun                             atomic.Int64
+
+		totalNewRuns, totalOldRuns int
+	)
+
+	uap := func(ctx context.Context, accountID string) {
+		updatePeersDeleted.Store(deletedPeers.Load())
+		updatePeersRuns.Add(1)
+		uapLastRun.Store(time.Now().UnixMilli())
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Run("new approach", func(t *testing.T) {
+		updatePeersRuns.Store(0)
+		updatePeersDeleted.Store(0)
+		deletedPeers.Store(0)
+
+		var mustore sync.Map
+		bufupd := func(ctx context.Context, accountID string) {
+			mu, _ := mustore.LoadOrStore(accountID, &bufferUpdate{})
+			b := mu.(*bufferUpdate)
+
+			if !b.mu.TryLock() {
+				b.update.Store(true)
+				return
+			}
+
+			if b.next != nil {
+				b.next.Stop()
+			}
+
+			go func() {
+				defer b.mu.Unlock()
+				uap(ctx, accountID)
+				if !b.update.Load() {
+					return
+				}
+				b.update.Store(false)
+				b.next = time.AfterFunc(updateAccountInterval, func() {
+					uap(ctx, accountID)
+				})
+			}()
+		}
+		dp := func(ctx context.Context, accountID, peerID, userID string) error {
+			deletedPeers.Add(1)
+			dpLastRun.Store(time.Now().UnixMilli())
+			time.Sleep(10 * time.Millisecond)
+			bufupd(ctx, accountID)
+			return nil
+		}
+
+		am := mock_server.MockAccountManager{
+			UpdateAccountPeersFunc:       uap,
+			BufferUpdateAccountPeersFunc: bufupd,
+			DeletePeerFunc:               dp,
+		}
+		empty := ""
+		for range peersCount {
+			//nolint
+			am.DeletePeer(context.Background(), empty, empty, empty)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
+		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
+		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
+
+		totalNewRuns = int(updatePeersRuns.Load())
+	})
+
+	t.Run("old approach", func(t *testing.T) {
+		updatePeersRuns.Store(0)
+		updatePeersDeleted.Store(0)
+		deletedPeers.Store(0)
+
+		var mustore sync.Map
+		bufupd := func(ctx context.Context, accountID string) {
+			mu, _ := mustore.LoadOrStore(accountID, &sync.Mutex{})
+			b := mu.(*sync.Mutex)
+
+			if !b.TryLock() {
+				return
+			}
+
+			go func() {
+				time.Sleep(updateAccountInterval)
+				b.Unlock()
+				uap(ctx, accountID)
+			}()
+		}
+		dp := func(ctx context.Context, accountID, peerID, userID string) error {
+			deletedPeers.Add(1)
+			dpLastRun.Store(time.Now().UnixMilli())
+			time.Sleep(10 * time.Millisecond)
+			bufupd(ctx, accountID)
+			return nil
+		}
+
+		am := mock_server.MockAccountManager{
+			UpdateAccountPeersFunc:       uap,
+			BufferUpdateAccountPeersFunc: bufupd,
+			DeletePeerFunc:               dp,
+		}
+		empty := ""
+		for range peersCount {
+			//nolint
+			am.DeletePeer(context.Background(), empty, empty, empty)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
+		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
+		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
+
+		totalOldRuns = int(updatePeersRuns.Load())
+	})
+	assert.Less(t, totalNewRuns, totalOldRuns, "Expected new approach to run less than old approach. New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
+	t.Logf("New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
 }

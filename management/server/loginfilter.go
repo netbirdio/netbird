@@ -18,15 +18,15 @@ const (
 	metaChangeLimit   = 3                // Number of reconnections with different metadata that triggers a ban of one peer
 )
 
-type config struct {
+type lfConfig struct {
 	reconnThreshold   time.Duration
 	baseBlockDuration time.Duration
 	reconnLimitForBan int
 	metaChangeLimit   int
 }
 
-func initCfg() *config {
-	return &config{
+func initCfg() *lfConfig {
+	return &lfConfig{
 		reconnThreshold:   reconnThreshold,
 		baseBlockDuration: baseBlockDuration,
 		reconnLimitForBan: reconnLimitForBan,
@@ -36,7 +36,7 @@ func initCfg() *config {
 
 type loginFilter struct {
 	mu     sync.RWMutex
-	cfg    *config
+	cfg    *lfConfig
 	logged map[string]*peerState
 }
 
@@ -56,7 +56,7 @@ func newLoginFilter() *loginFilter {
 	return newLoginFilterWithCfg(initCfg())
 }
 
-func newLoginFilterWithCfg(cfg *config) *loginFilter {
+func newLoginFilterWithCfg(cfg *lfConfig) *loginFilter {
 	return &loginFilter{
 		logged: make(map[string]*peerState),
 		cfg:    cfg,

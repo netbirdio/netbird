@@ -2,88 +2,40 @@ package cmd
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
-	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
+	"os/signal"
 	"path"
-	"slices"
 	"strings"
-	"time"
+	"syscall"
 
-	"github.com/google/uuid"
-	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/acme/autocert"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/keepalive"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
-
-	"github.com/netbirdio/management-integrations/integrations"
-
-	"github.com/netbirdio/netbird/management/server/peers"
-	"github.com/netbirdio/netbird/management/server/types"
-
-	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/auth"
-	nbContext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/groups"
-	nbhttp "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/metrics"
-	"github.com/netbirdio/netbird/management/server/networks"
-	"github.com/netbirdio/netbird/management/server/networks/resources"
-	"github.com/netbirdio/netbird/management/server/networks/routers"
-	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/management/server/users"
+	"github.com/netbirdio/netbird/management/internals/server"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/util"
-	"github.com/netbirdio/netbird/version"
 )
 
-// ManagementLegacyPort is the port that was used before by the Management gRPC server.
-// It is used for backward compatibility now.
-const ManagementLegacyPort = 33073
+var newServer = func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server {
+	return server.NewServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
+}
+
+func SetNewServer(fn func(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort int, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) server.Server) {
+	newServer = fn
+}
 
 var (
-	mgmtPort                int
-	mgmtMetricsPort         int
-	mgmtLetsencryptDomain   string
-	mgmtSingleAccModeDomain string
-	certFile                string
-	certKey                 string
-	config                  *types.Config
-
-	kaep = keepalive.EnforcementPolicy{
-		MinTime:             15 * time.Second,
-		PermitWithoutStream: true,
-	}
-
-	kasp = keepalive.ServerParameters{
-		MaxConnectionIdle:     15 * time.Second,
-		MaxConnectionAgeGrace: 5 * time.Second,
-		Time:                  5 * time.Second,
-		Timeout:               2 * time.Second,
-	}
+	config *nbconfig.Config
 
 	mgmtCmd = &cobra.Command{
 		Use:   "management",
@@ -102,9 +54,9 @@ var (
 			// detect whether user specified a port
 			userPort := cmd.Flag("port").Changed
 
-			config, err = loadMgmtConfig(ctx, types.MgmtConfigPath)
+			config, err = loadMgmtConfig(ctx, nbconfig.MgmtConfigPath)
 			if err != nil {
-				return fmt.Errorf("failed reading provided config file: %s: %v", types.MgmtConfigPath, err)
+				return fmt.Errorf("failed reading provided config file: %s: %v", nbconfig.MgmtConfigPath, err)
 			}
 
 			if cmd.Flag(idpSignKeyRefreshEnabledFlagName).Changed {
@@ -142,7 +94,7 @@ var (
 
 			err := handleRebrand(cmd)
 			if err != nil {
-				return fmt.Errorf("failed to migrate files %v", err)
+				return fmt.Errorf("migrate files %v", err)
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
@@ -151,349 +103,38 @@ var (
 					return fmt.Errorf("failed creating datadir: %s: %v", config.Datadir, err)
 				}
 			}
-			appMetrics, err := telemetry.NewDefaultAppMetrics(cmd.Context())
-			if err != nil {
-				return err
-			}
-			err = appMetrics.Expose(ctx, mgmtMetricsPort, "/metrics")
-			if err != nil {
-				return err
-			}
-
-			integrationMetrics, err := integrations.InitIntegrationMetrics(ctx, appMetrics)
-			if err != nil {
-				return err
-			}
-
-			store, err := store.NewStore(ctx, config.StoreConfig.Engine, config.Datadir, appMetrics, false)
-			if err != nil {
-				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
-			}
-			peersUpdateManager := server.NewPeersUpdateManager(appMetrics)
-
-			var idpManager idp.Manager
-			if config.IdpManagerConfig != nil {
-				idpManager, err = idp.NewManager(ctx, *config.IdpManagerConfig, appMetrics)
-				if err != nil {
-					return fmt.Errorf("failed retrieving a new idp manager with err: %v", err)
-				}
-			}
 
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			eventStore, key, err := integrations.InitEventStore(ctx, config.Datadir, config.DataStoreEncryptionKey, integrationMetrics)
-			if err != nil {
-				return fmt.Errorf("failed to initialize database: %s", err)
-			}
 
-			if config.DataStoreEncryptionKey != key {
-				log.WithContext(ctx).Infof("update config with activity store key")
-				config.DataStoreEncryptionKey = key
-				err := updateMgmtConfig(ctx, types.MgmtConfigPath, config)
+			srv := newServer(config, dnsDomain, mgmtSingleAccModeDomain, mgmtPort, mgmtMetricsPort, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled)
+			go func() {
+				if err := srv.Start(cmd.Context()); err != nil {
+					log.Fatalf("Server error: %v", err)
+				}
+			}()
+
+			stopChan := make(chan os.Signal, 1)
+			signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
+			select {
+			case <-stopChan:
+				log.Info("Received shutdown signal, stopping server...")
+				err = srv.Stop()
 				if err != nil {
-					return fmt.Errorf("failed to write out store encryption key: %s", err)
+					log.Errorf("Failed to stop server gracefully: %v", err)
 				}
+			case err := <-srv.Errors():
+				log.Fatalf("Server stopped unexpectedly: %v", err)
 			}
-
-			geo, err := geolocation.NewGeolocation(ctx, config.Datadir, !disableGeoliteUpdate)
-			if err != nil {
-				log.WithContext(ctx).Warnf("could not initialize geolocation service. proceeding without geolocation support: %v", err)
-			} else {
-				log.WithContext(ctx).Infof("geolocation service has been initialized from %s", config.Datadir)
-			}
-
-			integratedPeerValidator, err := integrations.NewIntegratedValidator(ctx, eventStore)
-			if err != nil {
-				return fmt.Errorf("failed to initialize integrated peer validator: %v", err)
-			}
-
-			permissionsManager := integrations.InitPermissionsManager(store)
-			userManager := users.NewManager(store)
-			extraSettingsManager := integrations.NewManager(eventStore)
-			settingsManager := settings.NewManager(store, userManager, extraSettingsManager, permissionsManager)
-			peersManager := peers.NewManager(store, permissionsManager)
-			proxyController := integrations.NewController(store)
-			accountManager, err := server.BuildManager(ctx, store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
-				dnsDomain, eventStore, geo, userDeleteFromIDPEnabled, integratedPeerValidator, appMetrics, proxyController, settingsManager, permissionsManager)
-			if err != nil {
-				return fmt.Errorf("failed to build default manager: %v", err)
-			}
-
-			secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsManager)
-
-			trustedPeers := config.ReverseProxy.TrustedPeers
-			defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
-			if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
-				log.WithContext(ctx).Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
-				trustedPeers = defaultTrustedPeers
-			}
-			trustedHTTPProxies := config.ReverseProxy.TrustedHTTPProxies
-			trustedProxiesCount := config.ReverseProxy.TrustedHTTPProxiesCount
-			if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
-				log.WithContext(ctx).Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
-					"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
-			}
-			realipOpts := []realip.Option{
-				realip.WithTrustedPeers(trustedPeers),
-				realip.WithTrustedProxies(trustedHTTPProxies),
-				realip.WithTrustedProxiesCount(trustedProxiesCount),
-				realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
-			}
-			gRPCOpts := []grpc.ServerOption{
-				grpc.KeepaliveEnforcementPolicy(kaep),
-				grpc.KeepaliveParams(kasp),
-				grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor),
-				grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor),
-			}
-
-			var certManager *autocert.Manager
-			var tlsConfig *tls.Config
-			tlsEnabled := false
-			if config.HttpConfig.LetsEncryptDomain != "" {
-				certManager, err = encryption.CreateCertManager(config.Datadir, config.HttpConfig.LetsEncryptDomain)
-				if err != nil {
-					return fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
-				}
-				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
-				gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
-				tlsEnabled = true
-			} else if config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "" {
-				tlsConfig, err = loadTLSConfig(config.HttpConfig.CertFile, config.HttpConfig.CertKey)
-				if err != nil {
-					log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
-					return err
-				}
-				transportCredentials := credentials.NewTLS(tlsConfig)
-				gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
-				tlsEnabled = true
-			}
-
-			authManager := auth.NewManager(store,
-				config.HttpConfig.AuthIssuer,
-				config.HttpConfig.AuthAudience,
-				config.HttpConfig.AuthKeysLocation,
-				config.HttpConfig.AuthUserIDClaim,
-				config.GetAuthAudiences(),
-				config.HttpConfig.IdpSignKeyRefreshEnabled)
-
-			groupsManager := groups.NewManager(store, permissionsManager, accountManager)
-			resourcesManager := resources.NewManager(store, permissionsManager, groupsManager, accountManager)
-			routersManager := routers.NewManager(store, permissionsManager, accountManager)
-			networksManager := networks.NewManager(store, permissionsManager, resourcesManager, routersManager, accountManager)
-
-			httpAPIHandler, err := nbhttp.NewAPIHandler(ctx, accountManager, networksManager, resourcesManager, routersManager, groupsManager, geo, authManager, appMetrics, integratedPeerValidator, proxyController, permissionsManager, peersManager, settingsManager)
-
-			if err != nil {
-				return fmt.Errorf("failed creating HTTP API handler: %v", err)
-			}
-
-			ephemeralManager := server.NewEphemeralManager(store, accountManager)
-			ephemeralManager.LoadInitialPeers(ctx)
-
-			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(ctx, config, accountManager, settingsManager, peersUpdateManager, secretsManager, appMetrics, ephemeralManager, authManager)
-			if err != nil {
-				return fmt.Errorf("failed creating gRPC API handler: %v", err)
-			}
-			mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
-
-			installationID, err := getInstallationID(ctx, store)
-			if err != nil {
-				log.WithContext(ctx).Errorf("cannot load TLS credentials: %v", err)
-				return err
-			}
-
-			if !disableMetrics {
-				idpManager := "disabled"
-				if config.IdpManagerConfig != nil && config.IdpManagerConfig.ManagerType != "" {
-					idpManager = config.IdpManagerConfig.ManagerType
-				}
-				metricsWorker := metrics.NewWorker(ctx, installationID, store, peersUpdateManager, idpManager)
-				go metricsWorker.Run(ctx)
-			}
-
-			var compatListener net.Listener
-			if mgmtPort != ManagementLegacyPort {
-				// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
-				// are using port 33073. For compatibility purposes we keep running a 2nd gRPC server on port 33073.
-				compatListener, err = serveGRPC(ctx, gRPCAPIHandler, ManagementLegacyPort)
-				if err != nil {
-					return err
-				}
-				log.WithContext(ctx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
-			}
-
-			rootHandler := handlerFunc(gRPCAPIHandler, httpAPIHandler)
-			var listener net.Listener
-			if certManager != nil {
-				// a call to certManager.Listener() always creates a new listener so we do it once
-				cml := certManager.Listener()
-				if mgmtPort == 443 {
-					// CertManager, HTTP and gRPC API all on the same port
-					rootHandler = certManager.HTTPHandler(rootHandler)
-					listener = cml
-				} else {
-					listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", mgmtPort), certManager.TLSConfig())
-					if err != nil {
-						return fmt.Errorf("failed creating TLS listener on port %d: %v", mgmtPort, err)
-					}
-					log.WithContext(ctx).Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
-					serveHTTP(ctx, cml, certManager.HTTPHandler(nil))
-				}
-			} else if tlsConfig != nil {
-				listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", mgmtPort), tlsConfig)
-				if err != nil {
-					return fmt.Errorf("failed creating TLS listener on port %d: %v", mgmtPort, err)
-				}
-			} else {
-				listener, err = net.Listen("tcp", fmt.Sprintf(":%d", mgmtPort))
-				if err != nil {
-					return fmt.Errorf("failed creating TCP listener on port %d: %v", mgmtPort, err)
-				}
-			}
-
-			log.WithContext(ctx).Infof("management server version %s", version.NetbirdVersion())
-			log.WithContext(ctx).Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
-			serveGRPCWithHTTP(ctx, listener, rootHandler, tlsEnabled)
-
-			SetupCloseHandler()
-
-			<-stopCh
-			integratedPeerValidator.Stop(ctx)
-			if geo != nil {
-				_ = geo.Stop()
-			}
-			ephemeralManager.Stop()
-			_ = appMetrics.Close()
-			_ = listener.Close()
-			if certManager != nil {
-				_ = certManager.Listener().Close()
-			}
-			gRPCAPIHandler.Stop()
-			_ = store.Close(ctx)
-			_ = eventStore.Close(ctx)
-			log.WithContext(ctx).Infof("stopped Management Service")
 
 			return nil
 		},
 	}
 )
 
-func unaryInterceptor(
-	ctx context.Context,
-	req interface{},
-	info *grpc.UnaryServerInfo,
-	handler grpc.UnaryHandler,
-) (interface{}, error) {
-	reqID := uuid.New().String()
-	//nolint
-	ctx = context.WithValue(ctx, hook.ExecutionContextKey, hook.GRPCSource)
-	//nolint
-	ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
-	return handler(ctx, req)
-}
-
-func streamInterceptor(
-	srv interface{},
-	ss grpc.ServerStream,
-	info *grpc.StreamServerInfo,
-	handler grpc.StreamHandler,
-) error {
-	reqID := uuid.New().String()
-	wrapped := grpcMiddleware.WrapServerStream(ss)
-	//nolint
-	ctx := context.WithValue(ss.Context(), hook.ExecutionContextKey, hook.GRPCSource)
-	//nolint
-	wrapped.WrappedContext = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
-	return handler(srv, wrapped)
-}
-
-func notifyStop(ctx context.Context, msg string) {
-	select {
-	case stopCh <- 1:
-		log.WithContext(ctx).Error(msg)
-	default:
-		// stop has been already called, nothing to report
-	}
-}
-
-func getInstallationID(ctx context.Context, store store.Store) (string, error) {
-	installationID := store.GetInstallationID()
-	if installationID != "" {
-		return installationID, nil
-	}
-
-	installationID = strings.ToUpper(uuid.New().String())
-	err := store.SaveInstallationID(ctx, installationID)
-	if err != nil {
-		return "", err
-	}
-	return installationID, nil
-}
-
-func serveGRPC(ctx context.Context, grpcServer *grpc.Server, port int) (net.Listener, error) {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return nil, err
-	}
-	go func() {
-		err := grpcServer.Serve(listener)
-		if err != nil {
-			notifyStop(ctx, fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
-		}
-	}()
-	return listener, nil
-}
-
-func serveHTTP(ctx context.Context, httpListener net.Listener, handler http.Handler) {
-	go func() {
-		err := http.Serve(httpListener, handler)
-		if err != nil {
-			notifyStop(ctx, fmt.Sprintf("failed running HTTP server: %v", err))
-		}
-	}()
-}
-
-func serveGRPCWithHTTP(ctx context.Context, listener net.Listener, handler http.Handler, tlsEnabled bool) {
-	go func() {
-		var err error
-		if tlsEnabled {
-			err = http.Serve(listener, handler)
-		} else {
-			// the following magic is needed to support HTTP2 without TLS
-			// and still share a single port between gRPC and HTTP APIs
-			h1s := &http.Server{
-				Handler: h2c.NewHandler(handler, &http2.Server{}),
-			}
-			err = h1s.Serve(listener)
-		}
-
-		if err != nil {
-			select {
-			case stopCh <- 1:
-				log.WithContext(ctx).Errorf("failed to serve HTTP and gRPC server: %v", err)
-			default:
-				// stop has been already called, nothing to report
-			}
-		}
-	}()
-}
-
-func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		grpcHeader := strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
-			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")
-		if request.ProtoMajor == 2 && grpcHeader {
-			gRPCHandler.ServeHTTP(writer, request)
-		} else {
-			httpHandler.ServeHTTP(writer, request)
-		}
-	})
-}
-
-func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*types.Config, error) {
-	loadedConfig := &types.Config{}
+func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*nbconfig.Config, error) {
+	loadedConfig := &nbconfig.Config{}
 	_, err := util.ReadJsonWithEnvSub(mgmtConfigPath, loadedConfig)
 	if err != nil {
 		return nil, err
@@ -528,7 +169,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*types.Config, 
 			oidcConfig.JwksURI, loadedConfig.HttpConfig.AuthKeysLocation)
 		loadedConfig.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
-		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(types.NONE)) {
+		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(nbconfig.NONE)) {
 			log.WithContext(ctx).Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.TokenEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
@@ -545,7 +186,7 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*types.Config, 
 			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
 
 			if loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
-				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = types.DefaultDeviceAuthFlowScope
+				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = nbconfig.DefaultDeviceAuthFlowScope
 			}
 		}
 
@@ -564,10 +205,6 @@ func loadMgmtConfig(ctx context.Context, mgmtConfigPath string) (*types.Config, 
 	}
 
 	return loadedConfig, err
-}
-
-func updateMgmtConfig(ctx context.Context, path string, config *types.Config) error {
-	return util.DirectWriteJson(ctx, path, config)
 }
 
 // OIDCConfigResponse used for parsing OIDC config response
@@ -612,25 +249,6 @@ func fetchOIDCConfig(ctx context.Context, oidcEndpoint string) (OIDCConfigRespon
 	return config, nil
 }
 
-func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
-	// Load server's certificate and private key
-	serverCert, err := tls.LoadX509KeyPair(certFile, certKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// NewDefaultAppMetrics the credentials and return it
-	config := &tls.Config{
-		Certificates: []tls.Certificate{serverCert},
-		ClientAuth:   tls.NoClientCert,
-		NextProtos: []string{
-			"h2", "http/1.1", // enable HTTP/2
-		},
-	}
-
-	return config, nil
-}
-
 func handleRebrand(cmd *cobra.Command) error {
 	var err error
 	if logFile == defaultLogFile {
@@ -642,7 +260,7 @@ func handleRebrand(cmd *cobra.Command) error {
 			}
 		}
 	}
-	if types.MgmtConfigPath == defaultMgmtConfig {
+	if nbconfig.MgmtConfigPath == defaultMgmtConfig {
 		if migrateToNetbird(oldDefaultMgmtConfig, defaultMgmtConfig) {
 			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
 			err = cpDir(oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
