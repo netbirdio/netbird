@@ -380,7 +380,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 			return err
 		}
 		if err := transaction.CreatePeerJob(ctx, job); err != nil {
-			return status.Errorf(status.Internal, "failed to save job for peer %s: %v", peer.ID, err)
+			return err
 		}
 
 		jobMeta := map[string]any{
