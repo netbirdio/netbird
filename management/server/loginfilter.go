@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"gvisor.dev/gvisor/pkg/log"
+	log "github.com/sirupsen/logrus"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
@@ -68,7 +68,7 @@ func (l *loginFilter) allowLogin(wgPubKey string, metaHash uint64) bool {
 	l.mu.RLock()
 	defer func() {
 		l.mu.RUnlock()
-		log.Infof("allowLogin duration for %s: %v", wgPubKey, time.Since(now))
+		log.Debugf("allowLogin duration for %s: %v", wgPubKey, time.Since(now))
 	}()
 	state, ok := l.logged[wgPubKey]
 	if !ok {
@@ -90,7 +90,7 @@ func (l *loginFilter) addLogin(wgPubKey string, metaHash uint64) {
 	l.mu.Lock()
 	defer func() {
 		l.mu.Unlock()
-		log.Infof("addLogin duration for %s: %v", wgPubKey, time.Since(now))
+		log.Debugf("addLogin duration for %s: %v", wgPubKey, time.Since(now))
 	}()
 
 	state, ok := l.logged[wgPubKey]
