@@ -123,4 +123,5 @@ type Manager interface {
 	UpdateToPrimaryAccount(ctx context.Context, accountId string) error
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
+	AllowSync(string, uint64) bool
 }

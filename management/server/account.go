@@ -104,6 +104,8 @@ type DefaultAccountManager struct {
 	accountUpdateLocks               sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
 
+	loginFilter *loginFilter
+
 	disableDefaultPolicy bool
 }
 
@@ -211,6 +213,7 @@ func BuildManager(
 		proxyController:          proxyController,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
+		loginFilter:              newLoginFilter(),
 		disableDefaultPolicy:     disableDefaultPolicy,
 	}
 
@@ -1612,6 +1615,10 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth nbcontext.U
 	return domainCategory == types.PrivateCategory || userAuth.DomainCategory != types.PrivateCategory || domain != userAuth.Domain
 }
 
+func (am *DefaultAccountManager) AllowSync(wgPubKey string, metahash uint64) bool {
+	return am.loginFilter.allowLogin(wgPubKey, metahash)
+}
+
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	start := time.Now()
 	defer func() {
@@ -1628,6 +1635,9 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
+	metahash := metaHash(meta, realIP.String())
+	am.loginFilter.addLogin(peerPubKey, metahash)
+
 	return peer, netMap, postureChecks, nil
 }
 
@@ -1636,7 +1646,6 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
-
 	return nil
 }
 
