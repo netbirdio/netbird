@@ -2520,7 +2520,9 @@ func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
 
 	_, _, _, err = manager.LoginPeer(context.Background(), login)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "user pending approval cannot login")
+	e, ok := status.FromError(err)
+	require.True(t, ok, "error is not a gRPC status error")
+	assert.Equal(t, status.PermissionDenied, e.Type(), "expected PermissionDenied error code")
 }
 
 func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
