@@ -3612,6 +3612,7 @@ func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
 
 	// Set the account as domain primary account
 	account.IsDomainPrimaryAccount = true
+	account.DomainCategory = types.PrivateCategory
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
@@ -3622,6 +3623,11 @@ func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
 		Domain:         "example.com",
 		DomainCategory: types.PrivateCategory,
 	}
+
+	acc, err := manager.Store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	require.True(t, acc.IsDomainPrimaryAccount, "Account should be primary for the domain")
+	require.Equal(t, "example.com", acc.Domain, "Account domain should match")
 
 	returnedAccountID, err := manager.getAccountIDWithAuthorizationClaims(context.Background(), userAuth)
 	require.NoError(t, err)
