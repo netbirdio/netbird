@@ -457,14 +457,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("initialize dns server: %w", err)
 	}
 
-	iceCfg := icemaker.Config{
-		StunTurn:             &e.stunTurn,
-		InterfaceBlackList:   e.config.IFaceBlackList,
-		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-		UDPMux:               e.udpMux.UDPMuxDefault,
-		UDPMuxSrflx:          e.udpMux,
-		NATExternalIPs:       e.parseNATExternalIPMappings(),
-	}
+	iceCfg := e.createICEConfig()
 
 	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
 	e.connMgr.Start(e.ctx)
@@ -1323,14 +1316,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
-		ICEConfig: icemaker.Config{
-			StunTurn:             &e.stunTurn,
-			InterfaceBlackList:   e.config.IFaceBlackList,
-			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-			UDPMux:               e.udpMux.UDPMuxDefault,
-			UDPMuxSrflx:          e.udpMux,
-			NATExternalIPs:       e.parseNATExternalIPMappings(),
-		},
+		ICEConfig: e.createICEConfig(),
 	}
 
 	serviceDependencies := peer.ServiceDependencies{

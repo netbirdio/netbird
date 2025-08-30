@@ -2,7 +2,6 @@ package peer
 
 import (
 	"context"
-	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -55,6 +54,22 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 	w.relaySupportedOnRemotePeer.Store(true)
 
+	// Check if we already have an active relay connection
+	w.relayLock.Lock()
+	existingConn := w.relayedConn
+	w.relayLock.Unlock()
+	
+	if existingConn != nil {
+		w.log.Debugf("relay connection already exists for peer %s, reusing it", w.config.Key)
+		// Connection exists, just ensure proxy is set up if needed
+		go w.conn.onRelayConnectionIsReady(RelayConnInfo{
+			relayedConn:     existingConn,
+			rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
+			rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
+		})
+		return
+	}
+
 	// the relayManager will return with error in case if the connection has lost with relay server
 	currentRelayAddress, err := w.relayManager.RelayInstanceAddress()
 	if err != nil {
@@ -66,15 +81,24 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key)
 	if err != nil {
-		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
-			w.log.Debugf("handled offer by reusing existing relay connection")
-			return
-		}
+		// The relay manager never actually returns ErrConnAlreadyExists - it returns
+		// the existing connection with nil error. This error handling is for other failures.
 		w.log.Errorf("failed to open connection via Relay: %s", err)
 		return
 	}
 
 	w.relayLock.Lock()
+	// Check if we already stored this connection (might happen if OpenConn returned existing)
+	if w.relayedConn != nil && w.relayedConn == relayedConn {
+		w.relayLock.Unlock()
+		w.log.Debugf("OpenConn returned the same connection we already have for peer %s", w.config.Key)
+		go w.conn.onRelayConnectionIsReady(RelayConnInfo{
+			relayedConn:     relayedConn,
+			rosenpassPubKey: remoteOfferAnswer.RosenpassPubKey,
+			rosenpassAddr:   remoteOfferAnswer.RosenpassAddr,
+		})
+		return
+	}
 	w.relayedConn = relayedConn
 	w.relayLock.Unlock()
 
@@ -123,11 +147,16 @@ func (w *WorkerRelay) CloseConn() {
 	if err := w.relayedConn.Close(); err != nil {
 		w.log.Warnf("failed to close relay connection: %v", err)
 	}
+	// Clear the stored connection to allow reopening
+	w.relayedConn = nil
 }
 
 func (w *WorkerRelay) onWGDisconnected() {
 	w.relayLock.Lock()
-	_ = w.relayedConn.Close()
+	if w.relayedConn != nil {
+		_ = w.relayedConn.Close()
+		w.relayedConn = nil
+	}
 	w.relayLock.Unlock()
 
 	w.conn.onRelayDisconnected()
@@ -148,6 +177,11 @@ func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress st
 }
 
 func (w *WorkerRelay) onRelayClientDisconnected() {
+	// Clear the stored connection when relay disconnects
+	w.relayLock.Lock()
+	w.relayedConn = nil
+	w.relayLock.Unlock()
+	
 	w.wgWatcher.DisableWgWatcher()
 	go w.conn.onRelayDisconnected()
 }
