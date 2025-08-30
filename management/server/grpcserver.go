@@ -999,8 +999,6 @@ func (s *GRPCServer) Logout(ctx context.Context, req *proto.EncryptedMessage) (*
 		return nil, mapError(ctx, err)
 	}
 
-	s.accountManager.BufferUpdateAccountPeers(ctx, peer.AccountID)
-
 	log.WithContext(ctx).Debugf("peer %s logged out successfully after %s", peerKey.String(), time.Since(start))
 
 	return &proto.Empty{}, nil
