@@ -158,6 +158,10 @@ components:
           description: (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
           type: boolean
           example: true
+        user_approval_required:
+          description: Enables manual approval for new users joining via domain matching. When enabled, users are blocked with pending approval status until explicitly approved by an admin.
+          type: boolean
+          example: false
         network_traffic_logs_enabled:
           description: Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
           type: boolean
@@ -174,6 +178,7 @@ components:
           example: true
       required:
         - peer_approval_enabled
+        - user_approval_required
         - network_traffic_logs_enabled
         - network_traffic_logs_groups
         - network_traffic_packet_counter_enabled
@@ -235,6 +240,10 @@ components:
           description: Is true if this user is blocked. Blocked users can't use the system
           type: boolean
           example: false
+        pending_approval:
+          description: Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
+          type: boolean
+          example: false
         issued:
           description: How user was issued by API or Integration
           type: string
@@ -249,6 +258,7 @@ components:
         - auto_groups
         - status
         - is_blocked
+        - pending_approval
     UserPermissions:
       type: object
       properties:
@@ -2535,6 +2545,63 @@ paths:
       responses:
         '200':
           description: Invite status code
+          content: {}
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/{userId}/approve:
+    post:
+      summary: Approve user
+      description: Approve a user that is pending approval
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a user
+      responses:
+        '200':
+          description: Returns the approved user
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/User"
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/{userId}/reject:
+    delete:
+      summary: Reject user
+      description: Reject a user that is pending approval by removing them from the account
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a user
+      responses:
+        '200':
+          description: User rejected successfully
           content: {}
         '400':
           "$ref": "#/components/responses/bad_request"

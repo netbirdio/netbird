@@ -489,6 +489,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		if err != nil {
 			return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: user not found")
 		}
+		if user.PendingApproval {
+			return nil, nil, nil, status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
+		}
 		groupsToAdd = user.AutoGroups
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser

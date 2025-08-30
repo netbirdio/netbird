@@ -1746,3 +1746,117 @@ func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
 
 	return permissions
 }
+
+func TestApproveUser(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create account with admin and pending approval user
+	account := newAccountWithId(context.Background(), "account-1", "admin-user", "example.com", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create admin user
+	adminUser := types.NewAdminUser("admin-user")
+	adminUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), adminUser)
+	require.NoError(t, err)
+
+	// Create user pending approval
+	pendingUser := types.NewRegularUser("pending-user")
+	pendingUser.AccountID = account.Id
+	pendingUser.Blocked = true
+	pendingUser.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser)
+	require.NoError(t, err)
+
+	// Test successful approval
+	approvedUser, err := manager.ApproveUser(context.Background(), account.Id, adminUser.Id, pendingUser.Id)
+	require.NoError(t, err)
+	assert.False(t, approvedUser.IsBlocked)
+	assert.False(t, approvedUser.PendingApproval)
+
+	// Verify user is updated in store
+	updatedUser, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, pendingUser.Id)
+	require.NoError(t, err)
+	assert.False(t, updatedUser.Blocked)
+	assert.False(t, updatedUser.PendingApproval)
+
+	// Test approval of non-pending user should fail
+	_, err = manager.ApproveUser(context.Background(), account.Id, adminUser.Id, pendingUser.Id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not pending approval")
+
+	// Test approval by non-admin should fail
+	regularUser := types.NewRegularUser("regular-user")
+	regularUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), regularUser)
+	require.NoError(t, err)
+
+	pendingUser2 := types.NewRegularUser("pending-user-2")
+	pendingUser2.AccountID = account.Id
+	pendingUser2.Blocked = true
+	pendingUser2.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser2)
+	require.NoError(t, err)
+
+	_, err = manager.ApproveUser(context.Background(), account.Id, regularUser.Id, pendingUser2.Id)
+	require.Error(t, err)
+}
+
+func TestRejectUser(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create account with admin and pending approval user
+	account := newAccountWithId(context.Background(), "account-1", "admin-user", "example.com", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create admin user
+	adminUser := types.NewAdminUser("admin-user")
+	adminUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), adminUser)
+	require.NoError(t, err)
+
+	// Create user pending approval
+	pendingUser := types.NewRegularUser("pending-user")
+	pendingUser.AccountID = account.Id
+	pendingUser.Blocked = true
+	pendingUser.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser)
+	require.NoError(t, err)
+
+	// Test successful rejection
+	err = manager.RejectUser(context.Background(), account.Id, adminUser.Id, pendingUser.Id)
+	require.NoError(t, err)
+
+	// Verify user is deleted from store
+	_, err = manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, pendingUser.Id)
+	require.Error(t, err)
+
+	// Test rejection of non-pending user should fail
+	regularUser := types.NewRegularUser("regular-user")
+	regularUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), regularUser)
+	require.NoError(t, err)
+
+	err = manager.RejectUser(context.Background(), account.Id, adminUser.Id, regularUser.Id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not pending approval")
+
+	// Test rejection by non-admin should fail
+	pendingUser2 := types.NewRegularUser("pending-user-2")
+	pendingUser2.AccountID = account.Id
+	pendingUser2.Blocked = true
+	pendingUser2.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser2)
+	require.NoError(t, err)
+
+	err = manager.RejectUser(context.Background(), account.Id, regularUser.Id, pendingUser2.Id)
+	require.Error(t, err)
+}

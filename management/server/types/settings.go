@@ -83,6 +83,9 @@ type ExtraSettings struct {
 	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
 	PeerApprovalEnabled bool
 
+	// UserApprovalRequired enables or disables the need for users joining via domain matching to be approved by an administrator
+	UserApprovalRequired bool
+
 	// IntegratedValidator is the string enum for the integrated validator type
 	IntegratedValidator string
 	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
@@ -99,6 +102,7 @@ type ExtraSettings struct {
 func (e *ExtraSettings) Copy() *ExtraSettings {
 	return &ExtraSettings{
 		PeerApprovalEnabled:       e.PeerApprovalEnabled,
+		UserApprovalRequired:      e.UserApprovalRequired,
 		IntegratedValidatorGroups: slices.Clone(e.IntegratedValidatorGroups),
 		IntegratedValidator:       e.IntegratedValidator,
 		FlowEnabled:               e.FlowEnabled,
