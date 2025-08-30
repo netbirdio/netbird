@@ -25,6 +25,14 @@ import (
 
 // TestMain handles package-level setup and cleanup
 func TestMain(m *testing.M) {
+	// Guard against infinite recursion when test binary is called as "netbird ssh exec"
+	// This happens when running tests as non-privileged user with fallback
+	if len(os.Args) > 2 && os.Args[1] == "ssh" && os.Args[2] == "exec" {
+		// Just exit with error to break the recursion
+		fmt.Fprintf(os.Stderr, "Test binary called as 'ssh exec' - preventing infinite recursion\n")
+		os.Exit(1)
+	}
+
 	// Run tests
 	code := m.Run()
 
@@ -53,7 +61,7 @@ func TestSSHServerCompatibility(t *testing.T) {
 	clientPrivKeyOpenSSH, clientPubKeyOpenSSH, err := generateOpenSSHKey(t)
 	require.NoError(t, err)
 
-	server := New(hostKey)
+	server := New(hostKey, nil)
 	server.SetAllowRootLogin(true) // Allow root login for testing
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKeyOpenSSH))
 	require.NoError(t, err)
@@ -441,7 +449,7 @@ func TestSSHServerFeatureCompatibility(t *testing.T) {
 	clientPubKey, err := nbssh.GeneratePublicKey(clientPrivKey)
 	require.NoError(t, err)
 
-	server := New(hostKey)
+	server := New(hostKey, nil)
 	server.SetAllowRootLogin(true) // Allow root login for testing
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
 	require.NoError(t, err)
@@ -578,7 +586,7 @@ func TestSSHServerSecurityFeatures(t *testing.T) {
 	clientPubKey, err := nbssh.GeneratePublicKey(clientPrivKey)
 	require.NoError(t, err)
 
-	server := New(hostKey)
+	server := New(hostKey, nil)
 	server.SetAllowRootLogin(true) // Allow root login for testing
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
 	require.NoError(t, err)
@@ -663,7 +671,7 @@ func TestCrossPlatformCompatibility(t *testing.T) {
 	clientPubKey, err := nbssh.GeneratePublicKey(clientPrivKey)
 	require.NoError(t, err)
 
-	server := New(hostKey)
+	server := New(hostKey, nil)
 	server.SetAllowRootLogin(true) // Allow root login for testing
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
 	require.NoError(t, err)

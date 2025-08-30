@@ -2,18 +2,27 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/gliderlabs/ssh"
+	gojwt "github.com/golang-jwt/jwt/v5"
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	"github.com/netbirdio/netbird/client/ssh/detection"
+	"github.com/netbirdio/netbird/management/server/auth/jwt"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/version"
 )
 
 // DefaultSSHPort is the default SSH port of the NetBird's embedded SSH server
@@ -27,6 +36,9 @@ const (
 	errExitSession  = "exit session error: %v"
 
 	msgPrivilegedUserDisabled = "privileged user login is disabled"
+
+	// DefaultJWTMaxTokenAge is the default maximum age for JWT tokens accepted by the SSH server
+	DefaultJWTMaxTokenAge = 5 * 60
 )
 
 var (
@@ -69,7 +81,6 @@ func (e *UserNotFoundError) Unwrap() error {
 }
 
 // safeLogCommand returns a safe representation of the command for logging
-// Only logs the first argument to avoid leaking sensitive information
 func safeLogCommand(cmd []string) string {
 	if len(cmd) == 0 {
 		return "<empty>"
@@ -80,14 +91,12 @@ func safeLogCommand(cmd []string) string {
 	return fmt.Sprintf("%s [%d args]", cmd[0], len(cmd)-1)
 }
 
-// sshConnectionState tracks the state of an SSH connection
 type sshConnectionState struct {
 	hasActivePortForward bool
 	username             string
 	remoteAddr           string
 }
 
-// Server is the SSH server implementation
 type Server struct {
 	sshServer      *ssh.Server
 	authorizedKeys map[string]ssh.PublicKey
@@ -100,6 +109,7 @@ type Server struct {
 	allowRemotePortForwarding bool
 	allowRootLogin            bool
 	allowSFTP                 bool
+	jwtEnabled                bool
 
 	netstackNet *netstack.Net
 
@@ -108,22 +118,45 @@ type Server struct {
 
 	remoteForwardListeners map[ForwardKey]net.Listener
 	sshConnections         map[*cryptossh.ServerConn]*sshConnectionState
+
+	jwtValidator          *jwt.Validator
+	jwtExtractor          *jwt.ClaimsExtractor
+	jwtConfig             *JWTConfig
+	authenticatedSessions map[string]*AuthenticatedSession
 }
 
-// New creates an SSH server instance with the provided host key
-func New(hostKeyPEM []byte) *Server {
-	return &Server{
+type JWTConfig struct {
+	Issuer       string
+	Audience     string
+	KeysLocation string
+	MaxTokenAge  int64 // Maximum age of JWT tokens in seconds
+}
+
+type AuthenticatedSession struct {
+	UserID    string
+	Token     string
+	ExpiresAt time.Time
+}
+
+// New creates an SSH server instance with the provided host key and optional JWT configuration
+// If jwtConfig is nil, JWT authentication is disabled
+func New(hostKeyPEM []byte, jwtConfig *JWTConfig) *Server {
+	s := &Server{
 		mu:                     sync.RWMutex{},
 		hostKeyPEM:             hostKeyPEM,
 		authorizedKeys:         make(map[string]ssh.PublicKey),
 		sessions:               make(map[SessionKey]ssh.Session),
 		remoteForwardListeners: make(map[ForwardKey]net.Listener),
 		sshConnections:         make(map[*cryptossh.ServerConn]*sshConnectionState),
+		authenticatedSessions:  make(map[string]*AuthenticatedSession),
+		jwtEnabled:             jwtConfig != nil,
+		jwtConfig:              jwtConfig,
 	}
+
+	return s
 }
 
-// Start runs the SSH server, automatically detecting netstack vs standard networking
-// Does all setup synchronously, then starts serving in a goroutine and returns immediately
+// Start runs the SSH server
 func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -154,7 +187,6 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 	return nil
 }
 
-// createListener creates a network listener based on netstack vs standard networking
 func (s *Server) createListener(ctx context.Context, addr netip.AddrPort) (net.Listener, string, error) {
 	if s.netstackNet != nil {
 		ln, err := s.netstackNet.ListenTCPAddrPort(addr)
@@ -173,14 +205,12 @@ func (s *Server) createListener(ctx context.Context, addr netip.AddrPort) (net.L
 	return ln, addr.String(), nil
 }
 
-// closeListener safely closes a listener
 func (s *Server) closeListener(ln net.Listener) {
 	if err := ln.Close(); err != nil {
 		log.Debugf("listener close error: %v", err)
 	}
 }
 
-// cleanupOnError cleans up resources when SSH server creation fails
 func (s *Server) cleanupOnError(ln net.Listener) {
 	if s.ifIdx == 0 || ln == nil {
 		return
@@ -250,6 +280,202 @@ func (s *Server) SetSocketFilter(ifIdx int) {
 	s.ifIdx = ifIdx
 }
 
+// ensureJWTValidator initializes the JWT validator and extractor if not already initialized
+func (s *Server) ensureJWTValidator() error {
+	s.mu.RLock()
+	if s.jwtValidator != nil && s.jwtExtractor != nil {
+		s.mu.RUnlock()
+		return nil
+	}
+	config := s.jwtConfig
+	s.mu.RUnlock()
+
+	if config == nil {
+		return fmt.Errorf("JWT config not set")
+	}
+
+	log.Debugf("Initializing JWT validator (issuer: %s, audience: %s)", config.Issuer, config.Audience)
+
+	validator := jwt.NewValidator(
+		config.Issuer,
+		[]string{config.Audience},
+		config.KeysLocation,
+		true,
+	)
+
+	extractor := jwt.NewClaimsExtractor(
+		jwt.WithAudience(config.Audience),
+	)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.jwtValidator != nil && s.jwtExtractor != nil {
+		return nil
+	}
+
+	s.jwtValidator = validator
+	s.jwtExtractor = extractor
+
+	log.Infof("JWT validator initialized successfully")
+	return nil
+}
+
+// handleJWTAuthRequest handles JWT authentication requests from SSH clients
+func (s *Server) handleJWTAuthRequest(ctx ssh.Context, _ *ssh.Server, req *cryptossh.Request) (bool, []byte) {
+	s.mu.RLock()
+	jwtEnabled := s.jwtEnabled
+	s.mu.RUnlock()
+
+	if !jwtEnabled {
+		log.Debugf("JWT authentication request from %s rejected: JWT not enabled on SSH server", ctx.RemoteAddr())
+		return false, []byte("JWT authentication not enabled")
+	}
+
+	if err := s.ensureJWTValidator(); err != nil {
+		log.Errorf("Failed to initialize JWT validator: %v", err)
+		return false, []byte("JWT authentication not available")
+	}
+
+	var authReq struct {
+		Token string `json:"token"`
+	}
+
+	if err := json.Unmarshal(req.Payload, &authReq); err != nil {
+		log.Errorf("Failed to parse JWT auth request: %v", err)
+		return false, []byte("invalid request format")
+	}
+
+	s.mu.RLock()
+	jwtValidator := s.jwtValidator
+	jwtExtractor := s.jwtExtractor
+	jwtConfig := s.jwtConfig
+	s.mu.RUnlock()
+
+	if jwtValidator == nil || jwtExtractor == nil {
+		log.Errorf("JWT validator or extractor is nil despite JWT being enabled - denying access")
+		return false, []byte("JWT authentication not available")
+	}
+
+	token, err := jwtValidator.ValidateAndParse(context.Background(), authReq.Token)
+	if err != nil {
+		log.Errorf("JWT validation failed for user %s from %s: %v", ctx.User(), ctx.RemoteAddr(), err)
+		if jwtConfig != nil {
+			log.Debugf("JWT config - Expected Issuer: %s, Expected Audience: %s", jwtConfig.Issuer, jwtConfig.Audience)
+		}
+		if claims, parseErr := s.parseTokenWithoutValidation(authReq.Token); parseErr == nil {
+			log.Debugf("JWT token claims - Actual Issuer: %v, Actual Audience: %v", claims["iss"], claims["aud"])
+		}
+		return false, []byte("token validation failed")
+	}
+
+	if jwtConfig != nil && jwtConfig.MaxTokenAge > 0 {
+		if claims, ok := token.Claims.(gojwt.MapClaims); ok {
+			if iat, ok := claims["iat"].(float64); ok {
+				issuedAt := time.Unix(int64(iat), 0)
+				tokenAge := time.Since(issuedAt)
+				if tokenAge > time.Duration(jwtConfig.MaxTokenAge)*time.Second {
+					log.Errorf("JWT token too old based on iat claim for user %s from %s: age=%v, max=%v",
+						ctx.User(), ctx.RemoteAddr(), tokenAge, time.Duration(jwtConfig.MaxTokenAge)*time.Second)
+					return false, []byte("token expired")
+				}
+			}
+		}
+	}
+
+	userAuth, err := jwtExtractor.ToUserAuth(token)
+	if err != nil {
+		log.Errorf("Failed to extract user auth from token: %v", err)
+		return false, []byte("token processing failed")
+	}
+
+	if !s.hasSSHAccess(&userAuth) {
+		log.Errorf("User %s does not have SSH access permissions", userAuth.UserId)
+		return false, []byte("insufficient permissions")
+	}
+
+	sessionID := s.generateSessionID(ctx)
+	s.mu.Lock()
+	s.authenticatedSessions[sessionID] = &AuthenticatedSession{
+		UserID:    userAuth.UserId,
+		Token:     authReq.Token,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	s.mu.Unlock()
+
+	log.Infof("JWT authentication successful for user %s from %s", userAuth.UserId, ctx.RemoteAddr())
+	return true, []byte("authentication successful")
+}
+
+func (s *Server) generateSessionID(ctx ssh.Context) string {
+	return fmt.Sprintf("%s@%s", ctx.User(), ctx.RemoteAddr().String())
+}
+
+func (s *Server) hasSSHAccess(userAuth *nbcontext.UserAuth) bool {
+	return userAuth.UserId != ""
+}
+
+func (s *Server) parseTokenWithoutValidation(tokenString string) (map[string]interface{}, error) {
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid token format")
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("decode payload: %w", err)
+	}
+
+	var claims map[string]interface{}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("parse claims: %w", err)
+	}
+
+	return claims, nil
+}
+
+func (s *Server) isSessionAuthenticated(ctx ssh.Context) bool {
+	s.mu.RLock()
+	jwtEnabled := s.jwtEnabled
+	s.mu.RUnlock()
+
+	if !jwtEnabled {
+		return true
+	}
+
+	if err := s.ensureJWTValidator(); err != nil {
+		log.Errorf("Failed to ensure JWT validator: %v", err)
+		return false
+	}
+
+	s.mu.RLock()
+	jwtValidator := s.jwtValidator
+	s.mu.RUnlock()
+
+	if jwtValidator == nil {
+		log.Errorf("JWT validator is nil despite JWT being enabled - denying access")
+		return false
+	}
+
+	sessionID := s.generateSessionID(ctx)
+	s.mu.RLock()
+	session, exists := s.authenticatedSessions[sessionID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return false
+	}
+
+	if time.Now().After(session.ExpiresAt) {
+		s.mu.Lock()
+		delete(s.authenticatedSessions, sessionID)
+		s.mu.Unlock()
+		return false
+	}
+
+	return true
+}
+
 func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -257,7 +483,7 @@ func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	for _, allowed := range s.authorizedKeys {
 		if ssh.KeysEqual(allowed, key) {
 			if ctx != nil {
-				log.Debugf("SSH key authentication successful for user %s from %s", ctx.User(), ctx.RemoteAddr())
+				log.Debugf("SSH public key authentication successful for user %s from %s (key type: %s)", ctx.User(), ctx.RemoteAddr(), key.Type())
 			}
 			return true
 		}
@@ -270,7 +496,6 @@ func (s *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	return false
 }
 
-// markConnectionActivePortForward marks an SSH connection as having an active port forward
 func (s *Server) markConnectionActivePortForward(sshConn *cryptossh.ServerConn, username, remoteAddr string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -286,14 +511,12 @@ func (s *Server) markConnectionActivePortForward(sshConn *cryptossh.ServerConn, 
 	}
 }
 
-// connectionCloseHandler cleans up connection state when SSH connections fail/close
 func (s *Server) connectionCloseHandler(conn net.Conn, err error) {
 	// We can't extract the SSH connection from net.Conn directly
 	// Connection cleanup will happen during session cleanup or via timeout
 	log.Debugf("SSH connection failed for %s: %v", conn.RemoteAddr(), err)
 }
 
-// findSessionKeyByContext finds the session key by matching SSH connection context
 func (s *Server) findSessionKeyByContext(ctx ssh.Context) SessionKey {
 	if ctx == nil {
 		return "unknown"
@@ -319,14 +542,13 @@ func (s *Server) findSessionKeyByContext(ctx ssh.Context) SessionKey {
 	// Return a temporary key that we'll fix up later
 	if ctx.User() != "" && ctx.RemoteAddr() != nil {
 		tempKey := SessionKey(fmt.Sprintf("%s@%s", ctx.User(), ctx.RemoteAddr().String()))
-		log.Debugf("using temporary session key for port forward tracking: %s", tempKey)
+		log.Debugf("Using temporary session key for early port forward tracking: %s (will be updated when session established)", tempKey)
 		return tempKey
 	}
 
 	return "unknown"
 }
 
-// connectionValidator validates incoming connections based on source IP
 func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	s.mu.RLock()
 	netbirdNetwork := s.wgAddress.Network
@@ -340,7 +562,7 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	remoteAddr := conn.RemoteAddr()
 	tcpAddr, ok := remoteAddr.(*net.TCPAddr)
 	if !ok {
-		log.Debugf("SSH connection from non-TCP address %s allowed", remoteAddr)
+		log.Debugf("SSH connection from non-TCP address %s allowed (skipping NetBird network validation)", remoteAddr)
 		return conn
 	}
 
@@ -361,11 +583,29 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 		return nil
 	}
 
-	log.Debugf("SSH connection from %s allowed", remoteIP)
+	log.Debugf("SSH connection from NetBird peer %s allowed (network: %s)", remoteIP, netbirdNetwork)
 	return conn
 }
 
 // isShutdownError checks if the error is expected during normal shutdown
+func (s *Server) serve(ln net.Listener, sshServer *ssh.Server) {
+	if ln == nil {
+		log.Debug("SSH server serve called with nil listener, skipping serve operation")
+		return
+	}
+
+	err := sshServer.Serve(ln)
+	if err == nil {
+		return
+	}
+
+	if isShutdownError(err) {
+		return
+	}
+
+	log.Errorf("SSH server error: %v", err)
+}
+
 func isShutdownError(err error) bool {
 	if errors.Is(err, net.ErrClosed) {
 		return true
@@ -379,7 +619,6 @@ func isShutdownError(err error) bool {
 	return false
 }
 
-// createSSHServer creates and configures the SSH server
 func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 	if err := enableUserSwitching(); err != nil {
 		log.Warnf("failed to enable user switching: %v", err)
@@ -399,10 +638,16 @@ func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 		RequestHandlers: map[string]ssh.RequestHandler{
 			"tcpip-forward":        s.tcpipForwardHandler,
 			"cancel-tcpip-forward": s.cancelTcpipForwardHandler,
+			"netbird-auth":         s.handleJWTAuthRequest,
+			"netbird-detect":       s.handleDetectionRequest,
 		},
 		ConnCallback:             s.connectionValidator,
 		ConnectionFailedCallback: s.connectionCloseHandler,
+		Version:                  fmt.Sprintf("NetBird-SSH-%s", version.NetbirdVersion()),
 	}
+
+	// JWT authentication is handled via request handlers, not auth handlers
+	// This allows "none" authentication while still validating JWT tokens
 
 	hostKeyPEM := ssh.HostKeyPEM(s.hostKeyPEM)
 	if err := server.SetOption(hostKeyPEM); err != nil {
@@ -413,14 +658,21 @@ func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
 	return server, nil
 }
 
-// storeRemoteForwardListener stores a remote forward listener for cleanup
+func (s *Server) handleDetectionRequest(_ ssh.Context, _ *ssh.Server, _ *cryptossh.Request) (bool, []byte) {
+	response := fmt.Sprintf("%s-%s", detection.ServerIdentifier, version.NetbirdVersion())
+	if s.jwtEnabled {
+		response += " " + detection.JWTRequiredMarker
+	}
+
+	return true, []byte(response)
+}
+
 func (s *Server) storeRemoteForwardListener(key ForwardKey, ln net.Listener) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.remoteForwardListeners[key] = ln
 }
 
-// removeRemoteForwardListener removes and closes a remote forward listener
 func (s *Server) removeRemoteForwardListener(key ForwardKey) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -438,7 +690,6 @@ func (s *Server) removeRemoteForwardListener(key ForwardKey) bool {
 	return true
 }
 
-// directTCPIPHandler handles direct-tcpip channel requests for local port forwarding with privilege validation
 func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn, newChan cryptossh.NewChannel, ctx ssh.Context) {
 	var payload struct {
 		Host           string

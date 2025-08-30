@@ -22,7 +22,7 @@ import (
 func TestServer_AddAuthorizedKey(t *testing.T) {
 	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
-	server := New(key)
+	server := New(key, nil)
 
 	keys := map[string][]byte{}
 	for i := 0; i < 10; i++ {
@@ -47,7 +47,7 @@ func TestServer_AddAuthorizedKey(t *testing.T) {
 func TestServer_RemoveAuthorizedKey(t *testing.T) {
 	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
-	server := New(key)
+	server := New(key, nil)
 
 	remotePrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
@@ -66,7 +66,7 @@ func TestServer_RemoveAuthorizedKey(t *testing.T) {
 func TestServer_PubKeyHandler(t *testing.T) {
 	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
-	server := New(key)
+	server := New(key, nil)
 
 	var keys []ssh.PublicKey
 	for i := 0; i < 10; i++ {
@@ -94,7 +94,7 @@ func TestServer_StartStop(t *testing.T) {
 	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server := New(key)
+	server := New(key, nil)
 
 	err = server.Stop()
 	assert.NoError(t, err)
@@ -112,7 +112,7 @@ func TestSSHServerIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create server with random port
-	server := New(hostKey)
+	server := New(hostKey, nil)
 
 	// Add client's public key as authorized
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
@@ -216,7 +216,7 @@ func TestSSHServerMultipleConnections(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create server
-	server := New(hostKey)
+	server := New(hostKey, nil)
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
 	require.NoError(t, err)
 
@@ -335,7 +335,7 @@ func TestSSHServerNoAuthMode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create server with only one authorized key
-	server := New(hostKey)
+	server := New(hostKey, nil)
 	err = server.AddAuthorizedKey("authorized-peer", string(authorizedPubKey))
 	require.NoError(t, err)
 
@@ -412,7 +412,7 @@ func TestSSHServerStartStopCycle(t *testing.T) {
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server := New(hostKey)
+	server := New(hostKey, nil)
 	serverAddr := "127.0.0.1:0"
 
 	// Test multiple start/stop cycles
@@ -485,8 +485,8 @@ func TestSSHServer_PortForwardingConfiguration(t *testing.T) {
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server1 := New(hostKey)
-	server2 := New(hostKey)
+	server1 := New(hostKey, nil)
+	server2 := New(hostKey, nil)
 
 	assert.False(t, server1.allowLocalPortForwarding, "Local port forwarding should be disabled by default for security")
 	assert.False(t, server1.allowRemotePortForwarding, "Remote port forwarding should be disabled by default for security")

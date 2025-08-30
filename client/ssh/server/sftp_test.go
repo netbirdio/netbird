@@ -39,7 +39,7 @@ func TestSSHServer_SFTPSubsystem(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create server with SFTP enabled
-	server := New(hostKey)
+	server := New(hostKey, nil)
 	server.SetAllowSFTP(true)
 	server.SetAllowRootLogin(true) // Allow root login for testing
 
@@ -148,7 +148,7 @@ func TestSSHServer_SFTPDisabled(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create server with SFTP disabled
-	server := New(hostKey)
+	server := New(hostKey, nil)
 	server.SetAllowSFTP(false)
 
 	// Add client's public key as authorized

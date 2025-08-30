@@ -46,6 +46,9 @@ const (
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
 	defaultRetryMultiplier  = 1.7
 
+	// JWT token cache TTL for the client daemon
+	defaultJWTCacheTTL = 5 * time.Minute
+
 	errRestoreResidualState   = "failed to restore residual state: %v"
 	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
 	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
@@ -81,6 +84,8 @@ type Server struct {
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
 	updateSettingsDisabled bool
+
+	jwtCache *jwtCache
 }
 
 type oauthAuthFlow struct {
@@ -100,6 +105,7 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		profileManager:         profilemanager.NewServiceManager(configFile),
 		profilesDisabled:       profilesDisabled,
 		updateSettingsDisabled: updateSettingsDisabled,
+		jwtCache:               newJWTCache(),
 	}
 }
 
@@ -486,7 +492,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			return nil, err
 		}
 
-		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(context.TODO()) {
+		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(ctx) {
 			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
 				log.Debugf("using previous oauth flow info")
 				return &proto.LoginResponse{
@@ -503,7 +509,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			}
 		}
 
-		authInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+		authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
 		if err != nil {
 			log.Errorf("getting a request OAuth flow failed: %v", err)
 			return nil, err
@@ -1106,6 +1112,104 @@ func (s *Server) GetPeerSSHHostKey(
 	return response, nil
 }
 
+// RequestJWTAuth initiates JWT authentication flow for SSH
+func (s *Server) RequestJWTAuth(
+	ctx context.Context,
+	_ *proto.RequestJWTAuthRequest,
+) (*proto.RequestJWTAuthResponse, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	s.mutex.Lock()
+	config := s.config
+	s.mutex.Unlock()
+
+	if config == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "client is not configured")
+	}
+
+	if cachedToken, found := s.jwtCache.get(); found {
+		log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
+
+		return &proto.RequestJWTAuthResponse{
+			CachedToken: cachedToken,
+			MaxTokenAge: int64(defaultJWTCacheTTL.Seconds()),
+		}, nil
+	}
+
+	isDesktop := isUnixRunningDesktop()
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop)
+	if err != nil {
+		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
+	}
+
+	authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
+	if err != nil {
+		return nil, gstatus.Errorf(codes.Internal, "failed to request auth info: %v", err)
+	}
+
+	s.mutex.Lock()
+	s.oauthAuthFlow.flow = oAuthFlow
+	s.oauthAuthFlow.info = authInfo
+	s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
+	s.mutex.Unlock()
+
+	return &proto.RequestJWTAuthResponse{
+		VerificationURI:         authInfo.VerificationURI,
+		VerificationURIComplete: authInfo.VerificationURIComplete,
+		UserCode:                authInfo.UserCode,
+		DeviceCode:              authInfo.DeviceCode,
+		ExpiresIn:               int64(authInfo.ExpiresIn),
+		MaxTokenAge:             int64(defaultJWTCacheTTL.Seconds()),
+	}, nil
+}
+
+// WaitJWTToken waits for JWT authentication completion
+func (s *Server) WaitJWTToken(
+	ctx context.Context,
+	req *proto.WaitJWTTokenRequest,
+) (*proto.WaitJWTTokenResponse, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	s.mutex.Lock()
+	oAuthFlow := s.oauthAuthFlow.flow
+	authInfo := s.oauthAuthFlow.info
+	s.mutex.Unlock()
+
+	if oAuthFlow == nil || authInfo.DeviceCode != req.DeviceCode {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "invalid device code or no active auth flow")
+	}
+
+	tokenInfo, err := oAuthFlow.WaitToken(ctx, authInfo)
+	if err != nil {
+		return nil, gstatus.Errorf(codes.Internal, "failed to get token: %v", err)
+	}
+
+	token := tokenInfo.GetTokenToUse()
+
+	s.jwtCache.store(token, defaultJWTCacheTTL)
+	log.Debugf("JWT token cached for SSH authentication, TTL: %v", defaultJWTCacheTTL)
+
+	s.mutex.Lock()
+	s.oauthAuthFlow = oauthAuthFlow{}
+	s.mutex.Unlock()
+	return &proto.WaitJWTTokenResponse{
+		Token:     tokenInfo.GetTokenToUse(),
+		TokenType: tokenInfo.TokenType,
+		ExpiresIn: int64(tokenInfo.ExpiresIn),
+	}, nil
+}
+
+func isUnixRunningDesktop() bool {
+	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
+		return false
+	}
+	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
+}
+
 func (s *Server) runProbes() {
 	if s.connectClient == nil {
 		return
@@ -1197,7 +1301,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		AdminURL:                      adminURL.String(),
 		InterfaceName:                 cfg.WgIface,
 		WireguardPort:                 int64(cfg.WgPort),
-		Mtu:                   int64(cfg.MTU),
+		Mtu:                           int64(cfg.MTU),
 		DisableAutoConnect:            cfg.DisableAutoConnect,
 		ServerSSHAllowed:              *cfg.ServerSSHAllowed,
 		RosenpassEnabled:              cfg.RosenpassEnabled,

@@ -86,6 +86,12 @@ func (s *Server) checkPortForwardingPrivileges(ctx ssh.Context, forwardType stri
 		return fmt.Errorf("%s port forwarding denied: no context", forwardType)
 	}
 
+	if s.jwtEnabled && !s.isSessionAuthenticated(ctx) {
+		log.Infof("%s port forwarding denied: JWT authentication required for user %s from %s",
+			forwardType, ctx.User(), ctx.RemoteAddr())
+		return fmt.Errorf("%s port forwarding denied: JWT authentication required", forwardType)
+	}
+
 	username := ctx.User()
 	remoteAddr := "unknown"
 	if ctx.RemoteAddr() != nil {
@@ -144,6 +150,11 @@ func (s *Server) tcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *crypto
 // cancelTcpipForwardHandler handles cancel-tcpip-forward requests.
 func (s *Server) cancelTcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *cryptossh.Request) (bool, []byte) {
 	logger := s.getRequestLogger(ctx)
+
+	if s.jwtEnabled && !s.isSessionAuthenticated(ctx) {
+		logger.Infof("cancel-tcpip-forward denied: JWT authentication required")
+		return false, nil
+	}
 
 	var payload tcpipForwardMsg
 	if err := cryptossh.Unmarshal(req.Payload, &payload); err != nil {

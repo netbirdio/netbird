@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"os/user"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -16,6 +17,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	sshclient "github.com/netbirdio/netbird/client/ssh/client"
+	"github.com/netbirdio/netbird/client/ssh/detection"
+	sshproxy "github.com/netbirdio/netbird/client/ssh/proxy"
 	sshserver "github.com/netbirdio/netbird/client/ssh/server"
 	"github.com/netbirdio/netbird/util"
 )
@@ -41,6 +44,7 @@ var (
 	strictHostKeyChecking bool
 	knownHostsFile        string
 	identityFile          string
+	skipCachedToken       bool
 )
 
 var (
@@ -64,11 +68,14 @@ func init() {
 	sshCmd.PersistentFlags().BoolVar(&strictHostKeyChecking, "strict-host-key-checking", true, "Enable strict host key checking (default: true)")
 	sshCmd.PersistentFlags().StringVarP(&knownHostsFile, "known-hosts", "o", "", "Path to known_hosts file (default: ~/.ssh/known_hosts)")
 	sshCmd.PersistentFlags().StringVarP(&identityFile, "identity", "i", "", "Path to SSH private key file")
+	sshCmd.PersistentFlags().BoolVar(&skipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
 
 	sshCmd.PersistentFlags().StringArrayP("L", "L", []string{}, "Local port forwarding [bind_address:]port:host:hostport")
 	sshCmd.PersistentFlags().StringArrayP("R", "R", []string{}, "Remote port forwarding [bind_address:]port:host:hostport")
 
 	sshCmd.AddCommand(sshSftpCmd)
+	sshCmd.AddCommand(sshProxyCmd)
+	sshCmd.AddCommand(sshDetectCmd)
 }
 
 var sshCmd = &cobra.Command{
@@ -335,7 +342,7 @@ func parseSpacedFormat(arg string, args []string, currentIndex int, flagHandlers
 }
 
 // createSSHFlagSet creates and configures the flag set for SSH command parsing
-func createSSHFlagSet() (*flag.FlagSet, *int, *string, *string, *bool, *string, *string, *string, *string) {
+func createSSHFlagSet() (*flag.FlagSet, *int, *string, *string, *bool, *string, *string, *bool, *string, *string) {
 	defaultConfigPath := getEnvOrDefault("CONFIG", configPath)
 	defaultLogLevel := getEnvOrDefault("LOG_LEVEL", logLevel)
 
@@ -353,13 +360,14 @@ func createSSHFlagSet() (*flag.FlagSet, *int, *string, *string, *bool, *string, 
 	fs.String("known-hosts", "", "Path to known_hosts file")
 	identityFlag := fs.String("i", "", "Path to SSH private key file")
 	fs.String("identity", "", "Path to SSH private key file")
+	noCacheFlag := fs.Bool("no-cache", false, "Skip cached JWT token and force fresh authentication")
 
 	configFlag := fs.String("c", defaultConfigPath, "Netbird config file location")
 	fs.String("config", defaultConfigPath, "Netbird config file location")
 	logLevelFlag := fs.String("l", defaultLogLevel, "sets Netbird log level")
 	fs.String("log-level", defaultLogLevel, "sets Netbird log level")
 
-	return fs, portFlag, userFlag, loginFlag, strictHostKeyCheckingFlag, knownHostsFlag, identityFlag, configFlag, logLevelFlag
+	return fs, portFlag, userFlag, loginFlag, strictHostKeyCheckingFlag, knownHostsFlag, identityFlag, noCacheFlag, configFlag, logLevelFlag
 }
 
 func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
@@ -375,7 +383,7 @@ func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
 
 	filteredArgs, localForwardFlags, remoteForwardFlags := parseCustomSSHFlags(args)
 
-	fs, portFlag, userFlag, loginFlag, strictHostKeyCheckingFlag, knownHostsFlag, identityFlag, configFlag, logLevelFlag := createSSHFlagSet()
+	fs, portFlag, userFlag, loginFlag, strictHostKeyCheckingFlag, knownHostsFlag, identityFlag, noCacheFlag, configFlag, logLevelFlag := createSSHFlagSet()
 
 	if err := fs.Parse(filteredArgs); err != nil {
 		return parseHostnameAndCommand(filteredArgs)
@@ -396,6 +404,7 @@ func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
 	strictHostKeyChecking = *strictHostKeyCheckingFlag
 	knownHostsFile = *knownHostsFlag
 	identityFile = *identityFlag
+	skipCachedToken = *noCacheFlag
 
 	if *configFlag != getEnvOrDefault("CONFIG", configPath) {
 		configPath = *configFlag
@@ -449,30 +458,20 @@ func parseHostnameAndCommand(args []string) error {
 
 func runSSH(ctx context.Context, addr string, cmd *cobra.Command) error {
 	target := fmt.Sprintf("%s:%d", addr, port)
-
-	var c *sshclient.Client
-	var err error
-
-	if strictHostKeyChecking {
-		c, err = sshclient.DialWithOptions(ctx, target, username, sshclient.DialOptions{
-			KnownHostsFile: knownHostsFile,
-			IdentityFile:   identityFile,
-			DaemonAddr:     daemonAddr,
-		})
-	} else {
-		c, err = sshclient.DialInsecure(ctx, target, username)
-	}
+	c, err := sshclient.Dial(ctx, target, username, sshclient.DialOptions{
+		KnownHostsFile:     knownHostsFile,
+		IdentityFile:       identityFile,
+		DaemonAddr:         daemonAddr,
+		SkipCachedToken:    skipCachedToken,
+		InsecureSkipVerify: !strictHostKeyChecking,
+	})
 
 	if err != nil {
 		cmd.Printf("Failed to connect to %s@%s\n", username, target)
 		cmd.Printf("\nTroubleshooting steps:\n")
-		cmd.Printf("  1. Check peer connectivity: netbird status\n")
+		cmd.Printf("  1. Check peer connectivity: netbird status -d\n")
 		cmd.Printf("  2. Verify SSH server is enabled on the peer\n")
 		cmd.Printf("  3. Ensure correct hostname/IP is used\n")
-		if strictHostKeyChecking {
-			cmd.Printf("  4. Try --strict-host-key-checking=false to bypass host key verification\n")
-		}
-		cmd.Printf("\n")
 		return fmt.Errorf("dial %s: %w", target, err)
 	}
 
@@ -664,4 +663,70 @@ func normalizeLocalHost(host string) string {
 		return "0.0.0.0"
 	}
 	return host
+}
+
+var sshProxyCmd = &cobra.Command{
+	Use:    "proxy <host> <port>",
+	Short:  "Internal SSH proxy for native SSH client integration",
+	Long:   "Internal command used by SSH ProxyCommand to handle JWT authentication",
+	Hidden: true,
+	Args:   cobra.ExactArgs(2),
+	RunE:   sshProxyFn,
+}
+
+func sshProxyFn(cmd *cobra.Command, args []string) error {
+	host := args[0]
+	portStr := args[1]
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return fmt.Errorf("invalid port: %s", portStr)
+	}
+
+	proxy, err := sshproxy.New(daemonAddr, host, port, cmd.ErrOrStderr())
+	if err != nil {
+		return fmt.Errorf("create SSH proxy: %w", err)
+	}
+
+	ctx := context.Background()
+	if err := proxy.Connect(ctx); err != nil {
+		return fmt.Errorf("SSH proxy: %w", err)
+	}
+
+	return nil
+}
+
+var sshDetectCmd = &cobra.Command{
+	Use:    "detect <host> <port>",
+	Short:  "Detect if a host is running NetBird SSH",
+	Long:   "Internal command used by SSH Match exec to detect NetBird SSH servers",
+	Hidden: true,
+	Args:   cobra.ExactArgs(2),
+	RunE:   sshDetectFn,
+}
+
+func sshDetectFn(_ *cobra.Command, args []string) error {
+	host := args[0]
+	portStr := args[1]
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return fmt.Errorf("not netbird")
+	}
+
+	username := ""
+	if currentUser, err := user.Current(); err == nil {
+		username = currentUser.Username
+	}
+
+	serverType, err := detection.DetectSSHServerType(host, port, username)
+	if err != nil {
+		return errors.New("not netbird")
+	}
+
+	if serverType == detection.ServerTypeNetBirdJWT || serverType == detection.ServerTypeNetBirdNoJWT {
+		return nil
+	}
+
+	return errors.New("not netbird")
 }

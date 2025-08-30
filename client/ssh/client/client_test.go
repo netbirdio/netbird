@@ -25,6 +25,14 @@ import (
 
 // TestMain handles package-level setup and cleanup
 func TestMain(m *testing.M) {
+	// Guard against infinite recursion when test binary is called as "netbird ssh exec"
+	// This happens when running tests as non-privileged user with fallback
+	if len(os.Args) > 2 && os.Args[1] == "ssh" && os.Args[2] == "exec" {
+		// Just exit with error to break the recursion
+		fmt.Fprintf(os.Stderr, "Test binary called as 'ssh exec' - preventing infinite recursion\n")
+		os.Exit(1)
+	}
+
 	// Run tests
 	code := m.Run()
 
@@ -46,7 +54,7 @@ func TestSSHClient_DialWithKey(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create and start server
-	server := sshserver.New(hostKey)
+	server := sshserver.New(hostKey, nil)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
 
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
@@ -63,7 +71,9 @@ func TestSSHClient_DialWithKey(t *testing.T) {
 	defer cancel()
 
 	currentUser := getCurrentUsername()
-	client, err := DialInsecure(ctx, serverAddr, currentUser)
+	client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
+		InsecureSkipVerify: true,
+	})
 	require.NoError(t, err)
 	defer func() {
 		err := client.Close()
@@ -142,7 +152,9 @@ func TestSSHClient_ConnectionHandling(t *testing.T) {
 	for i := 0; i < numClients; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		currentUser := getCurrentUsername()
-		client, err := DialInsecure(ctx, serverAddr, fmt.Sprintf("%s-%d", currentUser, i))
+		client, err := Dial(ctx, serverAddr, fmt.Sprintf("%s-%d", currentUser, i), DialOptions{
+			InsecureSkipVerify: true,
+		})
 		cancel()
 		require.NoError(t, err, "Client %d should connect successfully", i)
 		clients[i] = client
@@ -173,7 +185,9 @@ func TestSSHClient_ContextCancellation(t *testing.T) {
 		defer cancel()
 
 		currentUser := getCurrentUsername()
-		_, err = DialInsecure(ctx, serverAddr, currentUser)
+		_, err = Dial(ctx, serverAddr, currentUser, DialOptions{
+			InsecureSkipVerify: true,
+		})
 		if err != nil {
 			// Check for actual timeout-related errors rather than string matching
 			assert.True(t,
@@ -188,7 +202,9 @@ func TestSSHClient_ContextCancellation(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		currentUser := getCurrentUsername()
-		client, err := DialInsecure(ctx, serverAddr, currentUser)
+		client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
+			InsecureSkipVerify: true,
+		})
 		require.NoError(t, err)
 		defer func() {
 			if err := client.Close(); err != nil {
@@ -214,7 +230,7 @@ func TestSSHClient_NoAuthMode(t *testing.T) {
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	server := sshserver.New(hostKey)
+	server := sshserver.New(hostKey, nil)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
 
 	serverAddr := sshserver.StartTestServer(t, server)
@@ -229,7 +245,9 @@ func TestSSHClient_NoAuthMode(t *testing.T) {
 	currentUser := getCurrentUsername()
 
 	t.Run("any key succeeds in no-auth mode", func(t *testing.T) {
-		client, err := DialInsecure(ctx, serverAddr, currentUser)
+		client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
+			InsecureSkipVerify: true,
+		})
 		assert.NoError(t, err)
 		if client != nil {
 			require.NoError(t, client.Close(), "Client should close without error")
@@ -287,7 +305,7 @@ func setupTestSSHServerAndClient(t *testing.T) (*sshserver.Server, string, *Clie
 	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
 	require.NoError(t, err)
 
-	server := sshserver.New(hostKey)
+	server := sshserver.New(hostKey, nil)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
 
 	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
@@ -299,7 +317,9 @@ func setupTestSSHServerAndClient(t *testing.T) (*sshserver.Server, string, *Clie
 	defer cancel()
 
 	currentUser := getCurrentUsername()
-	client, err := DialInsecure(ctx, serverAddr, currentUser)
+	client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
+		InsecureSkipVerify: true,
+	})
 	require.NoError(t, err)
 
 	return server, serverAddr, client
@@ -366,7 +386,7 @@ func TestSSHClient_PortForwardingDataTransfer(t *testing.T) {
 	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
 	require.NoError(t, err)
 
-	server := sshserver.New(hostKey)
+	server := sshserver.New(hostKey, nil)
 	server.SetAllowLocalPortForwarding(true)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
 
@@ -391,7 +411,9 @@ func TestSSHClient_PortForwardingDataTransfer(t *testing.T) {
 		t.Skipf("Skipping port forwarding test - running as system account: %s", realUser)
 	}
 
-	client, err := DialInsecure(ctx, serverAddr, realUser)
+	client, err := Dial(ctx, serverAddr, realUser, DialOptions{
+		InsecureSkipVerify: true, // Skip host key verification for test
+	})
 	require.NoError(t, err)
 	defer func() {
 		if err := client.Close(); err != nil {

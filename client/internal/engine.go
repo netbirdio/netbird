@@ -49,6 +49,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
+	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
@@ -260,6 +261,7 @@ func NewEngine(
 		path = mobileDep.StateFilePath
 	}
 	engine.stateManager = statemanager.New(path)
+	engine.stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
@@ -1092,9 +1094,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		// update peer SSH host keys in status recorder for daemon API access
 		e.updatePeerSSHHostKeys(networkMap.GetRemotePeers())
 
-		// update SSH client known_hosts with peer host keys for OpenSSH client
-		if err := e.updateSSHKnownHosts(networkMap.GetRemotePeers()); err != nil {
-			log.Warnf("failed to update SSH known_hosts: %v", err)
+		// update SSH client configuration for OpenSSH client
+		if err := e.updateSSHClientConfig(networkMap.GetRemotePeers()); err != nil {
+			log.Warnf("failed to update SSH client config: %v", err)
 		}
 	}
 
