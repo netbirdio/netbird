@@ -26,6 +26,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -989,19 +990,14 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			minExpected := bc.minMsPerOpLocal
 			maxExpected := bc.maxMsPerOpLocal
 			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
 				maxExpected = bc.maxMsPerOpCICD
+				testing_tools.EvaluateBenchmarkResults(b, bc.name, time.Since(start), "login", "newPeer")
 			}
 
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > (maxExpected * 1.1) {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			if msPerOp > maxExpected {
+				b.Logf("Benchmark %s: too slow (%.2f ms/op, max %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
