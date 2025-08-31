@@ -123,8 +123,10 @@ type MockAccountManager struct {
 	GetAccountOnboardingFunc              func(ctx context.Context, accountID, userID string) (*types.AccountOnboarding, error)
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
-	UpdateAccountPeersFunc                func(ctx context.Context, accountID string)
-	BufferUpdateAccountPeersFunc          func(ctx context.Context, accountID string)
+
+	AllowSyncFunc                func(string, uint64) bool
+	UpdateAccountPeersFunc       func(ctx context.Context, accountID string)
+	BufferUpdateAccountPeersFunc func(ctx context.Context, accountID string)
 }
 
 func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
@@ -968,4 +970,11 @@ func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth n
 		return am.GetCurrentUserInfoFunc(ctx, userAuth)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
+}
+
+func (am *MockAccountManager) AllowSync(key string, hash uint64) bool {
+	if am.AllowSyncFunc != nil {
+		return am.AllowSyncFunc(key, hash)
+	}
+	return true
 }

@@ -368,10 +368,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		if err = transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
-			return fmt.Errorf("failed to remove peer from groups: %w", err)
-		}
-
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
 		if err != nil {
 			return fmt.Errorf("failed to delete peer: %w", err)

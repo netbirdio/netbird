@@ -14,11 +14,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // Handler is a handler that returns peers of the account
@@ -354,7 +354,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 	}
 
 	return &api.Peer{
-		CreatedAt:                  peer.CreatedAt,
+		CreatedAt:                   peer.CreatedAt,
 		Id:                          peer.ID,
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
@@ -391,33 +391,33 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	}
 
 	return &api.PeerBatch{
-		CreatedAt:             peer.CreatedAt,
-		Id:                     peer.ID,
-		Name:                   peer.Name,
-		Ip:                     peer.IP.String(),
-		ConnectionIp:           peer.Location.ConnectionIP.String(),
-		Connected:              peer.Status.Connected,
-		LastSeen:               peer.Status.LastSeen,
-		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
-		KernelVersion:          peer.Meta.KernelVersion,
-		GeonameId:              int(peer.Location.GeoNameID),
-		Version:                peer.Meta.WtVersion,
-		Groups:                 groupsInfo,
-		SshEnabled:             peer.SSHEnabled,
-		Hostname:               peer.Meta.Hostname,
-		UserId:                 peer.UserID,
-		UiVersion:              peer.Meta.UIVersion,
-		DnsLabel:               fqdn(peer, dnsDomain),
-		ExtraDnsLabels:         fqdnList(peer.ExtraDNSLabels, dnsDomain),
-		LoginExpirationEnabled: peer.LoginExpirationEnabled,
-		LastLogin:              peer.GetLastLogin(),
-		LoginExpired:           peer.Status.LoginExpired,
-		AccessiblePeersCount:   accessiblePeersCount,
-		CountryCode:            peer.Location.CountryCode,
-		CityName:               peer.Location.CityName,
-		SerialNumber:           peer.Meta.SystemSerialNumber,
-
+		CreatedAt:                   peer.CreatedAt,
+		Id:                          peer.ID,
+		Name:                        peer.Name,
+		Ip:                          peer.IP.String(),
+		ConnectionIp:                peer.Location.ConnectionIP.String(),
+		Connected:                   peer.Status.Connected,
+		LastSeen:                    peer.Status.LastSeen,
+		Os:                          fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
+		KernelVersion:               peer.Meta.KernelVersion,
+		GeonameId:                   int(peer.Location.GeoNameID),
+		Version:                     peer.Meta.WtVersion,
+		Groups:                      groupsInfo,
+		SshEnabled:                  peer.SSHEnabled,
+		Hostname:                    peer.Meta.Hostname,
+		UserId:                      peer.UserID,
+		UiVersion:                   peer.Meta.UIVersion,
+		DnsLabel:                    fqdn(peer, dnsDomain),
+		ExtraDnsLabels:              fqdnList(peer.ExtraDNSLabels, dnsDomain),
+		LoginExpirationEnabled:      peer.LoginExpirationEnabled,
+		LastLogin:                   peer.GetLastLogin(),
+		LoginExpired:                peer.Status.LoginExpired,
+		AccessiblePeersCount:        accessiblePeersCount,
+		CountryCode:                 peer.Location.CountryCode,
+		CityName:                    peer.Location.CityName,
+		SerialNumber:                peer.Meta.SystemSerialNumber,
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
+		Ephemeral:                   peer.Ephemeral,
 	}
 }
 
