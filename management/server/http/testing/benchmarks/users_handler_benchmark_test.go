@@ -18,8 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 const moduleUsers = "users"
@@ -90,8 +90,8 @@ func BenchmarkGetOneUser(b *testing.B) {
 			recorder := httptest.NewRecorder()
 			b.ResetTimer()
 			start := time.Now()
+			req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/users/"+testing_tools.TestUserId, testing_tools.TestAdminId)
 			for i := 0; i < b.N; i++ {
-				req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/users/"+testing_tools.TestUserId, testing_tools.TestAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
@@ -116,8 +116,8 @@ func BenchmarkGetAllUsers(b *testing.B) {
 			recorder := httptest.NewRecorder()
 			b.ResetTimer()
 			start := time.Now()
+			req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/users", testing_tools.TestAdminId)
 			for i := 0; i < b.N; i++ {
-				req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/users", testing_tools.TestAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
