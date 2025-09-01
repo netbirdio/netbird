@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y -q libpcap-dev
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@d6238b0
         with:
           version: latest
           install-mode: binary
