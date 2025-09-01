@@ -1,0 +1,32 @@
+name: Wasm
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  js_build:
+    name: "JS / Build"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+      - name: Build Wasm client
+        run: GOOS=js GOARCH=wasm go build -o netbird.wasm ./client/wasm/cmd
+        env:
+          CGO_ENABLED: 0
+      - name: Check Wasm build size
+        run: |
+          echo "Wasm build size:"
+          ls -lh netbird.wasm
+

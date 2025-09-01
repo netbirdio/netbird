@@ -33,6 +33,10 @@ jobs:
             display_name: Windows
           - os: ubuntu-latest
             display_name: Linux
+          - os: ubuntu-latest
+            display_name: JS
+            goos: js
+            goarch: wasm
     name: ${{ matrix.display_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -40,7 +44,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Check for duplicate constants
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.goos != 'js'
         run: |
           ! awk '/const \(/,/)/{print $0}' management/server/activity/codes.go | grep -o '= [0-9]*' | sort | uniq -d | grep .
       - name: Install Go
@@ -49,10 +53,13 @@ jobs:
           go-version: "1.23.x"
           cache: false
       - name: Install dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.goos != 'js'
         run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev libpcap-dev
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
           version: latest
           args: --timeout=12m --out-format colored-line-number
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
