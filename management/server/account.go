@@ -1136,7 +1136,18 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, userAuth nbcontext.UserAuth) (string, error) {
 	newUser := types.NewRegularUser(userAuth.UserId)
 	newUser.AccountID = domainAccountID
-	err := am.Store.SaveUser(ctx, newUser)
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, domainAccountID)
+	if err != nil {
+		return "", err
+	}
+
+	if settings != nil && settings.Extra != nil && settings.Extra.UserApprovalRequired {
+		newUser.Blocked = true
+		newUser.PendingApproval = true
+	}
+
+	err = am.Store.SaveUser(ctx, newUser)
 	if err != nil {
 		return "", err
 	}
@@ -1146,7 +1157,11 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 		return "", err
 	}
 
-	am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
+	if newUser.PendingApproval {
+		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, map[string]any{"pending_approval": true})
+	} else {
+		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
+	}
 
 	return domainAccountID, nil
 }
@@ -1795,6 +1810,9 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string, dis
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 			RoutingPeerDNSResolutionEnabled: true,
+			Extra: &types.ExtraSettings{
+				UserApprovalRequired: true,
+			},
 		},
 		Onboarding: types.AccountOnboarding{
 			OnboardingFlowPending: true,
@@ -1901,6 +1919,9 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 				PeerInactivityExpirationEnabled: false,
 				PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 				RoutingPeerDNSResolutionEnabled: true,
+				Extra: &types.ExtraSettings{
+					UserApprovalRequired: true,
+				},
 			},
 		}
 
