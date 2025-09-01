@@ -13,6 +13,10 @@ import (
 	"golang.zx2c4.com/wireguard/conn"
 )
 
+var (
+	ErrUDPMUXNotSupported = fmt.Errorf("UDPMUX is not supported in WASM")
+)
+
 type recvMessage struct {
 	Endpoint *Endpoint
 	Buffer   []byte
@@ -119,7 +123,7 @@ func (s *RelayBindJS) RemoveEndpoint(fakeIP netip.Addr) {
 
 // GetICEMux returns the ICE UDPMux that was created and used by ICEBind
 func (s *RelayBindJS) GetICEMux() (*UniversalUDPMuxDefault, error) {
-	return nil, fmt.Errorf("GetICEMux is not supported in WASM")
+	return nil, ErrUDPMUXNotSupported
 }
 
 func (s *RelayBindJS) ActivityRecorder() *ActivityRecorder {

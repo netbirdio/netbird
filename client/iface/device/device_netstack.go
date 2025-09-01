@@ -1,6 +1,7 @@
 package device
 
 import (
+	"errors"
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
@@ -98,10 +99,14 @@ func (t *TunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	}
 
 	udpMux, err := t.bind.GetICEMux()
-	if err != nil {
+	if err != nil && !errors.Is(err, bind.ErrUDPMUXNotSupported) {
 		return nil, err
 	}
-	t.udpMux = udpMux
+
+	if udpMux != nil {
+		t.udpMux = udpMux
+	}
+
 	log.Debugf("netstack device is ready to use")
 	return udpMux, nil
 }
