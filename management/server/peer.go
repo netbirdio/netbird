@@ -332,9 +332,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -357,7 +354,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	var eventsToStore []func()
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
+		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			return err
 		}
@@ -369,10 +366,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		updateAccountPeers, err = isPeerInActiveGroup(ctx, transaction, accountID, peerID)
 		if err != nil {
 			return err
-		}
-
-		if err = transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
-			return fmt.Errorf("failed to remove peer from groups: %w", err)
 		}
 
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
@@ -495,6 +488,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 		if err != nil {
 			return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: user not found")
+		}
+		if user.PendingApproval {
+			return nil, nil, nil, status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
 		}
 		groupsToAdd = user.AutoGroups
 		opEvent.InitiatorID = userID
@@ -1530,7 +1526,7 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 	}
 	dnsDomain := am.GetDNSDomain(settings)
 
-	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+	network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}

@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools/channel"
 	"github.com/netbirdio/netbird/shared/management/client/rest"
-	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 )
 
 func withMockClient(callback func(*rest.Client, *http.ServeMux)) {
@@ -26,7 +26,7 @@ func ptr[T any, PT *T](x T) PT {
 
 func withBlackBoxServer(t *testing.T, callback func(*rest.Client)) {
 	t.Helper()
-	handler, _, _ := testing_tools.BuildApiBlackBoxWithDBState(t, "../../../../management/server/testdata/store.sql", nil, false)
+	handler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../../../../management/server/testdata/store.sql", nil, false)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	c := rest.New(server.URL, "nbp_apTmlmUXHSC4PKmHwtIZNaGr8eqcVI2gMURp")

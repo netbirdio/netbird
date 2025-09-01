@@ -57,10 +57,11 @@ type ICEBind struct {
 	muUDPMux         sync.Mutex
 	udpMux           *udpmux.UniversalUDPMuxDefault
 	address          wgaddr.Address
+	mtu              uint16
 	activityRecorder *ActivityRecorder
 }
 
-func NewICEBind(transportNet transport.Net, filterFn udpmux.FilterFn, address wgaddr.Address) *ICEBind {
+func NewICEBind(transportNet transport.Net, filterFn udpmux.FilterFn, address wgaddr.Address, mtu uint16) *ICEBind {
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:       b,
@@ -70,6 +71,7 @@ func NewICEBind(transportNet transport.Net, filterFn udpmux.FilterFn, address wg
 		endpoints:        make(map[netip.Addr]net.Conn),
 		closedChan:       make(chan struct{}),
 		closed:           true,
+		mtu:              mtu,
 		address:          address,
 		activityRecorder: NewActivityRecorder(),
 	}
@@ -79,6 +81,10 @@ func NewICEBind(transportNet transport.Net, filterFn udpmux.FilterFn, address wg
 	}
 	ib.StdNetBind = wgConn.NewStdNetBindWithReceiverCreator(rc)
 	return ib
+}
+
+func (s *ICEBind) MTU() uint16 {
+	return s.mtu
 }
 
 func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
@@ -159,6 +165,7 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 			Net:       s.transportNet,
 			FilterFn:  s.filterFn,
 			WGAddress: s.address,
+			MTU:       s.mtu,
 		},
 	)
 	return func(bufs [][]byte, sizes []int, eps []wgConn.Endpoint) (n int, err error) {

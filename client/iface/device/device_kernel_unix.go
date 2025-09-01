@@ -24,7 +24,7 @@ type TunKernelDevice struct {
 	address      wgaddr.Address
 	wgPort       int
 	key          string
-	mtu          int
+	mtu          uint16
 	ctx          context.Context
 	ctxCancel    context.CancelFunc
 	transportNet transport.Net
@@ -36,7 +36,7 @@ type TunKernelDevice struct {
 	filterFn udpmux.FilterFn
 }
 
-func NewKernelDevice(name string, address wgaddr.Address, wgPort int, key string, mtu int, transportNet transport.Net) *TunKernelDevice {
+func NewKernelDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, transportNet transport.Net) *TunKernelDevice {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TunKernelDevice{
 		ctx:          ctx,
@@ -66,7 +66,7 @@ func (t *TunKernelDevice) Create() (WGConfigurer, error) {
 	// TODO: do a MTU discovery
 	log.Debugf("setting MTU: %d interface: %s", t.mtu, t.name)
 
-	if err := link.setMTU(t.mtu); err != nil {
+	if err := link.setMTU(int(t.mtu)); err != nil {
 		return nil, fmt.Errorf("set mtu: %w", err)
 	}
 
@@ -96,7 +96,7 @@ func (t *TunKernelDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 
-	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter())
+	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter(), t.mtu)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +111,7 @@ func (t *TunKernelDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 		Net:       t.transportNet,
 		FilterFn:  t.filterFn,
 		WGAddress: t.address,
+		MTU:       t.mtu,
 	}
 	mux := udpmux.NewUniversalUDPMuxDefault(bindParams)
 	go mux.ReadFromConn(t.ctx)
@@ -156,6 +157,10 @@ func (t *TunKernelDevice) Close() error {
 
 func (t *TunKernelDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunKernelDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunKernelDevice) DeviceName() string {

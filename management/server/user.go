@@ -73,9 +73,6 @@ func (am *DefaultAccountManager) CreateUser(ctx context.Context, accountID, user
 
 // inviteNewUser Invites a USer to a given account and creates reference in datastore
 func (am *DefaultAccountManager) inviteNewUser(ctx context.Context, accountID, userID string, invite *types.UserInfo) (*types.UserInfo, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	if am.idpManager == nil {
 		return nil, status.Errorf(status.PreconditionFailed, "IdP manager must be enabled to send user invites")
 	}
@@ -224,9 +221,6 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return status.Errorf(status.InvalidArgument, "self deletion is not allowed")
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	initiatorUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorUserID)
 	if err != nil {
 		return err
@@ -282,9 +276,6 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 
 // InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
 func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	if am.idpManager == nil {
 		return status.Errorf(status.PreconditionFailed, "IdP manager must be enabled to send user invites")
 	}
@@ -325,9 +316,6 @@ func (am *DefaultAccountManager) InviteUser(ctx context.Context, accountID strin
 
 // CreatePAT creates a new PAT for the given user
 func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	if tokenName == "" {
 		return nil, status.Errorf(status.InvalidArgument, "token name can't be empty")
 	}
@@ -376,9 +364,6 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 
 // DeletePAT deletes a specific PAT from a user
 func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -478,9 +463,6 @@ func (am *DefaultAccountManager) SaveUser(ctx context.Context, accountID, initia
 // SaveOrAddUser updates the given user. If addIfNotExists is set to true it will add user when no exist
 // Only User.AutoGroups, User.Role, and User.Blocked fields are allowed to be updated for now.
 func (am *DefaultAccountManager) SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *types.User, addIfNotExists bool) (*types.UserInfo, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	updatedUsers, err := am.SaveOrAddUsers(ctx, accountID, initiatorUserID, []*types.User{update}, addIfNotExists)
 	if err != nil {
 		return nil, err
@@ -537,33 +519,46 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		initiatorUser = result
 	}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		for _, update := range updates {
-			if update == nil {
-				return status.Errorf(status.InvalidArgument, "provided user update is nil")
-			}
+	var globalErr error
+	for _, update := range updates {
+		if update == nil {
+			return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
+		}
 
+		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			userHadPeers, updatedUser, userPeersToExpire, userEvents, err := am.processUserUpdate(
 				ctx, transaction, groupsMap, accountID, initiatorUserID, initiatorUser, update, addIfNotExists, settings,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to process update for user %s: %w", update.Id, err)
 			}
-			usersToSave = append(usersToSave, updatedUser)
-			addUserEvents = append(addUserEvents, userEvents...)
-			peersToExpire = append(peersToExpire, userPeersToExpire...)
 
 			if userHadPeers {
 				updateAccountPeers = true
 			}
+
+			err = transaction.SaveUser(ctx, updatedUser)
+			if err != nil {
+				return fmt.Errorf("failed to save updated user %s: %w", update.Id, err)
+			}
+
+			usersToSave = append(usersToSave, updatedUser)
+			addUserEvents = append(addUserEvents, userEvents...)
+			peersToExpire = append(peersToExpire, userPeersToExpire...)
+
+			return nil
+		})
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to save user %s: %s", update.Id, err)
+			if len(updates) == 1 {
+				return nil, err
+			}
+			globalErr = errors.Join(globalErr, err)
+			// continue when updating multiple users
 		}
-		return transaction.SaveUsers(ctx, usersToSave)
-	})
-	if err != nil {
-		return nil, err
 	}
 
-	var updatedUsersInfo = make([]*types.UserInfo, 0, len(updates))
+	var updatedUsersInfo = make([]*types.UserInfo, 0, len(usersToSave))
 
 	userInfos, err := am.GetUsersFromAccount(ctx, accountID, initiatorUserID)
 	if err != nil {
@@ -596,7 +591,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
-	return updatedUsersInfo, nil
+	return updatedUsersInfo, globalErr
 }
 
 // prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
@@ -661,7 +656,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	}
 	transferredOwnerRole = result
 
-	userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthUpdate, updatedUser.AccountID, update.Id)
+	userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, updatedUser.AccountID, update.Id)
 	if err != nil {
 		return false, nil, nil, nil, err
 	}
@@ -1211,4 +1206,78 @@ func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAut
 	}
 
 	return userWithPermissions, nil
+}
+
+// ApproveUser approves a user that is pending approval
+func (am *DefaultAccountManager) ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error) {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Update)
+	if err != nil {
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
+	}
+
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.AccountID != accountID {
+		return nil, status.NewUserNotFoundError(targetUserID)
+	}
+
+	if !user.PendingApproval {
+		return nil, status.Errorf(status.InvalidArgument, "user %s is not pending approval", targetUserID)
+	}
+
+	user.Blocked = false
+	user.PendingApproval = false
+
+	err = am.Store.SaveUser(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+
+	am.StoreEvent(ctx, initiatorUserID, targetUserID, accountID, activity.UserApproved, nil)
+
+	userInfo, err := am.getUserInfo(ctx, user, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return userInfo, nil
+}
+
+// RejectUser rejects a user that is pending approval by deleting them
+func (am *DefaultAccountManager) RejectUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) error {
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Users, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return status.NewPermissionDeniedError()
+	}
+
+	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	if user.AccountID != accountID {
+		return status.NewUserNotFoundError(targetUserID)
+	}
+
+	if !user.PendingApproval {
+		return status.Errorf(status.InvalidArgument, "user %s is not pending approval", targetUserID)
+	}
+
+	err = am.DeleteUser(ctx, accountID, initiatorUserID, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	am.StoreEvent(ctx, initiatorUserID, targetUserID, accountID, activity.UserRejected, nil)
+
+	return nil
 }
