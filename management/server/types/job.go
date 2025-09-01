@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -136,14 +137,14 @@ func validateAndBuildBundleParams(req api.WorkloadRequest, workload *Workload) e
 		return fmt.Errorf("invalid parameters for bundle job")
 	}
 	// validate bundle_for_time <= 5 minutes
-	if bundle.Parameters.BundleForTime < 0 || bundle.Parameters.BundleForTime > 5 {
-		return fmt.Errorf("bundle_for_time must be between 0 and 5, got %d", bundle.Parameters.BundleForTime)
+	if bundle.Parameters.BundleForTime < 1 || bundle.Parameters.BundleForTime > 5 {
+		return fmt.Errorf("bundle_for_time must be between 1 and 5, got %d", bundle.Parameters.BundleForTime)
 	}
 	// validate log-file-count ≥ 1 and ≤ 1000
 	if bundle.Parameters.LogFileCount < 1 || bundle.Parameters.LogFileCount > 1000 {
 		return fmt.Errorf("log-file-count must be between 1 and 1000, got %d", bundle.Parameters.LogFileCount)
 	}
-	
+
 	workload.Parameters, err = json.Marshal(bundle.Parameters)
 	if err != nil {
 		return fmt.Errorf("failed to marshal workload parameters: %w", err)
@@ -152,4 +153,64 @@ func validateAndBuildBundleParams(req api.WorkloadRequest, workload *Workload) e
 	workload.Type = JobType(api.WorkloadTypeBundle)
 
 	return nil
+}
+
+// ApplyResponse validates and maps a proto.JobResponse into the Job fields.
+func (j *Job) ApplyResponse(resp *proto.JobResponse) error {
+	if resp == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	j.CompletedAt = &now
+	switch resp.Status {
+	case proto.JobStatus_succeeded:
+		j.Status = JobStatusSucceeded
+	case proto.JobStatus_failed:
+		j.Status = JobStatusFailed
+	default:
+		j.Status = JobStatusPending
+	}
+
+	if len(resp.Reason) > 0 {
+		j.FailedReason = string(resp.Reason)
+	}
+
+	// Handle workload results (oneof)
+	var err error
+	switch r := resp.WorkloadResults.(type) {
+	case *proto.JobResponse_Bundle:
+		if j.Workload.Result, err = json.Marshal(r.Bundle); err != nil {
+			return fmt.Errorf("failed to marshal workload results: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported workload response type: %T", r)
+	}
+	return nil
+}
+
+func (j *Job) ToStreamJobRequest() (*proto.JobRequest, error) {
+	switch j.Workload.Type {
+	case JobTypeBundle:
+		return j.buildStreamBundleResponse()
+	default:
+		return nil, status.Errorf(status.InvalidArgument, "unknown job type: %v", j.Workload.Type)
+	}
+}
+
+func (j *Job) buildStreamBundleResponse() (*proto.JobRequest, error) {
+	var p api.BundleParameters
+	if err := json.Unmarshal(j.Workload.Parameters, &p); err != nil {
+		return nil, fmt.Errorf("invalid parameters for bundle job: %w", err)
+	}
+	return &proto.JobRequest{
+		ID: []byte(j.ID),
+		WorkloadParameters: &proto.JobRequest_Bundle{
+			Bundle: &proto.BundleParameters{
+				BundleFor:     p.BundleFor,
+				BundleForTime: int64(p.BundleForTime),
+				LogFileCount:  int32(p.LogFileCount),
+				Anonymize:     p.Anonymize,
+			},
+		},
+	}, nil
 }

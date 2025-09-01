@@ -22,6 +22,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -53,6 +55,7 @@ import (
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
@@ -62,7 +65,9 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
+	"github.com/netbirdio/netbird/upload-server/types"
 	"github.com/netbirdio/netbird/util"
+	"google.golang.org/grpc/status"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -887,19 +892,45 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	return nil
 }
 
+func (e *Engine) getPeerClient(addr string) (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(
+		strings.TrimPrefix(addr, "tcp://"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+
+	return conn, nil
+}
+
 func (e *Engine) receiveJobEvents() {
 	go func() {
 		err := e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
-			// Simple test handler — replace with real logic
 			log.Infof("Received job request: %+v", msg)
-			// TODO: trigger local debug bundle or other job
-			return &mgmProto.JobResponse{
-				ID: msg.ID,
-				WorkloadResults: &mgmProto.JobResponse_Bundle{
-					Bundle: &mgmProto.BundleResult{
-						UploadKey: "upload-key",
+			switch params := msg.WorkloadParameters.(type) {
+			case *mgmProto.JobRequest_Bundle:
+				uploadKey, err := e.handleBundle(params.Bundle)
+				if err != nil {
+					return &mgmProto.JobResponse{
+						ID:     msg.ID,
+						Status: mgmProto.JobStatus_failed,
+						Reason: []byte(err.Error()),
+					}
+				}
+				return &mgmProto.JobResponse{
+					ID:     msg.ID,
+					Status: mgmProto.JobStatus_succeeded,
+					WorkloadResults: &mgmProto.JobResponse_Bundle{
+						Bundle: &mgmProto.BundleResult{
+							UploadKey: uploadKey,
+						},
 					},
-				},
+				}
+			default:
+				return nil
 			}
 		})
 		if err != nil {
@@ -912,6 +943,62 @@ func (e *Engine) receiveJobEvents() {
 		log.Debugf("stopped receiving jobs from Management Service")
 	}()
 	log.Debugf("connecting to Management Service jobs stream")
+}
+
+func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (string, error) {
+	// todo: implement with real deamon address
+	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf("Failed to close connection: %v", err)
+		}
+	}()
+
+	statusOutput, err := e.getStatusOutput(params.Anonymize)
+	if err != nil {
+		return "", err
+	}
+	request := &cProto.DebugBundleRequest{
+		Anonymize:    params.Anonymize,
+		SystemInfo:   true,
+		Status:       statusOutput,
+		LogFileCount: uint32(params.LogFileCount),
+		UploadURL:    types.DefaultBundleURL,
+	}
+	service := cProto.NewDaemonServiceClient(conn)
+	resp, err := service.DebugBundle(e.clientCtx, request)
+	if err != nil {
+		return "", fmt.Errorf("failed to bundle debug: " + status.Convert(err).Message())
+	}
+
+	if resp.GetUploadFailureReason() != "" {
+		return "", fmt.Errorf("upload failed: " + resp.GetUploadFailureReason())
+	}
+	return resp.GetUploadedKey(), nil
+}
+
+func (e *Engine) getStatusOutput(anon bool) (string, error) {
+	// todo: implement with real deamon address
+	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf("Failed to close connection: %v", err)
+		}
+	}()
+
+	statusResp, err := cProto.NewDaemonServiceClient(conn).Status(e.clientCtx, &cProto.StatusRequest{GetFullPeerStatus: true, ShouldRunProbes: true})
+	if err != nil {
+		return "", fmt.Errorf("status failed: %v", status.Convert(err).Message())
+	}
+	return nbstatus.ParseToFullDetailSummary(
+		nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", ""),
+	), nil
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
