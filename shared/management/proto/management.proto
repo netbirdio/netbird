@@ -103,6 +103,9 @@ message LoginRequest {
   PeerKeys peerKeys = 4;
 
   repeated string dnsLabels = 5;
+
+  // Account ID to join. If empty, the account associated with the setupKey or user will be used.
+  string accountId = 6;
 }
 
 // PeerKeys is additional peer info like SSH pub key and WireGuard public key.

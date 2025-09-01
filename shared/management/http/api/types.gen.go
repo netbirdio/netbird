@@ -168,6 +168,7 @@ const (
 const (
 	ResourceTypeDomain ResourceType = "domain"
 	ResourceTypeHost   ResourceType = "host"
+	ResourceTypePeer   ResourceType = "peer"
 	ResourceTypeSubnet ResourceType = "subnet"
 )
 
@@ -1015,8 +1016,6 @@ type OSVersionCheck struct {
 
 // Peer defines model for Peer.
 type Peer struct {
-    // CreatedAt Peer creation date (UTC)
-    CreatedAt time.Time `json:"created_at"`
 	// ApprovalRequired (Cloud only) Indicates whether peer needs approval
 	ApprovalRequired bool `json:"approval_required"`
 
@@ -1031,6 +1030,9 @@ type Peer struct {
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode CountryCode `json:"country_code"`
+
+	// CreatedAt Peer creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
@@ -1098,8 +1100,6 @@ type Peer struct {
 
 // PeerBatch defines model for PeerBatch.
 type PeerBatch struct {
-    // CreatedAt Peer creation date (UTC)
-    CreatedAt time.Time `json:"created_at"`
 	// AccessiblePeersCount Number of accessible peers
 	AccessiblePeersCount int `json:"accessible_peers_count"`
 
@@ -1117,6 +1117,9 @@ type PeerBatch struct {
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode CountryCode `json:"country_code"`
+
+	// CreatedAt Peer creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`

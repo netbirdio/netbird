@@ -998,8 +998,20 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 				continue
 			}
 
-			sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, rule.Sources, peer.ID, policy.SourcePostureChecks, validatedPeersMap)
-			destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, rule.Destinations, peer.ID, nil, validatedPeersMap)
+			var sourcePeers, destinationPeers []*nbpeer.Peer
+			var peerInSources, peerInDestinations bool
+
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				sourcePeers, peerInSources = a.getPeerFromResource(rule.SourceResource, peer.ID)
+			} else {
+				sourcePeers, peerInSources = a.getAllPeersFromGroups(ctx, rule.Sources, peer.ID, policy.SourcePostureChecks, validatedPeersMap)
+			}
+
+			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+				destinationPeers, peerInDestinations = a.getPeerFromResource(rule.DestinationResource, peer.ID)
+			} else {
+				destinationPeers, peerInDestinations = a.getAllPeersFromGroups(ctx, rule.Destinations, peer.ID, nil, validatedPeersMap)
+			}
 
 			if rule.Bidirectional {
 				if peerInSources {
@@ -1119,6 +1131,15 @@ func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, pe
 	}
 
 	return filteredPeers, peerInGroups
+}
+
+func (a *Account) getPeerFromResource(resource Resource, peerID string) ([]*nbpeer.Peer, bool) {
+	peer := a.GetPeer(resource.ID)
+	if peer == nil {
+		return []*nbpeer.Peer{}, false
+	}
+
+	return []*nbpeer.Peer{peer}, resource.ID == peerID
 }
 
 // validatePostureChecksOnPeer validates the posture checks on a peer

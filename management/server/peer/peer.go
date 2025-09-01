@@ -47,6 +47,8 @@ type Peer struct {
 	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool `gorm:"index"`
+	// Temporary indicates whether the peer is temporary or not
+	Temporary bool `gorm:"index"`
 	// Geo location based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 
@@ -223,6 +225,7 @@ func (p *Peer) Copy() *Peer {
 		LastLogin:                   p.LastLogin,
 		CreatedAt:                   p.CreatedAt,
 		Ephemeral:                   p.Ephemeral,
+		Temporary:                   p.Temporary,
 		Location:                    p.Location,
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 		ExtraDNSLabels:              slices.Clone(p.ExtraDNSLabels),
