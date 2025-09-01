@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
 	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 
@@ -214,10 +214,6 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 		return nil, err
 	}
 
-	if err := agent.OnSuccessfulSelectedPairBindingResponse(w.onSuccessfulSelectedPairBindingResponse); err != nil {
-		return nil, fmt.Errorf("failed setting binding response callback: %w", err)
-	}
-
 	return agent, nil
 }
 
@@ -250,6 +246,11 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 
 	pair, err := agent.GetSelectedCandidatePair()
 	if err != nil {
+		w.closeAgent(agent, w.agentDialerCancel)
+		return
+	}
+	if pair == nil {
+		w.log.Warnf("selected candidate pair is nil, cannot proceed")
 		w.closeAgent(agent, w.agentDialerCancel)
 		return
 	}
@@ -379,6 +380,27 @@ func (w *WorkerICE) onICECandidate(candidate ice.Candidate) {
 func (w *WorkerICE) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
 	w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
 		w.config.Key)
+
+	w.muxAgent.Lock()
+
+	pair, err := w.agent.GetSelectedCandidatePair()
+	if err != nil {
+		w.log.Warnf("failed to get selected candidate pair: %s", err)
+		w.muxAgent.Unlock()
+		return
+	}
+	if pair == nil {
+		w.log.Warnf("selected candidate pair is nil, cannot proceed")
+		w.muxAgent.Unlock()
+		return
+	}
+	w.muxAgent.Unlock()
+
+	duration := time.Duration(pair.CurrentRoundTripTime() * float64(time.Second))
+	if err := w.statusRecorder.UpdateLatency(w.config.Key, duration); err != nil {
+		w.log.Debugf("failed to update latency for peer: %s", err)
+		return
+	}
 }
 
 func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dialerCancel context.CancelFunc) func(ice.ConnectionState) {
@@ -400,13 +422,6 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 	}
 }
 
-func (w *WorkerICE) onSuccessfulSelectedPairBindingResponse(pair *ice.CandidatePair) {
-	if err := w.statusRecorder.UpdateLatency(w.config.Key, pair.Latency()); err != nil {
-		w.log.Debugf("failed to update latency for peer: %s", err)
-		return
-	}
-}
-
 func (w *WorkerICE) shouldSendExtraSrflxCandidate(candidate ice.Candidate) bool {
 	if !w.sentExtraSrflx && candidate.Type() == ice.CandidateTypeServerReflexive && candidate.Port() != candidate.RelatedAddress().Port {
 		return true
@@ -425,7 +440,7 @@ func (w *WorkerICE) turnAgentDial(ctx context.Context, agent *icemaker.ThreadSaf
 
 func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive, error) {
 	relatedAdd := candidate.RelatedAddress()
-	return ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
+	ec, err := ice.NewCandidateServerReflexive(&ice.CandidateServerReflexiveConfig{
 		Network:   candidate.NetworkType().String(),
 		Address:   candidate.Address(),
 		Port:      relatedAdd.Port,
@@ -433,6 +448,17 @@ func extraSrflxCandidate(candidate ice.Candidate) (*ice.CandidateServerReflexive
 		RelAddr:   relatedAdd.Address,
 		RelPort:   relatedAdd.Port,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, e := range candidate.Extensions() {
+		if err := ec.AddExtension(e); err != nil {
+			return nil, err
+		}
+	}
+
+	return ec, nil
 }
 
 func candidateViaRoutes(candidate ice.Candidate, clientRoutes route.HAMap) bool {

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
 	"github.com/pion/logging"
 	"github.com/pion/randutil"
 	log "github.com/sirupsen/logrus"
