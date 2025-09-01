@@ -353,53 +353,21 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	}
 
 	// check if peer connected
-	// todo: implement jobManager.IsPeerConnected
-	// if !am.jobManager.IsPeerConnected(ctx, peerID) {
-	// 	return status.NewJobFailedError("peer not connected")
-	// }
+	if !am.jobManager.IsPeerConnected(peerID) {
+		return status.Errorf(status.BadRequest, "peer not connected")
+	}
 
 	// check if already has pending jobs
-	// todo: implement jobManager.GetPendingJobsByPeerID
-	// if pending := am.jobManager.GetPendingJobsByPeerID(ctx, peerID); len(pending) > 0 {
-	// 	return status.NewJobAlreadyPendingError(peerID)
-	// }
+	if am.jobManager.IsPeerHasPendingJobs(peerID) {
+		return status.Errorf(status.BadRequest, "peer already hase pending job")
+	}
 
 	// try sending job first
-	// todo: implement am.jobManager.SendJob
-	// if err := am.jobManager.SendJob(ctx, peerID, job); err != nil {
-	// 	return status.NewJobFailedError(fmt.Sprintf("failed to send job: %v", err))
-	// }
-
-	var peer *nbpeer.Peer
-	var eventsToStore func()
-
-	// persist job in DB only if send succeeded
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthUpdate, accountID, peerID)
-		if err != nil {
-			return err
-		}
-		if err := transaction.CreatePeerJob(ctx, job); err != nil {
-			return err
-		}
-
-		jobMeta := map[string]any{
-			"job_id":       job.ID,
-			"for_peer_id":  job.PeerID,
-			"job_type":     job.Workload.Type,
-			"job_status":   job.Status,
-			"job_workload": job.Workload,
-		}
-
-		eventsToStore = func() {
-			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.JobCreatedByUser, jobMeta)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
+	if err := am.jobManager.SendJob(ctx, job, func(meta map[string]any, peer *nbpeer.Peer) {
+		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.JobCreatedByUser, meta)
+	}); err != nil {
+		return status.Errorf(status.Internal, "failed to send job: %v", err)
 	}
-	eventsToStore()
 	return nil
 }
 
@@ -422,7 +390,7 @@ func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, 
 		return []*types.Job{}, nil
 	}
 
-	accountJobs, err := am.Store.GetPeerJobs(ctx, accountID, peerID)
+	accountJobs, err := am.Store.GetPeerJobs(accountID, peerID)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +417,7 @@ func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, 
 		return &types.Job{}, nil
 	}
 
-	job, err := am.Store.GetPeerJobByID(ctx, accountID, jobID)
+	job, err := am.Store.GetPeerJobByID(accountID, jobID)
 	if err != nil {
 		return nil, err
 	}

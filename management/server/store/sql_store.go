@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -127,8 +128,18 @@ func GetKeyQueryCondition(s *SqlStore) string {
 }
 
 // SaveJob persists a job in DB
-func (s *SqlStore) CreatePeerJob(ctx context.Context, job *types.Job) error {
-	result := s.db.Create(job)
+func (s *SqlStore) CreateOrUpdatePeerJob(ctx context.Context, job *types.Job, jobResponse *proto.JobResponse) error {
+	if err := job.ApplyResponse(jobResponse); err != nil {
+		return status.Errorf(status.Internal, err.Error())
+	}
+	fmt.Printf("new job or update %v\n", job)
+
+	result := s.db.
+		Model(&types.Job{}).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"completed_at", "status", "failed_reason", "workload_workload_type", "workload_parameters", "workload_result"}),
+	}).Create(job)
+
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to create job in store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to create job in store")
@@ -137,21 +148,25 @@ func (s *SqlStore) CreatePeerJob(ctx context.Context, job *types.Job) error {
 }
 
 // job was pending for too long and has been cancelled
-// todo call it when we first start the jobChannel to make sure no stuck jobs
-func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, peerID string) error {
+func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error {
 	now := time.Now().UTC()
-	return s.db.
+	result := s.db.
 		Model(&types.Job{}).
-		Where("peer_id = ? AND status = ?", types.JobStatusPending, peerID).
-		Updates(map[string]any{
-			"status":        types.JobStatusFailed,
-			"failed_reason": "Pending job cleanup: marked as failed automatically due to being stuck too long",
-			"completed_at":  now,
-		}).Error
+		Where(accountAndPeerIDQueryCondition+"AND status = ?", accountID, peerID, types.JobStatusPending).
+		Updates(types.Job{
+			Status:       types.JobStatusFailed,
+			FailedReason: reason,
+			CompletedAt:  &now,
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to mark pending jobs as Failed job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to mark pending job as Failed in store")
+	}
+	return nil
 }
 
 // GetJobByID fetches job by ID
-func (s *SqlStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) (*types.Job, error) {
+func (s *SqlStore) GetPeerJobByID(accountID, jobID string) (*types.Job, error) {
 	var job types.Job
 	err := s.db.
 		Where(accountAndIDQueryCondition, accountID, jobID).
@@ -163,7 +178,7 @@ func (s *SqlStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) 
 }
 
 // get all jobs
-func (s *SqlStore) GetPeerJobs(ctx context.Context, accountID, peerID string) ([]*types.Job, error) {
+func (s *SqlStore) GetPeerJobs(accountID, peerID string) ([]*types.Job, error) {
 	var jobs []*types.Job
 	err := s.db.
 		Where(accountAndPeerIDQueryCondition, accountID, peerID).
@@ -175,28 +190,6 @@ func (s *SqlStore) GetPeerJobs(ctx context.Context, accountID, peerID string) ([
 	}
 
 	return jobs, nil
-}
-
-func (s *SqlStore) CompletePeerJob(accountID, jobID, result, failedReason string) error {
-	now := time.Now().UTC()
-
-	updates := map[string]any{
-		"completed_at": now,
-	}
-
-	if result != "" && failedReason == "" {
-		updates["status"] = types.JobStatusSucceeded
-		updates["result"] = result
-		updates["failed_reason"] = ""
-	} else {
-		updates["status"] = types.JobStatusFailed
-		updates["failed_reason"] = failedReason
-	}
-
-	return s.db.
-		Model(&types.Job{}).
-		Where(accountAndIDQueryCondition, accountID, jobID).
-		Updates(updates).Error
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
