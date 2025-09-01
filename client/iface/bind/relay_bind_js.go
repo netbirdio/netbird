@@ -4,17 +4,12 @@ package bind
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/conn"
-)
-
-var (
-	ErrUDPMUXNotSupported = fmt.Errorf("UDPMUX is not supported in WASM")
 )
 
 type recvMessage struct {
