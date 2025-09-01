@@ -80,7 +80,7 @@ func (w *WGIface) GetProxy() wgproxy.Proxy {
 	return w.wgProxyFactory.GetProxy()
 }
 
-// IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBindJS
+// IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
 func (w *WGIface) IsUserspaceBind() bool {
 	return w.userspaceBind
 }
