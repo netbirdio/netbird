@@ -22,7 +22,7 @@ jobs:
         with:
           go-version: "1.23.x"
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libpcap-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev libpcap-dev
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@d6238b0
         with:
