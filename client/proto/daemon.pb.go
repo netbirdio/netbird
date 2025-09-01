@@ -278,6 +278,7 @@ type LoginRequest struct {
 	BlockInbound          *bool   `protobuf:"varint,29,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
 	ProfileName           *string `protobuf:"bytes,30,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
 	Username              *string `protobuf:"bytes,31,opt,name=username,proto3,oneof" json:"username,omitempty"`
+	Mtu                   *int64  `protobuf:"varint,32,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -528,6 +529,13 @@ func (x *LoginRequest) GetUsername() string {
 		return *x.Username
 	}
 	return ""
+}
+
+func (x *LoginRequest) GetMtu() int64 {
+	if x != nil && x.Mtu != nil {
+		return *x.Mtu
+	}
+	return 0
 }
 
 type LoginResponse struct {
@@ -1034,6 +1042,7 @@ type GetConfigResponse struct {
 	AdminURL              string `protobuf:"bytes,5,opt,name=adminURL,proto3" json:"adminURL,omitempty"`
 	InterfaceName         string `protobuf:"bytes,6,opt,name=interfaceName,proto3" json:"interfaceName,omitempty"`
 	WireguardPort         int64  `protobuf:"varint,7,opt,name=wireguardPort,proto3" json:"wireguardPort,omitempty"`
+	Mtu                   int64  `protobuf:"varint,8,opt,name=mtu,proto3" json:"mtu,omitempty"`
 	DisableAutoConnect    bool   `protobuf:"varint,9,opt,name=disableAutoConnect,proto3" json:"disableAutoConnect,omitempty"`
 	ServerSSHAllowed      bool   `protobuf:"varint,10,opt,name=serverSSHAllowed,proto3" json:"serverSSHAllowed,omitempty"`
 	RosenpassEnabled      bool   `protobuf:"varint,11,opt,name=rosenpassEnabled,proto3" json:"rosenpassEnabled,omitempty"`
@@ -1125,6 +1134,13 @@ func (x *GetConfigResponse) GetInterfaceName() string {
 func (x *GetConfigResponse) GetWireguardPort() int64 {
 	if x != nil {
 		return x.WireguardPort
+	}
+	return 0
+}
+
+func (x *GetConfigResponse) GetMtu() int64 {
+	if x != nil {
+		return x.Mtu
 	}
 	return 0
 }
@@ -3679,6 +3695,7 @@ type SetConfigRequest struct {
 	// cleanDNSLabels clean map list of DNS labels.
 	CleanDNSLabels   bool                 `protobuf:"varint,26,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
 	DnsRouteInterval *durationpb.Duration `protobuf:"bytes,27,opt,name=dnsRouteInterval,proto3,oneof" json:"dnsRouteInterval,omitempty"`
+	Mtu              *int64               `protobuf:"varint,28,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -3900,6 +3917,13 @@ func (x *SetConfigRequest) GetDnsRouteInterval() *durationpb.Duration {
 		return x.DnsRouteInterval
 	}
 	return nil
+}
+
+func (x *SetConfigRequest) GetMtu() int64 {
+	if x != nil && x.Mtu != nil {
+		return *x.Mtu
+	}
+	return 0
 }
 
 type SetConfigResponse struct {
@@ -4575,7 +4599,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\xa4\x0e\n" +
+	"\fEmptyRequest\"\xc3\x0e\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -4611,7 +4635,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x15lazyConnectionEnabled\x18\x1c \x01(\bH\x0fR\x15lazyConnectionEnabled\x88\x01\x01\x12(\n" +
 	"\rblock_inbound\x18\x1d \x01(\bH\x10R\fblockInbound\x88\x01\x01\x12%\n" +
 	"\vprofileName\x18\x1e \x01(\tH\x11R\vprofileName\x88\x01\x01\x12\x1f\n" +
-	"\busername\x18\x1f \x01(\tH\x12R\busername\x88\x01\x01B\x13\n" +
+	"\busername\x18\x1f \x01(\tH\x12R\busername\x88\x01\x01\x12\x15\n" +
+	"\x03mtu\x18  \x01(\x03H\x13R\x03mtu\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -4630,7 +4655,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16_lazyConnectionEnabledB\x10\n" +
 	"\x0e_block_inboundB\x0e\n" +
 	"\f_profileNameB\v\n" +
-	"\t_username\"\xb5\x01\n" +
+	"\t_usernameB\x06\n" +
+	"\x04_mtu\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -4661,7 +4687,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\xa3\x06\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xb5\x06\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -4671,7 +4697,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\fpreSharedKey\x18\x04 \x01(\tR\fpreSharedKey\x12\x1a\n" +
 	"\badminURL\x18\x05 \x01(\tR\badminURL\x12$\n" +
 	"\rinterfaceName\x18\x06 \x01(\tR\rinterfaceName\x12$\n" +
-	"\rwireguardPort\x18\a \x01(\x03R\rwireguardPort\x12.\n" +
+	"\rwireguardPort\x18\a \x01(\x03R\rwireguardPort\x12\x10\n" +
+	"\x03mtu\x18\b \x01(\x03R\x03mtu\x12.\n" +
 	"\x12disableAutoConnect\x18\t \x01(\bR\x12disableAutoConnect\x12*\n" +
 	"\x10serverSSHAllowed\x18\n" +
 	" \x01(\bR\x10serverSSHAllowed\x12*\n" +
@@ -4885,7 +4912,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"\x17\n" +
-	"\x15SwitchProfileResponse\"\xef\f\n" +
+	"\x15SwitchProfileResponse\"\x8e\r\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -4917,7 +4944,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"dns_labels\x18\x19 \x03(\tR\tdnsLabels\x12&\n" +
 	"\x0ecleanDNSLabels\x18\x1a \x01(\bR\x0ecleanDNSLabels\x12J\n" +
-	"\x10dnsRouteInterval\x18\x1b \x01(\v2\x19.google.protobuf.DurationH\x10R\x10dnsRouteInterval\x88\x01\x01B\x13\n" +
+	"\x10dnsRouteInterval\x18\x1b \x01(\v2\x19.google.protobuf.DurationH\x10R\x10dnsRouteInterval\x88\x01\x01\x12\x15\n" +
+	"\x03mtu\x18\x1c \x01(\x03H\x11R\x03mtu\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -4934,7 +4962,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16_disable_notificationsB\x18\n" +
 	"\x16_lazyConnectionEnabledB\x10\n" +
 	"\x0e_block_inboundB\x13\n" +
-	"\x11_dnsRouteInterval\"\x13\n" +
+	"\x11_dnsRouteIntervalB\x06\n" +
+	"\x04_mtu\"\x13\n" +
 	"\x11SetConfigResponse\"Q\n" +
 	"\x11AddProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +

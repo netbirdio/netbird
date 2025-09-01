@@ -22,7 +22,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 	wgIFace := &WGIface{}
 
 	if netstack.IsEnabled() {
-		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress)
+		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, opts.MTU)
 		wgIFace.tun = device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr())
 		wgIFace.userspaceBind = true
 		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind)
@@ -31,11 +31,11 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 
 	if device.WireGuardModuleIsLoaded() {
 		wgIFace.tun = device.NewKernelDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, opts.TransportNet)
-		wgIFace.wgProxyFactory = wgproxy.NewKernelFactory(opts.WGPort)
+		wgIFace.wgProxyFactory = wgproxy.NewKernelFactory(opts.WGPort, opts.MTU)
 		return wgIFace, nil
 	}
 	if device.ModuleTunIsLoaded() {
-		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress)
+		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, opts.MTU)
 		wgIFace.tun = device.NewUSPDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind)
 		wgIFace.userspaceBind = true
 		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind)

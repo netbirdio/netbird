@@ -30,6 +30,7 @@ type ServerPicker struct {
 	TokenStore *auth.TokenStore
 	ServerURLs atomic.Value
 	PeerID     string
+	MTU        uint16
 }
 
 func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
@@ -70,7 +71,7 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 
 func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
 	log.Infof("try to connecting to relay server: %s", url)
-	relayClient := NewClient(url, sp.TokenStore, sp.PeerID)
+	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
 	err := relayClient.Connect(ctx)
 	resultChan <- connResult{
 		RelayClient: relayClient,

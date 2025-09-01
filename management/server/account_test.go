@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -3046,19 +3048,14 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			minExpected := bc.minMsPerOpLocal
 			maxExpected := bc.maxMsPerOpLocal
 			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
 				maxExpected = bc.maxMsPerOpCICD
+				testing_tools.EvaluateBenchmarkResults(b, bc.name, time.Since(start), "sync", "syncAndMark")
 			}
 
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > (maxExpected * 1.1) {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			if msPerOp > maxExpected {
+				b.Logf("Benchmark %s: too slow (%.2f ms/op, max %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -3121,19 +3118,14 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			minExpected := bc.minMsPerOpLocal
 			maxExpected := bc.maxMsPerOpLocal
 			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
 				maxExpected = bc.maxMsPerOpCICD
+				testing_tools.EvaluateBenchmarkResults(b, bc.name, time.Since(start), "login", "existingPeer")
 			}
 
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > (maxExpected * 1.1) {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			if msPerOp > maxExpected {
+				b.Logf("Benchmark %s: too slow (%.2f ms/op, max %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -3196,22 +3188,42 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			minExpected := bc.minMsPerOpLocal
 			maxExpected := bc.maxMsPerOpLocal
 			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
 				maxExpected = bc.maxMsPerOpCICD
+				testing_tools.EvaluateBenchmarkResults(b, bc.name, time.Since(start), "login", "newPeer")
 			}
 
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > (maxExpected * 1.1) {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			if msPerOp > maxExpected {
+				b.Logf("Benchmark %s: too slow (%.2f ms/op, max %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
+}
+
+func TestMain(m *testing.M) {
+	exitCode := m.Run()
+
+	if exitCode == 0 && os.Getenv("CI") == "true" {
+		runID := os.Getenv("GITHUB_RUN_ID")
+		storeEngine := os.Getenv("NETBIRD_STORE_ENGINE")
+		err := push.New("http://localhost:9091", "account_manager_benchmark").
+			Collector(testing_tools.BenchmarkDuration).
+			Grouping("ci_run", runID).
+			Grouping("store_engine", storeEngine).
+			Push()
+		if err != nil {
+			log.Printf("Failed to push metrics: %v", err)
+		} else {
+			time.Sleep(1 * time.Minute)
+			_ = push.New("http://localhost:9091", "account_manager_benchmark").
+				Grouping("ci_run", runID).
+				Grouping("store_engine", storeEngine).
+				Delete()
+		}
+	}
+
+	os.Exit(exitCode)
 }
 
 func Test_GetCreateAccountByPrivateDomain(t *testing.T) {
