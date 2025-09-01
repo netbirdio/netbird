@@ -5,19 +5,22 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"syscall/js"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	netbird "github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/client/wasm/internal/http"
 	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
 	clientStartTimeout = 30 * time.Second
 	clientStopTimeout  = 10 * time.Second
+	defaultLogLevel    = "warn"
 )
 
 func main() {
@@ -27,11 +30,11 @@ func main() {
 }
 
 func startClient(ctx context.Context, nbClient *netbird.Client) error {
-	log.Println("Starting NetBird client...")
+	log.Info("Starting NetBird client...")
 	if err := nbClient.Start(ctx); err != nil {
 		return err
 	}
-	log.Println("NetBird client started successfully")
+	log.Info("NetBird client started successfully")
 	return nil
 }
 
@@ -39,7 +42,7 @@ func startClient(ctx context.Context, nbClient *netbird.Client) error {
 func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 	options := netbird.Options{
 		DeviceName: "dashboard-client",
-		LogLevel:   "warn",
+		LogLevel:   defaultLogLevel,
 	}
 
 	if jwtToken := jsOptions.Get("jwtToken"); !jwtToken.IsNull() && !jwtToken.IsUndefined() {
@@ -97,12 +100,12 @@ func createStopMethod(client *netbird.Client) js.Func {
 			defer cancel()
 
 			if err := client.Stop(ctx); err != nil {
-				log.Printf("Error stopping client: %v", err)
+				log.Errorf("Error stopping client: %v", err)
 				reject.Invoke(js.ValueOf(err.Error()))
 				return
 			}
 
-			log.Println("NetBird client stopped")
+			log.Info("NetBird client stopped")
 			resolve.Invoke(js.ValueOf(true))
 		})
 	})
@@ -132,7 +135,7 @@ func createSSHMethod(client *netbird.Client) js.Func {
 
 			if err := sshClient.StartSession(80, 24); err != nil {
 				if closeErr := sshClient.Close(); closeErr != nil {
-					log.Printf("Error closing SSH client: %v", closeErr)
+					log.Errorf("Error closing SSH client: %v", closeErr)
 				}
 				reject.Invoke(err.Error())
 				return
@@ -219,7 +222,11 @@ func netBirdClientConstructor(this js.Value, args []js.Value) any {
 				return
 			}
 
-			log.Printf("Creating NetBird client with options: deviceName=%s, hasJWT=%v, hasSetupKey=%v, mgmtURL=%s",
+			if err := util.InitLog(options.LogLevel, util.LogConsole); err != nil {
+				log.Warnf("Failed to initialize logging: %v", err)
+			}
+
+			log.Infof("Creating NetBird client with options: deviceName=%s, hasJWT=%v, hasSetupKey=%v, mgmtURL=%s",
 				options.DeviceName, options.JWTToken != "", options.SetupKey != "", options.ManagementURL)
 
 			client, err := netbird.New(options)
@@ -229,7 +236,7 @@ func netBirdClientConstructor(this js.Value, args []js.Value) any {
 			}
 
 			clientObj := createClientObject(client)
-			log.Println("NetBird client created successfully")
+			log.Info("NetBird client created successfully")
 			resolve.Invoke(clientObj)
 		}()
 
