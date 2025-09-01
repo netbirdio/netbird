@@ -21,6 +21,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.23.x"
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libpcap-dev
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
@@ -31,7 +33,7 @@ jobs:
           skip-build-cache: true
       - name: Run golangci-lint for WASM
         run: |
-          GOOS=js GOARCH=wasm golangci-lint run --timeout=12m --out-format colored-line-number
+          GOOS=js GOARCH=wasm golangci-lint run --timeout=12m --out-format colored-line-number ./client/...
         continue-on-error: true
 
   js_build:
