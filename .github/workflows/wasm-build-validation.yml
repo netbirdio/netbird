@@ -55,3 +55,13 @@ jobs:
           echo "Wasm build size:"
           ls -lh netbird.wasm
 
+          SIZE=$(stat -c%s netbird.wasm)
+          SIZE_MB=$((SIZE / 1024 / 1024))
+
+          echo "Size: ${SIZE} bytes (${SIZE_MB} MB)"
+
+          if [ ${SIZE} -gt 52428800 ]; then
+            echo "Wasm binary size (${SIZE_MB}MB) exceeds 50MB limit!"
+            exit 1
+          fi
+
