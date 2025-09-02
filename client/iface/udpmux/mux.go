@@ -401,7 +401,6 @@ func (m *SingleSocketUDPMux) HandleSTUNMessage(msg *stun.Message, addr net.Addr)
 	}
 
 	// Fallback: route to all possible connections
-	log.Infof("handover STUN message to unknown candidate peer: %s, 0x%x", msg.Type, msg.TransactionID)
 	return m.forwardToAllConnections(msg, addr, remoteAddr)
 }
 
