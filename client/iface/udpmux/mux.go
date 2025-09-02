@@ -271,10 +271,6 @@ func (m *SingleSocketUDPMux) GetConn(ufrag string, addr net.Addr, candidateID st
 	}()
 
 	m.candidateConnMap[candidateID] = c
-	keys := make([]string, 0, len(m.candidateConnMap))
-	for k := range m.candidateConnMap {
-		keys = append(keys, k)
-	}
 
 	if isIPv6 {
 		m.connsIPv6[ufrag] = c
