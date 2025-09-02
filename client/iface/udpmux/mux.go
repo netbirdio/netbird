@@ -24,7 +24,7 @@ const receiveMTU = 8192
 
 // SingleSocketUDPMux is an implementation of the interface
 type SingleSocketUDPMux struct {
-	params UDPMuxParams
+	params Params
 
 	closedChan chan struct{}
 	closeOnce  sync.Once
@@ -49,8 +49,8 @@ type SingleSocketUDPMux struct {
 
 const maxAddrSize = 512
 
-// UDPMuxParams are parameters for UDPMux.
-type UDPMuxParams struct {
+// Params are parameters for UDPMux.
+type Params struct {
 	Logger  logging.LeveledLogger
 	UDPConn net.PacketConn
 
@@ -151,7 +151,7 @@ func isZeros(ip net.IP) bool {
 }
 
 // NewSingleSocketUDPMux creates an implementation of UDPMux
-func NewSingleSocketUDPMux(params UDPMuxParams) *SingleSocketUDPMux {
+func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 	if params.Logger == nil {
 		params.Logger = getLogger()
 	}

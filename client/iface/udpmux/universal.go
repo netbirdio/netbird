@@ -72,7 +72,7 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 		address:    params.WGAddress,
 	}
 
-	udpMuxParams := UDPMuxParams{
+	udpMuxParams := Params{
 		Logger:  params.Logger,
 		UDPConn: m.params.UDPConn,
 		Net:     m.params.Net,

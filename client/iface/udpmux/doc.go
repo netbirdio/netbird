@@ -21,7 +21,7 @@
 // The typical flow is:
 //
 //  1. Create a UDP socket (net.PacketConn).
-//  2. Construct UDPMuxParams with the socket and optional logger/net stack.
+//  2. Construct Params with the socket and optional logger/net stack.
 //  3. Call NewSingleSocketUDPMux(params).
 //  4. For each ICE candidate ufrag, call GetConn(ufrag, addr, candidateID)
 //     to obtain a logical PacketConn.
