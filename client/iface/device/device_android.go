@@ -13,6 +13,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -29,7 +30,7 @@ type WGTunDevice struct {
 	name           string
 	device         *device.Device
 	filteredDevice *FilteredDevice
-	udpMux         *bind.UniversalUDPMuxDefault
+	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 }
 
@@ -88,7 +89,7 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 	}
 	return t.configurer, nil
 }
-func (t *WGTunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *WGTunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err

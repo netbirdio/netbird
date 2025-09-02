@@ -1,4 +1,4 @@
-package bind
+package udpmux
 
 /*
  Most of this code was copied from https://github.com/pion/ice and modified to fulfill NetBird's requirements
@@ -16,11 +16,12 @@ import (
 )
 
 type udpMuxedConnParams struct {
-	Mux       *UDPMuxDefault
-	AddrPool  *sync.Pool
-	Key       string
-	LocalAddr net.Addr
-	Logger    logging.LeveledLogger
+	Mux         *SingleSocketUDPMux
+	AddrPool    *sync.Pool
+	Key         string
+	LocalAddr   net.Addr
+	Logger      logging.LeveledLogger
+	CandidateID string
 }
 
 // udpMuxedConn represents a logical packet conn for a single remote as identified by ufrag
@@ -117,6 +118,10 @@ func (c *udpMuxedConn) Close() error {
 		close(c.closedChan)
 	})
 	return err
+}
+
+func (c *udpMuxedConn) GetCandidateID() string {
+	return c.params.CandidateID
 }
 
 func (c *udpMuxedConn) isClosed() bool {
