@@ -95,6 +95,8 @@ type MockAccountManager struct {
 	LoginPeerFunc                         func(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	SyncPeerFunc                          func(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	InviteUserFunc                        func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
+	ApproveUserFunc                       func(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error)
+	RejectUserFunc                        func(ctx context.Context, accountID, initiatorUserID, targetUserID string) error
 	GetAllConnectedPeersFunc              func() (map[string]struct{}, error)
 	HasConnectedChannelFunc               func(peerID string) bool
 	GetExternalCacheManagerFunc           func() account.ExternalCacheManager
@@ -121,8 +123,10 @@ type MockAccountManager struct {
 	GetAccountOnboardingFunc              func(ctx context.Context, accountID, userID string) (*types.AccountOnboarding, error)
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
-	UpdateAccountPeersFunc                func(ctx context.Context, accountID string)
-	BufferUpdateAccountPeersFunc          func(ctx context.Context, accountID string)
+
+	AllowSyncFunc                func(string, uint64) bool
+	UpdateAccountPeersFunc       func(ctx context.Context, accountID string)
+	BufferUpdateAccountPeersFunc func(ctx context.Context, accountID string)
 }
 
 func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
@@ -605,6 +609,20 @@ func (am *MockAccountManager) InviteUser(ctx context.Context, accountID string, 
 	return status.Errorf(codes.Unimplemented, "method InviteUser is not implemented")
 }
 
+func (am *MockAccountManager) ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error) {
+	if am.ApproveUserFunc != nil {
+		return am.ApproveUserFunc(ctx, accountID, initiatorUserID, targetUserID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ApproveUser is not implemented")
+}
+
+func (am *MockAccountManager) RejectUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) error {
+	if am.RejectUserFunc != nil {
+		return am.RejectUserFunc(ctx, accountID, initiatorUserID, targetUserID)
+	}
+	return status.Errorf(codes.Unimplemented, "method RejectUser is not implemented")
+}
+
 // GetNameServerGroup mocks GetNameServerGroup of the AccountManager interface
 func (am *MockAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 	if am.GetNameServerGroupFunc != nil {
@@ -952,4 +970,11 @@ func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth n
 		return am.GetCurrentUserInfoFunc(ctx, userAuth)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
+}
+
+func (am *MockAccountManager) AllowSync(key string, hash uint64) bool {
+	if am.AllowSyncFunc != nil {
+		return am.AllowSyncFunc(key, hash)
+	}
+	return true
 }
