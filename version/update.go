@@ -42,17 +42,27 @@ func NewUpdate(httpAgent string) *Update {
 	}
 
 	u := &Update{
-		httpAgent:   httpAgent,
-		uiVersion:   currentVersion,
-		fetchTicker: time.NewTicker(fetchPeriod),
-		fetchDone:   make(chan struct{}),
+		httpAgent: httpAgent,
+		uiVersion: currentVersion,
+		fetchDone: make(chan struct{}),
 	}
-	go u.startFetcher()
+
+	return u
+}
+
+func NewUpdateAndStart(httpAgent string) *Update {
+	u := NewUpdate(httpAgent)
+	go u.StartFetcher()
+
 	return u
 }
 
 // StopWatch stop the version info fetch loop
 func (u *Update) StopWatch() {
+	if u.fetchTicker == nil {
+		return
+	}
+
 	u.fetchTicker.Stop()
 
 	select {
@@ -97,7 +107,12 @@ func (u *Update) LatestVersion() *goversion.Version {
 	return u.latestAvailable
 }
 
-func (u *Update) startFetcher() {
+func (u *Update) StartFetcher() {
+	if u.fetchTicker != nil {
+		return
+	}
+	u.fetchTicker = time.NewTicker(fetchPeriod)
+
 	if changed := u.fetchVersion(); changed {
 		u.checkUpdate()
 	}

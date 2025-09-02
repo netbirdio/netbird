@@ -24,15 +24,25 @@ const (
 	latestVersion = "latest"
 )
 
+type UpdateInterface interface {
+	StopWatch()
+	SetDaemonVersion(newVersion string) bool
+	SetOnUpdateListener(updateFn func())
+	LatestVersion() *v.Version
+	StartFetcher()
+}
+
 type UpdateManager struct {
 	lastTrigger    time.Time
 	statusRecorder *peer.Status
 	mgmUpdateChan  chan struct{}
 	updateChannel  chan struct{}
 	wg             sync.WaitGroup
+	currentVersion string
+	updateFunc     func(ctx context.Context, targetVersion string) error
 
 	cancel context.CancelFunc
-	update *version.Update
+	update UpdateInterface
 
 	expectedVersion       *v.Version
 	updateToLatestVersion bool
@@ -44,8 +54,16 @@ func NewUpdateManager(statusRecorder *peer.Status) *UpdateManager {
 		statusRecorder: statusRecorder,
 		mgmUpdateChan:  make(chan struct{}, 1),
 		updateChannel:  make(chan struct{}, 1),
+		currentVersion: version.NetbirdVersion(),
+		updateFunc:     triggerUpdate,
+		update:         version.NewUpdate("nb/client"),
 	}
 	return manager
+}
+
+func (u *UpdateManager) WithCustomVersionUpdate(versionUpdate UpdateInterface) *UpdateManager {
+	u.update = versionUpdate
+	return u
 }
 
 func (u *UpdateManager) Start(ctx context.Context) {
@@ -54,8 +72,8 @@ func (u *UpdateManager) Start(ctx context.Context) {
 		return
 	}
 
-	u.update = version.NewUpdate("nb/client")
-	u.update.SetDaemonVersion(version.NetbirdVersion())
+	go u.update.StartFetcher()
+	u.update.SetDaemonVersion(u.currentVersion)
 	u.update.SetOnUpdateListener(func() {
 		select {
 		case u.updateChannel <- struct{}{}:
@@ -162,7 +180,7 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 	defer cancel()
 
 	u.lastTrigger = time.Now()
-	log.Debugf("Auto-update triggered, current version: %s, target version: %s", version.NetbirdVersion(), updateVersion)
+	log.Debugf("Auto-update triggered, current version: %s, target version: %s", u.currentVersion, updateVersion)
 	u.statusRecorder.PublishEvent(
 		cProto.SystemEvent_INFO,
 		cProto.SystemEvent_SYSTEM,
@@ -171,21 +189,20 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 		nil,
 	)
 
-	err := u.triggerUpdate(ctx, updateVersion.String())
+	err := u.updateFunc(ctx, updateVersion.String())
 	if err != nil {
 		log.Errorf("Error triggering auto-update: %v", err)
 	}
 }
 
 func (u *UpdateManager) shouldUpdate(updateVersion *v.Version) bool {
-	currentVersionString := version.NetbirdVersion()
-	currentVersion, err := v.NewVersion(currentVersionString)
+	currentVersion, err := v.NewVersion(u.currentVersion)
 	if err != nil {
-		log.Errorf("Error checking for update, error parsing version `%s`: %v", currentVersionString, err)
+		log.Errorf("Error checking for update, error parsing version `%s`: %v", u.currentVersion, err)
 		return false
 	}
 	if currentVersion.GreaterThanOrEqual(updateVersion) {
-		log.Debugf("Current version (%s) is equal to or higher than auto-update version (%s)", currentVersionString, updateVersion)
+		log.Debugf("Current version (%s) is equal to or higher than auto-update version (%s)", u.currentVersion, updateVersion)
 		return false
 	}
 

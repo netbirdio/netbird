@@ -16,13 +16,13 @@ const (
 	pkgDownloadURL = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_%version_darwin_%arch.pkg"
 )
 
-func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string) error {
+func triggerUpdate(ctx context.Context, targetVersion string) error {
 	cmd := exec.CommandContext(ctx, "pkgutil", "--pkg-info", "io.netbird.client")
 	outBytes, err := cmd.Output()
 	if err != nil && cmd.ProcessState.ExitCode() == 1 {
 		// Not installed using pkg file, thus installed using Homebrew
 
-		return u.updateHomeBrew(ctx)
+		return updateHomeBrew(ctx)
 	}
 	// Installed using pkg file
 	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(pkgDownloadURL, targetVersion))
@@ -49,7 +49,7 @@ func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string)
 	return err
 }
 
-func (u *UpdateManager) updateHomeBrew(ctx context.Context) error {
+func updateHomeBrew(ctx context.Context) error {
 	// Homebrew must be run as a non-root user
 	// To find out which user installed NetBird using HomeBrew we can check the owner of our brew tap directory
 	fileInfo, err := os.Stat("/opt/homebrew/Library/Taps/netbirdio/homebrew-tap/")

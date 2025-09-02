@@ -40,7 +40,7 @@ func installationMethod() string {
 	return "EXE"
 }
 
-func (u *UpdateManager) updateMSI(ctx context.Context, targetVersion string) error {
+func updateMSI(ctx context.Context, targetVersion string) error {
 	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(msiDownloadURL, targetVersion))
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func (u *UpdateManager) updateMSI(ctx context.Context, targetVersion string) err
 	return err
 }
 
-func (u *UpdateManager) updateEXE(ctx context.Context, targetVersion string) error {
+func updateEXE(ctx context.Context, targetVersion string) error {
 	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(exeDownloadURL, targetVersion))
 	if err != nil {
 		return err
@@ -65,12 +65,12 @@ func (u *UpdateManager) updateEXE(ctx context.Context, targetVersion string) err
 	return err
 }
 
-func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string) error {
+func triggerUpdate(ctx context.Context, targetVersion string) error {
 	switch installationMethod() {
 	case "EXE":
-		return u.updateEXE(ctx, targetVersion)
+		return updateEXE(ctx, targetVersion)
 	case "MSI":
-		return u.updateMSI(ctx, targetVersion)
+		return updateMSI(ctx, targetVersion)
 	default:
 		return fmt.Errorf("unsupported installation method: %s", installationMethod())
 	}
