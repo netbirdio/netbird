@@ -136,8 +136,8 @@ func validateAndBuildBundleParams(req api.WorkloadRequest, workload *Workload) e
 	if err != nil {
 		return fmt.Errorf("invalid parameters for bundle job")
 	}
-	// validate bundle_for_time <= 5 minutes
-	if bundle.Parameters.BundleForTime < 1 || bundle.Parameters.BundleForTime > 5 {
+	// validate bundle_for_time <= 5 minutes if BundleFor is enabled
+	if bundle.Parameters.BundleFor && bundle.Parameters.BundleForTime < 1 || bundle.Parameters.BundleForTime > 5 {
 		return fmt.Errorf("bundle_for_time must be between 1 and 5, got %d", bundle.Parameters.BundleForTime)
 	}
 	// validate log-file-count ≥ 1 and ≤ 1000

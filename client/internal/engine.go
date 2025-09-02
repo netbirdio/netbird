@@ -946,7 +946,7 @@ func (e *Engine) receiveJobEvents() {
 }
 
 func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (string, error) {
-	// todo: implement with real deamon address
+	// todo: implement with real daemon address
 	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
 	if err != nil {
 		return "", err
@@ -981,7 +981,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (string, error)
 }
 
 func (e *Engine) getStatusOutput(anon bool) (string, error) {
-	// todo: implement with real deamon address
+	// todo: implement with real daemon address
 	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
 	if err != nil {
 		return "", err
