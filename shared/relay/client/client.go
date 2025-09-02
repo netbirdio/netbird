@@ -9,11 +9,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/iface"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
-	"github.com/netbirdio/netbird/shared/relay/client/dialer/quic"
-	"github.com/netbirdio/netbird/shared/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -223,10 +220,10 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 		c.mu.Unlock()
 		return nil, fmt.Errorf("relay connection is not established")
 	}
-	existingContainer, ok := c.conns[peerID]
+	_, ok := c.conns[peerID]
 	if ok {
 		c.mu.Unlock()
-		return existingContainer.conn, nil
+		return nil, ErrConnAlreadyExists
 	}
 	c.mu.Unlock()
 
@@ -235,6 +232,7 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 		return nil, err
 	}
 
+	c.log.Infof("remote peer is available, prepare the relayed connection: %s", peerID)
 	msgChannel := make(chan Msg, 100)
 
 	c.mu.Lock()
@@ -248,11 +246,11 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 	c.muInstanceURL.Unlock()
 	conn := NewConn(c, peerID, msgChannel, instanceURL)
 
-	existingContainer, ok = c.conns[peerID]
+	_, ok = c.conns[peerID]
 	if ok {
 		c.mu.Unlock()
 		_ = conn.Close()
-		return existingContainer.conn, nil
+		return nil, ErrConnAlreadyExists
 	}
 	c.conns[peerID] = newConnContainer(c.log, conn, msgChannel)
 	c.mu.Unlock()
@@ -295,14 +293,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
-	// Force WebSocket for MTUs larger than default to avoid QUIC DATAGRAM frame size issues
-	var dialers []dialer.DialeFn
-	if c.mtu > 0 && c.mtu > iface.DefaultMTU {
-		c.log.Infof("MTU %d exceeds default (%d), forcing WebSocket transport to avoid DATAGRAM frame size issues", c.mtu, iface.DefaultMTU)
-		dialers = []dialer.DialeFn{ws.Dialer{}}
-	} else {
-		dialers = []dialer.DialeFn{quic.Dialer{}, ws.Dialer{}}
-	}
+	dialers := c.getDialers()
 
 	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
 	conn, err := rd.Dial()
@@ -376,6 +367,7 @@ func (c *Client) readLoop(hc *healthcheck.Receiver, relayConn net.Conn, internal
 		buf := *bufPtr
 		n, errExit = relayConn.Read(buf)
 		if errExit != nil {
+			c.log.Infof("start to Relay read loop exit")
 			c.mu.Lock()
 			if c.serviceIsRunning && !internallyStoppedFlag.isSet() {
 				c.log.Errorf("failed to read message from relay server: %s", errExit)
@@ -466,24 +458,12 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 		c.bufPool.Put(bufPtr)
 		return false
 	}
-
 	container, ok := c.conns[*peerID]
 	c.mu.Unlock()
 	if !ok {
-		// Try to create a connection for this peer to handle incoming messages
-		msgChannel := make(chan Msg, 100)
-		c.muInstanceURL.Lock()
-		instanceURL := c.instanceURL
-		c.muInstanceURL.Unlock()
-		conn := NewConn(c, *peerID, msgChannel, instanceURL)
-
-		c.mu.Lock()
-		// Check again if connection was created while we were creating it
-		if _, exists := c.conns[*peerID]; !exists {
-			c.conns[*peerID] = newConnContainer(c.log, conn, msgChannel)
-		}
-		container = c.conns[*peerID]
-		c.mu.Unlock()
+		c.log.Errorf("peer not found: %s", peerID.String())
+		c.bufPool.Put(bufPtr)
+		return true
 	}
 	msg := Msg{
 		bufPool: c.bufPool,
