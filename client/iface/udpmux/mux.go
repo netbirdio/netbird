@@ -408,7 +408,6 @@ func (m *SingleSocketUDPMux) HandleSTUNMessage(msg *stun.Message, addr net.Addr)
 func (m *SingleSocketUDPMux) findCandidateConnection(msg *stun.Message) *udpMuxedConn {
 	candidatePairID, ok, err := ice.CandidatePairIDFromSTUN(msg)
 	if err != nil {
-		log.Errorf("failed to get candidate pair id from STUN: %v", err)
 		return nil
 	} else if !ok {
 		return nil
@@ -418,7 +417,6 @@ func (m *SingleSocketUDPMux) findCandidateConnection(msg *stun.Message) *udpMuxe
 	defer m.mu.Unlock()
 	conn, exists := m.candidateConnMap[candidatePairID.TargetCandidateID()]
 	if !exists {
-		log.Errorf("no connection found for candidate %s", candidatePairID.TargetCandidateID())
 		return nil
 	}
 	return conn
