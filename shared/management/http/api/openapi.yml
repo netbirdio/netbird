@@ -1394,7 +1394,8 @@ components:
       allOf:
         - $ref: '#/components/schemas/NetworkResourceType'
         - type: string
-          example: host
+          enum: ["peer"]
+          example: peer
     NetworkRequest:
       type: object
       properties:

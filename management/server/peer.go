@@ -144,6 +144,11 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		}
 	}
 
+	if peer.Temporary && !connected {
+		expired = true
+		return am.DeletePeer(ctx, accountID, peer.ID, activity.SystemInitiator)
+	}
+
 	if expired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
@@ -487,16 +492,26 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	var groupsToAdd []string
 	var allowExtraDNSLabels bool
 	var accountID string
-	var isEphemeral bool
+	var temporary bool
 	if addedByUser {
 		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 		if err != nil {
 			return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: user not found")
 		}
+
+		if peer.AccountID != "" {
+			err = am.permissionsManager.ValidateAccountAccess(ctx, peer.AccountID, user, true)
+			if err != nil {
+				return nil, nil, nil, status.Errorf(status.PermissionDenied, "account access denied")
+			}
+			accountID = peer.AccountID
+		} else {
+			accountID = user.AccountID
+		}
+
 		groupsToAdd = user.AutoGroups
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
-		accountID = user.AccountID
 	} else {
 		// Validate the setup key
 		sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
@@ -517,12 +532,16 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		setupKeyName = sk.Name
 		allowExtraDNSLabels = sk.AllowExtraDNSLabels
 		accountID = sk.AccountID
-		isEphemeral = sk.Ephemeral
 		if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
 			return nil, nil, nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
 		}
 	}
 	opEvent.AccountID = accountID
+
+	if peer.Meta.GoOS == "js" {
+		ephemeral = true
+		temporary = true
+	}
 
 	if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
 		if am.idpManager != nil {
@@ -552,6 +571,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		CreatedAt:                   registrationTime,
 		LoginExpirationEnabled:      addedByUser,
 		Ephemeral:                   ephemeral,
+		Temporary:                   temporary,
 		Location:                    peer.Location,
 		InactivityExpirationEnabled: addedByUser,
 		ExtraDNSLabels:              peer.ExtraDNSLabels,
@@ -589,7 +609,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 
 		var freeLabel string
-		if isEphemeral || attempt > 1 {
+		if ephemeral || attempt > 1 {
 			freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
@@ -789,6 +809,7 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 			SSHKey:         login.SSHKey,
 			Location:       nbpeer.Location{ConnectionIP: login.ConnectionIP},
 			ExtraDNSLabels: login.ExtraDNSLabels,
+			AccountID:      login.AccountID,
 		}
 
 		return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
@@ -1539,6 +1560,26 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 
 		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID, settings.Extra); err != nil {
 			return nil, err
+		}
+
+		peerPolicyRules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthNone, accountID, peer.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range peerPolicyRules {
+			policy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, rule.PolicyID)
+			if err != nil {
+				return nil, err
+			}
+
+			err = transaction.DeletePolicy(ctx, accountID, rule.PolicyID)
+			if err != nil {
+				return nil, err
+			}
+
+			peerDeletedEvents = append(peerDeletedEvents, func() {
+				am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
+			})
 		}
 
 		if err = transaction.DeletePeer(ctx, accountID, peer.ID); err != nil {

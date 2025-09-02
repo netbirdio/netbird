@@ -484,6 +484,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
+		AccountID:       loginReq.AccountId,
 		SSHKey:          string(sshKey),
 		Meta:            extractPeerMeta(ctx, loginReq.GetMeta()),
 		UserID:          userID,
