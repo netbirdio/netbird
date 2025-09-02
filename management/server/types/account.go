@@ -254,6 +254,7 @@ func (a *Account) GetPeerNetworkMap(
 	validatedPeersMap map[string]struct{},
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
+	resources map[string]*resourceTypes.NetworkResource,
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
@@ -286,10 +287,10 @@ func (a *Account) GetPeerNetworkMap(
 
 	routesUpdate := a.GetRoutesToSync(ctx, peerID, peersToConnect)
 	routesFirewallRules := a.GetPeerRoutesFirewallRules(ctx, peerID, validatedPeersMap)
-	isRouter, networkResourcesRoutes, sourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers)
+	isRouter, networkResourcesRoutes, sourcePeers := a.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, routers, resources)
 	var networkResourcesFirewallRules []*RouteFirewallRule
 	if isRouter {
-		networkResourcesFirewallRules = a.GetPeerNetworkResourceFirewallRules(ctx, peer, validatedPeersMap, networkResourcesRoutes, resourcePolicies)
+		networkResourcesFirewallRules = a.GetPeerNetworkResourceFirewallRules(ctx, peer, validatedPeersMap, networkResourcesRoutes, resourcePolicies, routers, resources)
 	}
 	peersToConnectIncludingRouters := a.addNetworksRoutingPeers(networkResourcesRoutes, peer, peersToConnect, expiredPeers, isRouter, sourcePeers)
 
@@ -1324,7 +1325,7 @@ func GetAllRoutePoliciesFromGroups(account *Account, accessControlGroups []strin
 }
 
 // GetPeerNetworkResourceFirewallRules gets the network resources firewall rules associated with a routing peer ID for the account.
-func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}, routes []*route.Route, resourcePolicies map[string][]*Policy) []*RouteFirewallRule {
+func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}, routes []*route.Route, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter, resources map[string]*resourceTypes.NetworkResource) []*RouteFirewallRule {
 	routesFirewallRules := make([]*RouteFirewallRule, 0)
 
 	for _, route := range routes {
@@ -1332,7 +1333,7 @@ func (a *Account) GetPeerNetworkResourceFirewallRules(ctx context.Context, peer 
 			continue
 		}
 		resourceAppliedPolicies := resourcePolicies[string(route.GetResourceID())]
-		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups)
+		distributionPeers := getPoliciesSourcePeers(resourceAppliedPolicies, a.Groups, routers, resources)
 
 		rules := a.getRouteFirewallRules(ctx, peer.ID, resourceAppliedPolicies, route, validatedPeersMap, distributionPeers)
 		for _, rule := range rules {
@@ -1375,7 +1376,7 @@ func (a *Account) GetResourcePoliciesMap() map[string][]*Policy {
 }
 
 // GetNetworkResourcesRoutesToSync returns network routes for syncing with a specific peer and its ACL peers.
-func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter) (bool, []*route.Route, map[string]struct{}) {
+func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID string, resourcePolicies map[string][]*Policy, routers map[string]map[string]*routerTypes.NetworkRouter, resources map[string]*resourceTypes.NetworkResource) (bool, []*route.Route, map[string]struct{}) {
 	var isRoutingPeer bool
 	var routes []*route.Route
 	allSourcePeers := make(map[string]struct{}, len(a.Peers))
@@ -1398,11 +1399,32 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 		addedResourceRoute := false
 		for _, policy := range resourcePolicies[resource.ID] {
 			var peers []string
-			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
+			switch {
+			case policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "":
 				peers = []string{policy.Rules[0].SourceResource.ID}
-			} else {
+			case policy.Rules[0].SourceResource.Type != "" && policy.Rules[0].SourceResource.ID != "":
+				if sourceResource, exists := resources[policy.Rules[0].SourceResource.ID]; exists {
+					sourceRoutingPeers, exists := routers[sourceResource.NetworkID]
+					if exists {
+						for _, router := range sourceRoutingPeers {
+							if router.Peer != "" {
+								peers = append(peers, router.Peer)
+							}
+							if router.PeerGroups != nil {
+								for _, groupID := range router.PeerGroups {
+									group := a.GetGroup(groupID)
+									if group != nil {
+										peers = append(peers, group.Peers...)
+									}
+								}
+							}
+						}
+					}
+				}
+			default:
 				peers = a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
 			}
+
 			if addSourcePeers {
 				for _, pID := range a.getPostureValidPeers(peers, policy.SourcePostureChecks) {
 					allSourcePeers[pID] = struct{}{}
@@ -1570,8 +1592,18 @@ func (a *Account) GetResourceRoutersMap() map[string]map[string]*routerTypes.Net
 	return routers
 }
 
+func (a *Account) GetResourceMap() map[string]*resourceTypes.NetworkResource {
+	resources := make(map[string]*resourceTypes.NetworkResource)
+
+	for _, resource := range a.NetworkResources {
+		resources[resource.ID] = resource
+	}
+
+	return resources
+}
+
 // getPoliciesSourcePeers collects all unique peers from the source groups defined in the given policies.
-func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[string]struct{} {
+func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group, routers map[string]map[string]*routerTypes.NetworkRouter, resources map[string]*resourceTypes.NetworkResource) map[string]struct{} {
 	sourcePeers := make(map[string]struct{})
 
 	for _, policy := range policies {
@@ -1585,6 +1617,28 @@ func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[st
 				for _, peer := range group.Peers {
 					sourcePeers[peer] = struct{}{}
 				}
+			}
+			if (rule.SourceResource.Type == ResourceTypeHost || rule.SourceResource.Type == ResourceTypeDomain || rule.SourceResource.Type == ResourceTypeSubnet) && rule.SourceResource.ID != "" {
+				if resource, ok := resources[rule.SourceResource.ID]; ok {
+					if networkRouters, exists := routers[resource.NetworkID]; exists {
+						for _, router := range networkRouters {
+							if router.Peer != "" {
+								sourcePeers[router.Peer] = struct{}{}
+							}
+							if router.PeerGroups != nil {
+								for _, groupID := range router.PeerGroups {
+									group := groups[groupID]
+									if group != nil {
+										for _, peerID := range group.Peers {
+											sourcePeers[peerID] = struct{}{}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
 			}
 		}
 	}
