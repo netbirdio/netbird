@@ -122,7 +122,6 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 			w.log.Warnf("failed to close ICE agent: %s", err)
 		}
 		w.agent = nil
-		// todo consider to switch to Relay connection while establishing a new ICE connection
 	}
 
 	var preferredCandidateTypes []ice.CandidateType
@@ -410,7 +409,10 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 		case ice.ConnectionStateConnected:
 			w.lastKnownState = ice.ConnectionStateConnected
 			return
-		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected:
+		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
+			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
+			// notify the conn.onICEStateDisconnected changes to update the current used priority
+
 			if w.lastKnownState == ice.ConnectionStateConnected {
 				w.lastKnownState = ice.ConnectionStateDisconnected
 				w.conn.onICEStateDisconnected()
