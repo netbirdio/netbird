@@ -31,13 +31,13 @@ const (
 
 type NetworkMapCache struct {
 	globalRoutes     map[route.ID]*route.Route
-	globalRules      map[string]*FirewallRule      //ruleId
-	globalRouteRules map[string]*RouteFirewallRule //ruleId
+	globalRules      map[string]*FirewallRule      // ruleId
+	globalRouteRules map[string]*RouteFirewallRule // ruleId
 	globalPeers      map[string]*nbpeer.Peer
 
 	groupToPeers    map[string][]string
 	peerToGroups    map[string][]string
-	policyToRules   map[string][]*PolicyRule //policyId
+	policyToRules   map[string][]*PolicyRule // policyId
 	groupToPolicies map[string][]*Policy
 	groupToRoutes   map[string][]*route.Route
 	peerToRoutes    map[string][]*route.Route
@@ -651,7 +651,7 @@ func (b *NetworkMapBuilder) buildPeerRoutesView(account *Account, peerID string)
 	}
 
 	if len(networkResourcesRoutes) > 0 {
-		networkResourceFirewallRules := account.GetPeerNetworkResourceFirewallRules(ctx, peer, b.validatedPeers, networkResourcesRoutes, resourcePolicies)
+		networkResourceFirewallRules := account.GetPeerNetworkResourceFirewallRules(ctx, peer, b.validatedPeers, networkResourcesRoutes, resourcePolicies, account.GetResourceRoutersMap(), account.GetResourceMap())
 		for _, rule := range networkResourceFirewallRules {
 			ruleID := b.generateRouteFirewallRuleID(rule)
 			view.RouteFirewallRuleIDs = append(view.RouteFirewallRuleIDs, ruleID)

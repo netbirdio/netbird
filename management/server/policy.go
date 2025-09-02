@@ -75,9 +75,10 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
-	}
+	updateAccountPeers = updateAccountPeers
+	// if updateAccountPeers {
+	am.UpdateAccountPeers(ctx, accountID)
+	// }
 
 	return policy, nil
 }
