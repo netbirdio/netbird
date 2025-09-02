@@ -1397,7 +1397,12 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 
 		addedResourceRoute := false
 		for _, policy := range resourcePolicies[resource.ID] {
-			peers := a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+			var peers []string
+			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
+				peers = []string{policy.Rules[0].SourceResource.ID}
+			} else {
+				peers = a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+			}
 			if addSourcePeers {
 				for _, pID := range a.getPostureValidPeers(peers, policy.SourcePostureChecks) {
 					allSourcePeers[pID] = struct{}{}
