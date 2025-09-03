@@ -1,6 +1,7 @@
 package bind
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -41,7 +42,7 @@ func (rc receiverCreator) CreateIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UD
 // use the port because in the Send function the wgConn.Endpoint the port info is not exported.
 type ICEBind struct {
 	*wgConn.StdNetBind
-	RecvChan chan RecvMessage
+	recvChan chan RecvMessage
 
 	transportNet transport.Net
 	filterFn     FilterFn
@@ -64,7 +65,7 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Ad
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:       b,
-		RecvChan:         make(chan RecvMessage, 1),
+		recvChan:         make(chan RecvMessage, 1),
 		transportNet:     transportNet,
 		filterFn:         filterFn,
 		endpoints:        make(map[netip.Addr]net.Conn),
@@ -152,6 +153,14 @@ func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
 		}
 	}
 	return nil
+}
+
+func (b *ICEBind) Recv(ctx context.Context, msg RecvMessage) {
+	select {
+	case <-ctx.Done():
+		return
+	case b.recvChan <- msg:
+	}
 }
 
 func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, rxOffload bool, msgsPool *sync.Pool) wgConn.ReceiveFunc {
@@ -270,7 +279,7 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 	select {
 	case <-c.closedChan:
 		return 0, net.ErrClosed
-	case msg, ok := <-c.RecvChan:
+	case msg, ok := <-c.recvChan:
 		if !ok {
 			return 0, net.ErrClosed
 		}

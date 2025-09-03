@@ -376,11 +376,18 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		wgProxy.Work()
 	}
 
+	conn.Log.Infof("configure WireGuard endpoint to: %s", ep.String())
 	if err = conn.configureWGEndpoint(ep, iceConnInfo.RosenpassPubKey); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
 	wgConfigWorkaround()
+
+
+	if conn.wgProxyRelay != nil {
+		conn.Log.Debugf("redirect packages from relayed conn to WireGuard")
+		conn.wgProxyRelay.RedirectAs(ep)
+	}
 
 	conn.currentConnPriority = priority
 	conn.statusICE.SetConnected()
@@ -419,6 +426,7 @@ func (conn *Conn) onICEStateDisconnected() {
 			defer conn.wgWatcherWg.Done()
 			conn.workerRelay.EnableWgWatcher(conn.ctx)
 		}()
+		conn.wgProxyRelay.Work()
 		conn.currentConnPriority = conntype.Relay
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
