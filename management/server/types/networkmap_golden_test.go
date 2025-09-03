@@ -942,8 +942,8 @@ func createTestAccountWithEntities() *types.Account {
 
 		if peerID == expiredPeerID {
 			p.LoginExpirationEnabled = true
-			pastime = time.Now().Add(-2 * time.Hour)
-			p.LastLogin = &pastime
+			pastTime := time.Now().Add(-2 * time.Hour)
+			p.LastLogin = &pastTime
 		}
 
 		peers[peerID] = p
