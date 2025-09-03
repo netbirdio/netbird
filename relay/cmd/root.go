@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,8 +18,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/relay/auth"
+	"github.com/netbirdio/netbird/relay/healthcheck"
 	"github.com/netbirdio/netbird/relay/server"
+	"github.com/netbirdio/netbird/shared/relay/auth"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/util"
 )
@@ -34,12 +36,13 @@ type Config struct {
 	LetsencryptDomains []string
 	// in case of using Route 53 for DNS challenge the credentials should be provided in the environment variables or
 	// in the AWS credentials file
-	LetsencryptAWSRoute53 bool
-	TlsCertFile           string
-	TlsKeyFile            string
-	AuthSecret            string
-	LogLevel              string
-	LogFile               string
+	LetsencryptAWSRoute53    bool
+	TlsCertFile              string
+	TlsKeyFile               string
+	AuthSecret               string
+	LogLevel                 string
+	LogFile                  string
+	HealthcheckListenAddress string
 }
 
 func (c Config) Validate() error {
@@ -73,7 +76,7 @@ var (
 )
 
 func init() {
-	_ = util.InitLog("trace", "console")
+	_ = util.InitLog("trace", util.LogConsole)
 	cobraConfig = &Config{}
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ListenAddress, "listen-address", "l", ":443", "listen address")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ExposedAddress, "exposed-address", "e", "", "instance domain address (or ip) and port, it will be distributes between peers")
@@ -87,6 +90,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.AuthSecret, "auth-secret", "s", "", "auth secret")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogLevel, "log-level", "info", "log level")
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
+	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HealthcheckListenAddress, "health-listen-address", "H", ":9000", "listen address of healthcheck server")
 
 	setFlagsFromEnvVars(rootCmd)
 }
@@ -102,6 +106,7 @@ func waitForExitSignal() {
 }
 
 func execute(cmd *cobra.Command, args []string) error {
+	wg := sync.WaitGroup{}
 	err := cobraConfig.Validate()
 	if err != nil {
 		log.Debugf("invalid config: %s", err)
@@ -120,7 +125,9 @@ func execute(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("setup metrics: %v", err)
 	}
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
 		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("Failed to start metrics server: %v", err)
@@ -141,15 +148,41 @@ func execute(cmd *cobra.Command, args []string) error {
 	hashedSecret := sha256.Sum256([]byte(cobraConfig.AuthSecret))
 	authenticator := auth.NewTimedHMACValidator(hashedSecret[:], 24*time.Hour)
 
-	srv, err := server.NewServer(metricsServer.Meter, cobraConfig.ExposedAddress, tlsSupport, authenticator)
+	cfg := server.Config{
+		Meter:          metricsServer.Meter,
+		ExposedAddress: cobraConfig.ExposedAddress,
+		AuthValidator:  authenticator,
+		TLSSupport:     tlsSupport,
+	}
+
+	srv, err := server.NewServer(cfg)
 	if err != nil {
 		log.Debugf("failed to create relay server: %v", err)
 		return fmt.Errorf("failed to create relay server: %v", err)
 	}
 	log.Infof("server will be available on: %s", srv.InstanceURL())
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if err := srv.Listen(srvListenerCfg); err != nil {
 			log.Fatalf("failed to bind server: %s", err)
+		}
+	}()
+
+	hCfg := healthcheck.Config{
+		ListenAddress:  cobraConfig.HealthcheckListenAddress,
+		ServiceChecker: srv,
+	}
+	httpHealthcheck, err := healthcheck.NewServer(hCfg)
+	if err != nil {
+		log.Debugf("failed to create healthcheck server: %v", err)
+		return fmt.Errorf("failed to create healthcheck server: %v", err)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := httpHealthcheck.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Failed to start healthcheck server: %v", err)
 		}
 	}()
 
@@ -160,6 +193,10 @@ func execute(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var shutDownErrors error
+	if err := httpHealthcheck.Shutdown(ctx); err != nil {
+		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close healthcheck server: %v", err))
+	}
+
 	if err := srv.Shutdown(ctx); err != nil {
 		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close server: %s", err))
 	}
@@ -168,6 +205,8 @@ func execute(cmd *cobra.Command, args []string) error {
 	if err := metricsServer.Shutdown(ctx); err != nil {
 		shutDownErrors = multierror.Append(shutDownErrors, fmt.Errorf("failed to close metrics server: %v", err))
 	}
+
+	wg.Wait()
 	return shutDownErrors
 }
 

@@ -19,11 +19,11 @@ import (
 
 	"github.com/netbirdio/netbird/management/server"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -35,7 +35,7 @@ var TestPeers = map[string]*nbpeer.Peer{
 func initGroupTestData(initGroups ...*types.Group) *handler {
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
-			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group) error {
+			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group, create bool) error {
 				if !strings.HasPrefix(group.ID, "id-") {
 					group.ID = "id-was-set"
 				}
@@ -66,7 +66,7 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 
 				return nil, fmt.Errorf("unknown group name")
 			},
-			GetPeersFunc: func(ctx context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				return maps.Values(TestPeers), nil
 			},
 			DeleteGroupFunc: func(_ context.Context, accountID, userId, groupID string) error {

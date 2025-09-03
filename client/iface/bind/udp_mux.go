@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
 	"github.com/pion/logging"
-	"github.com/pion/stun/v2"
+	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
@@ -150,7 +150,7 @@ func isZeros(ip net.IP) bool {
 // NewUDPMuxDefault creates an implementation of UDPMux
 func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 	if params.Logger == nil {
-		params.Logger = logging.NewDefaultLoggerFactory().NewLogger("ice")
+		params.Logger = getLogger()
 	}
 
 	mux := &UDPMuxDefault{
@@ -296,14 +296,20 @@ func (m *UDPMuxDefault) RemoveConnByUfrag(ufrag string) {
 		return
 	}
 
-	m.addressMapMu.Lock()
-	defer m.addressMapMu.Unlock()
-
+	var allAddresses []string
 	for _, c := range removedConns {
 		addresses := c.getAddresses()
-		for _, addr := range addresses {
-			delete(m.addressMap, addr)
-		}
+		allAddresses = append(allAddresses, addresses...)
+	}
+
+	m.addressMapMu.Lock()
+	for _, addr := range allAddresses {
+		delete(m.addressMap, addr)
+	}
+	m.addressMapMu.Unlock()
+
+	for _, addr := range allAddresses {
+		m.notifyAddressRemoval(addr)
 	}
 }
 
@@ -351,14 +357,13 @@ func (m *UDPMuxDefault) registerConnForAddress(conn *udpMuxedConn, addr string) 
 	}
 
 	m.addressMapMu.Lock()
-	defer m.addressMapMu.Unlock()
-
 	existing, ok := m.addressMap[addr]
 	if !ok {
 		existing = []*udpMuxedConn{}
 	}
 	existing = append(existing, conn)
 	m.addressMap[addr] = existing
+	m.addressMapMu.Unlock()
 
 	log.Debugf("ICE: registered %s for %s", addr, conn.params.Key)
 }
@@ -386,12 +391,12 @@ func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) erro
 	// If you are using the same socket for the Host and SRFLX candidates, it might be that there are more than one
 	// muxed connection - one for the SRFLX candidate and the other one for the HOST one.
 	// We will then forward STUN packets to each of these connections.
-	m.addressMapMu.Lock()
+	m.addressMapMu.RLock()
 	var destinationConnList []*udpMuxedConn
 	if storedConns, ok := m.addressMap[addr.String()]; ok {
 		destinationConnList = append(destinationConnList, storedConns...)
 	}
-	m.addressMapMu.Unlock()
+	m.addressMapMu.RUnlock()
 
 	var isIPv6 bool
 	if udpAddr, _ := addr.(*net.UDPAddr); udpAddr != nil && udpAddr.IP.To4() == nil {
@@ -454,4 +459,10 @@ func newBufferHolder(size int) *bufferHolder {
 	return &bufferHolder{
 		buf: make([]byte, size),
 	}
+}
+
+func getLogger() logging.LeveledLogger {
+	fac := logging.NewDefaultLoggerFactory()
+	//fac.Writer = log.StandardLogger().Writer()
+	return fac.NewLogger("ice")
 }

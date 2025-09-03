@@ -14,10 +14,11 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -52,24 +53,16 @@ type Route struct {
 	resolverAddr         string
 }
 
-func NewRoute(
-	rt *route.Route,
-	routeRefCounter *refcounter.RouteRefCounter,
-	allowedIPsRefCounter *refcounter.AllowedIPsRefCounter,
-	interval time.Duration,
-	statusRecorder *peer.Status,
-	wgInterface iface.WGIface,
-	resolverAddr string,
-) *Route {
+func NewRoute(params common.HandlerParams, resolverAddr string) *Route {
 	return &Route{
-		route:                rt,
-		routeRefCounter:      routeRefCounter,
-		allowedIPsRefcounter: allowedIPsRefCounter,
-		interval:             interval,
-		dynamicDomains:       domainMap{},
-		statusRecorder:       statusRecorder,
-		wgInterface:          wgInterface,
+		route:                params.Route,
+		routeRefCounter:      params.RouteRefCounter,
+		allowedIPsRefcounter: params.AllowedIPsRefCounter,
+		interval:             params.DnsRouterInterval,
+		statusRecorder:       params.StatusRecorder,
+		wgInterface:          params.WgInterface,
 		resolverAddr:         resolverAddr,
+		dynamicDomains:       domainMap{},
 	}
 }
 
@@ -235,7 +228,7 @@ func (r *Route) resolve(results chan resolveResult) {
 			ips, err := r.getIPsFromResolver(domain)
 			if err != nil {
 				log.Tracef("Failed to resolve domain %s with private resolver: %v", domain.SafeString(), err)
-				ips, err = net.LookupIP(string(domain))
+				ips, err = net.LookupIP(domain.PunycodeString())
 				if err != nil {
 					results <- resolveResult{domain: domain, err: fmt.Errorf("resolve d %s: %w", domain.SafeString(), err)}
 					return
@@ -288,7 +281,7 @@ func (r *Route) updateDynamicRoutes(ctx context.Context, newDomains domainMap) e
 		updatedPrefixes := combinePrefixes(oldPrefixes, removedPrefixes, addedPrefixes)
 		r.dynamicDomains[domain] = updatedPrefixes
 
-		r.statusRecorder.UpdateResolvedDomainsStates(domain, domain, updatedPrefixes)
+		r.statusRecorder.UpdateResolvedDomainsStates(domain, domain, updatedPrefixes, r.route.GetResourceID())
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

@@ -14,13 +14,15 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type TunDevice struct {
 	name    string
-	address WGAddress
+	address wgaddr.Address
 	port    int
 	key     string
+	mtu     uint16
 	iceBind *bind.ICEBind
 	tunFd   int
 
@@ -30,12 +32,13 @@ type TunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, iceBind *bind.ICEBind, tunFd int) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunFd int) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
 		port:    port,
 		key:     key,
+		mtu:     mtu,
 		iceBind: iceBind,
 		tunFd:   tunFd,
 	}
@@ -70,7 +73,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
@@ -120,11 +123,15 @@ func (t *TunDevice) Close() error {
 	return nil
 }
 
-func (t *TunDevice) WgAddress() WGAddress {
+func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 
-func (t *TunDevice) UpdateAddr(addr WGAddress) error {
+func (t *TunDevice) MTU() uint16 {
+	return t.mtu
+}
+
+func (t *TunDevice) UpdateAddr(_ wgaddr.Address) error {
 	// todo implement
 	return nil
 }

@@ -3,27 +3,38 @@ package server
 import (
 	"context"
 	"net"
+	"net/url"
+	"os/user"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	daemonProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/signal/proto"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 )
 
@@ -62,12 +73,30 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(30*time.Second))
 	defer cancel()
 	// create new server
-	s := New(ctx, t.TempDir()+"/config.json", "debug")
-	s.latestConfigInput.ManagementURL = "http://" + mgmtAddr
-	config, err := internal.UpdateOrCreateConfig(s.latestConfigInput)
+	ic := profilemanager.ConfigInput{
+		ManagementURL: "http://" + mgmtAddr,
+		ConfigPath:    t.TempDir() + "/test-profile.json",
+	}
+
+	config, err := profilemanager.UpdateOrCreateConfig(ic)
 	if err != nil {
 		t.Fatalf("failed to create config: %v", err)
 	}
+
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
+	pm := profilemanager.ServiceManager{}
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name:     "test-profile",
+		Username: currUser.Username,
+	})
+	if err != nil {
+		t.Fatalf("failed to set active profile state: %v", err)
+	}
+
+	s := New(ctx, "debug", "", false, false)
+
 	s.config = config
 
 	s.statusRecorder = peer.NewRecorder(config.ManagementURL.String())
@@ -80,6 +109,148 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)
 	}
+}
+
+func TestServer_Up(t *testing.T) {
+	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	profilemanager.ConfigDirOverride = tempDir
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
+	})
+
+	ctx := internal.CtxInitState(context.Background())
+
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
+	profName := "default"
+
+	ic := profilemanager.ConfigInput{
+		ConfigPath: filepath.Join(tempDir, profName+".json"),
+	}
+
+	_, err = profilemanager.UpdateOrCreateConfig(ic)
+	if err != nil {
+		t.Fatalf("failed to create config: %v", err)
+	}
+
+	pm := profilemanager.ServiceManager{}
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name:     profName,
+		Username: currUser.Username,
+	})
+	if err != nil {
+		t.Fatalf("failed to set active profile state: %v", err)
+	}
+
+	s := New(ctx, "console", "", false, false)
+
+	err = s.Start()
+	require.NoError(t, err)
+
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+	s.config = &profilemanager.Config{
+		ManagementURL: u,
+	}
+
+	upCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	upReq := &daemonProto.UpRequest{
+		ProfileName: &profName,
+		Username:    &currUser.Username,
+	}
+	_, err = s.Up(upCtx, upReq)
+
+	assert.Contains(t, err.Error(), "context deadline exceeded")
+}
+
+type mockSubscribeEventsServer struct {
+	ctx        context.Context
+	sentEvents []*daemonProto.SystemEvent
+	grpc.ServerStream
+}
+
+func (m *mockSubscribeEventsServer) Send(event *daemonProto.SystemEvent) error {
+	m.sentEvents = append(m.sentEvents, event)
+	return nil
+}
+
+func (m *mockSubscribeEventsServer) Context() context.Context {
+	return m.ctx
+}
+
+func TestServer_SubcribeEvents(t *testing.T) {
+	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	profilemanager.ConfigDirOverride = tempDir
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
+	})
+
+	ctx := internal.CtxInitState(context.Background())
+	ic := profilemanager.ConfigInput{
+		ConfigPath: tempDir + "/default.json",
+	}
+
+	_, err := profilemanager.UpdateOrCreateConfig(ic)
+	if err != nil {
+		t.Fatalf("failed to create config: %v", err)
+	}
+
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
+	pm := profilemanager.ServiceManager{}
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name:     "default",
+		Username: currUser.Username,
+	})
+	if err != nil {
+		t.Fatalf("failed to set active profile state: %v", err)
+	}
+
+	s := New(ctx, "console", "", false, false)
+
+	err = s.Start()
+	require.NoError(t, err)
+
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+	s.config = &profilemanager.Config{
+		ManagementURL: u,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	upReq := &daemonProto.SubscribeRequest{}
+	mockServer := &mockSubscribeEventsServer{
+		ctx:          ctx,
+		sentEvents:   make([]*daemonProto.SystemEvent, 0),
+		ServerStream: nil,
+	}
+	err = s.SubscribeEvents(upReq, mockServer)
+
+	assert.NoError(t, err)
 }
 
 type mockServer struct {
@@ -96,10 +267,10 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	t.Helper()
 	dataDir := t.TempDir()
 
-	config := &server.Config{
-		Stuns:      []*server.Host{},
-		TURNConfig: &server.TURNConfig{},
-		Signal: &server.Host{
+	config := &config.Config{
+		Stuns:      []*config.Host{},
+		TURNConfig: &config.TURNConfig{},
+		Signal: &config.Host{
 			Proto: "http",
 			URI:   signalAddr,
 		},
@@ -128,13 +299,19 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	groupsManager := groups.NewManagerMock()
+
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
 	if err != nil {
 		return nil, "", err
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, nil, nil)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &server.MockIntegratedValidator{})
 	if err != nil {
 		return nil, "", err
 	}

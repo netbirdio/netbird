@@ -3,7 +3,6 @@ package testing_tools
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,24 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt"
-	"github.com/stretchr/testify/assert"
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/auth"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/groups"
-	nbhttp "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/networks"
-	"github.com/netbirdio/netbird/management/server/networks/resources"
-	"github.com/netbirdio/netbird/management/server/networks/routers"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 )
@@ -58,6 +45,20 @@ const (
 	ExpiredKeyId = "expiredKeyId"
 
 	ExistingKeyName = "existingKey"
+
+	OperationCreate = "create"
+	OperationUpdate = "update"
+	OperationDelete = "delete"
+	OperationGetOne = "get_one"
+	OperationGetAll = "get_all"
+)
+
+var BenchmarkDuration = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "benchmark_duration_ms",
+		Help: "Benchmark duration per op in ms",
+	},
+	[]string{"module", "operation", "test_case", "branch"},
 )
 
 type TB interface {
@@ -82,84 +83,6 @@ type PerformanceMetrics struct {
 	MaxMsPerOpLocal float64
 	MinMsPerOpCICD  float64
 	MaxMsPerOpCICD  float64
-}
-
-func BuildApiBlackBoxWithDBState(t TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage, validateUpdate bool) (http.Handler, server.AccountManager, chan struct{}) {
-	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), sqlFile, t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to create test store: %v", err)
-	}
-	t.Cleanup(cleanup)
-
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
-	if err != nil {
-		t.Fatalf("Failed to create metrics: %v", err)
-	}
-
-	peersUpdateManager := server.NewPeersUpdateManager(nil)
-	updMsg := peersUpdateManager.CreateChannel(context.Background(), TestPeerId)
-	done := make(chan struct{})
-	if validateUpdate {
-		go func() {
-			if expectedPeerUpdate != nil {
-				peerShouldReceiveUpdate(t, updMsg, expectedPeerUpdate)
-			} else {
-				peerShouldNotReceiveUpdate(t, updMsg)
-			}
-			close(done)
-		}()
-	}
-
-	geoMock := &geolocation.Mock{}
-	validatorMock := server.MocIntegratedValidator{}
-	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
-	}
-
-	// @note this is required so that PAT's validate from store, but JWT's are mocked
-	authManager := auth.NewManager(store, "", "", "", "", []string{}, false)
-	authManagerMock := &auth.MockManager{
-		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
-		EnsureUserAccessByJWTGroupsFunc: authManager.EnsureUserAccessByJWTGroups,
-		MarkPATUsedFunc:                 authManager.MarkPATUsed,
-		GetPATInfoFunc:                  authManager.GetPATInfo,
-	}
-
-	networksManagerMock := networks.NewManagerMock()
-	resourcesManagerMock := resources.NewManagerMock()
-	routersManagerMock := routers.NewManagerMock()
-	groupsManagerMock := groups.NewManagerMock()
-	apiHandler, err := nbhttp.NewAPIHandler(context.Background(), am, networksManagerMock, resourcesManagerMock, routersManagerMock, groupsManagerMock, geoMock, authManagerMock, metrics, &server.Config{}, validatorMock)
-	if err != nil {
-		t.Fatalf("Failed to create API handler: %v", err)
-	}
-
-	return apiHandler, am, done
-}
-
-func peerShouldNotReceiveUpdate(t TB, updateMessage <-chan *server.UpdateMessage) {
-	t.Helper()
-	select {
-	case msg := <-updateMessage:
-		t.Errorf("Unexpected message received: %+v", msg)
-	case <-time.After(500 * time.Millisecond):
-		return
-	}
-}
-
-func peerShouldReceiveUpdate(t TB, updateMessage <-chan *server.UpdateMessage, expected *server.UpdateMessage) {
-	t.Helper()
-
-	select {
-	case msg := <-updateMessage:
-		if msg == nil {
-			t.Errorf("Received nil update message, expected valid message")
-		}
-		assert.Equal(t, expected, msg)
-	case <-time.After(500 * time.Millisecond):
-		t.Errorf("Timed out waiting for update message")
-	}
 }
 
 func BuildRequest(t TB, requestBody []byte, requestType, requestPath, user string) *http.Request {
@@ -194,11 +117,11 @@ func ReadResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedSta
 	return content, expectedStatus == http.StatusOK
 }
 
-func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, groups, users, setupKeys int) {
+func PopulateTestData(b *testing.B, am account.Manager, peers, groups, users, setupKeys int) {
 	b.Helper()
 
 	ctx := context.Background()
-	account, err := am.GetAccount(ctx, TestAccountId)
+	acc, err := am.GetAccount(ctx, TestAccountId)
 	if err != nil {
 		b.Fatalf("Failed to get account: %v", err)
 	}
@@ -214,23 +137,23 @@ func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   TestUserId,
 		}
-		account.Peers[peer.ID] = peer
+		acc.Peers[peer.ID] = peer
 	}
 
 	// Create users
 	for i := 0; i < users; i++ {
 		user := &types.User{
 			Id:        fmt.Sprintf("olduser-%d", i),
-			AccountID: account.Id,
+			AccountID: acc.Id,
 			Role:      types.UserRoleUser,
 		}
-		account.Users[user.Id] = user
+		acc.Users[user.Id] = user
 	}
 
 	for i := 0; i < setupKeys; i++ {
 		key := &types.SetupKey{
 			Id:         fmt.Sprintf("oldkey-%d", i),
-			AccountID:  account.Id,
+			AccountID:  acc.Id,
 			AutoGroups: []string{"someGroupID"},
 			UpdatedAt:  time.Now().UTC(),
 			ExpiresAt:  util.ToPtr(time.Now().Add(ExpiresIn * time.Second)),
@@ -238,11 +161,11 @@ func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 			Type:       "reusable",
 			UsageLimit: 0,
 		}
-		account.SetupKeys[key.Id] = key
+		acc.SetupKeys[key.Id] = key
 	}
 
 	// Create groups and policies
-	account.Policies = make([]*types.Policy, 0, groups)
+	acc.Policies = make([]*types.Policy, 0, groups)
 	for i := 0; i < groups; i++ {
 		groupID := fmt.Sprintf("group-%d", i)
 		group := &types.Group{
@@ -253,7 +176,7 @@ func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 			peerIndex := i*(peers/groups) + j
 			group.Peers = append(group.Peers, fmt.Sprintf("peer-%d", peerIndex))
 		}
-		account.Groups[groupID] = group
+		acc.Groups[groupID] = group
 
 		// Create a policy for this group
 		policy := &types.Policy{
@@ -273,10 +196,10 @@ func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 				},
 			},
 		}
-		account.Policies = append(account.Policies, policy)
+		acc.Policies = append(acc.Policies, policy)
 	}
 
-	account.PostureChecks = []*posture.Checks{
+	acc.PostureChecks = []*posture.Checks{
 		{
 			ID:   "PostureChecksAll",
 			Name: "All",
@@ -288,57 +211,38 @@ func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, gro
 		},
 	}
 
-	err = am.Store.SaveAccount(context.Background(), account)
+	store := am.GetStore()
+
+	err = store.SaveAccount(context.Background(), acc)
 	if err != nil {
 		b.Fatalf("Failed to save account: %v", err)
 	}
 
 }
 
-func EvaluateBenchmarkResults(b *testing.B, name string, duration time.Duration, perfMetrics PerformanceMetrics, recorder *httptest.ResponseRecorder) {
+func EvaluateAPIBenchmarkResults(b *testing.B, testCase string, duration time.Duration, recorder *httptest.ResponseRecorder, module string, operation string) {
 	b.Helper()
 
 	if recorder.Code != http.StatusOK {
-		b.Fatalf("Benchmark %s failed: unexpected status code %d", name, recorder.Code)
+		b.Fatalf("Benchmark %s failed: unexpected status code %d", testCase, recorder.Code)
+	}
+
+	EvaluateBenchmarkResults(b, testCase, duration, module, operation)
+
+}
+
+func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Duration, module string, operation string) {
+	b.Helper()
+
+	branch := os.Getenv("GIT_BRANCH")
+	if branch == "" && os.Getenv("CI") == "true" {
+		b.Fatalf("environment variable GIT_BRANCH is not set")
 	}
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
+
+	gauge := BenchmarkDuration.WithLabelValues(module, operation, testCase, branch)
+	gauge.Set(msPerOp)
+
 	b.ReportMetric(msPerOp, "ms/op")
-
-	minExpected := perfMetrics.MinMsPerOpLocal
-	maxExpected := perfMetrics.MaxMsPerOpLocal
-	if os.Getenv("CI") == "true" {
-		minExpected = perfMetrics.MinMsPerOpCICD
-		maxExpected = perfMetrics.MaxMsPerOpCICD
-	}
-
-	if msPerOp < minExpected {
-		b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", name, msPerOp, minExpected)
-	}
-
-	if msPerOp > maxExpected {
-		b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", name, msPerOp, maxExpected)
-	}
-}
-
-func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserAuth, *jwt.Token, error) {
-	userAuth := nbcontext.UserAuth{}
-
-	switch token {
-	case "testUserId", "testAdminId", "testOwnerId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
-		userAuth.UserId = token
-		userAuth.AccountId = "testAccountId"
-		userAuth.Domain = "test.com"
-		userAuth.DomainCategory = "private"
-	case "otherUserId":
-		userAuth.UserId = "otherUserId"
-		userAuth.AccountId = "otherAccountId"
-		userAuth.Domain = "other.com"
-		userAuth.DomainCategory = "private"
-	case "invalidToken":
-		return userAuth, nil, errors.New("invalid token")
-	}
-
-	jwtToken := jwt.New(jwt.SigningMethodHS256)
-	return userAuth, jwtToken, nil
 }

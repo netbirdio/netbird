@@ -169,14 +169,27 @@ const (
 
 	ResourceAddedToGroup     Activity = 82
 	ResourceRemovedFromGroup Activity = 83
+
+	AccountDNSDomainUpdated Activity = 84
+
+	AccountLazyConnectionEnabled  Activity = 85
+	AccountLazyConnectionDisabled Activity = 86
+
+	AccountNetworkRangeUpdated Activity = 87
+	PeerIPUpdated              Activity = 88
+	UserApproved               Activity = 89
+	UserRejected               Activity = 90
+
+	AccountDeleted Activity = 99999
 )
 
 var activityMap = map[Activity]Code{
-	PeerAddedByUser:                          {"Peer added", "user.peer.add"},
-	PeerAddedWithSetupKey:                    {"Peer added", "setupkey.peer.add"},
+	PeerAddedByUser:                          {"Peer added", "peer.user.add"},
+	PeerAddedWithSetupKey:                    {"Peer added", "peer.setupkey.add"},
 	UserJoined:                               {"User joined", "user.join"},
 	UserInvited:                              {"User invited", "user.invite"},
 	AccountCreated:                           {"Account created", "account.create"},
+	AccountDeleted:                           {"Account deleted", "account.delete"},
 	PeerRemovedByUser:                        {"Peer deleted", "user.peer.delete"},
 	RuleAdded:                                {"Rule added", "rule.add"},
 	RuleUpdated:                              {"Rule updated", "rule.update"},
@@ -232,9 +245,9 @@ var activityMap = map[Activity]Code{
 	PeerApproved:                              {"Peer approved", "peer.approve"},
 	PeerApprovalRevoked:                       {"Peer approval revoked", "peer.approval.revoke"},
 	TransferredOwnerRole:                      {"Transferred owner role", "transferred.owner.role"},
-	PostureCheckCreated:                       {"Posture check created", "posture.check.created"},
-	PostureCheckUpdated:                       {"Posture check updated", "posture.check.updated"},
-	PostureCheckDeleted:                       {"Posture check deleted", "posture.check.deleted"},
+	PostureCheckCreated:                       {"Posture check created", "posture.check.create"},
+	PostureCheckUpdated:                       {"Posture check updated", "posture.check.update"},
+	PostureCheckDeleted:                       {"Posture check deleted", "posture.check.delete"},
 
 	PeerInactivityExpirationEnabled:  {"Peer inactivity expiration enabled", "peer.inactivity.expiration.enable"},
 	PeerInactivityExpirationDisabled: {"Peer inactivity expiration disabled", "peer.inactivity.expiration.disable"},
@@ -264,6 +277,17 @@ var activityMap = map[Activity]Code{
 
 	ResourceAddedToGroup:     {"Resource added to group", "resource.group.add"},
 	ResourceRemovedFromGroup: {"Resource removed from group", "resource.group.delete"},
+
+	AccountDNSDomainUpdated: {"Account DNS domain updated", "account.dns.domain.update"},
+
+	AccountLazyConnectionEnabled:  {"Account lazy connection enabled", "account.setting.lazy.connection.enable"},
+	AccountLazyConnectionDisabled: {"Account lazy connection disabled", "account.setting.lazy.connection.disable"},
+
+	AccountNetworkRangeUpdated: {"Account network range updated", "account.network.range.update"},
+
+	PeerIPUpdated: {"Peer IP updated", "peer.ip.update"},
+	UserApproved:  {"User approved", "user.approve"},
+	UserRejected:  {"User rejected", "user.reject"},
 }
 
 // StringCode returns a string code of the activity

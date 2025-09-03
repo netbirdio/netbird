@@ -8,12 +8,14 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/permissions/modules"
+	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // DNSConfigCache is a thread-safe cache for DNS configuration components
@@ -62,20 +64,15 @@ func (c *DNSConfigCache) SetNameServerGroup(key string, value *proto.NameServerG
 
 // GetDNSSettings validates a user role and returns the DNS settings for the provided account ID
 func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error) {
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Read)
 	if err != nil {
-		return nil, err
+		return nil, status.NewPermissionValidationError(err)
+	}
+	if !allowed {
+		return nil, status.NewPermissionDeniedError()
 	}
 
-	if user.AccountID != accountID {
-		return nil, status.NewUserNotPartOfAccountError()
-	}
-
-	if user.IsRegularUser() {
-		return nil, status.NewAdminPermissionError()
-	}
-
-	return am.Store.GetAccountDNSSettings(ctx, store.LockingStrengthShare, accountID)
+	return am.Store.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
 }
 
 // SaveDNSSettings validates a user role and updates the account's DNS settings
@@ -84,17 +81,12 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
 	}
 
-	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthShare, userID)
+	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Dns, operations.Update)
 	if err != nil {
-		return err
+		return status.NewPermissionValidationError(err)
 	}
-
-	if user.AccountID != accountID {
-		return status.NewUserNotPartOfAccountError()
-	}
-
-	if !user.HasAdminPower() {
-		return status.NewAdminPermissionError()
+	if !allowed {
+		return status.NewPermissionDeniedError()
 	}
 
 	var updateAccountPeers bool
@@ -121,11 +113,11 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		events := am.prepareDNSSettingsEvents(ctx, transaction, accountID, userID, addedGroups, removedGroups)
 		eventsToStore = append(eventsToStore, events...)
 
-		if err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID); err != nil {
+		if err = transaction.SaveDNSSettings(ctx, accountID, dnsSettingsToSave); err != nil {
 			return err
 		}
 
-		return transaction.SaveDNSSettings(ctx, store.LockingStrengthUpdate, accountID, dnsSettingsToSave)
+		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
@@ -147,7 +139,7 @@ func (am *DefaultAccountManager) prepareDNSSettingsEvents(ctx context.Context, t
 	var eventsToStore []func()
 
 	modifiedGroups := slices.Concat(addedGroups, removedGroups)
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, modifiedGroups)
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, modifiedGroups)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get groups for dns settings events: %v", err)
 		return nil
@@ -203,7 +195,7 @@ func validateDNSSettings(ctx context.Context, transaction store.Store, accountID
 		return nil
 	}
 
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, settings.DisabledManagementGroups)
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, settings.DisabledManagementGroups)
 	if err != nil {
 		return err
 	}

@@ -39,11 +39,19 @@ type OfferAnswer struct {
 
 	// relay server address
 	RelaySrvAddress string
+	// SessionID is the unique identifier of the session, used to discard old messages
+	SessionID *ICESessionID
+}
+
+func (oa *OfferAnswer) SessionIDString() string {
+	if oa.SessionID == nil {
+		return "unknown"
+	}
+	return oa.SessionID.String()
 }
 
 type Handshaker struct {
 	mu                  sync.Mutex
-	ctx                 context.Context
 	log                 *log.Entry
 	config              ConnConfig
 	signaler            *Signaler
@@ -57,9 +65,8 @@ type Handshaker struct {
 	remoteAnswerCh chan OfferAnswer
 }
 
-func NewHandshaker(ctx context.Context, log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
+func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
 	return &Handshaker{
-		ctx:            ctx,
 		log:            log,
 		config:         config,
 		signaler:       signaler,
@@ -74,23 +81,27 @@ func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAn
 	h.onNewOfferListeners = append(h.onNewOfferListeners, offer)
 }
 
-func (h *Handshaker) Listen() {
+func (h *Handshaker) Listen(ctx context.Context) {
 	for {
-		h.log.Debugf("wait for remote offer confirmation")
-		remoteOfferAnswer, err := h.waitForRemoteOfferConfirmation()
-		if err != nil {
-			var connectionClosedError *ConnectionClosedError
-			if errors.As(err, &connectionClosedError) {
-				h.log.Tracef("stop handshaker")
-				return
+		select {
+		case remoteOfferAnswer := <-h.remoteOffersCh:
+			// received confirmation from the remote peer -> ready to proceed
+			if err := h.sendAnswer(); err != nil {
+				h.log.Errorf("failed to send remote offer confirmation: %s", err)
+				continue
 			}
-			h.log.Errorf("failed to received remote offer confirmation: %s", err)
-			continue
-		}
-
-		h.log.Debugf("received connection confirmation, running version %s and with remote WireGuard listen port %d", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
-		for _, listener := range h.onNewOfferListeners {
-			go listener(remoteOfferAnswer)
+			for _, listener := range h.onNewOfferListeners {
+				listener(&remoteOfferAnswer)
+			}
+			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
+		case remoteOfferAnswer := <-h.remoteAnswerCh:
+			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
+			for _, listener := range h.onNewOfferListeners {
+				listener(&remoteOfferAnswer)
+			}
+		case <-ctx.Done():
+			h.log.Infof("stop listening for remote offers and answers")
+			return
 		}
 	}
 }
@@ -103,44 +114,27 @@ func (h *Handshaker) SendOffer() error {
 
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) bool {
+func (h *Handshaker) OnRemoteOffer(offer OfferAnswer) {
 	select {
 	case h.remoteOffersCh <- offer:
-		return true
+		return
 	default:
-		h.log.Debugf("OnRemoteOffer skipping message because is not ready")
+		h.log.Warnf("skipping remote offer message because receiver not ready")
 		// connection might not be ready yet to receive so we ignore the message
-		return false
+		return
 	}
 }
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) bool {
+func (h *Handshaker) OnRemoteAnswer(answer OfferAnswer) {
 	select {
 	case h.remoteAnswerCh <- answer:
-		return true
+		return
 	default:
 		// connection might not be ready yet to receive so we ignore the message
-		h.log.Debugf("OnRemoteAnswer skipping message because is not ready")
-		return false
-	}
-}
-
-func (h *Handshaker) waitForRemoteOfferConfirmation() (*OfferAnswer, error) {
-	select {
-	case remoteOfferAnswer := <-h.remoteOffersCh:
-		// received confirmation from the remote peer -> ready to proceed
-		err := h.sendAnswer()
-		if err != nil {
-			return nil, err
-		}
-		return &remoteOfferAnswer, nil
-	case remoteOfferAnswer := <-h.remoteAnswerCh:
-		return &remoteOfferAnswer, nil
-	case <-h.ctx.Done():
-		// closed externally
-		return nil, NewConnectionClosedError(h.config.Key)
+		h.log.Warnf("skipping remote answer message because receiver not ready")
+		return
 	}
 }
 
@@ -150,43 +144,34 @@ func (h *Handshaker) sendOffer() error {
 		return ErrSignalIsNotReady
 	}
 
-	iceUFrag, icePwd := h.ice.GetLocalUserCredentials()
-	offer := OfferAnswer{
-		IceCredentials:  IceCredentials{iceUFrag, icePwd},
-		WgListenPort:    h.config.LocalWgPort,
-		Version:         version.NetbirdVersion(),
-		RosenpassPubKey: h.config.RosenpassPubKey,
-		RosenpassAddr:   h.config.RosenpassAddr,
-	}
-
-	addr, err := h.relay.RelayInstanceAddress()
-	if err == nil {
-		offer.RelaySrvAddress = addr
-	}
+	offer := h.buildOfferAnswer()
+	h.log.Infof("sending offer with serial: %s", offer.SessionIDString())
 
 	return h.signaler.SignalOffer(offer, h.config.Key)
 }
 
 func (h *Handshaker) sendAnswer() error {
-	h.log.Debugf("sending answer")
-	uFrag, pwd := h.ice.GetLocalUserCredentials()
+	answer := h.buildOfferAnswer()
+	h.log.Infof("sending answer with serial: %s", answer.SessionIDString())
 
+	return h.signaler.SignalAnswer(answer, h.config.Key)
+}
+
+func (h *Handshaker) buildOfferAnswer() OfferAnswer {
+	uFrag, pwd := h.ice.GetLocalUserCredentials()
+	sid := h.ice.SessionID()
 	answer := OfferAnswer{
 		IceCredentials:  IceCredentials{uFrag, pwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
-		RosenpassPubKey: h.config.RosenpassPubKey,
-		RosenpassAddr:   h.config.RosenpassAddr,
+		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
+		RosenpassAddr:   h.config.RosenpassConfig.Addr,
+		SessionID:       &sid,
 	}
-	addr, err := h.relay.RelayInstanceAddress()
-	if err == nil {
+
+	if addr, err := h.relay.RelayInstanceAddress(); err == nil {
 		answer.RelaySrvAddress = addr
 	}
 
-	err = h.signaler.SignalAnswer(answer, h.config.Key)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return answer
 }

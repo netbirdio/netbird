@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"net/netip"
+
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -13,7 +15,7 @@ type MobileDependency struct {
 	TunAdapter            device.TunAdapter
 	IFaceDiscover         stdnet.ExternalIFaceDiscover
 	NetworkChangeListener listener.NetworkChangeListener
-	HostDNSAddresses      []string
+	HostDNSAddresses      []netip.AddrPort
 	DnsReadyListener      dns.ReadyListener
 
 	//	iOS only

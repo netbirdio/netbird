@@ -1,11 +1,13 @@
 package dns
 
 import (
+	"net/netip"
+
 	"github.com/miekg/dns"
 )
 
 const (
-	defaultPort = 53
+	DefaultPort = 53
 )
 
 type service interface {
@@ -14,5 +16,5 @@ type service interface {
 	RegisterMux(domain string, handler dns.Handler)
 	DeregisterMux(key string)
 	RuntimePort() int
-	RuntimeIP() string
+	RuntimeIP() netip.Addr
 }

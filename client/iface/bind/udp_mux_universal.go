@@ -15,8 +15,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pion/logging"
-	"github.com/pion/stun/v2"
+	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v3"
+
+	"github.com/netbirdio/netbird/client/iface/bufsize"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 // FilterFn is a function that filters out candidates based on the address.
@@ -41,12 +44,14 @@ type UniversalUDPMuxParams struct {
 	XORMappedAddrCacheTTL time.Duration
 	Net                   transport.Net
 	FilterFn              FilterFn
+	WGAddress             wgaddr.Address
+	MTU                   uint16
 }
 
 // NewUniversalUDPMuxDefault creates an implementation of UniversalUDPMux embedding UDPMux
 func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDefault {
 	if params.Logger == nil {
-		params.Logger = logging.NewDefaultLoggerFactory().NewLogger("ice")
+		params.Logger = getLogger()
 	}
 	if params.XORMappedAddrCacheTTL == 0 {
 		params.XORMappedAddrCacheTTL = time.Second * 25
@@ -59,14 +64,14 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 
 	// wrap UDP connection, process server reflexive messages
 	// before they are passed to the UDPMux connection handler (connWorker)
-	m.params.UDPConn = &udpConn{
+	m.params.UDPConn = &UDPConn{
 		PacketConn: params.UDPConn,
 		mux:        m,
 		logger:     params.Logger,
 		filterFn:   params.FilterFn,
+		address:    params.WGAddress,
 	}
 
-	// embed UDPMux
 	udpMuxParams := UDPMuxParams{
 		Logger:  params.Logger,
 		UDPConn: m.params.UDPConn,
@@ -81,7 +86,7 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 // just ignore other packets printing an warning message.
 // It is a blocking method, consider running in a go routine.
 func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
-	buf := make([]byte, 1500)
+	buf := make([]byte, m.params.MTU+bufsize.WGBufferOverhead)
 	for {
 		select {
 		case <-ctx.Done():
@@ -110,17 +115,23 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 	}
 }
 
-// udpConn is a wrapper around UDPMux conn that overrides ReadFrom and handles STUN/TURN packets
-type udpConn struct {
+// UDPConn is a wrapper around UDPMux conn that overrides ReadFrom and handles STUN/TURN packets
+type UDPConn struct {
 	net.PacketConn
 	mux      *UniversalUDPMuxDefault
 	logger   logging.LeveledLogger
 	filterFn FilterFn
 	// TODO: reset cache on route changes
 	addrCache sync.Map
+	address   wgaddr.Address
 }
 
-func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+// GetPacketConn returns the underlying PacketConn
+func (u *UDPConn) GetPacketConn() net.PacketConn {
+	return u.PacketConn
+}
+
+func (u *UDPConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	if u.filterFn == nil {
 		return u.PacketConn.WriteTo(b, addr)
 	}
@@ -132,21 +143,21 @@ func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	return u.handleUncachedAddress(b, addr)
 }
 
-func (u *udpConn) handleCachedAddress(isRouted bool, b []byte, addr net.Addr) (int, error) {
+func (u *UDPConn) handleCachedAddress(isRouted bool, b []byte, addr net.Addr) (int, error) {
 	if isRouted {
 		return 0, fmt.Errorf("address %s is part of a routed network, refusing to write", addr)
 	}
 	return u.PacketConn.WriteTo(b, addr)
 }
 
-func (u *udpConn) handleUncachedAddress(b []byte, addr net.Addr) (int, error) {
+func (u *UDPConn) handleUncachedAddress(b []byte, addr net.Addr) (int, error) {
 	if err := u.performFilterCheck(addr); err != nil {
 		return 0, err
 	}
 	return u.PacketConn.WriteTo(b, addr)
 }
 
-func (u *udpConn) performFilterCheck(addr net.Addr) error {
+func (u *UDPConn) performFilterCheck(addr net.Addr) error {
 	host, err := getHostFromAddr(addr)
 	if err != nil {
 		log.Errorf("Failed to get host from address %s: %v", addr, err)
@@ -157,6 +168,11 @@ func (u *udpConn) performFilterCheck(addr net.Addr) error {
 	if err != nil {
 		log.Errorf("Failed to parse address %s: %v", addr, err)
 		return nil
+	}
+
+	if u.address.Network.Contains(a) {
+		log.Warnf("Address %s is part of the NetBird network %s, refusing to write", addr, u.address)
+		return fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 	}
 
 	if isRouted, prefix, err := u.filterFn(a); err != nil {

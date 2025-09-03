@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"hash/crc32"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/netbirdio/netbird/base62"
 	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
@@ -73,7 +73,7 @@ func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth nbco
 		return userAuth, nil
 	}
 
-	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthShare, userAuth.AccountId)
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, userAuth.AccountId)
 	if err != nil {
 		return userAuth, err
 	}
@@ -94,7 +94,7 @@ func (m *manager) EnsureUserAccessByJWTGroups(ctx context.Context, userAuth nbco
 
 // MarkPATUsed marks a personal access token as used
 func (am *manager) MarkPATUsed(ctx context.Context, tokenID string) error {
-	return am.store.MarkPATUsed(ctx, store.LockingStrengthUpdate, tokenID)
+	return am.store.MarkPATUsed(ctx, tokenID)
 }
 
 // GetPATInfo retrieves user, personal access token, domain, and category details from a personal access token.
@@ -104,7 +104,7 @@ func (am *manager) GetPATInfo(ctx context.Context, token string) (user *types.Us
 		return nil, nil, "", "", err
 	}
 
-	domain, category, err = am.store.GetAccountDomainAndCategory(ctx, store.LockingStrengthShare, user.AccountID)
+	domain, category, err = am.store.GetAccountDomainAndCategory(ctx, store.LockingStrengthNone, user.AccountID)
 	if err != nil {
 		return nil, nil, "", "", err
 	}
@@ -142,12 +142,12 @@ func (am *manager) extractPATFromToken(ctx context.Context, token string) (*type
 	var pat *types.PersonalAccessToken
 
 	err = am.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthShare, encodedHashedToken)
+		pat, err = transaction.GetPATByHashedToken(ctx, store.LockingStrengthNone, encodedHashedToken)
 		if err != nil {
 			return err
 		}
 
-		user, err = transaction.GetUserByPATID(ctx, store.LockingStrengthShare, pat.ID)
+		user, err = transaction.GetUserByPATID(ctx, store.LockingStrengthNone, pat.ID)
 		return err
 	})
 	if err != nil {

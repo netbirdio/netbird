@@ -23,10 +23,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
-
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/management/server/migration"
@@ -45,16 +44,20 @@ const (
 	LockingStrengthShare       LockingStrength = "SHARE"         // Allows reading but prevents changes by other transactions.
 	LockingStrengthNoKeyUpdate LockingStrength = "NO KEY UPDATE" // Similar to UPDATE but allows changes to related rows.
 	LockingStrengthKeyShare    LockingStrength = "KEY SHARE"     // Protects against changes to primary/unique keys but allows other updates.
+	LockingStrengthNone        LockingStrength = "NONE"          // No locking, allowing all transactions to proceed without restrictions.
 )
 
 type Store interface {
 	GetAccountsCounter(ctx context.Context) (int64, error)
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetAccount(ctx context.Context, accountID string) (*types.Account, error)
+	GetAccountMeta(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.AccountMeta, error)
+	GetAccountOnboarding(ctx context.Context, accountID string) (*types.AccountOnboarding, error)
 	AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error)
 	GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error)
 	GetAccountByUser(ctx context.Context, userID string) (*types.Account, error)
 	GetAccountByPeerPubKey(ctx context.Context, peerKey string) (*types.Account, error)
+	GetAnyAccountID(ctx context.Context) (string, error)
 	GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountIDByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (string, error)
 	GetAccountIDBySetupKey(ctx context.Context, peerKey string) (string, error)
@@ -69,15 +72,19 @@ type Store interface {
 	SaveAccount(ctx context.Context, account *types.Account) error
 	DeleteAccount(ctx context.Context, account *types.Account) error
 	UpdateAccountDomainAttributes(ctx context.Context, accountID string, domain string, category string, isPrimaryDomain bool) error
-	SaveDNSSettings(ctx context.Context, lockStrength LockingStrength, accountID string, settings *types.DNSSettings) error
+	SaveDNSSettings(ctx context.Context, accountID string, settings *types.DNSSettings) error
+	SaveAccountSettings(ctx context.Context, accountID string, settings *types.Settings) error
+	CountAccountsByPrivateDomain(ctx context.Context, domain string) (int64, error)
+	SaveAccountOnboarding(ctx context.Context, onboarding *types.AccountOnboarding) error
 
 	GetUserByPATID(ctx context.Context, lockStrength LockingStrength, patID string) (*types.User, error)
 	GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error)
 	GetAccountUsers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.User, error)
-	SaveUsers(ctx context.Context, lockStrength LockingStrength, users []*types.User) error
-	SaveUser(ctx context.Context, lockStrength LockingStrength, user *types.User) error
+	GetAccountOwner(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.User, error)
+	SaveUsers(ctx context.Context, users []*types.User) error
+	SaveUser(ctx context.Context, user *types.User) error
 	SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error
-	DeleteUser(ctx context.Context, lockStrength LockingStrength, accountID, userID string) error
+	DeleteUser(ctx context.Context, accountID, userID string) error
 	GetTokenIDByHashedToken(ctx context.Context, secret string) (string, error)
 	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
 	DeleteTokenID2UserIDIndex(tokenID string) error
@@ -85,79 +92,82 @@ type Store interface {
 	GetPATByID(ctx context.Context, lockStrength LockingStrength, userID, patID string) (*types.PersonalAccessToken, error)
 	GetUserPATs(ctx context.Context, lockStrength LockingStrength, userID string) ([]*types.PersonalAccessToken, error)
 	GetPATByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken string) (*types.PersonalAccessToken, error)
-	MarkPATUsed(ctx context.Context, lockStrength LockingStrength, patID string) error
-	SavePAT(ctx context.Context, strength LockingStrength, pat *types.PersonalAccessToken) error
-	DeletePAT(ctx context.Context, strength LockingStrength, userID, patID string) error
+	MarkPATUsed(ctx context.Context, patID string) error
+	SavePAT(ctx context.Context, pat *types.PersonalAccessToken) error
+	DeletePAT(ctx context.Context, userID, patID string) error
 
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
 	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types.Group, error)
 	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*types.Group, error)
 	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types.Group, error)
-	SaveGroups(ctx context.Context, lockStrength LockingStrength, groups []*types.Group) error
-	SaveGroup(ctx context.Context, lockStrength LockingStrength, group *types.Group) error
-	DeleteGroup(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) error
-	DeleteGroups(ctx context.Context, strength LockingStrength, accountID string, groupIDs []string) error
+	CreateGroups(ctx context.Context, accountID string, groups []*types.Group) error
+	UpdateGroups(ctx context.Context, accountID string, groups []*types.Group) error
+	CreateGroup(ctx context.Context, group *types.Group) error
+	UpdateGroup(ctx context.Context, group *types.Group) error
+	DeleteGroup(ctx context.Context, accountID, groupID string) error
+	DeleteGroups(ctx context.Context, accountID string, groupIDs []string) error
 
 	GetAccountPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Policy, error)
 	GetPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.Policy, error)
-	CreatePolicy(ctx context.Context, lockStrength LockingStrength, policy *types.Policy) error
-	SavePolicy(ctx context.Context, lockStrength LockingStrength, policy *types.Policy) error
-	DeletePolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error
+	CreatePolicy(ctx context.Context, policy *types.Policy) error
+	SavePolicy(ctx context.Context, policy *types.Policy) error
+	DeletePolicy(ctx context.Context, accountID, policyID string) error
 
 	GetPostureCheckByChecksDefinition(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
 	GetAccountPostureChecks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*posture.Checks, error)
 	GetPostureChecksByID(ctx context.Context, lockStrength LockingStrength, accountID, postureCheckID string) (*posture.Checks, error)
 	GetPostureChecksByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, postureChecksIDs []string) (map[string]*posture.Checks, error)
-	SavePostureChecks(ctx context.Context, lockStrength LockingStrength, postureCheck *posture.Checks) error
-	DeletePostureChecks(ctx context.Context, lockStrength LockingStrength, accountID, postureChecksID string) error
+	SavePostureChecks(ctx context.Context, postureCheck *posture.Checks) error
+	DeletePostureChecks(ctx context.Context, accountID, postureChecksID string) error
 
-	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string) ([]string, error)
-	AddPeerToAllGroup(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) error
-	AddPeerToGroup(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string, groupID string) error
+	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string, hostname string) ([]string, error)
+	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
+	AddPeerToGroup(ctx context.Context, accountID, peerId string, groupID string) error
+	RemovePeerFromGroup(ctx context.Context, peerID string, groupID string) error
+	RemovePeerFromAllGroups(ctx context.Context, peerID string) error
 	GetPeerGroups(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]*types.Group, error)
+	GetPeerGroupIDs(ctx context.Context, lockStrength LockingStrength, accountId string, peerId string) ([]string, error)
 	AddResourceToGroup(ctx context.Context, accountId string, groupID string, resource *types.Resource) error
 	RemoveResourceFromGroup(ctx context.Context, accountId string, groupID string, resourceID string) error
-	AddPeerToAccount(ctx context.Context, lockStrength LockingStrength, peer *nbpeer.Peer) error
+	AddPeerToAccount(ctx context.Context, peer *nbpeer.Peer) error
 	GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error)
-	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
+	GetAccountPeers(ctx context.Context, lockStrength LockingStrength, accountID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	GetUserPeers(ctx context.Context, lockStrength LockingStrength, accountID, userID string) ([]*nbpeer.Peer, error)
 	GetPeerByID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) (*nbpeer.Peer, error)
 	GetPeersByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, peerIDs []string) (map[string]*nbpeer.Peer, error)
 	GetAccountPeersWithExpiration(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetAccountPeersWithInactivity(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*nbpeer.Peer, error)
 	GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error)
-	SavePeer(ctx context.Context, lockStrength LockingStrength, accountID string, peer *nbpeer.Peer) error
-	SavePeerStatus(ctx context.Context, lockStrength LockingStrength, accountID, peerID string, status nbpeer.PeerStatus) error
-	SavePeerLocation(ctx context.Context, lockStrength LockingStrength, accountID string, peer *nbpeer.Peer) error
-	DeletePeer(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) error
+	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
+	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
+	SavePeerLocation(ctx context.Context, accountID string, peer *nbpeer.Peer) error
+	DeletePeer(ctx context.Context, accountID string, peerID string) error
 
 	GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types.SetupKey, error)
 	IncrementSetupKeyUsage(ctx context.Context, setupKeyID string) error
 	GetAccountSetupKeys(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.SetupKey, error)
 	GetSetupKeyByID(ctx context.Context, lockStrength LockingStrength, accountID, setupKeyID string) (*types.SetupKey, error)
-	SaveSetupKey(ctx context.Context, lockStrength LockingStrength, setupKey *types.SetupKey) error
-	DeleteSetupKey(ctx context.Context, lockStrength LockingStrength, accountID, keyID string) error
+	SaveSetupKey(ctx context.Context, setupKey *types.SetupKey) error
+	DeleteSetupKey(ctx context.Context, accountID, keyID string) error
 
 	GetAccountRoutes(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*route.Route, error)
-	GetRouteByID(ctx context.Context, lockStrength LockingStrength, routeID string, accountID string) (*route.Route, error)
+	GetRouteByID(ctx context.Context, lockStrength LockingStrength, accountID, routeID string) (*route.Route, error)
+	SaveRoute(ctx context.Context, route *route.Route) error
+	DeleteRoute(ctx context.Context, accountID, routeID string) error
 
 	GetAccountNameServerGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*dns.NameServerGroup, error)
 	GetNameServerGroupByID(ctx context.Context, lockStrength LockingStrength, nameServerGroupID string, accountID string) (*dns.NameServerGroup, error)
-	SaveNameServerGroup(ctx context.Context, lockStrength LockingStrength, nameServerGroup *dns.NameServerGroup) error
-	DeleteNameServerGroup(ctx context.Context, lockStrength LockingStrength, accountID, nameServerGroupID string) error
+	SaveNameServerGroup(ctx context.Context, nameServerGroup *dns.NameServerGroup) error
+	DeleteNameServerGroup(ctx context.Context, accountID, nameServerGroupID string) error
 
 	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
-	IncrementNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) error
+	IncrementNetworkSerial(ctx context.Context, accountId string) error
 	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*types.Network, error)
 
 	GetInstallationID() string
 	SaveInstallationID(ctx context.Context, ID string) error
 
-	// AcquireWriteLockByUID should attempt to acquire a lock for write purposes and return a function that releases the lock
-	AcquireWriteLockByUID(ctx context.Context, uniqueID string) func()
-	// AcquireReadLockByUID should attempt to acquire lock for read purposes and return a function that releases the lock
-	AcquireReadLockByUID(ctx context.Context, uniqueID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock(ctx context.Context) func()
 
@@ -165,66 +175,65 @@ type Store interface {
 	Close(ctx context.Context) error
 	// GetStoreEngine should return Engine of the current store implementation.
 	// This is also a method of metrics.DataSource interface.
-	GetStoreEngine() Engine
+	GetStoreEngine() types.Engine
 	ExecuteInTransaction(ctx context.Context, f func(store Store) error) error
 
 	GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*networkTypes.Network, error)
 	GetNetworkByID(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) (*networkTypes.Network, error)
-	SaveNetwork(ctx context.Context, lockStrength LockingStrength, network *networkTypes.Network) error
-	DeleteNetwork(ctx context.Context, lockStrength LockingStrength, accountID, networkID string) error
+	SaveNetwork(ctx context.Context, network *networkTypes.Network) error
+	DeleteNetwork(ctx context.Context, accountID, networkID string) error
 
 	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*routerTypes.NetworkRouter, error)
 	GetNetworkRoutersByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*routerTypes.NetworkRouter, error)
 	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*routerTypes.NetworkRouter, error)
-	SaveNetworkRouter(ctx context.Context, lockStrength LockingStrength, router *routerTypes.NetworkRouter) error
-	DeleteNetworkRouter(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) error
+	SaveNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
+	DeleteNetworkRouter(ctx context.Context, accountID, routerID string) error
 
 	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*resourceTypes.NetworkResource, error)
 	GetNetworkResourcesByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*resourceTypes.NetworkResource, error)
 	GetNetworkResourceByID(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) (*resourceTypes.NetworkResource, error)
 	GetNetworkResourceByName(ctx context.Context, lockStrength LockingStrength, accountID, resourceName string) (*resourceTypes.NetworkResource, error)
-	SaveNetworkResource(ctx context.Context, lockStrength LockingStrength, resource *resourceTypes.NetworkResource) error
-	DeleteNetworkResource(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) error
+	SaveNetworkResource(ctx context.Context, resource *resourceTypes.NetworkResource) error
+	DeleteNetworkResource(ctx context.Context, accountID, resourceID string) error
+	GetPeerByIP(ctx context.Context, lockStrength LockingStrength, accountID string, ip net.IP) (*nbpeer.Peer, error)
+	GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error)
+	GetAccountGroupPeers(ctx context.Context, lockStrength LockingStrength, accountID string) (map[string]map[string]struct{}, error)
+	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
+	MarkAccountPrimary(ctx context.Context, accountID string) error
+	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
 }
 
-type Engine string
-
 const (
-	FileStoreEngine     Engine = "jsonfile"
-	SqliteStoreEngine   Engine = "sqlite"
-	PostgresStoreEngine Engine = "postgres"
-	MysqlStoreEngine    Engine = "mysql"
-
 	postgresDsnEnv = "NETBIRD_STORE_ENGINE_POSTGRES_DSN"
 	mysqlDsnEnv    = "NETBIRD_STORE_ENGINE_MYSQL_DSN"
 )
 
-var supportedEngines = []Engine{SqliteStoreEngine, PostgresStoreEngine, MysqlStoreEngine}
+var supportedEngines = []types.Engine{types.SqliteStoreEngine, types.PostgresStoreEngine, types.MysqlStoreEngine}
 
-func getStoreEngineFromEnv() Engine {
+func getStoreEngineFromEnv() types.Engine {
 	// NETBIRD_STORE_ENGINE supposed to be used in tests. Otherwise, rely on the config file.
 	kind, ok := os.LookupEnv("NETBIRD_STORE_ENGINE")
 	if !ok {
 		return ""
 	}
 
-	value := Engine(strings.ToLower(kind))
+	value := types.Engine(strings.ToLower(kind))
 	if slices.Contains(supportedEngines, value) {
 		return value
 	}
 
-	return SqliteStoreEngine
+	return types.SqliteStoreEngine
 }
 
 // getStoreEngine determines the store engine to use.
 // If no engine is specified, it attempts to retrieve it from the environment.
 // If still not specified, it defaults to using SQLite.
 // Additionally, it handles the migration from a JSON store file to SQLite if applicable.
-func getStoreEngine(ctx context.Context, dataDir string, kind Engine) Engine {
+func getStoreEngine(ctx context.Context, dataDir string, kind types.Engine) types.Engine {
 	if kind == "" {
 		kind = getStoreEngineFromEnv()
 		if kind == "" {
-			kind = SqliteStoreEngine
+			kind = types.SqliteStoreEngine
 
 			// Migrate if it is the first run with a JSON file existing and no SQLite file present
 			jsonStoreFile := filepath.Join(dataDir, storeFileName)
@@ -233,10 +242,10 @@ func getStoreEngine(ctx context.Context, dataDir string, kind Engine) Engine {
 			if util.FileExists(jsonStoreFile) && !util.FileExists(sqliteStoreFile) {
 				log.WithContext(ctx).Warnf("unsupported store engine specified, but found %s. Automatically migrating to SQLite.", jsonStoreFile)
 
-				// Attempt to migrate from JSON store to SQLite
+				// Attempt to migratePreAuto from JSON store to SQLite
 				if err := MigrateFileStoreToSqlite(ctx, dataDir); err != nil {
-					log.WithContext(ctx).Errorf("failed to migrate filestore to SQLite: %v", err)
-					kind = FileStoreEngine
+					log.WithContext(ctx).Errorf("failed to migratePreAuto filestore to SQLite: %v", err)
+					kind = types.FileStoreEngine
 				}
 			}
 		}
@@ -246,7 +255,7 @@ func getStoreEngine(ctx context.Context, dataDir string, kind Engine) Engine {
 }
 
 // NewStore creates a new store based on the provided engine type, data directory, and telemetry metrics
-func NewStore(ctx context.Context, kind Engine, dataDir string, metrics telemetry.AppMetrics) (Store, error) {
+func NewStore(ctx context.Context, kind types.Engine, dataDir string, metrics telemetry.AppMetrics, skipMigration bool) (Store, error) {
 	kind = getStoreEngine(ctx, dataDir, kind)
 
 	if err := checkFileStoreEngine(kind, dataDir); err != nil {
@@ -254,34 +263,34 @@ func NewStore(ctx context.Context, kind Engine, dataDir string, metrics telemetr
 	}
 
 	switch kind {
-	case SqliteStoreEngine:
+	case types.SqliteStoreEngine:
 		log.WithContext(ctx).Info("using SQLite store engine")
-		return NewSqliteStore(ctx, dataDir, metrics)
-	case PostgresStoreEngine:
+		return NewSqliteStore(ctx, dataDir, metrics, skipMigration)
+	case types.PostgresStoreEngine:
 		log.WithContext(ctx).Info("using Postgres store engine")
-		return newPostgresStore(ctx, metrics)
-	case MysqlStoreEngine:
+		return newPostgresStore(ctx, metrics, skipMigration)
+	case types.MysqlStoreEngine:
 		log.WithContext(ctx).Info("using MySQL store engine")
-		return newMysqlStore(ctx, metrics)
+		return newMysqlStore(ctx, metrics, skipMigration)
 	default:
 		return nil, fmt.Errorf("unsupported kind of store: %s", kind)
 	}
 }
 
-func checkFileStoreEngine(kind Engine, dataDir string) error {
-	if kind == FileStoreEngine {
+func checkFileStoreEngine(kind types.Engine, dataDir string) error {
+	if kind == types.FileStoreEngine {
 		storeFile := filepath.Join(dataDir, storeFileName)
 		if util.FileExists(storeFile) {
 			return fmt.Errorf("%s is not supported. Please refer to the documentation for migrating to SQLite: "+
-				"https://docs.netbird.io/selfhosted/sqlite-store#migrating-from-json-store-to-sq-lite-store", FileStoreEngine)
+				"https://docs.netbird.io/selfhosted/sqlite-store#migrating-from-json-store-to-sq-lite-store", types.FileStoreEngine)
 		}
 	}
 	return nil
 }
 
-// migrate migrates the SQLite database to the latest schema
-func migrate(ctx context.Context, db *gorm.DB) error {
-	migrations := getMigrations(ctx)
+// migratePreAuto migrates the SQLite database to the latest schema
+func migratePreAuto(ctx context.Context, db *gorm.DB) error {
+	migrations := getMigrationsPreAuto(ctx)
 
 	for _, m := range migrations {
 		if err := m(db); err != nil {
@@ -292,7 +301,7 @@ func migrate(ctx context.Context, db *gorm.DB) error {
 	return nil
 }
 
-func getMigrations(ctx context.Context) []migrationFunc {
+func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 	return []migrationFunc{
 		func(db *gorm.DB) error {
 			return migration.MigrateFieldFromGobToJSON[types.Account, net.IPNet](ctx, db, "network_net")
@@ -318,6 +327,46 @@ func getMigrations(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[routerTypes.NetworkRouter](ctx, db, "enabled", true)
 		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[networkTypes.Network](ctx, db, "idx_networks_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[resourceTypes.NetworkResource](ctx, db, "idx_network_resources_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[routerTypes.NetworkRouter](ctx, db, "idx_network_routers_id")
+		},
+	}
+} // migratePostAuto migrates the SQLite database to the latest schema
+func migratePostAuto(ctx context.Context, db *gorm.DB) error {
+	migrations := getMigrationsPostAuto(ctx)
+
+	for _, m := range migrations {
+		if err := m(db); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
+	return []migrationFunc{
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_ip", "account_id", "ip")
+		},
+		func(db *gorm.DB) error {
+			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_account_dnslabel", "account_id", "dns_label")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateJsonToTable[types.Group](ctx, db, "peers", func(accountID, id, value string) any {
+				return &types.GroupPeer{
+					AccountID: accountID,
+					GroupID:   id,
+					PeerID:    value,
+				}
+			})
+		},
 	}
 }
 
@@ -326,7 +375,7 @@ func getMigrations(ctx context.Context) []migrationFunc {
 func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (Store, func(), error) {
 	kind := getStoreEngineFromEnv()
 	if kind == "" {
-		kind = SqliteStoreEngine
+		kind = types.SqliteStoreEngine
 	}
 
 	storeStr := fmt.Sprintf("%s?cache=shared", storeSqliteFileName)
@@ -342,13 +391,13 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 	}
 
 	if filename != "" {
-		err = loadSQL(db, filename)
+		err = LoadSQL(db, filename)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load SQL file: %v", err)
 		}
 	}
 
-	store, err := NewSqlStore(ctx, db, SqliteStoreEngine, nil)
+	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil, false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}
@@ -358,7 +407,20 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		return nil, nil, fmt.Errorf("failed to add all group to account: %v", err)
 	}
 
-	return getSqlStoreEngine(ctx, store, kind)
+	var sqlStore Store
+	var cleanup func()
+
+	maxRetries := 2
+	for i := 0; i < maxRetries; i++ {
+		sqlStore, cleanup, err = getSqlStoreEngine(ctx, store, kind)
+		if err == nil {
+			return sqlStore, cleanup, nil
+		}
+		if i < maxRetries-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	return nil, nil, fmt.Errorf("failed to create test store after %d attempts: %v", maxRetries, err)
 }
 
 func addAllGroupToAccount(ctx context.Context, store Store) error {
@@ -368,7 +430,7 @@ func addAllGroupToAccount(ctx context.Context, store Store) error {
 
 		_, err := account.GetGroupAll()
 		if err != nil {
-			if err := account.AddAllGroup(); err != nil {
+			if err := account.AddAllGroup(false); err != nil {
 				return err
 			}
 			shouldSave = true
@@ -384,13 +446,13 @@ func addAllGroupToAccount(ctx context.Context, store Store) error {
 	return nil
 }
 
-func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store, func(), error) {
+func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) (Store, func(), error) {
 	var cleanup func()
 	var err error
 	switch kind {
-	case PostgresStoreEngine:
+	case types.PostgresStoreEngine:
 		store, cleanup, err = newReusedPostgresStore(ctx, store, kind)
-	case MysqlStoreEngine:
+	case types.MysqlStoreEngine:
 		store, cleanup, err = newReusedMysqlStore(ctx, store, kind)
 	default:
 		cleanup = func() {
@@ -409,17 +471,17 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind Engine) (Store
 	return store, closeConnection, nil
 }
 
-func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind Engine) (*SqlStore, func(), error) {
-	if envDsn, ok := os.LookupEnv(postgresDsnEnv); !ok || envDsn == "" {
+func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
+	dsn, ok := os.LookupEnv(postgresDsnEnv)
+	if !ok || dsn == "" {
 		var err error
-		_, err = testutil.CreatePostgresTestContainer()
+		_, dsn, err = testutil.CreatePostgresTestContainer()
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	dsn, ok := os.LookupEnv(postgresDsnEnv)
-	if !ok {
+	if dsn == "" {
 		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 	}
 
@@ -430,28 +492,28 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind Engine) (
 
 	dsn, cleanup, err := createRandomDB(dsn, db, kind)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, nil, err
 	}
 
 	store, err = NewPostgresqlStoreFromSqlStore(ctx, store, dsn, nil)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, nil, err
 	}
 
 	return store, cleanup, nil
 }
 
-func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*SqlStore, func(), error) {
-	if envDsn, ok := os.LookupEnv(mysqlDsnEnv); !ok || envDsn == "" {
+func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine) (*SqlStore, func(), error) {
+	dsn, ok := os.LookupEnv(mysqlDsnEnv)
+	if !ok || dsn == "" {
 		var err error
-		_, err = testutil.CreateMysqlTestContainer()
+		_, dsn, err = testutil.CreateMysqlTestContainer()
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	dsn, ok := os.LookupEnv(mysqlDsnEnv)
-	if !ok {
+	if dsn == "" {
 		return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 	}
 
@@ -462,7 +524,7 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*Sq
 
 	dsn, cleanup, err := createRandomDB(dsn, db, kind)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, nil, err
 	}
 
 	store, err = NewMysqlStoreFromSqlStore(ctx, store, dsn, nil)
@@ -473,7 +535,7 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind Engine) (*Sq
 	return store, cleanup, nil
 }
 
-func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), error) {
+func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(), error) {
 	dbName := fmt.Sprintf("test_db_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
 
 	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
@@ -483,9 +545,9 @@ func createRandomDB(dsn string, db *gorm.DB, engine Engine) (string, func(), err
 	var err error
 	cleanup := func() {
 		switch engine {
-		case PostgresStoreEngine:
+		case types.PostgresStoreEngine:
 			err = db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName)).Error
-		case MysqlStoreEngine:
+		case types.MysqlStoreEngine:
 			// err = killMySQLConnections(dsn, dbName)
 			err = db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName)).Error
 		}
@@ -505,7 +567,7 @@ func replaceDBName(dsn, newDBName string) string {
 	return re.ReplaceAllString(dsn, `${pre}`+newDBName+`${post}`)
 }
 
-func loadSQL(db *gorm.DB, filepath string) error {
+func LoadSQL(db *gorm.DB, filepath string) error {
 	sqlContent, err := os.ReadFile(filepath)
 	if err != nil {
 		return err
@@ -547,14 +609,14 @@ func MigrateFileStoreToSqlite(ctx context.Context, dataDir string) error {
 	log.WithContext(ctx).Infof("%d account will be migrated from file store %s to sqlite store %s",
 		fsStoreAccounts, fileStorePath, sqlStorePath)
 
-	store, err := NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil)
+	store, err := NewSqliteStoreFromFileStore(ctx, fstore, dataDir, nil, true)
 	if err != nil {
 		return fmt.Errorf("failed creating file store: %s: %v", dataDir, err)
 	}
 
 	sqliteStoreAccounts := len(store.GetAllAccounts(ctx))
 	if fsStoreAccounts != sqliteStoreAccounts {
-		return fmt.Errorf("failed to migrate accounts from file to sqlite. Expected accounts: %d, got: %d",
+		return fmt.Errorf("failed to migratePreAuto accounts from file to sqlite. Expected accounts: %d, got: %d",
 			fsStoreAccounts, sqliteStoreAccounts)
 	}
 

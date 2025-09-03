@@ -10,7 +10,12 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
-	s "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/settings"
+
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
+
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroups "github.com/netbirdio/netbird/management/server/groups"
@@ -25,10 +30,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
-	"github.com/netbirdio/netbird/management/server/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
+	nbpeers "github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
@@ -37,7 +43,7 @@ const apiPrefix = "/api"
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func NewAPIHandler(
 	ctx context.Context,
-	accountManager s.AccountManager,
+	accountManager account.Manager,
 	networksManager nbnetworks.Manager,
 	resourceManager resources.Manager,
 	routerManager routers.Manager,
@@ -45,18 +51,21 @@ func NewAPIHandler(
 	LocationManager geolocation.Geolocation,
 	authManager auth.Manager,
 	appMetrics telemetry.AppMetrics,
-	config *s.Config,
-	integratedValidator integrated_validator.IntegratedValidator) (http.Handler, error) {
+	integratedValidator integrated_validator.IntegratedValidator,
+	proxyController port_forwarding.Controller,
+	permissionsManager permissions.Manager,
+	peersManager nbpeers.Manager,
+	settingsManager settings.Manager,
+) (http.Handler, error) {
 
 	authMiddleware := middleware.NewAuthMiddleware(
 		authManager,
 		accountManager.GetAccountIDFromUserAuth,
 		accountManager.SyncUserJWTGroups,
+		accountManager.GetUserFromUserAuth,
 	)
 
 	corsMiddleware := cors.AllowAll()
-
-	acMiddleware := middleware.NewAccessControl(accountManager.GetUserFromUserAuth)
 
 	rootRouter := mux.NewRouter()
 	metricsMiddleware := appMetrics.HTTPMiddleware()
@@ -64,17 +73,19 @@ func NewAPIHandler(
 	prefix := apiPrefix
 	router := rootRouter.PathPrefix(prefix).Subrouter()
 
-	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
+	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter()); err != nil {
+	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController, settingsManager); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
-	accounts.AddEndpoints(accountManager, router)
+	accounts.AddEndpoints(accountManager, settingsManager, router)
 	peers.AddEndpoints(accountManager, router)
 	users.AddEndpoints(accountManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)
+	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
+	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
 	groups.AddEndpoints(accountManager, router)
 	routes.AddEndpoints(accountManager, router)
 	dns.AddEndpoints(accountManager, router)

@@ -25,9 +25,10 @@ const (
 	chainNameInputRules = "netbird-acl-input-rules"
 
 	// filter chains contains the rules that jump to the rules chains
-	chainNameInputFilter   = "netbird-acl-input-filter"
-	chainNameForwardFilter = "netbird-acl-forward-filter"
-	chainNamePrerouting    = "netbird-rt-prerouting"
+	chainNameInputFilter       = "netbird-acl-input-filter"
+	chainNameForwardFilter     = "netbird-acl-forward-filter"
+	chainNameManglePrerouting  = "netbird-mangle-prerouting"
+	chainNameManglePostrouting = "netbird-mangle-postrouting"
 
 	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
@@ -84,13 +85,13 @@ func (m *AclManager) init(workTable *nftables.Table) error {
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
 func (m *AclManager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
 	ipsetName string,
-	comment string,
 ) ([]firewall.Rule, error) {
 	var ipset *nftables.Set
 	if ipsetName != "" {
@@ -102,7 +103,7 @@ func (m *AclManager) AddPeerFiltering(
 	}
 
 	newRules := make([]firewall.Rule, 0, 2)
-	ioRule, err := m.addIOFiltering(ip, proto, sPort, dPort, action, ipset, comment)
+	ioRule, err := m.addIOFiltering(ip, proto, sPort, dPort, action, ipset)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +128,7 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 				log.Errorf("failed to delete mangle rule: %v", err)
 			}
 		}
-		delete(m.rules, r.GetRuleID())
+		delete(m.rules, r.ID())
 		return m.rConn.Flush()
 	}
 
@@ -141,7 +142,7 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 				log.Errorf("failed to delete mangle rule: %v", err)
 			}
 		}
-		delete(m.rules, r.GetRuleID())
+		delete(m.rules, r.ID())
 		return m.rConn.Flush()
 	}
 
@@ -176,7 +177,7 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 		return err
 	}
 
-	delete(m.rules, r.GetRuleID())
+	delete(m.rules, r.ID())
 	m.ipsetStore.DeleteReferenceFromIpSet(r.nftSet.Name)
 
 	if m.ipsetStore.HasReferenceToSet(r.nftSet.Name) {
@@ -256,7 +257,6 @@ func (m *AclManager) addIOFiltering(
 	dPort *firewall.Port,
 	action firewall.Action,
 	ipset *nftables.Set,
-	comment string,
 ) (*Rule, error) {
 	ruleId := generatePeerRuleId(ip, sPort, dPort, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
@@ -338,33 +338,41 @@ func (m *AclManager) addIOFiltering(
 		mainExpressions = append(mainExpressions, &expr.Verdict{Kind: expr.VerdictDrop})
 	}
 
-	userData := []byte(strings.Join([]string{ruleId, comment}, " "))
+	userData := []byte(ruleId)
 
 	chain := m.chainInputRules
-	nftRule := m.rConn.AddRule(&nftables.Rule{
+	rule := &nftables.Rule{
 		Table:    m.workTable,
 		Chain:    chain,
 		Exprs:    mainExpressions,
 		UserData: userData,
-	})
+	}
+
+	// Insert DROP rules at the beginning, append ACCEPT rules at the end
+	var nftRule *nftables.Rule
+	if action == firewall.ActionDrop {
+		nftRule = m.rConn.InsertRule(rule)
+	} else {
+		nftRule = m.rConn.AddRule(rule)
+	}
 
 	if err := m.rConn.Flush(); err != nil {
 		return nil, fmt.Errorf(flushError, err)
 	}
 
-	rule := &Rule{
+	ruleStruct := &Rule{
 		nftRule:    nftRule,
 		mangleRule: m.createPreroutingRule(expressions, userData),
 		nftSet:     ipset,
 		ruleID:     ruleId,
 		ip:         ip,
 	}
-	m.rules[ruleId] = rule
+	m.rules[ruleId] = ruleStruct
 	if ipset != nil {
 		m.ipsetStore.AddReferenceToIpset(ipset.Name)
 	}
 
-	return rule, nil
+	return ruleStruct, nil
 }
 
 func (m *AclManager) createPreroutingRule(expressions []expr.Any, userData []byte) *nftables.Rule {
@@ -463,13 +471,15 @@ func (m *AclManager) createDefaultChains() (err error) {
 // go through the input filter as well. This will enable e.g. Docker services to keep working by accessing the
 // netbird peer IP.
 func (m *AclManager) allowRedirectedTraffic(chainFwFilter *nftables.Chain) error {
-	m.chainPrerouting = m.rConn.AddChain(&nftables.Chain{
-		Name:     chainNamePrerouting,
+	// Chain is created by route manager
+	// TODO: move creation to a common place
+	m.chainPrerouting = &nftables.Chain{
+		Name:     chainNameManglePrerouting,
 		Table:    m.workTable,
 		Type:     nftables.ChainTypeFilter,
 		Hooknum:  nftables.ChainHookPrerouting,
 		Priority: nftables.ChainPriorityMangle,
-	})
+	}
 
 	m.addFwmarkToForward(chainFwFilter)
 

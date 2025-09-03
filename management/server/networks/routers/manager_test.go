@@ -9,14 +9,14 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
 func Test_GetAllRoutersInNetworkReturnsRouters(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
@@ -24,7 +24,7 @@ func Test_GetAllRoutersInNetworkReturnsRouters(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 
@@ -37,7 +37,7 @@ func Test_GetAllRoutersInNetworkReturnsRouters(t *testing.T) {
 func Test_GetAllRoutersInNetworkReturnsPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 	networkID := "testNetworkId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
@@ -45,7 +45,7 @@ func Test_GetAllRoutersInNetworkReturnsPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 
@@ -58,7 +58,7 @@ func Test_GetAllRoutersInNetworkReturnsPermissionDenied(t *testing.T) {
 func Test_GetRouterReturnsRouter(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 	resourceID := "testRouterId"
 
@@ -67,7 +67,7 @@ func Test_GetRouterReturnsRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 
@@ -79,7 +79,7 @@ func Test_GetRouterReturnsRouter(t *testing.T) {
 func Test_GetRouterReturnsPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 	networkID := "testNetworkId"
 	resourceID := "testRouterId"
 
@@ -88,7 +88,7 @@ func Test_GetRouterReturnsPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 
@@ -100,7 +100,7 @@ func Test_GetRouterReturnsPermissionDenied(t *testing.T) {
 
 func Test_CreateRouterSuccessfully(t *testing.T) {
 	ctx := context.Background()
-	userID := "allowedUser"
+	userID := "testAdminId"
 	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 9999, true)
 	if err != nil {
 		require.NoError(t, err)
@@ -111,7 +111,7 @@ func Test_CreateRouterSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 
@@ -126,7 +126,7 @@ func Test_CreateRouterSuccessfully(t *testing.T) {
 
 func Test_CreateRouterFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
-	userID := "invalidUser"
+	userID := "testUserId"
 	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 9999, true)
 	if err != nil {
 		require.NoError(t, err)
@@ -137,7 +137,7 @@ func Test_CreateRouterFailsWithPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 
@@ -150,7 +150,7 @@ func Test_CreateRouterFailsWithPermissionDenied(t *testing.T) {
 func Test_DeleteRouterSuccessfully(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 	routerID := "testRouterId"
 
@@ -159,7 +159,7 @@ func Test_DeleteRouterSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 
@@ -170,7 +170,7 @@ func Test_DeleteRouterSuccessfully(t *testing.T) {
 func Test_DeleteRouterFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 	networkID := "testNetworkId"
 	routerID := "testRouterId"
 
@@ -179,7 +179,7 @@ func Test_DeleteRouterFailsWithPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 
@@ -190,7 +190,7 @@ func Test_DeleteRouterFailsWithPermissionDenied(t *testing.T) {
 
 func Test_UpdateRouterSuccessfully(t *testing.T) {
 	ctx := context.Background()
-	userID := "allowedUser"
+	userID := "testAdminId"
 	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 1, true)
 	if err != nil {
 		require.NoError(t, err)
@@ -201,7 +201,7 @@ func Test_UpdateRouterSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 
@@ -212,7 +212,7 @@ func Test_UpdateRouterSuccessfully(t *testing.T) {
 
 func Test_UpdateRouterFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
-	userID := "invalidUser"
+	userID := "testUserId"
 	router, err := types.NewNetworkRouter("testAccountId", "testNetworkId", "testPeerId", []string{}, false, 1, true)
 	if err != nil {
 		require.NoError(t, err)
@@ -223,7 +223,7 @@ func Test_UpdateRouterFailsWithPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(s)
 	am := mock_server.MockAccountManager{}
 	manager := NewManager(s, permissionsManager, &am)
 

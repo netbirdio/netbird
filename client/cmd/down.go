@@ -14,13 +14,14 @@ import (
 
 var downCmd = &cobra.Command{
 	Use:   "down",
-	Short: "down netbird connections",
+	Short: "Disconnect from the NetBird network",
+	Long:  "Disconnect the NetBird client from the network and management service. This will terminate all active connections with the remote peers.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
 
 		cmd.SetOut(cmd.OutOrStdout())
 
-		err := util.InitLog(logLevel, "console")
+		err := util.InitLog(logLevel, util.LogConsole)
 		if err != nil {
 			log.Errorf("failed initializing log %v", err)
 			return err

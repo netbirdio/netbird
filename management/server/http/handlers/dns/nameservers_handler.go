@@ -9,19 +9,19 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // nameserversHandler is the nameserver group handler of the account
 type nameserversHandler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func addDNSNameserversEndpoint(accountManager server.AccountManager, router *mux.Router) {
+func addDNSNameserversEndpoint(accountManager account.Manager, router *mux.Router) {
 	nameserversHandler := newNameserversHandler(accountManager)
 	router.HandleFunc("/dns/nameservers", nameserversHandler.getAllNameservers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/dns/nameservers", nameserversHandler.createNameserverGroup).Methods("POST", "OPTIONS")
@@ -31,7 +31,7 @@ func addDNSNameserversEndpoint(accountManager server.AccountManager, router *mux
 }
 
 // newNameserversHandler returns a new instance of nameserversHandler handler
-func newNameserversHandler(accountManager server.AccountManager) *nameserversHandler {
+func newNameserversHandler(accountManager account.Manager) *nameserversHandler {
 	return &nameserversHandler{accountManager: accountManager}
 }
 

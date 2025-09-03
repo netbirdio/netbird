@@ -4,8 +4,8 @@ package dns
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
-	"regexp"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -15,11 +15,8 @@ const (
 	defaultResolvConfPath = "/etc/resolv.conf"
 )
 
-var timeoutRegex = regexp.MustCompile(`timeout:\d+`)
-var attemptsRegex = regexp.MustCompile(`attempts:\d+`)
-
 type resolvConf struct {
-	nameServers   []string
+	nameServers   []netip.Addr
 	searchDomains []string
 	others        []string
 }
@@ -39,7 +36,7 @@ func parseBackupResolvConf() (*resolvConf, error) {
 func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 	rconf := &resolvConf{
 		searchDomains: make([]string, 0),
-		nameServers:   make([]string, 0),
+		nameServers:   make([]netip.Addr, 0),
 		others:        make([]string, 0),
 	}
 
@@ -97,7 +94,11 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 			if len(splitLines) != 2 {
 				continue
 			}
-			rconf.nameServers = append(rconf.nameServers, splitLines[1])
+			if addr, err := netip.ParseAddr(splitLines[1]); err == nil {
+				rconf.nameServers = append(rconf.nameServers, addr.Unmap())
+			} else {
+				log.Warnf("invalid nameserver address in resolv.conf: %s, skipping", splitLines[1])
+			}
 			continue
 		}
 
@@ -106,63 +107,4 @@ func parseResolvConfFile(resolvConfFile string) (*resolvConf, error) {
 		}
 	}
 	return rconf, nil
-}
-
-// prepareOptionsWithTimeout appends timeout to existing options if it doesn't exist,
-// otherwise it adds a new option with timeout and attempts.
-func prepareOptionsWithTimeout(input []string, timeout int, attempts int) []string {
-	configs := make([]string, len(input))
-	copy(configs, input)
-
-	for i, config := range configs {
-		if strings.HasPrefix(config, "options") {
-			config = strings.ReplaceAll(config, "rotate", "")
-			config = strings.Join(strings.Fields(config), " ")
-
-			if strings.Contains(config, "timeout:") {
-				config = timeoutRegex.ReplaceAllString(config, fmt.Sprintf("timeout:%d", timeout))
-			} else {
-				config = strings.Replace(config, "options ", fmt.Sprintf("options timeout:%d ", timeout), 1)
-			}
-
-			if strings.Contains(config, "attempts:") {
-				config = attemptsRegex.ReplaceAllString(config, fmt.Sprintf("attempts:%d", attempts))
-			} else {
-				config = strings.Replace(config, "options ", fmt.Sprintf("options attempts:%d ", attempts), 1)
-			}
-
-			configs[i] = config
-			return configs
-		}
-	}
-
-	return append(configs, fmt.Sprintf("options timeout:%d attempts:%d", timeout, attempts))
-}
-
-// removeFirstNbNameserver removes the given nameserver from the given file if it is in the first position
-// and writes the file back to the original location
-func removeFirstNbNameserver(filename, nameserverIP string) error {
-	resolvConf, err := parseResolvConfFile(filename)
-	if err != nil {
-		return fmt.Errorf("parse backup resolv.conf: %w", err)
-	}
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", filename, err)
-	}
-
-	if len(resolvConf.nameServers) > 1 && resolvConf.nameServers[0] == nameserverIP {
-		newContent := strings.Replace(string(content), fmt.Sprintf("nameserver %s\n", nameserverIP), "", 1)
-
-		stat, err := os.Stat(filename)
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", filename, err)
-		}
-		if err := os.WriteFile(filename, []byte(newContent), stat.Mode()); err != nil {
-			return fmt.Errorf("write %s: %w", filename, err)
-		}
-
-	}
-
-	return nil
 }

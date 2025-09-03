@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/freebsd"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 type wgLink struct {
@@ -56,14 +57,22 @@ func (l *wgLink) up() error {
 	return nil
 }
 
-func (l *wgLink) assignAddr(address WGAddress) error {
+func (l *wgLink) assignAddr(address wgaddr.Address) error {
 	link, err := freebsd.LinkByName(l.name)
 	if err != nil {
 		return fmt.Errorf("link by name: %w", err)
 	}
 
 	ip := address.IP.String()
-	mask := "0x" + address.Network.Mask.String()
+
+	// Convert prefix length to hex netmask
+	prefixLen := address.Network.Bits()
+	if !address.IP.Is4() {
+		return fmt.Errorf("IPv6 not supported for interface assignment")
+	}
+
+	maskBits := uint32(0xffffffff) << (32 - prefixLen)
+	mask := fmt.Sprintf("0x%08x", maskBits)
 
 	log.Infof("assign addr %s mask %s to %s interface", ip, mask, l.name)
 

@@ -13,10 +13,10 @@ func Test_freePort(t *testing.T) {
 		shouldMatch bool
 	}{
 		{
-			name:        "not provided, fallback to default",
+			name:        "when port is 0 use random port",
 			port:        0,
-			want:        51820,
-			shouldMatch: true,
+			want:        0,
+			shouldMatch: false,
 		},
 		{
 			name:        "provided and available",
@@ -31,13 +31,21 @@ func Test_freePort(t *testing.T) {
 			shouldMatch: false,
 		},
 	}
-	c1, err := net.ListenUDP("udp", &net.UDPAddr{Port: 51830})
+	c1, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0})
 	if err != nil {
 		t.Errorf("freePort error = %v", err)
 	}
 	defer func(c1 *net.UDPConn) {
 		_ = c1.Close()
 	}(c1)
+
+	if tests[1].port == c1.LocalAddr().(*net.UDPAddr).Port {
+		tests[1].port++
+		tests[1].want++
+	}
+
+	tests[2].port = c1.LocalAddr().(*net.UDPAddr).Port
+	tests[2].want = c1.LocalAddr().(*net.UDPAddr).Port
 
 	for _, tt := range tests {
 

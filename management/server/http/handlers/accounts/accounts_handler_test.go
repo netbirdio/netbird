@@ -10,23 +10,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-func initAccountsTestData(account *types.Account) *handler {
+func initAccountsTestData(t *testing.T, account *types.Account) *handler {
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().
+		GetSettings(gomock.Any(), account.Id, "test_user").
+		Return(account.Settings, nil).
+		AnyTimes()
+
 	return &handler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
 				return account.Settings, nil
 			},
-			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Account, error) {
+			UpdateAccountSettingsFunc: func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error) {
 				halfYearLimit := 180 * 24 * time.Hour
 				if newSettings.PeerLoginExpiration > halfYearLimit {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -36,11 +46,28 @@ func initAccountsTestData(account *types.Account) *handler {
 					return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 				}
 
-				accCopy := account.Copy()
-				accCopy.UpdateSettings(newSettings)
-				return accCopy, nil
+				return newSettings, nil
+			},
+			GetAccountByIDFunc: func(ctx context.Context, accountID string, userID string) (*types.Account, error) {
+				return account.Copy(), nil
+			},
+			GetAccountMetaFunc: func(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
+				return account.GetMeta(), nil
+			},
+			GetAccountOnboardingFunc: func(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error) {
+				return &types.AccountOnboarding{
+					OnboardingFlowPending: true,
+					SignupFormPending:     true,
+				}, nil
+			},
+			UpdateAccountOnboardingFunc: func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error) {
+				return &types.AccountOnboarding{
+					OnboardingFlowPending: true,
+					SignupFormPending:     true,
+				}, nil
 			},
 		},
+		settingsManager: settingsMockManager,
 	}
 }
 
@@ -51,7 +78,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }
 
-	handler := initAccountsTestData(&types.Account{
+	handler := initAccountsTestData(t, &types.Account{
 		Id:      accountID,
 		Domain:  "hotmail.com",
 		Network: types.NewNetwork(),
@@ -91,6 +118,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{},
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -100,7 +129,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
-			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true}}"),
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
 				PeerLoginExpiration:             15552000,
@@ -111,12 +140,58 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{},
 				RegularUsersViewBlocked:         false,
 				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
 		},
 		{
 			name:           "PutAccount OK with JWT",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": false,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"roles\",\"jwt_allow_groups\":[\"test\"],\"regular_users_view_blocked\":true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             15552000,
+				PeerLoginExpirationEnabled:      false,
+				GroupsPropagationEnabled:        br(false),
+				JwtGroupsClaimName:              sr("roles"),
+				JwtGroupsEnabled:                br(true),
+				JwtAllowGroups:                  &[]string{"test"},
+				RegularUsersViewBlocked:         true,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK with JWT Propagation",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 554400,\"peer_login_expiration_enabled\": true,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"groups\",\"groups_propagation_enabled\":true,\"regular_users_view_blocked\":true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:             554400,
+				PeerLoginExpirationEnabled:      true,
+				GroupsPropagationEnabled:        br(true),
+				JwtGroupsClaimName:              sr("groups"),
+				JwtGroupsEnabled:                br(true),
+				JwtAllowGroups:                  &[]string{},
+				RegularUsersViewBlocked:         true,
+				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK without onboarding",
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
@@ -131,26 +206,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				JwtAllowGroups:                  &[]string{"test"},
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
-			},
-			expectedArray: false,
-			expectedID:    accountID,
-		},
-		{
-			name:           "PutAccount OK with JWT Propagation",
-			expectedBody:   true,
-			requestType:    http.MethodPut,
-			requestPath:    "/api/accounts/" + accountID,
-			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 554400,\"peer_login_expiration_enabled\": true,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"groups\",\"groups_propagation_enabled\":true,\"regular_users_view_blocked\":true}}"),
-			expectedStatus: http.StatusOK,
-			expectedSettings: api.AccountSettings{
-				PeerLoginExpiration:             554400,
-				PeerLoginExpirationEnabled:      true,
-				GroupsPropagationEnabled:        br(true),
-				JwtGroupsClaimName:              sr("groups"),
-				JwtGroupsEnabled:                br(true),
-				JwtAllowGroups:                  &[]string{},
-				RegularUsersViewBlocked:         true,
-				RoutingPeerDnsResolutionEnabled: br(false),
+				LazyConnectionEnabled:           br(false),
+				DnsDomain:                       sr(""),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -160,7 +217,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
-			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552001,\"peer_login_expiration_enabled\": true}}"),
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552001,\"peer_login_expiration_enabled\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedArray:  false,
 		},
@@ -169,7 +226,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedBody:   true,
 			requestType:    http.MethodPut,
 			requestPath:    "/api/accounts/" + accountID,
-			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 3599,\"peer_login_expiration_enabled\": true}}"),
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 3599,\"peer_login_expiration_enabled\": true},\"onboarding\": {\"onboarding_flow_pending\": true,\"signup_form_pending\": true}}"),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedArray:  false,
 		},

@@ -8,16 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/auth"
 	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/util"
-
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/util"
 )
 
 const (
@@ -190,6 +189,9 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
 			return nil
 		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			return &types.User{}, nil
+		},
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -239,14 +241,15 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			},
 		},
 		{
-			name:       "Valid PAT Token ignores child",
+			name:       "Valid PAT Token accesses child",
 			path:       "/test?account=xyz",
 			authHeader: "Token " + PAT,
 			expectedUserAuth: &nbcontext.UserAuth{
-				AccountId:      accountID,
+				AccountId:      "xyz",
 				UserId:         userID,
 				Domain:         testAccount.Domain,
 				DomainCategory: testAccount.DomainCategory,
+				IsChild:        true,
 				IsPAT:          true,
 			},
 		},
@@ -290,6 +293,9 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
 			return nil
+		},
+		func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			return &types.User{}, nil
 		},
 	)
 

@@ -13,16 +13,18 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 // WGTunDevice ignore the WGTunDevice interface on Android because the creation of the tun device is different on this platform
 type WGTunDevice struct {
-	address    WGAddress
+	address    wgaddr.Address
 	port       int
 	key        string
-	mtu        int
+	mtu        uint16
 	iceBind    *bind.ICEBind
 	tunAdapter TunAdapter
+	disableDNS bool
 
 	name           string
 	device         *device.Device
@@ -31,7 +33,7 @@ type WGTunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind, tunAdapter TunAdapter) *WGTunDevice {
+func NewTunDevice(address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunAdapter TunAdapter, disableDNS bool) *WGTunDevice {
 	return &WGTunDevice{
 		address:    address,
 		port:       port,
@@ -39,6 +41,7 @@ func NewTunDevice(address WGAddress, port int, key string, mtu int, iceBind *bin
 		mtu:        mtu,
 		iceBind:    iceBind,
 		tunAdapter: tunAdapter,
+		disableDNS: disableDNS,
 	}
 }
 
@@ -48,7 +51,14 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 	routesString := routesToString(routes)
 	searchDomainsToString := searchDomainsToString(searchDomains)
 
-	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, dns, searchDomainsToString, routesString)
+	// Skip DNS configuration when DisableDNS is enabled
+	if t.disableDNS {
+		log.Info("DNS is disabled, skipping DNS and search domain configuration")
+		dns = ""
+		searchDomainsToString = ""
+	}
+
+	fd, err := t.tunAdapter.ConfigureInterface(t.address.String(), int(t.mtu), dns, searchDomainsToString, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err
@@ -69,7 +79,7 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
@@ -93,7 +103,7 @@ func (t *WGTunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *WGTunDevice) UpdateAddr(addr WGAddress) error {
+func (t *WGTunDevice) UpdateAddr(addr wgaddr.Address) error {
 	// todo implement
 	return nil
 }
@@ -123,8 +133,12 @@ func (t *WGTunDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *WGTunDevice) WgAddress() WGAddress {
+func (t *WGTunDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *WGTunDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *WGTunDevice) FilteredDevice() *FilteredDevice {

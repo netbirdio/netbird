@@ -8,32 +8,36 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 
-	"github.com/netbirdio/netbird/management/server"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 )
 
 // handler is a handler that returns users of the account
 type handler struct {
-	accountManager server.AccountManager
+	accountManager account.Manager
 }
 
-func AddEndpoints(accountManager server.AccountManager, router *mux.Router) {
+func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	userHandler := newHandler(accountManager)
 	router.HandleFunc("/users", userHandler.getAllUsers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/current", userHandler.getCurrentUser).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}", userHandler.updateUser).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/users/{userId}", userHandler.deleteUser).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/users", userHandler.createUser).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/invite", userHandler.inviteUser).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/{userId}/approve", userHandler.approveUser).Methods("POST", "OPTIONS")
+	router.HandleFunc("/users/{userId}/reject", userHandler.rejectUser).Methods("DELETE", "OPTIONS")
 	addUsersTokensEndpoint(accountManager, router)
 }
 
 // newHandler creates a new UsersHandler HTTP handler
-func newHandler(accountManager server.AccountManager) *handler {
+func newHandler(accountManager account.Manager) *handler {
 	return &handler{
 		accountManager: accountManager,
 	}
@@ -259,6 +263,47 @@ func (h *handler) inviteUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
+func (h *handler) getCurrentUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	user, err := h.accountManager.GetCurrentUserInfo(ctx, userAuth)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, toUserWithPermissionsResponse(user, userAuth.UserId))
+}
+
+func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID string) *api.User {
+	response := toUserResponse(user.UserInfo, userID)
+
+	// stringify modules and operations keys
+	modules := make(map[string]map[string]bool)
+	for module, operations := range user.Permissions {
+		modules[string(module)] = make(map[string]bool)
+		for op, val := range operations {
+			modules[string(module)][string(op)] = val
+		}
+	}
+
+	response.Permissions = &api.UserPermissions{
+		IsRestricted: user.Restricted,
+		Modules:      modules,
+	}
+
+	return response
+}
+
 func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 	autoGroups := user.AutoGroups
 	if autoGroups == nil {
@@ -280,20 +325,76 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 	}
 
 	isCurrent := user.ID == currenUserID
+
 	return &api.User{
-		Id:            user.ID,
-		Name:          user.Name,
-		Email:         user.Email,
-		Role:          user.Role,
-		AutoGroups:    autoGroups,
-		Status:        userStatus,
-		IsCurrent:     &isCurrent,
-		IsServiceUser: &user.IsServiceUser,
-		IsBlocked:     user.IsBlocked,
-		LastLogin:     &user.LastLogin,
-		Issued:        &user.Issued,
-		Permissions: &api.UserPermissions{
-			DashboardView: (*api.UserPermissionsDashboardView)(&user.Permissions.DashboardView),
-		},
+		Id:              user.ID,
+		Name:            user.Name,
+		Email:           user.Email,
+		Role:            user.Role,
+		AutoGroups:      autoGroups,
+		Status:          userStatus,
+		IsCurrent:       &isCurrent,
+		IsServiceUser:   &user.IsServiceUser,
+		IsBlocked:       user.IsBlocked,
+		LastLogin:       &user.LastLogin,
+		Issued:          &user.Issued,
+		PendingApproval: user.PendingApproval,
 	}
+}
+
+// approveUser is a POST request to approve a user that is pending approval
+func (h *handler) approveUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	targetUserID := vars["userId"]
+	if len(targetUserID) == 0 {
+		util.WriteErrorResponse("invalid user ID", http.StatusBadRequest, w)
+		return
+	}
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	user, err := h.accountManager.ApproveUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	userResponse := toUserResponse(user, userAuth.UserId)
+	util.WriteJSONObject(r.Context(), w, userResponse)
+}
+
+// rejectUser is a DELETE request to reject a user that is pending approval
+func (h *handler) rejectUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	targetUserID := vars["userId"]
+	if len(targetUserID) == 0 {
+		util.WriteErrorResponse("invalid user ID", http.StatusBadRequest, w)
+		return
+	}
+
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+	err = h.accountManager.RejectUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }

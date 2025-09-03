@@ -2,8 +2,8 @@ package nftables
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
-	"net"
 	"net/netip"
 	"os/exec"
 	"testing"
@@ -16,20 +16,17 @@ import (
 	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 var ifaceMock = &iFaceMock{
 	NameFunc: func() string {
-		return "lo"
+		return "wg-test"
 	},
-	AddressFunc: func() iface.WGAddress {
-		return iface.WGAddress{
-			IP: net.ParseIP("100.96.0.1"),
-			Network: &net.IPNet{
-				IP:   net.ParseIP("100.96.0.0"),
-				Mask: net.IPv4Mask(255, 255, 255, 0),
-			},
+	AddressFunc: func() wgaddr.Address {
+		return wgaddr.Address{
+			IP:      netip.MustParseAddr("100.96.0.1"),
+			Network: netip.MustParsePrefix("100.96.0.0/16"),
 		}
 	},
 }
@@ -37,7 +34,7 @@ var ifaceMock = &iFaceMock{
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMock struct {
 	NameFunc    func() string
-	AddressFunc func() iface.WGAddress
+	AddressFunc func() wgaddr.Address
 }
 
 func (i *iFaceMock) Name() string {
@@ -47,7 +44,7 @@ func (i *iFaceMock) Name() string {
 	panic("NameFunc is not set")
 }
 
-func (i *iFaceMock) Address() iface.WGAddress {
+func (i *iFaceMock) Address() wgaddr.Address {
 	if i.AddressFunc != nil {
 		return i.AddressFunc()
 	}
@@ -65,16 +62,16 @@ func TestNftablesManager(t *testing.T) {
 	time.Sleep(time.Second * 3)
 
 	defer func() {
-		err = manager.Reset(nil)
+		err = manager.Close(nil)
 		require.NoError(t, err, "failed to reset")
 		time.Sleep(time.Second)
 	}()
 
-	ip := net.ParseIP("100.96.0.1")
+	ip := netip.MustParseAddr("100.96.0.1").Unmap()
 
 	testClient := &nftables.Conn{}
 
-	rule, err := manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{53}}, fw.ActionDrop, "", "")
+	rule, err := manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{53}}, fw.ActionDrop, "")
 	require.NoError(t, err, "failed to add rule")
 
 	err = manager.Flush()
@@ -107,11 +104,8 @@ func TestNftablesManager(t *testing.T) {
 			Kind: expr.VerdictAccept,
 		},
 	}
-	compareExprsIgnoringCounters(t, rules[0].Exprs, expectedExprs1)
-
-	ipToAdd, _ := netip.AddrFromSlice(ip)
-	add := ipToAdd.Unmap()
-	expectedExprs2 := []expr.Any{
+	// Since DROP rules are inserted at position 0, the DROP rule comes first
+	expectedDropExprs := []expr.Any{
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
@@ -132,7 +126,7 @@ func TestNftablesManager(t *testing.T) {
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     add.AsSlice(),
+			Data:     ip.AsSlice(),
 		},
 		&expr.Payload{
 			DestRegister: 1,
@@ -147,7 +141,12 @@ func TestNftablesManager(t *testing.T) {
 		},
 		&expr.Verdict{Kind: expr.VerdictDrop},
 	}
-	require.ElementsMatch(t, rules[1].Exprs, expectedExprs2, "expected the same expressions")
+
+	// Compare DROP rule at position 0 (inserted first due to InsertRule)
+	compareExprsIgnoringCounters(t, rules[0].Exprs, expectedDropExprs)
+
+	// Compare connection tracking rule at position 1 (pushed down by DROP rule insertion)
+	compareExprsIgnoringCounters(t, rules[1].Exprs, expectedExprs1)
 
 	for _, r := range rule {
 		err = manager.DeletePeerRule(r)
@@ -162,22 +161,99 @@ func TestNftablesManager(t *testing.T) {
 	// established rule remains
 	require.Len(t, rules, 1, "expected 1 rules after deletion")
 
-	err = manager.Reset(nil)
+	err = manager.Close(nil)
 	require.NoError(t, err, "failed to reset")
+}
+
+func TestNftablesManagerRuleOrder(t *testing.T) {
+	// This test verifies rule insertion order in nftables peer ACLs
+	// We add accept rule first, then deny rule to test ordering behavior
+	manager, err := Create(ifaceMock)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	defer func() {
+		err = manager.Close(nil)
+		require.NoError(t, err)
+	}()
+
+	ip := netip.MustParseAddr("100.96.0.2").Unmap()
+	testClient := &nftables.Conn{}
+
+	// Add accept rule first
+	_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "accept-http")
+	require.NoError(t, err, "failed to add accept rule")
+
+	// Add deny rule second for the same traffic
+	_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionDrop, "deny-http")
+	require.NoError(t, err, "failed to add deny rule")
+
+	err = manager.Flush()
+	require.NoError(t, err, "failed to flush")
+
+	rules, err := testClient.GetRules(manager.aclManager.workTable, manager.aclManager.chainInputRules)
+	require.NoError(t, err, "failed to get rules")
+
+	t.Logf("Found %d rules in nftables chain", len(rules))
+
+	// Find the accept and deny rules and verify deny comes before accept
+	var acceptRuleIndex, denyRuleIndex int = -1, -1
+	for i, rule := range rules {
+		hasAcceptHTTPSet := false
+		hasDenyHTTPSet := false
+		hasPort80 := false
+		var action string
+
+		for _, e := range rule.Exprs {
+			// Check for set lookup
+			if lookup, ok := e.(*expr.Lookup); ok {
+				if lookup.SetName == "accept-http" {
+					hasAcceptHTTPSet = true
+				} else if lookup.SetName == "deny-http" {
+					hasDenyHTTPSet = true
+				}
+			}
+			// Check for port 80
+			if cmp, ok := e.(*expr.Cmp); ok {
+				if cmp.Op == expr.CmpOpEq && len(cmp.Data) == 2 && binary.BigEndian.Uint16(cmp.Data) == 80 {
+					hasPort80 = true
+				}
+			}
+			// Check for verdict
+			if verdict, ok := e.(*expr.Verdict); ok {
+				if verdict.Kind == expr.VerdictAccept {
+					action = "ACCEPT"
+				} else if verdict.Kind == expr.VerdictDrop {
+					action = "DROP"
+				}
+			}
+		}
+
+		if hasAcceptHTTPSet && hasPort80 && action == "ACCEPT" {
+			t.Logf("Rule [%d]: accept-http set + Port 80 + ACCEPT", i)
+			acceptRuleIndex = i
+		} else if hasDenyHTTPSet && hasPort80 && action == "DROP" {
+			t.Logf("Rule [%d]: deny-http set + Port 80 + DROP", i)
+			denyRuleIndex = i
+		}
+	}
+
+	require.NotEqual(t, -1, acceptRuleIndex, "accept rule should exist in nftables")
+	require.NotEqual(t, -1, denyRuleIndex, "deny rule should exist in nftables")
+	require.Less(t, denyRuleIndex, acceptRuleIndex,
+		"deny rule should come before accept rule in nftables chain (deny at index %d, accept at index %d)",
+		denyRuleIndex, acceptRuleIndex)
 }
 
 func TestNFtablesCreatePerformance(t *testing.T) {
 	mock := &iFaceMock{
 		NameFunc: func() string {
-			return "lo"
+			return "wg-test"
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
-				IP: net.ParseIP("100.96.0.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("100.96.0.0"),
-					Mask: net.IPv4Mask(255, 255, 255, 0),
-				},
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP:      netip.MustParseAddr("100.96.0.1"),
+				Network: netip.MustParsePrefix("100.96.0.0/16"),
 			}
 		},
 	}
@@ -191,17 +267,17 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			time.Sleep(time.Second * 3)
 
 			defer func() {
-				if err := manager.Reset(nil); err != nil {
+				if err := manager.Close(nil); err != nil {
 					t.Errorf("clear the manager state: %v", err)
 				}
 				time.Sleep(time.Second)
 			}()
 
-			ip := net.ParseIP("10.20.0.100")
+			ip := netip.MustParseAddr("10.20.0.100")
 			start := time.Now()
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []uint16{uint16(1000 + i)}}
-				_, err = manager.AddPeerFiltering(ip, "tcp", nil, port, fw.ActionAccept, "", "accept HTTP traffic")
+				_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), "tcp", nil, port, fw.ActionAccept, "")
 				require.NoError(t, err, "failed to add rule")
 
 				if i%100 == 0 {
@@ -274,7 +350,7 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	require.NoError(t, manager.Init(nil))
 
 	t.Cleanup(func() {
-		err := manager.Reset(nil)
+		err := manager.Close(nil)
 		require.NoError(t, err, "failed to reset manager state")
 
 		// Verify iptables output after reset
@@ -282,13 +358,14 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 		verifyIptablesOutput(t, stdout, stderr)
 	})
 
-	ip := net.ParseIP("100.96.0.1")
-	_, err = manager.AddPeerFiltering(ip, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "", "test rule")
+	ip := netip.MustParseAddr("100.96.0.1")
+	_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
 	require.NoError(t, err, "failed to add peer filtering rule")
 
 	_, err = manager.AddRouteFiltering(
+		nil,
 		[]netip.Prefix{netip.MustParsePrefix("192.168.2.0/24")},
-		netip.MustParsePrefix("10.1.0.0/24"),
+		fw.Network{Prefix: netip.MustParsePrefix("10.1.0.0/24")},
 		fw.ProtocolTCP,
 		nil,
 		&fw.Port{Values: []uint16{443}},
@@ -297,8 +374,8 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	require.NoError(t, err, "failed to add route filtering rule")
 
 	pair := fw.RouterPair{
-		Source:      netip.MustParsePrefix("192.168.1.0/24"),
-		Destination: netip.MustParsePrefix("10.0.0.0/24"),
+		Source:      fw.Network{Prefix: netip.MustParsePrefix("192.168.1.0/24")},
+		Destination: fw.Network{Prefix: netip.MustParsePrefix("10.0.0.0/24")},
 		Masquerade:  true,
 	}
 	err = manager.AddNatRule(pair)

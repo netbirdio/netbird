@@ -2,6 +2,7 @@ package internal
 
 import (
 	"net"
+	"net/netip"
 	"time"
 
 	wgdevice "golang.zx2c4.com/wireguard/device"
@@ -11,7 +12,9 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
+	"github.com/netbirdio/netbird/monotime"
 )
 
 type wgIfaceBase interface {
@@ -19,20 +22,22 @@ type wgIfaceBase interface {
 	CreateOnAndroid(routeRange []string, ip string, domains []string) error
 	IsUserspaceBind() bool
 	Name() string
-	Address() device.WGAddress
+	Address() wgaddr.Address
 	ToInterface() *net.Interface
 	Up() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddr(newAddr string) error
 	GetProxy() wgproxy.Proxy
-	UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeer(peerKey string) error
-	AddAllowedIP(peerKey string, allowedIP string) error
-	RemoveAllowedIP(peerKey string, allowedIP string) error
+	AddAllowedIP(peerKey string, allowedIP netip.Prefix) error
+	RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error
 	Close() error
 	SetFilter(filter device.PacketFilter) error
 	GetFilter() device.PacketFilter
 	GetDevice() *device.FilteredDevice
 	GetWGDevice() *wgdevice.Device
-	GetStats(peerKey string) (configurer.WGStats, error)
+	GetStats() (map[string]configurer.WGStats, error)
 	GetNet() *netstack.Net
+	FullStats() (*configurer.Stats, error)
+	LastActivities() map[string]monotime.Time
 }

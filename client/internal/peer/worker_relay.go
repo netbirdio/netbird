@@ -9,7 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	relayClient "github.com/netbirdio/netbird/relay/client"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
 
 type RelayConnInfo struct {
@@ -19,11 +19,12 @@ type RelayConnInfo struct {
 }
 
 type WorkerRelay struct {
+	peerCtx      context.Context
 	log          *log.Entry
 	isController bool
 	config       ConnConfig
 	conn         *Conn
-	relayManager relayClient.ManagerService
+	relayManager *relayClient.Manager
 
 	relayedConn net.Conn
 	relayLock   sync.Mutex
@@ -33,14 +34,15 @@ type WorkerRelay struct {
 	wgWatcher *WGWatcher
 }
 
-func NewWorkerRelay(log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager relayClient.ManagerService) *WorkerRelay {
+func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager, stateDump *stateDump) *WorkerRelay {
 	r := &WorkerRelay{
+		peerCtx:      ctx,
 		log:          log,
 		isController: ctrl,
 		config:       config,
 		conn:         conn,
 		relayManager: relayManager,
-		wgWatcher:    NewWGWatcher(log, config.WgConfig.WgInterface, config.Key),
+		wgWatcher:    NewWGWatcher(log, config.WgConfig.WgInterface, config.Key, stateDump),
 	}
 	return r
 }
@@ -62,7 +64,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
 
-	relayedConn, err := w.relayManager.OpenConn(srv, w.config.Key)
+	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Debugf("handled offer by reusing existing relay connection")

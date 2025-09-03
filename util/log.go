@@ -8,47 +8,108 @@ import (
 	"strconv"
 
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/grpclog"
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/netbirdio/netbird/formatter"
 )
 
-const defaultLogSize = 5
+const defaultLogSize = 15
+
+const (
+	LogConsole = "console"
+	LogSyslog  = "syslog"
+)
+
+var (
+	SpecialLogs = []string{
+		LogSyslog,
+		LogConsole,
+	}
+)
 
 // InitLog parses and sets log-level input
-func InitLog(logLevel string, logPath string) error {
+func InitLog(logLevel string, logs ...string) error {
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
 		log.Errorf("Failed parsing log-level %s: %s", logLevel, err)
 		return err
 	}
-	customOutputs := []string{"console", "syslog"}
+	var writers []io.Writer
+	logFmt := os.Getenv("NB_LOG_FORMAT")
 
-	if logPath != "" && !slices.Contains(customOutputs, logPath) {
-		maxLogSize := getLogMaxSize()
-		lumberjackLogger := &lumberjack.Logger{
-			// Log file absolute path, os agnostic
-			Filename:   filepath.ToSlash(logPath),
-			MaxSize:    maxLogSize, // MB
-			MaxBackups: 10,
-			MaxAge:     30, // days
-			Compress:   true,
+	for _, logPath := range logs {
+		switch logPath {
+		case LogSyslog:
+			AddSyslogHook()
+			logFmt = "syslog"
+		case LogConsole:
+			writers = append(writers, os.Stderr)
+		case "":
+			log.Warnf("empty log path received: %#v", logPath)
+		default:
+			writers = append(writers, newRotatedOutput(logPath))
 		}
-		log.SetOutput(io.Writer(lumberjackLogger))
-	} else if logPath == "syslog" {
-		AddSyslogHook()
 	}
 
-	//nolint:gocritic
-	if os.Getenv("NB_LOG_FORMAT") == "json" {
+	if len(writers) > 1 {
+		log.SetOutput(io.MultiWriter(writers...))
+	} else if len(writers) == 1 {
+		log.SetOutput(writers[0])
+	}
+
+	switch logFmt {
+	case "json":
 		formatter.SetJSONFormatter(log.StandardLogger())
-	} else if logPath == "syslog" {
+	case "syslog":
 		formatter.SetSyslogFormatter(log.StandardLogger())
-	} else {
+	default:
 		formatter.SetTextFormatter(log.StandardLogger())
 	}
 	log.SetLevel(level)
+
+	setGRPCLibLogger()
+
 	return nil
+}
+
+// FindFirstLogPath returns the first logs entry that could be a log path, that is neither empty, nor a special value
+func FindFirstLogPath(logs []string) string {
+	for _, logFile := range logs {
+		if logFile != "" && !slices.Contains(SpecialLogs, logFile) {
+			return logFile
+		}
+	}
+	return ""
+}
+
+func newRotatedOutput(logPath string) io.Writer {
+	maxLogSize := getLogMaxSize()
+	lumberjackLogger := &lumberjack.Logger{
+		// Log file absolute path, os agnostic
+		Filename:   filepath.ToSlash(logPath),
+		MaxSize:    maxLogSize, // MB
+		MaxBackups: 10,
+		MaxAge:     30, // days
+		Compress:   true,
+	}
+	return lumberjackLogger
+}
+
+func setGRPCLibLogger() {
+	logOut := log.StandardLogger().Writer()
+	if os.Getenv("GRPC_GO_LOG_SEVERITY_LEVEL") != "info" {
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, logOut, logOut))
+		return
+	}
+
+	var v int
+	vLevel := os.Getenv("GRPC_GO_LOG_VERBOSITY_LEVEL")
+	if vl, err := strconv.Atoi(vLevel); err == nil {
+		v = vl
+	}
+
+	grpclog.SetLoggerV2(grpclog.NewLoggerV2WithVerbosity(logOut, logOut, logOut, v))
 }
 
 func getLogMaxSize() int {

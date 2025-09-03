@@ -14,15 +14,17 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/sharedsock"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type TunKernelDevice struct {
 	name         string
-	address      WGAddress
+	address      wgaddr.Address
 	wgPort       int
 	key          string
-	mtu          int
+	mtu          uint16
 	ctx          context.Context
 	ctxCancel    context.CancelFunc
 	transportNet transport.Net
@@ -34,7 +36,7 @@ type TunKernelDevice struct {
 	filterFn bind.FilterFn
 }
 
-func NewKernelDevice(name string, address WGAddress, wgPort int, key string, mtu int, transportNet transport.Net) *TunKernelDevice {
+func NewKernelDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, transportNet transport.Net) *TunKernelDevice {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TunKernelDevice{
 		ctx:          ctx,
@@ -64,7 +66,7 @@ func (t *TunKernelDevice) Create() (WGConfigurer, error) {
 	// TODO: do a MTU discovery
 	log.Debugf("setting MTU: %d interface: %s", t.mtu, t.name)
 
-	if err := link.setMTU(t.mtu); err != nil {
+	if err := link.setMTU(int(t.mtu)); err != nil {
 		return nil, fmt.Errorf("set mtu: %w", err)
 	}
 
@@ -94,14 +96,22 @@ func (t *TunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 
-	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter())
+	rawSock, err := sharedsock.Listen(t.wgPort, sharedsock.NewIncomingSTUNFilter(), t.mtu)
 	if err != nil {
 		return nil, err
 	}
+
+	var udpConn net.PacketConn = rawSock
+	if !nbnet.AdvancedRouting() {
+		udpConn = nbnet.WrapPacketConn(rawSock)
+	}
+
 	bindParams := bind.UniversalUDPMuxParams{
-		UDPConn:  rawSock,
-		Net:      t.transportNet,
-		FilterFn: t.filterFn,
+		UDPConn:   udpConn,
+		Net:       t.transportNet,
+		FilterFn:  t.filterFn,
+		WGAddress: t.address,
+		MTU:       t.mtu,
 	}
 	mux := bind.NewUniversalUDPMuxDefault(bindParams)
 	go mux.ReadFromConn(t.ctx)
@@ -112,7 +122,7 @@ func (t *TunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return t.udpMux, nil
 }
 
-func (t *TunKernelDevice) UpdateAddr(address WGAddress) error {
+func (t *TunKernelDevice) UpdateAddr(address wgaddr.Address) error {
 	t.address = address
 	return t.assignAddr()
 }
@@ -145,8 +155,12 @@ func (t *TunKernelDevice) Close() error {
 	return closErr
 }
 
-func (t *TunKernelDevice) WgAddress() WGAddress {
+func (t *TunKernelDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunKernelDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunKernelDevice) DeviceName() string {

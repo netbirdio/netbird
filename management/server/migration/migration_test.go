@@ -4,16 +4,21 @@ import (
 	"context"
 	"encoding/gob"
 	"net"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/management/server/migration"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
@@ -21,7 +26,41 @@ import (
 func setupDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	var db *gorm.DB
+	var err error
+	var dsn string
+	var cleanup func()
+	switch os.Getenv("NETBIRD_STORE_ENGINE") {
+	case "mysql":
+		cleanup, dsn, err = testutil.CreateMysqlTestContainer()
+		if err != nil {
+			t.Fatalf("Failed to create MySQL test container: %v", err)
+		}
+
+		if dsn == "" {
+			t.Fatal("MySQL connection string is empty, ensure the test container is running")
+		}
+
+		db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+	case "postgres":
+		cleanup, dsn, err = testutil.CreatePostgresTestContainer()
+		if err != nil {
+			t.Fatalf("Failed to create PostgreSQL test container: %v", err)
+		}
+
+		if dsn == "" {
+			t.Fatalf("PostgreSQL connection string is empty, ensure the test container is running")
+		}
+
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	case "sqlite":
+		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	default:
+		db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	}
+	if cleanup != nil {
+		t.Cleanup(cleanup)
+	}
 
 	require.NoError(t, err, "Failed to open database")
 	return db
@@ -34,6 +73,7 @@ func TestMigrateFieldFromGobToJSON_EmptyDB(t *testing.T) {
 }
 
 func TestMigrateFieldFromGobToJSON_WithGobData(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
 	db := setupDatabase(t)
 
 	err := db.AutoMigrate(&types.Account{}, &route.Route{})
@@ -97,6 +137,7 @@ func TestMigrateNetIPFieldFromBlobToJSON_EmptyDB(t *testing.T) {
 }
 
 func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
+	t.Setenv("NETBIRD_STORE_ENGINE", "sqlite")
 	db := setupDatabase(t)
 
 	err := db.AutoMigrate(&types.Account{}, &nbpeer.Peer{})
@@ -117,12 +158,18 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithBlobData(t *testing.T) {
 		Peers []peer `gorm:"foreignKey:AccountID;references:id"`
 	}
 
-	err = db.Save(&account{
+	a := &account{
 		Account: types.Account{Id: "123"},
-		Peers: []peer{
-			{Location: location{ConnectionIP: net.IP{10, 0, 0, 1}}},
-		}},
-	).Error
+	}
+
+	err = db.Save(a).Error
+	require.NoError(t, err, "Failed to insert account")
+
+	a.Peers = []peer{
+		{Location: location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+	}
+
+	err = db.Save(a).Error
 	require.NoError(t, err, "Failed to insert blob data")
 
 	var blobValue string
@@ -143,12 +190,18 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	err := db.AutoMigrate(&types.Account{}, &nbpeer.Peer{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
-	err = db.Save(&types.Account{
+	account := &types.Account{
 		Id: "1234",
-		PeersG: []nbpeer.Peer{
-			{Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
-		}},
-	).Error
+	}
+
+	err = db.Save(account).Error
+	require.NoError(t, err, "Failed to insert account")
+
+	account.PeersG = []nbpeer.Peer{
+		{AccountID: "1234", Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+	}
+
+	err = db.Save(account).Error
 	require.NoError(t, err, "Failed to insert JSON data")
 
 	err = migration.MigrateNetIPFieldFromBlobToJSON[nbpeer.Peer](context.Background(), db, "location_connection_ip", "")
@@ -162,12 +215,13 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 func TestMigrateSetupKeyToHashedSetupKey_ForPlainKey(t *testing.T) {
 	db := setupDatabase(t)
 
-	err := db.AutoMigrate(&types.SetupKey{})
+	err := db.AutoMigrate(&types.SetupKey{}, &nbpeer.Peer{})
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	err = db.Save(&types.SetupKey{
-		Id:  "1",
-		Key: "EEFDAB47-C1A5-4472-8C05-71DE9A1E8382",
+		Id:        "1",
+		Key:       "EEFDAB47-C1A5-4472-8C05-71DE9A1E8382",
+		UpdatedAt: time.Now(),
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")
 
@@ -192,6 +246,7 @@ func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case1(t *testing.
 		Id:        "1",
 		Key:       "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
 		KeySecret: "EEFDA****",
+		UpdatedAt: time.Now(),
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")
 
@@ -213,8 +268,9 @@ func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case2(t *testing.
 	require.NoError(t, err, "Failed to auto-migrate tables")
 
 	err = db.Save(&types.SetupKey{
-		Id:  "1",
-		Key: "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
+		Id:        "1",
+		Key:       "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
+		UpdatedAt: time.Now(),
 	}).Error
 	require.NoError(t, err, "Failed to insert setup key")
 
@@ -226,4 +282,61 @@ func TestMigrateSetupKeyToHashedSetupKey_ForAlreadyMigratedKey_Case2(t *testing.
 	assert.NoError(t, err, "Failed to fetch setup key")
 
 	assert.Equal(t, "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=", key.Key, "Key should be hashed")
+}
+
+func TestDropIndex(t *testing.T) {
+	db := setupDatabase(t)
+
+	err := db.AutoMigrate(&types.SetupKey{})
+	require.NoError(t, err, "Failed to auto-migrate tables")
+
+	err = db.Save(&types.SetupKey{
+		Id:        "1",
+		Key:       "9+FQcmNd2GCxIK+SvHmtp6PPGV4MKEicDS+xuSQmvlE=",
+		UpdatedAt: time.Now(),
+	}).Error
+	require.NoError(t, err, "Failed to insert setup key")
+
+	exist := db.Migrator().HasIndex(&types.SetupKey{}, "idx_setup_keys_account_id")
+	assert.True(t, exist, "Should have the index")
+
+	err = migration.DropIndex[types.SetupKey](context.Background(), db, "idx_setup_keys_account_id")
+	require.NoError(t, err, "Migration should not fail to remove index")
+
+	exist = db.Migrator().HasIndex(&types.SetupKey{}, "idx_setup_keys_account_id")
+	assert.False(t, exist, "Should not have the index")
+}
+
+func TestCreateIndex(t *testing.T) {
+	db := setupDatabase(t)
+	err := db.AutoMigrate(&nbpeer.Peer{})
+	assert.NoError(t, err, "Failed to auto-migrate tables")
+
+	indexName := "idx_account_ip"
+
+	err = migration.CreateIndexIfNotExists[nbpeer.Peer](context.Background(), db, indexName, "account_id", "ip")
+	assert.NoError(t, err, "Migration should not fail to create index")
+
+	exist := db.Migrator().HasIndex(&nbpeer.Peer{}, indexName)
+	assert.True(t, exist, "Should have the index")
+}
+
+func TestCreateIndexIfExists(t *testing.T) {
+	db := setupDatabase(t)
+	err := db.AutoMigrate(&nbpeer.Peer{})
+	assert.NoError(t, err, "Failed to auto-migrate tables")
+
+	indexName := "idx_account_ip"
+
+	err = migration.CreateIndexIfNotExists[nbpeer.Peer](context.Background(), db, indexName, "account_id", "ip")
+	assert.NoError(t, err, "Migration should not fail to create index")
+
+	exist := db.Migrator().HasIndex(&nbpeer.Peer{}, indexName)
+	assert.True(t, exist, "Should have the index")
+
+	err = migration.CreateIndexIfNotExists[nbpeer.Peer](context.Background(), db, indexName, "account_id", "ip")
+	assert.NoError(t, err, "Create index should not fail if index exists")
+
+	exist = db.Migrator().HasIndex(&nbpeer.Peer{}, indexName)
+	assert.True(t, exist, "Should have the index")
 }

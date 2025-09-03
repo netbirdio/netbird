@@ -11,7 +11,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -36,8 +36,13 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 		return nil, fmt.Errorf("not connected")
 	}
 
-	routesMap := engine.GetRouteManager().GetClientRoutesWithNetID()
-	routeSelector := engine.GetRouteManager().GetRouteSelector()
+	routeMgr := engine.GetRouteManager()
+	if routeMgr == nil {
+		return nil, fmt.Errorf("no route manager")
+	}
+
+	routesMap := routeMgr.GetClientRoutesWithNetID()
+	routeSelector := routeMgr.GetRouteSelector()
 
 	var routes []*selectRoute
 	for id, rt := range routesMap {
@@ -95,7 +100,7 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 
 		// Convert to proto format
 		for domain, ips := range domainMap {
-			pbRoute.ResolvedIPs[string(domain)] = &proto.IPList{
+			pbRoute.ResolvedIPs[domain.SafeString()] = &proto.IPList{
 				Ips: ips,
 			}
 		}
@@ -123,6 +128,10 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 	}
 
 	routeManager := engine.GetRouteManager()
+	if routeManager == nil {
+		return nil, fmt.Errorf("no route manager")
+	}
+
 	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
 		routeSelector.SelectAllRoutes()
@@ -165,6 +174,10 @@ func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRe
 	}
 
 	routeManager := engine.GetRouteManager()
+	if routeManager == nil {
+		return nil, fmt.Errorf("no route manager")
+	}
+
 	routeSelector := routeManager.GetRouteSelector()
 	if req.GetAll() {
 		routeSelector.DeselectAllRoutes()

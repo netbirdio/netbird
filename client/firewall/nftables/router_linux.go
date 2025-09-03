@@ -10,34 +10,46 @@ import (
 	"strings"
 
 	"github.com/coreos/go-iptables/iptables"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/google/nftables/xt"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/internal/acl/id"
+	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
+	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
-	chainNameRoutingFw  = "netbird-rt-fwd"
-	chainNameRoutingNat = "netbird-rt-postrouting"
-	chainNameForward    = "FORWARD"
+	tableNat               = "nat"
+	chainNameNatPrerouting = "PREROUTING"
+	chainNameRoutingFw     = "netbird-rt-fwd"
+	chainNameRoutingNat    = "netbird-rt-postrouting"
+	chainNameRoutingRdr    = "netbird-rt-redirect"
+	chainNameForward       = "FORWARD"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
 	userDataAcceptForwardRuleOif = "frwacceptoif"
+
+	dnatSuffix = "_dnat"
+	snatSuffix = "_snat"
 )
 
 const refreshRulesMapError = "refresh rules map: %w"
 
 var (
-	errFilterTableNotFound = fmt.Errorf("nftables: 'filter' table not found")
+	errFilterTableNotFound = fmt.Errorf("'filter' table not found")
 )
+
+type setInput struct {
+	set      firewall.Set
+	prefixes []netip.Prefix
+}
 
 type router struct {
 	conn        *nftables.Conn
@@ -46,19 +58,21 @@ type router struct {
 	chains      map[string]*nftables.Chain
 	// rules is useful to avoid duplicates and to get missing attributes that we don't have when adding new rules
 	rules        map[string]*nftables.Rule
-	ipsetCounter *refcounter.Counter[string, []netip.Prefix, *nftables.Set]
+	ipsetCounter *refcounter.Counter[string, setInput, *nftables.Set]
 
 	wgIface          iFaceMapper
+	ipFwdState       *ipfwdstate.IPForwardingState
 	legacyManagement bool
 }
 
 func newRouter(workTable *nftables.Table, wgIface iFaceMapper) (*router, error) {
 	r := &router{
-		conn:      &nftables.Conn{},
-		workTable: workTable,
-		chains:    make(map[string]*nftables.Chain),
-		rules:     make(map[string]*nftables.Rule),
-		wgIface:   wgIface,
+		conn:       &nftables.Conn{},
+		workTable:  workTable,
+		chains:     make(map[string]*nftables.Chain),
+		rules:      make(map[string]*nftables.Rule),
+		wgIface:    wgIface,
+		ipFwdState: ipfwdstate.NewIPForwardingState(),
 	}
 
 	r.ipsetCounter = refcounter.New(
@@ -90,6 +104,10 @@ func (r *router) init(workTable *nftables.Table) error {
 		return fmt.Errorf("create containers: %w", err)
 	}
 
+	if err := r.setupDataPlaneMark(); err != nil {
+		log.Errorf("failed to set up data plane mark: %v", err)
+	}
+
 	return nil
 }
 
@@ -98,13 +116,58 @@ func (r *router) Reset() error {
 	// clear without deleting the ipsets, the nf table will be deleted by the caller
 	r.ipsetCounter.Clear()
 
-	return r.removeAcceptForwardRules()
+	var merr *multierror.Error
+
+	if err := r.removeAcceptForwardRules(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("remove accept forward rules: %w", err))
+	}
+
+	if err := r.removeNatPreroutingRules(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("remove filter prerouting rules: %w", err))
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *router) removeNatPreroutingRules() error {
+	table := &nftables.Table{
+		Name:   tableNat,
+		Family: nftables.TableFamilyIPv4,
+	}
+	chain := &nftables.Chain{
+		Name:     chainNameNatPrerouting,
+		Table:    table,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityNATDest,
+		Type:     nftables.ChainTypeNAT,
+	}
+	rules, err := r.conn.GetRules(table, chain)
+	if err != nil {
+		return fmt.Errorf("get rules from nat table: %w", err)
+	}
+
+	var merr *multierror.Error
+
+	// Delete rules that have our UserData suffix
+	for _, rule := range rules {
+		if len(rule.UserData) == 0 || !strings.HasSuffix(string(rule.UserData), dnatSuffix) {
+			continue
+		}
+		if err := r.conn.DelRule(rule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete rule %s: %w", rule.UserData, err))
+		}
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf(flushError, err))
+	}
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (r *router) loadFilterTable() (*nftables.Table, error) {
 	tables, err := r.conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
-		return nil, fmt.Errorf("nftables: unable to list tables: %v", err)
+		return nil, fmt.Errorf("unable to list tables: %v", err)
 	}
 
 	for _, table := range tables {
@@ -133,15 +196,29 @@ func (r *router) createContainers() error {
 		Type:     nftables.ChainTypeNAT,
 	})
 
-	// Chain is created by acl manager
-	// TODO: move creation to a common place
-	r.chains[chainNamePrerouting] = &nftables.Chain{
-		Name:     chainNamePrerouting,
+	r.chains[chainNameRoutingRdr] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameRoutingRdr,
 		Table:    r.workTable,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityNATDest,
+		Type:     nftables.ChainTypeNAT,
+	})
+
+	r.chains[chainNameManglePostrouting] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameManglePostrouting,
+		Table:    r.workTable,
+		Hooknum:  nftables.ChainHookPostrouting,
+		Priority: nftables.ChainPriorityMangle,
 		Type:     nftables.ChainTypeFilter,
+	})
+
+	r.chains[chainNameManglePrerouting] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameManglePrerouting,
+		Table:    r.workTable,
 		Hooknum:  nftables.ChainHookPrerouting,
 		Priority: nftables.ChainPriorityMangle,
-	}
+		Type:     nftables.ChainTypeFilter,
+	})
 
 	// Add the single NAT rule that matches on mark
 	if err := r.addPostroutingRules(); err != nil {
@@ -157,7 +234,83 @@ func (r *router) createContainers() error {
 	}
 
 	if err := r.conn.Flush(); err != nil {
-		return fmt.Errorf("nftables: unable to initialize table: %v", err)
+		return fmt.Errorf("initialize tables: %v", err)
+	}
+
+	return nil
+}
+
+// setupDataPlaneMark configures the fwmark for the data plane
+func (r *router) setupDataPlaneMark() error {
+	if r.chains[chainNameManglePrerouting] == nil || r.chains[chainNameManglePostrouting] == nil {
+		return errors.New("no mangle chains found")
+	}
+
+	ctNew := getCtNewExprs()
+	preExprs := []expr.Any{
+		&expr.Meta{
+			Key:      expr.MetaKeyIIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+	}
+	preExprs = append(preExprs, ctNew...)
+	preExprs = append(preExprs,
+		&expr.Immediate{
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(nbnet.DataPlaneMarkIn),
+		},
+		&expr.Ct{
+			Key:            expr.CtKeyMARK,
+			Register:       1,
+			SourceRegister: true,
+		},
+	)
+
+	preNftRule := &nftables.Rule{
+		Table: r.workTable,
+		Chain: r.chains[chainNameManglePrerouting],
+		Exprs: preExprs,
+	}
+	r.conn.AddRule(preNftRule)
+
+	postExprs := []expr.Any{
+		&expr.Meta{
+			Key:      expr.MetaKeyOIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+	}
+	postExprs = append(postExprs, ctNew...)
+	postExprs = append(postExprs,
+		&expr.Immediate{
+			Register: 1,
+			Data:     binaryutil.NativeEndian.PutUint32(nbnet.DataPlaneMarkOut),
+		},
+		&expr.Ct{
+			Key:            expr.CtKeyMARK,
+			Register:       1,
+			SourceRegister: true,
+		},
+	)
+
+	postNftRule := &nftables.Rule{
+		Table: r.workTable,
+		Chain: r.chains[chainNameManglePostrouting],
+		Exprs: postExprs,
+	}
+	r.conn.AddRule(postNftRule)
+
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("flush: %w", err)
 	}
 
 	return nil
@@ -165,15 +318,16 @@ func (r *router) createContainers() error {
 
 // AddRouteFiltering appends a nftables rule to the routing chain
 func (r *router) AddRouteFiltering(
+	id []byte,
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination firewall.Network,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
 
-	ruleKey := id.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
+	ruleKey := nbid.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
 	if _, ok := r.rules[string(ruleKey)]; ok {
 		return ruleKey, nil
 	}
@@ -181,23 +335,29 @@ func (r *router) AddRouteFiltering(
 	chain := r.chains[chainNameRoutingFw]
 	var exprs []expr.Any
 
+	var source firewall.Network
 	switch {
 	case len(sources) == 1 && sources[0].Bits() == 0:
 		// If it's 0.0.0.0/0, we don't need to add any source matching
 	case len(sources) == 1:
 		// If there's only one source, we can use it directly
-		exprs = append(exprs, generateCIDRMatcherExpressions(true, sources[0])...)
+		source.Prefix = sources[0]
 	default:
-		// If there are multiple sources, create or get an ipset
-		var err error
-		exprs, err = r.getIpSetExprs(sources, exprs)
-		if err != nil {
-			return nil, fmt.Errorf("get ipset expressions: %w", err)
-		}
+		// If there are multiple sources, use a set
+		source.Set = firewall.NewPrefixSet(sources)
 	}
 
-	// Handle destination
-	exprs = append(exprs, generateCIDRMatcherExpressions(false, destination)...)
+	sourceExp, err := r.applyNetwork(source, sources, true)
+	if err != nil {
+		return nil, fmt.Errorf("apply source: %w", err)
+	}
+	exprs = append(exprs, sourceExp...)
+
+	destExp, err := r.applyNetwork(destination, nil, false)
+	if err != nil {
+		return nil, fmt.Errorf("apply destination: %w", err)
+	}
+	exprs = append(exprs, destExp...)
 
 	// Handle protocol
 	if proto != firewall.ProtocolALL {
@@ -241,39 +401,27 @@ func (r *router) AddRouteFiltering(
 		rule = r.conn.AddRule(rule)
 	}
 
-	log.Tracef("Adding route rule %s", spew.Sdump(rule))
 	if err := r.conn.Flush(); err != nil {
 		return nil, fmt.Errorf(flushError, err)
 	}
 
 	r.rules[string(ruleKey)] = rule
 
-	log.Debugf("nftables: added route rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v", sources, destination, proto, sPort, dPort, action)
+	log.Debugf("added route rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v", sources, destination, proto, sPort, dPort, action)
 
 	return ruleKey, nil
 }
 
-func (r *router) getIpSetExprs(sources []netip.Prefix, exprs []expr.Any) ([]expr.Any, error) {
-	setName := firewall.GenerateSetName(sources)
-	ref, err := r.ipsetCounter.Increment(setName, sources)
+func (r *router) getIpSet(set firewall.Set, prefixes []netip.Prefix, isSource bool) ([]expr.Any, error) {
+	ref, err := r.ipsetCounter.Increment(set.HashedName(), setInput{
+		set:      set,
+		prefixes: prefixes,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("create or get ipset for sources: %w", err)
+		return nil, fmt.Errorf("create or get ipset: %w", err)
 	}
 
-	exprs = append(exprs,
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		&expr.Lookup{
-			SourceRegister: 1,
-			SetName:        ref.Out.Name,
-			SetID:          ref.Out.ID,
-		},
-	)
-	return exprs, nil
+	return getIpSetExprs(ref, isSource)
 }
 
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
@@ -281,7 +429,7 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
-	ruleKey := rule.GetRuleID()
+	ruleKey := rule.ID()
 	nftRule, exists := r.rules[ruleKey]
 	if !exists {
 		log.Debugf("route rule %s not found", ruleKey)
@@ -292,42 +440,54 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 		return fmt.Errorf("route rule %s has no handle", ruleKey)
 	}
 
-	setName := r.findSetNameInRule(nftRule)
-
 	if err := r.deleteNftRule(nftRule, ruleKey); err != nil {
 		return fmt.Errorf("delete: %w", err)
-	}
-
-	if setName != "" {
-		if _, err := r.ipsetCounter.Decrement(setName); err != nil {
-			return fmt.Errorf("decrement ipset reference: %w", err)
-		}
 	}
 
 	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf(flushError, err)
 	}
 
+	if err := r.decrementSetCounter(nftRule); err != nil {
+		return fmt.Errorf("decrement set counter: %w", err)
+	}
+
 	return nil
 }
 
-func (r *router) createIpSet(setName string, sources []netip.Prefix) (*nftables.Set, error) {
+func (r *router) createIpSet(setName string, input setInput) (*nftables.Set, error) {
 	// overlapping prefixes will result in an error, so we need to merge them
-	sources = firewall.MergeIPRanges(sources)
+	prefixes := firewall.MergeIPRanges(input.prefixes)
 
-	set := &nftables.Set{
-		Name:  setName,
-		Table: r.workTable,
+	nfset := &nftables.Set{
+		Name:    setName,
+		Comment: input.set.Comment(),
+		Table:   r.workTable,
 		// required for prefixes
 		Interval: true,
 		KeyType:  nftables.TypeIPAddr,
 	}
 
+	elements := convertPrefixesToSet(prefixes)
+	if err := r.conn.AddSet(nfset, elements); err != nil {
+		return nil, fmt.Errorf("error adding elements to set %s: %w", setName, err)
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush error: %w", err)
+	}
+
+	log.Printf("Created new ipset: %s with %d elements", setName, len(elements)/2)
+
+	return nfset, nil
+}
+
+func convertPrefixesToSet(prefixes []netip.Prefix) []nftables.SetElement {
 	var elements []nftables.SetElement
-	for _, prefix := range sources {
+	for _, prefix := range prefixes {
 		// TODO: Implement IPv6 support
 		if prefix.Addr().Is6() {
-			log.Printf("Skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
+			log.Tracef("skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
 			continue
 		}
 
@@ -343,18 +503,7 @@ func (r *router) createIpSet(setName string, sources []netip.Prefix) (*nftables.
 			nftables.SetElement{Key: lastIP.AsSlice(), IntervalEnd: true},
 		)
 	}
-
-	if err := r.conn.AddSet(set, elements); err != nil {
-		return nil, fmt.Errorf("error adding elements to set %s: %w", setName, err)
-	}
-
-	if err := r.conn.Flush(); err != nil {
-		return nil, fmt.Errorf("flush error: %w", err)
-	}
-
-	log.Printf("Created new ipset: %s with %d elements", setName, len(elements)/2)
-
-	return set, nil
+	return elements
 }
 
 // calculateLastIP determines the last IP in a given prefix.
@@ -378,8 +527,8 @@ func uint32ToBytes(ip uint32) [4]byte {
 	return b
 }
 
-func (r *router) deleteIpSet(setName string, set *nftables.Set) error {
-	r.conn.DelSet(set)
+func (r *router) deleteIpSet(setName string, nfset *nftables.Set) error {
+	r.conn.DelSet(nfset)
 	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf(flushError, err)
 	}
@@ -388,13 +537,27 @@ func (r *router) deleteIpSet(setName string, set *nftables.Set) error {
 	return nil
 }
 
-func (r *router) findSetNameInRule(rule *nftables.Rule) string {
-	for _, e := range rule.Exprs {
-		if lookup, ok := e.(*expr.Lookup); ok {
-			return lookup.SetName
+func (r *router) decrementSetCounter(rule *nftables.Rule) error {
+	sets := r.findSets(rule)
+
+	var merr *multierror.Error
+	for _, setName := range sets {
+		if _, err := r.ipsetCounter.Decrement(setName); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("decrement set counter: %w", err))
 		}
 	}
-	return ""
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *router) findSets(rule *nftables.Rule) []string {
+	var sets []string
+	for _, e := range rule.Exprs {
+		if lookup, ok := e.(*expr.Lookup); ok {
+			sets = append(sets, lookup.SetName)
+		}
+	}
+	return sets
 }
 
 func (r *router) deleteNftRule(rule *nftables.Rule, ruleKey string) error {
@@ -432,7 +595,8 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 	}
 
 	if err := r.conn.Flush(); err != nil {
-		return fmt.Errorf("nftables: insert rules for %s: %v", pair.Destination, err)
+		// TODO: rollback ipset counter
+		return fmt.Errorf("insert rules for %s: %v", pair.Destination, err)
 	}
 
 	return nil
@@ -440,8 +604,15 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 
 // addNatRule inserts a nftables rule to the conn client flush queue
 func (r *router) addNatRule(pair firewall.RouterPair) error {
-	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
-	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
+	sourceExp, err := r.applyNetwork(pair.Source, nil, true)
+	if err != nil {
+		return fmt.Errorf("apply source: %w", err)
+	}
+
+	destExp, err := r.applyNetwork(pair.Destination, nil, false)
+	if err != nil {
+		return fmt.Errorf("apply destination: %w", err)
+	}
 
 	op := expr.CmpOpEq
 	if pair.Inverse {
@@ -449,26 +620,6 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 	}
 
 	exprs := []expr.Any{
-		// We only care about NEW connections to mark them and later identify them in the postrouting chain for masquerading.
-		// Masquerading will take care of the conntrack state, which means we won't need to mark established connections.
-		&expr.Ct{
-			Key:      expr.CtKeySTATE,
-			Register: 1,
-		},
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            4,
-			Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitNEW),
-			Xor:            binaryutil.NativeEndian.PutUint32(0),
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpNeq,
-			Register: 1,
-			Data:     []byte{0, 0, 0, 0},
-		},
-
-		// interface matching
 		&expr.Meta{
 			Key:      expr.MetaKeyIIFNAME,
 			Register: 1,
@@ -479,6 +630,9 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 			Data:     ifname(r.wgIface.Name()),
 		},
 	}
+	// We only care about NEW connections to mark them and later identify them in the postrouting chain for masquerading.
+	// Masquerading will take care of the conntrack state, which means we won't need to mark established connections.
+	exprs = append(exprs, getCtNewExprs()...)
 
 	exprs = append(exprs, sourceExp...)
 	exprs = append(exprs, destExp...)
@@ -508,9 +662,11 @@ func (r *router) addNatRule(pair firewall.RouterPair) error {
 		}
 	}
 
-	r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
+	// Ensure nat rules come first, so the mark can be overwritten.
+	// Currently overwritten by the dst-type LOCAL rules for redirected traffic.
+	r.rules[ruleKey] = r.conn.InsertRule(&nftables.Rule{
 		Table:    r.workTable,
-		Chain:    r.chains[chainNamePrerouting],
+		Chain:    r.chains[chainNameManglePrerouting],
 		Exprs:    exprs,
 		UserData: []byte(ruleKey),
 	})
@@ -591,8 +747,15 @@ func (r *router) addPostroutingRules() error {
 
 // addLegacyRouteRule adds a legacy routing rule for mgmt servers pre route acls
 func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
-	sourceExp := generateCIDRMatcherExpressions(true, pair.Source)
-	destExp := generateCIDRMatcherExpressions(false, pair.Destination)
+	sourceExp, err := r.applyNetwork(pair.Source, nil, true)
+	if err != nil {
+		return fmt.Errorf("apply source: %w", err)
+	}
+
+	destExp, err := r.applyNetwork(pair.Destination, nil, false)
+	if err != nil {
+		return fmt.Errorf("apply destination: %w", err)
+	}
 
 	exprs := []expr.Any{
 		&expr.Counter{},
@@ -601,7 +764,8 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 		},
 	}
 
-	expression := append(sourceExp, append(destExp, exprs...)...) // nolint:gocritic
+	exprs = append(exprs, sourceExp...)
+	exprs = append(exprs, destExp...)
 
 	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
 
@@ -614,7 +778,7 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 	r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
 		Table:    r.workTable,
 		Chain:    r.chains[chainNameRoutingFw],
-		Exprs:    expression,
+		Exprs:    exprs,
 		UserData: []byte(ruleKey),
 	})
 	return nil
@@ -629,11 +793,13 @@ func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
 			return fmt.Errorf("remove legacy forwarding rule %s -> %s: %v", pair.Source, pair.Destination, err)
 		}
 
-		log.Debugf("nftables: removed legacy forwarding rule %s -> %s", pair.Source, pair.Destination)
+		log.Debugf("removed legacy forwarding rule %s -> %s", pair.Source, pair.Destination)
 
 		delete(r.rules, ruleKey)
-	} else {
-		log.Debugf("nftables: legacy forwarding rule %s not found", ruleKey)
+
+		if err := r.decrementSetCounter(rule); err != nil {
+			return fmt.Errorf("decrement set counter: %w", err)
+		}
 	}
 
 	return nil
@@ -840,12 +1006,14 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
-	if err := r.removeNatRule(pair); err != nil {
-		return fmt.Errorf("remove prerouting rule: %w", err)
-	}
+	if pair.Masquerade {
+		if err := r.removeNatRule(pair); err != nil {
+			return fmt.Errorf("remove prerouting rule: %w", err)
+		}
 
-	if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
-		return fmt.Errorf("remove inverse prerouting rule: %w", err)
+		if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
+			return fmt.Errorf("remove inverse prerouting rule: %w", err)
+		}
 	}
 
 	if err := r.removeLegacyRouteRule(pair); err != nil {
@@ -853,10 +1021,10 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 	}
 
 	if err := r.conn.Flush(); err != nil {
-		return fmt.Errorf("nftables: received error while applying rule removal for %s: %v", pair.Destination, err)
+		// TODO: rollback set counter
+		return fmt.Errorf("remove nat rules rule %s: %v", pair.Destination, err)
 	}
 
-	log.Debugf("nftables: removed nat rules for %s", pair.Destination)
 	return nil
 }
 
@@ -864,16 +1032,19 @@ func (r *router) removeNatRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.PreroutingFormat, pair)
 
 	if rule, exists := r.rules[ruleKey]; exists {
-		err := r.conn.DelRule(rule)
-		if err != nil {
+		if err := r.conn.DelRule(rule); err != nil {
 			return fmt.Errorf("remove prerouting rule %s -> %s: %v", pair.Source, pair.Destination, err)
 		}
 
-		log.Debugf("nftables: removed prerouting rule %s -> %s", pair.Source, pair.Destination)
+		log.Debugf("removed prerouting rule %s -> %s", pair.Source, pair.Destination)
 
 		delete(r.rules, ruleKey)
+
+		if err := r.decrementSetCounter(rule); err != nil {
+			return fmt.Errorf("decrement set counter: %w", err)
+		}
 	} else {
-		log.Debugf("nftables: prerouting rule %s not found", ruleKey)
+		log.Debugf("prerouting rule %s not found", ruleKey)
 	}
 
 	return nil
@@ -885,7 +1056,7 @@ func (r *router) refreshRulesMap() error {
 	for _, chain := range r.chains {
 		rules, err := r.conn.GetRules(chain.Table, chain)
 		if err != nil {
-			return fmt.Errorf("nftables: unable to list rules: %v", err)
+			return fmt.Errorf(" unable to list rules: %v", err)
 		}
 		for _, rule := range rules {
 			if len(rule.UserData) > 0 {
@@ -896,13 +1067,317 @@ func (r *router) refreshRulesMap() error {
 	return nil
 }
 
-// generateCIDRMatcherExpressions generates nftables expressions that matches a CIDR
-func generateCIDRMatcherExpressions(source bool, prefix netip.Prefix) []expr.Any {
-	var offset uint32
-	if source {
-		offset = 12 // src offset
-	} else {
-		offset = 16 // dst offset
+func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	if err := r.ipFwdState.RequestForwarding(); err != nil {
+		return nil, err
+	}
+
+	ruleKey := rule.ID()
+	if _, exists := r.rules[ruleKey+dnatSuffix]; exists {
+		return rule, nil
+	}
+
+	protoNum, err := protoToInt(rule.Protocol)
+	if err != nil {
+		return nil, fmt.Errorf("convert protocol to number: %w", err)
+	}
+
+	if err := r.addDnatRedirect(rule, protoNum, ruleKey); err != nil {
+		return nil, err
+	}
+
+	r.addDnatMasq(rule, protoNum, ruleKey)
+
+	// Unlike iptables, there's no point in adding "out" rules in the forward chain here as our policy is ACCEPT.
+	// To overcome DROP policies in other chains, we'd have to add rules to the chains there.
+	// We also cannot just add "oif <iface> accept" there and filter in our own table as we don't know what is supposed to be allowed.
+	// TODO: find chains with drop policies and add rules there
+
+	if err := r.conn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush rules: %w", err)
+	}
+
+	return &rule, nil
+}
+
+func (r *router) addDnatRedirect(rule firewall.ForwardRule, protoNum uint8, ruleKey string) error {
+	dnatExprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{protoNum},
+		},
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       2,
+			Len:          2,
+		},
+	}
+	dnatExprs = append(dnatExprs, applyPort(&rule.DestinationPort, false)...)
+
+	// shifted translated port is not supported in nftables, so we hand this over to xtables
+	if rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2 {
+		if rule.TranslatedPort.Values[0] != rule.DestinationPort.Values[0] ||
+			rule.TranslatedPort.Values[1] != rule.DestinationPort.Values[1] {
+			return r.addXTablesRedirect(dnatExprs, ruleKey, rule)
+		}
+	}
+
+	additionalExprs, regProtoMin, regProtoMax, err := r.handleTranslatedPort(rule)
+	if err != nil {
+		return err
+	}
+	dnatExprs = append(dnatExprs, additionalExprs...)
+
+	dnatExprs = append(dnatExprs,
+		&expr.NAT{
+			Type:        expr.NATTypeDestNAT,
+			Family:      uint32(nftables.TableFamilyIPv4),
+			RegAddrMin:  1,
+			RegProtoMin: regProtoMin,
+			RegProtoMax: regProtoMax,
+		},
+	)
+
+	dnatRule := &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingRdr],
+		Exprs:    dnatExprs,
+		UserData: []byte(ruleKey + dnatSuffix),
+	}
+	r.conn.AddRule(dnatRule)
+	r.rules[ruleKey+dnatSuffix] = dnatRule
+
+	return nil
+}
+
+func (r *router) handleTranslatedPort(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	switch {
+	case rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2:
+		return r.handlePortRange(rule)
+	case len(rule.TranslatedPort.Values) == 0:
+		return r.handleAddressOnly(rule)
+	case len(rule.TranslatedPort.Values) == 1:
+		return r.handleSinglePort(rule)
+	default:
+		return nil, 0, 0, fmt.Errorf("invalid translated port: %v", rule.TranslatedPort)
+	}
+}
+
+func (r *router) handlePortRange(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	exprs := []expr.Any{
+		&expr.Immediate{
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+		&expr.Immediate{
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[0]),
+		},
+		&expr.Immediate{
+			Register: 3,
+			Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[1]),
+		},
+	}
+	return exprs, 2, 3, nil
+}
+
+func (r *router) handleAddressOnly(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	exprs := []expr.Any{
+		&expr.Immediate{
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+	}
+	return exprs, 0, 0, nil
+}
+
+func (r *router) handleSinglePort(rule firewall.ForwardRule) ([]expr.Any, uint32, uint32, error) {
+	exprs := []expr.Any{
+		&expr.Immediate{
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+		&expr.Immediate{
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(rule.TranslatedPort.Values[0]),
+		},
+	}
+	return exprs, 2, 0, nil
+}
+
+func (r *router) addXTablesRedirect(dnatExprs []expr.Any, ruleKey string, rule firewall.ForwardRule) error {
+	dnatExprs = append(dnatExprs,
+		&expr.Counter{},
+		&expr.Target{
+			Name: "DNAT",
+			Rev:  2,
+			Info: &xt.NatRange2{
+				NatRange: xt.NatRange{
+					Flags:   uint(xt.NatRangeMapIPs | xt.NatRangeProtoSpecified | xt.NatRangeProtoOffset),
+					MinIP:   rule.TranslatedAddress.AsSlice(),
+					MaxIP:   rule.TranslatedAddress.AsSlice(),
+					MinPort: rule.TranslatedPort.Values[0],
+					MaxPort: rule.TranslatedPort.Values[1],
+				},
+				BasePort: rule.DestinationPort.Values[0],
+			},
+		},
+	)
+
+	dnatRule := &nftables.Rule{
+		Table: &nftables.Table{
+			Name:   tableNat,
+			Family: nftables.TableFamilyIPv4,
+		},
+		Chain: &nftables.Chain{
+			Name:     chainNameNatPrerouting,
+			Table:    r.filterTable,
+			Type:     nftables.ChainTypeNAT,
+			Hooknum:  nftables.ChainHookPrerouting,
+			Priority: nftables.ChainPriorityNATDest,
+		},
+		Exprs:    dnatExprs,
+		UserData: []byte(ruleKey + dnatSuffix),
+	}
+	r.conn.AddRule(dnatRule)
+	r.rules[ruleKey+dnatSuffix] = dnatRule
+
+	return nil
+}
+
+func (r *router) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleKey string) {
+	masqExprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{protoNum},
+		},
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       16,
+			Len:          4,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     rule.TranslatedAddress.AsSlice(),
+		},
+	}
+
+	masqExprs = append(masqExprs, applyPort(&rule.TranslatedPort, false)...)
+	masqExprs = append(masqExprs, &expr.Masq{})
+
+	masqRule := &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingNat],
+		Exprs:    masqExprs,
+		UserData: []byte(ruleKey + snatSuffix),
+	}
+	r.conn.AddRule(masqRule)
+	r.rules[ruleKey+snatSuffix] = masqRule
+}
+
+func (r *router) DeleteDNATRule(rule firewall.Rule) error {
+	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+		log.Errorf("%v", err)
+	}
+
+	ruleKey := rule.ID()
+
+	if err := r.refreshRulesMap(); err != nil {
+		return fmt.Errorf(refreshRulesMapError, err)
+	}
+
+	var merr *multierror.Error
+	if dnatRule, exists := r.rules[ruleKey+dnatSuffix]; exists {
+		if err := r.conn.DelRule(dnatRule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete dnat rule: %w", err))
+		}
+	}
+
+	if masqRule, exists := r.rules[ruleKey+snatSuffix]; exists {
+		if err := r.conn.DelRule(masqRule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete snat rule: %w", err))
+		}
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf(flushError, err))
+	}
+
+	if merr == nil {
+		delete(r.rules, ruleKey+dnatSuffix)
+		delete(r.rules, ruleKey+snatSuffix)
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	nfset, err := r.conn.GetSetByName(r.workTable, set.HashedName())
+	if err != nil {
+		return fmt.Errorf("get set %s: %w", set.HashedName(), err)
+	}
+
+	elements := convertPrefixesToSet(prefixes)
+	if err := r.conn.SetAddElements(nfset, elements); err != nil {
+		return fmt.Errorf("add elements to set %s: %w", set.HashedName(), err)
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf(flushError, err)
+	}
+
+	log.Debugf("updated set %s with prefixes %v", set.HashedName(), prefixes)
+
+	return nil
+}
+
+// applyNetwork generates nftables expressions for networks (CIDR) or sets
+func (r *router) applyNetwork(
+	network firewall.Network,
+	setPrefixes []netip.Prefix,
+	isSource bool,
+) ([]expr.Any, error) {
+	if network.IsSet() {
+		exprs, err := r.getIpSet(network.Set, setPrefixes, isSource)
+		if err != nil {
+			return nil, fmt.Errorf("source: %w", err)
+		}
+		return exprs, nil
+	}
+
+	if network.IsPrefix() {
+		return applyPrefix(network.Prefix, isSource), nil
+	}
+
+	return nil, nil
+}
+
+// applyPrefix generates nftables expressions for a CIDR prefix
+func applyPrefix(prefix netip.Prefix, isSource bool) []expr.Any {
+	// dst offset
+	offset := uint32(16)
+	if isSource {
+		// src offset
+		offset = 12
 	}
 
 	ones := prefix.Bits()
@@ -959,15 +1434,11 @@ func applyPort(port *firewall.Port, isSource bool) []expr.Any {
 	if port.IsRange && len(port.Values) == 2 {
 		// Handle port range
 		exprs = append(exprs,
-			&expr.Cmp{
-				Op:       expr.CmpOpGte,
+			&expr.Range{
+				Op:       expr.CmpOpEq,
 				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(port.Values[0]),
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpLte,
-				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(port.Values[1]),
+				FromData: binaryutil.BigEndian.PutUint16(port.Values[0]),
+				ToData:   binaryutil.BigEndian.PutUint16(port.Values[1]),
 			},
 		)
 	} else {
@@ -992,4 +1463,49 @@ func applyPort(port *firewall.Port, isSource bool) []expr.Any {
 	}
 
 	return exprs
+}
+
+func getCtNewExprs() []expr.Any {
+	return []expr.Any{
+		&expr.Ct{
+			Key:      expr.CtKeySTATE,
+			Register: 1,
+		},
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            4,
+			Mask:           binaryutil.NativeEndian.PutUint32(expr.CtStateBitNEW),
+			Xor:            binaryutil.NativeEndian.PutUint32(0),
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 1,
+			Data:     []byte{0, 0, 0, 0},
+		},
+	}
+}
+
+func getIpSetExprs(ref refcounter.Ref[*nftables.Set], isSource bool) ([]expr.Any, error) {
+
+	// dst offset
+	offset := uint32(16)
+	if isSource {
+		// src offset
+		offset = 12
+	}
+
+	return []expr.Any{
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       offset,
+			Len:          4,
+		},
+		&expr.Lookup{
+			SourceRegister: 1,
+			SetName:        ref.Out.Name,
+			SetID:          ref.Out.ID,
+		},
+	}, nil
 }

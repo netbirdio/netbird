@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"runtime"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -17,7 +19,9 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
 const (
@@ -28,17 +32,20 @@ const (
 )
 
 type Forwarder struct {
-	logger       *nblog.Logger
+	logger     *nblog.Logger
+	flowLogger nftypes.FlowLogger
+	// ruleIdMap is used to store the rule ID for a given connection
+	ruleIdMap    sync.Map
 	stack        *stack.Stack
 	endpoint     *endpoint
 	udpForwarder *udpForwarder
 	ctx          context.Context
 	cancel       context.CancelFunc
-	ip           net.IP
+	ip           tcpip.Address
 	netstack     bool
 }
 
-func New(iface common.IFaceMapper, logger *nblog.Logger, netstack bool) (*Forwarder, error) {
+func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool) (*Forwarder, error) {
 	s := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{
@@ -64,12 +71,11 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, netstack bool) (*Forwar
 		return nil, fmt.Errorf("failed to create NIC: %v", err)
 	}
 
-	ones, _ := iface.Address().Network.Mask.Size()
 	protoAddr := tcpip.ProtocolAddress{
 		Protocol: ipv4.ProtocolNumber,
 		AddressWithPrefix: tcpip.AddressWithPrefix{
-			Address:   tcpip.AddrFromSlice(iface.Address().IP.To4()),
-			PrefixLen: ones,
+			Address:   tcpip.AddrFromSlice(iface.Address().IP.AsSlice()),
+			PrefixLen: iface.Address().Network.Bits(),
 		},
 	}
 
@@ -102,13 +108,14 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, netstack bool) (*Forwar
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &Forwarder{
 		logger:       logger,
+		flowLogger:   flowLogger,
 		stack:        s,
 		endpoint:     endpoint,
-		udpForwarder: newUDPForwarder(mtu, logger),
+		udpForwarder: newUDPForwarder(mtu, logger, flowLogger),
 		ctx:          ctx,
 		cancel:       cancel,
 		netstack:     netstack,
-		ip:           iface.Address().IP,
+		ip:           tcpip.AddrFromSlice(iface.Address().IP.AsSlice()),
 	}
 
 	receiveWindow := defaultReceiveWindow
@@ -159,8 +166,39 @@ func (f *Forwarder) Stop() {
 }
 
 func (f *Forwarder) determineDialAddr(addr tcpip.Address) net.IP {
-	if f.netstack && f.ip.Equal(addr.AsSlice()) {
+	if f.netstack && f.ip.Equal(addr) {
 		return net.IPv4(127, 0, 0, 1)
 	}
 	return addr.AsSlice()
+}
+
+func (f *Forwarder) RegisterRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, ruleID []byte) {
+	key := buildKey(srcIP, dstIP, srcPort, dstPort)
+	f.ruleIdMap.LoadOrStore(key, ruleID)
+}
+
+func (f *Forwarder) getRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) ([]byte, bool) {
+	if value, ok := f.ruleIdMap.Load(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
+		return value.([]byte), true
+	} else if value, ok := f.ruleIdMap.Load(buildKey(dstIP, srcIP, dstPort, srcPort)); ok {
+		return value.([]byte), true
+	}
+
+	return nil, false
+}
+
+func (f *Forwarder) DeleteRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) {
+	if _, ok := f.ruleIdMap.LoadAndDelete(buildKey(srcIP, dstIP, srcPort, dstPort)); ok {
+		return
+	}
+	f.ruleIdMap.LoadAndDelete(buildKey(dstIP, srcIP, dstPort, srcPort))
+}
+
+func buildKey(srcIP, dstIP netip.Addr, srcPort, dstPort uint16) conntrack.ConnKey {
+	return conntrack.ConnKey{
+		SrcIP:   srcIP,
+		DstIP:   dstIP,
+		SrcPort: srcPort,
+		DstPort: dstPort,
+	}
 }

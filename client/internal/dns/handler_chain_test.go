@@ -1,7 +1,6 @@
 package dns_test
 
 import (
-	"net"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -9,6 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/dns/test"
 )
 
 // TestHandlerChain_ServeDNS_Priorities tests that handlers are executed in priority order
@@ -22,7 +22,7 @@ func TestHandlerChain_ServeDNS_Priorities(t *testing.T) {
 
 	// Setup handlers with different priorities
 	chain.AddHandler("example.com.", defaultHandler, nbdns.PriorityDefault)
-	chain.AddHandler("example.com.", matchDomainHandler, nbdns.PriorityMatchDomain)
+	chain.AddHandler("example.com.", matchDomainHandler, nbdns.PriorityUpstream)
 	chain.AddHandler("example.com.", dnsRouteHandler, nbdns.PriorityDNSRoute)
 
 	// Create test request
@@ -30,7 +30,7 @@ func TestHandlerChain_ServeDNS_Priorities(t *testing.T) {
 	r.SetQuestion("example.com.", dns.TypeA)
 
 	// Create test writer
-	w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 	// Setup expectations - only highest priority handler should be called
 	dnsRouteHandler.On("ServeDNS", mock.Anything, r).Once()
@@ -142,7 +142,7 @@ func TestHandlerChain_ServeDNS_DomainMatching(t *testing.T) {
 
 			r := new(dns.Msg)
 			r.SetQuestion(tt.queryDomain, dns.TypeA)
-			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			chain.ServeDNS(w, r)
 
@@ -200,7 +200,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 				priority int
 			}{
 				{pattern: "*.example.com.", priority: nbdns.PriorityDefault},
-				{pattern: "*.example.com.", priority: nbdns.PriorityMatchDomain},
+				{pattern: "*.example.com.", priority: nbdns.PriorityUpstream},
 				{pattern: "*.example.com.", priority: nbdns.PriorityDNSRoute},
 			},
 			queryDomain:     "test.example.com.",
@@ -214,7 +214,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 				priority int
 			}{
 				{pattern: "*.example.com.", priority: nbdns.PriorityDefault},
-				{pattern: "test.example.com.", priority: nbdns.PriorityMatchDomain},
+				{pattern: "test.example.com.", priority: nbdns.PriorityUpstream},
 				{pattern: "*.test.example.com.", priority: nbdns.PriorityDNSRoute},
 			},
 			queryDomain:     "sub.test.example.com.",
@@ -259,7 +259,7 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 			// Create and execute request
 			r := new(dns.Msg)
 			r.SetQuestion(tt.queryDomain, dns.TypeA)
-			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 			chain.ServeDNS(w, r)
 
 			// Verify expectations
@@ -281,7 +281,7 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 
 	// Add handlers in priority order
 	chain.AddHandler("example.com.", handler1, nbdns.PriorityDNSRoute)
-	chain.AddHandler("example.com.", handler2, nbdns.PriorityMatchDomain)
+	chain.AddHandler("example.com.", handler2, nbdns.PriorityUpstream)
 	chain.AddHandler("example.com.", handler3, nbdns.PriorityDefault)
 
 	// Create test request
@@ -316,7 +316,7 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 	}).Once()
 
 	// Execute
-	w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	chain.ServeDNS(w, r)
 
 	// Verify all handlers were called in order
@@ -324,20 +324,6 @@ func TestHandlerChain_ServeDNS_ChainContinuation(t *testing.T) {
 	handler2.AssertExpectations(t)
 	handler3.AssertExpectations(t)
 }
-
-// mockResponseWriter implements dns.ResponseWriter for testing
-type mockResponseWriter struct {
-	mock.Mock
-}
-
-func (m *mockResponseWriter) LocalAddr() net.Addr       { return nil }
-func (m *mockResponseWriter) RemoteAddr() net.Addr      { return nil }
-func (m *mockResponseWriter) WriteMsg(*dns.Msg) error   { return nil }
-func (m *mockResponseWriter) Write([]byte) (int, error) { return 0, nil }
-func (m *mockResponseWriter) Close() error              { return nil }
-func (m *mockResponseWriter) TsigStatus() error         { return nil }
-func (m *mockResponseWriter) TsigTimersOnly(bool)       {}
-func (m *mockResponseWriter) Hijack()                   {}
 
 func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 	tests := []struct {
@@ -358,13 +344,13 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 				priority int
 			}{
 				{"add", "example.com.", nbdns.PriorityDNSRoute},
-				{"add", "example.com.", nbdns.PriorityMatchDomain},
+				{"add", "example.com.", nbdns.PriorityUpstream},
 				{"remove", "example.com.", nbdns.PriorityDNSRoute},
 			},
 			query: "example.com.",
 			expectedCalls: map[int]bool{
-				nbdns.PriorityDNSRoute:    false,
-				nbdns.PriorityMatchDomain: true,
+				nbdns.PriorityDNSRoute: false,
+				nbdns.PriorityUpstream: true,
 			},
 		},
 		{
@@ -375,13 +361,13 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 				priority int
 			}{
 				{"add", "example.com.", nbdns.PriorityDNSRoute},
-				{"add", "example.com.", nbdns.PriorityMatchDomain},
-				{"remove", "example.com.", nbdns.PriorityMatchDomain},
+				{"add", "example.com.", nbdns.PriorityUpstream},
+				{"remove", "example.com.", nbdns.PriorityUpstream},
 			},
 			query: "example.com.",
 			expectedCalls: map[int]bool{
-				nbdns.PriorityDNSRoute:    true,
-				nbdns.PriorityMatchDomain: false,
+				nbdns.PriorityDNSRoute: true,
+				nbdns.PriorityUpstream: false,
 			},
 		},
 		{
@@ -392,16 +378,16 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 				priority int
 			}{
 				{"add", "example.com.", nbdns.PriorityDNSRoute},
-				{"add", "example.com.", nbdns.PriorityMatchDomain},
+				{"add", "example.com.", nbdns.PriorityUpstream},
 				{"add", "example.com.", nbdns.PriorityDefault},
 				{"remove", "example.com.", nbdns.PriorityDNSRoute},
-				{"remove", "example.com.", nbdns.PriorityMatchDomain},
+				{"remove", "example.com.", nbdns.PriorityUpstream},
 			},
 			query: "example.com.",
 			expectedCalls: map[int]bool{
-				nbdns.PriorityDNSRoute:    false,
-				nbdns.PriorityMatchDomain: false,
-				nbdns.PriorityDefault:     true,
+				nbdns.PriorityDNSRoute: false,
+				nbdns.PriorityUpstream: false,
+				nbdns.PriorityDefault:  true,
 			},
 		},
 	}
@@ -425,7 +411,7 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 			// Create test request
 			r := new(dns.Msg)
 			r.SetQuestion(tt.query, dns.TypeA)
-			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			// Setup expectations
 			for priority, handler := range handlers {
@@ -442,14 +428,6 @@ func TestHandlerChain_PriorityDeregistration(t *testing.T) {
 			// Verify expectations
 			for _, handler := range handlers {
 				handler.AssertExpectations(t)
-			}
-
-			// Verify handler exists check
-			for priority, shouldExist := range tt.expectedCalls {
-				if shouldExist {
-					assert.True(t, chain.HasHandlers(tt.ops[0].pattern),
-						"Handler chain should have handlers for pattern after removing priority %d", priority)
-				}
 			}
 		})
 	}
@@ -470,45 +448,69 @@ func TestHandlerChain_MultiPriorityHandling(t *testing.T) {
 	r := new(dns.Msg)
 	r.SetQuestion(testQuery, dns.TypeA)
 
+	// Keep track of mocks for the final assertion in Step 4
+	mocks := []*nbdns.MockSubdomainHandler{routeHandler, matchHandler, defaultHandler}
+
 	// Add handlers in mixed order
 	chain.AddHandler(testDomain, defaultHandler, nbdns.PriorityDefault)
 	chain.AddHandler(testDomain, routeHandler, nbdns.PriorityDNSRoute)
-	chain.AddHandler(testDomain, matchHandler, nbdns.PriorityMatchDomain)
+	chain.AddHandler(testDomain, matchHandler, nbdns.PriorityUpstream)
 
-	// Test 1: Initial state with all three handlers
-	w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	// Test 1: Initial state
+	w1 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	// Highest priority handler (routeHandler) should be called
 	routeHandler.On("ServeDNS", mock.Anything, r).Return().Once()
+	matchHandler.On("ServeDNS", mock.Anything, r).Maybe()   // Ensure others are not expected yet
+	defaultHandler.On("ServeDNS", mock.Anything, r).Maybe() // Ensure others are not expected yet
 
-	chain.ServeDNS(w, r)
+	chain.ServeDNS(w1, r)
 	routeHandler.AssertExpectations(t)
+
+	routeHandler.ExpectedCalls = nil
+	routeHandler.Calls = nil
+	matchHandler.ExpectedCalls = nil
+	matchHandler.Calls = nil
+	defaultHandler.ExpectedCalls = nil
+	defaultHandler.Calls = nil
 
 	// Test 2: Remove highest priority handler
 	chain.RemoveHandler(testDomain, nbdns.PriorityDNSRoute)
-	assert.True(t, chain.HasHandlers(testDomain))
 
-	w = &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	w2 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	// Now middle priority handler (matchHandler) should be called
 	matchHandler.On("ServeDNS", mock.Anything, r).Return().Once()
+	defaultHandler.On("ServeDNS", mock.Anything, r).Maybe() // Ensure default is not expected yet
 
-	chain.ServeDNS(w, r)
+	chain.ServeDNS(w2, r)
 	matchHandler.AssertExpectations(t)
 
-	// Test 3: Remove middle priority handler
-	chain.RemoveHandler(testDomain, nbdns.PriorityMatchDomain)
-	assert.True(t, chain.HasHandlers(testDomain))
+	matchHandler.ExpectedCalls = nil
+	matchHandler.Calls = nil
+	defaultHandler.ExpectedCalls = nil
+	defaultHandler.Calls = nil
 
-	w = &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+	// Test 3: Remove middle priority handler
+	chain.RemoveHandler(testDomain, nbdns.PriorityUpstream)
+
+	w3 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 	// Now lowest priority handler (defaultHandler) should be called
 	defaultHandler.On("ServeDNS", mock.Anything, r).Return().Once()
 
-	chain.ServeDNS(w, r)
+	chain.ServeDNS(w3, r)
 	defaultHandler.AssertExpectations(t)
+
+	defaultHandler.ExpectedCalls = nil
+	defaultHandler.Calls = nil
 
 	// Test 4: Remove last handler
 	chain.RemoveHandler(testDomain, nbdns.PriorityDefault)
 
-	assert.False(t, chain.HasHandlers(testDomain))
+	w4 := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
+	chain.ServeDNS(w4, r) // Call ServeDNS on the now empty chain for this domain
+
+	for _, m := range mocks {
+		m.AssertNumberOfCalls(t, "ServeDNS", 0)
+	}
 }
 
 func TestHandlerChain_CaseSensitivity(t *testing.T) {
@@ -605,7 +607,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 				shouldMatch bool
 			}{
 				{"EXAMPLE.COM.", nbdns.PriorityDefault, false, false},
-				{"example.com.", nbdns.PriorityMatchDomain, false, false},
+				{"example.com.", nbdns.PriorityUpstream, false, false},
 				{"Example.Com.", nbdns.PriorityDNSRoute, false, true},
 			},
 			query:         "example.com.",
@@ -659,7 +661,7 @@ func TestHandlerChain_CaseSensitivity(t *testing.T) {
 			// Execute request
 			r := new(dns.Msg)
 			r.SetQuestion(tt.query, dns.TypeA)
-			chain.ServeDNS(&mockResponseWriter{}, r)
+			chain.ServeDNS(&test.MockResponseWriter{}, r)
 
 			// Verify each handler was called exactly as expected
 			for _, h := range tt.addHandlers {
@@ -700,8 +702,8 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, false},
+				{"add", "example.com.", nbdns.PriorityUpstream, true},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, false},
 			},
 			query:         "sub.example.com.",
 			expectedMatch: "sub.example.com.",
@@ -715,8 +717,8 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, true},
+				{"add", "example.com.", nbdns.PriorityUpstream, true},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, true},
 			},
 			query:         "sub.example.com.",
 			expectedMatch: "sub.example.com.",
@@ -730,10 +732,10 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "test.sub.example.com.", nbdns.PriorityMatchDomain, false},
-				{"remove", "test.sub.example.com.", nbdns.PriorityMatchDomain, false},
+				{"add", "example.com.", nbdns.PriorityUpstream, true},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, true},
+				{"add", "test.sub.example.com.", nbdns.PriorityUpstream, false},
+				{"remove", "test.sub.example.com.", nbdns.PriorityUpstream, false},
 			},
 			query:         "test.sub.example.com.",
 			expectedMatch: "sub.example.com.",
@@ -747,7 +749,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, false},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, false},
 				{"add", "example.com.", nbdns.PriorityDNSRoute, true},
 			},
 			query:         "sub.example.com.",
@@ -762,9 +764,9 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				priority  int
 				subdomain bool
 			}{
-				{"add", "example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "other.example.com.", nbdns.PriorityMatchDomain, true},
-				{"add", "sub.example.com.", nbdns.PriorityMatchDomain, false},
+				{"add", "example.com.", nbdns.PriorityUpstream, true},
+				{"add", "other.example.com.", nbdns.PriorityUpstream, true},
+				{"add", "sub.example.com.", nbdns.PriorityUpstream, false},
 			},
 			query:         "sub.example.com.",
 			expectedMatch: "sub.example.com.",
@@ -803,7 +805,7 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 
 			r := new(dns.Msg)
 			r.SetQuestion(tt.query, dns.TypeA)
-			w := &nbdns.ResponseWriterChain{ResponseWriter: &mockResponseWriter{}}
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
 
 			// Setup handler expectations
 			for pattern, handler := range handlers {
@@ -826,6 +828,168 @@ func TestHandlerChain_DomainSpecificityOrdering(t *testing.T) {
 				} else {
 					handler.AssertNumberOfCalls(t, "ServeDNS", 0)
 				}
+			}
+		})
+	}
+}
+
+func TestHandlerChain_AddRemoveRoundtrip(t *testing.T) {
+	tests := []struct {
+		name            string
+		addPattern      string
+		removePattern   string
+		queryPattern    string
+		shouldBeRemoved bool
+		description     string
+	}{
+		{
+			name:            "exact same pattern",
+			addPattern:      "example.com.",
+			removePattern:   "example.com.",
+			queryPattern:    "example.com.",
+			shouldBeRemoved: true,
+			description:     "Adding and removing with identical patterns",
+		},
+		{
+			name:            "case difference",
+			addPattern:      "Example.Com.",
+			removePattern:   "EXAMPLE.COM.",
+			queryPattern:    "example.com.",
+			shouldBeRemoved: true,
+			description:     "Adding with mixed case, removing with uppercase",
+		},
+		{
+			name:            "reversed case difference",
+			addPattern:      "EXAMPLE.ORG.",
+			removePattern:   "example.org.",
+			queryPattern:    "example.org.",
+			shouldBeRemoved: true,
+			description:     "Adding with uppercase, removing with lowercase",
+		},
+		{
+			name:            "add wildcard, remove wildcard",
+			addPattern:      "*.example.com.",
+			removePattern:   "*.example.com.",
+			queryPattern:    "sub.example.com.",
+			shouldBeRemoved: true,
+			description:     "Adding and removing with identical wildcard patterns",
+		},
+		{
+			name:            "add wildcard, remove transformed pattern",
+			addPattern:      "*.example.net.",
+			removePattern:   "example.net.",
+			queryPattern:    "sub.example.net.",
+			shouldBeRemoved: false,
+			description:     "Adding with wildcard, removing with non-wildcard pattern",
+		},
+		{
+			name:            "add transformed pattern, remove wildcard",
+			addPattern:      "example.io.",
+			removePattern:   "*.example.io.",
+			queryPattern:    "example.io.",
+			shouldBeRemoved: false,
+			description:     "Adding with non-wildcard pattern, removing with wildcard pattern",
+		},
+		{
+			name:            "trailing dot difference",
+			addPattern:      "example.dev",
+			removePattern:   "example.dev.",
+			queryPattern:    "example.dev.",
+			shouldBeRemoved: true,
+			description:     "Adding without trailing dot, removing with trailing dot",
+		},
+		{
+			name:            "reversed trailing dot difference",
+			addPattern:      "example.app.",
+			removePattern:   "example.app",
+			queryPattern:    "example.app.",
+			shouldBeRemoved: true,
+			description:     "Adding with trailing dot, removing without trailing dot",
+		},
+		{
+			name:            "mixed case and wildcard",
+			addPattern:      "*.Example.Site.",
+			removePattern:   "*.EXAMPLE.SITE.",
+			queryPattern:    "sub.example.site.",
+			shouldBeRemoved: true,
+			description:     "Adding mixed case wildcard, removing uppercase wildcard",
+		},
+		{
+			name:            "root zone",
+			addPattern:      ".",
+			removePattern:   ".",
+			queryPattern:    "random.domain.",
+			shouldBeRemoved: true,
+			description:     "Adding and removing root zone",
+		},
+		{
+			name:            "wrong domain",
+			addPattern:      "example.com.",
+			removePattern:   "different.com.",
+			queryPattern:    "example.com.",
+			shouldBeRemoved: false,
+			description:     "Adding one domain, trying to remove a different domain",
+		},
+		{
+			name:            "subdomain mismatch",
+			addPattern:      "sub.example.com.",
+			removePattern:   "example.com.",
+			queryPattern:    "sub.example.com.",
+			shouldBeRemoved: false,
+			description:     "Adding subdomain, trying to remove parent domain",
+		},
+		{
+			name:            "parent domain mismatch",
+			addPattern:      "example.com.",
+			removePattern:   "sub.example.com.",
+			queryPattern:    "example.com.",
+			shouldBeRemoved: false,
+			description:     "Adding parent domain, trying to remove subdomain",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chain := nbdns.NewHandlerChain()
+
+			handler := &nbdns.MockHandler{}
+			r := new(dns.Msg)
+			r.SetQuestion(tt.queryPattern, dns.TypeA)
+			w := &nbdns.ResponseWriterChain{ResponseWriter: &test.MockResponseWriter{}}
+
+			// First verify no handler is called before adding any
+			chain.ServeDNS(w, r)
+			handler.AssertNotCalled(t, "ServeDNS")
+
+			// Add handler
+			chain.AddHandler(tt.addPattern, handler, nbdns.PriorityDefault)
+
+			// Verify handler is called after adding
+			handler.On("ServeDNS", mock.Anything, r).Once()
+			chain.ServeDNS(w, r)
+			handler.AssertExpectations(t)
+
+			// Reset mock for the next test
+			handler.ExpectedCalls = nil
+
+			// Remove handler
+			chain.RemoveHandler(tt.removePattern, nbdns.PriorityDefault)
+
+			// Set up expectations based on whether removal should succeed
+			if !tt.shouldBeRemoved {
+				handler.On("ServeDNS", mock.Anything, r).Once()
+			}
+
+			// Test if handler is still called after removal attempt
+			chain.ServeDNS(w, r)
+
+			if tt.shouldBeRemoved {
+				handler.AssertNotCalled(t, "ServeDNS",
+					"Handler should not be called after successful removal with pattern %q",
+					tt.removePattern)
+			} else {
+				handler.AssertExpectations(t)
+				handler.ExpectedCalls = nil
 			}
 		})
 	}

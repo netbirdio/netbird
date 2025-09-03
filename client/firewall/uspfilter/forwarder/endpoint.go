@@ -1,6 +1,8 @@
 package forwarder
 
 import (
+	"fmt"
+
 	wgdevice "golang.zx2c4.com/wireguard/device"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -55,7 +57,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		address := netHeader.DestinationAddress()
 		err := e.device.CreateOutboundPacket(data.AsSlice(), address.AsSlice())
 		if err != nil {
-			e.logger.Error("CreateOutboundPacket: %v", err)
+			e.logger.Error1("CreateOutboundPacket: %v", err)
 			continue
 		}
 		written++
@@ -78,4 +80,11 @@ func (e *endpoint) AddHeader(*stack.PacketBuffer) {
 
 func (e *endpoint) ParseHeader(*stack.PacketBuffer) bool {
 	return true
+}
+
+type epID stack.TransportEndpointID
+
+func (i epID) String() string {
+	// src and remote is swapped
+	return fmt.Sprintf("%s:%d → %s:%d", i.RemoteAddress, i.RemotePort, i.LocalAddress, i.LocalPort)
 }

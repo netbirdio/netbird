@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -80,24 +81,27 @@ type NsServerGroupStateOutput struct {
 }
 
 type OutputOverview struct {
-	Peers               PeersStateOutput           `json:"peers" yaml:"peers"`
-	CliVersion          string                     `json:"cliVersion" yaml:"cliVersion"`
-	DaemonVersion       string                     `json:"daemonVersion" yaml:"daemonVersion"`
-	ManagementState     ManagementStateOutput      `json:"management" yaml:"management"`
-	SignalState         SignalStateOutput          `json:"signal" yaml:"signal"`
-	Relays              RelayStateOutput           `json:"relays" yaml:"relays"`
-	IP                  string                     `json:"netbirdIp" yaml:"netbirdIp"`
-	PubKey              string                     `json:"publicKey" yaml:"publicKey"`
-	KernelInterface     bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
-	FQDN                string                     `json:"fqdn" yaml:"fqdn"`
-	RosenpassEnabled    bool                       `json:"quantumResistance" yaml:"quantumResistance"`
-	RosenpassPermissive bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
-	Networks            []string                   `json:"networks" yaml:"networks"`
-	NSServerGroups      []NsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
-	Events              []SystemEventOutput        `json:"events" yaml:"events"`
+	Peers                   PeersStateOutput           `json:"peers" yaml:"peers"`
+	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
+	DaemonVersion           string                     `json:"daemonVersion" yaml:"daemonVersion"`
+	ManagementState         ManagementStateOutput      `json:"management" yaml:"management"`
+	SignalState             SignalStateOutput          `json:"signal" yaml:"signal"`
+	Relays                  RelayStateOutput           `json:"relays" yaml:"relays"`
+	IP                      string                     `json:"netbirdIp" yaml:"netbirdIp"`
+	PubKey                  string                     `json:"publicKey" yaml:"publicKey"`
+	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
+	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
+	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
+	Networks                []string                   `json:"networks" yaml:"networks"`
+	NumberOfForwardingRules int                        `json:"forwardingRules" yaml:"forwardingRules"`
+	NSServerGroups          []NsServerGroupStateOutput `json:"dnsServers" yaml:"dnsServers"`
+	Events                  []SystemEventOutput        `json:"events" yaml:"events"`
+	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
+	ProfileName             string                     `json:"profileName" yaml:"profileName"`
 }
 
-func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}) OutputOverview {
+func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string, profName string) OutputOverview {
 	pbFullStatus := resp.GetFullStatus()
 
 	managementState := pbFullStatus.GetManagementState()
@@ -115,24 +119,27 @@ func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, status
 	}
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
-	peersOverview := mapPeers(resp.GetFullStatus().GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter)
+	peersOverview := mapPeers(resp.GetFullStatus().GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
 
 	overview := OutputOverview{
-		Peers:               peersOverview,
-		CliVersion:          version.NetbirdVersion(),
-		DaemonVersion:       resp.GetDaemonVersion(),
-		ManagementState:     managementOverview,
-		SignalState:         signalOverview,
-		Relays:              relayOverview,
-		IP:                  pbFullStatus.GetLocalPeerState().GetIP(),
-		PubKey:              pbFullStatus.GetLocalPeerState().GetPubKey(),
-		KernelInterface:     pbFullStatus.GetLocalPeerState().GetKernelInterface(),
-		FQDN:                pbFullStatus.GetLocalPeerState().GetFqdn(),
-		RosenpassEnabled:    pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
-		RosenpassPermissive: pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
-		Networks:            pbFullStatus.GetLocalPeerState().GetNetworks(),
-		NSServerGroups:      mapNSGroups(pbFullStatus.GetDnsServers()),
-		Events:              mapEvents(pbFullStatus.GetEvents()),
+		Peers:                   peersOverview,
+		CliVersion:              version.NetbirdVersion(),
+		DaemonVersion:           resp.GetDaemonVersion(),
+		ManagementState:         managementOverview,
+		SignalState:             signalOverview,
+		Relays:                  relayOverview,
+		IP:                      pbFullStatus.GetLocalPeerState().GetIP(),
+		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
+		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
+		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
+		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
+		Networks:                pbFullStatus.GetLocalPeerState().GetNetworks(),
+		NumberOfForwardingRules: int(pbFullStatus.GetNumberOfForwardingRules()),
+		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
+		Events:                  mapEvents(pbFullStatus.GetEvents()),
+		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
+		ProfileName:             profName,
 	}
 
 	if anon {
@@ -188,6 +195,7 @@ func mapPeers(
 	prefixNamesFilter []string,
 	prefixNamesFilterMap map[string]struct{},
 	ipsFilter map[string]struct{},
+	connectionTypeFilter string,
 ) PeersStateOutput {
 	var peersStateDetail []PeerStateDetailOutput
 	peersConnected := 0
@@ -197,13 +205,18 @@ func mapPeers(
 		localICEEndpoint := ""
 		remoteICEEndpoint := ""
 		relayServerAddress := ""
-		connType := ""
+		connType := "P2P"
 		lastHandshake := time.Time{}
 		transferReceived := int64(0)
 		transferSent := int64(0)
 
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
-		if skipDetailByFilters(pbPeerState, isPeerConnected, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter) {
+
+		if pbPeerState.Relayed {
+			connType = "Relayed"
+		}
+
+		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter, connType) {
 			continue
 		}
 		if isPeerConnected {
@@ -213,10 +226,6 @@ func mapPeers(
 			remoteICE = pbPeerState.GetRemoteIceCandidateType()
 			localICEEndpoint = pbPeerState.GetLocalIceCandidateEndpoint()
 			remoteICEEndpoint = pbPeerState.GetRemoteIceCandidateEndpoint()
-			connType = "P2P"
-			if pbPeerState.Relayed {
-				connType = "Relayed"
-			}
 			relayServerAddress = pbPeerState.GetRelayAddress()
 			lastHandshake = pbPeerState.GetLastWireguardHandshake().AsTime().Local()
 			transferReceived = pbPeerState.GetBytesRx()
@@ -381,6 +390,11 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		}
 	}
 
+	lazyConnectionEnabledStatus := "false"
+	if overview.LazyConnectionEnabled {
+		lazyConnectionEnabledStatus = "true"
+	}
+
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
 	goos := runtime.GOOS
@@ -394,6 +408,7 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		"OS: %s\n"+
 			"Daemon version: %s\n"+
 			"CLI version: %s\n"+
+			"Profile: %s\n"+
 			"Management: %s\n"+
 			"Signal: %s\n"+
 			"Relays: %s\n"+
@@ -402,20 +417,25 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
+			"Lazy connection: %s\n"+
 			"Networks: %s\n"+
+			"Forwarding rules: %d\n"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
 		overview.DaemonVersion,
 		version.NetbirdVersion(),
+		overview.ProfileName,
 		managementConnString,
 		signalConnString,
 		relaysString,
 		dnsServersString,
-		overview.FQDN,
+		domain.Domain(overview.FQDN).SafeString(),
 		interfaceIP,
 		interfaceTypeString,
 		rosenpassEnabledStatus,
+		lazyConnectionEnabledStatus,
 		networks,
+		overview.NumberOfForwardingRules,
 		peersCountString,
 	)
 	return summary
@@ -504,7 +524,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Quantum resistance: %s\n"+
 				"  Networks: %s\n"+
 				"  Latency: %s\n",
-			peerState.FQDN,
+			domain.Domain(peerState.FQDN).SafeString(),
 			peerState.IP,
 			peerState.PubKey,
 			peerState.Status,
@@ -528,23 +548,14 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 	return peersString
 }
 
-func skipDetailByFilters(
-	peerState *proto.PeerState,
-	isConnected bool,
-	statusFilter string,
-	prefixNamesFilter []string,
-	prefixNamesFilterMap map[string]struct{},
-	ipsFilter map[string]struct{},
-) bool {
+func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter, connType string) bool {
 	statusEval := false
 	ipEval := false
 	nameEval := true
+	connectionTypeEval := false
 
 	if statusFilter != "" {
-		lowerStatusFilter := strings.ToLower(statusFilter)
-		if lowerStatusFilter == "disconnected" && isConnected {
-			statusEval = true
-		} else if lowerStatusFilter == "connected" && !isConnected {
+		if !strings.EqualFold(peerStatus, statusFilter) {
 			statusEval = true
 		}
 	}
@@ -566,8 +577,11 @@ func skipDetailByFilters(
 	} else {
 		nameEval = false
 	}
+	if connectionTypeFilter != "" && !strings.EqualFold(connType, connectionTypeFilter) {
+		connectionTypeEval = true
+	}
 
-	return statusEval || ipEval || nameEval
+	return statusEval || ipEval || nameEval || connectionTypeEval
 }
 
 func toIEC(b int64) string {

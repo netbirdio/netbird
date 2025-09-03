@@ -5,7 +5,7 @@ on:
     tags:
       - 'v*'
     paths:
-      - 'management/server/http/api/openapi.yml'
+      - 'shared/management/http/api/openapi.yml'
 
 jobs:
   trigger_docs_api_update:

@@ -3,6 +3,7 @@ package dns
 import (
 	"context"
 	"net"
+	"net/netip"
 	"syscall"
 	"time"
 
@@ -23,8 +24,8 @@ type upstreamResolver struct {
 func newUpstreamResolver(
 	ctx context.Context,
 	_ string,
-	_ net.IP,
-	_ *net.IPNet,
+	_ netip.Addr,
+	_ netip.Prefix,
 	statusRecorder *peer.Status,
 	hostsDNSHolder *hostsDNSHolder,
 	domain string,
@@ -49,13 +50,15 @@ func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns
 }
 
 func (u *upstreamResolver) exchangeWithinVPN(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	upstreamExchangeClient := &dns.Client{}
+	upstreamExchangeClient := &dns.Client{
+		Timeout: ClientTimeout,
+	}
 	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
 }
 
 // exchangeWithoutVPN protect the UDP socket by Android SDK to avoid to goes through the VPN
 func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	timeout := upstreamTimeout
+	timeout := UpstreamTimeout
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout = time.Until(deadline)
 	}
@@ -71,15 +74,23 @@ func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream stri
 	}
 
 	upstreamExchangeClient := &dns.Client{
-		Dialer: dialer,
+		Dialer:  dialer,
+		Timeout: timeout,
 	}
 
-	return upstreamExchangeClient.Exchange(r, upstream)
+	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
 }
 
 func (u *upstreamResolver) isLocalResolver(upstream string) bool {
-	if u.hostsDNSHolder.isContain(upstream) {
-		return true
+	if addrPort, err := netip.ParseAddrPort(upstream); err == nil {
+		return u.hostsDNSHolder.contains(addrPort)
 	}
 	return false
+}
+
+func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {
+	return &dns.Client{
+		Timeout: dialTimeout,
+		Net:     "udp",
+	}, nil
 }

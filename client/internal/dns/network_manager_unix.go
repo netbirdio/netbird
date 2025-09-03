@@ -13,7 +13,6 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/hashicorp/go-version"
-	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -111,11 +110,7 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, st
 
 	connSettings.cleanDeprecatedSettings()
 
-	dnsIP, err := netip.ParseAddr(config.ServerIP)
-	if err != nil {
-		return fmt.Errorf("unable to parse ip address, error: %w", err)
-	}
-	convDNSIP := binary.LittleEndian.Uint32(dnsIP.AsSlice())
+	convDNSIP := binary.LittleEndian.Uint32(config.ServerIP.AsSlice())
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSKey] = dbus.MakeVariant([]uint32{convDNSIP})
 	var (
 		searchDomains []string
@@ -126,10 +121,10 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, st
 			continue
 		}
 		if dConf.MatchOnly {
-			matchDomains = append(matchDomains, "~."+dns.Fqdn(dConf.Domain))
+			matchDomains = append(matchDomains, "~."+dConf.Domain)
 			continue
 		}
-		searchDomains = append(searchDomains, dns.Fqdn(dConf.Domain))
+		searchDomains = append(searchDomains, dConf.Domain)
 	}
 
 	newDomainList := append(searchDomains, matchDomains...) //nolint:gocritic
@@ -250,7 +245,7 @@ func (n *networkManagerDbusConfigurator) deleteConnectionSettings() error {
 	return nil
 }
 
-func (n *networkManagerDbusConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
+func (n *networkManagerDbusConfigurator) restoreUncleanShutdownDNS(netip.Addr) error {
 	if err := n.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via network-manager: %w", err)
 	}

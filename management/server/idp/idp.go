@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -71,6 +72,23 @@ type UserData struct {
 	Name        string      `json:"name"`
 	ID          string      `json:"user_id"`
 	AppMetadata AppMetadata `json:"app_metadata"`
+}
+
+func (u *UserData) MarshalBinary() (data []byte, err error) {
+	return json.Marshal(u)
+}
+
+func (u *UserData) UnmarshalBinary(data []byte) (err error) {
+	return json.Unmarshal(data, &u)
+}
+
+func (u *UserData) Marshal() (data string, err error) {
+	d, err := json.Marshal(u)
+	return string(d), err
+}
+
+func (u *UserData) Unmarshal(data []byte) (err error) {
+	return json.Unmarshal(data, &u)
 }
 
 // AppMetadata user app metadata to associate with a profile

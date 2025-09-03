@@ -6,10 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/management/domain"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // Windows has some limitation regarding metric size that differ from Unix-like systems.
@@ -46,10 +44,16 @@ const (
 	DomainNetwork
 )
 
+// ID is the unique route ID.
 type ID string
 
+// ResID is the resourceID part of a route.ID (first part before the colon).
+type ResID string
+
+// NetID is the route network identifier, a human-readable string.
 type NetID string
 
+// HAMap is a map of HAUniqueID to a list of routes.
 type HAMap map[HAUniqueID][]*Route
 
 // NetworkType route network type
@@ -103,11 +107,17 @@ type Route struct {
 	Enabled             bool
 	Groups              []string `gorm:"serializer:json"`
 	AccessControlGroups []string `gorm:"serializer:json"`
+	// SkipAutoApply indicates if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply bool
 }
 
 // EventMeta returns activity event meta related to the route
 func (r *Route) EventMeta() map[string]any {
-	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": r.Domains.SafeString(), "peer_id": r.Peer, "peer_groups": r.PeerGroups}
+	domains := ""
+	if r.Domains != nil {
+		domains = r.Domains.SafeString()
+	}
+	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "domains": domains, "peer_id": r.Peer, "peer_groups": r.PeerGroups}
 }
 
 // Copy copies a route object
@@ -128,12 +138,13 @@ func (r *Route) Copy() *Route {
 		Enabled:             r.Enabled,
 		Groups:              slices.Clone(r.Groups),
 		AccessControlGroups: slices.Clone(r.AccessControlGroups),
+		SkipAutoApply:       r.SkipAutoApply,
 	}
 	return route
 }
 
-// IsEqual compares one route with the other
-func (r *Route) IsEqual(other *Route) bool {
+// Equal compares one route with the other
+func (r *Route) Equal(other *Route) bool {
 	if r == nil && other == nil {
 		return true
 	} else if r == nil || other == nil {
@@ -154,7 +165,8 @@ func (r *Route) IsEqual(other *Route) bool {
 		other.Enabled == r.Enabled &&
 		slices.Equal(r.Groups, other.Groups) &&
 		slices.Equal(r.PeerGroups, other.PeerGroups) &&
-		slices.Equal(r.AccessControlGroups, other.AccessControlGroups)
+		slices.Equal(r.AccessControlGroups, other.AccessControlGroups) &&
+		other.SkipAutoApply == r.SkipAutoApply
 }
 
 // IsDynamic returns if the route is dynamic, i.e. has domains
@@ -162,21 +174,25 @@ func (r *Route) IsDynamic() bool {
 	return r.NetworkType == DomainNetwork
 }
 
+// GetHAUniqueID returns the HAUniqueID for the route, it can be used for grouping.
 func (r *Route) GetHAUniqueID() HAUniqueID {
-	if r.IsDynamic() {
-		domains, err := r.Domains.String()
-		if err != nil {
-			log.Errorf("Failed to convert domains to string: %v", err)
-			domains = r.Domains.PunycodeString()
-		}
-		return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, domains))
-	}
-	return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, r.Network.String()))
+	return HAUniqueID(fmt.Sprintf("%s%s%s", r.NetID, haSeparator, r.NetString()))
 }
 
-// GetResourceID returns the Networks Resource ID from a route ID
-func (r *Route) GetResourceID() string {
-	return strings.Split(string(r.ID), ":")[0]
+// GetResourceID returns the Networks ResID from the route ID.
+// It's the part before the first colon in the ID string.
+func (r *Route) GetResourceID() ResID {
+	return ResID(strings.Split(string(r.ID), ":")[0])
+}
+
+// NetString returns the network string.
+// If the route is dynamic, it returns the domains as comma-separated punycode-encoded string.
+// If the route is not dynamic, it returns the network (prefix) string.
+func (r *Route) NetString() string {
+	if r.IsDynamic() && r.Domains != nil {
+		return r.Domains.SafeString()
+	}
+	return r.Network.String()
 }
 
 // ParseNetwork Parses a network prefix string and returns a netip.Prefix object and if is invalid, IPv4 or IPv6

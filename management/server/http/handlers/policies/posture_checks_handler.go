@@ -6,33 +6,32 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // postureChecksHandler is a handler that returns posture checks of the account.
 type postureChecksHandler struct {
-	accountManager     server.AccountManager
+	accountManager     account.Manager
 	geolocationManager geolocation.Geolocation
 }
 
-func addPostureCheckEndpoint(accountManager server.AccountManager, locationManager geolocation.Geolocation, router *mux.Router) {
+func AddPostureCheckEndpoints(accountManager account.Manager, locationManager geolocation.Geolocation, router *mux.Router) {
 	postureCheckHandler := newPostureChecksHandler(accountManager, locationManager)
 	router.HandleFunc("/posture-checks", postureCheckHandler.getAllPostureChecks).Methods("GET", "OPTIONS")
 	router.HandleFunc("/posture-checks", postureCheckHandler.createPostureCheck).Methods("POST", "OPTIONS")
 	router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.updatePostureCheck).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.getPostureCheck).Methods("GET", "OPTIONS")
 	router.HandleFunc("/posture-checks/{postureCheckId}", postureCheckHandler.deletePostureCheck).Methods("DELETE", "OPTIONS")
-	addLocationsEndpoint(accountManager, locationManager, router)
 }
 
 // newPostureChecksHandler creates a new PostureChecks handler
-func newPostureChecksHandler(accountManager server.AccountManager, geolocationManager geolocation.Geolocation) *postureChecksHandler {
+func newPostureChecksHandler(accountManager account.Manager, geolocationManager geolocation.Geolocation) *postureChecksHandler {
 	return &postureChecksHandler{
 		accountManager:     accountManager,
 		geolocationManager: geolocationManager,
@@ -85,7 +84,7 @@ func (p *postureChecksHandler) updatePostureCheck(w http.ResponseWriter, r *http
 		return
 	}
 
-	p.savePostureChecks(w, r, accountID, userID, postureChecksID)
+	p.savePostureChecks(w, r, accountID, userID, postureChecksID, false)
 }
 
 // createPostureCheck handles posture check creation request
@@ -98,7 +97,7 @@ func (p *postureChecksHandler) createPostureCheck(w http.ResponseWriter, r *http
 
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
-	p.savePostureChecks(w, r, accountID, userID, "")
+	p.savePostureChecks(w, r, accountID, userID, "", true)
 }
 
 // getPostureCheck handles a posture check Get request identified by ID
@@ -151,7 +150,7 @@ func (p *postureChecksHandler) deletePostureCheck(w http.ResponseWriter, r *http
 }
 
 // savePostureChecks handles posture checks create and update
-func (p *postureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.Request, accountID, userID, postureChecksID string) {
+func (p *postureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.Request, accountID, userID, postureChecksID string, create bool) {
 	var (
 		err error
 		req api.PostureCheckUpdate
@@ -176,7 +175,7 @@ func (p *postureChecksHandler) savePostureChecks(w http.ResponseWriter, r *http.
 		return
 	}
 
-	postureChecks, err = p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks)
+	postureChecks, err = p.accountManager.SavePostureChecks(r.Context(), accountID, userID, postureChecks, create)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

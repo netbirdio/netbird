@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -19,12 +20,17 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/encryption"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -55,7 +61,7 @@ func setupTest(t *testing.T) *testSuite {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
 
-	config := &server.Config{}
+	config := &config.Config{}
 	_, err = util.ReadJson("testdata/management.json", config)
 	if err != nil {
 		t.Fatalf("failed to read management.json: %v", err)
@@ -153,7 +159,7 @@ func createRawClient(t *testing.T, addr string) (mgmtProto.ManagementServiceClie
 
 func startServer(
 	t *testing.T,
-	config *server.Config,
+	config *config.Config,
 	dataDir string,
 	testFile string,
 ) (*grpc.Server, net.Listener) {
@@ -177,6 +183,21 @@ func startServer(
 		t.Fatalf("failed creating metrics: %v", err)
 	}
 
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.
+		EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+	settingsMockManager.
+		EXPECT().
+		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&types.Settings{}, nil).
+		AnyTimes()
+
+	permissionsManager := permissions.NewManager(str)
 	accountManager, err := server.BuildManager(
 		context.Background(),
 		str,
@@ -187,24 +208,29 @@ func startServer(
 		eventStore,
 		nil,
 		false,
-		server.MocIntegratedValidator{},
+		server.MockIntegratedValidator{},
 		metrics,
-	)
+		port_forwarding.NewControllerMock(),
+		settingsMockManager,
+		permissionsManager,
+		false)
 	if err != nil {
 		t.Fatalf("failed creating an account manager: %v", err)
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
+	groupsManager := groups.NewManager(str, permissionsManager, accountManager)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 	mgmtServer, err := server.NewServer(
 		context.Background(),
 		config,
 		accountManager,
-		settings.NewManager(str),
+		settingsMockManager,
 		peersUpdateManager,
 		secretsManager,
 		nil,
 		nil,
 		nil,
+		server.MockIntegratedValidator{},
 	)
 	if err != nil {
 		t.Fatalf("failed creating management server: %v", err)
@@ -281,6 +307,10 @@ func TestSyncNewPeerConfiguration(t *testing.T) {
 		Protocol: mgmtProto.HostConfig_UDP,
 	}
 
+	expectedRelayHost := &mgmtProto.RelayConfig{
+		Urls: []string{"rel://test.com:3535"},
+	}
+
 	assert.NotNil(t, resp.NetbirdConfig)
 	assert.Equal(t, resp.NetbirdConfig.Signal, expectedSignalConfig)
 	assert.Contains(t, resp.NetbirdConfig.Stuns, expectedStunsConfig)
@@ -288,6 +318,8 @@ func TestSyncNewPeerConfiguration(t *testing.T) {
 	actualTURN := resp.NetbirdConfig.Turns[0]
 	assert.Greater(t, len(actualTURN.User), 0)
 	assert.Equal(t, actualTURN.HostConfig, expectedTRUNHost)
+	assert.Equal(t, len(resp.NetbirdConfig.Relay.Urls), 1)
+	assert.Equal(t, resp.NetbirdConfig.Relay.Urls, expectedRelayHost.Urls)
 	assert.Equal(t, len(resp.NetworkMap.OfflinePeers), 0)
 }
 

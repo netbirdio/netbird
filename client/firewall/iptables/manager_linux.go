@@ -13,7 +13,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
@@ -31,7 +31,7 @@ type Manager struct {
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
 	Name() string
-	Address() iface.WGAddress
+	Address() wgaddr.Address
 	IsUserspaceBind() bool
 }
 
@@ -52,7 +52,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		return nil, fmt.Errorf("create router: %w", err)
 	}
 
-	m.aclMgr, err = newAclManager(iptablesClient, wgIface, chainRTFWD)
+	m.aclMgr, err = newAclManager(iptablesClient, wgIface)
 	if err != nil {
 		return nil, fmt.Errorf("create acl manager: %w", err)
 	}
@@ -96,36 +96,36 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 //
 // Comment will be ignored because some system this feature is not supported
 func (m *Manager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
-	protocol firewall.Protocol,
+	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
 	ipsetName string,
-	_ string,
 ) ([]firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.aclMgr.AddPeerFiltering(ip, protocol, sPort, dPort, action, ipsetName)
+	return m.aclMgr.AddPeerFiltering(id, ip, proto, sPort, dPort, action, ipsetName)
 }
 
 func (m *Manager) AddRouteFiltering(
+	id []byte,
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination firewall.Network,
 	proto firewall.Protocol,
-	sPort *firewall.Port,
-	dPort *firewall.Port,
+	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if !destination.Addr().Is4() {
-		return nil, fmt.Errorf("unsupported IP version: %s", destination.Addr().String())
+	if destination.IsPrefix() && !destination.Prefix.Addr().Is4() {
+		return nil, fmt.Errorf("unsupported IP version: %s", destination.Prefix.Addr().String())
 	}
 
-	return m.router.AddRouteFiltering(sources, destination, proto, sPort, dPort, action)
+	return m.router.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 }
 
 // DeletePeerRule from the firewall by rule definition
@@ -144,6 +144,10 @@ func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
 }
 
 func (m *Manager) IsServerRouteSupported() bool {
+	return true
+}
+
+func (m *Manager) IsStateful() bool {
 	return true
 }
 
@@ -166,7 +170,7 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 }
 
 // Reset firewall to the default state
-func (m *Manager) Reset(stateManager *statemanager.Manager) error {
+func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -196,12 +200,12 @@ func (m *Manager) AllowNetbird() error {
 	}
 
 	_, err := m.AddPeerFiltering(
+		nil,
 		net.IP{0, 0, 0, 0},
-		"all",
+		firewall.ProtocolALL,
 		nil,
 		nil,
 		firewall.ActionAccept,
-		"",
 		"",
 	)
 	if err != nil {
@@ -219,11 +223,41 @@ func (m *Manager) SetLogLevel(log.Level) {
 }
 
 func (m *Manager) EnableRouting() error {
+	if err := m.router.ipFwdState.RequestForwarding(); err != nil {
+		return fmt.Errorf("enable IP forwarding: %w", err)
+	}
 	return nil
 }
 
 func (m *Manager) DisableRouting() error {
+	if err := m.router.ipFwdState.ReleaseForwarding(); err != nil {
+		return fmt.Errorf("disable IP forwarding: %w", err)
+	}
 	return nil
+}
+
+// AddDNATRule adds a DNAT rule
+func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddDNATRule(rule)
+}
+
+// DeleteDNATRule deletes a DNAT rule
+func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.DeleteDNATRule(rule)
+}
+
+// UpdateSet updates the set with the given prefixes
+func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.UpdateSet(set, prefixes)
 }
 
 func getConntrackEstablished() []string {

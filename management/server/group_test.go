@@ -2,19 +2,34 @@ package server
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/networks"
+	"github.com/netbirdio/netbird/management/server/networks/resources"
+	"github.com/netbirdio/netbird/management/server/networks/routers"
+	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
+	peer2 "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -33,7 +48,8 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 	}
 	for _, group := range account.Groups {
 		group.Issued = types.GroupIssuedIntegration
-		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group)
+		group.ID = uuid.New().String()
+		err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
 			t.Errorf("should allow to create %s groups", types.GroupIssuedIntegration)
 		}
@@ -41,7 +57,8 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 
 	for _, group := range account.Groups {
 		group.Issued = types.GroupIssuedJWT
-		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group)
+		group.ID = uuid.New().String()
+		err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err != nil {
 			t.Errorf("should allow to create %s groups", types.GroupIssuedJWT)
 		}
@@ -49,7 +66,7 @@ func TestDefaultAccountManager_CreateGroup(t *testing.T) {
 	for _, group := range account.Groups {
 		group.Issued = types.GroupIssuedAPI
 		group.ID = ""
-		err = am.SaveGroup(context.Background(), account.Id, groupAdminUserID, group)
+		err = am.CreateGroup(context.Background(), account.Id, groupAdminUserID, group)
 		if err == nil {
 			t.Errorf("should not create api group with the same name, %s", group.Name)
 		}
@@ -155,7 +172,7 @@ func TestDefaultAccountManager_DeleteGroups(t *testing.T) {
 		}
 	}
 
-	err = manager.SaveGroups(context.Background(), account.Id, groupAdminUserID, groups)
+	err = manager.CreateGroups(context.Background(), account.Id, groupAdminUserID, groups)
 	assert.NoError(t, err, "Failed to save test groups")
 
 	testCases := []struct {
@@ -362,7 +379,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		Id:         "example user",
 		AutoGroups: []string{groupForUsers.ID},
 	}
-	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain)
+	account := newAccountWithId(context.Background(), accountID, groupAdminUserID, domain, false)
 	account.Routes[routeResource.ID] = routeResource
 	account.Routes[routePeerGroupResource.ID] = routePeerGroupResource
 	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup
@@ -375,13 +392,13 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 		return nil, nil, err
 	}
 
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForRoute)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForRoute2)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForNameServerGroups)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForPolicies)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
-	_ = am.SaveGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRoute)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForRoute2)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForNameServerGroups)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForPolicies)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForSetupKeys)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForUsers)
+	_ = am.CreateGroup(context.Background(), accountID, groupAdminUserID, groupForIntegration)
 
 	acc, err := am.Store.GetAccount(context.Background(), account.Id)
 	if err != nil {
@@ -393,7 +410,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*DefaultAccountManager, *t
 func TestGroupAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	g := []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -414,8 +431,16 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupD",
 			Peers: []string{},
 		},
-	})
-	assert.NoError(t, err)
+		{
+			ID:    "groupE",
+			Name:  "GroupE",
+			Peers: []string{peer2.ID},
+		},
+	}
+	for _, group := range g {
+		err := manager.CreateGroup(context.Background(), account.Id, userID, group)
+		assert.NoError(t, err)
+	}
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
@@ -430,7 +455,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupB",
 			Name:  "GroupB",
 			Peers: []string{peer1.ID, peer2.ID},
@@ -501,7 +526,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	})
 
 	// adding a group to policy
-	_, err = manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
+	_, err := manager.SavePolicy(context.Background(), account.Id, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
 			{
@@ -512,7 +537,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 				Action:        types.PolicyTrafficActionAccept,
 			},
 		},
-	})
+	}, true)
 	assert.NoError(t, err)
 
 	// Saving a group linked to policy should update account peers and send peer update
@@ -523,7 +548,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID},
@@ -592,7 +617,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err := manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err := manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupC",
 			Name:  "GroupC",
 			Peers: []string{peer1.ID, peer3.ID},
@@ -623,7 +648,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		_, err := manager.CreateRoute(
 			context.Background(), account.Id, newRoute.Network, newRoute.NetworkType, newRoute.Domains, newRoute.Peer,
 			newRoute.PeerGroups, newRoute.Description, newRoute.NetID, newRoute.Masquerade, newRoute.Metric,
-			newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute,
+			newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute, newRoute.SkipAutoApply,
 		)
 		require.NoError(t, err)
 
@@ -633,7 +658,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
@@ -660,7 +685,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupD",
 			Name:  "GroupD",
 			Peers: []string{peer1.ID},
@@ -673,4 +698,307 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
+
+	// Saving a group linked to network router should update account peers and send peer update
+	t.Run("saving group linked to network router", func(t *testing.T) {
+		permissionsManager := permissions.NewManager(manager.Store)
+		groupsManager := groups.NewManager(manager.Store, permissionsManager, manager)
+		resourcesManager := resources.NewManager(manager.Store, permissionsManager, groupsManager, manager)
+		routersManager := routers.NewManager(manager.Store, permissionsManager, manager)
+		networksManager := networks.NewManager(manager.Store, permissionsManager, resourcesManager, routersManager, manager)
+
+		network, err := networksManager.CreateNetwork(context.Background(), userID, &networkTypes.Network{
+			ID:          "network_test",
+			AccountID:   account.Id,
+			Name:        "network_test",
+			Description: "",
+		})
+		require.NoError(t, err)
+
+		_, err = routersManager.CreateRouter(context.Background(), userID, &routerTypes.NetworkRouter{
+			ID:         "router_test",
+			NetworkID:  network.ID,
+			AccountID:  account.Id,
+			PeerGroups: []string{"groupE"},
+			Masquerade: true,
+			Metric:     9999,
+			Enabled:    true,
+		})
+		require.NoError(t, err)
+
+		done := make(chan struct{})
+		go func() {
+			peerShouldReceiveUpdate(t, updMsg)
+			close(done)
+		}()
+
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
+			ID:    "groupE",
+			Name:  "GroupE",
+			Peers: []string{peer2.ID, peer3.ID},
+		})
+		assert.NoError(t, err)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
+		}
+	})
+}
+
+func Test_AddPeerToGroup(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	accountID := "testaccount"
+	userID := "testuser"
+
+	acc, err := createAccount(manager, accountID, userID, "domain.com")
+	if err != nil {
+		t.Fatal("error creating account")
+		return
+	}
+
+	const totalPeers = 1000
+
+	var wg sync.WaitGroup
+	errs := make(chan error, totalPeers)
+	start := make(chan struct{})
+	for i := 0; i < totalPeers; i++ {
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+
+			<-start
+
+			err = manager.Store.AddPeerToGroup(context.Background(), accountID, strconv.Itoa(i), acc.GroupsG[0].ID)
+			if err != nil {
+				errs <- fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
+				return
+			}
+
+		}(i)
+	}
+	startTime := time.Now()
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	t.Logf("time since start: %s", time.Since(startTime))
+
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	account, err := manager.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatalf("Failed to get account %s: %v", accountID, err)
+	}
+
+	assert.Equal(t, totalPeers, len(maps.Values(account.Groups)[0].Peers), "Expected %d peers in group %s in account %s, got %d", totalPeers, maps.Values(account.Groups)[0].Name, accountID, len(account.Peers))
+}
+
+func Test_AddPeerToAll(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	accountID := "testaccount"
+	userID := "testuser"
+
+	_, err = createAccount(manager, accountID, userID, "domain.com")
+	if err != nil {
+		t.Fatal("error creating account")
+		return
+	}
+
+	const totalPeers = 1000
+
+	var wg sync.WaitGroup
+	errs := make(chan error, totalPeers)
+	start := make(chan struct{})
+	for i := 0; i < totalPeers; i++ {
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+
+			<-start
+
+			err = manager.Store.AddPeerToAllGroup(context.Background(), accountID, strconv.Itoa(i))
+			if err != nil {
+				errs <- fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
+				return
+			}
+
+		}(i)
+	}
+	startTime := time.Now()
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	t.Logf("time since start: %s", time.Since(startTime))
+
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	account, err := manager.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatalf("Failed to get account %s: %v", accountID, err)
+	}
+
+	assert.Equal(t, totalPeers, len(maps.Values(account.Groups)[0].Peers), "Expected %d peers in group %s account %s, got %d", totalPeers, maps.Values(account.Groups)[0].Name, accountID, len(account.Peers))
+}
+
+func Test_AddPeerAndAddToAll(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	accountID := "testaccount"
+	userID := "testuser"
+
+	_, err = createAccount(manager, accountID, userID, "domain.com")
+	if err != nil {
+		t.Fatal("error creating account")
+		return
+	}
+
+	const totalPeers = 1000
+
+	var wg sync.WaitGroup
+	errs := make(chan error, totalPeers)
+	start := make(chan struct{})
+	for i := 0; i < totalPeers; i++ {
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+
+			<-start
+
+			peer := &peer2.Peer{
+				ID:        strconv.Itoa(i),
+				AccountID: accountID,
+				DNSLabel:  "peer" + strconv.Itoa(i),
+				IP:        uint32ToIP(uint32(i)),
+			}
+
+			err = manager.Store.ExecuteInTransaction(context.Background(), func(transaction store.Store) error {
+				err = transaction.AddPeerToAccount(context.Background(), peer)
+				if err != nil {
+					return fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
+				}
+				err = transaction.AddPeerToAllGroup(context.Background(), accountID, peer.ID)
+				if err != nil {
+					return fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Errorf("AddPeer failed for peer %d: %v", i, err)
+				return
+			}
+		}(i)
+	}
+	startTime := time.Now()
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	t.Logf("time since start: %s", time.Since(startTime))
+
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	account, err := manager.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatalf("Failed to get account %s: %v", accountID, err)
+	}
+
+	assert.Equal(t, totalPeers, len(maps.Values(account.Groups)[0].Peers), "Expected %d peers in group %s in account %s, got %d", totalPeers, maps.Values(account.Groups)[0].Name, accountID, len(account.Peers))
+	assert.Equal(t, totalPeers, len(account.Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
+}
+
+func uint32ToIP(n uint32) net.IP {
+	ip := make(net.IP, 4)
+	binary.BigEndian.PutUint32(ip, n)
+	return ip
+}
+
+func Test_IncrementNetworkSerial(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	accountID := "testaccount"
+	userID := "testuser"
+
+	_, err = createAccount(manager, accountID, userID, "domain.com")
+	if err != nil {
+		t.Fatal("error creating account")
+		return
+	}
+
+	const totalPeers = 1000
+
+	var wg sync.WaitGroup
+	errs := make(chan error, totalPeers)
+	start := make(chan struct{})
+	for i := 0; i < totalPeers; i++ {
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+
+			<-start
+
+			err = manager.Store.ExecuteInTransaction(context.Background(), func(transaction store.Store) error {
+				err = transaction.IncrementNetworkSerial(context.Background(), accountID)
+				if err != nil {
+					return fmt.Errorf("failed to get account %s: %v", accountID, err)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Errorf("AddPeer failed for peer %d: %v", i, err)
+				return
+			}
+		}(i)
+	}
+	startTime := time.Now()
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	t.Logf("time since start: %s", time.Since(startTime))
+
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	account, err := manager.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatalf("Failed to get account %s: %v", accountID, err)
+	}
+
+	assert.Equal(t, totalPeers, int(account.Network.Serial), "Expected %d serial increases in account %s, got %d", totalPeers, accountID, account.Network.Serial)
 }

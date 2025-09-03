@@ -2,14 +2,19 @@ package wgproxy
 
 import (
 	"context"
+	"io"
 	"net"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/netbirdio/netbird/util"
 )
 
-func init() {
-	_ = util.InitLog("debug", "console")
+func TestMain(m *testing.M) {
+	_ = util.InitLog("trace", util.LogConsole)
+	code := m.Run()
+	os.Exit(code)
 }
 
 type proxyInstance struct {
@@ -18,6 +23,88 @@ type proxyInstance struct {
 	wgPort       int
 	endpointAddr *net.UDPAddr
 	closeFn      func() error
+}
+
+type mocConn struct {
+	closeChan chan struct{}
+	closed    bool
+}
+
+func newMockConn() *mocConn {
+	return &mocConn{
+		closeChan: make(chan struct{}),
+	}
+}
+
+func (m *mocConn) Read(b []byte) (n int, err error) {
+	<-m.closeChan
+	return 0, io.EOF
+}
+
+func (m *mocConn) Write(b []byte) (n int, err error) {
+	<-m.closeChan
+	return 0, io.EOF
+}
+
+func (m *mocConn) Close() error {
+	if m.closed == true {
+		return nil
+	}
+
+	m.closed = true
+	close(m.closeChan)
+	return nil
+}
+
+func (m *mocConn) LocalAddr() net.Addr {
+	panic("implement me")
+}
+
+func (m *mocConn) RemoteAddr() net.Addr {
+	return &net.UDPAddr{
+		IP: net.ParseIP("172.16.254.1"),
+	}
+}
+
+func (m *mocConn) SetDeadline(t time.Time) error {
+	panic("implement me")
+}
+
+func (m *mocConn) SetReadDeadline(t time.Time) error {
+	panic("implement me")
+}
+
+func (m *mocConn) SetWriteDeadline(t time.Time) error {
+	panic("implement me")
+}
+
+func TestProxyCloseByRemoteConn(t *testing.T) {
+	ctx := context.Background()
+
+	tests, err := seedProxyForProxyCloseByRemoteConn()
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	relayedConn, _ := net.Dial("udp", "127.0.0.1:1234")
+	defer func() {
+		_ = relayedConn.Close()
+	}()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			relayedConn := newMockConn()
+			err := tt.proxy.AddTurnConn(ctx, nil, relayedConn)
+			if err != nil {
+				t.Errorf("error: %v", err)
+			}
+
+			_ = relayedConn.Close()
+			if err := tt.proxy.CloseConn(); err != nil {
+				t.Errorf("error: %v", err)
+			}
+		})
+	}
 }
 
 // TestProxyRedirect todo extend the proxies with Bind proxy
@@ -118,33 +205,5 @@ func redirectTraffic(t *testing.T, proxy Proxy, wgPort int, endPointAddr *net.UD
 		if string(buf[:n]) != string(msgRedirected[i]) {
 			t.Errorf("expected %s, got %s", string(msgRedirected[i]), string(buf[:n]))
 		}
-	}
-}
-
-func TestProxyCloseByRemoteConn(t *testing.T) {
-	ctx := context.Background()
-
-	tests, err := seedProxyForProxyCloseByRemoteConn()
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-
-	relayedConn, _ := net.Dial("udp", "127.0.0.1:1234")
-	defer func() {
-		_ = relayedConn.Close()
-	}()
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.proxy.AddTurnConn(ctx, tt.endpointAddr, relayedConn)
-			if err != nil {
-				t.Errorf("error: %v", err)
-			}
-
-			_ = relayedConn.Close()
-			if err := tt.proxy.CloseConn(); err != nil {
-				t.Errorf("error: %v", err)
-			}
-		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+
 	// nolint:gosec
 	_ "net/http/pprof"
 	"strings"
@@ -19,7 +20,7 @@ import (
 	"github.com/netbirdio/netbird/signal/metrics"
 
 	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/version"
@@ -303,4 +304,5 @@ func init() {
 	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	runCmd.Flags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	runCmd.Flags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	setFlagsFromEnvVars(runCmd)
 }

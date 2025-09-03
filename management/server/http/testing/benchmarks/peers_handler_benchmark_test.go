@@ -17,9 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
+	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools/channel"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
+
+const modulePeers = "peers"
 
 // Map to store peers, groups, users, and setupKeys by name
 var benchCasesPeers = map[string]testing_tools.BenchmarkCase{
@@ -34,15 +37,8 @@ var benchCasesPeers = map[string]testing_tools.BenchmarkCase{
 }
 
 func BenchmarkUpdatePeer(b *testing.B) {
-	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 3500},
-		"Peers - S":      {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 80, MaxMsPerOpCICD: 200},
-		"Peers - M":      {MinMsPerOpLocal: 130, MaxMsPerOpLocal: 150, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
-		"Peers - L":      {MinMsPerOpLocal: 230, MaxMsPerOpLocal: 270, MinMsPerOpCICD: 200, MaxMsPerOpCICD: 500},
-		"Groups - L":     {MinMsPerOpLocal: 400, MaxMsPerOpLocal: 600, MinMsPerOpCICD: 650, MaxMsPerOpCICD: 3500},
-		"Users - L":      {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 600},
-		"Setup Keys - L": {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 250, MaxMsPerOpCICD: 600},
-		"Peers - XL":     {MinMsPerOpLocal: 600, MaxMsPerOpLocal: 1000, MinMsPerOpCICD: 600, MaxMsPerOpCICD: 2000},
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
 	}
 
 	log.SetOutput(io.Discard)
@@ -52,7 +48,7 @@ func BenchmarkUpdatePeer(b *testing.B) {
 
 	for name, bc := range benchCasesPeers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -70,21 +66,14 @@ func BenchmarkUpdatePeer(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationUpdate)
 		})
 	}
 }
 
 func BenchmarkGetOnePeer(b *testing.B) {
-	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 15, MaxMsPerOpLocal: 40, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 70},
-		"Peers - S":      {MinMsPerOpLocal: 1, MaxMsPerOpLocal: 5, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 70},
-		"Peers - M":      {MinMsPerOpLocal: 9, MaxMsPerOpLocal: 18, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 70},
-		"Peers - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 200},
-		"Groups - L":     {MinMsPerOpLocal: 80, MaxMsPerOpLocal: 130, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 200},
-		"Users - L":      {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 200},
-		"Setup Keys - L": {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 90, MinMsPerOpCICD: 5, MaxMsPerOpCICD: 200},
-		"Peers - XL":     {MinMsPerOpLocal: 200, MaxMsPerOpLocal: 400, MinMsPerOpCICD: 200, MaxMsPerOpCICD: 750},
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
 	}
 
 	log.SetOutput(io.Discard)
@@ -94,7 +83,7 @@ func BenchmarkGetOnePeer(b *testing.B) {
 
 	for name, bc := range benchCasesPeers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -104,21 +93,14 @@ func BenchmarkGetOnePeer(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationGetOne)
 		})
 	}
 }
 
 func BenchmarkGetAllPeers(b *testing.B) {
-	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 40, MaxMsPerOpLocal: 70, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 100},
-		"Peers - S":      {MinMsPerOpLocal: 2, MaxMsPerOpLocal: 10, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 100},
-		"Peers - M":      {MinMsPerOpLocal: 20, MaxMsPerOpLocal: 50, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 100},
-		"Peers - L":      {MinMsPerOpLocal: 110, MaxMsPerOpLocal: 150, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 300},
-		"Groups - L":     {MinMsPerOpLocal: 150, MaxMsPerOpLocal: 200, MinMsPerOpCICD: 130, MaxMsPerOpCICD: 500},
-		"Users - L":      {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
-		"Setup Keys - L": {MinMsPerOpLocal: 100, MaxMsPerOpLocal: 170, MinMsPerOpCICD: 100, MaxMsPerOpCICD: 400},
-		"Peers - XL":     {MinMsPerOpLocal: 450, MaxMsPerOpLocal: 800, MinMsPerOpCICD: 500, MaxMsPerOpCICD: 1500},
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
 	}
 
 	log.SetOutput(io.Discard)
@@ -128,7 +110,7 @@ func BenchmarkGetAllPeers(b *testing.B) {
 
 	for name, bc := range benchCasesPeers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -138,21 +120,14 @@ func BenchmarkGetAllPeers(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationGetAll)
 		})
 	}
 }
 
 func BenchmarkDeletePeer(b *testing.B) {
-	var expectedMetrics = map[string]testing_tools.PerformanceMetrics{
-		"Peers - XS":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 18},
-		"Peers - S":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 18},
-		"Peers - M":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 18},
-		"Peers - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 18},
-		"Groups - L":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 18},
-		"Users - L":      {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 18},
-		"Setup Keys - L": {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 18},
-		"Peers - XL":     {MinMsPerOpLocal: 0, MaxMsPerOpLocal: 4, MinMsPerOpCICD: 2, MaxMsPerOpCICD: 18},
+	if os.Getenv("CI") != "true" {
+		b.Skip("Skipping because CI is not set")
 	}
 
 	log.SetOutput(io.Discard)
@@ -162,7 +137,7 @@ func BenchmarkDeletePeer(b *testing.B) {
 
 	for name, bc := range benchCasesPeers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), 1000, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -172,7 +147,7 @@ func BenchmarkDeletePeer(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), expectedMetrics[name], recorder)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationDelete)
 		})
 	}
 }

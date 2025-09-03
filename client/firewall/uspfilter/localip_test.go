@@ -2,90 +2,82 @@ package uspfilter
 
 import (
 	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 func TestLocalIPManager(t *testing.T) {
 	tests := []struct {
 		name      string
-		setupAddr iface.WGAddress
-		testIP    net.IP
+		setupAddr wgaddr.Address
+		testIP    netip.Addr
 		expected  bool
 	}{
 		{
 			name: "Localhost range",
-			setupAddr: iface.WGAddress{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+			setupAddr: wgaddr.Address{
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
-			testIP:   net.ParseIP("127.0.0.2"),
+			testIP:   netip.MustParseAddr("127.0.0.2"),
 			expected: true,
 		},
 		{
 			name: "Localhost standard address",
-			setupAddr: iface.WGAddress{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+			setupAddr: wgaddr.Address{
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
-			testIP:   net.ParseIP("127.0.0.1"),
+			testIP:   netip.MustParseAddr("127.0.0.1"),
 			expected: true,
 		},
 		{
 			name: "Localhost range edge",
-			setupAddr: iface.WGAddress{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+			setupAddr: wgaddr.Address{
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
-			testIP:   net.ParseIP("127.255.255.255"),
+			testIP:   netip.MustParseAddr("127.255.255.255"),
 			expected: true,
 		},
 		{
 			name: "Local IP matches",
-			setupAddr: iface.WGAddress{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+			setupAddr: wgaddr.Address{
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
-			testIP:   net.ParseIP("192.168.1.1"),
+			testIP:   netip.MustParseAddr("192.168.1.1"),
 			expected: true,
 		},
 		{
 			name: "Local IP doesn't match",
-			setupAddr: iface.WGAddress{
-				IP: net.ParseIP("192.168.1.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("192.168.1.0"),
-					Mask: net.CIDRMask(24, 32),
-				},
+			setupAddr: wgaddr.Address{
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
-			testIP:   net.ParseIP("192.168.1.2"),
+			testIP:   netip.MustParseAddr("192.168.1.2"),
+			expected: false,
+		},
+		{
+			name: "Local IP doesn't match - addresses 32 apart",
+			setupAddr: wgaddr.Address{
+				IP:      netip.MustParseAddr("192.168.1.1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
+			},
+			testIP:   netip.MustParseAddr("192.168.1.33"),
 			expected: false,
 		},
 		{
 			name: "IPv6 address",
-			setupAddr: iface.WGAddress{
-				IP: net.ParseIP("fe80::1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("fe80::"),
-					Mask: net.CIDRMask(64, 128),
-				},
+			setupAddr: wgaddr.Address{
+				IP:      netip.MustParseAddr("fe80::1"),
+				Network: netip.MustParsePrefix("192.168.1.0/24"),
 			},
-			testIP:   net.ParseIP("fe80::1"),
+			testIP:   netip.MustParseAddr("fe80::1"),
 			expected: false,
 		},
 	}
@@ -95,7 +87,7 @@ func TestLocalIPManager(t *testing.T) {
 			manager := newLocalIPManager()
 
 			mock := &IFaceMock{
-				AddressFunc: func() iface.WGAddress {
+				AddressFunc: func() wgaddr.Address {
 					return tt.setupAddr
 				},
 			}
@@ -174,7 +166,7 @@ func TestLocalIPManager_AllInterfaces(t *testing.T) {
 	t.Logf("Testing %d IPs", len(tests))
 	for _, tt := range tests {
 		t.Run(tt.ip, func(t *testing.T) {
-			result := manager.IsLocalIP(net.ParseIP(tt.ip))
+			result := manager.IsLocalIP(netip.MustParseAddr(tt.ip))
 			require.Equal(t, tt.expected, result, "IP: %s", tt.ip)
 		})
 	}
@@ -191,10 +183,8 @@ func BenchmarkIPChecks(b *testing.B) {
 		interfaces[i] = net.IPv4(10, 0, byte(i>>8), byte(i))
 	}
 
-	// Setup bitmap version
-	bitmapManager := &localIPManager{
-		ipv4Bitmap: [1 << 16]uint32{},
-	}
+	// Setup bitmap
+	bitmapManager := newLocalIPManager()
 	for _, ip := range interfaces[:8] { // Add half of IPs
 		bitmapManager.setBitmapBit(ip)
 	}
@@ -247,7 +237,7 @@ func BenchmarkWGPosition(b *testing.B) {
 
 	// Create two managers - one checks WG IP first, other checks it last
 	b.Run("WG_First", func(b *testing.B) {
-		bm := &localIPManager{ipv4Bitmap: [1 << 16]uint32{}}
+		bm := newLocalIPManager()
 		bm.setBitmapBit(wgIP)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -256,7 +246,7 @@ func BenchmarkWGPosition(b *testing.B) {
 	})
 
 	b.Run("WG_Last", func(b *testing.B) {
-		bm := &localIPManager{ipv4Bitmap: [1 << 16]uint32{}}
+		bm := newLocalIPManager()
 		// Fill with other IPs first
 		for i := 0; i < 15; i++ {
 			bm.setBitmapBit(net.IPv4(10, 0, byte(i>>8), byte(i)))

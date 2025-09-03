@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -26,7 +27,7 @@ var ErrClientNotStarted = errors.New("client not started")
 // Client manages a netbird embedded client instance
 type Client struct {
 	deviceName string
-	config     *internal.Config
+	config     *profilemanager.Config
 	mu         sync.Mutex
 	cancel     context.CancelFunc
 	setupKey   string
@@ -88,9 +89,9 @@ func New(opts Options) (*Client, error) {
 	}
 
 	t := true
-	var config *internal.Config
+	var config *profilemanager.Config
 	var err error
-	input := internal.ConfigInput{
+	input := profilemanager.ConfigInput{
 		ConfigPath:          opts.ConfigPath,
 		ManagementURL:       opts.ManagementURL,
 		PreSharedKey:        &opts.PreSharedKey,
@@ -98,9 +99,9 @@ func New(opts Options) (*Client, error) {
 		DisableClientRoutes: &opts.DisableClientRoutes,
 	}
 	if opts.ConfigPath != "" {
-		config, err = internal.UpdateOrCreateConfig(input)
+		config, err = profilemanager.UpdateOrCreateConfig(input)
 	} else {
-		config, err = internal.CreateInMemoryConfig(input)
+		config, err = profilemanager.CreateInMemoryConfig(input)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create config: %w", err)
@@ -134,10 +135,11 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
 	// TODO: make after-startup backoff err available
-	run := make(chan error, 1)
+	run := make(chan struct{}, 1)
+	clientErr := make(chan error, 1)
 	go func() {
 		if err := client.Run(run); err != nil {
-			run <- err
+			clientErr <- err
 		}
 	}()
 
@@ -147,13 +149,9 @@ func (c *Client) Start(startCtx context.Context) error {
 			return fmt.Errorf("stop error after context done. Stop error: %w. Context done: %w", stopErr, startCtx.Err())
 		}
 		return startCtx.Err()
-	case err := <-run:
-		if err != nil {
-			if stopErr := client.Stop(); stopErr != nil {
-				return fmt.Errorf("stop error after failed to startup. Stop error: %w. Start error: %w", stopErr, err)
-			}
-			return fmt.Errorf("startup: %w", err)
-		}
+	case err := <-clientErr:
+		return fmt.Errorf("startup: %w", err)
+	case <-run:
 	}
 
 	c.connect = client

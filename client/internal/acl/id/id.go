@@ -12,13 +12,13 @@ import (
 
 type RuleID string
 
-func (r RuleID) GetRuleID() string {
+func (r RuleID) ID() string {
 	return string(r)
 }
 
 func GenerateRouteRuleKey(
 	sources []netip.Prefix,
-	destination netip.Prefix,
+	destination manager.Network,
 	proto manager.Protocol,
 	sPort *manager.Port,
 	dPort *manager.Port,

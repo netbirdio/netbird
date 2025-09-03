@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/stun/v2"
+	"github.com/pion/stun/v3"
 	"github.com/pion/turn/v3"
 	log "github.com/sirupsen/logrus"
 
@@ -170,7 +170,7 @@ func ProbeAll(
 
 	var wg sync.WaitGroup
 	for i, uri := range relays {
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
 		defer cancel()
 
 		wg.Add(1)

@@ -7,7 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -42,10 +42,10 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 	start := time.Now()
 	var found, dropped bool
 
-	p.channelsMux.Lock()
+	p.channelsMux.RLock()
 
 	defer func() {
-		p.channelsMux.Unlock()
+		p.channelsMux.RUnlock()
 		if p.metrics != nil {
 			p.metrics.UpdateChannelMetrics().CountSendUpdateDuration(time.Since(start), found, dropped)
 		}
@@ -141,12 +141,12 @@ func (p *PeersUpdateManager) CloseChannel(ctx context.Context, peerID string) {
 func (p *PeersUpdateManager) GetAllConnectedPeers() map[string]struct{} {
 	start := time.Now()
 
-	p.channelsMux.Lock()
+	p.channelsMux.RLock()
 
 	m := make(map[string]struct{})
 
 	defer func() {
-		p.channelsMux.Unlock()
+		p.channelsMux.RUnlock()
 		if p.metrics != nil {
 			p.metrics.UpdateChannelMetrics().CountGetAllConnectedPeersDuration(time.Since(start), len(m))
 		}
@@ -163,10 +163,10 @@ func (p *PeersUpdateManager) GetAllConnectedPeers() map[string]struct{} {
 func (p *PeersUpdateManager) HasChannel(peerID string) bool {
 	start := time.Now()
 
-	p.channelsMux.Lock()
+	p.channelsMux.RLock()
 
 	defer func() {
-		p.channelsMux.Unlock()
+		p.channelsMux.RUnlock()
 		if p.metrics != nil {
 			p.metrics.UpdateChannelMetrics().CountHasChannelDuration(time.Since(start))
 		}

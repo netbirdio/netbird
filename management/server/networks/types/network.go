@@ -3,11 +3,11 @@ package types
 import (
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 type Network struct {
-	ID          string `gorm:"index"`
+	ID          string `gorm:"primaryKey"`
 	AccountID   string `gorm:"index"`
 	Name        string
 	Description string

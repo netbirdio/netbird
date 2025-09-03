@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
@@ -22,35 +23,45 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
+	wgdevice "golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
+
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
+
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	mgmt "github.com/netbirdio/netbird/management/client"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	relayClient "github.com/netbirdio/netbird/relay/client"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
-	signal "github.com/netbirdio/netbird/signal/client"
-	"github.com/netbirdio/netbird/signal/proto"
+	mgmt "github.com/netbirdio/netbird/shared/management/client"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
+	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 var (
@@ -72,23 +83,28 @@ type MockWGIface struct {
 	CreateOnAndroidFunc        func(routeRange []string, ip string, domains []string) error
 	IsUserspaceBindFunc        func() bool
 	NameFunc                   func() string
-	AddressFunc                func() device.WGAddress
+	AddressFunc                func() wgaddr.Address
 	ToInterfaceFunc            func() *net.Interface
 	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
 	UpdateAddrFunc             func(newAddr string) error
-	UpdatePeerFunc             func(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
-	AddAllowedIPFunc           func(peerKey string, allowedIP string) error
-	RemoveAllowedIPFunc        func(peerKey string, allowedIP string) error
+	AddAllowedIPFunc           func(peerKey string, allowedIP netip.Prefix) error
+	RemoveAllowedIPFunc        func(peerKey string, allowedIP netip.Prefix) error
 	CloseFunc                  func() error
 	SetFilterFunc              func(filter device.PacketFilter) error
 	GetFilterFunc              func() device.PacketFilter
 	GetDeviceFunc              func() *device.FilteredDevice
 	GetWGDeviceFunc            func() *wgdevice.Device
-	GetStatsFunc               func(peerKey string) (configurer.WGStats, error)
+	GetStatsFunc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
+	LastActivitiesFunc         func() map[string]monotime.Time
+}
+
+func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (m *MockWGIface) GetInterfaceGUIDString() (string, error) {
@@ -111,7 +127,7 @@ func (m *MockWGIface) Name() string {
 	return m.NameFunc()
 }
 
-func (m *MockWGIface) Address() device.WGAddress {
+func (m *MockWGIface) Address() wgaddr.Address {
 	return m.AddressFunc()
 }
 
@@ -127,7 +143,7 @@ func (m *MockWGIface) UpdateAddr(newAddr string) error {
 	return m.UpdateAddrFunc(newAddr)
 }
 
-func (m *MockWGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (m *MockWGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	return m.UpdatePeerFunc(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
@@ -135,11 +151,11 @@ func (m *MockWGIface) RemovePeer(peerKey string) error {
 	return m.RemovePeerFunc(peerKey)
 }
 
-func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP string) error {
+func (m *MockWGIface) AddAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	return m.AddAllowedIPFunc(peerKey, allowedIP)
 }
 
-func (m *MockWGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
+func (m *MockWGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
 	return m.RemoveAllowedIPFunc(peerKey, allowedIP)
 }
 
@@ -163,8 +179,8 @@ func (m *MockWGIface) GetWGDevice() *wgdevice.Device {
 	return m.GetWGDeviceFunc()
 }
 
-func (m *MockWGIface) GetStats(peerKey string) (configurer.WGStats, error) {
-	return m.GetStatsFunc(peerKey)
+func (m *MockWGIface) GetStats() (map[string]configurer.WGStats, error) {
+	return m.GetStatsFunc()
 }
 
 func (m *MockWGIface) GetProxy() wgproxy.Proxy {
@@ -175,8 +191,15 @@ func (m *MockWGIface) GetNet() *netstack.Net {
 	return m.GetNetFunc()
 }
 
+func (m *MockWGIface) LastActivities() map[string]monotime.Time {
+	if m.LastActivitiesFunc != nil {
+		return m.LastActivitiesFunc()
+	}
+	return nil
+}
+
 func TestMain(m *testing.M) {
-	_ = util.InitLog("debug", "console")
+	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
@@ -195,7 +218,7 @@ func TestEngine_SSH(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(
 		ctx, cancel,
 		&signal.MockClient{},
@@ -207,6 +230,7 @@ func TestEngine_SSH(t *testing.T) {
 			WgPrivateKey:     key,
 			WgPort:           33100,
 			ServerSSHAllowed: true,
+			MTU:              iface.DefaultMTU,
 		},
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
@@ -242,7 +266,7 @@ func TestEngine_SSH(t *testing.T) {
 			},
 		}, nil
 	}
-	err = engine.Start()
+	err = engine.Start(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +364,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(
 		ctx, cancel,
 		&signal.MockClient{},
@@ -351,6 +375,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			WgAddr:       "100.64.0.1/24",
 			WgPrivateKey: key,
 			WgPort:       33100,
+			MTU:          iface.DefaultMTU,
 		},
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
@@ -361,14 +386,14 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		RemovePeerFunc: func(peerKey string) error {
 			return nil
 		},
-		AddressFunc: func() iface.WGAddress {
-			return iface.WGAddress{
-				IP: net.ParseIP("10.20.0.1"),
-				Network: &net.IPNet{
-					IP:   net.ParseIP("10.20.0.0"),
-					Mask: net.IPv4Mask(255, 255, 255, 0),
-				},
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP:      netip.MustParseAddr("10.20.0.1"),
+				Network: netip.MustParsePrefix("10.20.0.0/24"),
 			}
+		},
+		UpdatePeerFunc: func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+			return nil
 		},
 	}
 	engine.wgInterface = wgIface
@@ -380,7 +405,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		StatusRecorder:   engine.statusRecorder,
 		RelayManager:     relayMgr,
 	})
-	_, _, err = engine.routeManager.Init()
+	err = engine.routeManager.Init()
 	require.NoError(t, err)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -389,9 +414,11 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
+	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn, MTU: 1280})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
+	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface)
+	engine.connMgr.Start(ctx)
 
 	type testCase struct {
 		name       string
@@ -533,7 +560,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 					t.Errorf("expecting Engine.peerConns to contain peer %s", p)
 				}
 				expectedAllowedIPs := strings.Join(p.AllowedIps, ",")
-				if conn.WgConfig().AllowedIps != expectedAllowedIPs {
+				if !compareNetIPLists(conn.WgConfig().AllowedIps, p.AllowedIps) {
 					t.Errorf("expecting peer %s to have AllowedIPs= %s, got %s", p.GetWgPubKey(),
 						expectedAllowedIPs, conn.WgConfig().AllowedIps)
 				}
@@ -564,12 +591,13 @@ func TestEngine_Sync(t *testing.T) {
 		}
 		return nil
 	}
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, relayMgr, &EngineConfig{
 		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
 	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 	engine.ctx = ctx
 
@@ -584,7 +612,7 @@ func TestEngine_Sync(t *testing.T) {
 		}
 	}()
 
-	err = engine.Start()
+	err = engine.Start(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -629,12 +657,12 @@ func TestEngine_Sync(t *testing.T) {
 
 func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 	testCases := []struct {
-		name           string
-		inputErr       error
-		networkMap     *mgmtProto.NetworkMap
-		expectedLen    int
-		expectedRoutes []*route.Route
-		expectedSerial uint64
+		name                 string
+		inputErr             error
+		networkMap           *mgmtProto.NetworkMap
+		expectedLen          int
+		expectedClientRoutes route.HAMap
+		expectedSerial       uint64
 	}{
 		{
 			name: "Routes Config Should Be Passed To Manager",
@@ -662,22 +690,26 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				},
 			},
 			expectedLen: 2,
-			expectedRoutes: []*route.Route{
-				{
-					ID:          "a",
-					Network:     netip.MustParsePrefix("192.168.0.0/24"),
-					NetID:       "n1",
-					Peer:        "p1",
-					NetworkType: 1,
-					Masquerade:  false,
+			expectedClientRoutes: route.HAMap{
+				"n1|192.168.0.0/24": []*route.Route{
+					{
+						ID:          "a",
+						Network:     netip.MustParsePrefix("192.168.0.0/24"),
+						NetID:       "n1",
+						Peer:        "p1",
+						NetworkType: 1,
+						Masquerade:  false,
+					},
 				},
-				{
-					ID:          "b",
-					Network:     netip.MustParsePrefix("192.168.1.0/24"),
-					NetID:       "n2",
-					Peer:        "p1",
-					NetworkType: 1,
-					Masquerade:  false,
+				"n2|192.168.1.0/24": []*route.Route{
+					{
+						ID:          "b",
+						Network:     netip.MustParsePrefix("192.168.1.0/24"),
+						NetID:       "n2",
+						Peer:        "p1",
+						NetworkType: 1,
+						Masquerade:  false,
+					},
 				},
 			},
 			expectedSerial: 1,
@@ -690,9 +722,9 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				RemotePeersIsEmpty: false,
 				Routes:             nil,
 			},
-			expectedLen:    0,
-			expectedRoutes: []*route.Route{},
-			expectedSerial: 1,
+			expectedLen:          0,
+			expectedClientRoutes: nil,
+			expectedSerial:       1,
 		},
 		{
 			name:     "Error Shouldn't Break Engine",
@@ -703,9 +735,9 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				RemotePeersIsEmpty: false,
 				Routes:             nil,
 			},
-			expectedLen:    0,
-			expectedRoutes: []*route.Route{},
-			expectedSerial: 1,
+			expectedLen:          0,
+			expectedClientRoutes: nil,
+			expectedSerial:       1,
 		},
 	}
 
@@ -724,12 +756,13 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
+				MTU:          iface.DefaultMTU,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 			engine.ctx = ctx
 			newNet, err := stdnet.NewNet()
@@ -748,20 +781,35 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			engine.wgInterface, err = iface.NewWGIFace(opts)
 			assert.NoError(t, err, "shouldn't return error")
 			input := struct {
-				inputSerial uint64
-				inputRoutes []*route.Route
+				inputSerial  uint64
+				clientRoutes route.HAMap
 			}{}
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 					input.inputSerial = updateSerial
-					input.inputRoutes = newRoutes
+					input.clientRoutes = clientRoutes
 					return testCase.inputErr
+				},
+				ClassifyRoutesFunc: func(newRoutes []*route.Route) (map[route.ID]*route.Route, route.HAMap) {
+					if len(newRoutes) == 0 {
+						return nil, nil
+					}
+
+					// Classify all routes as client routes (not matching our public key)
+					clientRoutes := make(route.HAMap)
+					for _, r := range newRoutes {
+						haID := r.GetHAUniqueID()
+						clientRoutes[haID] = append(clientRoutes[haID], r)
+					}
+					return nil, clientRoutes
 				},
 			}
 
 			engine.routeManager = mockRouteManager
 			engine.dnsServer = &dns.MockServer{}
+			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface)
+			engine.connMgr.Start(ctx)
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -773,8 +821,8 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			err = engine.updateNetworkMap(testCase.networkMap)
 			assert.NoError(t, err, "shouldn't return error")
 			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
-			assert.Len(t, input.inputRoutes, testCase.expectedLen, "clientRoutes len should match")
-			assert.Equal(t, testCase.expectedRoutes, input.inputRoutes, "clientRoutes should match")
+			assert.Len(t, input.clientRoutes, testCase.expectedLen, "clientRoutes len should match")
+			assert.Equal(t, testCase.expectedClientRoutes, input.clientRoutes, "clientRoutes should match")
 		})
 	}
 }
@@ -910,12 +958,13 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
+				MTU:          iface.DefaultMTU,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 			engine.ctx = ctx
 
@@ -935,7 +984,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
-				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+				UpdateRoutesFunc: func(updateSerial uint64, serverRoutes map[route.ID]*route.Route, clientRoutes route.HAMap, useNewDNSRoute bool) error {
 					return nil
 				},
 			}
@@ -958,6 +1007,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}
 
 			engine.dnsServer = mockDNSServer
+			engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, engine.wgInterface)
+			engine.connMgr.Start(ctx)
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -1018,7 +1069,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			defer mu.Unlock()
 			guid := fmt.Sprintf("{%s}", uuid.New().String())
 			device.CustomWindowsGUIDString = strings.ToLower(guid)
-			err = engine.Start()
+			err = engine.Start(nil, nil)
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)
 				wg.Done()
@@ -1106,25 +1157,25 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 	}{
 		{
 			name:                    "Parse Valid List Should Be OK",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1", "8.8.8.8/" + testingInterface},
 			expectedOutput:          []string{"1.1.1.1", "8.8.8.8/" + testingIP},
 		},
 		{
 			name:                    "Only Interface name Should Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{testingInterface},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid IP Return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1000"},
 			expectedOutput:          nil,
 		},
 		{
 			name:                    "Invalid Mapping Element Should return Nil",
-			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputBlacklistInterface: profilemanager.DefaultInterfaceBlacklist,
 			inputMapList:            []string{"1.1.1.1/10.10.10.1/eth0"},
 			expectedOutput:          nil,
 		},
@@ -1135,6 +1186,7 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 				config: &EngineConfig{
 					IFaceBlackList: testCase.inputBlacklistInterface,
 					NATExternalIPs: testCase.inputMapList,
+					MTU:            iface.DefaultMTU,
 				},
 			}
 			parsedList := engine.parseNATExternalIPMappings()
@@ -1227,11 +1279,172 @@ func Test_CheckFilesEqual(t *testing.T) {
 			},
 			expectedBool: false,
 		},
+		{
+			name: "Compared Slices with same files but different order should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile1",
+						"testfile2",
+					},
+				},
+				{
+					Files: []string{
+						"testfile4",
+						"testfile3",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile3",
+						"testfile4",
+					},
+				},
+				{
+					Files: []string{
+						"testfile2",
+						"testfile1",
+					},
+				},
+			},
+			expectedBool: true,
+		},
+		{
+			name: "Compared Slices with same files but different order while first is equal should return true",
+			inputChecks1: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile0",
+						"testfile1",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile2",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile3",
+					},
+				},
+			},
+			inputChecks2: []*mgmtProto.Checks{
+				{
+					Files: []string{
+						"testfile0",
+						"testfile1",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile3",
+					},
+				},
+				{
+					Files: []string{
+						"testfile0",
+						"testfile2",
+					},
+				},
+			},
+			expectedBool: true,
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := isChecksEqual(testCase.inputChecks1, testCase.inputChecks2)
 			assert.Equal(t, testCase.expectedBool, result, "result should match expected bool")
+		})
+	}
+}
+
+func TestCompareNetIPLists(t *testing.T) {
+	tests := []struct {
+		name     string
+		list1    []netip.Prefix
+		list2    []string
+		expected bool
+	}{
+		{
+			name:     "both empty",
+			list1:    []netip.Prefix{},
+			list2:    []string{},
+			expected: true,
+		},
+		{
+			name:     "single match ipv4",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.0.0/24")},
+			list2:    []string{"192.168.0.0/24"},
+			expected: true,
+		},
+		{
+			name:     "multiple match ipv4, different order",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24"), netip.MustParsePrefix("10.0.0.0/8")},
+			list2:    []string{"10.0.0.0/8", "192.168.1.0/24"},
+			expected: true,
+		},
+		{
+			name:     "ipv4 mismatch due to extra element in list2",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+			list2:    []string{"192.168.1.0/24", "10.0.0.0/8"},
+			expected: false,
+		},
+		{
+			name:     "ipv4 mismatch due to duplicate count",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24"), netip.MustParsePrefix("192.168.1.0/24")},
+			list2:    []string{"192.168.1.0/24"},
+			expected: false,
+		},
+		{
+			name:     "invalid prefix in list2",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+			list2:    []string{"invalid-prefix"},
+			expected: false,
+		},
+		{
+			name:     "ipv4 mismatch because different prefixes",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+			list2:    []string{"10.0.0.0/8"},
+			expected: false,
+		},
+		{
+			name:     "single match ipv6",
+			list1:    []netip.Prefix{netip.MustParsePrefix("2001:db8::/32")},
+			list2:    []string{"2001:db8::/32"},
+			expected: true,
+		},
+		{
+			name:     "multiple match ipv6, different order",
+			list1:    []netip.Prefix{netip.MustParsePrefix("2001:db8::/32"), netip.MustParsePrefix("fe80::/10")},
+			list2:    []string{"fe80::/10", "2001:db8::/32"},
+			expected: true,
+		},
+		{
+			name:     "mixed ipv4 and ipv6 match",
+			list1:    []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24"), netip.MustParsePrefix("2001:db8::/32")},
+			list2:    []string{"2001:db8::/32", "192.168.1.0/24"},
+			expected: true,
+		},
+		{
+			name:     "ipv6 mismatch with invalid prefix",
+			list1:    []netip.Prefix{netip.MustParsePrefix("2001:db8::/32")},
+			list2:    []string{"invalid-ipv6"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := compareNetIPLists(tt.list1, tt.list2)
+			if result != tt.expected {
+				t.Errorf("compareNetIPLists(%v, %v) = %v; want %v", tt.list1, tt.list2, result, tt.expected)
+			}
 		})
 	}
 }
@@ -1256,7 +1469,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	info := system.GetInfo(ctx)
-	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info, nil)
+	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1274,9 +1487,10 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgAddr:       resp.PeerConfig.Address,
 		WgPrivateKey: key,
 		WgPort:       wgPort,
+		MTU:          iface.DefaultMTU,
 	}
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
 	e.ctx = ctx
 	return e, err
@@ -1308,15 +1522,15 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, string, error) {
 	t.Helper()
 
-	config := &server.Config{
-		Stuns:      []*server.Host{},
-		TURNConfig: &server.TURNConfig{},
-		Relay: &server.Relay{
+	config := &config.Config{
+		Stuns:      []*config.Host{},
+		TURNConfig: &config.TURNConfig{},
+		Relay: &config.Relay{
 			Addresses:      []string{"127.0.0.1:1234"},
 			CredentialsTTL: util.Duration{Duration: time.Hour},
 			Secret:         "222222222222222222",
 		},
-		Signal: &server.Host{
+		Signal: &config.Host{
 			Proto: "http",
 			URI:   "localhost:10000",
 		},
@@ -1346,13 +1560,28 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().
+		GetSettings(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&types.Settings{}, nil).
+		AnyTimes()
+	settingsMockManager.EXPECT().
+		GetExtraSettings(gomock.Any(), gomock.Any()).
+		Return(&types.ExtraSettings{}, nil).
+		AnyTimes()
+
+	permissionsManager := permissions.NewManager(store)
+	groupsManager := groups.NewManagerMock()
+
+	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	if err != nil {
 		return nil, "", err
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settings.NewManager(store), peersUpdateManager, secretsManager, nil, nil, nil)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &server.MockIntegratedValidator{})
 	if err != nil {
 		return nil, "", err
 	}
@@ -1373,7 +1602,7 @@ func getConnectedPeers(e *Engine) int {
 	i := 0
 	for _, id := range e.peerStore.PeersPubKey() {
 		conn, _ := e.peerStore.PeerConn(id)
-		if conn.Status() == peer.StatusConnected {
+		if conn.IsConnected() {
 			i++
 		}
 	}

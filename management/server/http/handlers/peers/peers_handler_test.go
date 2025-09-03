@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -16,11 +17,12 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
@@ -112,6 +114,15 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				p.Name = update.Name
 				return p, nil
 			},
+			UpdatePeerIPFunc: func(_ context.Context, accountID, userID, peerID string, newIP netip.Addr) error {
+				for _, peer := range peers {
+					if peer.ID == peerID {
+						peer.IP = net.IP(newIP.AsSlice())
+						return nil
+					}
+				}
+				return fmt.Errorf("peer not found")
+			},
 			GetPeerFunc: func(_ context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
 				var p *nbpeer.Peer
 				for _, peer := range peers {
@@ -122,7 +133,19 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				}
 				return p, nil
 			},
-			GetPeersFunc: func(_ context.Context, accountID, userID string) ([]*nbpeer.Peer, error) {
+			GetUserByIDFunc: func(ctx context.Context, id string) (*types.User, error) {
+				switch id {
+				case adminUser:
+					return account.Users[adminUser], nil
+				case regularUser:
+					return account.Users[regularUser], nil
+				case serviceUser:
+					return account.Users[serviceUser], nil
+				default:
+					return nil, fmt.Errorf("user not found")
+				}
+			},
+			GetPeersFunc: func(_ context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				return peers, nil
 			},
 			GetPeerGroupsFunc: func(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
@@ -140,7 +163,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 					},
 				}, nil
 			},
-			GetDNSDomainFunc: func() string {
+			GetDNSDomainFunc: func(settings *types.Settings) string {
 				return "netbird.selfhosted"
 			},
 			GetAccountFunc: func(ctx context.Context, accountID string) (*types.Account, error) {
@@ -159,6 +182,9 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				}
 				_, ok := statuses[peerID]
 				return ok
+			},
+			GetAccountSettingsFunc: func(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
+				return account.Settings, nil
 			},
 		},
 	}
@@ -432,6 +458,76 @@ func TestGetAccessiblePeers(t *testing.T) {
 			}
 
 			assert.ElementsMatch(t, peerIDs, tc.expectedPeers)
+		})
+	}
+}
+
+func TestPeersHandlerUpdatePeerIP(t *testing.T) {
+	testPeer := &nbpeer.Peer{
+		ID:                     testPeerID,
+		Key:                    "key",
+		IP:                     net.ParseIP("100.64.0.1"),
+		Status:                 &nbpeer.PeerStatus{Connected: false, LastSeen: time.Now()},
+		Name:                   "test-host@netbird.io",
+		LoginExpirationEnabled: false,
+		UserID:                 regularUser,
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "test-host@netbird.io",
+			Core:     "22.04",
+		},
+	}
+
+	p := initTestMetaData(testPeer)
+
+	tt := []struct {
+		name           string
+		peerID         string
+		requestBody    string
+		callerUserID   string
+		expectedStatus int
+		expectedIP     string
+	}{
+		{
+			name:           "update peer IP successfully",
+			peerID:         testPeerID,
+			requestBody:    `{"ip": "100.64.0.100"}`,
+			callerUserID:   adminUser,
+			expectedStatus: http.StatusOK,
+			expectedIP:     "100.64.0.100",
+		},
+		{
+			name:           "update peer IP with invalid IP",
+			peerID:         testPeerID,
+			requestBody:    `{"ip": "invalid-ip"}`,
+			callerUserID:   adminUser,
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/peers/%s", tc.peerID), bytes.NewBuffer([]byte(tc.requestBody)))
+			req.Header.Set("Content-Type", "application/json")
+			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+				UserId:    tc.callerUserID,
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
+
+			rr := httptest.NewRecorder()
+			router := mux.NewRouter()
+			router.HandleFunc("/peers/{peerId}", p.HandlePeer).Methods("PUT")
+
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.expectedStatus, rr.Code)
+
+			if tc.expectedStatus == http.StatusOK && tc.expectedIP != "" {
+				var updatedPeer api.Peer
+				err := json.Unmarshal(rr.Body.Bytes(), &updatedPeer)
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedIP, updatedPeer.Ip)
+			}
 		})
 	}
 }

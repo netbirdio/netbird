@@ -234,7 +234,7 @@ var overview = OutputOverview{
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
-	convertedResult := ConvertToStatusOutputOverview(resp, false, "", nil, nil, nil)
+	convertedResult := ConvertToStatusOutputOverview(resp, false, "", nil, nil, nil, "", "")
 
 	assert.Equal(t, overview, convertedResult)
 }
@@ -360,6 +360,7 @@ func TestParsingToJSON(t *testing.T) {
           "networks": [
             "10.10.0.0/24"
           ],
+          "forwardingRules": 0,
           "dnsServers": [
             {
               "servers": [
@@ -382,7 +383,9 @@ func TestParsingToJSON(t *testing.T) {
               "error": "timeout"
             }
           ],
-          "events": []
+          "events": [],
+          "lazyConnectionEnabled": false,
+		  "profileName":""
         }`
 	// @formatter:on
 
@@ -467,6 +470,7 @@ quantumResistance: false
 quantumResistancePermissive: false
 networks:
     - 10.10.0.0/24
+forwardingRules: 0
 dnsServers:
     - servers:
         - 8.8.8.8:53
@@ -482,6 +486,8 @@ dnsServers:
       enabled: false
       error: timeout
 events: []
+lazyConnectionEnabled: false
+profileName: ""
 `
 
 	assert.Equal(t, expectedYAML, yaml)
@@ -534,6 +540,7 @@ Events: No events recorded
 OS: %s/%s
 Daemon version: 0.14.1
 CLI version: %s
+Profile: 
 Management: Connected to my-awesome-management.com:443
 Signal: Connected to my-awesome-signal.com:443
 Relays: 
@@ -546,7 +553,9 @@ FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
+Lazy connection: false
 Networks: 10.10.0.0/24
+Forwarding rules: 0
 Peers count: 2/2 Connected
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
 
@@ -559,6 +568,7 @@ func TestParsingToShortVersion(t *testing.T) {
 	expectedString := fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
 Daemon version: 0.14.1
 CLI version: development
+Profile: 
 Management: Connected
 Signal: Connected
 Relays: 1/2 Available
@@ -567,7 +577,9 @@ FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
+Lazy connection: false
 Networks: 10.10.0.0/24
+Forwarding rules: 0
 Peers count: 2/2 Connected
 `
 

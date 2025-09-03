@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	bindproxy "github.com/netbirdio/netbird/client/iface/wgproxy/bind"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/ebpf"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/udp"
@@ -15,7 +16,7 @@ import (
 func seedProxies() ([]proxyInstance, error) {
 	pl := make([]proxyInstance, 0)
 
-	ebpfProxy := ebpf.NewWGEBPFProxy(51831)
+	ebpfProxy := ebpf.NewWGEBPFProxy(51831, 1280)
 	if err := ebpfProxy.Listen(); err != nil {
 		return nil, fmt.Errorf("failed to initialize ebpf proxy: %s", err)
 	}
@@ -30,7 +31,7 @@ func seedProxies() ([]proxyInstance, error) {
 
 	pUDP := proxyInstance{
 		name:    "udp kernel proxy",
-		proxy:   udp.NewWGUDPProxy(51832),
+		proxy:   udp.NewWGUDPProxy(51832, 1280),
 		wgPort:  51832,
 		closeFn: func() error { return nil },
 	}
@@ -41,7 +42,7 @@ func seedProxies() ([]proxyInstance, error) {
 func seedProxyForProxyCloseByRemoteConn() ([]proxyInstance, error) {
 	pl := make([]proxyInstance, 0)
 
-	ebpfProxy := ebpf.NewWGEBPFProxy(51831)
+	ebpfProxy := ebpf.NewWGEBPFProxy(51831, 1280)
 	if err := ebpfProxy.Listen(); err != nil {
 		return nil, fmt.Errorf("failed to initialize ebpf proxy: %s", err)
 	}
@@ -56,13 +57,16 @@ func seedProxyForProxyCloseByRemoteConn() ([]proxyInstance, error) {
 
 	pUDP := proxyInstance{
 		name:    "udp kernel proxy",
-		proxy:   udp.NewWGUDPProxy(51832),
+		proxy:   udp.NewWGUDPProxy(51832, 1280),
 		wgPort:  51832,
 		closeFn: func() error { return nil },
 	}
 	pl = append(pl, pUDP)
-
-	iceBind := bind.NewICEBind(nil, nil)
+	wgAddress, err := wgaddr.ParseWGAddress("10.0.0.1")
+	if err != nil {
+		return nil, err
+	}
+	iceBind := bind.NewICEBind(nil, nil, wgAddress, 1280)
 	endpointAddress := &net.UDPAddr{
 		IP:   net.IPv4(10, 0, 0, 1),
 		Port: 1234,

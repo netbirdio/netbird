@@ -9,17 +9,17 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
-	s "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/networks/types"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 	nbtypes "github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -28,12 +28,12 @@ type handler struct {
 	networksManager networks.Manager
 	resourceManager resources.Manager
 	routerManager   routers.Manager
-	accountManager  s.AccountManager
+	accountManager  account.Manager
 
 	groupsManager groups.Manager
 }
 
-func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager s.AccountManager, router *mux.Router) {
+func AddEndpoints(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager account.Manager, router *mux.Router) {
 	addRouterEndpoints(routerManager, router)
 	addResourceEndpoints(resourceManager, groupsManager, router)
 
@@ -45,7 +45,7 @@ func AddEndpoints(networksManager networks.Manager, resourceManager resources.Ma
 	router.HandleFunc("/networks/{networkId}", networksHandler.deleteNetwork).Methods("DELETE", "OPTIONS")
 }
 
-func newHandler(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager s.AccountManager) *handler {
+func newHandler(networksManager networks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager groups.Manager, accountManager account.Manager) *handler {
 	return &handler{
 		networksManager: networksManager,
 		resourceManager: resourceManager,
@@ -289,7 +289,7 @@ func (h *handler) collectIDsInNetwork(ctx context.Context, accountID, userID, ne
 }
 
 func (h *handler) generateNetworkResponse(networks []*types.Network, routers map[string][]*routerTypes.NetworkRouter, resourceIDs map[string][]string, groups map[string]*nbtypes.Group, account *nbtypes.Account) []*api.Network {
-	var networkResponse []*api.Network
+	networkResponse := make([]*api.Network, 0, len(networks))
 	for _, network := range networks {
 		routerIDs, peerCounter := getRouterIDs(network, routers, groups)
 		policyIDs := account.GetPoliciesAppliedInNetwork(network.ID)

@@ -83,6 +83,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup MySQL privileges
+        if: matrix.store == 'mysql'
+        run: |
+          sleep 10
+          mysql -h 127.0.0.1 -u root -pmysqlroot -e "
+            GRANT SYSTEM_VARIABLES_ADMIN ON *.* TO 'netbird'@'%';
+            FLUSH PRIVILEGES;
+          "
+
       - name: cp setup.env
         run: cp infrastructure_files/tests/setup.env infrastructure_files/
 
@@ -134,6 +143,7 @@ jobs:
           NETBIRD_STORE_ENGINE_MYSQL_DSN: '${{ env.NETBIRD_STORE_ENGINE_MYSQL_DSN }}$'
           CI_NETBIRD_MGMT_IDP_SIGNKEY_REFRESH: false
           CI_NETBIRD_TURN_EXTERNAL_IP: "1.2.3.4"
+          CI_NETBIRD_MGMT_DISABLE_DEFAULT_POLICY: false
 
         run: |
           set -x
@@ -172,12 +182,15 @@ jobs:
           grep "NETBIRD_STORE_ENGINE_MYSQL_DSN=$NETBIRD_STORE_ENGINE_MYSQL_DSN" docker-compose.yml
           grep NETBIRD_STORE_ENGINE_POSTGRES_DSN docker-compose.yml | egrep "$NETBIRD_STORE_ENGINE_POSTGRES_DSN"
           # check relay values
-          grep "NB_EXPOSED_ADDRESS=$CI_NETBIRD_DOMAIN:33445" docker-compose.yml
+          grep "NB_EXPOSED_ADDRESS=rels://$CI_NETBIRD_DOMAIN:33445" docker-compose.yml
           grep "NB_LISTEN_ADDRESS=:33445" docker-compose.yml
           grep '33445:33445' docker-compose.yml
           grep -A 10 'relay:' docker-compose.yml | egrep 'NB_AUTH_SECRET=.+$'
-          grep -A 7 Relay management.json | grep "rel://$CI_NETBIRD_DOMAIN:33445"
+          grep -A 7 Relay management.json | grep "rels://$CI_NETBIRD_DOMAIN:33445"
           grep -A 7 Relay management.json | egrep '"Secret": ".+"'
+          grep DisablePromptLogin management.json | grep 'true'
+          grep LoginFlag management.json | grep 0
+          grep DisableDefaultPolicy management.json | grep "$CI_NETBIRD_MGMT_DISABLE_DEFAULT_POLICY"
 
       - name: Install modules
         run: go mod tidy

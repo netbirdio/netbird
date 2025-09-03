@@ -30,10 +30,8 @@ type entry struct {
 }
 
 type aclManager struct {
-	iptablesClient     *iptables.IPTables
-	wgIface            iFaceMapper
-	routingFwChainName string
-
+	iptablesClient  *iptables.IPTables
+	wgIface         iFaceMapper
 	entries         aclEntries
 	optionalEntries map[string][]entry
 	ipsetStore      *ipsetStore
@@ -41,12 +39,10 @@ type aclManager struct {
 	stateManager *statemanager.Manager
 }
 
-func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper, routingFwChainName string) (*aclManager, error) {
+func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*aclManager, error) {
 	m := &aclManager{
-		iptablesClient:     iptablesClient,
-		wgIface:            wgIface,
-		routingFwChainName: routingFwChainName,
-
+		iptablesClient:  iptablesClient,
+		wgIface:         wgIface,
 		entries:         make(map[string][][]string),
 		optionalEntries: make(map[string][]entry),
 		ipsetStore:      newIpsetStore(),
@@ -79,6 +75,7 @@ func (m *aclManager) init(stateManager *statemanager.Manager) error {
 }
 
 func (m *aclManager) AddPeerFiltering(
+	id []byte,
 	ip net.IP,
 	protocol firewall.Protocol,
 	sPort *firewall.Port,
@@ -88,7 +85,7 @@ func (m *aclManager) AddPeerFiltering(
 ) ([]firewall.Rule, error) {
 	chain := chainNameInputRules
 
-	ipsetName = transformIPsetName(ipsetName, sPort, dPort)
+	ipsetName = transformIPsetName(ipsetName, sPort, dPort, action)
 	specs := filterRuleSpecs(ip, string(protocol), sPort, dPort, action, ipsetName)
 
 	mangleSpecs := slices.Clone(specs)
@@ -138,7 +135,14 @@ func (m *aclManager) AddPeerFiltering(
 		return nil, fmt.Errorf("rule already exists")
 	}
 
-	if err := m.iptablesClient.Append(tableFilter, chain, specs...); err != nil {
+	// Insert DROP rules at the beginning, append ACCEPT rules at the end
+	if action == firewall.ActionDrop {
+		// Insert at the beginning of the chain (position 1)
+		err = m.iptablesClient.Insert(tableFilter, chain, 1, specs...)
+	} else {
+		err = m.iptablesClient.Append(tableFilter, chain, specs...)
+	}
+	if err != nil {
 		return nil, err
 	}
 
@@ -314,9 +318,12 @@ func (m *aclManager) seedInitialEntries() {
 	m.appendToEntries("INPUT", []string{"-i", m.wgIface.Name(), "-j", chainNameInputRules})
 	m.appendToEntries("INPUT", append([]string{"-i", m.wgIface.Name()}, established...))
 
+	// Inbound is handled by our ACLs, the rest is dropped.
+	// For outbound we respect the FORWARD policy. However, we need to allow established/related traffic for inbound rules.
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", "DROP"})
-	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", m.routingFwChainName})
-	m.appendToEntries("FORWARD", append([]string{"-o", m.wgIface.Name()}, established...))
+
+	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", chainRTFWDOUT})
+	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainRTFWDIN})
 }
 
 func (m *aclManager) seedInitialOptionalEntries() {
@@ -388,17 +395,25 @@ func actionToStr(action firewall.Action) string {
 	return "DROP"
 }
 
-func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port) string {
-	switch {
-	case ipsetName == "":
+func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port, action firewall.Action) string {
+	if ipsetName == "" {
 		return ""
+	}
+
+	// Include action in the ipset name to prevent squashing rules with different actions
+	actionSuffix := ""
+	if action == firewall.ActionDrop {
+		actionSuffix = "-drop"
+	}
+
+	switch {
 	case sPort != nil && dPort != nil:
-		return ipsetName + "-sport-dport"
+		return ipsetName + "-sport-dport" + actionSuffix
 	case sPort != nil:
-		return ipsetName + "-sport"
+		return ipsetName + "-sport" + actionSuffix
 	case dPort != nil:
-		return ipsetName + "-dport"
+		return ipsetName + "-dport" + actionSuffix
 	default:
-		return ipsetName
+		return ipsetName + actionSuffix
 	}
 }

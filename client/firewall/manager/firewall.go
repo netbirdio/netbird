@@ -1,13 +1,10 @@
 package manager
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"net/netip"
 	"sort"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -26,8 +23,8 @@ const (
 // Each firewall type for different OS can use different type
 // of the properties to hold data of the created rule
 type Rule interface {
-	// GetRuleID returns the rule id
-	GetRuleID() string
+	// ID returns the rule id
+	ID() string
 }
 
 // RuleDirection is the traffic direction which a rule is applied
@@ -43,12 +40,51 @@ const (
 // Action is the action to be taken on a rule
 type Action int
 
+// String returns the string representation of the action
+func (a Action) String() string {
+	switch a {
+	case ActionAccept:
+		return "accept"
+	case ActionDrop:
+		return "drop"
+	default:
+		return "unknown"
+	}
+}
+
 const (
 	// ActionAccept is the action to accept a packet
 	ActionAccept Action = iota
 	// ActionDrop is the action to drop a packet
 	ActionDrop
 )
+
+// Network is a rule destination, either a set or a prefix
+type Network struct {
+	Set    Set
+	Prefix netip.Prefix
+}
+
+// String returns the string representation of the destination
+func (d Network) String() string {
+	if d.Prefix.IsValid() {
+		return d.Prefix.String()
+	}
+	if d.IsSet() {
+		return d.Set.HashedName()
+	}
+	return "<invalid network>"
+}
+
+// IsSet returns true if the destination is a set
+func (d Network) IsSet() bool {
+	return d.Set != Set{}
+}
+
+// IsPrefix returns true if the destination is a valid prefix
+func (d Network) IsPrefix() bool {
+	return d.Prefix.IsValid()
+}
 
 // Manager is the high level abstraction of a firewall manager
 //
@@ -65,13 +101,13 @@ type Manager interface {
 	// If comment argument is empty firewall manager should set
 	// rule ID as comment for the rule
 	AddPeerFiltering(
+		id []byte,
 		ip net.IP,
 		proto Protocol,
 		sPort *Port,
 		dPort *Port,
 		action Action,
 		ipsetName string,
-		comment string,
 	) ([]Rule, error)
 
 	// DeletePeerRule from the firewall by rule definition
@@ -80,7 +116,16 @@ type Manager interface {
 	// IsServerRouteSupported returns true if the firewall supports server side routing operations
 	IsServerRouteSupported() bool
 
-	AddRouteFiltering(source []netip.Prefix, destination netip.Prefix, proto Protocol, sPort *Port, dPort *Port, action Action) (Rule, error)
+	IsStateful() bool
+
+	AddRouteFiltering(
+		id []byte,
+		sources []netip.Prefix,
+		destination Network,
+		proto Protocol,
+		sPort, dPort *Port,
+		action Action,
+	) (Rule, error)
 
 	// DeleteRouteRule deletes a routing rule
 	DeleteRouteRule(rule Rule) error
@@ -94,8 +139,8 @@ type Manager interface {
 	// SetLegacyManagement sets the legacy management mode
 	SetLegacyManagement(legacy bool) error
 
-	// Reset firewall to the default state
-	Reset(stateManager *statemanager.Manager) error
+	// Close closes the firewall manager
+	Close(stateManager *statemanager.Manager) error
 
 	// Flush the changes to firewall controller
 	Flush() error
@@ -105,6 +150,15 @@ type Manager interface {
 	EnableRouting() error
 
 	DisableRouting() error
+
+	// AddDNATRule adds a DNAT rule
+	AddDNATRule(ForwardRule) (Rule, error)
+
+	// DeleteDNATRule deletes a DNAT rule
+	DeleteDNATRule(Rule) error
+
+	// UpdateSet updates the set with the given prefixes
+	UpdateSet(hash Set, prefixes []netip.Prefix) error
 }
 
 func GenKey(format string, pair RouterPair) string {
@@ -137,22 +191,6 @@ func SetLegacyManagement(router LegacyManager, isLegacy bool) error {
 	}
 
 	return nil
-}
-
-// GenerateSetName generates a unique name for an ipset based on the given sources.
-func GenerateSetName(sources []netip.Prefix) string {
-	// sort for consistent naming
-	SortPrefixes(sources)
-
-	var sourcesStr strings.Builder
-	for _, src := range sources {
-		sourcesStr.WriteString(src.String())
-	}
-
-	hash := sha256.Sum256([]byte(sourcesStr.String()))
-	shortHash := hex.EncodeToString(hash[:])[:8]
-
-	return fmt.Sprintf("nb-%s", shortHash)
 }
 
 // MergeIPRanges merges overlapping IP ranges and returns a slice of non-overlapping netip.Prefix

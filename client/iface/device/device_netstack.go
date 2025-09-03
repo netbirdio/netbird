@@ -1,6 +1,3 @@
-//go:build !android
-// +build !android
-
 package device
 
 import (
@@ -13,15 +10,16 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type TunNetstackDevice struct {
 	name          string
-	address       WGAddress
+	address       wgaddr.Address
 	port          int
 	key           string
-	mtu           int
+	mtu           uint16
 	listenAddress string
 	iceBind       *bind.ICEBind
 
@@ -34,7 +32,7 @@ type TunNetstackDevice struct {
 	net *netstack.Net
 }
 
-func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, mtu int, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
+func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
 	return &TunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -46,13 +44,17 @@ func NewNetstackDevice(name string, address WGAddress, wgPort int, key string, m
 	}
 }
 
-func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
+func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 	log.Info("create nbnetstack tun interface")
 
 	// TODO: get from service listener runtime IP
-	dnsAddr := nbnet.GetLastIPFromNetwork(t.address.Network, 1)
+	dnsAddr, err := nbnet.GetLastIPFromNetwork(t.address.Network, 1)
+	if err != nil {
+		return nil, fmt.Errorf("last ip: %w", err)
+	}
+
 	log.Debugf("netstack using address: %s", t.address.IP)
-	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, t.address.IP, dnsAddr, t.mtu)
+	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, t.address.IP, dnsAddr, int(t.mtu))
 	log.Debugf("netstack using dns address: %s", dnsAddr)
 	tunIface, net, err := t.nsTun.Create()
 	if err != nil {
@@ -67,7 +69,7 @@ func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		_ = tunIface.Close()
@@ -97,7 +99,7 @@ func (t *TunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *TunNetstackDevice) UpdateAddr(WGAddress) error {
+func (t *TunNetstackDevice) UpdateAddr(wgaddr.Address) error {
 	return nil
 }
 
@@ -116,8 +118,12 @@ func (t *TunNetstackDevice) Close() error {
 	return nil
 }
 
-func (t *TunNetstackDevice) WgAddress() WGAddress {
+func (t *TunNetstackDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunNetstackDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunNetstackDevice) DeviceName() string {

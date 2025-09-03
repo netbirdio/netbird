@@ -4,6 +4,7 @@ package android
 
 import (
 	"context"
+	"slices"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -13,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
@@ -59,10 +61,14 @@ type Client struct {
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
+
+	connectClient *internal.ConnectClient
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
+func NewClient(cfgFile string, androidSDKVersion int, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
+	execWorkaround(androidSDKVersion)
+
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
 	return &Client{
 		cfgFile:               cfgFile,
@@ -78,7 +84,7 @@ func NewClient(cfgFile, deviceName string, uiVersion string, tunAdapter TunAdapt
 
 // Run start the internal client. It is a blocker function
 func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsReadyListener) error {
-	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
 	if err != nil {
@@ -106,14 +112,14 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
-	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, dns.items, dnsReadyListener)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener)
 }
 
 // RunWithoutLogin we apply this type of run function when the backed has been started without UI (i.e. after reboot).
 // In this case make no sense handle registration steps.
 func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener) error {
-	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
 	if err != nil {
@@ -132,8 +138,8 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
-	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, dns.items, dnsReadyListener)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener)
 }
 
 // Stop the internal client and free the resources
@@ -174,6 +180,55 @@ func (c *Client) PeersList() *PeerInfoArray {
 	return &PeerInfoArray{items: peerInfos}
 }
 
+func (c *Client) Networks() *NetworkArray {
+	if c.connectClient == nil {
+		log.Error("not connected")
+		return nil
+	}
+
+	engine := c.connectClient.Engine()
+	if engine == nil {
+		log.Error("could not get engine")
+		return nil
+	}
+
+	routeManager := engine.GetRouteManager()
+	if routeManager == nil {
+		log.Error("could not get route manager")
+		return nil
+	}
+
+	networkArray := &NetworkArray{
+		items: make([]Network, 0),
+	}
+
+	for id, routes := range routeManager.GetClientRoutesWithNetID() {
+		if len(routes) == 0 {
+			continue
+		}
+
+		r := routes[0]
+		netStr := r.Network.String()
+		if r.IsDynamic() {
+			netStr = r.Domains.SafeString()
+		}
+
+		peer, err := c.recorder.GetPeer(routes[0].Peer)
+		if err != nil {
+			log.Errorf("could not get peer info for %s: %v", routes[0].Peer, err)
+			continue
+		}
+		network := Network{
+			Name:    string(id),
+			Network: netStr,
+			Peer:    peer.FQDN,
+			Status:  peer.ConnStatus.String(),
+		}
+		networkArray.Add(network)
+	}
+	return networkArray
+}
+
 // OnUpdatedHostDNS update the DNS servers addresses for root zones
 func (c *Client) OnUpdatedHostDNS(list *DNSList) error {
 	dnsServer, err := dns.GetServerDns()
@@ -181,7 +236,7 @@ func (c *Client) OnUpdatedHostDNS(list *DNSList) error {
 		return err
 	}
 
-	dnsServer.OnUpdatedHostDNSServer(list.items)
+	dnsServer.OnUpdatedHostDNSServer(slices.Clone(list.items))
 	return nil
 }
 

@@ -13,16 +13,17 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 const defaultWindowsGUIDSTring = "{f2f29e61-d91f-4d76-8151-119b20c4bdeb}"
 
 type TunDevice struct {
 	name    string
-	address WGAddress
+	address wgaddr.Address
 	port    int
 	key     string
-	mtu     int
+	mtu     uint16
 	iceBind *bind.ICEBind
 
 	device          *device.Device
@@ -32,7 +33,7 @@ type TunDevice struct {
 	configurer      WGConfigurer
 }
 
-func NewTunDevice(name string, address WGAddress, port int, key string, mtu int, iceBind *bind.ICEBind) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
@@ -58,7 +59,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		return nil, err
 	}
 	log.Info("create tun interface")
-	tunDevice, err := tun.CreateTUNWithRequestedGUID(t.name, &guid, t.mtu)
+	tunDevice, err := tun.CreateTUNWithRequestedGUID(t.name, &guid, int(t.mtu))
 	if err != nil {
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
@@ -93,7 +94,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name)
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
@@ -118,7 +119,7 @@ func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *TunDevice) UpdateAddr(address WGAddress) error {
+func (t *TunDevice) UpdateAddr(address wgaddr.Address) error {
 	t.address = address
 	return t.assignAddr()
 }
@@ -139,8 +140,12 @@ func (t *TunDevice) Close() error {
 	}
 	return nil
 }
-func (t *TunDevice) WgAddress() WGAddress {
+func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunDevice) DeviceName() string {

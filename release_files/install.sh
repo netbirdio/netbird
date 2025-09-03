@@ -109,6 +109,9 @@ add_apt_repo() {
     curl -sSL https://pkgs.netbird.io/debian/public.key \
     | ${SUDO} gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
 
+    # Explicitly set the file permission
+    ${SUDO} chmod 0644 /usr/share/keyrings/netbird-archive-keyring.gpg
+
     echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' \
     | ${SUDO} tee /etc/apt/sources.list.d/netbird.list
 
@@ -127,7 +130,7 @@ repo_gpgcheck=1
 EOF
 }
 
-add_aur_repo() {
+install_aur_package() {
     INSTALL_PKGS="git base-devel go"
     REMOVE_PKGS=""
 
@@ -151,8 +154,10 @@ add_aur_repo() {
         cd netbird-ui && makepkg -sri --noconfirm
     fi
 
-    # Clean up the installed packages
-    ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
+    if [ -n "$REMOVE_PKGS" ]; then
+      # Clean up the installed packages
+      ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
+    fi
 }
 
 prepare_tun_module() {
@@ -196,6 +201,21 @@ install_native_binaries() {
     fi
 }
 
+# Handle macOS .pkg installer
+install_pkg() {
+  case "$(uname -m)" in
+    x86_64) ARCH="amd64" ;;
+    arm64|aarch64) ARCH="arm64" ;;
+    *) echo "Unsupported macOS arch: $(uname -m)" >&2; exit 1 ;;
+  esac
+
+  PKG_URL=$(curl -sIL -o /dev/null -w '%{url_effective}' "https://pkgs.netbird.io/macos/${ARCH}")
+  echo "Downloading NetBird macOS installer from https://pkgs.netbird.io/macos/${ARCH}"
+  curl -fsSL -o /tmp/netbird.pkg "${PKG_URL}"
+  ${SUDO} installer -pkg /tmp/netbird.pkg -target /
+  rm -f /tmp/netbird.pkg
+}
+
 check_use_bin_variable() {
     if [ "${USE_BIN_INSTALL}-x" = "true-x" ]; then
       echo "The installation will be performed using binary files"
@@ -206,16 +226,22 @@ check_use_bin_variable() {
 
 install_netbird() {
     if [ -x "$(command -v netbird)" ]; then
-        status_output=$(netbird status)
-        if echo "$status_output" | grep -q 'Management: Connected' && echo "$status_output" | grep -q 'Signal: Connected'; then
-            echo "NetBird service is running, please stop it before proceeding"
-            exit 1
-        fi
+      status_output="$(netbird status 2>&1 || true)"
 
-        if [ -n "$status_output" ]; then
-            echo "NetBird seems to be installed already, please remove it before proceeding"
-            exit 1
-        fi
+      if echo "$status_output" | grep -q 'failed to connect to daemon error: context deadline exceeded'; then
+          echo "Warning: could not reach NetBird daemon (timeout), proceeding anyway"
+      else
+          if echo "$status_output" | grep -q 'Management: Connected' && \
+              echo "$status_output" | grep -q 'Signal: Connected'; then
+              echo "NetBird service is running, please stop it before proceeding"
+              exit 1
+          fi
+
+          if [ -n "$status_output" ]; then
+              echo "NetBird seems to be installed already, please remove it before proceeding"
+              exit 1
+          fi
+      fi
     fi
 
     # Run the installation, if a desktop environment is not detected
@@ -238,13 +264,6 @@ install_netbird() {
     ;;
     dnf)
         add_rpm_repo
-        ${SUDO} dnf -y install dnf-plugin-config-manager
-        if [[ "$(dnf --version | head -n1 | cut -d. -f1)" > "4" ]];
-        then
-          ${SUDO} dnf config-manager addrepo --from-repofile=/etc/yum.repos.d/netbird.repo
-        else
-          ${SUDO} dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
-        fi
         ${SUDO} dnf -y install netbird
 
         if ! $SKIP_UI_APP; then
@@ -260,7 +279,19 @@ install_netbird() {
     ;;
     pacman)
         ${SUDO} pacman -Syy
-        add_aur_repo
+        install_aur_package
+        # in-line with the docs at https://wiki.archlinux.org/title/Netbird
+        ${SUDO} systemctl enable --now netbird@main.service
+    ;;
+    pkg)
+        # Check if the package is already installed
+        if [ -f /Library/Receipts/netbird.pkg ]; then
+            echo "NetBird is already installed. Please remove it before proceeding."
+            exit 1
+        fi
+
+        # Install the package
+        install_pkg
     ;;
     brew)
         # Remove Netbird if it had been installed using Homebrew before
@@ -271,7 +302,7 @@ install_netbird() {
             netbird service stop
             netbird service uninstall
 
-            # Unlik the app
+            # Unlink the app
             brew unlink netbird
         fi
 
@@ -309,7 +340,7 @@ install_netbird() {
     echo "package_manager=$PACKAGE_MANAGER" | ${SUDO} tee "$CONFIG_FILE" > /dev/null
 
     # Load and start netbird service
-    if [ "$PACKAGE_MANAGER" != "rpm-ostree" ]; then
+    if [ "$PACKAGE_MANAGER" != "rpm-ostree" ] && [ "$PACKAGE_MANAGER" != "pkg" ]; then
         if ! ${SUDO} netbird service install 2>&1; then
             echo "NetBird service has already been loaded"
         fi
@@ -448,9 +479,8 @@ if type uname >/dev/null 2>&1; then
             # Check the availability of a compatible package manager
             if check_use_bin_variable; then
                 PACKAGE_MANAGER="bin"
-            elif [ -x "$(command -v brew)" ]; then
-                PACKAGE_MANAGER="brew"
-                echo "The installation will be performed using brew package manager"
+            else
+              PACKAGE_MANAGER="pkg"
             fi
 		;;
 	esac

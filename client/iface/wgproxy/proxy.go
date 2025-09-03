@@ -18,4 +18,5 @@ type Proxy interface {
 	*/
 	RedirectAs(endpoint *net.UDPAddr)
 	CloseConn() error
+	SetDisconnectListener(disconnected func())
 }

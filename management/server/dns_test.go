@@ -8,9 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -20,7 +24,7 @@ import (
 	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -208,7 +212,14 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MocIntegratedValidator{}, metrics)
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	settingsMockManager := settings.NewMockManager(ctrl)
+	// return empty extra settings for expected calls to UpdateAccountPeers
+	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), gomock.Any()).Return(&types.ExtraSettings{}, nil).AnyTimes()
+	permissionsManager := permissions.NewManager(store)
+	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.test", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 }
 
 func createDNSStore(t *testing.T) (store.Store, error) {
@@ -258,7 +269,7 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 
 	domain := "example.com"
 
-	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain)
+	account := newAccountWithId(context.Background(), dnsAccountID, dnsAdminUserID, domain, false)
 
 	account.Users[dnsRegularUserID] = &types.User{
 		Id:   dnsRegularUserID,
@@ -484,7 +495,7 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 func TestDNSAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	err := manager.CreateGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -551,7 +562,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 
 	// Creating DNS settings with groups that have peers should update account peers and send peer update
 	t.Run("creating dns setting with used groups", func(t *testing.T) {
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},

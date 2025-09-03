@@ -9,21 +9,28 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"golang.org/x/exp/maps"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/errors"
-	route "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/route"
+)
+
+const (
+	exitNodeCIDR = "0.0.0.0/0"
 )
 
 type RouteSelector struct {
-	mu             sync.RWMutex
-	selectedRoutes map[route.NetID]struct{}
-	selectAll      bool
+	mu               sync.RWMutex
+	deselectedRoutes map[route.NetID]struct{}
+	selectedRoutes   map[route.NetID]struct{}
+	deselectAll      bool
 }
 
 func NewRouteSelector() *RouteSelector {
 	return &RouteSelector{
-		selectedRoutes: map[route.NetID]struct{}{},
-		// default selects all routes
-		selectAll: true,
+		deselectedRoutes: map[route.NetID]struct{}{},
+		selectedRoutes:   map[route.NetID]struct{}{},
+		deselectAll:      false,
 	}
 }
 
@@ -32,8 +39,18 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	if !appendRoute {
-		rs.selectedRoutes = map[route.NetID]struct{}{}
+	if !appendRoute || rs.deselectAll {
+		if rs.deselectedRoutes == nil {
+			rs.deselectedRoutes = map[route.NetID]struct{}{}
+		}
+		if rs.selectedRoutes == nil {
+			rs.selectedRoutes = map[route.NetID]struct{}{}
+		}
+		maps.Clear(rs.deselectedRoutes)
+		maps.Clear(rs.selectedRoutes)
+		for _, r := range allRoutes {
+			rs.deselectedRoutes[r] = struct{}{}
+		}
 	}
 
 	var err *multierror.Error
@@ -42,10 +59,11 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", route))
 			continue
 		}
-
+		delete(rs.deselectedRoutes, route)
 		rs.selectedRoutes[route] = struct{}{}
 	}
-	rs.selectAll = false
+
+	rs.deselectAll = false
 
 	return errors.FormatErrorOrNil(err)
 }
@@ -55,31 +73,33 @@ func (rs *RouteSelector) SelectAllRoutes() {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	rs.selectAll = true
-	rs.selectedRoutes = map[route.NetID]struct{}{}
+	rs.deselectAll = false
+	if rs.deselectedRoutes == nil {
+		rs.deselectedRoutes = map[route.NetID]struct{}{}
+	}
+	if rs.selectedRoutes == nil {
+		rs.selectedRoutes = map[route.NetID]struct{}{}
+	}
+	maps.Clear(rs.deselectedRoutes)
+	maps.Clear(rs.selectedRoutes)
 }
 
 // DeselectRoutes removes specific routes from the selection.
-// If the selector is in "select all" mode, it will transition to "select specific" mode.
 func (rs *RouteSelector) DeselectRoutes(routes []route.NetID, allRoutes []route.NetID) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	if rs.selectAll {
-		rs.selectAll = false
-		rs.selectedRoutes = map[route.NetID]struct{}{}
-		for _, route := range allRoutes {
-			rs.selectedRoutes[route] = struct{}{}
-		}
+	if rs.deselectAll {
+		return nil
 	}
 
 	var err *multierror.Error
-
 	for _, route := range routes {
 		if !slices.Contains(allRoutes, route) {
 			err = multierror.Append(err, fmt.Errorf("route '%s' is not available", route))
 			continue
 		}
+		rs.deselectedRoutes[route] = struct{}{}
 		delete(rs.selectedRoutes, route)
 	}
 
@@ -91,8 +111,15 @@ func (rs *RouteSelector) DeselectAllRoutes() {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	rs.selectAll = false
-	rs.selectedRoutes = map[route.NetID]struct{}{}
+	rs.deselectAll = true
+	if rs.deselectedRoutes == nil {
+		rs.deselectedRoutes = map[route.NetID]struct{}{}
+	}
+	if rs.selectedRoutes == nil {
+		rs.selectedRoutes = map[route.NetID]struct{}{}
+	}
+	maps.Clear(rs.deselectedRoutes)
+	maps.Clear(rs.selectedRoutes)
 }
 
 // IsSelected checks if a specific route is selected.
@@ -100,11 +127,15 @@ func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
-	if rs.selectAll {
-		return true
+	if rs.deselectAll {
+		log.Debugf("Route %s not selected (deselect all)", routeID)
+		return false
 	}
-	_, selected := rs.selectedRoutes[routeID]
-	return selected
+
+	_, deselected := rs.deselectedRoutes[routeID]
+	isSelected := !deselected
+	log.Debugf("Route %s selection status: %v (deselected: %v)", routeID, isSelected, deselected)
+	return isSelected
 }
 
 // FilterSelected removes unselected routes from the provided map.
@@ -112,17 +143,100 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
-	if rs.selectAll {
-		return maps.Clone(routes)
+	if rs.deselectAll {
+		return route.HAMap{}
 	}
 
 	filtered := route.HAMap{}
 	for id, rt := range routes {
-		if rs.IsSelected(id.NetID()) {
+		netID := id.NetID()
+		_, deselected := rs.deselectedRoutes[netID]
+		if !deselected {
 			filtered[id] = rt
 		}
 	}
 	return filtered
+}
+
+// HasUserSelectionForRoute returns true if the user has explicitly selected or deselected this specific route
+func (rs *RouteSelector) HasUserSelectionForRoute(routeID route.NetID) bool {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	_, selected := rs.selectedRoutes[routeID]
+	_, deselected := rs.deselectedRoutes[routeID]
+	return selected || deselected
+}
+
+func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	if rs.deselectAll {
+		return route.HAMap{}
+	}
+
+	filtered := make(route.HAMap, len(routes))
+	for id, rt := range routes {
+		netID := id.NetID()
+		if rs.isDeselected(netID) {
+			continue
+		}
+
+		if !isExitNode(rt) {
+			filtered[id] = rt
+			continue
+		}
+
+		rs.applyExitNodeFilter(id, netID, rt, filtered)
+	}
+
+	return filtered
+}
+
+func (rs *RouteSelector) isDeselected(netID route.NetID) bool {
+	_, deselected := rs.deselectedRoutes[netID]
+	return deselected || rs.deselectAll
+}
+
+func isExitNode(rt []*route.Route) bool {
+	return len(rt) > 0 && rt[0].Network.String() == exitNodeCIDR
+}
+
+func (rs *RouteSelector) applyExitNodeFilter(
+	id route.HAUniqueID,
+	netID route.NetID,
+	rt []*route.Route,
+	out route.HAMap,
+) {
+
+	if rs.hasUserSelections() {
+		// user made explicit selects/deselects
+		if rs.IsSelected(netID) {
+			out[id] = rt
+		}
+		return
+	}
+
+	// no explicit selections: only include routes marked !SkipAutoApply (=AutoApply)
+	sel := collectSelected(rt)
+	if len(sel) > 0 {
+		out[id] = sel
+	}
+}
+
+func (rs *RouteSelector) hasUserSelections() bool {
+	return len(rs.selectedRoutes) > 0 || len(rs.deselectedRoutes) > 0
+}
+
+func collectSelected(rt []*route.Route) []*route.Route {
+	var sel []*route.Route
+	for _, r := range rt {
+		if !r.SkipAutoApply {
+			sel = append(sel, r)
+		}
+	}
+	return sel
 }
 
 // MarshalJSON implements the json.Marshaler interface
@@ -131,11 +245,13 @@ func (rs *RouteSelector) MarshalJSON() ([]byte, error) {
 	defer rs.mu.RUnlock()
 
 	return json.Marshal(struct {
-		SelectedRoutes map[route.NetID]struct{} `json:"selected_routes"`
-		SelectAll      bool                     `json:"select_all"`
+		SelectedRoutes   map[route.NetID]struct{} `json:"selected_routes"`
+		DeselectedRoutes map[route.NetID]struct{} `json:"deselected_routes"`
+		DeselectAll      bool                     `json:"deselect_all"`
 	}{
-		SelectAll:      rs.selectAll,
-		SelectedRoutes: rs.selectedRoutes,
+		SelectedRoutes:   rs.selectedRoutes,
+		DeselectedRoutes: rs.deselectedRoutes,
+		DeselectAll:      rs.deselectAll,
 	})
 }
 
@@ -147,14 +263,16 @@ func (rs *RouteSelector) UnmarshalJSON(data []byte) error {
 
 	// Check for null or empty JSON
 	if len(data) == 0 || string(data) == "null" {
+		rs.deselectedRoutes = map[route.NetID]struct{}{}
 		rs.selectedRoutes = map[route.NetID]struct{}{}
-		rs.selectAll = true
+		rs.deselectAll = false
 		return nil
 	}
 
 	var temp struct {
-		SelectedRoutes map[route.NetID]struct{} `json:"selected_routes"`
-		SelectAll      bool                     `json:"select_all"`
+		SelectedRoutes   map[route.NetID]struct{} `json:"selected_routes"`
+		DeselectedRoutes map[route.NetID]struct{} `json:"deselected_routes"`
+		DeselectAll      bool                     `json:"deselect_all"`
 	}
 
 	if err := json.Unmarshal(data, &temp); err != nil {
@@ -162,8 +280,12 @@ func (rs *RouteSelector) UnmarshalJSON(data []byte) error {
 	}
 
 	rs.selectedRoutes = temp.SelectedRoutes
-	rs.selectAll = temp.SelectAll
+	rs.deselectedRoutes = temp.DeselectedRoutes
+	rs.deselectAll = temp.DeselectAll
 
+	if rs.deselectedRoutes == nil {
+		rs.deselectedRoutes = map[route.NetID]struct{}{}
+	}
 	if rs.selectedRoutes == nil {
 		rs.selectedRoutes = map[route.NetID]struct{}{}
 	}

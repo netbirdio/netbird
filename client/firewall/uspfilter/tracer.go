@@ -2,7 +2,7 @@ package uspfilter
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"time"
 
 	"github.com/google/gopacket"
@@ -53,8 +53,8 @@ type TraceResult struct {
 }
 
 type PacketTrace struct {
-	SourceIP        net.IP
-	DestinationIP   net.IP
+	SourceIP        netip.Addr
+	DestinationIP   netip.Addr
 	Protocol        string
 	SourcePort      uint16
 	DestinationPort uint16
@@ -72,8 +72,8 @@ type TCPState struct {
 }
 
 type PacketBuilder struct {
-	SrcIP       net.IP
-	DstIP       net.IP
+	SrcIP       netip.Addr
+	DstIP       netip.Addr
 	Protocol    fw.Protocol
 	SrcPort     uint16
 	DstPort     uint16
@@ -126,8 +126,8 @@ func (p *PacketBuilder) buildIPLayer() *layers.IPv4 {
 		Version:  4,
 		TTL:      64,
 		Protocol: layers.IPProtocol(getIPProtocolNumber(p.Protocol)),
-		SrcIP:    p.SrcIP,
-		DstIP:    p.DstIP,
+		SrcIP:    p.SrcIP.AsSlice(),
+		DstIP:    p.DstIP.AsSlice(),
 	}
 }
 
@@ -260,28 +260,30 @@ func (m *Manager) TracePacket(packetData []byte, direction fw.RuleDirection) *Pa
 	return m.traceInbound(packetData, trace, d, srcIP, dstIP)
 }
 
-func (m *Manager) traceInbound(packetData []byte, trace *PacketTrace, d *decoder, srcIP net.IP, dstIP net.IP) *PacketTrace {
+func (m *Manager) traceInbound(packetData []byte, trace *PacketTrace, d *decoder, srcIP netip.Addr, dstIP netip.Addr) *PacketTrace {
 	if m.stateful && m.handleConntrackState(trace, d, srcIP, dstIP) {
 		return trace
 	}
 
-	if m.handleLocalDelivery(trace, packetData, d, srcIP, dstIP) {
-		return trace
+	if m.localipmanager.IsLocalIP(dstIP) {
+		if m.handleLocalDelivery(trace, packetData, d, srcIP, dstIP) {
+			return trace
+		}
 	}
 
 	if !m.handleRouting(trace) {
 		return trace
 	}
 
-	if m.nativeRouter {
+	if m.nativeRouter.Load() {
 		return m.handleNativeRouter(trace)
 	}
 
 	return m.handleRouteACLs(trace, d, srcIP, dstIP)
 }
 
-func (m *Manager) handleConntrackState(trace *PacketTrace, d *decoder, srcIP, dstIP net.IP) bool {
-	allowed := m.isValidTrackedConnection(d, srcIP, dstIP)
+func (m *Manager) handleConntrackState(trace *PacketTrace, d *decoder, srcIP, dstIP netip.Addr) bool {
+	allowed := m.isValidTrackedConnection(d, srcIP, dstIP, 0)
 	msg := "No existing connection found"
 	if allowed {
 		msg = m.buildConntrackStateMessage(d)
@@ -309,32 +311,46 @@ func (m *Manager) buildConntrackStateMessage(d *decoder) string {
 	return msg
 }
 
-func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP net.IP) bool {
-	if !m.localForwarding {
-		trace.AddResult(StageRouting, "Local forwarding disabled", false)
-		trace.AddResult(StageCompleted, "Packet dropped - local forwarding disabled", false)
+func (m *Manager) handleLocalDelivery(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP netip.Addr) bool {
+	trace.AddResult(StageRouting, "Packet destined for local delivery", true)
+
+	ruleId, blocked := m.peerACLsBlock(srcIP, d, packetData)
+
+	strRuleId := "<no id>"
+	if ruleId != nil {
+		strRuleId = string(ruleId)
+	}
+	msg := fmt.Sprintf("Allowed by peer ACL rules (%s)", strRuleId)
+	if blocked {
+		msg = fmt.Sprintf("Blocked by peer ACL rules (%s)", strRuleId)
+		trace.AddResult(StagePeerACL, msg, false)
+		trace.AddResult(StageCompleted, "Packet dropped - ACL denied", false)
 		return true
 	}
 
-	trace.AddResult(StageRouting, "Packet destined for local delivery", true)
-	blocked := m.peerACLsBlock(srcIP, packetData, m.incomingRules, d)
+	trace.AddResult(StagePeerACL, msg, true)
 
-	msg := "Allowed by peer ACL rules"
-	if blocked {
-		msg = "Blocked by peer ACL rules"
-	}
-	trace.AddResult(StagePeerACL, msg, !blocked)
-
+	// Handle netstack mode
 	if m.netstack {
-		m.addForwardingResult(trace, "proxy-local", "127.0.0.1", !blocked)
+		switch {
+		case !m.localForwarding:
+			trace.AddResult(StageCompleted, "Packet sent to virtual stack", true)
+		case m.forwarder.Load() != nil:
+			m.addForwardingResult(trace, "proxy-local", "127.0.0.1", true)
+			trace.AddResult(StageCompleted, msgProcessingCompleted, true)
+		default:
+			trace.AddResult(StageCompleted, "Packet dropped - forwarder not initialized", false)
+		}
+		return true
 	}
 
-	trace.AddResult(StageCompleted, msgProcessingCompleted, !blocked)
+	// In normal mode, packets are allowed through for local delivery
+	trace.AddResult(StageCompleted, msgProcessingCompleted, true)
 	return true
 }
 
 func (m *Manager) handleRouting(trace *PacketTrace) bool {
-	if !m.routingEnabled {
+	if !m.routingEnabled.Load() {
 		trace.AddResult(StageRouting, "Routing disabled", false)
 		trace.AddResult(StageCompleted, "Packet dropped - routing disabled", false)
 		return false
@@ -350,18 +366,23 @@ func (m *Manager) handleNativeRouter(trace *PacketTrace) *PacketTrace {
 	return trace
 }
 
-func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP net.IP) *PacketTrace {
-	proto := getProtocolFromPacket(d)
+func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP netip.Addr) *PacketTrace {
+	proto, _ := getProtocolFromPacket(d)
 	srcPort, dstPort := getPortsFromPacket(d)
-	allowed := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
+	id, allowed := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
 
-	msg := "Allowed by route ACLs"
+	strId := string(id)
+	if id == nil {
+		strId = "<no id>"
+	}
+
+	msg := fmt.Sprintf("Allowed by route ACLs (%s)", strId)
 	if !allowed {
-		msg = "Blocked by route ACLs"
+		msg = fmt.Sprintf("Blocked by route ACLs (%s)", strId)
 	}
 	trace.AddResult(StageRouteACL, msg, allowed)
 
-	if allowed && m.forwarder != nil {
+	if allowed && m.forwarder.Load() != nil {
 		m.addForwardingResult(trace, "proxy-remote", fmt.Sprintf("%s:%d", dstIP, dstPort), true)
 	}
 
@@ -380,7 +401,7 @@ func (m *Manager) addForwardingResult(trace *PacketTrace, action, remoteAddr str
 
 func (m *Manager) traceOutbound(packetData []byte, trace *PacketTrace) *PacketTrace {
 	// will create or update the connection state
-	dropped := m.processOutgoingHooks(packetData)
+	dropped := m.filterOutbound(packetData, 0)
 	if dropped {
 		trace.AddResult(StageCompleted, "Packet dropped by outgoing hook", false)
 	} else {

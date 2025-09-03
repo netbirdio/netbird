@@ -11,6 +11,9 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/iface/bufsize"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
 // ProxyWrapper help to keep the remoteConn instance for net.Conn.Close function call
@@ -27,12 +30,15 @@ type ProxyWrapper struct {
 	paused     bool
 	pausedCond *sync.Cond
 	isStarted  bool
+
+	closeListener *listener.CloseListener
 }
 
 func NewProxyWrapper(proxy *WGEBPFProxy) *ProxyWrapper {
 	return &ProxyWrapper{
-		wgeBPFProxy: proxy,
-		pausedCond:  sync.NewCond(&sync.Mutex{}),
+		wgeBPFProxy:   proxy,
+		pausedCond:    sync.NewCond(&sync.Mutex{}),
+		closeListener: listener.NewCloseListener(),
 	}
 }
 func (p *ProxyWrapper) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, remoteConn net.Conn) error {
@@ -48,6 +54,10 @@ func (p *ProxyWrapper) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, r
 
 func (p *ProxyWrapper) EndpointAddr() *net.UDPAddr {
 	return p.wgRelayedEndpointAddr
+}
+
+func (p *ProxyWrapper) SetDisconnectListener(disconnected func()) {
+	p.closeListener.SetCloseListener(disconnected)
 }
 
 func (p *ProxyWrapper) Work() {
@@ -99,6 +109,8 @@ func (p *ProxyWrapper) CloseConn() error {
 
 	p.cancel()
 
+	p.closeListener.SetCloseListener(nil)
+
 	p.pausedCond.L.Lock()
 	p.paused = false
 	p.pausedCond.L.Unlock()
@@ -113,7 +125,7 @@ func (p *ProxyWrapper) CloseConn() error {
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
 	defer p.wgeBPFProxy.removeTurnConn(uint16(p.wgRelayedEndpointAddr.Port))
 
-	buf := make([]byte, 1500)
+	buf := make([]byte, p.wgeBPFProxy.mtu+bufsize.WGBufferOverhead)
 	for {
 		n, err := p.readFromRemote(ctx, buf)
 		if err != nil {
@@ -143,6 +155,7 @@ func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, err
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
+		p.closeListener.Notify()
 		if !errors.Is(err, io.EOF) {
 			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgRelayedEndpointAddr.Port, err)
 		}

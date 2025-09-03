@@ -10,14 +10,14 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
 func Test_GetAllResourcesInNetworkReturnsResources(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
@@ -25,7 +25,7 @@ func Test_GetAllResourcesInNetworkReturnsResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -38,7 +38,7 @@ func Test_GetAllResourcesInNetworkReturnsResources(t *testing.T) {
 func Test_GetAllResourcesInNetworkReturnsPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 	networkID := "testNetworkId"
 
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
@@ -46,7 +46,7 @@ func Test_GetAllResourcesInNetworkReturnsPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -59,14 +59,14 @@ func Test_GetAllResourcesInNetworkReturnsPermissionDenied(t *testing.T) {
 func Test_GetAllResourcesInAccountReturnsResources(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -79,14 +79,14 @@ func Test_GetAllResourcesInAccountReturnsResources(t *testing.T) {
 func Test_GetAllResourcesInAccountReturnsPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 
 	store, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -100,7 +100,7 @@ func Test_GetAllResourcesInAccountReturnsPermissionDenied(t *testing.T) {
 func Test_GetResourceInNetworkReturnsResources(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 
@@ -109,7 +109,7 @@ func Test_GetResourceInNetworkReturnsResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -122,7 +122,7 @@ func Test_GetResourceInNetworkReturnsResources(t *testing.T) {
 func Test_GetResourceInNetworkReturnsPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 
@@ -131,7 +131,7 @@ func Test_GetResourceInNetworkReturnsPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -144,7 +144,7 @@ func Test_GetResourceInNetworkReturnsPermissionDenied(t *testing.T) {
 
 func Test_CreateResourceSuccessfully(t *testing.T) {
 	ctx := context.Background()
-	userID := "allowedUser"
+	userID := "testAdminId"
 	resource := &types.NetworkResource{
 		AccountID:   "testAccountId",
 		NetworkID:   "testNetworkId",
@@ -158,7 +158,7 @@ func Test_CreateResourceSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -170,7 +170,7 @@ func Test_CreateResourceSuccessfully(t *testing.T) {
 
 func Test_CreateResourceFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
-	userID := "invalidUser"
+	userID := "testUserId"
 	resource := &types.NetworkResource{
 		AccountID:   "testAccountId",
 		NetworkID:   "testNetworkId",
@@ -184,7 +184,7 @@ func Test_CreateResourceFailsWithPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -197,7 +197,7 @@ func Test_CreateResourceFailsWithPermissionDenied(t *testing.T) {
 
 func Test_CreateResourceFailsWithInvalidAddress(t *testing.T) {
 	ctx := context.Background()
-	userID := "allowedUser"
+	userID := "testAdminId"
 	resource := &types.NetworkResource{
 		AccountID:   "testAccountId",
 		NetworkID:   "testNetworkId",
@@ -211,7 +211,7 @@ func Test_CreateResourceFailsWithInvalidAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -223,7 +223,7 @@ func Test_CreateResourceFailsWithInvalidAddress(t *testing.T) {
 
 func Test_CreateResourceFailsWithUsedName(t *testing.T) {
 	ctx := context.Background()
-	userID := "allowedUser"
+	userID := "testAdminId"
 	resource := &types.NetworkResource{
 		AccountID:   "testAccountId",
 		NetworkID:   "testNetworkId",
@@ -237,7 +237,7 @@ func Test_CreateResourceFailsWithUsedName(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -250,7 +250,7 @@ func Test_CreateResourceFailsWithUsedName(t *testing.T) {
 func Test_UpdateResourceSuccessfully(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 	resource := &types.NetworkResource{
@@ -267,7 +267,7 @@ func Test_UpdateResourceSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -283,7 +283,7 @@ func Test_UpdateResourceSuccessfully(t *testing.T) {
 func Test_UpdateResourceFailsWithResourceNotFound(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 	resourceID := "otherResourceId"
 	resource := &types.NetworkResource{
@@ -299,7 +299,7 @@ func Test_UpdateResourceFailsWithResourceNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -312,7 +312,7 @@ func Test_UpdateResourceFailsWithResourceNotFound(t *testing.T) {
 func Test_UpdateResourceFailsWithNameInUse(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 	resource := &types.NetworkResource{
@@ -329,7 +329,7 @@ func Test_UpdateResourceFailsWithNameInUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -342,7 +342,7 @@ func Test_UpdateResourceFailsWithNameInUse(t *testing.T) {
 func Test_UpdateResourceFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 	resource := &types.NetworkResource{
@@ -358,7 +358,7 @@ func Test_UpdateResourceFailsWithPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -371,7 +371,7 @@ func Test_UpdateResourceFailsWithPermissionDenied(t *testing.T) {
 func Test_DeleteResourceSuccessfully(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "allowedUser"
+	userID := "testAdminId"
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 
@@ -380,7 +380,7 @@ func Test_DeleteResourceSuccessfully(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)
@@ -392,7 +392,7 @@ func Test_DeleteResourceSuccessfully(t *testing.T) {
 func Test_DeleteResourceFailsWithPermissionDenied(t *testing.T) {
 	ctx := context.Background()
 	accountID := "testAccountId"
-	userID := "invalidUser"
+	userID := "testUserId"
 	networkID := "testNetworkId"
 	resourceID := "testResourceId"
 
@@ -401,7 +401,7 @@ func Test_DeleteResourceFailsWithPermissionDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(cleanUp)
-	permissionsManager := permissions.NewManagerMock()
+	permissionsManager := permissions.NewManager(store)
 	am := mock_server.MockAccountManager{}
 	groupsManager := groups.NewManagerMock()
 	manager := NewManager(store, permissionsManager, groupsManager, &am)

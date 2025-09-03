@@ -10,14 +10,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
-var TurnTestHost = &Host{
-	Proto:    UDP,
+var TurnTestHost = &config.Host{
+	Proto:    config.UDP,
 	URI:      "turn:turn.netbird.io:77777",
 	Username: "username",
 	Password: "",
@@ -28,18 +33,23 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	secret := "some_secret"
 	peersManager := NewPeersUpdateManager(nil)
 
-	rc := &Relay{
+	rc := &config.Relay{
 		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
 	}
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	groupsManager := groups.NewManagerMock()
+
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
-		Turns:                []*Host{TurnTestHost},
+		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc)
+	}, rc, settingsMockManager, groupsManager)
 
 	turnCredentials, err := tested.GenerateTurnToken()
 	require.NoError(t, err)
@@ -74,22 +84,29 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	peer := "some_peer"
 	updateChannel := peersManager.CreateChannel(context.Background(), peer)
 
-	rc := &Relay{
+	rc := &config.Relay{
 		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
 	}
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	settingsMockManager.EXPECT().GetExtraSettings(gomock.Any(), "someAccountID").Return(&types.ExtraSettings{}, nil).AnyTimes()
+	groupsManager := groups.NewManagerMock()
+
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
-		Turns:                []*Host{TurnTestHost},
+		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc)
+	}, rc, settingsMockManager, groupsManager)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	tested.SetupRefresh(ctx, peer)
+	tested.SetupRefresh(ctx, "someAccountID", peer)
 
 	if _, ok := tested.turnCancelMap[peer]; !ok {
 		t.Errorf("expecting peer to be present in the turn cancel map, got not present")
@@ -171,19 +188,25 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	peersManager := NewPeersUpdateManager(nil)
 	peer := "some_peer"
 
-	rc := &Relay{
+	rc := &config.Relay{
 		Addresses:      []string{"localhost:0"},
 		CredentialsTTL: ttl,
 		Secret:         secret,
 	}
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	settingsMockManager := settings.NewMockManager(ctrl)
+	groupsManager := groups.NewManagerMock()
+
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &config.TURNConfig{
 		CredentialsTTL:       ttl,
 		Secret:               secret,
-		Turns:                []*Host{TurnTestHost},
+		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc)
+	}, rc, settingsMockManager, groupsManager)
 
-	tested.SetupRefresh(context.Background(), peer)
+	tested.SetupRefresh(context.Background(), "someAccountID", peer)
 	if _, ok := tested.turnCancelMap[peer]; !ok {
 		t.Errorf("expecting peer to be present in turn cancel map, got not present")
 	}

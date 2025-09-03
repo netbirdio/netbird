@@ -1,7 +1,7 @@
 package device
 
 import (
-	"net"
+	"net/netip"
 	"sync"
 
 	"golang.zx2c4.com/wireguard/tun"
@@ -9,23 +9,20 @@ import (
 
 // PacketFilter interface for firewall abilities
 type PacketFilter interface {
-	// DropOutgoing filter outgoing packets from host to external destinations
-	DropOutgoing(packetData []byte) bool
+	// FilterOutbound filter outgoing packets from host to external destinations
+	FilterOutbound(packetData []byte, size int) bool
 
-	// DropIncoming filter incoming packets from external sources to host
-	DropIncoming(packetData []byte) bool
+	// FilterInbound filter incoming packets from external sources to host
+	FilterInbound(packetData []byte, size int) bool
 
 	// AddUDPPacketHook calls hook when UDP packet from given direction matched
 	//
 	// Hook function returns flag which indicates should be the matched package dropped or not.
 	// Hook function receives raw network packet data as argument.
-	AddUDPPacketHook(in bool, ip net.IP, dPort uint16, hook func(packet []byte) bool) string
+	AddUDPPacketHook(in bool, ip netip.Addr, dPort uint16, hook func(packet []byte) bool) string
 
 	// RemovePacketHook removes hook by ID
 	RemovePacketHook(hookID string) error
-
-	// SetNetwork of the wireguard interface to which filtering applied
-	SetNetwork(*net.IPNet)
 }
 
 // FilteredDevice to override Read or Write of packets
@@ -57,7 +54,7 @@ func (d *FilteredDevice) Read(bufs [][]byte, sizes []int, offset int) (n int, er
 	}
 
 	for i := 0; i < n; i++ {
-		if filter.DropOutgoing(bufs[i][offset : offset+sizes[i]]) {
+		if filter.FilterOutbound(bufs[i][offset:offset+sizes[i]], sizes[i]) {
 			bufs = append(bufs[:i], bufs[i+1:]...)
 			sizes = append(sizes[:i], sizes[i+1:]...)
 			n--
@@ -81,7 +78,7 @@ func (d *FilteredDevice) Write(bufs [][]byte, offset int) (int, error) {
 	filteredBufs := make([][]byte, 0, len(bufs))
 	dropped := 0
 	for _, buf := range bufs {
-		if !filter.DropIncoming(buf[offset:]) {
+		if !filter.FilterInbound(buf[offset:], len(buf)) {
 			filteredBufs = append(filteredBufs, buf)
 			dropped++
 		}

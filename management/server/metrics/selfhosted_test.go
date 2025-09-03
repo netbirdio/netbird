@@ -10,7 +10,6 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
@@ -48,8 +47,8 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 				"1": {
 					ID:         "1",
 					UserID:     "test",
-					SSHEnabled: true,
-					Meta:       nbpeer.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1"},
+					SSHEnabled: false,
+					Meta:       nbpeer.PeerSystemMeta{GoOS: "linux", WtVersion: "0.0.1", Flags: nbpeer.Flags{ServerSSHAllowed: true, RosenpassEnabled: true}},
 				},
 			},
 			Policies: []*types.Policy{
@@ -205,8 +204,8 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 }
 
 // GetStoreEngine returns FileStoreEngine
-func (mockDatasource) GetStoreEngine() store.Engine {
-	return store.FileStoreEngine
+func (mockDatasource) GetStoreEngine() types.Engine {
+	return types.FileStoreEngine
 }
 
 // TestGenerateProperties tests and validate the properties generation by using the mockDatasource for the Worker.generateProperties
@@ -304,7 +303,7 @@ func TestGenerateProperties(t *testing.T) {
 		t.Errorf("expected 2 user_peers, got %d", properties["user_peers"])
 	}
 
-	if properties["store_engine"] != store.FileStoreEngine {
+	if properties["store_engine"] != types.FileStoreEngine {
 		t.Errorf("expected JsonFile, got %s", properties["store_engine"])
 	}
 
@@ -313,7 +312,19 @@ func TestGenerateProperties(t *testing.T) {
 	}
 
 	if properties["posture_checks"] != 2 {
-		t.Errorf("expected 1 posture_checks, got %d", properties["posture_checks"])
+		t.Errorf("expected 2 posture_checks, got %d", properties["posture_checks"])
+	}
+
+	if properties["rosenpass_enabled"] != 1 {
+		t.Errorf("expected 1 rosenpass_enabled, got %d", properties["rosenpass_enabled"])
+	}
+
+	if properties["active_user_peers_last_day"] != 2 {
+		t.Errorf("expected 2 active_user_peers_last_day, got %d", properties["active_user_peers_last_day"])
+	}
+
+	if properties["active_users_last_day"] != 1 {
+		t.Errorf("expected 1 active_users_last_day, got %d", properties["active_users_last_day"])
 	}
 
 }

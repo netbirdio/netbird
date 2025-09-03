@@ -1,11 +1,18 @@
 package types
 
 import (
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/route"
 )
 
 // RouteFirewallRule a firewall rule applicable for a routed network.
 type RouteFirewallRule struct {
+	// PolicyID is the ID of the policy this rule is derived from
+	PolicyID string
+
+	// RouteID is the ID of the route this rule belongs to.
+	RouteID route.ID
+
 	// SourceRanges IP ranges of the routing peers.
 	SourceRanges []string
 
@@ -29,4 +36,29 @@ type RouteFirewallRule struct {
 
 	// isDynamic indicates whether the rule is for DNS routing
 	IsDynamic bool
+}
+
+func (r *RouteFirewallRule) Equal(other *RouteFirewallRule) bool {
+	if r.Action != other.Action {
+		return false
+	}
+	if r.Destination != other.Destination {
+		return false
+	}
+	if r.Protocol != other.Protocol {
+		return false
+	}
+	if r.Port != other.Port {
+		return false
+	}
+	if !r.PortRange.Equal(&other.PortRange) {
+		return false
+	}
+	if !r.Domains.Equal(other.Domains) {
+		return false
+	}
+	if r.IsDynamic != other.IsDynamic {
+		return false
+	}
+	return true
 }

@@ -8,6 +8,8 @@ import (
 	"net/netip"
 	"os/exec"
 	"regexp"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
@@ -24,7 +26,6 @@ func init() {
 	testCases = append(testCases, []testCase{
 		{
 			name:              "To more specific route without custom dialer via vpn",
-			destination:       "10.10.0.2:53",
 			expectedInterface: expectedVPNint,
 			dialer:            &net.Dialer{},
 			expectedPacket:    createPacketExpectation("100.64.0.1", 12345, "10.10.0.2", 53),
@@ -34,7 +35,12 @@ func init() {
 
 func TestConcurrentRoutes(t *testing.T) {
 	baseIP := netip.MustParseAddr("192.0.2.0")
-	intf := &net.Interface{Name: "lo0"}
+
+	var intf *net.Interface
+	var nexthop Nexthop
+
+	_, intf = setupDummyInterface(t)
+	nexthop = Nexthop{netip.Addr{}, intf}
 
 	r := NewSysOps(nil, nil)
 
@@ -44,7 +50,7 @@ func TestConcurrentRoutes(t *testing.T) {
 		go func(ip netip.Addr) {
 			defer wg.Done()
 			prefix := netip.PrefixFrom(ip, 32)
-			if err := r.addToRouteTable(prefix, Nexthop{netip.Addr{}, intf}); err != nil {
+			if err := r.addToRouteTable(prefix, nexthop); err != nil {
 				t.Errorf("Failed to add route for %s: %v", prefix, err)
 			}
 		}(baseIP)
@@ -60,7 +66,7 @@ func TestConcurrentRoutes(t *testing.T) {
 		go func(ip netip.Addr) {
 			defer wg.Done()
 			prefix := netip.PrefixFrom(ip, 32)
-			if err := r.removeFromRouteTable(prefix, Nexthop{netip.Addr{}, intf}); err != nil {
+			if err := r.removeFromRouteTable(prefix, nexthop); err != nil {
 				t.Errorf("Failed to remove route for %s: %v", prefix, err)
 			}
 		}(baseIP)
@@ -120,18 +126,39 @@ func TestBits(t *testing.T) {
 func createAndSetupDummyInterface(t *testing.T, intf string, ipAddressCIDR string) string {
 	t.Helper()
 
-	err := exec.Command("ifconfig", intf, "alias", ipAddressCIDR).Run()
-	require.NoError(t, err, "Failed to create loopback alias")
+	if runtime.GOOS == "darwin" {
+		err := exec.Command("ifconfig", intf, "alias", ipAddressCIDR).Run()
+		require.NoError(t, err, "Failed to create loopback alias")
+
+		t.Cleanup(func() {
+			err := exec.Command("ifconfig", intf, ipAddressCIDR, "-alias").Run()
+			assert.NoError(t, err, "Failed to remove loopback alias")
+		})
+
+		return intf
+	}
+
+	prefix, err := netip.ParsePrefix(ipAddressCIDR)
+	require.NoError(t, err, "Failed to parse prefix")
+
+	netIntf, err := net.InterfaceByName(intf)
+	require.NoError(t, err, "Failed to get interface by name")
+
+	nexthop := Nexthop{netip.Addr{}, netIntf}
+
+	r := NewSysOps(nil, nil)
+	err = r.addToRouteTable(prefix, nexthop)
+	require.NoError(t, err, "Failed to add route to table")
 
 	t.Cleanup(func() {
-		err := exec.Command("ifconfig", intf, ipAddressCIDR, "-alias").Run()
-		assert.NoError(t, err, "Failed to remove loopback alias")
+		err := r.removeFromRouteTable(prefix, nexthop)
+		assert.NoError(t, err, "Failed to remove route from table")
 	})
 
-	return "lo0"
+	return intf
 }
 
-func addDummyRoute(t *testing.T, dstCIDR string, gw net.IP, _ string) {
+func addDummyRoute(t *testing.T, dstCIDR string, gw netip.Addr, _ string) {
 	t.Helper()
 
 	var originalNexthop net.IP
@@ -177,12 +204,40 @@ func fetchOriginalGateway() (net.IP, error) {
 	return net.ParseIP(matches[1]), nil
 }
 
+// setupDummyInterface creates a dummy tun interface for FreeBSD route testing
+func setupDummyInterface(t *testing.T) (netip.Addr, *net.Interface) {
+	t.Helper()
+
+	if runtime.GOOS == "darwin" {
+		return netip.AddrFrom4([4]byte{192, 168, 1, 2}), &net.Interface{Name: "lo0"}
+	}
+
+	output, err := exec.Command("ifconfig", "tun", "create").CombinedOutput()
+	require.NoError(t, err, "Failed to create tun interface: %s", string(output))
+
+	tunName := strings.TrimSpace(string(output))
+
+	output, err = exec.Command("ifconfig", tunName, "192.168.1.1", "netmask", "255.255.0.0", "192.168.1.2", "up").CombinedOutput()
+	require.NoError(t, err, "Failed to configure tun interface: %s", string(output))
+
+	intf, err := net.InterfaceByName(tunName)
+	require.NoError(t, err, "Failed to get interface by name")
+
+	t.Cleanup(func() {
+		if err := exec.Command("ifconfig", tunName, "destroy").Run(); err != nil {
+			t.Logf("Failed to destroy tun interface %s: %v", tunName, err)
+		}
+	})
+
+	return netip.AddrFrom4([4]byte{192, 168, 1, 2}), intf
+}
+
 func setupDummyInterfacesAndRoutes(t *testing.T) {
 	t.Helper()
 
 	defaultDummy := createAndSetupDummyInterface(t, expectedExternalInt, "192.168.0.1/24")
-	addDummyRoute(t, "0.0.0.0/0", net.IPv4(192, 168, 0, 1), defaultDummy)
+	addDummyRoute(t, "0.0.0.0/0", netip.AddrFrom4([4]byte{192, 168, 0, 1}), defaultDummy)
 
 	otherDummy := createAndSetupDummyInterface(t, expectedInternalInt, "192.168.1.1/24")
-	addDummyRoute(t, "10.0.0.0/8", net.IPv4(192, 168, 1, 1), otherDummy)
+	addDummyRoute(t, "10.0.0.0/8", netip.AddrFrom4([4]byte{192, 168, 1, 1}), otherDummy)
 }

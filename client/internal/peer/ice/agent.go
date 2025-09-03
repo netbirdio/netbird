@@ -1,9 +1,11 @@
 package ice
 
 import (
+	"sync"
 	"time"
 
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
+	"github.com/pion/logging"
 	"github.com/pion/randutil"
 	log "github.com/sirupsen/logrus"
 
@@ -17,23 +19,38 @@ const (
 
 	iceKeepAliveDefault           = 4 * time.Second
 	iceDisconnectedTimeoutDefault = 6 * time.Second
+	iceFailedTimeoutDefault       = 6 * time.Second
 	// iceRelayAcceptanceMinWaitDefault is the same as in the Pion ICE package
 	iceRelayAcceptanceMinWaitDefault = 2 * time.Second
 )
 
-var (
-	failedTimeout = 6 * time.Second
-)
+type ThreadSafeAgent struct {
+	*ice.Agent
+	once sync.Once
+}
 
-func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ice.Agent, error) {
+func (a *ThreadSafeAgent) Close() error {
+	var err error
+	a.once.Do(func() {
+		err = a.Agent.Close()
+	})
+	return err
+}
+
+func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ThreadSafeAgent, error) {
 	iceKeepAlive := iceKeepAlive()
 	iceDisconnectedTimeout := iceDisconnectedTimeout()
+	iceFailedTimeout := iceFailedTimeout()
 	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
 	transportNet, err := newStdNet(iFaceDiscover, config.InterfaceBlackList)
 	if err != nil {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
+
+	fac := logging.NewDefaultLoggerFactory()
+
+	//fac.Writer = log.StandardLogger().Writer()
 
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:       ice.MulticastDNSModeDisabled,
@@ -45,19 +62,25 @@ func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candida
 		UDPMuxSrflx:            config.UDPMuxSrflx,
 		NAT1To1IPs:             config.NATExternalIPs,
 		Net:                    transportNet,
-		FailedTimeout:          &failedTimeout,
+		FailedTimeout:          &iceFailedTimeout,
 		DisconnectedTimeout:    &iceDisconnectedTimeout,
 		KeepaliveInterval:      &iceKeepAlive,
 		RelayAcceptanceMinWait: &iceRelayAcceptanceMinWait,
 		LocalUfrag:             ufrag,
 		LocalPwd:               pwd,
+		LoggerFactory:          fac,
 	}
 
 	if config.DisableIPv6Discovery {
 		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
 	}
 
-	return ice.NewAgent(agentConfig)
+	agent, err := ice.NewAgent(agentConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ThreadSafeAgent{Agent: agent}, nil
 }
 
 func GenerateICECredentials() (string, string, error) {

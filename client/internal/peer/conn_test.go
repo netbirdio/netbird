@@ -2,20 +2,23 @@ package peer
 
 import (
 	"context"
+	"fmt"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
+
+var testDispatcher = dispatcher.NewConnectionDispatcher()
 
 var connConf = ConnConfig{
 	Key:         "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
@@ -28,7 +31,7 @@ var connConf = ConnConfig{
 }
 
 func TestMain(m *testing.M) {
-	_ = util.InitLog("trace", "console")
+	_ = util.InitLog("trace", util.LogConsole)
 	code := m.Run()
 	os.Exit(code)
 }
@@ -47,7 +50,13 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 
 func TestConn_GetKey(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, nil, nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+
+	sd := ServiceDependencies{
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
@@ -59,105 +68,219 @@ func TestConn_GetKey(t *testing.T) {
 
 func TestConn_OnRemoteOffer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	sd := ServiceDependencies{
+		StatusRecorder:     NewRecorder("https://mgm"),
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		<-conn.handshaker.remoteOffersCh
-		wg.Done()
-	}()
+	onNewOffeChan := make(chan struct{})
 
-	go func() {
-		for {
-			accepted := conn.OnRemoteOffer(OfferAnswer{
-				IceCredentials: IceCredentials{
-					UFrag: "test",
-					Pwd:   "test",
-				},
-				WgListenPort: 0,
-				Version:      "",
-			})
-			if accepted {
-				wg.Done()
-				return
-			}
-		}
-	}()
+	conn.handshaker.AddOnNewOfferListener(func(remoteOfferAnswer *OfferAnswer) {
+		onNewOffeChan <- struct{}{}
+	})
 
-	wg.Wait()
+	conn.OnRemoteOffer(OfferAnswer{
+		IceCredentials: IceCredentials{
+			UFrag: "test",
+			Pwd:   "test",
+		},
+		WgListenPort: 0,
+		Version:      "",
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	select {
+	case <-onNewOffeChan:
+		// success
+	case <-ctx.Done():
+		t.Error("expected to receive a new offer notification, but timed out")
+	}
 }
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
 	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
+	sd := ServiceDependencies{
+		StatusRecorder:     NewRecorder("https://mgm"),
+		SrWatcher:          swWatcher,
+		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
+		PeerConnDispatcher: testDispatcher,
+	}
+	conn, err := NewConn(connConf, sd)
 	if err != nil {
 		return
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		<-conn.handshaker.remoteAnswerCh
-		wg.Done()
-	}()
+	onNewOffeChan := make(chan struct{})
 
-	go func() {
-		for {
-			accepted := conn.OnRemoteAnswer(OfferAnswer{
-				IceCredentials: IceCredentials{
-					UFrag: "test",
-					Pwd:   "test",
-				},
-				WgListenPort: 0,
-				Version:      "",
-			})
-			if accepted {
-				wg.Done()
-				return
-			}
-		}
-	}()
+	conn.handshaker.AddOnNewOfferListener(func(remoteOfferAnswer *OfferAnswer) {
+		onNewOffeChan <- struct{}{}
+	})
 
-	wg.Wait()
+	conn.OnRemoteAnswer(OfferAnswer{
+		IceCredentials: IceCredentials{
+			UFrag: "test",
+			Pwd:   "test",
+		},
+		WgListenPort: 0,
+		Version:      "",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	select {
+	case <-onNewOffeChan:
+		// success
+	case <-ctx.Done():
+		t.Error("expected to receive a new offer notification, but timed out")
+	}
 }
-func TestConn_Status(t *testing.T) {
-	swWatcher := guard.NewSRWatcher(nil, nil, nil, connConf.ICEConfig)
-	conn, err := NewConn(context.Background(), connConf, NewRecorder("https://mgm"), nil, nil, nil, swWatcher, semaphoregroup.NewSemaphoreGroup(1))
-	if err != nil {
-		return
+
+func TestConn_presharedKey(t *testing.T) {
+	conn1 := Conn{
+		config: ConnConfig{
+			Key:             "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			LocalKey:        "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			RosenpassConfig: RosenpassConfig{},
+		},
+	}
+	conn2 := Conn{
+		config: ConnConfig{
+			Key:             "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			LocalKey:        "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			RosenpassConfig: RosenpassConfig{},
+		},
 	}
 
-	tables := []struct {
-		name        string
-		statusIce   ConnStatus
-		statusRelay ConnStatus
-		want        ConnStatus
+	tests := []struct {
+		conn1Permissive         bool
+		conn1RosenpassEnabled   bool
+		conn2Permissive         bool
+		conn2RosenpassEnabled   bool
+		conn1ExpectedInitialKey bool
+		conn2ExpectedInitialKey bool
 	}{
-		{"StatusConnected", StatusConnected, StatusConnected, StatusConnected},
-		{"StatusDisconnected", StatusDisconnected, StatusDisconnected, StatusDisconnected},
-		{"StatusConnecting", StatusConnecting, StatusConnecting, StatusConnecting},
-		{"StatusConnectingIce", StatusConnecting, StatusDisconnected, StatusConnecting},
-		{"StatusConnectingIceAlternative", StatusConnecting, StatusConnected, StatusConnected},
-		{"StatusConnectingRelay", StatusDisconnected, StatusConnecting, StatusConnecting},
-		{"StatusConnectingRelayAlternative", StatusConnected, StatusConnecting, StatusConnected},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   false,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   false,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: false,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: true,
+			conn2ExpectedInitialKey: true,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   false,
+			conn1ExpectedInitialKey: true,
+			conn2ExpectedInitialKey: false,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   false,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: true,
+		},
+		{
+			conn1Permissive:         true,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   false,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: false,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   false,
+			conn2Permissive:         true,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: false,
+		},
+		{
+			conn1Permissive:         true,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         true,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: true,
+			conn2ExpectedInitialKey: true,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   false,
+			conn2Permissive:         false,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: false,
+			conn2ExpectedInitialKey: true,
+		},
+		{
+			conn1Permissive:         false,
+			conn1RosenpassEnabled:   true,
+			conn2Permissive:         true,
+			conn2RosenpassEnabled:   true,
+			conn1ExpectedInitialKey: true,
+			conn2ExpectedInitialKey: true,
+		},
 	}
 
-	for _, table := range tables {
-		t.Run(table.name, func(t *testing.T) {
-			si := NewAtomicConnStatus()
-			si.Set(table.statusIce)
-			conn.statusICE = si
+	conn1.config.RosenpassConfig.PermissiveMode = true
+	for i, test := range tests {
+		tcase := i + 1
+		t.Run(fmt.Sprintf("Rosenpass test case %d", tcase), func(t *testing.T) {
+			conn1.config.RosenpassConfig = RosenpassConfig{}
+			conn2.config.RosenpassConfig = RosenpassConfig{}
 
-			sr := NewAtomicConnStatus()
-			sr.Set(table.statusRelay)
-			conn.statusRelay = sr
+			if test.conn1RosenpassEnabled {
+				conn1.config.RosenpassConfig.PubKey = []byte("dummykey")
+			}
+			conn1.config.RosenpassConfig.PermissiveMode = test.conn1Permissive
 
-			got := conn.Status()
-			assert.Equal(t, got, table.want, "they should be equal")
+			if test.conn2RosenpassEnabled {
+				conn2.config.RosenpassConfig.PubKey = []byte("dummykey")
+			}
+			conn2.config.RosenpassConfig.PermissiveMode = test.conn2Permissive
+
+			conn1PresharedKey := conn1.presharedKey(conn2.config.RosenpassConfig.PubKey)
+			conn2PresharedKey := conn2.presharedKey(conn1.config.RosenpassConfig.PubKey)
+
+			if test.conn1ExpectedInitialKey {
+				if conn1PresharedKey == nil {
+					t.Errorf("Case %d: Expected conn1 to have a non-nil key, but got nil", tcase)
+				}
+			} else {
+				if conn1PresharedKey != nil {
+					t.Errorf("Case %d: Expected conn1 to have a nil key, but got %v", tcase, conn1PresharedKey)
+				}
+			}
+
+			// Assert conn2's key expectation
+			if test.conn2ExpectedInitialKey {
+				if conn2PresharedKey == nil {
+					t.Errorf("Case %d: Expected conn2 to have a non-nil key, but got nil", tcase)
+				}
+			} else {
+				if conn2PresharedKey != nil {
+					t.Errorf("Case %d: Expected conn2 to have a nil key, but got %v", tcase, conn2PresharedKey)
+				}
+			}
 		})
 	}
 }

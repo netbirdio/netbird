@@ -1,9 +1,9 @@
 package types
 
 import (
+	"net/netip"
+	"slices"
 	"time"
-
-	"github.com/netbirdio/netbird/management/server/account"
 )
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -41,8 +41,17 @@ type Settings struct {
 	// RoutingPeerDNSResolutionEnabled enabled the DNS resolution on the routing peers
 	RoutingPeerDNSResolutionEnabled bool
 
+	// DNSDomain is the custom domain for that account
+	DNSDomain string
+
+	// NetworkRange is the custom network range for that account
+	NetworkRange netip.Prefix `gorm:"serializer:json"`
+
 	// Extra is a dictionary of Account settings
-	Extra *account.ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
+	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
+
+	// LazyConnectionEnabled indicates if the experimental feature is enabled or disabled
+	LazyConnectionEnabled bool `gorm:"default:false"`
 }
 
 // Copy copies the Settings struct
@@ -60,9 +69,46 @@ func (s *Settings) Copy() *Settings {
 		PeerInactivityExpiration:        s.PeerInactivityExpiration,
 
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
+		LazyConnectionEnabled:           s.LazyConnectionEnabled,
+		DNSDomain:                       s.DNSDomain,
+		NetworkRange:                    s.NetworkRange,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
 	}
 	return settings
+}
+
+type ExtraSettings struct {
+	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
+	PeerApprovalEnabled bool
+
+	// UserApprovalRequired enables or disables the need for users joining via domain matching to be approved by an administrator
+	UserApprovalRequired bool
+
+	// IntegratedValidator is the string enum for the integrated validator type
+	IntegratedValidator string
+	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
+	IntegratedValidatorGroups []string `gorm:"serializer:json"`
+
+	FlowEnabled              bool     `gorm:"-"`
+	FlowGroups               []string `gorm:"-"`
+	FlowPacketCounterEnabled bool     `gorm:"-"`
+	FlowENCollectionEnabled  bool     `gorm:"-"`
+	FlowDnsCollectionEnabled bool     `gorm:"-"`
+}
+
+// Copy copies the ExtraSettings struct
+func (e *ExtraSettings) Copy() *ExtraSettings {
+	return &ExtraSettings{
+		PeerApprovalEnabled:       e.PeerApprovalEnabled,
+		UserApprovalRequired:      e.UserApprovalRequired,
+		IntegratedValidatorGroups: slices.Clone(e.IntegratedValidatorGroups),
+		IntegratedValidator:       e.IntegratedValidator,
+		FlowEnabled:               e.FlowEnabled,
+		FlowGroups:                slices.Clone(e.FlowGroups),
+		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
+		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
+		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,
+	}
 }

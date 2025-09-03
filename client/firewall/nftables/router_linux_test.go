@@ -38,7 +38,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 			// need fw manager to init both acl mgr and router for all chains to be present
 			manager, err := Create(ifaceMock)
 			t.Cleanup(func() {
-				require.NoError(t, manager.Reset(nil))
+				require.NoError(t, manager.Close(nil))
 			})
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))
@@ -88,8 +88,8 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				}
 
 				// Build CIDR matching expressions
-				sourceExp := generateCIDRMatcherExpressions(true, testCase.InputPair.Source)
-				destExp := generateCIDRMatcherExpressions(false, testCase.InputPair.Destination)
+				sourceExp := applyPrefix(testCase.InputPair.Source.Prefix, true)
+				destExp := applyPrefix(testCase.InputPair.Destination.Prefix, false)
 
 				// Combine all expressions in the correct order
 				// nolint:gocritic
@@ -100,7 +100,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				natRuleKey := firewall.GenKey(firewall.PreroutingFormat, testCase.InputPair)
 				found := 0
 				for _, chain := range rtr.chains {
-					if chain.Name == chainNamePrerouting {
+					if chain.Name == chainNameManglePrerouting {
 						rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
 						require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
 						for _, rule := range rules {
@@ -127,7 +127,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			manager, err := Create(ifaceMock)
 			t.Cleanup(func() {
-				require.NoError(t, manager.Reset(nil))
+				require.NoError(t, manager.Close(nil))
 			})
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))
@@ -141,7 +141,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 			// Verify the rule was added
 			natRuleKey := firewall.GenKey(firewall.PreroutingFormat, testCase.InputPair)
 			found := false
-			rules, err := rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNamePrerouting])
+			rules, err := rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNameManglePrerouting])
 			require.NoError(t, err, "should list rules")
 			for _, rule := range rules {
 				if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
@@ -157,7 +157,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 
 			// Verify the rule was removed
 			found = false
-			rules, err = rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNamePrerouting])
+			rules, err = rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNameManglePrerouting])
 			require.NoError(t, err, "should list rules after removal")
 			for _, rule := range rules {
 				if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
@@ -311,7 +311,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ruleKey, err := r.AddRouteFiltering(tt.sources, tt.destination, tt.proto, tt.sPort, tt.dPort, tt.action)
+			ruleKey, err := r.AddRouteFiltering(nil, tt.sources, firewall.Network{Prefix: tt.destination}, tt.proto, tt.sPort, tt.dPort, tt.action)
 			require.NoError(t, err, "AddRouteFiltering failed")
 
 			t.Cleanup(func() {
@@ -319,7 +319,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 			})
 
 			// Check if the rule is in the internal map
-			rule, ok := r.rules[ruleKey.GetRuleID()]
+			rule, ok := r.rules[ruleKey.ID()]
 			assert.True(t, ok, "Rule not found in internal map")
 
 			t.Log("Internal rule expressions:")
@@ -336,7 +336,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 			var nftRule *nftables.Rule
 			for _, rule := range rules {
-				if string(rule.UserData) == ruleKey.GetRuleID() {
+				if string(rule.UserData) == ruleKey.ID() {
 					nftRule = rule
 					break
 				}
@@ -441,8 +441,8 @@ func TestNftablesCreateIpSet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			setName := firewall.GenerateSetName(tt.sources)
-			set, err := r.createIpSet(setName, tt.sources)
+			setName := firewall.NewPrefixSet(tt.sources).HashedName()
+			set, err := r.createIpSet(setName, setInput{prefixes: tt.sources})
 			if err != nil {
 				t.Logf("Failed to create IP set: %v", err)
 				printNftSets()
@@ -595,16 +595,20 @@ func containsPort(exprs []expr.Any, port *firewall.Port, isSource bool) bool {
 			if ex.Base == expr.PayloadBaseTransportHeader && ex.Offset == offset && ex.Len == 2 {
 				payloadFound = true
 			}
-		case *expr.Cmp:
-			if port.IsRange {
-				if ex.Op == expr.CmpOpGte || ex.Op == expr.CmpOpLte {
+		case *expr.Range:
+			if port.IsRange && len(port.Values) == 2 {
+				fromPort := binary.BigEndian.Uint16(ex.FromData)
+				toPort := binary.BigEndian.Uint16(ex.ToData)
+				if fromPort == port.Values[0] && toPort == port.Values[1] {
 					portMatchFound = true
 				}
-			} else {
+			}
+		case *expr.Cmp:
+			if !port.IsRange {
 				if ex.Op == expr.CmpOpEq && len(ex.Data) == 2 {
 					portValue := binary.BigEndian.Uint16(ex.Data)
 					for _, p := range port.Values {
-						if uint16(p) == portValue {
+						if p == portValue {
 							portMatchFound = true
 							break
 						}

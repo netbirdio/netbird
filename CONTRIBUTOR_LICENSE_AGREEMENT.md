@@ -1,148 +1,64 @@
-#  Contributor License Agreement
+##  Contributor License Agreement
 
-We are incredibly thankful for the contributions we receive from the community.
-We require our external contributors to sign a Contributor License Agreement ("CLA") in
-order to ensure that our projects remain licensed under Free and Open Source licenses such
-as BSD-3 while allowing NetBird to build a sustainable business.
-
-NetBird is committed to having a true Open Source Software ("OSS") license for
-our software. A CLA enables NetBird to safely commercialize our products
-while keeping a standard OSS license with all the rights that license grants to users: the
-ability to use the project in their own projects or businesses, to republish modified
-source, or to completely fork the project.
-
-This page gives a human-friendly summary of our CLA, details on why we require a CLA, how
-contributors can sign our CLA, and more. You may view the full legal CLA document (below).
-
-# Human-friendly summary
-
-This is a human-readable summary of (and not a substitute for) the full agreement (below).
-This highlights only some of key terms of the CLA. It has no legal value and you should
-carefully review all the terms of the actual CLA before agreeing.
-
-<li>Grant of copyright license. You give NetBird permission to use your copyrighted work
-in commercial products.
-</li>
-
-<li>Grant of patent license. If your contributed work uses a patent, you give NetBird a
-license to use that patent including within commercial products. You also agree that you
-have permission to grant this license.
-</li>
-
-<li>No Warranty or Support Obligations.
-By making a contribution, you are not obligating yourself to provide support for the
-contribution, and you are not taking on any warranty obligations or providing any
-assurances about how it will perform.
-</li>
-
-The CLA does not change the terms of the standard open source license used by our software
-such as BSD-3 or MIT.
-You are still free to use our projects within your own projects or businesses, republish
-modified source, and more.
-Please reference the appropriate license for the project you're contributing to to learn
-more.
-
-# Why require a CLA?
-
-Agreeing to a CLA explicitly states that you are entitled to provide a contribution, that you cannot withdraw permission
-to use your contribution at a later date, and that NetBird has permission to use your contribution in our commercial
-products.
-
-This removes any ambiguities or uncertainties caused by not having a CLA and allows users and customers to confidently
-adopt our projects. At the same time, the CLA ensures that all contributions to our open source projects are licensed
-under the project's respective open source license, such as BSD-3.
-
-Requiring a CLA is a common and well-accepted practice in open source. Major open source projects require CLAs such as
-Apache Software Foundation projects, Facebook projects (such as React), Google projects (including Go), Python, Django,
-and more. Each of these projects remains licensed under permissive OSS licenses such as MIT, Apache, BSD, and more.
-
-# Signing the CLA
-
-Open a pull request ("PR") to any of our open source projects to sign the CLA. A bot will comment on the PR asking you
-to sign the CLA if you haven't already.
-
-Follow the steps given by the bot to sign the CLA. This will require you to log in with GitHub (we only request public
-information from your account) and to fill in a few additional details such as your name and email address. We will only
-use this information for CLA tracking; none of your submitted information will be used for marketing purposes.
-
-You only have to sign the CLA once. Once you've signed the CLA, future contributions to any NetBird project will not
-require you to sign again.
-
-# Legal Terms and Agreement
-
-In order to clarify the intellectual property license granted with Contributions from any person or entity, NetBird
-GmbH ("NetBird") must have a Contributor License Agreement ("CLA") on file that has been signed
-by each Contributor, indicating agreement to the license terms below. This license does not change your rights to use
-your own Contributions for any other purpose.
-
-You accept and agree to the following terms and conditions for Your present and future Contributions submitted to
-NetBird. Except for the license granted herein to NetBird and recipients of software distributed by NetBird,
-You reserve all right, title, and interest in and to Your Contributions.
-
-1. Definitions.
-
-    ```
-   "You" (or "Your") shall mean the copyright owner or legal entity authorized by the copyright owner 
-   that is making this Agreement with NetBird. For legal entities, the entity making a Contribution and all other 
-   entities that control, are controlled by, or are under common control with that entity are considered 
-   to be a single Contributor. For the purposes of this definition, "control" means (i) the power, direct or indirect,
-    to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty 
-   percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
-   ```
-   ```
-    "Contribution" shall mean any original work of authorship, including any modifications or additions to 
-   an existing work, that is or previously has been intentionally submitted by You to NetBird for inclusion in, 
-   or documentation of, any of the products owned or managed by NetBird (the "Work"). 
-   For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication 
-   sent to NetBird or its representatives, including but not limited to communication on electronic mailing lists, 
-   source code control systems, and issue tracking systems that are managed by, or on behalf of, 
-   NetBird for the purpose of discussing and improving the Work, but excluding communication that is conspicuously 
-   marked or otherwise designated in writing by You as "Not a Contribution."
-   ```
-
-2. Grant of Copyright License. Subject to the terms and conditions of this Agreement, You hereby grant to NetBird
-   and to recipients of software distributed by NetBird a perpetual, worldwide, non-exclusive, no-charge,
-   royalty-free, irrevocable copyright license to reproduce, prepare derivative works of, publicly display, publicly
-   perform, sublicense, and distribute Your Contributions and such derivative works.
+This Contributor License Agreement (referred to as the "Agreement") is entered into by the individual 
+submitting this Agreement and NetBird GmbH, c/o Max-Beer-Straße 2-4 Münzstraße 12 10178 Berlin, Germany, 
+referred to as "NetBird" (collectively, the "Parties"). The Agreement outlines the terms and conditions 
+under which NetBird may utilize software contributions provided by the Contributor for inclusion in 
+its software development projects. By submitting this Agreement, the Contributor confirms their acceptance 
+of the terms and conditions outlined below. The Contributor further represents that they are authorized to 
+complete this process as described herein.
 
 
-3. Grant of Patent License. Subject to the terms and conditions of this Agreement, You hereby grant to NetBird and
-   to recipients of software distributed by NetBird a perpetual, worldwide, non-exclusive, no-charge, royalty-free,
-   irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import,
-   and otherwise transfer the Work, where such license applies only to those patent claims licensable by You that are
-   necessarily infringed by Your Contribution(s) alone or by combination of Your Contribution(s) with the Work to which
-   such Contribution(s) was submitted. If any entity institutes patent litigation against You or any other entity (
-   including a cross-claim or counterclaim in a lawsuit) alleging that your Contribution, or the Work to which you have
-   contributed, constitutes direct or contributory patent infringement, then any patent licenses granted to that entity
-   under this Agreement for that Contribution or Work shall terminate as of the date such litigation is filed.
+## 1 Preamble
+In order to clarify the IP Rights situation with regard to Contributions from any person or entity, NetBird 
+must have a contributor license agreement on file to be signed by each Contributor, containing the license 
+terms below. This license serves as protection for both the Contributor as well as NetBird and its software users; 
+it does not change Contributor’s rights to use his/her own Contributions for any other purpose.
 
+## 2 Definitions
+2.1 “IP Rights” shall mean all industrial and intellectual property rights, whether registered or not registered, whether created by Contributor or acquired by Contributor from third parties, and similar rights, including (but not limited to) semiconductor property rights, design rights, copyrights (including in the form of database rights and rights to software), all neighbouring rights (Leistungsschutzrechte), trademarks, service marks, titles, internet domain names, trade names and other labelling rights, rights deriving from corresponding applications and registrations of such rights as well as any licenses (Nutzungsrechte) under and entitlements to any such intellectual and industrial property rights.
 
-4. You represent that you are legally entitled to grant the above license. If your employer(s) has rights to
-   intellectual property that you create that includes your Contributions, you represent that you have received
-   permission to make Contributions on behalf of that employer, that you will have received permission from your current
-   and future employers for all future Contributions, that your applicable employer has waived such rights for all of
-   your current and future Contributions to NetBird, or that your employer has executed a separate Corporate CLA
-   with NetBird.
+2.2 "Contribution" shall mean any original work of authorship, including any modifications or additions to an existing work, that is or previously has been intentionally Submitted by Contributor to NetBird for inclusion in, or documentation of any Work. 
 
+2.3 "Contributor" shall mean the copyright owner or legal entity authorized by the copyright owner that is concluding this Agreement with NetBird. For legal entities, the entity making a Contribution and all other entities that control, are controlled by, or are under common control with that entity are considered to be a single Contributor. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
 
-5. You represent that each of Your Contributions is Your original creation (see section 7 for submissions on behalf of
-   others). You represent that Your Contribution submissions include complete details of any third-party license or
-   other restriction (including, but not limited to, related patents and trademarks) of which you are personally aware
-   and which are associated with any part of Your Contributions.
+2.4 "Submitted" shall mean any form of electronic, verbal, or written communication sent to NetBird or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, NetBird for the purpose of discussing and improving the Work, but excluding communication that is marked or otherwise designated in writing by Contributor as "Not a Contribution".
 
+2.5 "Work" means any of the products owned or managed by NetBird, in particular, but not exclusively, software.
 
-6. You are not expected to provide support for Your Contributions, except to the extent You desire to provide support.
-   You may provide support for free, for a fee, or not at all. Unless required by applicable law or agreed to in
-   writing, You provide Your Contributions on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
-   express or implied, including, without limitation, any warranties or conditions of TITLE, NON- INFRINGEMENT,
-   MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE.
+## 3 Licenses 
+3.1 Subject to the terms and conditions of this agreement, Contributor hereby grants to NetBird and to recipients of software distributed by NetBird a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable license to reproduce by any means and in any form, in whole or in part, permanently or temporarily, the Contributions (including loading, displaying, executing, transmitting or storing works for the purpose of executing and processing data or transferring them to video, audio and other data carriers), including the right to distribute, display and present such Contributions and make them available to the public (e.g. via the internet) and to transmit and display such Contributions by any means. The license also includes the right to modify, translate, adapt, edit and otherwise alter the Contributions and to use these results in the same manner as the original Contributions and derivative works. Except for licenses in patents acc. to Sec. 3, such license refers to any IP Rights in the Contributions and derivative works. The Contributor acknowledges that NetBird is not required to credit them by name for their Contribution and agrees to waive any moral rights associated with their Contribution in relation to NetBird or its sublicensees.
 
+3.2 Subject to the terms and conditions of this agreement, Contributor hereby grants to NetBird and to recipients of software distributed by NetBird a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent license in the Contributions to make, have made, use, sell, offer to sell, import, and otherwise transfer the Work, where such license applies only to those patent claims licensable by the Contributor which are necessarily infringed by Contributor‘s Contribution(s) alone or by combination of Contributor’s Contribution(s) with the Work to which such Contribution(s) was Submitted. 
 
-7. Should You wish to submit work that is not Your original creation, You may submit it to NetBird separately from
-   any Contribution, identifying the complete details of its source and of any license or other restriction (including,
-   but not limited to, related patents, trademarks, and license agreements) of which you are personally aware, and
-   conspicuously marking the work as "Submitted on behalf of a third-party: [named here]".
+3.3 NetBird hereby accepts such licenses. 
 
+## 4 Contributor’s Representations
+4.1 Contributor represents that Contributor is legally entitled to grant the above license. If Contributor’s employer has IP Rights to Contributor’s Contributions, Contributor represent that he/she has received permission to make Contributions on behalf of such employer, that such employer has waived such IP Rights to the Contributions of Contributor to NetBird, or that such employer has executed a separate contributor license agreement with NetBird.
 
-8. You agree to notify NetBird of any facts or circumstances of which you become aware that would make these
-   representations inaccurate in any respect.
+4.2 Contributor represents that any Contribution is his/her original creation. 
+
+4.3 Contributor represents to his/her best knowledge that any Contribution does not violate any third party IP Rights.
+
+4.4 Contributor represents that any Contribution submission includes complete details of any third-party license or other restriction (including, but not limited to, related patents and trademarks) of which Contributor is personally aware and which are associated with any part of the Contribution.
+
+4.5 The Contributor represents that their Contribution does not include any work distributed under a copyleft license.
+
+## 5 Information obligation
+Contributor agrees to notify NetBird of any facts or circumstances of which Contributor become aware that would make these representations inaccurate in any respect.
+
+## 6 Submission of Third-Party works
+Should Contributor wish to submit work that is not Contributor’s original creation, Contributor may submit it to NetBird separately from any Contribution, identifying the complete details of its source and of any license or other restriction (including, but not limited to, related patents, trademarks, and license agreements) of which Contributor are personally aware, and conspicuously marking the work as "Submitted on behalf of a third-party: [named here]".
+
+## 7 No Consideration
+Unless compensation is mandatory under statutory law, no compensation for any license under this agreement shall be payable. 
+
+## 8 Final Provisions
+8.1 Laws. This Agreement is governed by the laws of the Federal Republic of Germany. 
+
+8.2 Venue. Place of jurisdiction shall, to the extent legally permissible, be Berlin, Germany. 
+
+8.3 Severability. If any provision in this agreement is unlawful, invalid or ineffective, it shall not affect the enforceability or effectiveness of the remainder of this agreement. The parties agree to replace any unlawful, invalid or ineffective provision with a provision that comes as close as possible to the commercial intent and purpose of the original provision. This section also applies accordingly to any gaps in the contract. 
+
+8.4 Variations. Any variations, amendments or supplements to this Agreement must be in writing. This also applies to any variation of this Section 8.4.
+

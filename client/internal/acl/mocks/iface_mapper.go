@@ -10,8 +10,8 @@ import (
 	gomock "github.com/golang/mock/gomock"
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
-	iface "github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
 // MockIFaceMapper is a mock of IFaceMapper interface.
@@ -38,10 +38,10 @@ func (m *MockIFaceMapper) EXPECT() *MockIFaceMapperMockRecorder {
 }
 
 // Address mocks base method.
-func (m *MockIFaceMapper) Address() iface.WGAddress {
+func (m *MockIFaceMapper) Address() wgaddr.Address {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Address")
-	ret0, _ := ret[0].(iface.WGAddress)
+	ret0, _ := ret[0].(wgaddr.Address)
 	return ret0
 }
 

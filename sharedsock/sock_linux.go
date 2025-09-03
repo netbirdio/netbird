@@ -36,6 +36,7 @@ type SharedSocket struct {
 	conn4       *socket.Conn
 	conn6       *socket.Conn
 	port        int
+	mtu         uint16
 	routerMux   sync.RWMutex
 	router      routing.Router
 	packetDemux chan rcvdPacket
@@ -56,12 +57,19 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 	FixLengths:       true,
 }
 
+// Maximum overhead for IP + UDP headers on raw socket
+// IPv4: max 60 bytes (20 base + 40 options) + UDP 8 bytes = 68 bytes
+// IPv6: 40 bytes + UDP 8 bytes = 48 bytes
+// We use the maximum (68) for both IPv4 and IPv6
+const maxIPUDPOverhead = 68
+
 // Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
-func Listen(port int, filter BPFFilter) (_ net.PacketConn, err error) {
+func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	rawSock := &SharedSocket{
 		ctx:         ctx,
 		cancel:      cancel,
+		mtu:         mtu,
 		port:        port,
 		packetDemux: make(chan rcvdPacket),
 	}
@@ -223,7 +231,7 @@ func (s *SharedSocket) Close() error {
 // read start a read loop for a specific receiver and sends the packet to the packetDemux channel
 func (s *SharedSocket) read(receiver receiver) {
 	for {
-		buf := make([]byte, 1500)
+		buf := make([]byte, s.mtu+maxIPUDPOverhead)
 		n, addr, err := receiver(s.ctx, buf, 0)
 		select {
 		case <-s.ctx.Done():
@@ -234,7 +242,7 @@ func (s *SharedSocket) read(receiver receiver) {
 }
 
 // ReadFrom reads packets received in the packetDemux channel
-func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+func (s *SharedSocket) ReadFrom(b []byte) (int, net.Addr, error) {
 	var pkt rcvdPacket
 	select {
 	case <-s.ctx.Done():
@@ -263,8 +271,7 @@ func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 
 	decodedLayers := make([]gopacket.LayerType, 0, 3)
 
-	err = parser.DecodeLayers(pkt.buf, &decodedLayers)
-	if err != nil {
+	if err := parser.DecodeLayers(pkt.buf, &decodedLayers); err != nil {
 		return 0, nil, err
 	}
 
@@ -273,8 +280,8 @@ func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 		Port: int(udp.SrcPort),
 	}
 
-	copy(b, payload)
-	return int(udp.Length), remoteAddr, nil
+	n := copy(b, payload)
+	return n, remoteAddr, nil
 }
 
 // WriteTo builds a UDP packet and writes it using the specific IP version writer

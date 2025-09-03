@@ -17,7 +17,11 @@ func seedProxies() ([]proxyInstance, error) {
 
 func seedProxyForProxyCloseByRemoteConn() ([]proxyInstance, error) {
 	pl := make([]proxyInstance, 0)
-	iceBind := bind.NewICEBind(nil, nil)
+	wgAddress, err := wgaddr.ParseWGAddress("10.0.0.1")
+	if err != nil {
+		return nil, err
+	}
+	iceBind := bind.NewICEBind(nil, nil, wgAddress, 1280)
 	endpointAddress := &net.UDPAddr{
 		IP:   net.IPv4(10, 0, 0, 1),
 		Port: 1234,
