@@ -389,6 +389,20 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		storeEvent()
 	}
 
+	if updateAccountPeers && am.expNewNetworkMap {
+		account, err := am.Store.GetAccount(ctx, accountID)
+		if err != nil {
+			return err
+		}
+
+		validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+		if err != nil {
+			return err
+		}
+		am.onPeerDeletedUpdNetworkMapCache(account, peerID, validatedPeers)
+
+	}
+
 	if updateAccountPeers && userID != activity.SystemInitiator {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
@@ -425,7 +439,13 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		return nil, err
 	}
 
-	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+	var networkMap *types.NetworkMap
+
+	if am.expNewNetworkMap {
+		networkMap = am.getPeerNetworkMapExp(ctx, account, peerID, validatedPeers, customZone, nil)
+	} else {
+		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
 	if ok {
@@ -695,6 +715,19 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
+	if am.expNewNetworkMap {
+		account, err := am.Store.GetAccount(ctx, accountID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		am.onPeerAddedUpdNetworkMapCache(account, newPeer.ID, validatedPeers)
+	}
+
 	if updateAccountPeers {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
@@ -783,6 +816,11 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
+		account, err := am.Store.GetAccountByPeerID(ctx, peer.ID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		am.updatePeerInNetworkMapCache(account, peer)
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -1055,7 +1093,13 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
-	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics())
+	var networkMap *types.NetworkMap
+
+	if am.expNewNetworkMap {
+		networkMap = am.getPeerNetworkMapExp(ctx, account, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+	} else {
+		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics())
+	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
 	if ok {
@@ -1257,7 +1301,13 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			am.metrics.UpdateChannelMetrics().CountCalcPostureChecksDuration(time.Since(start))
 			start = time.Now()
 
-			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+			var remotePeerNetworkMap *types.NetworkMap
+
+			if am.expNewNetworkMap {
+				remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, account, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+			} else {
+				remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+			}
 
 			am.metrics.UpdateChannelMetrics().CountCalcPeerNetworkMapDuration(time.Since(start))
 			start = time.Now()
@@ -1366,7 +1416,13 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+	var remotePeerNetworkMap *types.NetworkMap
+
+	if am.expNewNetworkMap {
+		remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, account, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+	} else {
+		remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
 	if ok {
