@@ -594,6 +594,7 @@ func (a *Account) Copy() *Account {
 		NetworkRouters:         networkRouters,
 		NetworkResources:       networkResources,
 		Onboarding:             a.Onboarding,
+		NetworkMapCache:        a.NetworkMapCache,
 	}
 }
 

@@ -1736,6 +1736,7 @@ func TestAccount_Copy(t *testing.T) {
 				Address:   "172.12.6.1/24",
 			},
 		},
+		NetworkMapCache: &types.NetworkMapBuilder{},
 	}
 	err := hasNilField(account)
 	if err != nil {
