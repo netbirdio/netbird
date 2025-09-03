@@ -6,8 +6,8 @@ import (
 	"net/netip"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/metadata"
-	"gvisor.dev/gvisor/pkg/log"
 
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
