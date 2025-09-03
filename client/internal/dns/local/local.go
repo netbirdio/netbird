@@ -12,7 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 type Resolver struct {
@@ -34,7 +34,7 @@ func (d *Resolver) MatchSubdomains() bool {
 
 // String returns a string representation of the local resolver
 func (d *Resolver) String() string {
-	return fmt.Sprintf("local resolver [%d records]", len(d.records))
+	return fmt.Sprintf("LocalResolver [%d records]", len(d.records))
 }
 
 func (d *Resolver) Stop() {}

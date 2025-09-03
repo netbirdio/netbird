@@ -10,10 +10,10 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -55,8 +55,6 @@ type SetupKeyUpdateOperation struct {
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
 func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID string, keyName string, keyType types.SetupKeyType,
 	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool, allowExtraDNSLabels bool) (*types.SetupKey, error) {
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
 
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Create)
 	if err != nil {
@@ -81,7 +79,7 @@ func (am *DefaultAccountManager) CreateSetupKey(ctx context.Context, accountID s
 		events := am.prepareSetupKeyEvents(ctx, transaction, accountID, userID, autoGroups, nil, setupKey)
 		eventsToStore = append(eventsToStore, events...)
 
-		return transaction.SaveSetupKey(ctx, store.LockingStrengthUpdate, setupKey)
+		return transaction.SaveSetupKey(ctx, setupKey)
 	})
 	if err != nil {
 		return nil, err
@@ -107,9 +105,6 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		return nil, status.Errorf(status.InvalidArgument, "provided setup key to update is nil")
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.SetupKeys, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -127,7 +122,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 			return status.Errorf(status.InvalidArgument, "invalid auto groups: %v", err)
 		}
 
-		oldKey, err = transaction.GetSetupKeyByID(ctx, store.LockingStrengthShare, accountID, keyToSave.Id)
+		oldKey, err = transaction.GetSetupKeyByID(ctx, store.LockingStrengthUpdate, accountID, keyToSave.Id)
 		if err != nil {
 			return err
 		}
@@ -148,7 +143,7 @@ func (am *DefaultAccountManager) SaveSetupKey(ctx context.Context, accountID str
 		events := am.prepareSetupKeyEvents(ctx, transaction, accountID, userID, addedGroups, removedGroups, oldKey)
 		eventsToStore = append(eventsToStore, events...)
 
-		return transaction.SaveSetupKey(ctx, store.LockingStrengthUpdate, newKey)
+		return transaction.SaveSetupKey(ctx, newKey)
 	})
 	if err != nil {
 		return nil, err
@@ -175,7 +170,7 @@ func (am *DefaultAccountManager) ListSetupKeys(ctx context.Context, accountID, u
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return am.Store.GetAccountSetupKeys(ctx, store.LockingStrengthShare, accountID)
+	return am.Store.GetAccountSetupKeys(ctx, store.LockingStrengthNone, accountID)
 }
 
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
@@ -188,7 +183,7 @@ func (am *DefaultAccountManager) GetSetupKey(ctx context.Context, accountID, use
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	setupKey, err := am.Store.GetSetupKeyByID(ctx, store.LockingStrengthShare, accountID, keyID)
+	setupKey, err := am.Store.GetSetupKeyByID(ctx, store.LockingStrengthNone, accountID, keyID)
 	if err != nil {
 		return nil, err
 	}
@@ -214,12 +209,12 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 	var deletedSetupKey *types.SetupKey
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		deletedSetupKey, err = transaction.GetSetupKeyByID(ctx, store.LockingStrengthShare, accountID, keyID)
+		deletedSetupKey, err = transaction.GetSetupKeyByID(ctx, store.LockingStrengthUpdate, accountID, keyID)
 		if err != nil {
 			return err
 		}
 
-		return transaction.DeleteSetupKey(ctx, store.LockingStrengthUpdate, accountID, keyID)
+		return transaction.DeleteSetupKey(ctx, accountID, keyID)
 	})
 	if err != nil {
 		return err
@@ -231,7 +226,7 @@ func (am *DefaultAccountManager) DeleteSetupKey(ctx context.Context, accountID, 
 }
 
 func validateSetupKeyAutoGroups(ctx context.Context, transaction store.Store, accountID string, autoGroupIDs []string) error {
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, autoGroupIDs)
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, autoGroupIDs)
 	if err != nil {
 		return err
 	}
@@ -255,7 +250,7 @@ func (am *DefaultAccountManager) prepareSetupKeyEvents(ctx context.Context, tran
 	var eventsToStore []func()
 
 	modifiedGroups := slices.Concat(addedGroups, removedGroups)
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthShare, accountID, modifiedGroups)
+	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, modifiedGroups)
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get groups for setup key events: %v", err)
 		return nil

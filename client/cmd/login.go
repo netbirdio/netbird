@@ -31,7 +31,8 @@ func init() {
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "login to the Netbird Management Service (first run)",
+	Short: "Log in to the NetBird network",
+	Long:  "Log in to the NetBird network using a setup key or SSO",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := setEnvAndFlags(cmd); err != nil {
 			return fmt.Errorf("set env and flags: %v", err)

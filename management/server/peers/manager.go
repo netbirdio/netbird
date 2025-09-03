@@ -10,8 +10,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -42,7 +42,7 @@ func (m *managerImpl) GetPeer(ctx context.Context, accountID, userID, peerID str
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetPeerByID(ctx, store.LockingStrengthShare, accountID, peerID)
+	return m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
 func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error) {
@@ -52,12 +52,12 @@ func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string)
 	}
 
 	if !allowed {
-		return m.store.GetUserPeers(ctx, store.LockingStrengthShare, accountID, userID)
+		return m.store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
 	}
 
-	return m.store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+	return m.store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
 }
 
 func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (string, error) {
-	return m.store.GetAccountIDByPeerID(ctx, store.LockingStrengthShare, peerID)
+	return m.store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
 }

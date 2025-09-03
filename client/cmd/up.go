@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
+
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -22,7 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -52,15 +53,17 @@ var (
 
 	upCmd = &cobra.Command{
 		Use:   "up",
-		Short: "install, login and start Netbird client",
+		Short: "Connect to the NetBird network",
+		Long:  "Connect to the NetBird network using the provided setup key or SSO auth. This command will bring up the WireGuard interface, connect to the management server, and establish peer-to-peer connections with other peers in the network if required.",
 		RunE:  upFunc,
 	}
 )
 
 func init() {
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
-	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
-	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
+	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
+	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
+	upCmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
 	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", networkMonitor,
 		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux and FreeBSD. `+
 			`E.g. --network-monitor=false to disable or --network-monitor=true to enable.`,
@@ -78,7 +81,7 @@ func init() {
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
+	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
 
 }
 
@@ -145,6 +148,11 @@ func upFunc(cmd *cobra.Command, args []string) error {
 }
 
 func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *profilemanager.Profile) error {
+	// override the default profile filepath if provided
+	if configPath != "" {
+		_ = profilemanager.NewServiceManager(configPath)
+	}
+
 	err := handleRebrand(cmd)
 	if err != nil {
 		return err
@@ -196,6 +204,11 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
+	// Check if deprecated config flag is set and show warning
+	if cmd.Flag("config").Changed && configPath != "" {
+		cmd.PrintErrf("Warning: Config flag is deprecated on up command, it should be set as a service argument with $NB_CONFIG environment or with \"-config\" flag; netbird service reconfigure --service-env=\"NB_CONFIG=<file_path>\" or netbird service run --config=<file_path>\n")
+	}
+
 	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
 	if err != nil {
 		return fmt.Errorf("parse custom DNS address: %v", err)
@@ -242,7 +255,11 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	// set the new config
 	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.Name, username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
-		return fmt.Errorf("call service set config method: %v", err)
+		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
+			log.Warnf("setConfig method is not available in the daemon")
+		} else {
+			return fmt.Errorf("call service setConfig method: %v", err)
+		}
 	}
 
 	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, customDNSAddressConverted, username.Username); err != nil {
@@ -341,6 +358,11 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.WireguardPort = &p
 	}
 
+	if cmd.Flag(mtuFlag).Changed {
+		m := int64(mtu)
+		req.Mtu = &m
+	}
+
 	if cmd.Flag(networkMonitorFlag).Changed {
 		req.NetworkMonitor = &networkMonitor
 	}
@@ -418,6 +440,13 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	if cmd.Flag(wireguardPortFlag).Changed {
 		p := int(wireguardPort)
 		ic.WireguardPort = &p
+	}
+
+	if cmd.Flag(mtuFlag).Changed {
+		if err := iface.ValidateMTU(mtu); err != nil {
+			return nil, err
+		}
+		ic.MTU = &mtu
 	}
 
 	if cmd.Flag(networkMonitorFlag).Changed {
@@ -515,6 +544,14 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	if cmd.Flag(wireguardPortFlag).Changed {
 		wp := int64(wireguardPort)
 		loginRequest.WireguardPort = &wp
+	}
+
+	if cmd.Flag(mtuFlag).Changed {
+		if err := iface.ValidateMTU(mtu); err != nil {
+			return nil, err
+		}
+		m := int64(mtu)
+		loginRequest.Mtu = &m
 	}
 
 	if cmd.Flag(networkMonitorFlag).Changed {

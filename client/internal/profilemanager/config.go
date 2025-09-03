@@ -20,15 +20,14 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/ssh"
-	mgm "github.com/netbirdio/netbird/management/client"
-	"github.com/netbirdio/netbird/management/domain"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
 )
 
 const (
 	// managementLegacyPortString is the port that was used before by the Management gRPC server.
 	// It is used for backward compatibility now.
-	// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
 	managementLegacyPortString = "33073"
 	// DefaultManagementURL points to the NetBird's cloud management endpoint
 	DefaultManagementURL = "https://api.netbird.io:443"
@@ -76,6 +75,8 @@ type ConfigInput struct {
 	DNSLabels domain.List
 
 	LazyConnectionEnabled *bool
+
+	MTU *uint16
 }
 
 // Config Configuration type
@@ -142,6 +143,8 @@ type Config struct {
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
 	LazyConnectionEnabled bool
+
+	MTU uint16
 }
 
 var ConfigDirOverride string
@@ -494,6 +497,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	if input.MTU != nil && *input.MTU != config.MTU {
+		log.Infof("updating MTU to %d (old value %d)", *input.MTU, config.MTU)
+		config.MTU = *input.MTU
+		updated = true
+	} else if config.MTU == 0 {
+		config.MTU = iface.DefaultMTU
+		log.Infof("using default MTU %d", config.MTU)
+		updated = true
+	}
+
 	return updated, nil
 }
 
@@ -594,17 +607,9 @@ func update(input ConfigInput) (*Config, error) {
 	return config, nil
 }
 
+// GetConfig read config file and return with Config. Errors out if it does not exist
 func GetConfig(configPath string) (*Config, error) {
-	if !fileExists(configPath) {
-		return nil, fmt.Errorf("config file %s does not exist", configPath)
-	}
-
-	config := &Config{}
-	if _, err := util.ReadJson(configPath, config); err != nil {
-		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
-	}
-
-	return config, nil
+	return readConfig(configPath, false)
 }
 
 // UpdateOldManagementURL checks whether client can switch to the new Management URL with port 443 and the management domain.
@@ -696,6 +701,11 @@ func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
 func ReadConfig(configPath string) (*Config, error) {
+	return readConfig(configPath, true)
+}
+
+// ReadConfig read config file and return with Config. If it is not exists create a new with default values
+func readConfig(configPath string, createIfMissing bool) (*Config, error) {
 	if fileExists(configPath) {
 		err := util.EnforcePermission(configPath)
 		if err != nil {
@@ -716,6 +726,8 @@ func ReadConfig(configPath string) (*Config, error) {
 		}
 
 		return config, nil
+	} else if !createIfMissing {
+		return nil, fmt.Errorf("config file %s does not exist", configPath)
 	}
 
 	cfg, err := createNewConfig(ConfigInput{ConfigPath: configPath})

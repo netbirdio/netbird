@@ -17,8 +17,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
+	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools/channel"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 const modulePeers = "peers"
@@ -47,7 +48,7 @@ func BenchmarkUpdatePeer(b *testing.B) {
 
 	for name, bc := range benchCasesPeers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -65,7 +66,7 @@ func BenchmarkUpdatePeer(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationUpdate)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationUpdate)
 		})
 	}
 }
@@ -82,7 +83,7 @@ func BenchmarkGetOnePeer(b *testing.B) {
 
 	for name, bc := range benchCasesPeers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -92,7 +93,7 @@ func BenchmarkGetOnePeer(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationGetOne)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationGetOne)
 		})
 	}
 }
@@ -109,7 +110,7 @@ func BenchmarkGetAllPeers(b *testing.B) {
 
 	for name, bc := range benchCasesPeers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -119,7 +120,7 @@ func BenchmarkGetAllPeers(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationGetAll)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationGetAll)
 		})
 	}
 }
@@ -136,7 +137,7 @@ func BenchmarkDeletePeer(b *testing.B) {
 
 	for name, bc := range benchCasesPeers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/peers.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), 1000, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -146,7 +147,7 @@ func BenchmarkDeletePeer(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationDelete)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, modulePeers, testing_tools.OperationDelete)
 		})
 	}
 }

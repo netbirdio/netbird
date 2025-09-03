@@ -259,7 +259,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           go test ${{ matrix.raceFlag }} \
             -exec 'sudo' \
-            -timeout 10m ./relay/...
+            -timeout 10m ./relay/... ./shared/relay/...
 
   test_signal:
     name: "Signal / Unit"
@@ -309,7 +309,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           go test \
             -exec 'sudo' \
-            -timeout 10m ./signal/...
+            -timeout 10m ./signal/... ./shared/signal/...
 
   test_management:
     name: "Management / Unit"
@@ -369,7 +369,7 @@ jobs:
             CI=true \
           go test -tags=devcert \
             -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE" \
-            -timeout 20m ./management/...
+            -timeout 20m ./management/... ./shared/management/...
 
   benchmark:
     name: "Management / Benchmark"
@@ -382,6 +382,32 @@ jobs:
         store: [ 'sqlite', 'postgres' ]
     runs-on: ubuntu-22.04
     steps:
+      - name: Create Docker network
+        run: docker network create promnet
+
+      - name: Start Prometheus Pushgateway
+        run: docker run -d --name pushgateway --network promnet -p 9091:9091 prom/pushgateway
+
+      - name: Start Prometheus (for Pushgateway forwarding)
+        run: |
+          echo '
+          global:
+            scrape_interval: 15s
+          scrape_configs:
+            - job_name: "pushgateway"
+              static_configs:
+                - targets: ["pushgateway:9091"]
+          remote_write:
+            - url: ${{ secrets.GRAFANA_URL }}
+              basic_auth:
+                username: ${{ secrets.GRAFANA_USER }}
+                password: ${{ secrets.GRAFANA_API_KEY }}
+          ' > prometheus.yml
+
+          docker run -d --name prometheus --network promnet \
+            -v $PWD/prometheus.yml:/etc/prometheus/prometheus.yml \
+            -p 9090:9090 \
+            prom/prometheus
       - name: Install Go
         uses: actions/setup-go@v5
         with:
@@ -428,9 +454,10 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
           CI=true \
+          GIT_BRANCH=${{ github.ref_name }} \
           go test -tags devcert -run=^$ -bench=. \
-          -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
-          -timeout 20m ./management/...
+          -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,GIT_BRANCH,GITHUB_RUN_ID' \
+          -timeout 20m ./management/... ./shared/management/... $(go list ./management/... ./shared/management/... | grep -v -e /management/server/http)
 
   api_benchmark:
     name: "Management / Benchmark (API)"
@@ -521,7 +548,7 @@ jobs:
             -run=^$ \
             -bench=. \
             -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE,GIT_BRANCH,GITHUB_RUN_ID' \
-            -timeout 20m ./management/...
+            -timeout 20m ./management/server/http/...
 
   api_integration_test:
     name: "Management / Integration"
@@ -571,4 +598,4 @@ jobs:
           CI=true \
           go test -tags=integration \
           -exec 'sudo --preserve-env=CI,NETBIRD_STORE_ENGINE' \
-          -timeout 20m ./management/...
+          -timeout 20m ./management/server/http/...

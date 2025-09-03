@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
@@ -135,7 +136,7 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 	}()
 
 	for {
-		buf := make([]byte, 1500)
+		buf := make([]byte, p.Bind.MTU()+bufsize.WGBufferOverhead)
 		n, err := p.remoteConn.Read(buf)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -171,7 +172,7 @@ func fakeAddress(peerAddress *net.UDPAddr) (*netip.AddrPort, error) {
 
 	fakeIP, err := netip.ParseAddr(fmt.Sprintf("127.1.%s.%s", octets[2], octets[3]))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse new IP: %w", err)
+		return nil, fmt.Errorf("parse new IP: %w", err)
 	}
 
 	netipAddr := netip.AddrPortFrom(fakeIP, uint16(peerAddress.Port))

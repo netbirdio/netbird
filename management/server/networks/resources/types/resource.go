@@ -8,13 +8,13 @@ import (
 
 	"github.com/rs/xid"
 
-	nbDomain "github.com/netbirdio/netbird/management/domain"
+	nbDomain "github.com/netbirdio/netbird/shared/management/domain"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 type NetworkResourceType string

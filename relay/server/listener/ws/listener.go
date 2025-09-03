@@ -10,10 +10,15 @@ import (
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/relay/protocol"
+	"github.com/netbirdio/netbird/shared/relay"
 )
 
-// URLPath is the path for the websocket connection.
-const URLPath = "/relay"
+const (
+	Proto   protocol.Protocol = "ws"
+	URLPath                   = relay.WebSocketURLPath
+)
 
 type Listener struct {
 	// Address is the address to listen on.
@@ -49,6 +54,10 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 	return err
 }
 
+func (l *Listener) Protocol() protocol.Protocol {
+	return Proto
+}
+
 func (l *Listener) Shutdown(ctx context.Context) error {
 	if l.server == nil {
 		return nil
@@ -64,7 +73,12 @@ func (l *Listener) Shutdown(ctx context.Context) error {
 
 func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 	connRemoteAddr := remoteAddr(r)
-	wsConn, err := websocket.Accept(w, r, nil)
+
+	acceptOptions := &websocket.AcceptOptions{
+		OriginPatterns: []string{"*"},
+	}
+
+	wsConn, err := websocket.Accept(w, r, acceptOptions)
 	if err != nil {
 		log.Errorf("failed to accept ws connection from %s: %s", connRemoteAddr, err)
 		return

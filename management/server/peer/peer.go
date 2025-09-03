@@ -24,7 +24,7 @@ type Peer struct {
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
-	Name string
+	Name string `gorm:"index"`
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
 	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DNSLabel string // uniqueness index per accountID (check migrations)

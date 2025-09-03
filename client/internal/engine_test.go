@@ -27,6 +27,8 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -43,8 +45,6 @@ import (
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	mgmt "github.com/netbirdio/netbird/management/client"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -54,10 +54,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/monotime"
-	relayClient "github.com/netbirdio/netbird/relay/client"
 	"github.com/netbirdio/netbird/route"
-	signal "github.com/netbirdio/netbird/signal/client"
-	"github.com/netbirdio/netbird/signal/proto"
+	mgmt "github.com/netbirdio/netbird/shared/management/client"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
+	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
 )
@@ -216,7 +218,7 @@ func TestEngine_SSH(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(
 		ctx, cancel,
 		&signal.MockClient{},
@@ -228,6 +230,7 @@ func TestEngine_SSH(t *testing.T) {
 			WgPrivateKey:     key,
 			WgPort:           33100,
 			ServerSSHAllowed: true,
+			MTU:              iface.DefaultMTU,
 		},
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
@@ -263,7 +266,7 @@ func TestEngine_SSH(t *testing.T) {
 			},
 		}, nil
 	}
-	err = engine.Start()
+	err = engine.Start(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +364,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(
 		ctx, cancel,
 		&signal.MockClient{},
@@ -372,6 +375,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			WgAddr:       "100.64.0.1/24",
 			WgPrivateKey: key,
 			WgPort:       33100,
+			MTU:          iface.DefaultMTU,
 		},
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
@@ -410,7 +414,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
+	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn, MTU: 1280})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
 	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface)
@@ -587,12 +591,13 @@ func TestEngine_Sync(t *testing.T) {
 		}
 		return nil
 	}
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, relayMgr, &EngineConfig{
 		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
 	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 	engine.ctx = ctx
 
@@ -607,7 +612,7 @@ func TestEngine_Sync(t *testing.T) {
 		}
 	}()
 
-	err = engine.Start()
+	err = engine.Start(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -751,12 +756,13 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
+				MTU:          iface.DefaultMTU,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 			engine.ctx = ctx
 			newNet, err := stdnet.NewNet()
@@ -952,12 +958,13 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
+				MTU:          iface.DefaultMTU,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 			engine.ctx = ctx
 
@@ -1062,7 +1069,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			defer mu.Unlock()
 			guid := fmt.Sprintf("{%s}", uuid.New().String())
 			device.CustomWindowsGUIDString = strings.ToLower(guid)
-			err = engine.Start()
+			err = engine.Start(nil, nil)
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)
 				wg.Done()
@@ -1179,6 +1186,7 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 				config: &EngineConfig{
 					IFaceBlackList: testCase.inputBlacklistInterface,
 					NATExternalIPs: testCase.inputMapList,
+					MTU:            iface.DefaultMTU,
 				},
 			}
 			parsedList := engine.parseNATExternalIPMappings()
@@ -1479,9 +1487,10 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgAddr:       resp.PeerConfig.Address,
 		WgPrivateKey: key,
 		WgPort:       wgPort,
+		MTU:          iface.DefaultMTU,
 	}
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String())
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
 	e.ctx = ctx
 	return e, err
@@ -1513,15 +1522,15 @@ func startSignal(t *testing.T) (*grpc.Server, string, error) {
 func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, string, error) {
 	t.Helper()
 
-	config := &types.Config{
-		Stuns:      []*types.Host{},
-		TURNConfig: &types.TURNConfig{},
-		Relay: &types.Relay{
+	config := &config.Config{
+		Stuns:      []*config.Host{},
+		TURNConfig: &config.TURNConfig{},
+		Relay: &config.Relay{
 			Addresses:      []string{"127.0.0.1:1234"},
 			CredentialsTTL: util.Duration{Duration: time.Hour},
 			Secret:         "222222222222222222",
 		},
-		Signal: &types.Host{
+		Signal: &config.Host{
 			Proto: "http",
 			URI:   "localhost:10000",
 		},
@@ -1564,13 +1573,14 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(store)
+	groupsManager := groups.NewManagerMock()
 
 	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	if err != nil {
 		return nil, "", err
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &server.MockIntegratedValidator{})
 	if err != nil {
 		return nil, "", err

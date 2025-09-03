@@ -32,7 +32,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
@@ -97,9 +97,9 @@ func init() {
 }
 
 func generateDummyHandler(domain string, servers []nbdns.NameServer) *upstreamResolverBase {
-	var srvs []string
+	var srvs []netip.AddrPort
 	for _, srv := range servers {
-		srvs = append(srvs, getNSHostPort(srv))
+		srvs = append(srvs, srv.AddrPort())
 	}
 	return &upstreamResolverBase{
 		domain:          domain,
@@ -363,7 +363,13 @@ func TestUpdateDNSServer(t *testing.T) {
 					t.Log(err)
 				}
 			}()
-			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", peer.NewRecorder("mgm"), nil, false)
+			dnsServer, err := NewDefaultServer(context.Background(), DefaultServerConfig{
+				WgInterface:    wgIface,
+				CustomAddress:  "",
+				StatusRecorder: peer.NewRecorder("mgm"),
+				StateManager:   nil,
+				DisableSys:     false,
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -473,7 +479,13 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		return
 	}
 
-	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", peer.NewRecorder("mgm"), nil, false)
+	dnsServer, err := NewDefaultServer(context.Background(), DefaultServerConfig{
+		WgInterface:    wgIface,
+		CustomAddress:  "",
+		StatusRecorder: peer.NewRecorder("mgm"),
+		StateManager:   nil,
+		DisableSys:     false,
+	})
 	if err != nil {
 		t.Errorf("create DNS server: %v", err)
 		return
@@ -575,7 +587,13 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dnsServer, err := NewDefaultServer(context.Background(), &mocWGIface{}, testCase.addrPort, peer.NewRecorder("mgm"), nil, false)
+			dnsServer, err := NewDefaultServer(context.Background(), DefaultServerConfig{
+				WgInterface:    &mocWGIface{},
+				CustomAddress:  testCase.addrPort,
+				StatusRecorder: peer.NewRecorder("mgm"),
+				StateManager:   nil,
+				DisableSys:     false,
+			})
 			if err != nil {
 				t.Fatalf("%v", err)
 			}
@@ -705,7 +723,7 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 	}
 	defer wgIFace.Close()
 
-	var dnsList []string
+	var dnsList []netip.AddrPort
 	dnsConfig := nbdns.Config{}
 	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, dnsList, dnsConfig, nil, peer.NewRecorder("mgm"), false)
 	err = dnsServer.Initialize()
@@ -715,7 +733,8 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 	}
 	defer dnsServer.Stop()
 
-	dnsServer.OnUpdatedHostDNSServer([]string{"8.8.8.8"})
+	addrPort := netip.MustParseAddrPort("8.8.8.8:53")
+	dnsServer.OnUpdatedHostDNSServer([]netip.AddrPort{addrPort})
 
 	resolver := newDnsResolver(dnsServer.service.RuntimeIP(), dnsServer.service.RuntimePort())
 	_, err = resolver.LookupHost(context.Background(), "netbird.io")
@@ -731,7 +750,8 @@ func TestDNSPermanent_updateUpstream(t *testing.T) {
 	}
 	defer wgIFace.Close()
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
+	addrPort := netip.MustParseAddrPort("8.8.8.8:53")
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []netip.AddrPort{addrPort}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -823,7 +843,8 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 	}
 	defer wgIFace.Close()
 	dnsConfig := nbdns.Config{}
-	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []string{"8.8.8.8"}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
+	addrPort := netip.MustParseAddrPort("8.8.8.8:53")
+	dnsServer := NewDefaultServerPermanentUpstream(context.Background(), wgIFace, []netip.AddrPort{addrPort}, dnsConfig, nil, peer.NewRecorder("mgm"), false)
 	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("failed to initialize DNS server: %v", err)
@@ -2052,4 +2073,125 @@ func TestLocalResolverPriorityConstants(t *testing.T) {
 	assert.Len(t, localMuxUpdates, 1)
 	assert.Equal(t, PriorityLocal, localMuxUpdates[0].priority, "Local handler should use PriorityLocal")
 	assert.Equal(t, "local.example.com", localMuxUpdates[0].domain)
+}
+
+func TestDNSLoopPrevention(t *testing.T) {
+	wgInterface := &mocWGIface{}
+	service := NewServiceViaMemory(wgInterface)
+	dnsServerIP := service.RuntimeIP()
+
+	server := &DefaultServer{
+		ctx:           context.Background(),
+		wgInterface:   wgInterface,
+		service:       service,
+		localResolver: local.NewResolver(),
+		handlerChain:  NewHandlerChain(),
+		hostManager:   &noopHostConfigurator{},
+		dnsMuxMap:     make(registeredHandlerMap),
+	}
+
+	tests := []struct {
+		name              string
+		nsGroups          []*nbdns.NameServerGroup
+		expectedHandlers  int
+		expectedServers   []netip.Addr
+		shouldFilterOwnIP bool
+	}{
+		{
+			name: "FilterOwnDNSServerIP",
+			nsGroups: []*nbdns.NameServerGroup{
+				{
+					Primary: true,
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: nbdns.UDPNameServerType, Port: 53},
+						{IP: dnsServerIP, NSType: nbdns.UDPNameServerType, Port: 53},
+						{IP: netip.MustParseAddr("1.1.1.1"), NSType: nbdns.UDPNameServerType, Port: 53},
+					},
+					Domains: []string{},
+				},
+			},
+			expectedHandlers:  1,
+			expectedServers:   []netip.Addr{netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("1.1.1.1")},
+			shouldFilterOwnIP: true,
+		},
+		{
+			name: "AllServersFiltered",
+			nsGroups: []*nbdns.NameServerGroup{
+				{
+					Primary: false,
+					NameServers: []nbdns.NameServer{
+						{IP: dnsServerIP, NSType: nbdns.UDPNameServerType, Port: 53},
+					},
+					Domains: []string{"example.com"},
+				},
+			},
+			expectedHandlers:  0,
+			expectedServers:   []netip.Addr{},
+			shouldFilterOwnIP: true,
+		},
+		{
+			name: "MixedServersWithOwnIP",
+			nsGroups: []*nbdns.NameServerGroup{
+				{
+					Primary: false,
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: nbdns.UDPNameServerType, Port: 53},
+						{IP: dnsServerIP, NSType: nbdns.UDPNameServerType, Port: 53},
+						{IP: netip.MustParseAddr("1.1.1.1"), NSType: nbdns.UDPNameServerType, Port: 53},
+						{IP: dnsServerIP, NSType: nbdns.UDPNameServerType, Port: 53}, // duplicate
+					},
+					Domains: []string{"test.com"},
+				},
+			},
+			expectedHandlers:  1,
+			expectedServers:   []netip.Addr{netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("1.1.1.1")},
+			shouldFilterOwnIP: true,
+		},
+		{
+			name: "NoOwnIPInList",
+			nsGroups: []*nbdns.NameServerGroup{
+				{
+					Primary: true,
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: nbdns.UDPNameServerType, Port: 53},
+						{IP: netip.MustParseAddr("1.1.1.1"), NSType: nbdns.UDPNameServerType, Port: 53},
+					},
+					Domains: []string{},
+				},
+			},
+			expectedHandlers:  1,
+			expectedServers:   []netip.Addr{netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("1.1.1.1")},
+			shouldFilterOwnIP: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			muxUpdates, err := server.buildUpstreamHandlerUpdate(tt.nsGroups)
+			assert.NoError(t, err)
+			assert.Len(t, muxUpdates, tt.expectedHandlers)
+
+			if tt.expectedHandlers > 0 {
+				handler := muxUpdates[0].handler.(*upstreamResolver)
+				assert.Len(t, handler.upstreamServers, len(tt.expectedServers))
+
+				if tt.shouldFilterOwnIP {
+					for _, upstream := range handler.upstreamServers {
+						assert.NotEqual(t, dnsServerIP, upstream.Addr())
+					}
+				}
+
+				for _, expected := range tt.expectedServers {
+					found := false
+					for _, upstream := range handler.upstreamServers {
+						if upstream.Addr() == expected {
+							found = true
+							break
+						}
+					}
+					assert.True(t, found, "Expected server %s not found", expected)
+				}
+			}
+		})
+	}
 }

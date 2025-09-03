@@ -16,13 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -724,4 +724,134 @@ func stringifyPermissionsKeys(permissions roles.Permissions) map[string]map[stri
 		}
 	}
 	return modules
+}
+
+func TestApproveUserEndpoint(t *testing.T) {
+	adminUser := &types.User{
+		Id:         "admin-user",
+		Role:       types.UserRoleAdmin,
+		AccountID:  existingAccountID,
+		AutoGroups: []string{},
+	}
+
+	pendingUser := &types.User{
+		Id:              "pending-user",
+		Role:            types.UserRoleUser,
+		AccountID:       existingAccountID,
+		Blocked:         true,
+		PendingApproval: true,
+		AutoGroups:      []string{},
+	}
+
+	tt := []struct {
+		name           string
+		expectedStatus int
+		expectedBody   bool
+		requestingUser *types.User
+	}{
+		{
+			name:           "approve user as admin should return 200",
+			expectedStatus: 200,
+			expectedBody:   true,
+			requestingUser: adminUser,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			am := &mock_server.MockAccountManager{}
+			am.ApproveUserFunc = func(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error) {
+				approvedUserInfo := &types.UserInfo{
+					ID:              pendingUser.Id,
+					Email:           "pending@example.com",
+					Name:            "Pending User",
+					Role:            string(pendingUser.Role),
+					AutoGroups:      []string{},
+					IsServiceUser:   false,
+					IsBlocked:       false,
+					PendingApproval: false,
+					LastLogin:       time.Now(),
+					Issued:          types.UserIssuedAPI,
+				}
+				return approvedUserInfo, nil
+			}
+
+			handler := newHandler(am)
+			router := mux.NewRouter()
+			router.HandleFunc("/users/{userId}/approve", handler.approveUser).Methods("POST")
+
+			req, err := http.NewRequest("POST", "/users/pending-user/approve", nil)
+			require.NoError(t, err)
+
+			userAuth := nbcontext.UserAuth{
+				AccountId: existingAccountID,
+				UserId:    tc.requestingUser.Id,
+			}
+			ctx := nbcontext.SetUserAuthInContext(req.Context(), userAuth)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.expectedStatus, rr.Code)
+
+			if tc.expectedBody {
+				var response api.User
+				err = json.Unmarshal(rr.Body.Bytes(), &response)
+				require.NoError(t, err)
+				assert.Equal(t, "pending-user", response.Id)
+				assert.False(t, response.IsBlocked)
+				assert.False(t, response.PendingApproval)
+			}
+		})
+	}
+}
+
+func TestRejectUserEndpoint(t *testing.T) {
+	adminUser := &types.User{
+		Id:         "admin-user",
+		Role:       types.UserRoleAdmin,
+		AccountID:  existingAccountID,
+		AutoGroups: []string{},
+	}
+
+	tt := []struct {
+		name           string
+		expectedStatus int
+		requestingUser *types.User
+	}{
+		{
+			name:           "reject user as admin should return 200",
+			expectedStatus: 200,
+			requestingUser: adminUser,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			am := &mock_server.MockAccountManager{}
+			am.RejectUserFunc = func(ctx context.Context, accountID, initiatorUserID, targetUserID string) error {
+				return nil
+			}
+
+			handler := newHandler(am)
+			router := mux.NewRouter()
+			router.HandleFunc("/users/{userId}/reject", handler.rejectUser).Methods("DELETE")
+
+			req, err := http.NewRequest("DELETE", "/users/pending-user/reject", nil)
+			require.NoError(t, err)
+
+			userAuth := nbcontext.UserAuth{
+				AccountId: existingAccountID,
+				UserId:    tc.requestingUser.Id,
+			}
+			ctx := nbcontext.SetUserAuthInContext(req.Context(), userAuth)
+			req = req.WithContext(ctx)
+
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.expectedStatus, rr.Code)
+		})
+	}
 }

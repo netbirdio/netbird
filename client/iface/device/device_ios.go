@@ -22,6 +22,7 @@ type TunDevice struct {
 	address wgaddr.Address
 	port    int
 	key     string
+	mtu     uint16
 	iceBind *bind.ICEBind
 	tunFd   int
 
@@ -31,12 +32,13 @@ type TunDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(name string, address wgaddr.Address, port int, key string, iceBind *bind.ICEBind, tunFd int) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunFd int) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
 		port:    port,
 		key:     key,
+		mtu:     mtu,
 		iceBind: iceBind,
 		tunFd:   tunFd,
 	}
@@ -123,6 +125,10 @@ func (t *TunDevice) Close() error {
 
 func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunDevice) UpdateAddr(_ wgaddr.Address) error {

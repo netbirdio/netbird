@@ -7,7 +7,6 @@ import (
 	"time"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -18,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 type ExternalCacheManager nbcache.UserDataCache
@@ -32,6 +32,8 @@ type Manager interface {
 	DeleteUser(ctx context.Context, accountID, initiatorUserID string, targetUserID string) error
 	DeleteRegularUsers(ctx context.Context, accountID, initiatorUserID string, targetUserIDs []string, userInfos map[string]*types.UserInfo) error
 	InviteUser(ctx context.Context, accountID string, initiatorUserID string, targetUserID string) error
+	ApproveUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error)
+	RejectUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) error
 	ListSetupKeys(ctx context.Context, accountID, userID string) ([]*types.SetupKey, error)
 	SaveUser(ctx context.Context, accountID, initiatorUserID string, update *types.User) (*types.UserInfo, error)
 	SaveOrAddUser(ctx context.Context, accountID, initiatorUserID string, update *types.User, addIfNotExists bool) (*types.UserInfo, error)
@@ -51,6 +53,7 @@ type Manager interface {
 	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
+	UpdatePeerIP(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error
 	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
 	GetPeerNetwork(ctx context.Context, peerID string) (*types.Network, error)
 	AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
@@ -62,8 +65,10 @@ type Manager interface {
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
-	SaveGroup(ctx context.Context, accountID, userID string, group *types.Group, create bool) error
-	SaveGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group, create bool) error
+	CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
+	UpdateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
+	CreateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
+	UpdateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
 	DeleteGroup(ctx context.Context, accountId, userId, groupID string) error
 	DeleteGroups(ctx context.Context, accountId, userId string, groupIDs []string) error
 	GroupAddPeer(ctx context.Context, accountId, groupID, peerID string) error
@@ -74,7 +79,7 @@ type Manager interface {
 	DeletePolicy(ctx context.Context, accountID, policyID, userID string) error
 	ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error)
 	GetRoute(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
-	CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool) (*route.Route, error)
+	CreateRoute(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peerID string, peerGroupIDs []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, skipAutoApply bool) (*route.Route, error)
 	SaveRoute(ctx context.Context, accountID, userID string, route *route.Route) error
 	DeleteRoute(ctx context.Context, accountID string, routeID route.ID, userID string) error
 	ListRoutes(ctx context.Context, accountID, userID string) ([]*route.Route, error)
@@ -117,7 +122,8 @@ type Manager interface {
 	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
 	GetStore() store.Store
 	GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
-	UpdateToPrimaryAccount(ctx context.Context, accountId string) (*types.Account, error)
+	UpdateToPrimaryAccount(ctx context.Context, accountId string) error
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
+	AllowSync(string, uint64) bool
 }

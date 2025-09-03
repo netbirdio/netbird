@@ -3,9 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"os/user"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -17,37 +16,38 @@ import (
 
 var profileCmd = &cobra.Command{
 	Use:   "profile",
-	Short: "manage Netbird profiles",
-	Long:  `Manage Netbird profiles, allowing you to list, switch, and remove profiles.`,
+	Short: "Manage NetBird client profiles",
+	Long:  `Commands to list, add, remove, and switch profiles. Profiles allow you to maintain different accounts in one client app.`,
 }
 
 var profileListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "list all profiles",
-	Long:  `List all available profiles in the Netbird client.`,
-	RunE:  listProfilesFunc,
+	Use:     "list",
+	Short:   "List all profiles",
+	Long:    `List all available profiles in the NetBird client.`,
+	Aliases: []string{"ls"},
+	RunE:    listProfilesFunc,
 }
 
 var profileAddCmd = &cobra.Command{
 	Use:   "add <profile_name>",
-	Short: "add a new profile",
-	Long:  `Add a new profile to the Netbird client. The profile name must be unique.`,
+	Short: "Add a new profile",
+	Long:  `Add a new profile to the NetBird client. The profile name must be unique.`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  addProfileFunc,
 }
 
 var profileRemoveCmd = &cobra.Command{
 	Use:   "remove <profile_name>",
-	Short: "remove a profile",
-	Long:  `Remove a profile from the Netbird client. The profile must not be active.`,
+	Short: "Remove a profile",
+	Long:  `Remove a profile from the NetBird client. The profile must not be inactive.`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  removeProfileFunc,
 }
 
 var profileSelectCmd = &cobra.Command{
 	Use:   "select <profile_name>",
-	Short: "select a profile",
-	Long:  `Select a profile to be the active profile in the Netbird client. The profile must exist.`,
+	Short: "Select a profile",
+	Long:  `Make the specified profile active. This will switch the client to use the selected profile's configuration.`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  selectProfileFunc,
 }
