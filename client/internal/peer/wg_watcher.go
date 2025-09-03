@@ -101,6 +101,10 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 				onDisconnectedFn()
 				return
 			}
+			if lastHandshake.IsZero() {
+				w.log.Infof("first wg handshake detected at: %s", handshake)
+			}
+
 			lastHandshake = *handshake
 
 			resetTime := time.Until(handshake.Add(checkPeriod))
