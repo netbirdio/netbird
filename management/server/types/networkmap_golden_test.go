@@ -3,7 +3,6 @@ package types_test
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"net"
 	"net/netip"
@@ -28,7 +27,7 @@ import (
 
 // update flag is used to update the golden file.
 // example: go test ./... -v -update
-var update = flag.Bool("update", false, "update golden files")
+// var update = flag.Bool("update", false, "update golden files")
 
 const (
 	numPeers          = 100
@@ -943,8 +942,8 @@ func createTestAccountWithEntities() *types.Account {
 
 		if peerID == expiredPeerID {
 			p.LoginExpirationEnabled = true
-			pastTime := time.Now().Add(-2 * time.Hour)
-			p.LastLogin = &pastTime
+			pastime = time.Now().Add(-2 * time.Hour)
+			p.LastLogin = &pastime
 		}
 
 		peers[peerID] = p

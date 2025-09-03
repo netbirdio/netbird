@@ -849,6 +849,10 @@ func (a *Account) initNetworkMapBuilder(validatedPeers map[string]struct{}) {
 	a.NetworkMapCache = NewNetworkMapBuilder(a, validatedPeers)
 }
 
+func (a *Account) InitNetworkMapBuilderIfNeeded(validatedPeers map[string]struct{}) {
+	a.initNetworkMapBuilder(validatedPeers)
+}
+
 func (a *Account) GetPeerNetworkMapExp(
 	ctx context.Context,
 	peerID string,

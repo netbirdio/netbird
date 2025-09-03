@@ -9,6 +9,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
+func (am *DefaultAccountManager) initNetworkMapBuilderIfNeeded(account *types.Account, validatedPeers map[string]struct{}) {
+	am.enrichAccountFromHolder(account)
+	account.InitNetworkMapBuilderIfNeeded(validatedPeers)
+}
+
 func (am *DefaultAccountManager) getPeerNetworkMapExp(
 	ctx context.Context,
 	account *types.Account,
@@ -21,14 +26,14 @@ func (am *DefaultAccountManager) getPeerNetworkMapExp(
 	return account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), metrics)
 }
 
-func (am *DefaultAccountManager) onPeerAddedUpdNetworkMapCache(account *types.Account, peerId string, validatedPeers map[string]struct{}) {
+func (am *DefaultAccountManager) onPeerAddedUpdNetworkMapCache(account *types.Account, peerId string, validatedPeers map[string]struct{}) error {
 	am.enrichAccountFromHolder(account)
-	account.OnPeerAddedUpdNetworkMapCache(peerId, validatedPeers)
+	return account.OnPeerAddedUpdNetworkMapCache(peerId, validatedPeers)
 }
 
-func (am *DefaultAccountManager) onPeerDeletedUpdNetworkMapCache(account *types.Account, peerId string, validatedPeers map[string]struct{}) {
+func (am *DefaultAccountManager) onPeerDeletedUpdNetworkMapCache(account *types.Account, peerId string, validatedPeers map[string]struct{}) error {
 	am.enrichAccountFromHolder(account)
-	account.OnPeerDeletedUpdNetworkMapCache(peerId, validatedPeers)
+	return account.OnPeerDeletedUpdNetworkMapCache(peerId, validatedPeers)
 }
 
 func (am *DefaultAccountManager) updatePeerInNetworkMapCache(account *types.Account, peer *nbpeer.Peer) {
