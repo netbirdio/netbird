@@ -172,7 +172,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 }
 
 func TestAccountManager_GetNetworkMap_Experimental(t *testing.T) {
-	os.Setenv(envNewNetworkMapBuilder, "true")
+	t.Setenv(envNewNetworkMapBuilder, "true")
 	testGetNetworkMapGeneral(t)
 }
 
@@ -1012,7 +1012,16 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 	}
 }
 
+func TestUpdateAccountPeers_Experimental(t *testing.T) {
+	t.Setenv(envNewNetworkMapBuilder, "true")
+	testUpdateAccountPeers(t)
+}
+
 func TestUpdateAccountPeers(t *testing.T) {
+	testUpdateAccountPeers(t)
+}
+
+func testUpdateAccountPeers(t *testing.T) {
 	testCases := []struct {
 		name   string
 		peers  int
@@ -1556,7 +1565,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 }
 
 func Test_LoginPeer(t *testing.T) {
-	os.Setenv(envNewNetworkMapBuilder, "true")
+	t.Setenv(envNewNetworkMapBuilder, "true")
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}

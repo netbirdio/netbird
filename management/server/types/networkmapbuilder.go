@@ -301,9 +301,9 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 		return &NetworkMap{Network: account.Network.Copy()}
 	}
 
-	if !maps.Equal(b.validatedPeers, validatedPeers) {
-		// b.updateValidatedPeers(validatedPeers)
-	}
+	// if !maps.Equal(b.validatedPeers, validatedPeers) {
+	// 	b.updateValidatedPeers(validatedPeers)
+	// }
 
 	b.cache.mu.RLock()
 	defer b.cache.mu.RUnlock()
@@ -312,10 +312,10 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 	routesView := b.cache.peerRoutes[peerID]
 	dnsConfig := b.cache.peerDNS[peerID]
 
-	if aclView == nil || routesView == nil || dnsConfig == nil {
-		// log.Warnf("NetworkMapBuilder: Cache miss for peer %s, falling back to original method", peerID)
-		// return account.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, resourcePolicies, routers, metrics)
-	}
+	// if aclView == nil || routesView == nil || dnsConfig == nil {
+	// 	// log.Warnf("NetworkMapBuilder: Cache miss for peer %s, falling back to original method", peerID)
+	// 	// return account.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, resourcePolicies, routers, metrics)
+	// }
 
 	nm := b.assembleNetworkMap(account, aclView, routesView, dnsConfig, peersCustomZone, validatedPeers)
 
@@ -403,8 +403,7 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 }
 
 func (b *NetworkMapBuilder) generateFirewallRuleID(rule *FirewallRule) string {
-	portRange := ""
-	portRange = fmt.Sprintf("%d-%d", rule.PortRange.Start, rule.PortRange.End)
+	portRange := fmt.Sprintf("%d-%d", rule.PortRange.Start, rule.PortRange.End)
 	return fmt.Sprintf("fw:%s:%s:%d:%s:%s:%s:%s",
 		rule.PolicyID, rule.PeerIP, rule.Direction, rule.Protocol, rule.Action, rule.Port, portRange)
 }
@@ -413,45 +412,6 @@ func (b *NetworkMapBuilder) generateRouteFirewallRuleID(rule *RouteFirewallRule)
 	return fmt.Sprintf("route-fw:%s:%s:%s:%s:%s:%d",
 		rule.RouteID, rule.Destination, rule.Action, strings.Join(rule.SourceRanges, ","), rule.Protocol, rule.Port)
 }
-
-// func (b *NetworkMapBuilder) estimateMemoryUsage() int64 {
-// 	b.cache.mu.RLock()
-// 	defer b.cache.mu.RUnlock()
-
-// 	var estimate int64
-
-// 	const (
-// 		peerSize         = 1000
-// 		routeSize        = 500
-// 		firewallRuleSize = 200
-// 		routeRuleSize    = 300
-// 		stringSize       = 50
-// 		viewOverhead     = 100
-// 	)
-
-// 	estimate += int64(len(b.cache.globalPeers)) * peerSize
-// 	estimate += int64(len(b.cache.globalRoutes)) * routeSize
-// 	estimate += int64(len(b.cache.globalRules)) * firewallRuleSize
-// 	estimate += int64(len(b.cache.globalRouteRules)) * routeRuleSize
-
-// 	for _, view := range b.cache.peerACLs {
-// 		estimate += viewOverhead
-// 		estimate += int64(len(view.ConnectedPeerIDs)) * stringSize
-// 		estimate += int64(len(view.FirewallRuleIDs)) * stringSize
-// 	}
-
-// 	for _, view := range b.cache.peerRoutes {
-// 		estimate += viewOverhead
-// 		estimate += int64(len(view.OwnRouteIDs)) * stringSize
-// 		estimate += int64(len(view.InheritedRouteIDs)) * stringSize
-// 		estimate += int64(len(view.NetworkResourceIDs)) * stringSize
-// 		estimate += int64(len(view.RouteFirewallRuleIDs)) * stringSize
-// 	}
-
-// 	estimate += int64(len(b.cache.peerDNS)) * 200
-
-// 	return estimate
-// }
 
 func (b *NetworkMapBuilder) isPeerInGroups(groupIDs []string, peerGroups []string) bool {
 	for _, groupID := range groupIDs {
@@ -937,9 +897,9 @@ func (b *NetworkMapBuilder) updateRouteFirewallRules(
 				sourceIP := update.AddSourceIP
 
 				if strings.Contains(sourceIP, ":") {
-					sourceIP = sourceIP + "/128" // IPv6
+					sourceIP += "/128" // IPv6
 				} else {
-					sourceIP = sourceIP + "/32" // IPv4
+					sourceIP += "/32" // IPv4
 				}
 
 				if !slices.Contains(rule.SourceRanges, sourceIP) {

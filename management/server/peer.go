@@ -397,7 +397,9 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		if err != nil {
 			return err
 		}
-		am.onPeerDeletedUpdNetworkMapCache(account, peerID, validatedPeers)
+		if err := am.onPeerDeletedUpdNetworkMapCache(account, peerID, validatedPeers); err != nil {
+			log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", peerID, err)
+		}
 
 	}
 
@@ -714,7 +716,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		am.onPeerAddedUpdNetworkMapCache(account, newPeer.ID, validatedPeers)
+		if err := am.onPeerAddedUpdNetworkMapCache(account, newPeer.ID, validatedPeers); err != nil {
+			log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
+		}
 	}
 
 	if updateAccountPeers {
@@ -1242,6 +1246,10 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	customZone := account.GetPeersCustomZone(ctx, dnsDomain)
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
+
+	if am.expNewNetworkMap {
+		am.initNetworkMapBuilderIfNeeded(account, approvedPeersMap)
+	}
 
 	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMapsAll(ctx, accountID, account.Peers)
 	if err != nil {
