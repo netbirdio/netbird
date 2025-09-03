@@ -53,6 +53,8 @@ const (
 	peerSchedulerRetryInterval = 3 * time.Second
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
+
+	envNewNetworkMapBuilder = "NB_EXPERIMENT_NETWORK_MAP"
 )
 
 type userLoggedInOnce bool
@@ -109,6 +111,10 @@ type DefaultAccountManager struct {
 	loginFilter *loginFilter
 
 	disableDefaultPolicy bool
+
+	holder *types.Holder
+
+	expNewNetworkMap bool
 }
 
 func isUniqueConstraintError(err error) bool {
@@ -196,6 +202,12 @@ func BuildManager(
 		log.WithContext(ctx).Debugf("took %v to instantiate account manager", time.Since(start))
 	}()
 
+	newNetworkMapBuilder, err := strconv.ParseBool(os.Getenv(envNewNetworkMapBuilder))
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to parse %s, using default value false: %v", envNewNetworkMapBuilder, err)
+		newNetworkMapBuilder = false
+	}
+
 	am := &DefaultAccountManager{
 		Store:                    store,
 		geo:                      geo,
@@ -217,6 +229,9 @@ func BuildManager(
 		permissionsManager:       permissionsManager,
 		loginFilter:              newLoginFilter(),
 		disableDefaultPolicy:     disableDefaultPolicy,
+		holder:                   types.NewHolder(),
+
+		expNewNetworkMap: newNetworkMapBuilder,
 	}
 
 	am.startWarmup(ctx)

@@ -168,6 +168,15 @@ func TestPeer_SessionExpired(t *testing.T) {
 }
 
 func TestAccountManager_GetNetworkMap(t *testing.T) {
+	testGetNetworkMapGeneral(t)
+}
+
+func TestAccountManager_GetNetworkMap_Experimental(t *testing.T) {
+	os.Setenv(envNewNetworkMapBuilder, "true")
+	testGetNetworkMapGeneral(t)
+}
+
+func testGetNetworkMapGeneral(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -1548,6 +1557,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 }
 
 func Test_LoginPeer(t *testing.T) {
+	os.Setenv(envNewNetworkMapBuilder, "true")
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}

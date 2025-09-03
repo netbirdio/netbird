@@ -105,7 +105,7 @@ func TestGetPeerNetworkMap_Golden_New(t *testing.T) {
 		validatedPeersMap[peerID] = struct{}{}
 	}
 
-	builder := types.NewImprovedNetworkMapBuilder(account, validatedPeersMap)
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 	networkMap := builder.GetPeerNetworkMap(ctx, testingPeerID, dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
 
 	normalizeAndSortNetworkMap(networkMap)
@@ -149,7 +149,7 @@ func BenchmarkGetPeerNetworkMap(b *testing.B) {
 	b.ResetTimer()
 	b.Run("new builder", func(b *testing.B) {
 		for range b.N {
-			builder := types.NewImprovedNetworkMapBuilder(account, validatedPeersMap)
+			builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 			for _, peerID := range peerIDs {
 				_ = builder.GetPeerNetworkMap(ctx, peerID, dns.CustomZone{}, validatedPeersMap, nil, nil, nil)
 			}
@@ -236,7 +236,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerAdded(t *testing.T) {
 		validatedPeersMap[peerID] = struct{}{}
 	}
 
-	builder := types.NewImprovedNetworkMapBuilder(account, validatedPeersMap)
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	newPeerID := "peer-new-101"
 	newPeerIP := net.IP{100, 64, 1, 1}
@@ -299,7 +299,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 		validatedPeersMap[peerID] = struct{}{}
 		peerIDs = append(peerIDs, peerID)
 	}
-	builder := types.NewImprovedNetworkMapBuilder(account, validatedPeersMap)
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 	newPeerID := "peer-new-101"
 	newPeer := &nbpeer.Peer{
 		ID:       newPeerID,
@@ -429,7 +429,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerAddedRouter(t *testing.T) {
 		validatedPeersMap[peerID] = struct{}{}
 	}
 
-	builder := types.NewImprovedNetworkMapBuilder(account, validatedPeersMap)
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	newRouterID := "peer-new-router-102"
 	newRouterIP := net.IP{100, 64, 1, 2}
@@ -507,7 +507,7 @@ func BenchmarkGetPeerNetworkMap_AfterRouterPeerAdded(b *testing.B) {
 		validatedPeersMap[peerID] = struct{}{}
 		peerIDs = append(peerIDs, peerID)
 	}
-	builder := types.NewImprovedNetworkMapBuilder(account, validatedPeersMap)
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 	newRouterID := "peer-new-router-102"
 	newRouterIP := net.IP{100, 64, 1, 2}
 	newRouter := &nbpeer.Peer{
@@ -638,7 +638,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerDeleted(t *testing.T) {
 		validatedPeersMap[peerID] = struct{}{}
 	}
 
-	builder := types.NewImprovedNetworkMapBuilder(account, validatedPeersMap)
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	deletedPeerID := "peer-25" // devs group peer
 
@@ -764,7 +764,7 @@ func TestGetPeerNetworkMap_Golden_New_WithDeletedRouterPeer(t *testing.T) {
 		validatedPeersMap[peerID] = struct{}{}
 	}
 
-	builder := types.NewImprovedNetworkMapBuilder(account, validatedPeersMap)
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	deletedRouterID := "peer-75" // router peer
 
@@ -841,7 +841,7 @@ func BenchmarkGetPeerNetworkMap_AfterPeerDeleted(b *testing.B) {
 	})
 	delete(validatedPeersMap, deletedPeerID)
 
-	builder := types.NewImprovedNetworkMapBuilder(account, validatedPeersMap)
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
 
 	b.ResetTimer()
 	b.Run("old builder after delete", func(b *testing.B) {

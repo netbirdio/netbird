@@ -87,6 +87,8 @@ type Account struct {
 	NetworkRouters   []*routerTypes.NetworkRouter     `gorm:"foreignKey:AccountID;references:id"`
 	NetworkResources []*resourceTypes.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
+
+	NetworkMapCache *NetworkMapBuilder `gorm:"-"`
 }
 
 // this class is used by gorm only

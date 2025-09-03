@@ -841,3 +841,38 @@ func peerIsNameserver(peer *nbpeer.Peer, nsGroup *nbdns.NameServerGroup) bool {
 	}
 	return false
 }
+
+func (a *Account) initNetworkMapBuilder(validatedPeers map[string]struct{}) {
+	if a.NetworkMapCache != nil {
+		return
+	}
+	a.NetworkMapCache = NewNetworkMapBuilder(a, validatedPeers)
+}
+
+func (a *Account) GetPeerNetworkMapExp(
+	ctx context.Context,
+	peerID string,
+	peersCustomZone nbdns.CustomZone,
+	validatedPeers map[string]struct{},
+	resourcePolicies map[string][]*Policy,
+	routers map[string]map[string]*routerTypes.NetworkRouter,
+	metrics *telemetry.AccountManagerMetrics,
+) *NetworkMap {
+	a.initNetworkMapBuilder(validatedPeers)
+	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, resourcePolicies, routers, metrics)
+}
+
+func (a *Account) OnPeerAddedUpdNetworkMapCache(peerId string, validatedPeers map[string]struct{}) error {
+	a.initNetworkMapBuilder(validatedPeers)
+	return a.NetworkMapCache.OnPeerAddedIncremental(peerId)
+}
+
+func (a *Account) OnPeerDeletedUpdNetworkMapCache(peerId string, validatedPeers map[string]struct{}) error {
+	a.initNetworkMapBuilder(validatedPeers)
+	return a.NetworkMapCache.OnPeerDeleted(peerId)
+}
+
+func (a *Account) UpdatePeerInNetworkMapCache(peer *nbpeer.Peer) {
+	a.initNetworkMapBuilder(nil)
+	a.NetworkMapCache.UpdatePeer(peer)
+}
