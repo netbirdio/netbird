@@ -15,8 +15,10 @@ const HighLatencyThreshold = time.Second * 7
 type GRPCMetrics struct {
 	meter                          metric.Meter
 	syncRequestsCounter            metric.Int64Counter
+	syncRequestsBlockedCounter     metric.Int64Counter
 	syncRequestHighLatencyCounter  metric.Int64Counter
 	loginRequestsCounter           metric.Int64Counter
+	loginRequestsBlockedCounter    metric.Int64Counter
 	loginRequestHighLatencyCounter metric.Int64Counter
 	getKeyRequestsCounter          metric.Int64Counter
 	activeStreamsGauge             metric.Int64ObservableGauge
@@ -36,6 +38,14 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 		return nil, err
 	}
 
+	syncRequestsBlockedCounter, err := meter.Int64Counter("management.grpc.sync.request.blocked.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of sync gRPC requests from blocked peers"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	syncRequestHighLatencyCounter, err := meter.Int64Counter("management.grpc.sync.request.high.latency.counter",
 		metric.WithUnit("1"),
 		metric.WithDescription("Number of sync gRPC requests from the peers that took longer than the threshold to establish a connection and receive network map updates (update channel)"),
@@ -47,6 +57,14 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 	loginRequestsCounter, err := meter.Int64Counter("management.grpc.login.request.counter",
 		metric.WithUnit("1"),
 		metric.WithDescription("Number of login gRPC requests from the peers to authenticate and receive initial configuration and relay credentials"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	loginRequestsBlockedCounter, err := meter.Int64Counter("management.grpc.login.request.blocked.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of login gRPC requests from blocked peers"),
 	)
 	if err != nil {
 		return nil, err
@@ -107,8 +125,10 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 	return &GRPCMetrics{
 		meter:                          meter,
 		syncRequestsCounter:            syncRequestsCounter,
+		syncRequestsBlockedCounter:     syncRequestsBlockedCounter,
 		syncRequestHighLatencyCounter:  syncRequestHighLatencyCounter,
 		loginRequestsCounter:           loginRequestsCounter,
+		loginRequestsBlockedCounter:    loginRequestsBlockedCounter,
 		loginRequestHighLatencyCounter: loginRequestHighLatencyCounter,
 		getKeyRequestsCounter:          getKeyRequestsCounter,
 		activeStreamsGauge:             activeStreamsGauge,
@@ -124,6 +144,11 @@ func (grpcMetrics *GRPCMetrics) CountSyncRequest() {
 	grpcMetrics.syncRequestsCounter.Add(grpcMetrics.ctx, 1)
 }
 
+// CountSyncRequestBlocked counts the number of gRPC sync requests from blocked peers
+func (grpcMetrics *GRPCMetrics) CountSyncRequestBlocked() {
+	grpcMetrics.syncRequestsBlockedCounter.Add(grpcMetrics.ctx, 1)
+}
+
 // CountGetKeyRequest counts the number of gRPC get server key requests coming to the gRPC API
 func (grpcMetrics *GRPCMetrics) CountGetKeyRequest() {
 	grpcMetrics.getKeyRequestsCounter.Add(grpcMetrics.ctx, 1)
@@ -132,6 +157,11 @@ func (grpcMetrics *GRPCMetrics) CountGetKeyRequest() {
 // CountLoginRequest counts the number of gRPC login requests coming to the gRPC API
 func (grpcMetrics *GRPCMetrics) CountLoginRequest() {
 	grpcMetrics.loginRequestsCounter.Add(grpcMetrics.ctx, 1)
+}
+
+// CountLoginRequestBlocked counts the number of gRPC login requests from blocked peers
+func (grpcMetrics *GRPCMetrics) CountLoginRequestBlocked() {
+	grpcMetrics.loginRequestsBlockedCounter.Add(grpcMetrics.ctx, 1)
 }
 
 // CountLoginRequestDuration counts the duration of the login gRPC requests

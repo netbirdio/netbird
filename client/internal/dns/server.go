@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -15,7 +16,9 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dns/local"
+	"github.com/netbirdio/netbird/client/internal/dns/mgmt"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -45,6 +48,8 @@ type Server interface {
 	OnUpdatedHostDNSServer(addrs []netip.AddrPort)
 	SearchDomains() []string
 	ProbeAvailability()
+	UpdateServerConfig(domains dnsconfig.ServerDomains) error
+	PopulateManagementDomain(mgmtURL *url.URL) error
 }
 
 type nsGroupsByDomain struct {
@@ -77,6 +82,8 @@ type DefaultServer struct {
 	handlerChain       *HandlerChain
 	extraDomains       map[domain.Domain]int
 
+	mgmtCacheResolver *mgmt.Resolver
+
 	// permanent related properties
 	permanent      bool
 	hostsDNSHolder *hostsDNSHolder
@@ -104,18 +111,20 @@ type handlerWrapper struct {
 
 type registeredHandlerMap map[types.HandlerID]handlerWrapper
 
+// DefaultServerConfig holds configuration parameters for NewDefaultServer
+type DefaultServerConfig struct {
+	WgInterface    WGIface
+	CustomAddress  string
+	StatusRecorder *peer.Status
+	StateManager   *statemanager.Manager
+	DisableSys     bool
+}
+
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(
-	ctx context.Context,
-	wgInterface WGIface,
-	customAddress string,
-	statusRecorder *peer.Status,
-	stateManager *statemanager.Manager,
-	disableSys bool,
-) (*DefaultServer, error) {
+func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*DefaultServer, error) {
 	var addrPort *netip.AddrPort
-	if customAddress != "" {
-		parsedAddrPort, err := netip.ParseAddrPort(customAddress)
+	if config.CustomAddress != "" {
+		parsedAddrPort, err := netip.ParseAddrPort(config.CustomAddress)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse the custom dns address, got error: %s", err)
 		}
@@ -123,13 +132,14 @@ func NewDefaultServer(
 	}
 
 	var dnsService service
-	if wgInterface.IsUserspaceBind() {
-		dnsService = NewServiceViaMemory(wgInterface)
+	if config.WgInterface.IsUserspaceBind() {
+		dnsService = NewServiceViaMemory(config.WgInterface)
 	} else {
-		dnsService = newServiceViaListener(wgInterface, addrPort)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort)
 	}
 
-	return newDefaultServer(ctx, wgInterface, dnsService, statusRecorder, stateManager, disableSys), nil
+	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
+	return server, nil
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
@@ -178,20 +188,24 @@ func newDefaultServer(
 ) *DefaultServer {
 	handlerChain := NewHandlerChain()
 	ctx, stop := context.WithCancel(ctx)
+
+	mgmtCacheResolver := mgmt.NewResolver()
+
 	defaultServer := &DefaultServer{
-		ctx:            ctx,
-		ctxCancel:      stop,
-		disableSys:     disableSys,
-		service:        dnsService,
-		handlerChain:   handlerChain,
-		extraDomains:   make(map[domain.Domain]int),
-		dnsMuxMap:      make(registeredHandlerMap),
-		localResolver:  local.NewResolver(),
-		wgInterface:    wgInterface,
-		statusRecorder: statusRecorder,
-		stateManager:   stateManager,
-		hostsDNSHolder: newHostsDNSHolder(),
-		hostManager:    &noopHostConfigurator{},
+		ctx:               ctx,
+		ctxCancel:         stop,
+		disableSys:        disableSys,
+		service:           dnsService,
+		handlerChain:      handlerChain,
+		extraDomains:      make(map[domain.Domain]int),
+		dnsMuxMap:         make(registeredHandlerMap),
+		localResolver:     local.NewResolver(),
+		wgInterface:       wgInterface,
+		statusRecorder:    statusRecorder,
+		stateManager:      stateManager,
+		hostsDNSHolder:    newHostsDNSHolder(),
+		hostManager:       &noopHostConfigurator{},
+		mgmtCacheResolver: mgmtCacheResolver,
 	}
 
 	// register with root zone, handler chain takes care of the routing
@@ -217,7 +231,7 @@ func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler
 }
 
 func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, priority int) {
-	log.Debugf("registering handler %s with priority %d", handler, priority)
+	log.Debugf("registering handler %s with priority %d for %v", handler, priority, domains)
 
 	for _, domain := range domains {
 		if domain == "" {
@@ -246,7 +260,7 @@ func (s *DefaultServer) DeregisterHandler(domains domain.List, priority int) {
 }
 
 func (s *DefaultServer) deregisterHandler(domains []string, priority int) {
-	log.Debugf("deregistering handler %v with priority %d", domains, priority)
+	log.Debugf("deregistering handler with priority %d for %v", priority, domains)
 
 	for _, domain := range domains {
 		if domain == "" {
@@ -430,6 +444,29 @@ func (s *DefaultServer) ProbeAvailability() {
 		}(mux.handler)
 	}
 	wg.Wait()
+}
+
+func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if s.mgmtCacheResolver != nil {
+		removedDomains, err := s.mgmtCacheResolver.UpdateFromServerDomains(s.ctx, domains)
+		if err != nil {
+			return fmt.Errorf("update management cache resolver: %w", err)
+		}
+
+		if len(removedDomains) > 0 {
+			s.deregisterHandler(removedDomains.ToPunycodeList(), PriorityMgmtCache)
+		}
+
+		newDomains := s.mgmtCacheResolver.GetCachedDomains()
+		if len(newDomains) > 0 {
+			s.registerHandler(newDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
+		}
+	}
+
+	return nil
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
@@ -960,4 +997,12 @@ func toZone(d domain.Domain) domain.Domain {
 			),
 		),
 	)
+}
+
+// PopulateManagementDomain populates the DNS cache with management domain
+func (s *DefaultServer) PopulateManagementDomain(mgmtURL *url.URL) error {
+	if s.mgmtCacheResolver != nil {
+		return s.mgmtCacheResolver.PopulateFromConfig(s.ctx, mgmtURL)
+	}
+	return nil
 }

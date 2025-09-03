@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/stun/v2"
+	"github.com/pion/stun/v3"
 	"github.com/pion/turn/v3"
 	log "github.com/sirupsen/logrus"
 
