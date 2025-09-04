@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	bindproxy "github.com/netbirdio/netbird/client/iface/wgproxy/bind"
 )
 
@@ -17,7 +18,7 @@ func seedProxies() ([]proxyInstance, error) {
 
 func seedProxyForProxyCloseByRemoteConn() ([]proxyInstance, error) {
 	pl := make([]proxyInstance, 0)
-	wgAddress, err := wgaddr.ParseWGAddress("10.0.0.1")
+	wgAddress, err := wgaddr.ParseWGAddress("10.0.0.1/32")
 	if err != nil {
 		return nil, err
 	}

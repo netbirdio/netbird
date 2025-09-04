@@ -93,8 +93,9 @@ func TestProxyCloseByRemoteConn(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			addr, _ := net.ResolveUDPAddr("udp", "100.108.135.221:51892")
 			relayedConn := newMockConn()
-			err := tt.proxy.AddTurnConn(ctx, nil, relayedConn)
+			err := tt.proxy.AddTurnConn(ctx, addr, relayedConn)
 			if err != nil {
 				t.Errorf("error: %v", err)
 			}
