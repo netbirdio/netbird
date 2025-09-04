@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -31,50 +32,99 @@ type Win32_BIOS struct {
 	SerialNumber string
 }
 
-// GetInfo retrieves and parses the system information
-func GetInfo(ctx context.Context) *Info {
-	log.Debugf("gathering OS name and version")
-	osName, osVersion := getOSNameAndVersion()
-	log.Debugf("gathering build version")
-	buildVersion := getBuildVersion()
+// CachedStaticInfo holds all the static system information that never changes
+type CachedStaticInfo struct {
+	OSName             string
+	OSVersion          string
+	KernelVersion      string
+	SystemSerialNumber string
+	SystemProductName  string
+	SystemManufacturer string
+	Environment        Environment // Assuming this is from your StaticInfo struct
+	GoOS               string
+	CPUs               int
+	Kernel             string
+	Platform           string
+}
 
+var (
+	cachedStaticInfo *CachedStaticInfo
+	staticInfoOnce   sync.Once
+)
+
+func init() {
+	go initStaticInfo()
+}
+
+// initStaticInfo initializes all static system information once
+func initStaticInfo() {
+	staticInfoOnce.Do(func() {
+		log.Debugf("initializing static system information (one-time operation)")
+		start := time.Now()
+
+		// Get OS info
+		osName, osVersion := getOSNameAndVersion()
+		buildVersion := getBuildVersion()
+
+		// Get hardware info
+		si := updateStaticInfo()
+
+		cachedStaticInfo = &CachedStaticInfo{
+			OSName:             osName,
+			OSVersion:          osVersion,
+			KernelVersion:      buildVersion,
+			SystemSerialNumber: si.SystemSerialNumber,
+			SystemProductName:  si.SystemProductName,
+			SystemManufacturer: si.SystemManufacturer,
+			Environment:        si.Environment,
+			GoOS:               runtime.GOOS,
+			CPUs:               runtime.NumCPU(),
+			Kernel:             "windows",
+			Platform:           "unknown",
+		}
+
+		log.Debugf("static system information initialized in %s", time.Since(start))
+	})
+}
+
+// GetInfo retrieves system information (static info cached, dynamic info fresh)
+func GetInfo(ctx context.Context) *Info {
+	log.Debugf("gathering dynamic system information")
+	start := time.Now()
+
+	// Only gather dynamic information that might change
 	log.Debugf("gathering networkAddresses")
 	addrs, err := networkAddresses()
 	if err != nil {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
-	log.Debugf("gathering static info")
-	start := time.Now()
-	si := updateStaticInfo()
-	if time.Since(start) > 1*time.Second {
-		log.Warnf("updateStaticInfo took %s", time.Since(start))
-	}
-
-	gio := &Info{
-		Kernel:             "windows",
-		OSVersion:          osVersion,
-		Platform:           "unknown",
-		OS:                 osName,
-		GoOS:               runtime.GOOS,
-		CPUs:               runtime.NumCPU(),
-		KernelVersion:      buildVersion,
-		NetworkAddresses:   addrs,
-		SystemSerialNumber: si.SystemSerialNumber,
-		SystemProductName:  si.SystemProductName,
-		SystemManufacturer: si.SystemManufacturer,
-		Environment:        si.Environment,
-	}
-
 	log.Debugf("gathering Hostname")
 	systemHostname, _ := os.Hostname()
 
-	log.Debugf("gathering extractDeviceName")
-	gio.Hostname = extractDeviceName(ctx, systemHostname)
-	log.Debugf("gathering NetbirdVersion")
-	gio.NetbirdVersion = version.NetbirdVersion()
-	log.Debugf("gathering extractUserAgent")
-	gio.UIVersion = extractUserAgent(ctx)
+	// Create Info struct using cached static info + fresh dynamic info
+	gio := &Info{
+		// Static information (cached)
+		Kernel:             cachedStaticInfo.Kernel,
+		OSVersion:          cachedStaticInfo.OSVersion,
+		Platform:           cachedStaticInfo.Platform,
+		OS:                 cachedStaticInfo.OSName,
+		GoOS:               cachedStaticInfo.GoOS,
+		CPUs:               cachedStaticInfo.CPUs,
+		KernelVersion:      cachedStaticInfo.KernelVersion,
+		SystemSerialNumber: cachedStaticInfo.SystemSerialNumber,
+		SystemProductName:  cachedStaticInfo.SystemProductName,
+		SystemManufacturer: cachedStaticInfo.SystemManufacturer,
+		Environment:        cachedStaticInfo.Environment,
+
+		// Dynamic information (fresh each call)
+		NetworkAddresses: addrs,
+		Hostname:         extractDeviceName(ctx, systemHostname),
+		NetbirdVersion:   version.NetbirdVersion(), // This might change with updates
+		UIVersion:        extractUserAgent(ctx),    // This might change
+	}
+
+	log.Debugf("dynamic system information gathered in %s", time.Since(start))
 	return gio
 }
 
