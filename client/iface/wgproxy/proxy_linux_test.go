@@ -62,7 +62,7 @@ func seedProxyForProxyCloseByRemoteConn() ([]proxyInstance, error) {
 		closeFn: func() error { return nil },
 	}
 	pl = append(pl, pUDP)
-	wgAddress, err := wgaddr.ParseWGAddress("10.0.0.1")
+	wgAddress, err := wgaddr.ParseWGAddress("10.0.0.1/32")
 	if err != nil {
 		return nil, err
 	}
