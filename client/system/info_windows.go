@@ -33,14 +33,18 @@ type Win32_BIOS struct {
 
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
+	log.Debugf("gathering OS name and version")
 	osName, osVersion := getOSNameAndVersion()
+	log.Debugf("gathering build version")
 	buildVersion := getBuildVersion()
 
+	log.Debugf("gathering networkAddresses")
 	addrs, err := networkAddresses()
 	if err != nil {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}
 
+	log.Debugf("gathering static info")
 	start := time.Now()
 	si := updateStaticInfo()
 	if time.Since(start) > 1*time.Second {
@@ -62,11 +66,15 @@ func GetInfo(ctx context.Context) *Info {
 		Environment:        si.Environment,
 	}
 
+	log.Debugf("gathering Hostname")
 	systemHostname, _ := os.Hostname()
-	gio.Hostname = extractDeviceName(ctx, systemHostname)
-	gio.NetbirdVersion = version.NetbirdVersion()
-	gio.UIVersion = extractUserAgent(ctx)
 
+	log.Debugf("gathering extractDeviceName")
+	gio.Hostname = extractDeviceName(ctx, systemHostname)
+	log.Debugf("gathering NetbirdVersion")
+	gio.NetbirdVersion = version.NetbirdVersion()
+	log.Debugf("gathering extractUserAgent")
+	gio.UIVersion = extractUserAgent(ctx)
 	return gio
 }
 
