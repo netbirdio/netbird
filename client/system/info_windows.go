@@ -89,6 +89,7 @@ func initStaticInfo() {
 
 // GetInfo retrieves system information (static info cached, dynamic info fresh)
 func GetInfo(ctx context.Context) *Info {
+	initStaticInfo()
 	log.Debugf("gathering dynamic system information")
 	start := time.Now()
 
