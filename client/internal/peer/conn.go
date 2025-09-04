@@ -118,6 +118,8 @@ type Conn struct {
 
 	// debug purpose
 	dumpState *stateDump
+
+	endpointUpdater *endpointUpdater
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -141,6 +143,11 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		statusRelay:    worker.NewAtomicStatus(),
 		statusICE:      worker.NewAtomicStatus(),
 		dumpState:      newStateDump(config.Key, connLog, services.StatusRecorder),
+		endpointUpdater: &endpointUpdater{
+			log:       connLog,
+			wgConfig:  config.WgConfig,
+			initiator: isWireGuardInitiator(config),
+		},
 	}
 
 	return conn, nil
@@ -250,7 +257,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 		conn.wgProxyICE = nil
 	}
 
-	if err := conn.removeWgPeer(); err != nil {
+	if err := conn.endpointUpdater.removeWgPeer(); err != nil {
 		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 	}
 
@@ -377,12 +384,11 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	}
 
 	conn.Log.Infof("configure WireGuard endpoint to: %s", ep.String())
-	if err = conn.configureWGEndpoint(ep, iceConnInfo.RosenpassPubKey); err != nil {
+	if err = conn.endpointUpdater.configureWGEndpoint(ep, iceConnInfo.RosenpassPubKey); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
 	wgConfigWorkaround()
-
 
 	if conn.wgProxyRelay != nil {
 		conn.Log.Debugf("redirect packages from relayed conn to WireGuard")
@@ -417,7 +423,7 @@ func (conn *Conn) onICEStateDisconnected() {
 		conn.dumpState.SwitchToRelay()
 		conn.wgProxyRelay.Work()
 
-		if err := conn.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr(), conn.rosenpassRemoteKey); err != nil {
+		if err := conn.endpointUpdater.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr(), conn.rosenpassRemoteKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
 
@@ -486,7 +492,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 
 	wgProxy.Work()
-	if err := conn.configureWGEndpoint(wgProxy.EndpointAddr(), rci.rosenpassPubKey); err != nil {
+	if err := conn.endpointUpdater.configureWGEndpoint(wgProxy.EndpointAddr(), rci.rosenpassPubKey); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
@@ -552,17 +558,6 @@ func (conn *Conn) onGuardEvent() {
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
 	}
-}
-
-func (conn *Conn) configureWGEndpoint(addr *net.UDPAddr, remoteRPKey []byte) error {
-	presharedKey := conn.presharedKey(remoteRPKey)
-	return conn.config.WgConfig.WgInterface.UpdatePeer(
-		conn.config.WgConfig.RemoteKey,
-		conn.config.WgConfig.AllowedIps,
-		defaultWgKeepAlive,
-		addr,
-		presharedKey,
-	)
 }
 
 func (conn *Conn) updateRelayStatus(relayServerAddr string, rosenpassPubKey []byte) {
@@ -707,10 +702,6 @@ func (conn *Conn) isICEActive() bool {
 	return (conn.currentConnPriority == conntype.ICEP2P || conn.currentConnPriority == conntype.ICETurn) && conn.statusICE.Get() == worker.StatusConnected
 }
 
-func (conn *Conn) removeWgPeer() error {
-	return conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
-}
-
 func (conn *Conn) handleConfigurationFailure(err error, wgProxy wgproxy.Proxy) {
 	conn.Log.Warnf("Failed to update wg peer configuration: %v", err)
 	if wgProxy != nil {
@@ -789,6 +780,10 @@ func (conn *Conn) rosenpassDetermKey() (*wgtypes.Key, error) {
 
 func isController(config ConnConfig) bool {
 	return config.LocalKey > config.Key
+}
+
+func isWireGuardInitiator(config ConnConfig) bool {
+	return isController(config)
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
