@@ -77,7 +77,6 @@ func (m *mocConn) SetWriteDeadline(t time.Time) error {
 
 func TestProxyCloseByRemoteConn(t *testing.T) {
 	ctx := context.Background()
-
 	tests := []struct {
 		name  string
 		proxy Proxy
