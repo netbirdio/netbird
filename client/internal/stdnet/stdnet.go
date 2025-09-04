@@ -40,7 +40,7 @@ func NewNetWithDiscover(iFaceDiscover ExternalIFaceDiscover, disallowList []stri
 	if netstack.IsEnabled() {
 		n.iFaceDiscover = pionDiscover{}
 	} else {
-		newMobileIFaceDiscover(iFaceDiscover)
+		n.iFaceDiscover = newMobileIFaceDiscover(iFaceDiscover)
 	}
 	return n, n.UpdateInterfaces()
 }
