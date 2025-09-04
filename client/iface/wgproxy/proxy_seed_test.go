@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	bindproxy "github.com/netbirdio/netbird/client/iface/wgproxy/bind"
 )
 
