@@ -10,6 +10,9 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+func UpdateStaticInfoAsync() {
+}
+
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 

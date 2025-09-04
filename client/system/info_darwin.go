@@ -19,6 +19,10 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+func UpdateStaticInfoAsync() {
+	go updateStaticInfo()
+}
+
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 	utsname := unix.Utsname{}
@@ -41,7 +45,7 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	start := time.Now()
-	si := updateStaticInfo()
+	si := GetStaticInfo()
 	if time.Since(start) > 1*time.Second {
 		log.Warnf("updateStaticInfo took %s", time.Since(start))
 	}
