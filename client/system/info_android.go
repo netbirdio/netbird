@@ -17,6 +17,7 @@ import (
 
 // UpdateStaticInfoAsync is a no-op on Android as there is no static info to update
 func UpdateStaticInfoAsync() {
+	// do nothing
 }
 
 // GetInfo retrieves and parses the system information
