@@ -31,7 +31,7 @@ type Win32_BIOS struct {
 	SerialNumber string
 }
 
-func getStaticInfo() StaticInfo {
+func newStaticInfo() StaticInfo {
 	si := StaticInfo{}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -11,7 +11,7 @@ import (
 	"github.com/netbirdio/netbird/client/system/detect_platform"
 )
 
-func getStaticInfo() StaticInfo {
+func newStaticInfo() StaticInfo {
 	si := StaticInfo{}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -26,11 +26,11 @@ type StaticInfo struct {
 
 func updateStaticInfo() {
 	once.Do(func() {
-		staticInfo = getStaticInfo()
+		staticInfo = newStaticInfo()
 	})
 }
 
-func GetStaticInfo() StaticInfo {
+func getStaticInfo() StaticInfo {
 	updateStaticInfo()
 	return staticInfo
 }

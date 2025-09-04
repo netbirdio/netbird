@@ -18,7 +18,7 @@ func UpdateStaticInfoAsync() {
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 	start := time.Now()
-	si := GetStaticInfo()
+	si := getStaticInfo()
 	if time.Since(start) > 1*time.Second {
 		log.Warnf("updateStaticInfo took %s", time.Since(start))
 	}
