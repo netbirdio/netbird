@@ -44,6 +44,8 @@ type GrpcClient struct {
 	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
+
+	srvKey *wgtypes.Key
 }
 
 // NewClient creates a new client to Management service
@@ -270,6 +272,10 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 		return nil, errors.New(errMsgNoMgmtConnection)
 	}
 
+	if c.srvKey != nil {
+		return c.srvKey, nil
+	}
+
 	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
@@ -282,6 +288,7 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.srvKey = &serverKey
 
 	return &serverKey, nil
 }
