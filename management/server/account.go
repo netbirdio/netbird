@@ -1714,7 +1714,9 @@ func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, account
 			log.WithContext(ctx).Errorf("failed to get invalidated peer %s for account %s: %v", peerID, accountID, err)
 			continue
 		}
-		peers = append(peers, peer)
+		if peer.UserID != "" {
+			peers = append(peers, peer)
+		}
 	}
 	if len(peers) > 0 {
 		err := am.expireAndUpdatePeers(ctx, accountID, peers)
