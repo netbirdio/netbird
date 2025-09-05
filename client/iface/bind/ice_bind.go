@@ -3,6 +3,7 @@
 package bind
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -21,11 +22,6 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-type RecvMessage struct {
-	Endpoint *Endpoint
-	Buffer   []byte
-}
-
 type receiverCreator struct {
 	iceBind *ICEBind
 }
@@ -43,37 +39,38 @@ func (rc receiverCreator) CreateIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UD
 // use the port because in the Send function the wgConn.Endpoint the port info is not exported.
 type ICEBind struct {
 	*wgConn.StdNetBind
-	RecvChan chan RecvMessage
 
 	transportNet transport.Net
 	filterFn     FilterFn
-	endpoints    map[netip.Addr]net.Conn
-	endpointsMu  sync.Mutex
+	address      wgaddr.Address
+	mtu          uint16
+
+	endpoints   map[netip.Addr]net.Conn
+	endpointsMu sync.Mutex
+	recvChan    chan recvMessage
 	// every time when Close() is called (i.e. BindUpdate()) we need to close exit from the receiveRelayed and create a
 	// new closed channel. With the closedChanMu we can safely close the channel and create a new one
-	closedChan   chan struct{}
-	closedChanMu sync.RWMutex // protect the closeChan recreation from reading from it.
-	closed       bool
-
-	muUDPMux         sync.Mutex
-	udpMux           *UniversalUDPMuxDefault
-	address          wgaddr.Address
-	mtu              uint16
+	closedChan       chan struct{}
+	closedChanMu     sync.RWMutex // protect the closeChan recreation from reading from it.
+	closed           bool
 	activityRecorder *ActivityRecorder
+
+	muUDPMux sync.Mutex
+	udpMux   *UniversalUDPMuxDefault
 }
 
 func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Address, mtu uint16) *ICEBind {
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:       b,
-		RecvChan:         make(chan RecvMessage, 1),
 		transportNet:     transportNet,
 		filterFn:         filterFn,
+		address:          address,
+		mtu:              mtu,
 		endpoints:        make(map[netip.Addr]net.Conn),
+		recvChan:         make(chan recvMessage, 1),
 		closedChan:       make(chan struct{}),
 		closed:           true,
-		mtu:              mtu,
-		address:          address,
 		activityRecorder: NewActivityRecorder(),
 	}
 
@@ -82,10 +79,6 @@ func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Ad
 	}
 	ib.StdNetBind = wgConn.NewStdNetBindWithReceiverCreator(rc)
 	return ib
-}
-
-func (s *ICEBind) MTU() uint16 {
-	return s.mtu
 }
 
 func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
@@ -138,6 +131,16 @@ func (b *ICEBind) RemoveEndpoint(fakeIP netip.Addr) {
 	defer b.endpointsMu.Unlock()
 
 	delete(b.endpoints, fakeIP)
+}
+
+func (b *ICEBind) ReceiveFromEndpoint(ctx context.Context, ep *Endpoint, buf []byte) {
+	select {
+	case <-b.closedChan:
+		return
+	case <-ctx.Done():
+		return
+	case b.recvChan <- recvMessage{ep, buf}:
+	}
 }
 
 func (b *ICEBind) Send(bufs [][]byte, ep wgConn.Endpoint) error {
@@ -272,7 +275,7 @@ func (c *ICEBind) receiveRelayed(buffs [][]byte, sizes []int, eps []wgConn.Endpo
 	select {
 	case <-c.closedChan:
 		return 0, net.ErrClosed
-	case msg, ok := <-c.RecvChan:
+	case msg, ok := <-c.recvChan:
 		if !ok {
 			return 0, net.ErrClosed
 		}

@@ -15,12 +15,12 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 		return nil, err
 	}
 
-	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, opts.MTU)
+	relayBind := bind.NewRelayBindJS()
 
 	wgIface := &WGIface{
-		tun:            device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr()),
+		tun:            device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, relayBind, netstack.ListenAddr()),
 		userspaceBind:  true,
-		wgProxyFactory: wgproxy.NewUSPFactory(iceBind),
+		wgProxyFactory: wgproxy.NewUSPFactory(relayBind, opts.MTU),
 	}
 
 	return wgIface, nil

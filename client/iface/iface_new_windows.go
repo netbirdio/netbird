@@ -26,7 +26,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 	wgIFace := &WGIface{
 		userspaceBind:  true,
 		tun:            tun,
-		wgProxyFactory: wgproxy.NewUSPFactory(iceBind),
+		wgProxyFactory: wgproxy.NewUSPFactory(iceBind, opts.MTU),
 	}
 	return wgIFace, nil
 
