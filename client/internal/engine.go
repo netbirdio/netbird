@@ -199,6 +199,8 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
+
+	daemonAddress string
 }
 
 // Peer is an instance of the Connection Peer
@@ -222,6 +224,7 @@ func NewEngine(
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
 	checks []*mgmProto.Checks,
+	daemonAddress string,
 ) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
@@ -241,6 +244,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
+		daemonAddress:  daemonAddress,
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -892,9 +896,9 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	return nil
 }
 
-func (e *Engine) getPeerClient(addr string) (*grpc.ClientConn, error) {
+func (e *Engine) getPeerClient() (*grpc.ClientConn, error) {
 	conn, err := grpc.NewClient(
-		strings.TrimPrefix(addr, "tcp://"),
+		strings.TrimPrefix(e.daemonAddress, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
@@ -946,8 +950,7 @@ func (e *Engine) receiveJobEvents() {
 }
 
 func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (string, error) {
-	// todo: implement with real daemon address
-	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
+	conn, err := e.getPeerClient()
 	if err != nil {
 		return "", err
 	}
@@ -982,7 +985,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (string, error)
 
 func (e *Engine) getStatusOutput(anon bool) (string, error) {
 	// todo: implement with real daemon address
-	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
+	conn, err := e.getPeerClient()
 	if err != nil {
 		return "", err
 	}

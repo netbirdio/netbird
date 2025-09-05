@@ -45,18 +45,20 @@ type ConnectClient struct {
 	engineMutex    sync.Mutex
 
 	persistSyncResponse bool
+	daemonAddress       string
 }
 
 func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
-
+	daemonAddress string,
 ) *ConnectClient {
 	return &ConnectClient{
 		ctx:            ctx,
 		config:         config,
 		statusRecorder: statusRecorder,
+		daemonAddress:  daemonAddress,
 		engineMutex:    sync.Mutex{},
 	}
 }
@@ -270,7 +272,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
+		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, c.daemonAddress)
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 

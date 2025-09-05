@@ -138,7 +138,7 @@ func startClientDaemon(
 	s := grpc.NewServer()
 
 	server := client.New(ctx,
-		"", "", false, false)
+		"", "", false, false, "")
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}
