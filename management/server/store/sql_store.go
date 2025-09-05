@@ -2849,8 +2849,11 @@ func (s *SqlStore) UpdateAccountNetwork(ctx context.Context, accountID string, i
 }
 
 func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, groupIDs []string) ([]*nbpeer.Peer, error) {
-	var peers []*nbpeer.Peer
+	if len(groupIDs) == 0 {
+		return []*nbpeer.Peer{}, nil
+	}
 
+	var peers []*nbpeer.Peer
 	peerIDsSubquery := s.db.Model(&types.GroupPeer{}).
 		Select("DISTINCT peer_id").
 		Where("account_id = ? AND group_id IN ?", accountID, groupIDs)
