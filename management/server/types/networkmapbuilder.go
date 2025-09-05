@@ -35,6 +35,9 @@ type NetworkMapCache struct {
 	peerRoutes map[string]*PeerRoutesView
 	peerDNS    map[string]*nbdns.Config
 
+	resourceRouters  map[string]map[string]*routerTypes.NetworkRouter
+	resourcePolicies map[string][]*Policy
+
 	mu sync.RWMutex
 }
 
@@ -87,6 +90,11 @@ func (b *NetworkMapBuilder) initialBuild(account *Account) {
 	start := time.Now()
 
 	b.buildGlobalIndexes(account)
+
+	resourceRouters := account.GetResourceRoutersMap()
+	resourcePolicies := account.GetResourcePoliciesMap()
+	b.cache.resourceRouters = resourceRouters
+	b.cache.resourcePolicies = resourcePolicies
 
 	for peerID := range account.Peers {
 		b.buildPeerACLView(account, peerID)
@@ -151,11 +159,10 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 	if peer == nil {
 		return
 	}
-
+	resourcePolicies := b.cache.resourcePolicies
+	resourceRouters := b.cache.resourceRouters
 	allPotentialPeers, firewallRules := account.GetPeerConnectionResources(ctx, peer, b.validatedPeers)
 
-	resourceRouters := account.GetResourceRoutersMap()
-	resourcePolicies := account.GetResourcePoliciesMap()
 	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, resourceRouters)
 
 	var emptyExpiredPeers []*nbpeer.Peer
@@ -192,6 +199,8 @@ func (b *NetworkMapBuilder) buildPeerRoutesView(account *Account, peerID string)
 	if peer == nil {
 		return
 	}
+	resourcePolicies := b.cache.resourcePolicies
+	resourceRouters := b.cache.resourceRouters
 
 	view := &PeerRoutesView{
 		OwnRouteIDs:          make([]route.ID, 0),
@@ -239,8 +248,6 @@ func (b *NetworkMapBuilder) buildPeerRoutesView(account *Account, peerID string)
 		}
 	}
 
-	resourceRouters := account.GetResourceRoutersMap()
-	resourcePolicies := account.GetResourcePoliciesMap()
 	_, networkResourcesRoutes, _ := account.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, resourceRouters)
 
 	for _, rt := range networkResourcesRoutes {
@@ -289,8 +296,6 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 	peerID string,
 	peersCustomZone nbdns.CustomZone,
 	validatedPeers map[string]struct{},
-	resourcePolicies map[string][]*Policy,
-	routers map[string]map[string]*routerTypes.NetworkRouter,
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
@@ -710,13 +715,12 @@ func (b *NetworkMapBuilder) calculateNetworkResourceFirewallUpdates(
 	peerGroups []string,
 	updates map[string]*PeerUpdateDelta,
 ) {
-	resourcePolicies := account.GetResourcePoliciesMap()
-	routers := account.GetResourceRoutersMap()
-
 	for _, resource := range account.NetworkResources {
 		if !resource.Enabled {
 			continue
 		}
+		resourcePolicies := b.cache.resourcePolicies
+		resourceRouters := b.cache.resourceRouters
 
 		policies := resourcePolicies[resource.ID]
 		peerHasAccess := false
@@ -745,7 +749,7 @@ func (b *NetworkMapBuilder) calculateNetworkResourceFirewallUpdates(
 			continue
 		}
 
-		networkRouters := routers[resource.NetworkID]
+		networkRouters := resourceRouters[resource.NetworkID]
 		for routerPeerID, router := range networkRouters {
 			if !router.Enabled || routerPeerID == newPeerID {
 				continue

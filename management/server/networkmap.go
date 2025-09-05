@@ -26,7 +26,7 @@ func (am *DefaultAccountManager) getPeerNetworkMapExp(
 	metrics *telemetry.AccountManagerMetrics,
 ) *types.NetworkMap {
 	am.enrichAccountFromHolder(account)
-	return account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), metrics)
+	return account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
 }
 
 func (am *DefaultAccountManager) onPeerAddedUpdNetworkMapCache(account *types.Account, peerId string) error {

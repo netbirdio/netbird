@@ -984,5 +984,5 @@ func (am *MockAccountManager) RecalculateNetworkMapCache(ctx context.Context, ac
 	if am.RecalculateNetworkMapCacheFunc != nil {
 		return am.RecalculateNetworkMapCacheFunc(ctx, accountID)
 	}
-	return status.Errorf(codes.Unimplemented, "method RecalculateNetworkMapCache is not implemented")
+	return nil
 }
