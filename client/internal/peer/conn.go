@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -455,14 +455,6 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 		return
 	}
 
-	// Check if we already have a relay proxy configured
-	if conn.wgProxyRelay != nil {
-		conn.Log.Debugf("Relay proxy already configured, skipping duplicate setup")
-		// Update status to ensure it's connected
-		conn.statusRelay.SetConnected()
-		return
-	}
-
 	conn.dumpState.RelayConnected()
 	conn.Log.Debugf("Relay connection has been established, setup the WireGuard")
 
@@ -480,42 +472,19 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	if conn.isICEActive() {
 		conn.Log.Debugf("do not switch to relay because current priority is: %s", conn.currentConnPriority.String())
 		conn.setRelayedProxy(wgProxy)
-		// For WASM, we still need to start the proxy and configure WireGuard
-		// because ICE doesn't actually work in browsers and we rely on relay
-		conn.Log.Infof("WASM check: runtime.GOOS=%s, should start proxy=%v", runtime.GOOS, runtime.GOOS == "js")
-		if runtime.GOOS == "js" {
-			conn.Log.Infof("WASM: starting relay proxy and configuring WireGuard despite ICE being 'active'")
-			wgProxy.Work()
-
-			// Configure WireGuard to use the relay proxy endpoint
-			endpointAddr := wgProxy.EndpointAddr()
-			conn.Log.Infof("WASM: Configuring WireGuard endpoint to proxy address: %v", endpointAddr)
-			if err := conn.configureWGEndpoint(endpointAddr, rci.rosenpassPubKey); err != nil {
-				conn.Log.Errorf("WASM: Failed to update WireGuard peer configuration: %v", err)
-			} else {
-				conn.Log.Infof("WASM: Successfully configured WireGuard endpoint to use proxy at %v", endpointAddr)
-			}
-
-			// Update connection priority to relay for WASM
-			conn.currentConnPriority = conntype.Relay
-			conn.rosenpassRemoteKey = rci.rosenpassPubKey
-		}
 		conn.statusRelay.SetConnected()
 		conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey)
 		return
 	}
 
 	wgProxy.Work()
-	endpointAddr := wgProxy.EndpointAddr()
-	conn.Log.Infof("Configuring WireGuard endpoint to proxy address: %v", endpointAddr)
-	if err := conn.configureWGEndpoint(endpointAddr, rci.rosenpassPubKey); err != nil {
+	if err := conn.configureWGEndpoint(wgProxy.EndpointAddr(), rci.rosenpassPubKey); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
 		conn.Log.Errorf("Failed to update WireGuard peer configuration: %v", err)
 		return
 	}
-	conn.Log.Infof("Successfully configured WireGuard endpoint to use proxy at %v", endpointAddr)
 
 	conn.wgWatcherWg.Add(1)
 	go func() {
@@ -693,21 +662,6 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 			conn.logTraceConnState()
 		}
 	}()
-
-	// In WASM with forced relay, ICE is not used, so skip ICE check
-	if runtime.GOOS == "js" && os.Getenv("NB_FORCE_RELAY") == "true" {
-		// Only check relay connection status
-		if conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
-			relayConnected := conn.statusRelay.Get() != worker.StatusDisconnected
-			if !relayConnected {
-				conn.Log.Tracef("WASM: relay not connected for connectivity check")
-			}
-			return relayConnected
-		}
-		// If relay is not supported, consider it connected to avoid reconnect loop
-		conn.Log.Tracef("WASM: relay not supported, returning true to avoid reconnect")
-		return true
-	}
 
 	if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
 		return false

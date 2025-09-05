@@ -368,10 +368,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		if err = transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
-			return fmt.Errorf("failed to remove peer from groups: %w", err)
-		}
-
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer})
 		if err != nil {
 			return fmt.Errorf("failed to delete peer: %w", err)
@@ -492,6 +488,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 		if err != nil {
 			return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: user not found")
+		}
+		if user.PendingApproval {
+			return nil, nil, nil, status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
 		}
 		groupsToAdd = user.AutoGroups
 		opEvent.InitiatorID = userID

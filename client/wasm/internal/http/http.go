@@ -1,9 +1,11 @@
+//go:build js
+
 package http
 
 import (
 	"fmt"
 	"io"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"net/http"
 	"strings"
 	"syscall/js"
@@ -37,7 +39,7 @@ func performRequest(nbClient *netbird.Client, method, url string, headers map[st
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			log.Printf("failed to close response body: %v", err)
+			log.Errorf("failed to close response body: %v", err)
 		}
 	}()
 
