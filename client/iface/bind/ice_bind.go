@@ -22,11 +22,6 @@ import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-type recvMessage struct {
-	Endpoint *Endpoint
-	Buffer   []byte
-}
-
 type receiverCreator struct {
 	iceBind *ICEBind
 }

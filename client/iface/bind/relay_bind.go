@@ -1,10 +1,7 @@
-//go:build js
-
 package bind
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -13,11 +10,8 @@ import (
 	"golang.zx2c4.com/wireguard/conn"
 )
 
-type recvMessage struct {
-	Endpoint *Endpoint
-	Buffer   []byte
-}
-
+// RelayBindJS is a conn.Bind implementation for WebAssembly environments.
+// Do not limit to build only js, because we want to be able to run tests
 type RelayBindJS struct {
 	*conn.StdNetBind
 
@@ -64,7 +58,7 @@ func (s *RelayBindJS) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 
 func (s *RelayBindJS) Close() error {
 	if s.cancel == nil {
-		return fmt.Errorf("RelayBindJS not opened")
+		return nil
 	}
 	log.Debugf("close RelayBindJS")
 	s.cancel()
