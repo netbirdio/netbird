@@ -858,12 +858,10 @@ func (a *Account) GetPeerNetworkMapExp(
 	peerID string,
 	peersCustomZone nbdns.CustomZone,
 	validatedPeers map[string]struct{},
-	resourcePolicies map[string][]*Policy,
-	routers map[string]map[string]*routerTypes.NetworkRouter,
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	a.initNetworkMapBuilder(validatedPeers)
-	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, resourcePolicies, routers, metrics)
+	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
 }
 
 func (a *Account) OnPeerAddedUpdNetworkMapCache(peerId string) error {
