@@ -157,6 +157,9 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
+	if err := m.accountManager.RecalculateNetworkMapCache(ctx, resource.AccountID); err != nil {
+		return nil, err
+	}
 	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
 
 	return resource, nil
@@ -257,6 +260,9 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
+	if err := m.accountManager.RecalculateNetworkMapCache(ctx, resource.AccountID); err != nil {
+		return nil, err
+	}
 	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
 
 	return resource, nil
@@ -331,6 +337,9 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
+	if err := m.accountManager.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+		return err
+	}
 	go m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return nil

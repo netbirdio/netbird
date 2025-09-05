@@ -866,17 +866,27 @@ func (a *Account) GetPeerNetworkMapExp(
 	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, resourcePolicies, routers, metrics)
 }
 
-func (a *Account) OnPeerAddedUpdNetworkMapCache(peerId string, validatedPeers map[string]struct{}) error {
-	a.initNetworkMapBuilder(validatedPeers)
+func (a *Account) OnPeerAddedUpdNetworkMapCache(peerId string) error {
+	if a.NetworkMapCache == nil {
+		return nil
+	}
 	return a.NetworkMapCache.OnPeerAddedIncremental(peerId)
 }
 
-func (a *Account) OnPeerDeletedUpdNetworkMapCache(peerId string, validatedPeers map[string]struct{}) error {
-	a.initNetworkMapBuilder(validatedPeers)
+func (a *Account) OnPeerDeletedUpdNetworkMapCache(peerId string) error {
+	if a.NetworkMapCache == nil {
+		return nil
+	}
 	return a.NetworkMapCache.OnPeerDeleted(peerId)
 }
 
 func (a *Account) UpdatePeerInNetworkMapCache(peer *nbpeer.Peer) {
-	a.initNetworkMapBuilder(nil)
+	if a.NetworkMapCache == nil {
+		return
+	}
 	a.NetworkMapCache.UpdatePeer(peer)
+}
+
+func (a *Account) RecalculateNetworkMapCache(validatedPeers map[string]struct{}) {
+	a.initNetworkMapBuilder(validatedPeers)
 }

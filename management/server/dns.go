@@ -128,6 +128,9 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	}
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 

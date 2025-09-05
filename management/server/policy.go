@@ -77,6 +77,9 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return nil, err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -120,6 +123,9 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
