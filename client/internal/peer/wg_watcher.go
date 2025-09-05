@@ -30,9 +30,10 @@ type WGWatcher struct {
 	peerKey       string
 	stateDump     *stateDump
 
-	ctx       context.Context
-	ctxCancel context.CancelFunc
-	ctxLock   sync.Mutex
+	ctx         context.Context
+	ctxCancel   context.CancelFunc
+	ctxLock     sync.Mutex
+	enabledTime time.Time
 }
 
 func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
@@ -48,6 +49,7 @@ func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey strin
 func (w *WGWatcher) EnableWgWatcher(parentCtx context.Context, onDisconnectedFn func()) {
 	w.log.Debugf("enable WireGuard watcher")
 	w.ctxLock.Lock()
+	w.enabledTime = time.Now()
 
 	if w.ctx != nil && w.ctx.Err() == nil {
 		w.log.Errorf("WireGuard watcher already enabled")
@@ -102,7 +104,8 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 				return
 			}
 			if lastHandshake.IsZero() {
-				w.log.Infof("first wg handshake detected at: %s", handshake)
+				elapsed := handshake.Sub(w.enabledTime).Seconds()
+				w.log.Infof("first wg handshake detected within: %.2fsec, (%s)", elapsed, handshake)
 			}
 
 			lastHandshake = *handshake
