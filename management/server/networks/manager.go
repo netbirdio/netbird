@@ -177,6 +177,9 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		event()
 	}
 
+	if err := m.accountManager.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+		return err
+	}
 	go m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return nil

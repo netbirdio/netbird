@@ -11,6 +11,13 @@ func (am *DefaultAccountManager) enrichAccountFromHolder(account *types.Account)
 		return
 	}
 	account.NetworkMapCache = a.NetworkMapCache
+	if account.NetworkMapCache == nil {
+		return
+	}
 	account.NetworkMapCache.UpdateAccountPointer(account)
+	am.holder.AddAccount(account)
+}
+
+func (am *DefaultAccountManager) updateAccountInHolder(account *types.Account) {
 	am.holder.AddAccount(account)
 }

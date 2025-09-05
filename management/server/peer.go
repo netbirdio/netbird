@@ -145,6 +145,13 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	}
 
 	if expired {
+		if am.expNewNetworkMap {
+			account, err := am.Store.GetAccountByPeerID(ctx, peer.ID)
+			if err != nil {
+				return err
+			}
+			am.updatePeerInNetworkMapCache(account, peer)
+		}
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
 		am.BufferUpdateAccountPeers(ctx, accountID)
@@ -321,6 +328,14 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 	}
 
+	if am.expNewNetworkMap {
+		account, err := am.Store.GetAccount(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+		am.updatePeerInNetworkMapCache(account, peer)
+	}
+
 	if peerLabelChanged || requiresPeerUpdates {
 		am.UpdateAccountPeers(ctx, accountID)
 	} else if sshChanged {
@@ -387,11 +402,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
-		if err != nil {
-			return err
-		}
-		if err := am.onPeerDeletedUpdNetworkMapCache(account, peerID, validatedPeers); err != nil {
+		if err := am.onPeerDeletedUpdNetworkMapCache(account, peerID); err != nil {
 			log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", peerID, err)
 		}
 
@@ -718,11 +729,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			return nil, nil, nil, err
 		}
 
-		validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if err := am.onPeerAddedUpdNetworkMapCache(account, newPeer.ID, validatedPeers); err != nil {
+		if err := am.onPeerAddedUpdNetworkMapCache(account, newPeer.ID); err != nil {
 			log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
 		}
 	}
@@ -813,11 +820,13 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
-		account, err := am.Store.GetAccountByPeerID(ctx, peer.ID)
-		if err != nil {
-			return nil, nil, nil, err
+		if am.expNewNetworkMap {
+			account, err := am.Store.GetAccountByPeerID(ctx, peer.ID)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			am.updatePeerInNetworkMapCache(account, peer)
 		}
-		am.updatePeerInNetworkMapCache(account, peer)
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -943,6 +952,13 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
+		if am.expNewNetworkMap {
+			account, err := am.Store.GetAccountByPeerID(ctx, peer.ID)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			am.updatePeerInNetworkMapCache(account, peer)
+		}
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
