@@ -3607,3 +3607,97 @@ func intToIPv4(n uint32) net.IP {
 	binary.BigEndian.PutUint32(ip, n)
 	return ip
 }
+
+func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_policy_migrate.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	ctx := context.Background()
+
+	group1ID := "test-group-1"
+	group2ID := "test-group-2"
+	emptyGroupID := "empty-group"
+
+	require.NoError(t, store.AddPeerToGroup(ctx, accountID, "cfefqs706sqkneg59g4g", group1ID))
+	require.NoError(t, store.AddPeerToGroup(ctx, accountID, "cfeg6sf06sqkneg59g50", group1ID))
+	require.NoError(t, store.AddPeerToGroup(ctx, accountID, "cfefqs706sqkneg59g4g", group2ID))
+
+	tests := []struct {
+		name          string
+		groupIDs      []string
+		expectedPeers []string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve peers from single group with multiple peers",
+			groupIDs:      []string{group1ID},
+			expectedPeers: []string{"cfefqs706sqkneg59g4g", "cfeg6sf06sqkneg59g50"},
+			expectedCount: 2,
+		},
+		{
+			name:          "retrieve peers from single group with one peer",
+			groupIDs:      []string{group2ID},
+			expectedPeers: []string{"cfefqs706sqkneg59g4g"},
+			expectedCount: 1,
+		},
+		{
+			name:          "retrieve peers from multiple groups (with overlap)",
+			groupIDs:      []string{group1ID, group2ID},
+			expectedPeers: []string{"cfefqs706sqkneg59g4g", "cfeg6sf06sqkneg59g50"}, // should deduplicate
+			expectedCount: 2,
+		},
+		{
+			name:          "retrieve peers from existing 'All' group",
+			groupIDs:      []string{"cfefqs706sqkneg59g3g"}, // All group from test data
+			expectedPeers: []string{"cfefqs706sqkneg59g4g", "cfeg6sf06sqkneg59g50"},
+			expectedCount: 2,
+		},
+		{
+			name:          "retrieve peers from empty group",
+			groupIDs:      []string{emptyGroupID},
+			expectedPeers: []string{},
+			expectedCount: 0,
+		},
+		{
+			name:          "retrieve peers from non-existing group",
+			groupIDs:      []string{"non-existing-group"},
+			expectedPeers: []string{},
+			expectedCount: 0,
+		},
+		{
+			name:          "empty group IDs list",
+			groupIDs:      []string{},
+			expectedPeers: []string{},
+			expectedCount: 0,
+		},
+		{
+			name:          "mix of existing and non-existing groups",
+			groupIDs:      []string{group1ID, "non-existing-group"},
+			expectedPeers: []string{"cfefqs706sqkneg59g4g", "cfeg6sf06sqkneg59g50"},
+			expectedCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peers, err := store.GetPeersByGroupIDs(ctx, accountID, tt.groupIDs)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+
+			if tt.expectedCount > 0 {
+				actualPeerIDs := make([]string, len(peers))
+				for i, peer := range peers {
+					actualPeerIDs[i] = peer.ID
+				}
+				assert.ElementsMatch(t, tt.expectedPeers, actualPeerIDs)
+
+				// Verify all returned peers belong to the correct account
+				for _, peer := range peers {
+					assert.Equal(t, accountID, peer.AccountID)
+				}
+			}
+		})
+	}
+}
