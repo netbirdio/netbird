@@ -298,7 +298,7 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
-	if err != nil {
+	if err != nil && err != io.EOF{
 		c.notifyDisconnected(err)
 		s, _ := gstatus.FromError(err)
 		switch s.Code() {
