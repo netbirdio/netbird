@@ -93,8 +93,9 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
 	peersmanager := peers.NewManager(store, permissionsManagerMock)
+	settingsManagerMock := settings.NewMockManager(ctrl)
 
-	iv, _ := integrations.NewIntegratedValidator(context.Background(), peersmanager, eventStore)
+	iv, _ := integrations.NewIntegratedValidator(context.Background(), peersmanager, settingsManagerMock, eventStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
