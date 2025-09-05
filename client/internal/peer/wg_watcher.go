@@ -33,7 +33,6 @@ type WGWatcher struct {
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 	ctxLock   sync.Mutex
-	enabled   time.Time
 }
 
 func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey string, stateDump *stateDump) *WGWatcher {
@@ -49,7 +48,6 @@ func NewWGWatcher(log *log.Entry, wgIfaceStater WGInterfaceStater, peerKey strin
 func (w *WGWatcher) EnableWgWatcher(parentCtx context.Context, onDisconnectedFn func()) {
 	w.log.Debugf("enable WireGuard watcher")
 	w.ctxLock.Lock()
-	w.enabled = time.Now()
 
 	if w.ctx != nil && w.ctx.Err() == nil {
 		w.log.Errorf("WireGuard watcher already enabled")
@@ -89,8 +87,6 @@ func (w *WGWatcher) DisableWgWatcher() {
 func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel context.CancelFunc, onDisconnectedFn func(), initialHandshake time.Time) {
 	w.log.Infof("WireGuard watcher started")
 
-	debugTicker := time.NewTicker(time.Second)
-
 	timer := time.NewTimer(wgHandshakeOvertime)
 	defer timer.Stop()
 	defer ctxCancel()
@@ -99,28 +95,15 @@ func (w *WGWatcher) periodicHandshakeCheck(ctx context.Context, ctxCancel contex
 
 	for {
 		select {
-		case <-debugTicker.C:
-			handshake, err := w.wgState()
-			if err != nil {
-				w.log.Errorf("failed to read wg stats: %v", err)
-				continue
-			}
-			if !handshake.IsZero() {
-				w.log.Infof("first wg handshake detected at: %s, %s", handshake, time.Since(w.enabled))
-				debugTicker.Stop()
-			}
 		case <-timer.C:
 			handshake, ok := w.handshakeCheck(lastHandshake)
 			if !ok {
 				onDisconnectedFn()
 				return
 			}
-			/*
-				// todo: put it back if remove debug ticker
-				if lastHandshake.IsZero() {
-					w.log.Infof("first wg handshake detected at: %s", handshake)
-				}
-			*/
+			if lastHandshake.IsZero() {
+				w.log.Infof("first wg handshake detected at: %s", handshake)
+			}
 
 			lastHandshake = *handshake
 
