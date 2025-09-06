@@ -1557,7 +1557,8 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 
 	permissionsManager := permissions.NewManager(store)
 	peersManager := peers.NewManager(store, permissionsManager)
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, eventStore)
+
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, nil, eventStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)

@@ -86,7 +86,9 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		AnyTimes()
 
 	peersManger := peers.NewManager(store, permissionsManagerMock)
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManger, eventStore)
+	settingsManagerMock := settings.NewMockManager(ctrl)
+
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManger, settingsManagerMock, eventStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
