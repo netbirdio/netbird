@@ -9,11 +9,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/iface"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
-	"github.com/netbirdio/netbird/shared/relay/client/dialer/quic"
-	"github.com/netbirdio/netbird/shared/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -296,14 +293,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
-	// Force WebSocket for MTUs larger than default to avoid QUIC DATAGRAM frame size issues
-	var dialers []dialer.DialeFn
-	if c.mtu > 0 && c.mtu > iface.DefaultMTU {
-		c.log.Infof("MTU %d exceeds default (%d), forcing WebSocket transport to avoid DATAGRAM frame size issues", c.mtu, iface.DefaultMTU)
-		dialers = []dialer.DialeFn{ws.Dialer{}}
-	} else {
-		dialers = []dialer.DialeFn{quic.Dialer{}, ws.Dialer{}}
-	}
+	dialers := c.getDialers()
 
 	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
 	conn, err := rd.Dial()

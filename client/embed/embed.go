@@ -23,23 +23,27 @@ import (
 
 var ErrClientAlreadyStarted = errors.New("client already started")
 var ErrClientNotStarted = errors.New("client not started")
+var ErrConfigNotInitialized = errors.New("config not initialized")
 
-// Client manages a netbird embedded client instance
+// Client manages a netbird embedded client instance.
 type Client struct {
 	deviceName string
 	config     *profilemanager.Config
 	mu         sync.Mutex
 	cancel     context.CancelFunc
 	setupKey   string
+	jwtToken   string
 	connect    *internal.ConnectClient
 }
 
-// Options configures a new Client
+// Options configures a new Client.
 type Options struct {
 	// DeviceName is this peer's name in the network
 	DeviceName string
 	// SetupKey is used for authentication
 	SetupKey string
+	// JWTToken is used for JWT-based authentication
+	JWTToken string
 	// ManagementURL overrides the default management server URL
 	ManagementURL string
 	// PreSharedKey is the pre-shared key for the WireGuard interface
@@ -58,8 +62,15 @@ type Options struct {
 	DisableClientRoutes bool
 }
 
-// New creates a new netbird embedded client
+// New creates a new netbird embedded client.
 func New(opts Options) (*Client, error) {
+	if opts.SetupKey == "" && opts.JWTToken == "" {
+		return nil, fmt.Errorf("either SetupKey or JWTToken must be provided")
+	}
+	if opts.SetupKey != "" && opts.JWTToken != "" {
+		return nil, fmt.Errorf("cannot specify both SetupKey and JWTToken")
+	}
+
 	if opts.LogOutput != nil {
 		logrus.SetOutput(opts.LogOutput)
 	}
@@ -110,6 +121,7 @@ func New(opts Options) (*Client, error) {
 	return &Client{
 		deviceName: opts.DeviceName,
 		setupKey:   opts.SetupKey,
+		jwtToken:   opts.JWTToken,
 		config:     config,
 	}, nil
 }
@@ -126,7 +138,7 @@ func (c *Client) Start(startCtx context.Context) error {
 	ctx := internal.CtxInitState(context.Background())
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, system.DeviceNameCtxKey, c.deviceName)
-	if err := internal.Login(ctx, c.config, c.setupKey, ""); err != nil {
+	if err := internal.Login(ctx, c.config, c.setupKey, c.jwtToken); err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
 
@@ -187,6 +199,16 @@ func (c *Client) Stop(ctx context.Context) error {
 	}
 }
 
+// GetConfig returns a copy of the internal client config.
+func (c *Client) GetConfig() (profilemanager.Config, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.config == nil {
+		return profilemanager.Config{}, ErrConfigNotInitialized
+	}
+	return *c.config, nil
+}
+
 // Dial dials a network address in the netbird network.
 // Not applicable if the userspace networking mode is disabled.
 func (c *Client) Dial(ctx context.Context, network, address string) (net.Conn, error) {
@@ -211,7 +233,7 @@ func (c *Client) Dial(ctx context.Context, network, address string) (net.Conn, e
 	return nsnet.DialContext(ctx, network, address)
 }
 
-// ListenTCP listens on the given address in the netbird network
+// ListenTCP listens on the given address in the netbird network.
 // Not applicable if the userspace networking mode is disabled.
 func (c *Client) ListenTCP(address string) (net.Listener, error) {
 	nsnet, addr, err := c.getNet()
@@ -232,7 +254,7 @@ func (c *Client) ListenTCP(address string) (net.Listener, error) {
 	return nsnet.ListenTCP(tcpAddr)
 }
 
-// ListenUDP listens on the given address in the netbird network
+// ListenUDP listens on the given address in the netbird network.
 // Not applicable if the userspace networking mode is disabled.
 func (c *Client) ListenUDP(address string) (net.PacketConn, error) {
 	nsnet, addr, err := c.getNet()

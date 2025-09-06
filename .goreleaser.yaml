@@ -2,6 +2,18 @@ version: 2
 
 project_name: netbird
 builds:
+  - id: netbird-wasm
+    dir: client/wasm/cmd
+    binary: netbird.wasm
+    env: [GOOS=js, GOARCH=wasm, CGO_ENABLED=0]
+    goos:
+      - js
+    goarch:
+      - wasm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
   - id: netbird
     dir: client
     binary: netbird
@@ -115,6 +127,13 @@ archives:
   - builds:
       - netbird
       - netbird-static
+  - id: netbird-wasm
+    builds:
+      - netbird-wasm
+    name_template: "{{ .ProjectName }}_wasm_{{ .Version }}"
+    format: tar.gz
+    files:
+      - none*
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>
