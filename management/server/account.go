@@ -52,6 +52,8 @@ const (
 	peerSchedulerRetryInterval = 3 * time.Second
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
+
+	envNewNetworkMapBuilder = "NB_EXPERIMENT_NETWORK_MAP"
 )
 
 type userLoggedInOnce bool
@@ -107,6 +109,10 @@ type DefaultAccountManager struct {
 	loginFilter *loginFilter
 
 	disableDefaultPolicy bool
+
+	holder *types.Holder
+
+	expNewNetworkMap bool
 }
 
 func isUniqueConstraintError(err error) bool {
@@ -194,6 +200,12 @@ func BuildManager(
 		log.WithContext(ctx).Debugf("took %v to instantiate account manager", time.Since(start))
 	}()
 
+	newNetworkMapBuilder, err := strconv.ParseBool(os.Getenv(envNewNetworkMapBuilder))
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to parse %s, using default value false: %v", envNewNetworkMapBuilder, err)
+		newNetworkMapBuilder = false
+	}
+
 	am := &DefaultAccountManager{
 		Store:                    store,
 		geo:                      geo,
@@ -215,6 +227,9 @@ func BuildManager(
 		permissionsManager:       permissionsManager,
 		loginFilter:              newLoginFilter(),
 		disableDefaultPolicy:     disableDefaultPolicy,
+		holder:                   types.NewHolder(),
+
+		expNewNetworkMap: newNetworkMapBuilder,
 	}
 
 	am.startWarmup(ctx)
@@ -389,6 +404,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 
 	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return nil, err
+		}
 		go am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -1471,6 +1489,21 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 		}
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
+
+			if am.expNewNetworkMap {
+				account, err := am.Store.GetAccount(ctx, userAuth.AccountId)
+				if err != nil {
+					return err
+				}
+
+				validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+				if err != nil {
+					return err
+				}
+
+				am.recalculateNetworkMapCache(account, validatedPeers)
+			}
+
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
 			am.BufferUpdateAccountPeers(ctx, userAuth.AccountId)
 		}
@@ -2123,6 +2156,15 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 	}
 
 	if updateNetworkMap {
+		account, err := am.Store.GetAccountByPeerID(ctx, peerID)
+		if err != nil {
+			return err
+		}
+		peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+		if err != nil {
+			return err
+		}
+		am.updatePeerInNetworkMapCache(account, peer)
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 	return nil
