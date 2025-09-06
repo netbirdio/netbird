@@ -68,14 +68,17 @@ func init() {
 	mgmtCmd.Flags().BoolVar(&idpSignKeyRefreshEnabled, idpSignKeyRefreshEnabledFlagName, false, "Enable cache headers evaluation to determine signing key rotation period. This will refresh the signing key upon expiry.")
 	mgmtCmd.Flags().BoolVar(&userDeleteFromIDPEnabled, "user-delete-from-idp", false, "Allows to delete user from IDP when user is deleted from account")
 	mgmtCmd.Flags().BoolVar(&disableGeoliteUpdate, "disable-geolite-update", true, "disables automatic updates to the Geolite2 geolocation databases")
+	setFlagsFromEnvVars(mgmtCmd)
 	rootCmd.MarkFlagRequired("config") //nolint
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the log will be output to stdout")
+	setFlagsFromEnvVars(rootCmd)
 	rootCmd.AddCommand(mgmtCmd)
 
 	migrationCmd.PersistentFlags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
 	migrationCmd.MarkFlagRequired("datadir") //nolint
+	setFlagsFromEnvVars(migrationCmd)
 
 	migrationCmd.AddCommand(upCmd)
 
