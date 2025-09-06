@@ -78,9 +78,10 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		tokenStore: tokenStore,
 		mtu:        mtu,
 		serverPicker: &ServerPicker{
-			TokenStore: tokenStore,
-			PeerID:     peerID,
-			MTU:        mtu,
+			TokenStore:        tokenStore,
+			PeerID:            peerID,
+			MTU:               mtu,
+			ConnectionTimeout: defaultConnectionTimeout,
 		},
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]*list.List),
