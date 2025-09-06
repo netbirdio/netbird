@@ -2847,3 +2847,22 @@ func (s *SqlStore) UpdateAccountNetwork(ctx context.Context, accountID string, i
 	}
 	return nil
 }
+
+func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, groupIDs []string) ([]*nbpeer.Peer, error) {
+	if len(groupIDs) == 0 {
+		return []*nbpeer.Peer{}, nil
+	}
+
+	var peers []*nbpeer.Peer
+	peerIDsSubquery := s.db.Model(&types.GroupPeer{}).
+		Select("DISTINCT peer_id").
+		Where("account_id = ? AND group_id IN ?", accountID, groupIDs)
+
+	result := s.db.Where("id IN (?)", peerIDsSubquery).Find(&peers)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get peers by group IDs: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers by group IDs")
+	}
+
+	return peers, nil
+}

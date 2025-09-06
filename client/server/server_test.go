@@ -299,8 +299,9 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
 	peersManager := peers.NewManager(store, permissionsManagerMock)
+	settingsManagerMock := settings.NewMockManager(ctrl)
 
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, eventStore)
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, settingsManagerMock, eventStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
