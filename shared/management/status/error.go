@@ -113,6 +113,11 @@ func NewUserBlockedError() error {
 	return Errorf(PermissionDenied, "user is blocked")
 }
 
+// NewUserPendingApprovalError creates a new Error with PermissionDenied type for a blocked user pending approval
+func NewUserPendingApprovalError() error {
+	return Errorf(PermissionDenied, "user is pending approval")
+}
+
 // NewPeerNotRegisteredError creates a new Error with Unauthenticated type unregistered peer
 func NewPeerNotRegisteredError() error {
 	return Errorf(Unauthenticated, "peer is not registered")

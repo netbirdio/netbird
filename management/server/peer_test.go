@@ -2383,3 +2383,186 @@ func TestBufferUpdateAccountPeers(t *testing.T) {
 	assert.Less(t, totalNewRuns, totalOldRuns, "Expected new approach to run less than old approach. New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
 	t.Logf("New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
 }
+
+func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create account
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create user pending approval
+	pendingUser := types.NewRegularUser("pending-user")
+	pendingUser.AccountID = account.Id
+	pendingUser.Blocked = true
+	pendingUser.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser)
+	require.NoError(t, err)
+
+	// Try to add peer with pending approval user
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	peer := &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Name: "test-peer",
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "test-peer",
+			OS:       "linux",
+		},
+	}
+
+	_, _, _, err = manager.AddPeer(context.Background(), "", pendingUser.Id, peer)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "user pending approval cannot add peers")
+}
+
+func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create account
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create regular user (not pending approval)
+	regularUser := types.NewRegularUser("regular-user")
+	regularUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), regularUser)
+	require.NoError(t, err)
+
+	// Try to add peer with regular user
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	peer := &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Name: "test-peer",
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "test-peer",
+			OS:       "linux",
+		},
+	}
+
+	_, _, _, err = manager.AddPeer(context.Background(), "", regularUser.Id, peer)
+	require.NoError(t, err, "Regular user should be able to add peers")
+}
+
+func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create account
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create user pending approval
+	pendingUser := types.NewRegularUser("pending-user")
+	pendingUser.AccountID = account.Id
+	pendingUser.Blocked = true
+	pendingUser.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser)
+	require.NoError(t, err)
+
+	// Create a peer using AddPeer method for the pending user (simulate existing peer)
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	// Set the user to not be pending initially so peer can be added
+	pendingUser.Blocked = false
+	pendingUser.PendingApproval = false
+	err = manager.Store.SaveUser(context.Background(), pendingUser)
+	require.NoError(t, err)
+
+	// Add peer using regular flow
+	newPeer := &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Name: "test-peer",
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname:  "test-peer",
+			OS:        "linux",
+			WtVersion: "0.28.0",
+		},
+	}
+	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", pendingUser.Id, newPeer)
+	require.NoError(t, err)
+
+	// Now set the user back to pending approval after peer was created
+	pendingUser.Blocked = true
+	pendingUser.PendingApproval = true
+	err = manager.Store.SaveUser(context.Background(), pendingUser)
+	require.NoError(t, err)
+
+	// Try to login with pending approval user
+	login := types.PeerLogin{
+		WireGuardPubKey: existingPeer.Key,
+		UserID:          pendingUser.Id,
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "test-peer",
+			OS:       "linux",
+		},
+	}
+
+	_, _, _, err = manager.LoginPeer(context.Background(), login)
+	require.Error(t, err)
+	e, ok := status.FromError(err)
+	require.True(t, ok, "error is not a gRPC status error")
+	assert.Equal(t, status.PermissionDenied, e.Type(), "expected PermissionDenied error code")
+}
+
+func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create account
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create regular user (not pending approval)
+	regularUser := types.NewRegularUser("regular-user")
+	regularUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), regularUser)
+	require.NoError(t, err)
+
+	// Add peer using regular flow for the regular user
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+
+	newPeer := &nbpeer.Peer{
+		Key:  key.PublicKey().String(),
+		Name: "test-peer",
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname:  "test-peer",
+			OS:        "linux",
+			WtVersion: "0.28.0",
+		},
+	}
+	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", regularUser.Id, newPeer)
+	require.NoError(t, err)
+
+	// Try to login with regular user
+	login := types.PeerLogin{
+		WireGuardPubKey: existingPeer.Key,
+		UserID:          regularUser.Id,
+		Meta: nbpeer.PeerSystemMeta{
+			Hostname: "test-peer",
+			OS:       "linux",
+		},
+	}
+
+	_, _, _, err = manager.LoginPeer(context.Background(), login)
+	require.NoError(t, err, "Regular user should be able to login peers")
+}
