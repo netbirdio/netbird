@@ -247,8 +247,8 @@ install_netbird() {
             ${SUDO} rpm-ostree -y install netbird-ui
         fi
         # ensure the service is started after install
-        sudo netbird service install || true
-        sudo netbird service start || true
+         ${SUDO} netbird service install || true
+         ${SUDO} netbird service start || true
     ;;
     pkg)
         # Check if the package is already installed
