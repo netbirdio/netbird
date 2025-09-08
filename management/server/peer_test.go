@@ -2416,7 +2416,7 @@ func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
 		},
 	}
 
-	_, _, _, err = manager.AddPeer(context.Background(), "", pendingUser.Id, peer)
+	_, _, _, err = manager.AddPeer(context.Background(), "", "", pendingUser.Id, peer, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "user pending approval cannot add peers")
 }
@@ -2451,7 +2451,7 @@ func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
 		},
 	}
 
-	_, _, _, err = manager.AddPeer(context.Background(), "", regularUser.Id, peer)
+	_, _, _, err = manager.AddPeer(context.Background(), "", "", regularUser.Id, peer, false)
 	require.NoError(t, err, "Regular user should be able to add peers")
 }
 
@@ -2494,7 +2494,7 @@ func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
 			WtVersion: "0.28.0",
 		},
 	}
-	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", pendingUser.Id, newPeer)
+	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", "", pendingUser.Id, newPeer, false)
 	require.NoError(t, err)
 
 	// Now set the user back to pending approval after peer was created
@@ -2550,7 +2550,7 @@ func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
 			WtVersion: "0.28.0",
 		},
 	}
-	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", regularUser.Id, newPeer)
+	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", "", regularUser.Id, newPeer, false)
 	require.NoError(t, err)
 
 	// Try to login with regular user
