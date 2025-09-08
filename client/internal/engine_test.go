@@ -266,7 +266,7 @@ func TestEngine_SSH(t *testing.T) {
 			},
 		}, nil
 	}
-	err = engine.Start()
+	err = engine.Start(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -612,7 +612,7 @@ func TestEngine_Sync(t *testing.T) {
 		}
 	}()
 
-	err = engine.Start()
+	err = engine.Start(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1069,7 +1069,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			defer mu.Unlock()
 			guid := fmt.Sprintf("{%s}", uuid.New().String())
 			device.CustomWindowsGUIDString = strings.ToLower(guid)
-			err = engine.Start()
+			err = engine.Start(nil, nil)
 			if err != nil {
 				t.Errorf("unable to start engine for peer %d with error %v", j, err)
 				wg.Done()

@@ -914,7 +914,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 
 func (s *SqlStore) GetAnyAccountID(ctx context.Context) (string, error) {
 	var account types.Account
-	result := s.db.WithContext(ctx).Select("id").Order("created_at desc").Limit(1).Find(&account)
+	result := s.db.Select("id").Order("created_at desc").Limit(1).Find(&account)
 	if result.Error != nil {
 		return "", status.NewGetAccountFromStoreError(result.Error)
 	}
@@ -1399,7 +1399,7 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupI
 		PeerID:    peerID,
 	}
 
-	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+	err := s.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "group_id"}, {Name: "peer_id"}},
 		DoNothing: true,
 	}).Create(peer).Error
@@ -1414,7 +1414,7 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupI
 
 // RemovePeerFromGroup removes a peer from a group
 func (s *SqlStore) RemovePeerFromGroup(ctx context.Context, peerID string, groupID string) error {
-	err := s.db.WithContext(ctx).
+	err := s.db.
 		Delete(&types.GroupPeer{}, "group_id = ? AND peer_id = ?", groupID, peerID).Error
 
 	if err != nil {
@@ -2724,7 +2724,7 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 }
 
 func (s *SqlStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error) {
-	tx := s.db.WithContext(ctx)
+	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}

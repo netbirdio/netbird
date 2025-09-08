@@ -106,6 +106,8 @@ type DefaultAccountManager struct {
 	accountUpdateLocks               sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
 
+	loginFilter *loginFilter
+
 	disableDefaultPolicy bool
 }
 
@@ -213,6 +215,7 @@ func BuildManager(
 		proxyController:          proxyController,
 		settingsManager:          settingsManager,
 		permissionsManager:       permissionsManager,
+		loginFilter:              newLoginFilter(),
 		disableDefaultPolicy:     disableDefaultPolicy,
 	}
 
@@ -1139,7 +1142,18 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, userAuth nbcontext.UserAuth) (string, error) {
 	newUser := types.NewRegularUser(userAuth.UserId)
 	newUser.AccountID = domainAccountID
-	err := am.Store.SaveUser(ctx, newUser)
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, domainAccountID)
+	if err != nil {
+		return "", err
+	}
+
+	if settings != nil && settings.Extra != nil && settings.Extra.UserApprovalRequired {
+		newUser.Blocked = true
+		newUser.PendingApproval = true
+	}
+
+	err = am.Store.SaveUser(ctx, newUser)
 	if err != nil {
 		return "", err
 	}
@@ -1149,7 +1163,11 @@ func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, 
 		return "", err
 	}
 
-	am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
+	if newUser.PendingApproval {
+		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, map[string]any{"pending_approval": true})
+	} else {
+		am.StoreEvent(ctx, userAuth.UserId, userAuth.UserId, domainAccountID, activity.UserJoined, nil)
+	}
 
 	return domainAccountID, nil
 }
@@ -1618,6 +1636,10 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth nbcontext.U
 	return domainCategory == types.PrivateCategory || userAuth.DomainCategory != types.PrivateCategory || domain != userAuth.Domain
 }
 
+func (am *DefaultAccountManager) AllowSync(wgPubKey string, metahash uint64) bool {
+	return am.loginFilter.allowLogin(wgPubKey, metahash)
+}
+
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	start := time.Now()
 	defer func() {
@@ -1634,6 +1656,9 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
+	metahash := metaHash(meta, realIP.String())
+	am.loginFilter.addLogin(peerPubKey, metahash)
+
 	return peer, netMap, postureChecks, nil
 }
 
@@ -1642,7 +1667,6 @@ func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, account
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
-
 	return nil
 }
 
@@ -1792,6 +1816,9 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string, dis
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 			RoutingPeerDNSResolutionEnabled: true,
+			Extra: &types.ExtraSettings{
+				UserApprovalRequired: true,
+			},
 		},
 		Onboarding: types.AccountOnboarding{
 			OnboardingFlowPending: true,
@@ -1898,6 +1925,9 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 				PeerInactivityExpirationEnabled: false,
 				PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 				RoutingPeerDNSResolutionEnabled: true,
+				Extra: &types.ExtraSettings{
+					UserApprovalRequired: true,
+				},
 			},
 		}
 

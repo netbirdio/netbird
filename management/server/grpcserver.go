@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +41,11 @@ import (
 	internalStatus "github.com/netbirdio/netbird/shared/management/status"
 )
 
+const (
+	envLogBlockedPeers = "NB_LOG_BLOCKED_PEERS"
+	envBlockPeers      = "NB_BLOCK_SAME_PEERS"
+)
+
 // GRPCServer an instance of a Management gRPC API server
 type GRPCServer struct {
 	accountManager  account.Manager
@@ -52,7 +59,10 @@ type GRPCServer struct {
 	ephemeralManager        ephemeral.EphemeralManager
 	peerLocks               sync.Map
 	authManager             auth.Manager
-	integratedPeerValidator integrated_validator.IntegratedValidator
+
+	logBlockedPeers          bool
+	blockPeersWithSameConfig bool
+	integratedPeerValidator  integrated_validator.IntegratedValidator
 }
 
 // NewServer creates a new Management server
@@ -83,18 +93,23 @@ func NewServer(
 		}
 	}
 
+	logBlockedPeers := strings.ToLower(os.Getenv(envLogBlockedPeers)) == "true"
+	blockPeersWithSameConfig := strings.ToLower(os.Getenv(envBlockPeers)) == "true"
+
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
-		peersUpdateManager:      peersUpdateManager,
-		accountManager:          accountManager,
-		settingsManager:         settingsManager,
-		config:                  config,
-		secretsManager:          secretsManager,
-		authManager:             authManager,
-		appMetrics:              appMetrics,
-		ephemeralManager:        ephemeralManager,
-		integratedPeerValidator: integratedPeerValidator,
+		peersUpdateManager:       peersUpdateManager,
+		accountManager:           accountManager,
+		settingsManager:          settingsManager,
+		config:                   config,
+		secretsManager:           secretsManager,
+		authManager:              authManager,
+		appMetrics:               appMetrics,
+		ephemeralManager:         ephemeralManager,
+		logBlockedPeers:          logBlockedPeers,
+		blockPeersWithSameConfig: blockPeersWithSameConfig,
+		integratedPeerValidator:  integratedPeerValidator,
 	}, nil
 }
 
@@ -137,9 +152,6 @@ func getRealIP(ctx context.Context) net.IP {
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
 	reqStart := time.Now()
-	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountSyncRequest()
-	}
 
 	ctx := srv.Context()
 
@@ -147,6 +159,25 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	peerKey, err := s.parseRequest(ctx, req, syncReq)
 	if err != nil {
 		return err
+	}
+	realIP := getRealIP(ctx)
+	sRealIP := realIP.String()
+	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
+	metahashed := metaHash(peerMeta, sRealIP)
+	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
+		if s.appMetrics != nil {
+			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
+		}
+		if s.logBlockedPeers {
+			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
+		}
+		if s.blockPeersWithSameConfig {
+			return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
+		}
+	}
+
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountSyncRequest()
 	}
 
 	// nolint:staticcheck
@@ -173,14 +204,13 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
-	realIP := getRealIP(ctx)
-	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, realIP.String())
+	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	if syncReq.GetMeta() == nil {
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), extractPeerMeta(ctx, syncReq.GetMeta()), realIP)
+	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
 		return mapError(ctx, err)
@@ -346,6 +376,9 @@ func mapError(ctx context.Context, err error) error {
 		default:
 		}
 	}
+	if errors.Is(err, internalStatus.ErrPeerAlreadyLoggedIn) {
+		return status.Error(codes.PermissionDenied, internalStatus.ErrPeerAlreadyLoggedIn.Error())
+	}
 	log.WithContext(ctx).Errorf("got an unhandled error: %s", err)
 	return status.Errorf(codes.Internal, "failed handling request")
 }
@@ -437,17 +470,32 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	reqStart := time.Now()
-
-	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountLoginRequest()
-	}
 	realIP := getRealIP(ctx)
-	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, realIP.String())
+	sRealIP := realIP.String()
+	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
 	loginReq := &proto.LoginRequest{}
 	peerKey, err := s.parseRequest(ctx, req, loginReq)
 	if err != nil {
 		return nil, err
+	}
+
+	peerMeta := extractPeerMeta(ctx, loginReq.GetMeta())
+	metahashed := metaHash(peerMeta, sRealIP)
+	if !s.accountManager.AllowSync(peerKey.String(), metahashed) {
+		if s.logBlockedPeers {
+			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from login", peerKey.String(), metahashed)
+		}
+		if s.appMetrics != nil {
+			s.appMetrics.GRPCMetrics().CountLoginRequestBlocked()
+		}
+		if s.blockPeersWithSameConfig {
+			return nil, internalStatus.ErrPeerAlreadyLoggedIn
+		}
+	}
+
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountLoginRequest()
 	}
 
 	//nolint
@@ -486,7 +534,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
-		Meta:            extractPeerMeta(ctx, loginReq.GetMeta()),
+		Meta:            peerMeta,
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
 		ConnectionIP:    realIP,
@@ -951,8 +999,6 @@ func (s *GRPCServer) Logout(ctx context.Context, req *proto.EncryptedMessage) (*
 		log.WithContext(ctx).Errorf("failed to logout peer %s: %v", peerKey.String(), err)
 		return nil, mapError(ctx, err)
 	}
-
-	s.accountManager.BufferUpdateAccountPeers(ctx, peer.AccountID)
 
 	log.WithContext(ctx).Debugf("peer %s logged out successfully after %s", peerKey.String(), time.Since(start))
 
