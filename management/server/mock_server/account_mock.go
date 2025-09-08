@@ -976,7 +976,7 @@ func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth n
 }
 
 // SetEphemeralManager mocks SetEphemeralManager of the AccountManager interface
-func (am *MockAccountManager) SetEphemeralManager(em ephemeral.EphemeralManager) {
+func (am *MockAccountManager) SetEphemeralManager(em ephemeral.Manager) {
 	// Mock implementation - does nothing
 }
 

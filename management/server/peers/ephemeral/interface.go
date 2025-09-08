@@ -6,7 +6,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
-type EphemeralManager interface {
+type Manager interface {
 	LoadInitialPeers(ctx context.Context)
 	Stop()
 	OnPeerConnected(ctx context.Context, peer *nbpeer.Peer)

@@ -54,8 +54,8 @@ func (s *BaseServer) AuthManager() auth.Manager {
 	})
 }
 
-func (s *BaseServer) EphemeralManager() ephemeral.EphemeralManager {
-	return Create(s, func() ephemeral.EphemeralManager {
+func (s *BaseServer) EphemeralManager() ephemeral.Manager {
+	return Create(s, func() ephemeral.Manager {
 		return manager.NewEphemeralManager(s.Store(), s.AccountManager())
 	})
 }

@@ -52,13 +52,13 @@ type GRPCServer struct {
 	settingsManager settings.Manager
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	peersUpdateManager      *PeersUpdateManager
-	config                  *nbconfig.Config
-	secretsManager          SecretsManager
-	appMetrics              telemetry.AppMetrics
-	ephemeralManager        ephemeral.EphemeralManager
-	peerLocks               sync.Map
-	authManager             auth.Manager
+	peersUpdateManager *PeersUpdateManager
+	config             *nbconfig.Config
+	secretsManager     SecretsManager
+	appMetrics         telemetry.AppMetrics
+	ephemeralManager   ephemeral.Manager
+	peerLocks          sync.Map
+	authManager        auth.Manager
 
 	logBlockedPeers          bool
 	blockPeersWithSameConfig bool
@@ -74,7 +74,7 @@ func NewServer(
 	peersUpdateManager *PeersUpdateManager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
-	ephemeralManager ephemeral.EphemeralManager,
+	ephemeralManager ephemeral.Manager,
 	authManager auth.Manager,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 ) (*GRPCServer, error) {

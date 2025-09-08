@@ -75,7 +75,7 @@ type DefaultAccountManager struct {
 	ctx                  context.Context
 	eventStore           activity.Store
 	geo                  geolocation.Geolocation
-	ephemeralManager     ephemeral.EphemeralManager
+	ephemeralManager     ephemeral.Manager
 
 	requestBuffer *AccountRequestBuffer
 
@@ -263,7 +263,7 @@ func BuildManager(
 	return am, nil
 }
 
-func (am *DefaultAccountManager) SetEphemeralManager(em ephemeral.EphemeralManager) {
+func (am *DefaultAccountManager) SetEphemeralManager(em ephemeral.Manager) {
 	am.ephemeralManager = em
 }
 
