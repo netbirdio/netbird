@@ -93,7 +93,6 @@ func (s *RelayBindJS) Send(bufs [][]byte, ep conn.Endpoint) error {
 
 	for _, buf := range bufs {
 		if _, err := relayConn.Write(buf); err != nil {
-			log.Errorf("Send: failed to write to relay: %v", err)
 			return err
 		}
 	}
