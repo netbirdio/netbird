@@ -194,6 +194,9 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
+
+	// WireGuard interface monitor
+	wgIfaceMonitor *WGIfaceMonitor
 }
 
 // Peer is an instance of the Connection Peer
@@ -300,6 +303,12 @@ func (e *Engine) Stop() error {
 
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
+	}
+
+	// Stop WireGuard interface monitor and wait for it to exit
+	if e.wgIfaceMonitor != nil {
+		e.wgIfaceMonitor.Stop()
+		e.wgIfaceMonitor = nil
 	}
 
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
@@ -466,7 +475,8 @@ func (e *Engine) Start() error {
 	e.startNetworkMonitor()
 
 	// monitor WireGuard interface lifecycle and restart engine on changes
-	e.startWGIfaceMonitor()
+	e.wgIfaceMonitor = NewWGIfaceMonitor(e.restartEngine)
+	e.wgIfaceMonitor.Start(e.wgInterface.Name())
 	return nil
 }
 
@@ -1704,86 +1714,6 @@ func (e *Engine) startNetworkMonitor() {
 	}()
 }
 
-// startWGIfaceMonitor starts a background watcher that restarts the engine if
-// the WireGuard interface is deleted externally while the engine is running.
-// It relies on the engine context cancellation to stop.
-func (e *Engine) startWGIfaceMonitor() {
-	// Skip on mobile platforms as they handle interface lifecycle differently
-	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
-		log.Debugf("Interface monitor: skipped on %s platform", runtime.GOOS)
-		return
-	}
-
-	// wgInterface should be initialized at this point
-	if e.wgInterface == nil {
-		return
-	}
-
-	name := e.wgInterface.Name()
-	if name == "" {
-		return
-	}
-
-	// Get initial interface index to track the specific interface instance
-	initialIndex, err := getInterfaceIndex(name)
-	if err != nil {
-		log.Debugf("Interface monitor: interface %s not found, skipping monitor", name)
-		return
-	}
-
-	// Polling approach for cross-platform simplicity
-	go func(ctx context.Context, ifaceName string, expectedIndex int) {
-		log.Infof("Interface monitor: watching %s (index: %d)", ifaceName, expectedIndex)
-
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				log.Infof("Interface monitor: stopped for %s", ifaceName)
-				return
-			case <-ticker.C:
-				currentIndex, err := getInterfaceIndex(ifaceName)
-				if err != nil {
-					// Interface was deleted
-					log.Infof("Interface monitor: %s deleted, restarting engine", ifaceName)
-					e.restartEngine()
-					return
-				}
-
-				// Check if interface index changed (interface was recreated)
-				if currentIndex != expectedIndex {
-					log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
-						ifaceName, expectedIndex, currentIndex)
-					e.restartEngine()
-					return
-				}
-			}
-		}
-	}(e.ctx, name, initialIndex)
-}
-
-// getInterfaceIndex returns the index of a network interface by name.
-// Returns an error if the interface is not found.
-func getInterfaceIndex(name string) (int, error) {
-	if name == "" {
-		return 0, fmt.Errorf("empty interface name")
-	}
-	ifi, err := net.InterfaceByName(name)
-	if err != nil {
-		// Check if it's specifically a "not found" error
-		if errors.Is(err, &net.OpError{}) {
-			// On some systems, this might be a "not found" error
-			return 0, fmt.Errorf("interface not found: %w", err)
-		}
-		return 0, fmt.Errorf("failed to lookup interface: %w", err)
-	}
-	if ifi == nil {
-		return 0, fmt.Errorf("interface not found")
-	}
-	return ifi.Index, nil
-}
 
 func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 	var vpnRoutes []netip.Prefix
