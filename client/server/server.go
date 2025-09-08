@@ -78,7 +78,6 @@ type Server struct {
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
 	updateSettingsDisabled bool
-	daemonAddress          string
 }
 
 type oauthAuthFlow struct {
@@ -89,7 +88,7 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool, daemonAddress string) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
 	return &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
@@ -98,7 +97,6 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		profileManager:         profilemanager.NewServiceManager(configFile),
 		profilesDisabled:       profilesDisabled,
 		updateSettingsDisabled: updateSettingsDisabled,
-		daemonAddress:          daemonAddress,
 	}
 }
 
@@ -237,7 +235,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *profilemanage
 
 	runOperation := func() error {
 		log.Tracef("running client connection")
-		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, s.daemonAddress)
+		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
 		s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
 
 		err := s.connectClient.Run(runningChan)

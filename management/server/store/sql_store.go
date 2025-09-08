@@ -34,7 +34,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -137,14 +136,10 @@ func (s *SqlStore) CreatePeerJob(ctx context.Context, job *types.Job) error {
 	return nil
 }
 
-func (s *SqlStore) CompletePeerJob(ctx context.Context, jobResponse *proto.JobResponse) error {
-	var job types.Job
-	if err := job.ApplyResponse(jobResponse); err != nil {
-		return status.Errorf(status.Internal, err.Error())
-	}
+func (s *SqlStore) CompletePeerJob(ctx context.Context, job *types.Job) error {
 	result := s.db.
 		Model(&types.Job{}).
-		Where(idQueryCondition, string(jobResponse.GetID())).
+		Where(idQueryCondition, job.ID).
 		Updates(job)
 
 	if result.Error != nil {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	log "github.com/sirupsen/logrus"
 )
@@ -96,17 +97,23 @@ func (jm *JobManager) HandleResponse(ctx context.Context, resp *proto.JobRespons
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
-	event, ok := jm.pending[string(resp.ID)]
+	jobID := string(resp.ID)
+
+	event, ok := jm.pending[jobID]
 	if !ok {
-		return fmt.Errorf("job %s not found", resp.ID)
+		return fmt.Errorf("job %s not found", jobID)
+	}
+	var job types.Job
+	if err := job.ApplyResponse(resp); err != nil {
+		return fmt.Errorf("invalid job response: %v", err)
 	}
 	//update or create the store for job response
-	err := jm.Store.CompletePeerJob(ctx, resp)
+	err := jm.Store.CompletePeerJob(ctx, &job)
 	if err == nil {
 		event.Response = resp
 	}
 
-	delete(jm.pending, string(resp.ID))
+	delete(jm.pending, jobID)
 	return err
 }
 

@@ -130,6 +130,7 @@ type EngineConfig struct {
 	BlockInbound        bool
 
 	LazyConnectionEnabled bool
+	DaemonAddress         string
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -199,8 +200,6 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
-
-	daemonAddress string
 }
 
 // Peer is an instance of the Connection Peer
@@ -224,7 +223,6 @@ func NewEngine(
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
 	checks []*mgmProto.Checks,
-	daemonAddress string,
 ) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
@@ -244,7 +242,6 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
-		daemonAddress:  daemonAddress,
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -896,9 +893,9 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	return nil
 }
 
-func (e *Engine) getPeerClient() (*grpc.ClientConn, error) {
+func (e *Engine) getPeerClient(addr string) (*grpc.ClientConn, error) {
 	conn, err := grpc.NewClient(
-		strings.TrimPrefix(e.daemonAddress, "tcp://"),
+		strings.TrimPrefix(addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
@@ -913,26 +910,20 @@ func (e *Engine) getPeerClient() (*grpc.ClientConn, error) {
 func (e *Engine) receiveJobEvents() {
 	go func() {
 		err := e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
-			log.Infof("Received job request: %+v", msg)
+			resp := mgmProto.JobResponse{
+				ID:     msg.ID,
+				Status: mgmProto.JobStatus_failed,
+			}
 			switch params := msg.WorkloadParameters.(type) {
 			case *mgmProto.JobRequest_Bundle:
-				uploadKey, err := e.handleBundle(params.Bundle)
+				bundleResult, err := e.handleBundle(params.Bundle)
 				if err != nil {
-					return &mgmProto.JobResponse{
-						ID:     msg.ID,
-						Status: mgmProto.JobStatus_failed,
-						Reason: []byte(err.Error()),
-					}
+					resp.Reason = []byte(err.Error())
+					return &resp
 				}
-				return &mgmProto.JobResponse{
-					ID:     msg.ID,
-					Status: mgmProto.JobStatus_succeeded,
-					WorkloadResults: &mgmProto.JobResponse_Bundle{
-						Bundle: &mgmProto.BundleResult{
-							UploadKey: uploadKey,
-						},
-					},
-				}
+				resp.Status = mgmProto.JobStatus_succeeded
+				resp.WorkloadResults = bundleResult
+				return &resp
 			default:
 				return nil
 			}
@@ -949,10 +940,11 @@ func (e *Engine) receiveJobEvents() {
 	log.Debugf("connecting to Management Service jobs stream")
 }
 
-func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (string, error) {
-	conn, err := e.getPeerClient()
+func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
+	// todo: implement with real daemon address
+	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
@@ -962,7 +954,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (string, error)
 
 	statusOutput, err := e.getStatusOutput(params.Anonymize)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	request := &cProto.DebugBundleRequest{
 		Anonymize:    params.Anonymize,
@@ -974,18 +966,24 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (string, error)
 	service := cProto.NewDaemonServiceClient(conn)
 	resp, err := service.DebugBundle(e.clientCtx, request)
 	if err != nil {
-		return "", fmt.Errorf("failed to bundle debug: " + status.Convert(err).Message())
+		return nil, fmt.Errorf("failed to bundle debug: " + status.Convert(err).Message())
 	}
 
 	if resp.GetUploadFailureReason() != "" {
-		return "", fmt.Errorf("upload failed: " + resp.GetUploadFailureReason())
+		return nil, fmt.Errorf("upload failed: " + resp.GetUploadFailureReason())
 	}
-	return resp.GetUploadedKey(), nil
+	//	return resp.GetUploadedKey(), nil
+
+	return &mgmProto.JobResponse_Bundle{
+		Bundle: &mgmProto.BundleResult{
+			UploadKey: resp.GetUploadedKey(),
+		},
+	}, nil
 }
 
 func (e *Engine) getStatusOutput(anon bool) (string, error) {
 	// todo: implement with real daemon address
-	conn, err := e.getPeerClient()
+	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
 	if err != nil {
 		return "", err
 	}
