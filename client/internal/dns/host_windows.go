@@ -247,7 +247,7 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 			return i, fmt.Errorf("configure DNS policy for domain %s: %w", domain, err)
 		}
 
-		if err := r.configureDNSPolicy(gpoDnsPolicyConfigMatchPath, domains, ip); err != nil {
+		if err := r.configureDNSPolicy(gpoDnsPolicyConfigMatchPath, singleDomain, ip); err != nil {
 			return i, fmt.Errorf("configure local DNS policy: %w", err)
 		}
 
