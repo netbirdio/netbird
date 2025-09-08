@@ -67,7 +67,7 @@ func Test_LatestVersion(t *testing.T) {
 			return nil
 		}
 		m.currentVersion = c.daemonVersion
-		m.Start(t.Context())
+		m.Start(context.Background())
 		m.SetVersion("latest")
 		var triggeredInit bool
 		select {
@@ -179,7 +179,7 @@ func Test_HandleUpdate(t *testing.T) {
 		}
 
 		m.currentVersion = c.daemonVersion
-		m.Start(t.Context())
+		m.Start(context.Background())
 		m.SetVersion(c.expectedVersion)
 
 		var updateTriggered bool
