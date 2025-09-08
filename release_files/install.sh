@@ -425,6 +425,7 @@ if type uname >/dev/null 2>&1; then
               elif [ -x "$(command -v yum)" ]; then
                   PACKAGE_MANAGER="yum"
                   echo "The installation will be performed using yum package manager"
+              fi
             else
               echo "Unable to determine OS type from /etc/os-release"
               exit 1
