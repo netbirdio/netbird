@@ -563,7 +563,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		CreatedAt:                   registrationTime,
 		LoginExpirationEnabled:      addedByUser,
 		Ephemeral:                   ephemeral,
-		Temporary:                   temporary,
 		Location:                    peer.Location,
 		InactivityExpirationEnabled: addedByUser,
 		ExtraDNSLabels:              peer.ExtraDNSLabels,
@@ -636,6 +635,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			}
 
 			if temporary {
+				// we are running the on disconnect handler so that it is considered not connected as we are adding the peer manually
 				am.ephemeralManager.OnPeerDisconnected(ctx, newPeer)
 			}
 

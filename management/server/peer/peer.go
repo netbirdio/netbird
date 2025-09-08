@@ -48,8 +48,6 @@ type Peer struct {
 	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool `gorm:"index"`
-	// Temporary indicates whether the peer is temporary or not
-	Temporary bool `gorm:"index"`
 	// Geo location based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 
@@ -226,7 +224,6 @@ func (p *Peer) Copy() *Peer {
 		LastLogin:                   p.LastLogin,
 		CreatedAt:                   p.CreatedAt,
 		Ephemeral:                   p.Ephemeral,
-		Temporary:                   p.Temporary,
 		Location:                    p.Location,
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 		ExtraDNSLabels:              slices.Clone(p.ExtraDNSLabels),
@@ -316,8 +313,7 @@ func (p *Peer) FQDN(dnsDomain string) string {
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt,
 		"location_city_name": p.Location.CityName, "location_country_code": p.Location.CountryCode,
-		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP,
-		"temporary": p.Temporary}
+		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP}
 }
 
 // Copy PeerStatus
@@ -340,7 +336,6 @@ func (p *Peer) UpdateLastLogin() *Peer {
 }
 
 func (p *Peer) FromAPITemporaryAccessRequest(a *api.PeerTemporaryAccessRequest) {
-	p.Temporary = true
 	p.Ephemeral = true
 	p.Name = a.Name
 	p.Key = a.WgPubKey
