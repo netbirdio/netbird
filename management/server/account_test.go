@@ -3546,10 +3546,10 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 	}, false)
 	require.NoError(t, err, "unable to add peer1")
 
-	peer2, _, _, err := manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
+	peer2, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:  key2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
-	})
+	}, false)
 	require.NoError(t, err, "unable to add peer2")
 
 	t.Run("update peer IP successfully", func(t *testing.T) {

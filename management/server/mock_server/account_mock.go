@@ -15,6 +15,7 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -41,7 +42,7 @@ type MockAccountManager struct {
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
 	GetPeerNetworkFunc                    func(ctx context.Context, peerKey string) (*types.Network, error)
-	AddPeerFunc                           func(ctx context.Context, setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	AddPeerFunc                           func(ctx context.Context, accountID string, setupKey string, userId string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	GetGroupFunc                          func(ctx context.Context, accountID, groupID, userID string) (*types.Group, error)
 	GetAllGroupsFunc                      func(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByNameFunc                    func(ctx context.Context, accountID, groupName string) (*types.Group, error)
@@ -347,12 +348,14 @@ func (am *MockAccountManager) GetPeerNetwork(ctx context.Context, peerKey string
 // AddPeer mock implementation of AddPeer from server.AccountManager interface
 func (am *MockAccountManager) AddPeer(
 	ctx context.Context,
+	accountID string,
 	setupKey string,
 	userId string,
 	peer *nbpeer.Peer,
+	temporary bool,
 ) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if am.AddPeerFunc != nil {
-		return am.AddPeerFunc(ctx, setupKey, userId, peer)
+		return am.AddPeerFunc(ctx, accountID, setupKey, userId, peer, temporary)
 	}
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
 }
@@ -952,4 +955,9 @@ func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth n
 		return am.GetCurrentUserInfoFunc(ctx, userAuth)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
+}
+
+// SetEphemeralManager mocks SetEphemeralManager of the AccountManager interface
+func (am *MockAccountManager) SetEphemeralManager(em ephemeral.EphemeralManager) {
+	// Mock implementation - does nothing
 }
