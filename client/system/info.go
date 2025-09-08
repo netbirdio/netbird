@@ -96,14 +96,6 @@ func (i *Info) SetFlags(
 	i.LazyConnectionEnabled = lazyConnectionEnabled
 }
 
-// StaticInfo is an object that contains machine information that does not change
-type StaticInfo struct {
-	SystemSerialNumber string
-	SystemProductName  string
-	SystemManufacturer string
-	Environment        Environment
-}
-
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
 func extractUserAgent(ctx context.Context) string {
 	md, hasMeta := metadata.FromOutgoingContext(ctx)
@@ -198,11 +190,4 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, erro
 
 	log.Debugf("all system information gathered successfully")
 	return info, nil
-}
-
-// UpdateStaticInfo asynchronously updates static system and platform information
-func UpdateStaticInfo() {
-	go func() {
-		_ = updateStaticInfo()
-	}()
 }
