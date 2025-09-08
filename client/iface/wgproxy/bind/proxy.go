@@ -16,8 +16,14 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
+type Bind interface {
+	SetEndpoint(addr netip.Addr, conn net.Conn)
+	RemoveEndpoint(addr netip.Addr)
+	ReceiveFromEndpoint(ctx context.Context, ep *bind.Endpoint, buf []byte)
+}
+
 type ProxyBind struct {
-	Bind *bind.ICEBind
+	bind Bind
 
 	fakeNetIP      *netip.AddrPort
 	wgBindEndpoint *bind.Endpoint
@@ -32,12 +38,14 @@ type ProxyBind struct {
 	isStarted bool
 
 	closeListener *listener.CloseListener
+	mtu           uint16
 }
 
-func NewProxyBind(bind *bind.ICEBind) *ProxyBind {
+func NewProxyBind(bind Bind, mtu uint16) *ProxyBind {
 	p := &ProxyBind{
-		Bind:          bind,
+		bind:          bind,
 		closeListener: listener.NewCloseListener(),
+		mtu:           mtu + bufsize.WGBufferOverhead,
 	}
 
 	return p
@@ -76,7 +84,7 @@ func (p *ProxyBind) Work() {
 		return
 	}
 
-	p.Bind.SetEndpoint(p.fakeNetIP.Addr(), p.remoteConn)
+	p.bind.SetEndpoint(p.fakeNetIP.Addr(), p.remoteConn)
 
 	p.pausedMu.Lock()
 	p.paused = false
@@ -120,7 +128,7 @@ func (p *ProxyBind) close() error {
 
 	p.cancel()
 
-	p.Bind.RemoveEndpoint(p.fakeNetIP.Addr())
+	p.bind.RemoveEndpoint(p.fakeNetIP.Addr())
 
 	if rErr := p.remoteConn.Close(); rErr != nil && !errors.Is(rErr, net.ErrClosed) {
 		return rErr
@@ -136,7 +144,7 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 	}()
 
 	for {
-		buf := make([]byte, p.Bind.MTU()+bufsize.WGBufferOverhead)
+		buf := make([]byte, p.mtu)
 		n, err := p.remoteConn.Read(buf)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -153,11 +161,7 @@ func (p *ProxyBind) proxyToLocal(ctx context.Context) {
 			continue
 		}
 
-		msg := bind.RecvMessage{
-			Endpoint: p.wgBindEndpoint,
-			Buffer:   buf[:n],
-		}
-		p.Bind.RecvChan <- msg
+		p.bind.ReceiveFromEndpoint(ctx, p.wgBindEndpoint, buf[:n])
 		p.pausedMu.Unlock()
 	}
 }

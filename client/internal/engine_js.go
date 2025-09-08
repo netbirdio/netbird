@@ -14,11 +14,5 @@ func (e *Engine) createICEConfig() icemaker.Config {
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
-
-	if e.udpMux != nil {
-		cfg.UDPMux = e.udpMux.UDPMuxDefault
-		cfg.UDPMuxSrflx = e.udpMux
-	}
-
 	return cfg
 }
