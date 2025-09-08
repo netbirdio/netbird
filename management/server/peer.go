@@ -144,11 +144,6 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		}
 	}
 
-	if peer.Temporary && !connected {
-		expired = true
-		return am.DeletePeer(ctx, accountID, peer.ID, activity.SystemInitiator)
-	}
-
 	if expired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
