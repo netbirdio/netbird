@@ -2044,7 +2044,8 @@ func (s *SqlStore) GetPolicyRulesByResourceID(ctx context.Context, lockStrength 
 	}
 
 	var policyRules []*types.PolicyRule
-	result := tx.Where(`(source_resource::jsonb->>'ID') = ? OR (destination_resource::jsonb->>'ID') = ?`, resourceID, resourceID).
+	resourceIDPattern := `%"ID":"` + resourceID + `"%`
+	result := tx.Where("source_resource LIKE ? OR destination_resource LIKE ?", resourceIDPattern, resourceIDPattern).
 		Find(&policyRules)
 
 	if result.Error != nil {
