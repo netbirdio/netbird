@@ -1427,7 +1427,7 @@ func (s *SqlStore) RemovePeerFromGroup(ctx context.Context, peerID string, group
 
 // RemovePeerFromAllGroups removes a peer from all groups
 func (s *SqlStore) RemovePeerFromAllGroups(ctx context.Context, peerID string) error {
-	err := s.db.WithContext(ctx).
+	err := s.db.
 		Delete(&types.GroupPeer{}, "peer_id = ?", peerID).Error
 
 	if err != nil {
@@ -2015,7 +2015,7 @@ func (s *SqlStore) SavePolicy(ctx context.Context, policy *types.Policy) error {
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, accountID, policyID string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("policy_id = ?", policyID).Delete(&types.PolicyRule{}).Error; err != nil {
 			return fmt.Errorf("delete policy rules: %w", err)
 		}

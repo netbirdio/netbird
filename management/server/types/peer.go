@@ -21,8 +21,6 @@ type PeerSync struct {
 type PeerLogin struct {
 	// WireGuardPubKey is a peers WireGuard public key
 	WireGuardPubKey string
-	// AccountID is the account ID the peer is trying to log in to
-	AccountID string
 	// SSHKey is a peer's ssh key. Can be empty (e.g., old version do not provide it, or this feature is disabled)
 	SSHKey string
 	// Meta is the system information passed by peer, must be always present.

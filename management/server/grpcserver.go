@@ -20,6 +20,7 @@ import (
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -48,7 +49,7 @@ type GRPCServer struct {
 	config                  *nbconfig.Config
 	secretsManager          SecretsManager
 	appMetrics              telemetry.AppMetrics
-	ephemeralManager        *EphemeralManager
+	ephemeralManager        ephemeral.EphemeralManager
 	peerLocks               sync.Map
 	authManager             auth.Manager
 	integratedPeerValidator integrated_validator.IntegratedValidator
@@ -63,7 +64,7 @@ func NewServer(
 	peersUpdateManager *PeersUpdateManager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
-	ephemeralManager *EphemeralManager,
+	ephemeralManager ephemeral.EphemeralManager,
 	authManager auth.Manager,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 ) (*GRPCServer, error) {
@@ -484,7 +485,6 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	peer, netMap, postureChecks, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
-		AccountID:       loginReq.AccountId,
 		SSHKey:          string(sshKey),
 		Meta:            extractPeerMeta(ctx, loginReq.GetMeta()),
 		UserID:          userID,

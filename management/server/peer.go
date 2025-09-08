@@ -459,7 +459,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 // to it. We also add the User ID to the peer metadata to identify registrant. If no userID provided, then fail with status.PermissionDenied
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if setupKey == "" && userID == "" {
 		// no auth method provided => reject access
 		return nil, nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
@@ -491,25 +491,24 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	var ephemeral bool
 	var groupsToAdd []string
 	var allowExtraDNSLabels bool
-	var accountID string
-	var temporary bool
 	if addedByUser {
 		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 		if err != nil {
 			return nil, nil, nil, status.Errorf(status.NotFound, "failed adding new peer: user not found")
 		}
-
-		if peer.AccountID != "" {
-			err = am.permissionsManager.ValidateAccountAccess(ctx, peer.AccountID, user, true)
+		if temporary {
+			allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
 			if err != nil {
-				return nil, nil, nil, status.Errorf(status.PermissionDenied, "account access denied")
+				return nil, nil, nil, status.NewPermissionValidationError(err)
 			}
-			accountID = peer.AccountID
+
+			if !allowed {
+				return nil, nil, nil, status.NewPermissionDeniedError()
+			}
 		} else {
 			accountID = user.AccountID
+			groupsToAdd = user.AutoGroups
 		}
-
-		groupsToAdd = user.AutoGroups
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
 	} else {
@@ -538,9 +537,8 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	}
 	opEvent.AccountID = accountID
 
-	if peer.Meta.GoOS == "js" {
+	if temporary {
 		ephemeral = true
-		temporary = true
 	}
 
 	if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
@@ -641,6 +639,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
 			if err != nil {
 				return fmt.Errorf("failed adding peer to All group: %w", err)
+			}
+
+			if temporary {
+				am.ephemeralManager.OnPeerDisconnected(ctx, newPeer)
 			}
 
 			if addedByUser {
@@ -809,10 +811,9 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 			SSHKey:         login.SSHKey,
 			Location:       nbpeer.Location{ConnectionIP: login.ConnectionIP},
 			ExtraDNSLabels: login.ExtraDNSLabels,
-			AccountID:      login.AccountID,
 		}
 
-		return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
+		return am.AddPeer(ctx, "", login.SetupKey, login.UserID, newPeer, false)
 	}
 
 	log.WithContext(ctx).Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)

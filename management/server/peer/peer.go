@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 // Peer represents a machine connected to the network.
@@ -315,7 +316,8 @@ func (p *Peer) FQDN(dnsDomain string) string {
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt,
 		"location_city_name": p.Location.CityName, "location_country_code": p.Location.CountryCode,
-		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP}
+		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP,
+		"temporary": p.Temporary}
 }
 
 // Copy PeerStatus
@@ -335,6 +337,16 @@ func (p *Peer) UpdateLastLogin() *Peer {
 	newStatus.LoginExpired = false
 	p.Status = newStatus
 	return p
+}
+
+func (p *Peer) FromAPITemporaryAccessRequest(a *api.PeerTemporaryAccessRequest) {
+	p.Temporary = true
+	p.Ephemeral = true
+	p.Name = a.Name
+	p.Key = a.WgPubKey
+	p.Meta = PeerSystemMeta{
+		Hostname: a.Name,
+	}
 }
 
 func (f Flags) isEqual(other Flags) bool {
