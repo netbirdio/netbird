@@ -92,12 +92,6 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	s.PeersManager()
 	s.GeoLocationManager()
 
-	for _, fn := range s.afterInit {
-		if fn != nil {
-			fn(s)
-		}
-	}
-
 	err := s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
 	if err != nil {
 		return fmt.Errorf("failed to expose metrics: %v", err)
@@ -173,6 +167,12 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		s.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort))
 		if err != nil {
 			return fmt.Errorf("failed creating TCP listener on port %d: %v", s.mgmtPort, err)
+		}
+	}
+
+	for _, fn := range s.afterInit {
+		if fn != nil {
+			fn(s)
 		}
 	}
 

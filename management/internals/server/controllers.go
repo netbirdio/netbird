@@ -10,6 +10,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 )
 
 func (s *BaseServer) PeersUpdateManager() *server.PeersUpdateManager {
@@ -52,8 +54,8 @@ func (s *BaseServer) AuthManager() auth.Manager {
 	})
 }
 
-func (s *BaseServer) EphemeralManager() *server.EphemeralManager {
-	return Create(s, func() *server.EphemeralManager {
-		return server.NewEphemeralManager(s.Store(), s.AccountManager())
+func (s *BaseServer) EphemeralManager() ephemeral.Manager {
+	return Create(s, func() ephemeral.Manager {
+		return manager.NewEphemeralManager(s.Store(), s.AccountManager())
 	})
 }
