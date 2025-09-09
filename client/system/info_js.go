@@ -9,6 +9,11 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// UpdateStaticInfoAsync is a no-op on JS as there is no static info to update
+func UpdateStaticInfoAsync() {
+	// do nothing
+}
+
 // GetInfo retrieves system information for WASM environment
 func GetInfo(_ context.Context) *Info {
 	info := &Info{
@@ -24,13 +29,7 @@ func GetInfo(_ context.Context) *Info {
 
 	collectBrowserInfo(info)
 	collectLocationInfo(info)
-
-	si := updateStaticInfo()
-	info.SystemSerialNumber = si.SystemSerialNumber
-	info.SystemProductName = si.SystemProductName
-	info.SystemManufacturer = si.SystemManufacturer
-	info.Environment = si.Environment
-
+	collectSystemInfo(info)
 	return info
 }
 
@@ -50,7 +49,7 @@ func collectUserAgent(info *Info, navigator js.Value) {
 	if ua.IsUndefined() {
 		return
 	}
-	
+
 	userAgent := ua.String()
 	os, osVersion := parseOSFromUserAgent(userAgent)
 	if os != "" {
@@ -68,13 +67,13 @@ func collectPlatform(info *Info, navigator js.Value) {
 			info.Platform = platStr
 		}
 	}
-	
+
 	// Try newer userAgentData API for more accurate platform
 	userAgentData := navigator.Get("userAgentData")
 	if userAgentData.IsUndefined() {
 		return
 	}
-	
+
 	platformInfo := userAgentData.Get("platform")
 	if !platformInfo.IsUndefined() {
 		if platStr := platformInfo.String(); platStr != "" {
@@ -108,26 +107,24 @@ func checkFileAndProcess(_ []string) ([]File, error) {
 	return []File{}, nil
 }
 
-func updateStaticInfo() *StaticInfo {
-	si := &StaticInfo{}
-
+func collectSystemInfo(info *Info) {
 	navigator := js.Global().Get("navigator")
-	if !navigator.IsUndefined() {
-		if vendor := navigator.Get("vendor"); !vendor.IsUndefined() {
-			si.SystemManufacturer = vendor.String()
-		}
-
-		if product := navigator.Get("product"); !product.IsUndefined() {
-			si.SystemProductName = product.String()
-		}
-
-		if userAgent := navigator.Get("userAgent"); !userAgent.IsUndefined() {
-			ua := userAgent.String()
-			si.Environment = detectEnvironmentFromUA(ua)
-		}
+	if navigator.IsUndefined() {
+		return
 	}
 
-	return si
+	if vendor := navigator.Get("vendor"); !vendor.IsUndefined() {
+		info.SystemManufacturer = vendor.String()
+	}
+
+	if product := navigator.Get("product"); !product.IsUndefined() {
+		info.SystemProductName = product.String()
+	}
+
+	if userAgent := navigator.Get("userAgent"); !userAgent.IsUndefined() {
+		ua := userAgent.String()
+		info.Environment = detectEnvironmentFromUA(ua)
+	}
 }
 
 func parseOSFromUserAgent(userAgent string) (string, string) {
