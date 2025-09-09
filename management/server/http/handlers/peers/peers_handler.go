@@ -150,7 +150,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 
 	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(ctx).Errorf("failed to get validated peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
 		return
 	}
@@ -244,7 +244,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 
 	validPeersMap, invalidPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
-		log.WithContext(r.Context()).Errorf("failed to list appreoved peers: %v", err)
+		log.WithContext(r.Context()).Errorf("failed to get validated peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
 		return
 	}
