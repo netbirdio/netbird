@@ -560,7 +560,25 @@ func (d *Status) logPeerDisconnectIfNeeded(pubKey string, state State) {
 		fqdn = pubKey
 	}
 
-	log.Warnf("[d] Routing peer disconnected: peer=%s impacted_routes=%d", fqdn, numRoutes)
+	// prepare a bounded list of impacted routes to avoid huge log lines
+	maxList := 20
+	list := make([]string, 0, maxList)
+	for r := range routes {
+		if len(list) >= maxList {
+			break
+		}
+		list = append(list, r)
+	}
+	more := ""
+	if numRoutes > len(list) {
+		more = ", more=" + fmt.Sprintf("%d", numRoutes-len(list))
+	}
+
+	if len(list) > 0 {
+		log.Warnf("[d] Routing peer disconnected: peer=%s impacted_routes=%d routes=%v%s", fqdn, numRoutes, list, more)
+	} else {
+		log.Warnf("[d] Routing peer disconnected: peer=%s impacted_routes=%d", fqdn, numRoutes)
+	}
 }
 
 // UpdateWireGuardPeerState updates the WireGuard bits of the peer state
