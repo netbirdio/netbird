@@ -46,6 +46,12 @@ type DNSForwarder struct {
 	fwdEntries []*ForwarderEntry
 	firewall   firewaller
 	resolver   resolver
+
+	// failure rate tracking for routed domains
+	failureMu      sync.Mutex
+	failureCounts  map[string]int
+	failureWindow  time.Duration
+	lastLogPerHost map[string]time.Time
 }
 
 func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewaller, statusRecorder *peer.Status) *DNSForwarder {
@@ -56,6 +62,9 @@ func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewaller, stat
 		firewall:       firewall,
 		statusRecorder: statusRecorder,
 		resolver:       net.DefaultResolver,
+		failureCounts:  make(map[string]int),
+		failureWindow:  10 * time.Second,
+		lastLogPerHost: make(map[string]time.Time),
 	}
 }
 
@@ -306,6 +315,11 @@ func (f *DNSForwarder) handleDNSError(ctx context.Context, w dns.ResponseWriter,
 	if err := w.WriteMsg(resp); err != nil {
 		log.Errorf("failed to write failure DNS response: %v", err)
 	}
+
+	// Track failure rate for routed domains only
+	if resID, _ := f.getMatchingEntries(strings.TrimSuffix(domain, ".")); resID != "" {
+		f.recordDomainFailure(strings.TrimSuffix(domain, "."))
+	}
 }
 
 // addIPsToResponse adds IP addresses to the DNS response as appropriate A or AAAA records
@@ -339,6 +353,27 @@ func (f *DNSForwarder) addIPsToResponse(resp *dns.Msg, domain string, ips []neti
 		}
 		resp.Answer = append(resp.Answer, respRecord)
 	}
+}
+
+// recordDomainFailure increments failure count for the domain and logs at info/warn with throttling.
+func (f *DNSForwarder) recordDomainFailure(domain string) {
+	domain = strings.ToLower(domain)
+
+	f.failureMu.Lock()
+	defer f.failureMu.Unlock()
+
+	f.failureCounts[domain]++
+	count := f.failureCounts[domain]
+
+	now := time.Now()
+	last, ok := f.lastLogPerHost[domain]
+	if ok && now.Sub(last) < f.failureWindow {
+		return
+	}
+	f.lastLogPerHost[domain] = now
+
+	log.Warnf("[d] DNS failures observed for routed domain: domain=%s failures=%d/%s", domain, count, f.failureWindow)
+
 }
 
 // getMatchingEntries retrieves the resource IDs for a given domain.

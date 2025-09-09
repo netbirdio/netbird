@@ -14,7 +14,7 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 )
 
-const defaultLogSize = 15
+const defaultLogSize = 100
 
 const (
 	LogConsole = "console"

@@ -21,9 +21,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-	"github.com/netbirdio/netbird/route"
 )
 
 const eventQueueSize = 10
@@ -201,6 +201,8 @@ type Status struct {
 	resolvedDomainsStates map[domain.Domain]ResolvedDomainInfo
 	lazyConnectionEnabled bool
 
+	lastDisconnectLog map[string]time.Time
+
 	// To reduce the number of notification invocation this bool will be true when need to call the notification
 	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
 	// set to true this variable and at the end of the processing we will reset it by the FinishPeerListModifications()
@@ -229,6 +231,7 @@ func NewRecorder(mgmAddress string) *Status {
 		notifier:              newNotifier(),
 		mgmAddress:            mgmAddress,
 		resolvedDomainsStates: map[domain.Domain]ResolvedDomainInfo{},
+		lastDisconnectLog:     make(map[string]time.Time),
 	}
 }
 
@@ -487,6 +490,9 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 
 	d.peers[receivedState.PubKey] = peerState
 
+	// info log about disconnect with impacted routes (throttled)
+	d.logPeerDisconnectIfNeeded(receivedState.PubKey, peerState)
+
 	if hasConnStatusChanged(oldState, receivedState.ConnStatus) {
 		d.notifyPeerListChanged()
 	}
@@ -519,6 +525,9 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
+	// info log about disconnect with impacted routes (throttled)
+	d.logPeerDisconnectIfNeeded(receivedState.PubKey, peerState)
+
 	if hasConnStatusChanged(oldState, receivedState.ConnStatus) {
 		d.notifyPeerListChanged()
 	}
@@ -527,6 +536,31 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 		d.notifyPeerStateChangeListeners(receivedState.PubKey)
 	}
 	return nil
+}
+
+// logPeerDisconnectIfNeeded logs an info message when a routing peer transitions to disconnected
+// with the number of impacted routes. Throttled to once per peer per 30 seconds.
+func (d *Status) logPeerDisconnectIfNeeded(pubKey string, state State) {
+	if state.ConnStatus != StatusIdle {
+		return
+	}
+
+	now := time.Now()
+	last, ok := d.lastDisconnectLog[pubKey]
+	if ok && now.Sub(last) < 10*time.Second {
+		return
+	}
+	d.lastDisconnectLog[pubKey] = now
+
+	routes := state.GetRoutes()
+	numRoutes := len(routes)
+
+	fqdn := state.FQDN
+	if fqdn == "" {
+		fqdn = pubKey
+	}
+
+	log.Warnf("[d] Routing peer disconnected: peer=%s impacted_routes=%d", fqdn, numRoutes)
 }
 
 // UpdateWireGuardPeerState updates the WireGuard bits of the peer state
