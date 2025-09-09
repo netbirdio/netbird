@@ -2037,6 +2037,25 @@ func (s *SqlStore) DeletePolicy(ctx context.Context, accountID, policyID string)
 	})
 }
 
+func (s *SqlStore) GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, resourceID string) ([]*types.PolicyRule, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var policyRules []*types.PolicyRule
+	resourceIDPattern := `%"ID":"` + resourceID + `"%`
+	result := tx.Where("source_resource LIKE ? OR destination_resource LIKE ?", resourceIDPattern, resourceIDPattern).
+		Find(&policyRules)
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get policy rules for resource id from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get policy rules for resource id from store")
+	}
+
+	return policyRules, nil
+}
+
 // GetAccountPostureChecks retrieves posture checks for an account.
 func (s *SqlStore) GetAccountPostureChecks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*posture.Checks, error) {
 	tx := s.db
@@ -2846,4 +2865,23 @@ func (s *SqlStore) UpdateAccountNetwork(ctx context.Context, accountID string, i
 		return status.NewAccountNotFoundError(accountID)
 	}
 	return nil
+}
+
+func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, groupIDs []string) ([]*nbpeer.Peer, error) {
+	if len(groupIDs) == 0 {
+		return []*nbpeer.Peer{}, nil
+	}
+
+	var peers []*nbpeer.Peer
+	peerIDsSubquery := s.db.Model(&types.GroupPeer{}).
+		Select("DISTINCT peer_id").
+		Where("account_id = ? AND group_id IN ?", accountID, groupIDs)
+
+	result := s.db.Where("id IN (?)", peerIDsSubquery).Find(&peers)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get peers by group IDs: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get peers by group IDs")
+	}
+
+	return peers, nil
 }

@@ -18,6 +18,7 @@ type Manager interface {
 	GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error)
 	GetPeerAccountID(ctx context.Context, peerID string) (string, error)
 	GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error)
+	GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error)
 }
 
 type managerImpl struct {
@@ -60,4 +61,8 @@ func (m *managerImpl) GetAllPeers(ctx context.Context, accountID, userID string)
 
 func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (string, error) {
 	return m.store.GetAccountIDByPeerID(ctx, store.LockingStrengthNone, peerID)
+}
+
+func (m *managerImpl) GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error) {
+	return m.store.GetPeersByGroupIDs(ctx, accountID, groupsIDs)
 }
