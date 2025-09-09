@@ -44,6 +44,8 @@ type Options struct {
 	SetupKey string
 	// JWTToken is used for JWT-based authentication
 	JWTToken string
+	// PrivateKey is used for direct private key authentication
+	PrivateKey string
 	// ManagementURL overrides the default management server URL
 	ManagementURL string
 	// PreSharedKey is the pre-shared key for the WireGuard interface
@@ -62,13 +64,33 @@ type Options struct {
 	DisableClientRoutes bool
 }
 
+// validateCredentials checks that exactly one credential type is provided
+func (opts *Options) validateCredentials() error {
+	credentialsProvided := 0
+	if opts.SetupKey != "" {
+		credentialsProvided++
+	}
+	if opts.JWTToken != "" {
+		credentialsProvided++
+	}
+	if opts.PrivateKey != "" {
+		credentialsProvided++
+	}
+
+	if credentialsProvided == 0 {
+		return fmt.Errorf("one of SetupKey, JWTToken, or PrivateKey must be provided")
+	}
+	if credentialsProvided > 1 {
+		return fmt.Errorf("only one of SetupKey, JWTToken, or PrivateKey can be specified")
+	}
+
+	return nil
+}
+
 // New creates a new netbird embedded client.
 func New(opts Options) (*Client, error) {
-	if opts.SetupKey == "" && opts.JWTToken == "" {
-		return nil, fmt.Errorf("either SetupKey or JWTToken must be provided")
-	}
-	if opts.SetupKey != "" && opts.JWTToken != "" {
-		return nil, fmt.Errorf("cannot specify both SetupKey and JWTToken")
+	if err := opts.validateCredentials(); err != nil {
+		return nil, err
 	}
 
 	if opts.LogOutput != nil {
@@ -116,6 +138,10 @@ func New(opts Options) (*Client, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create config: %w", err)
+	}
+
+	if opts.PrivateKey != "" {
+		config.PrivateKey = opts.PrivateKey
 	}
 
 	return &Client{
