@@ -22,7 +22,11 @@ func (s *BaseServer) PeersUpdateManager() *server.PeersUpdateManager {
 
 func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValidator {
 	return Create(s, func() integrated_validator.IntegratedValidator {
-		integratedPeerValidator, err := integrations.NewIntegratedValidator(context.Background(), s.EventStore())
+		integratedPeerValidator, err := integrations.NewIntegratedValidator(
+			context.Background(),
+			s.PeersManager(),
+			s.SettingsManager(),
+			s.EventStore())
 		if err != nil {
 			log.Errorf("failed to create integrated peer validator: %v", err)
 		}

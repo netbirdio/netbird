@@ -9,30 +9,28 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
-
-	"github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/management/server/types"
-
-	"github.com/netbirdio/netbird/util"
-
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/management-integrations/integrations"
 
 	clientProto "github.com/netbirdio/netbird/client/proto"
 	client "github.com/netbirdio/netbird/client/server"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	mgmt "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/peers"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	sigProto "github.com/netbirdio/netbird/shared/signal/proto"
 	sig "github.com/netbirdio/netbird/signal/server"
+	"github.com/netbirdio/netbird/util"
 )
 
 func startTestingServices(t *testing.T) string {
@@ -91,15 +89,20 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	if err != nil {
 		return nil, nil
 	}
-	iv, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
-	require.NoError(t, err)
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
 
-	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	peersmanager := peers.NewManager(store, permissionsManagerMock)
+	settingsManagerMock := settings.NewMockManager(ctrl)
+
+	iv, _ := integrations.NewIntegratedValidator(context.Background(), peersmanager, settingsManagerMock, eventStore)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	require.NoError(t, err)
+
+	settingsMockManager := settings.NewMockManager(ctrl)
 	groupsManager := groups.NewManagerMock()
 
 	settingsMockManager.EXPECT().
