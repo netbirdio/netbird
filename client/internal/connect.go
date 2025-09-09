@@ -444,6 +444,8 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockInbound:        config.BlockInbound,
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
+
+		ProfileConfig: config,
 	}
 
 	if config.PreSharedKey != "" {
