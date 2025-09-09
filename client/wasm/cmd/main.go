@@ -53,8 +53,8 @@ func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 		options.SetupKey = setupKey.String()
 	}
 
-	if options.JWTToken == "" && options.SetupKey == "" {
-		return options, fmt.Errorf("either jwtToken or setupKey must be provided")
+	if privateKey := jsOptions.Get("privateKey"); !privateKey.IsNull() && !privateKey.IsUndefined() {
+		options.PrivateKey = privateKey.String()
 	}
 
 	if mgmtURL := jsOptions.Get("managementURL"); !mgmtURL.IsNull() && !mgmtURL.IsUndefined() {
