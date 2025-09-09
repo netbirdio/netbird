@@ -188,17 +188,17 @@ func (am *MockAccountManager) OnPeerDisconnected(_ context.Context, accountID st
 	panic("implement me")
 }
 
-func (am *MockAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error) {
+func (am *MockAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error) {
 	account, err := am.GetAccountFunc(ctx, accountID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	approvedPeers := make(map[string]struct{})
 	for id := range account.Peers {
 		approvedPeers[id] = struct{}{}
 	}
-	return approvedPeers, nil
+	return approvedPeers, nil, nil
 }
 
 // GetGroup mock implementation of GetGroup from server.AccountManager interface

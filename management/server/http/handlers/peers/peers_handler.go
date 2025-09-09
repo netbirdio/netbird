@@ -77,7 +77,7 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	grps, _ := h.accountManager.GetPeerGroups(ctx, accountID, peerID)
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
+	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
@@ -85,7 +85,9 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	}
 
 	_, valid := validPeers[peer.ID]
-	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, grpsInfoMap[peerID], dnsDomain, valid))
+	reason := invalidPeers[peer.ID]
+
+	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, grpsInfoMap[peerID], dnsDomain, valid, reason))
 }
 
 func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
@@ -146,7 +148,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 
 	grpsInfoMap := groups.ToGroupsInfoMap(peerGroups, 0)
 
-	validPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
+	validPeers, invalidPeers, err := h.accountManager.GetValidatedPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(ctx, fmt.Errorf("internal error"), w)
@@ -154,8 +156,9 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 	}
 
 	_, valid := validPeers[peer.ID]
+	reason := invalidPeers[peer.ID]
 
-	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid))
+	util.WriteJSONObject(r.Context(), w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
 }
 
 func (h *Handler) deletePeer(ctx context.Context, accountID, userID string, peerID string, w http.ResponseWriter) {
@@ -239,22 +242,25 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		respBody = append(respBody, toPeerListItemResponse(peerToReturn, grpsInfoMap[peer.ID], dnsDomain, 0))
 	}
 
-	validPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
+	validPeersMap, invalidPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to list appreoved peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
 		return
 	}
-	h.setApprovalRequiredFlag(respBody, validPeersMap)
+	h.setApprovalRequiredFlag(respBody, validPeersMap, invalidPeersMap)
 
 	util.WriteJSONObject(r.Context(), w, respBody)
 }
 
-func (h *Handler) setApprovalRequiredFlag(respBody []*api.PeerBatch, approvedPeersMap map[string]struct{}) {
+func (h *Handler) setApprovalRequiredFlag(respBody []*api.PeerBatch, validPeersMap map[string]struct{}, invalidPeersMap map[string]string) {
 	for _, peer := range respBody {
-		_, ok := approvedPeersMap[peer.Id]
+		_, ok := validPeersMap[peer.Id]
 		if !ok {
 			peer.ApprovalRequired = true
+
+			reason := invalidPeersMap[peer.Id]
+			peer.DisapprovalReason = &reason
 		}
 	}
 }
@@ -303,7 +309,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	validPeers, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
+	validPeers, _, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
 		log.WithContext(r.Context()).Errorf("failed to list approved peers: %v", err)
 		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
@@ -347,13 +353,13 @@ func peerToAccessiblePeer(peer *nbpeer.Peer, dnsDomain string) api.AccessiblePee
 	}
 }
 
-func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool) *api.Peer {
+func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, approved bool, reason string) *api.Peer {
 	osVersion := peer.Meta.OSVersion
 	if osVersion == "" {
 		osVersion = peer.Meta.Core
 	}
 
-	return &api.Peer{
+	apiPeer := &api.Peer{
 		CreatedAt:                   peer.CreatedAt,
 		Id:                          peer.ID,
 		Name:                        peer.Name,
@@ -382,6 +388,12 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 		Ephemeral:                   peer.Ephemeral,
 	}
+
+	if !approved {
+		apiPeer.DisapprovalReason = &reason
+	}
+
+	return apiPeer
 }
 
 func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsDomain string, accessiblePeersCount int) *api.PeerBatch {
