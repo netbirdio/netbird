@@ -1,4 +1,4 @@
-//go:build !linux && !ios
+//go:build !linux && !ios && !js
 
 package systemops
 
