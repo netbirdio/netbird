@@ -88,7 +88,7 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 	return true, nil
 }
 
-func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error) {
+func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error) {
 	var err error
 	var groups []*types.Group
 	var peers []*nbpeer.Peer
@@ -96,17 +96,17 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 
 	groups, err = am.Store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, groups, peers, settings.Extra)
@@ -128,12 +128,12 @@ func (a MockIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.
 	return update, false, nil
 }
 
-func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
+func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, map[string]string, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
 		validatedPeers[peer.ID] = struct{}{}
 	}
-	return validatedPeers, nil
+	return validatedPeers, nil, nil
 }
 
 func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings) *nbpeer.Peer {
