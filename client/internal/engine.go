@@ -22,8 +22,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -886,20 +884,6 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	e.statusRecorder.UpdateLocalPeerState(state)
 
 	return nil
-}
-
-func (e *Engine) getPeerClient(addr string) (*grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(
-		strings.TrimPrefix(addr, "tcp://"),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
-			"If the daemon is not running please run: "+
-			"\nnetbird service install \nnetbird service start\n", err)
-	}
-
-	return conn, nil
 }
 func (e *Engine) receiveJobEvents() {
 	go func() {
