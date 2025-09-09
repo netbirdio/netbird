@@ -52,6 +52,12 @@ type DNSForwarder struct {
 	failureCounts  map[string]int
 	failureWindow  time.Duration
 	lastLogPerHost map[string]time.Time
+
+	// per-domain rolling stats and windows
+	statsMu sync.Mutex
+	stats   map[string]*domainStats
+	winSize time.Duration
+	slowT   time.Duration
 }
 
 func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewaller, statusRecorder *peer.Status) *DNSForwarder {
@@ -65,7 +71,20 @@ func NewDNSForwarder(listenAddress string, ttl uint32, firewall firewaller, stat
 		failureCounts:  make(map[string]int),
 		failureWindow:  10 * time.Second,
 		lastLogPerHost: make(map[string]time.Time),
+		stats:          make(map[string]*domainStats),
+		winSize:        10 * time.Second,
+		slowT:          300 * time.Millisecond,
 	}
+}
+
+type domainStats struct {
+	total    int
+	success  int
+	timeouts int
+	notfound int
+	failures int // other failures (incl. SERVFAIL-like)
+	slow     int
+	lastLog  time.Time
 }
 
 func (f *DNSForwarder) Listen(entries []*ForwarderEntry) error {
@@ -172,11 +191,18 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns
 
 	ctx, cancel := context.WithTimeout(context.Background(), upstreamTimeout)
 	defer cancel()
+	start := time.Now()
 	ips, err := f.resolver.LookupNetIP(ctx, network, domain)
+	elapsed := time.Since(start)
 	if err != nil {
 		f.handleDNSError(ctx, w, question, resp, domain, err)
+		// record error stats for routed domains
+		f.recordErrorStats(strings.TrimSuffix(domain, "."), err)
 		return nil
 	}
+
+	// record success timing
+	f.recordSuccessStats(strings.TrimSuffix(domain, "."), elapsed)
 
 	f.updateInternalState(ips, mostSpecificResId, matchingEntries)
 	f.addIPsToResponse(resp, domain, ips)
@@ -320,6 +346,86 @@ func (f *DNSForwarder) handleDNSError(ctx context.Context, w dns.ResponseWriter,
 	if resID, _ := f.getMatchingEntries(strings.TrimSuffix(domain, ".")); resID != "" {
 		f.recordDomainFailure(strings.TrimSuffix(domain, "."))
 	}
+}
+
+// recordErrorStats updates per-domain counters and emits rate-limited logs
+func (f *DNSForwarder) recordErrorStats(domain string, err error) {
+	domain = strings.ToLower(domain)
+	f.statsMu.Lock()
+	s := f.ensureStats(domain)
+	s.total++
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		if dnsErr.IsNotFound {
+			s.notfound++
+		} else if dnsErr.Timeout() {
+			s.timeouts++
+		} else {
+			s.failures++
+		}
+	} else {
+		s.failures++
+	}
+
+	f.maybeLogDomainStats(domain, s)
+	f.statsMu.Unlock()
+}
+
+// recordSuccessStats updates per-domain latency stats and slow counters, logs if needed (rate-limited)
+func (f *DNSForwarder) recordSuccessStats(domain string, elapsed time.Duration) {
+	domain = strings.ToLower(domain)
+	f.statsMu.Lock()
+	s := f.ensureStats(domain)
+	s.total++
+	s.success++
+	if elapsed >= f.slowT {
+		s.slow++
+	}
+	f.maybeLogDomainStats(domain, s)
+	f.statsMu.Unlock()
+}
+
+func (f *DNSForwarder) ensureStats(domain string) *domainStats {
+	if ds, ok := f.stats[domain]; ok {
+		return ds
+	}
+	ds := &domainStats{}
+	f.stats[domain] = ds
+	return ds
+}
+
+// maybeLogDomainStats logs a compact summary per routed domain at most once per window
+func (f *DNSForwarder) maybeLogDomainStats(domain string, s *domainStats) {
+	now := time.Now()
+	if !s.lastLog.IsZero() && now.Sub(s.lastLog) < f.winSize {
+		return
+	}
+
+	// check if routed (avoid logging for non-routed domains)
+	if resID, _ := f.getMatchingEntries(domain); resID == "" {
+		return
+	}
+
+	// only log if something noteworthy happened in the window
+	noteworthy := s.timeouts > 0 || s.notfound > 0 || s.failures > 0 || s.slow > 0
+	if !noteworthy {
+		s.lastLog = now
+		return
+	}
+
+	// warn on persistent problems, info otherwise
+	levelWarn := s.timeouts >= 3 || s.failures >= 3
+	if levelWarn {
+		log.Warnf("[d] DNS stats: domain=%s total=%d ok=%d timeout=%d nxdomain=%d fail=%d slow=%d(>=%s)",
+			domain, s.total, s.success, s.timeouts, s.notfound, s.failures, s.slow, f.slowT)
+	} else {
+		log.Infof("[d] DNS stats: domain=%s total=%d ok=%d timeout=%d nxdomain=%d fail=%d slow=%d(>=%s)",
+			domain, s.total, s.success, s.timeouts, s.notfound, s.failures, s.slow, f.slowT)
+	}
+
+	// reset counters for next window
+	*s = domainStats{lastLog: now}
 }
 
 // addIPsToResponse adds IP addresses to the DNS response as appropriate A or AAAA records

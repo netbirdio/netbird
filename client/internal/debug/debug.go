@@ -315,6 +315,10 @@ func (g *BundleGenerator) createArchive() error {
 		return fmt.Errorf("add sync response: %w", err)
 	}
 
+	if err := g.addDNSConfig(); err != nil {
+		log.Errorf("failed to add DNS config to debug bundle: %v", err)
+	}
+
 	if err := g.addStateFile(); err != nil {
 		log.Errorf("failed to add state file to debug bundle: %v", err)
 	}
@@ -339,6 +343,50 @@ func (g *BundleGenerator) createArchive() error {
 	}
 
 	return nil
+}
+
+// addDNSConfig writes a dns_config.json snapshot with routed domains and NS group status
+func (g *BundleGenerator) addDNSConfig() error {
+	type nsGroup struct {
+		ID      string   `json:"id"`
+		Servers []string `json:"servers"`
+		Domains []string `json:"domains"`
+		Enabled bool     `json:"enabled"`
+		Error   string   `json:"error,omitempty"`
+	}
+	type dnsConfig struct {
+		Groups []nsGroup `json:"name_server_groups"`
+	}
+
+	if g.statusRecorder == nil {
+		return nil
+	}
+
+	states := g.statusRecorder.GetDNSStates()
+	cfg := dnsConfig{Groups: make([]nsGroup, 0, len(states))}
+	for _, st := range states {
+		var servers []string
+		for _, ap := range st.Servers {
+			servers = append(servers, ap.String())
+		}
+		var errStr string
+		if st.Error != nil {
+			errStr = st.Error.Error()
+		}
+		cfg.Groups = append(cfg.Groups, nsGroup{
+			ID:      st.ID,
+			Servers: servers,
+			Domains: st.Domains,
+			Enabled: st.Enabled,
+			Error:   errStr,
+		})
+	}
+
+	bs, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal dns config: %w", err)
+	}
+	return g.addFileToZip(bytes.NewReader(bs), "dns_config.json")
 }
 
 func (g *BundleGenerator) addSystemInfo() {
