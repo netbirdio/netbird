@@ -1036,6 +1036,9 @@ type Peer struct {
 	// CreatedAt Peer creation date (UTC)
 	CreatedAt time.Time `json:"created_at"`
 
+	// DisapprovalReason (Cloud only) Reason why the peer requires approval
+	DisapprovalReason *string `json:"disapproval_reason,omitempty"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
@@ -1122,6 +1125,9 @@ type PeerBatch struct {
 
 	// CreatedAt Peer creation date (UTC)
 	CreatedAt time.Time `json:"created_at"`
+
+	// DisapprovalReason (Cloud only) Reason why the peer requires approval
+	DisapprovalReason *string `json:"disapproval_reason,omitempty"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
