@@ -23,22 +23,32 @@ const (
 
 // Config contains the configuration for the WebSocket proxy.
 type Config struct {
-	LocalGRPCAddr netip.AddrPort
-	Path          string
+	LocalGRPCAddr   netip.AddrPort
+	Path            string
+	MetricsRecorder MetricsRecorder
 }
 
 // Proxy handles WebSocket to TCP proxying for gRPC connections.
 type Proxy struct {
-	config Config
+	config  Config
+	metrics MetricsRecorder
 }
 
-// New creates a new WebSocket proxy instance.
-func New(localGRPCAddr netip.AddrPort) *Proxy {
+// New creates a new WebSocket proxy instance with optional configuration
+func New(localGRPCAddr netip.AddrPort, opts ...Option) *Proxy {
+	config := Config{
+		LocalGRPCAddr:   localGRPCAddr,
+		Path:            wsproxy.ProxyPath,
+		MetricsRecorder: NoOpMetricsRecorder{}, // Default to no-op
+	}
+
+	for _, opt := range opts {
+		opt(&config)
+	}
+
 	return &Proxy{
-		config: Config{
-			LocalGRPCAddr: localGRPCAddr,
-			Path:          wsproxy.ProxyPath,
-		},
+		config:  config,
+		metrics: config.MetricsRecorder,
 	}
 }
 
@@ -48,6 +58,11 @@ func (p *Proxy) Handler() http.Handler {
 }
 
 func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	p.metrics.RecordConnection(ctx)
+	defer p.metrics.RecordDisconnection(ctx)
+
 	log.Debugf("WebSocket proxy handling connection from %s, forwarding to %s", r.RemoteAddr, p.config.LocalGRPCAddr)
 	acceptOptions := &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
@@ -55,6 +70,7 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	wsConn, err := websocket.Accept(w, r, acceptOptions)
 	if err != nil {
+		p.metrics.RecordError(ctx, "websocket_accept_failed")
 		log.Errorf("WebSocket upgrade failed from %s: %v", r.RemoteAddr, err)
 		return
 	}
@@ -67,9 +83,10 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("WebSocket proxy attempting to connect to local gRPC at %s", p.config.LocalGRPCAddr)
 	tcpConn, err := net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
 	if err != nil {
+		p.metrics.RecordError(ctx, "tcp_dial_failed")
 		log.Warnf("Failed to connect to local gRPC server at %s: %v", p.config.LocalGRPCAddr, err)
 		if err := wsConn.Close(websocket.StatusInternalError, "Backend unavailable"); err != nil {
-			log.Debugf("Failed to close WebSocket: %v", err)
+			log.Debugf("Failed to close WebSocket after connection failure: %v", err)
 		}
 		return
 	}
@@ -81,7 +98,6 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Debugf("WebSocket proxy established: client %s -> local gRPC %s", r.RemoteAddr, p.config.LocalGRPCAddr)
 
-	ctx := r.Context()
 	p.proxyData(ctx, wsConn, tcpConn)
 }
 
@@ -135,6 +151,7 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 			} else if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
 				log.Debugf("WebSocket closed normally")
 			} else {
+				p.metrics.RecordError(ctx, "websocket_read_error")
 				log.Errorf("WebSocket read error: %v", err)
 			}
 			return
@@ -150,10 +167,14 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 			return
 		}
 
-		if _, err := tcpConn.Write(data); err != nil {
+		n, err := tcpConn.Write(data)
+		if err != nil {
+			p.metrics.RecordError(ctx, "tcp_write_error")
 			log.Errorf("TCP write error: %v", err)
 			return
 		}
+
+		p.metrics.RecordBytesTransferred(ctx, "ws_to_tcp", int64(n))
 	}
 }
 
@@ -176,7 +197,6 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
-				// Read timeout, continue to read
 				continue
 			}
 
@@ -192,8 +212,11 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 		}
 
 		if err := wsConn.Write(ctx, websocket.MessageBinary, buf[:n]); err != nil {
+			p.metrics.RecordError(ctx, "websocket_write_error")
 			log.Errorf("WebSocket write error: %v", err)
 			return
 		}
+
+		p.metrics.RecordBytesTransferred(ctx, "tcp_to_ws", int64(n))
 	}
 }

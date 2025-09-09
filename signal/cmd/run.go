@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-
 	// nolint:gosec
 	_ "net/http/pprof"
 	"net/netip"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -119,7 +119,7 @@ var (
 			}
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
-			grpcRootHandler := grpcHandlerFunc(grpcServer)
+			grpcRootHandler := grpcHandlerFunc(grpcServer, metricsServer.Meter)
 
 			if certManager != nil {
 				startServerWithCertManager(certManager, grpcRootHandler)
@@ -253,8 +253,8 @@ func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler h
 	}
 }
 
-func grpcHandlerFunc(grpcServer *grpc.Server) http.Handler {
-	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), legacyGRPCPort))
+func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter) http.Handler {
+	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), legacyGRPCPort), wsproxyserver.WithOTelMeter(meter))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
