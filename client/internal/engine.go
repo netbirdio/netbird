@@ -34,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
@@ -50,12 +51,12 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
-	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
@@ -65,9 +66,7 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
-	"github.com/netbirdio/netbird/upload-server/types"
 	"github.com/netbirdio/netbird/util"
-	"google.golang.org/grpc/status"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -131,6 +130,9 @@ type EngineConfig struct {
 
 	LazyConnectionEnabled bool
 	DaemonAddress         string
+
+	// for debug bundle generation
+	ProfileConfig *profilemanager.Config
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -200,6 +202,8 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
+
+	jobExecutor *jobexec.Executor
 }
 
 // Peer is an instance of the Connection Peer
@@ -213,17 +217,7 @@ type localIpUpdater interface {
 }
 
 // NewEngine creates a new Connection Engine with probes attached
-func NewEngine(
-	clientCtx context.Context,
-	clientCancel context.CancelFunc,
-	signalClient signal.Client,
-	mgmClient mgm.Client,
-	relayManager *relayClient.Manager,
-	config *EngineConfig,
-	mobileDep MobileDependency,
-	statusRecorder *peer.Status,
-	checks []*mgmProto.Checks,
-) *Engine {
+func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, c *profilemanager.Config) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -242,6 +236,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
+		jobExecutor:    jobexec.NewExecutor(),
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -906,9 +901,9 @@ func (e *Engine) getPeerClient(addr string) (*grpc.ClientConn, error) {
 
 	return conn, nil
 }
-
 func (e *Engine) receiveJobEvents() {
 	go func() {
+		// todo: engine can be restarted any time. We need to handle the case when a job is being processed while the engine is stopping
 		err := e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
 			resp := mgmProto.JobResponse{
 				ID:     msg.ID,
@@ -919,6 +914,7 @@ func (e *Engine) receiveJobEvents() {
 				bundleResult, err := e.handleBundle(params.Bundle)
 				if err != nil {
 					resp.Reason = []byte(err.Error())
+					resp.Status = mgmProto.JobStatus_failed
 					return &resp
 				}
 				resp.Status = mgmProto.JobStatus_succeeded
@@ -941,65 +937,49 @@ func (e *Engine) receiveJobEvents() {
 }
 
 func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
-	// todo: implement with real daemon address
-	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
+	// todo: @Vic, do we need to latest sync response all the time here or could it be nil in the debug bundle?
+	// todo: e.GetLatestSyncResponse() is exported and has been protected by a mutex. If you will use handleBundle in
+	// also protected context then will be deadlock
+	syncResponse, err := e.GetLatestSyncResponse()
+	if err != nil {
+		return nil, fmt.Errorf("get latest sync response: %w", err)
+	}
+
+	if syncResponse == nil {
+		return nil, errors.New("sync response is not available")
+	}
+
+	var statusOutput string
+
+	// todo: convert fullStatus to statusOutput
+	// 		fullStatus := e.statusRecorder.GetFullStatus()
+	// 		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anonymize, "", nil, nil, nil, "", "")
+	//		statusOutput = nbstatus.ParseToFullDetailSummary(overview)
+	bundleDeps := debug.GeneratorDependencies{
+		InternalConfig: e.config.ProfileConfig,
+		StatusRecorder: e.statusRecorder,
+		SyncResponse:   syncResponse,
+		LogFile:        "", // todo: figure out where come from the log file. I suppose the client who invokes engine creation knows it.
+	}
+
+	bundleJobParams := debug.BundleConfig{
+		Anonymize:         params.Anonymize,
+		ClientStatus:      statusOutput,
+		IncludeSystemInfo: true,
+		LogFileCount:      uint32(params.LogFileCount),
+	}
+
+	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, e.config.ProfileConfig.ManagementURL.String())
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			log.Errorf("Failed to close connection: %v", err)
-		}
-	}()
 
-	statusOutput, err := e.getStatusOutput(params.Anonymize)
-	if err != nil {
-		return nil, err
-	}
-	request := &cProto.DebugBundleRequest{
-		Anonymize:    params.Anonymize,
-		SystemInfo:   true,
-		Status:       statusOutput,
-		LogFileCount: uint32(params.LogFileCount),
-		UploadURL:    types.DefaultBundleURL,
-	}
-	service := cProto.NewDaemonServiceClient(conn)
-	resp, err := service.DebugBundle(e.clientCtx, request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to bundle debug: " + status.Convert(err).Message())
-	}
-
-	if resp.GetUploadFailureReason() != "" {
-		return nil, fmt.Errorf("upload failed: " + resp.GetUploadFailureReason())
-	}
-	//	return resp.GetUploadedKey(), nil
-
-	return &mgmProto.JobResponse_Bundle{
+	response := &mgmProto.JobResponse_Bundle{
 		Bundle: &mgmProto.BundleResult{
-			UploadKey: resp.GetUploadedKey(),
+			UploadKey: uploadKey,
 		},
-	}, nil
-}
-
-func (e *Engine) getStatusOutput(anon bool) (string, error) {
-	// todo: implement with real daemon address
-	conn, err := e.getPeerClient("unix:///var/run/netbird.sock")
-	if err != nil {
-		return "", err
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			log.Errorf("Failed to close connection: %v", err)
-		}
-	}()
-
-	statusResp, err := cProto.NewDaemonServiceClient(conn).Status(e.clientCtx, &cProto.StatusRequest{GetFullPeerStatus: true, ShouldRunProbes: true})
-	if err != nil {
-		return "", fmt.Errorf("status failed: %v", status.Convert(err).Message())
-	}
-	return nbstatus.ParseToFullDetailSummary(
-		nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", ""),
-	), nil
+	return response, nil
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
