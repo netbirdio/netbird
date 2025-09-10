@@ -9,7 +9,11 @@ import (
 
 	"github.com/quic-go/quic-go"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/relay/protocol"
 )
+
+const Proto protocol.Protocol = "quic"
 
 type Listener struct {
 	// Address is the address to listen on
@@ -48,6 +52,10 @@ func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
 		conn := NewConn(session)
 		acceptFn(conn)
 	}
+}
+
+func (l *Listener) Protocol() protocol.Protocol {
+	return Proto
 }
 
 func (l *Listener) Shutdown(ctx context.Context) error {

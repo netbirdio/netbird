@@ -46,8 +46,9 @@ const (
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
 	defaultRetryMultiplier  = 1.7
 
-	errRestoreResidualState = "failed to restore residual state: %v"
-	errProfilesDisabled     = "profiles are disabled, you cannot use this feature without profiles enabled"
+	errRestoreResidualState   = "failed to restore residual state: %v"
+	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
+	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
 )
 
 var ErrServiceNotUp = errors.New("service is not up")
@@ -74,8 +75,9 @@ type Server struct {
 	persistSyncResponse bool
 	isSessionActive     atomic.Bool
 
-	profileManager   *profilemanager.ServiceManager
-	profilesDisabled bool
+	profileManager         *profilemanager.ServiceManager
+	profilesDisabled       bool
+	updateSettingsDisabled bool
 }
 
 type oauthAuthFlow struct {
@@ -86,14 +88,15 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
 	return &Server{
-		rootCtx:             ctx,
-		logFile:             logFile,
-		persistSyncResponse: true,
-		statusRecorder:      peer.NewRecorder(""),
-		profileManager:      profilemanager.NewServiceManager(configFile),
-		profilesDisabled:    profilesDisabled,
+		rootCtx:                ctx,
+		logFile:                logFile,
+		persistSyncResponse:    true,
+		statusRecorder:         peer.NewRecorder(""),
+		profileManager:         profilemanager.NewServiceManager(configFile),
+		profilesDisabled:       profilesDisabled,
+		updateSettingsDisabled: updateSettingsDisabled,
 	}
 }
 
@@ -322,8 +325,8 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.checkProfilesDisabled() {
-		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	if s.checkUpdateSettingsDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
 	}
 
 	profState := profilemanager.ActiveProfileState{
@@ -396,6 +399,11 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.DisableNotifications = msg.DisableNotifications
 	config.LazyConnectionEnabled = msg.LazyConnectionEnabled
 	config.BlockInbound = msg.BlockInbound
+
+	if msg.Mtu != nil {
+		mtu := uint16(*msg.Mtu)
+		config.MTU = &mtu
+	}
 
 	if _, err := profilemanager.UpdateConfig(config); err != nil {
 		log.Errorf("failed to update profile config: %v", err)
@@ -481,6 +489,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		// nolint
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, msg.Hostname)
 	}
+
 	s.mutex.Unlock()
 
 	config, err := s.getConfig(activeProf)
@@ -1102,6 +1111,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		AdminURL:              adminURL.String(),
 		InterfaceName:         cfg.WgIface,
 		WireguardPort:         int64(cfg.WgPort),
+		Mtu:                   int64(cfg.MTU),
 		DisableAutoConnect:    cfg.DisableAutoConnect,
 		ServerSSHAllowed:      *cfg.ServerSSHAllowed,
 		RosenpassEnabled:      cfg.RosenpassEnabled,
@@ -1197,8 +1207,14 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		if dnsState.Error != nil {
 			err = dnsState.Error.Error()
 		}
+
+		var servers []string
+		for _, server := range dnsState.Servers {
+			servers = append(servers, server.String())
+		}
+
 		pbDnsState := &proto.NSGroupState{
-			Servers: dnsState.Servers,
+			Servers: servers,
 			Domains: dnsState.Domains,
 			Enabled: dnsState.Enabled,
 			Error:   err,
@@ -1324,10 +1340,31 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 	}, nil
 }
 
+// GetFeatures returns the features supported by the daemon.
+func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest) (*proto.GetFeaturesResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	features := &proto.GetFeaturesResponse{
+		DisableProfiles:       s.checkProfilesDisabled(),
+		DisableUpdateSettings: s.checkUpdateSettingsDisabled(),
+	}
+
+	return features, nil
+}
+
 func (s *Server) checkProfilesDisabled() bool {
 	// Check if the environment variable is set to disable profiles
 	if s.profilesDisabled {
-		log.Warn("Profiles are disabled via NB_DISABLE_PROFILES environment variable")
+		return true
+	}
+
+	return false
+}
+
+func (s *Server) checkUpdateSettingsDisabled() bool {
+	// Check if the environment variable is set to disable profiles
+	if s.updateSettingsDisabled {
 		return true
 	}
 

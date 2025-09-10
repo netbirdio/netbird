@@ -23,7 +23,7 @@ func ServerQUICTLSConfig(originTLSCfg *tls.Config) (*tls.Config, error) {
 	}
 
 	cfg := originTLSCfg.Clone()
-	cfg.NextProtos = []string{nbalpn}
+	cfg.NextProtos = []string{NBalpn}
 	return cfg, nil
 }
 
@@ -74,6 +74,6 @@ func generateTestTLSConfig() (*tls.Config, error) {
 
 	return &tls.Config{
 		Certificates: []tls.Certificate{tlsCert},
-		NextProtos:   []string{nbalpn},
+		NextProtos:   []string{NBalpn},
 	}, nil
 }

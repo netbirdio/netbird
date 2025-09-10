@@ -64,6 +64,7 @@ type UserInfo struct {
 	NonDeletable         bool                                       `json:"non_deletable"`
 	LastLogin            time.Time                                  `json:"last_login"`
 	Issued               string                                     `json:"issued"`
+	PendingApproval      bool                                       `json:"pending_approval"`
 	IntegrationReference integration_reference.IntegrationReference `json:"-"`
 }
 
@@ -84,6 +85,8 @@ type User struct {
 	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
+	// PendingApproval indicates whether the user requires approval before being activated
+	PendingApproval bool
 	// LastLogin is the last time the user logged in to IdP
 	LastLogin *time.Time
 	// CreatedAt records the time the user was created
@@ -141,16 +144,17 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 
 	if userData == nil {
 		return &UserInfo{
-			ID:            u.Id,
-			Email:         "",
-			Name:          u.ServiceUserName,
-			Role:          string(u.Role),
-			AutoGroups:    u.AutoGroups,
-			Status:        string(UserStatusActive),
-			IsServiceUser: u.IsServiceUser,
-			IsBlocked:     u.Blocked,
-			LastLogin:     u.GetLastLogin(),
-			Issued:        u.Issued,
+			ID:              u.Id,
+			Email:           "",
+			Name:            u.ServiceUserName,
+			Role:            string(u.Role),
+			AutoGroups:      u.AutoGroups,
+			Status:          string(UserStatusActive),
+			IsServiceUser:   u.IsServiceUser,
+			IsBlocked:       u.Blocked,
+			LastLogin:       u.GetLastLogin(),
+			Issued:          u.Issued,
+			PendingApproval: u.PendingApproval,
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -163,16 +167,17 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	}
 
 	return &UserInfo{
-		ID:            u.Id,
-		Email:         userData.Email,
-		Name:          userData.Name,
-		Role:          string(u.Role),
-		AutoGroups:    autoGroups,
-		Status:        string(userStatus),
-		IsServiceUser: u.IsServiceUser,
-		IsBlocked:     u.Blocked,
-		LastLogin:     u.GetLastLogin(),
-		Issued:        u.Issued,
+		ID:              u.Id,
+		Email:           userData.Email,
+		Name:            userData.Name,
+		Role:            string(u.Role),
+		AutoGroups:      autoGroups,
+		Status:          string(userStatus),
+		IsServiceUser:   u.IsServiceUser,
+		IsBlocked:       u.Blocked,
+		LastLogin:       u.GetLastLogin(),
+		Issued:          u.Issued,
+		PendingApproval: u.PendingApproval,
 	}, nil
 }
 
@@ -194,6 +199,7 @@ func (u *User) Copy() *User {
 		ServiceUserName:      u.ServiceUserName,
 		PATs:                 pats,
 		Blocked:              u.Blocked,
+		PendingApproval:      u.PendingApproval,
 		LastLogin:            u.LastLogin,
 		CreatedAt:            u.CreatedAt,
 		Issued:               u.Issued,

@@ -15,7 +15,7 @@ var appendFlag bool
 var networksCMD = &cobra.Command{
 	Use:     "networks",
 	Aliases: []string{"routes"},
-	Short:   "Manage networks",
+	Short:   "Manage connections to NetBird Networks and Resources",
 	Long:    `Commands to list, select, or deselect networks. Replaces the "routes" command.`,
 }
 

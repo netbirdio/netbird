@@ -3,7 +3,7 @@ package ice
 import (
 	"sync/atomic"
 
-	"github.com/pion/stun/v2"
+	"github.com/pion/stun/v3"
 )
 
 type StunTurn atomic.Value

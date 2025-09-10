@@ -15,6 +15,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func GetColumnName(db *gorm.DB, column string) string {
@@ -466,7 +467,7 @@ func MigrateJsonToTable[T any](ctx context.Context, db *gorm.DB, columnName stri
 			}
 
 			for _, value := range data {
-				if err := tx.Create(
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(
 					mapperFunc(row["account_id"].(string), row["id"].(string), value),
 				).Error; err != nil {
 					return fmt.Errorf("failed to insert id %v: %w", row["id"], err)

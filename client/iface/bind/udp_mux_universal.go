@@ -15,9 +15,10 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pion/logging"
-	"github.com/pion/stun/v2"
+	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v3"
 
+	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -44,6 +45,7 @@ type UniversalUDPMuxParams struct {
 	Net                   transport.Net
 	FilterFn              FilterFn
 	WGAddress             wgaddr.Address
+	MTU                   uint16
 }
 
 // NewUniversalUDPMuxDefault creates an implementation of UniversalUDPMux embedding UDPMux
@@ -84,7 +86,7 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 // just ignore other packets printing an warning message.
 // It is a blocking method, consider running in a go routine.
 func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
-	buf := make([]byte, 1500)
+	buf := make([]byte, m.params.MTU+bufsize.WGBufferOverhead)
 	for {
 		select {
 		case <-ctx.Done():

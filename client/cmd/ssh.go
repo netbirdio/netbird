@@ -40,7 +40,7 @@ var sshCmd = &cobra.Command{
 
 		return nil
 	},
-	Short: "connect to a remote SSH server",
+	Short: "Connect to a remote SSH server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
 		SetFlagsFromEnvVars(cmd)
@@ -59,8 +59,8 @@ var sshCmd = &cobra.Command{
 
 		ctx := internal.CtxInitState(cmd.Context())
 
-		pm := profilemanager.NewProfileManager()
-		activeProf, err := pm.GetActiveProfile()
+		sm := profilemanager.NewServiceManager(configPath)
+		activeProf, err := sm.GetActiveProfileState()
 		if err != nil {
 			return fmt.Errorf("get active profile: %v", err)
 		}

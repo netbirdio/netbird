@@ -53,15 +53,17 @@ var (
 
 	upCmd = &cobra.Command{
 		Use:   "up",
-		Short: "install, login and start Netbird client",
+		Short: "Connect to the NetBird network",
+		Long:  "Connect to the NetBird network using the provided setup key or SSO auth. This command will bring up the WireGuard interface, connect to the management server, and establish peer-to-peer connections with other peers in the network if required.",
 		RunE:  upFunc,
 	}
 )
 
 func init() {
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
-	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "Wireguard interface name")
-	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "Wireguard interface listening port")
+	upCmd.PersistentFlags().StringVar(&interfaceName, interfaceNameFlag, iface.WgInterfaceDefault, "WireGuard interface name")
+	upCmd.PersistentFlags().Uint16Var(&wireguardPort, wireguardPortFlag, iface.DefaultWgPort, "WireGuard interface listening port")
+	upCmd.PersistentFlags().Uint16Var(&mtu, mtuFlag, iface.DefaultMTU, "Set MTU (Maximum Transmission Unit) for the WireGuard interface")
 	upCmd.PersistentFlags().BoolVarP(&networkMonitor, networkMonitorFlag, "N", networkMonitor,
 		`Manage network monitoring. Defaults to true on Windows and macOS, false on Linux and FreeBSD. `+
 			`E.g. --network-monitor=false to disable or --network-monitor=true to enable.`,
@@ -79,7 +81,7 @@ func init() {
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
-	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location. ")
+	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
 
 }
 
@@ -356,6 +358,11 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.WireguardPort = &p
 	}
 
+	if cmd.Flag(mtuFlag).Changed {
+		m := int64(mtu)
+		req.Mtu = &m
+	}
+
 	if cmd.Flag(networkMonitorFlag).Changed {
 		req.NetworkMonitor = &networkMonitor
 	}
@@ -433,6 +440,13 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	if cmd.Flag(wireguardPortFlag).Changed {
 		p := int(wireguardPort)
 		ic.WireguardPort = &p
+	}
+
+	if cmd.Flag(mtuFlag).Changed {
+		if err := iface.ValidateMTU(mtu); err != nil {
+			return nil, err
+		}
+		ic.MTU = &mtu
 	}
 
 	if cmd.Flag(networkMonitorFlag).Changed {
@@ -530,6 +544,14 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	if cmd.Flag(wireguardPortFlag).Changed {
 		wp := int64(wireguardPort)
 		loginRequest.WireguardPort = &wp
+	}
+
+	if cmd.Flag(mtuFlag).Changed {
+		if err := iface.ValidateMTU(mtu); err != nil {
+			return nil, err
+		}
+		m := int64(mtu)
+		loginRequest.Mtu = &m
 	}
 
 	if cmd.Flag(networkMonitorFlag).Changed {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -15,7 +16,9 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dns/local"
+	"github.com/netbirdio/netbird/client/internal/dns/mgmt"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -42,9 +45,11 @@ type Server interface {
 	Stop()
 	DnsIP() netip.Addr
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
-	OnUpdatedHostDNSServer(strings []string)
+	OnUpdatedHostDNSServer(addrs []netip.AddrPort)
 	SearchDomains() []string
 	ProbeAvailability()
+	UpdateServerConfig(domains dnsconfig.ServerDomains) error
+	PopulateManagementDomain(mgmtURL *url.URL) error
 }
 
 type nsGroupsByDomain struct {
@@ -55,7 +60,7 @@ type nsGroupsByDomain struct {
 // hostManagerWithOriginalNS extends the basic hostManager interface
 type hostManagerWithOriginalNS interface {
 	hostManager
-	getOriginalNameservers() []string
+	getOriginalNameservers() []netip.Addr
 }
 
 // DefaultServer dns server object
@@ -76,6 +81,8 @@ type DefaultServer struct {
 	currentConfig      HostDNSConfig
 	handlerChain       *HandlerChain
 	extraDomains       map[domain.Domain]int
+
+	mgmtCacheResolver *mgmt.Resolver
 
 	// permanent related properties
 	permanent      bool
@@ -104,18 +111,20 @@ type handlerWrapper struct {
 
 type registeredHandlerMap map[types.HandlerID]handlerWrapper
 
+// DefaultServerConfig holds configuration parameters for NewDefaultServer
+type DefaultServerConfig struct {
+	WgInterface    WGIface
+	CustomAddress  string
+	StatusRecorder *peer.Status
+	StateManager   *statemanager.Manager
+	DisableSys     bool
+}
+
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(
-	ctx context.Context,
-	wgInterface WGIface,
-	customAddress string,
-	statusRecorder *peer.Status,
-	stateManager *statemanager.Manager,
-	disableSys bool,
-) (*DefaultServer, error) {
+func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*DefaultServer, error) {
 	var addrPort *netip.AddrPort
-	if customAddress != "" {
-		parsedAddrPort, err := netip.ParseAddrPort(customAddress)
+	if config.CustomAddress != "" {
+		parsedAddrPort, err := netip.ParseAddrPort(config.CustomAddress)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse the custom dns address, got error: %s", err)
 		}
@@ -123,20 +132,21 @@ func NewDefaultServer(
 	}
 
 	var dnsService service
-	if wgInterface.IsUserspaceBind() {
-		dnsService = NewServiceViaMemory(wgInterface)
+	if config.WgInterface.IsUserspaceBind() {
+		dnsService = NewServiceViaMemory(config.WgInterface)
 	} else {
-		dnsService = newServiceViaListener(wgInterface, addrPort)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort)
 	}
 
-	return newDefaultServer(ctx, wgInterface, dnsService, statusRecorder, stateManager, disableSys), nil
+	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
+	return server, nil
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
 func NewDefaultServerPermanentUpstream(
 	ctx context.Context,
 	wgInterface WGIface,
-	hostsDnsList []string,
+	hostsDnsList []netip.AddrPort,
 	config nbdns.Config,
 	listener listener.NetworkChangeListener,
 	statusRecorder *peer.Status,
@@ -144,6 +154,7 @@ func NewDefaultServerPermanentUpstream(
 ) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
+
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
 	ds.addHostRootZone()
@@ -177,20 +188,24 @@ func newDefaultServer(
 ) *DefaultServer {
 	handlerChain := NewHandlerChain()
 	ctx, stop := context.WithCancel(ctx)
+
+	mgmtCacheResolver := mgmt.NewResolver()
+
 	defaultServer := &DefaultServer{
-		ctx:            ctx,
-		ctxCancel:      stop,
-		disableSys:     disableSys,
-		service:        dnsService,
-		handlerChain:   handlerChain,
-		extraDomains:   make(map[domain.Domain]int),
-		dnsMuxMap:      make(registeredHandlerMap),
-		localResolver:  local.NewResolver(),
-		wgInterface:    wgInterface,
-		statusRecorder: statusRecorder,
-		stateManager:   stateManager,
-		hostsDNSHolder: newHostsDNSHolder(),
-		hostManager:    &noopHostConfigurator{},
+		ctx:               ctx,
+		ctxCancel:         stop,
+		disableSys:        disableSys,
+		service:           dnsService,
+		handlerChain:      handlerChain,
+		extraDomains:      make(map[domain.Domain]int),
+		dnsMuxMap:         make(registeredHandlerMap),
+		localResolver:     local.NewResolver(),
+		wgInterface:       wgInterface,
+		statusRecorder:    statusRecorder,
+		stateManager:      stateManager,
+		hostsDNSHolder:    newHostsDNSHolder(),
+		hostManager:       &noopHostConfigurator{},
+		mgmtCacheResolver: mgmtCacheResolver,
 	}
 
 	// register with root zone, handler chain takes care of the routing
@@ -216,7 +231,7 @@ func (s *DefaultServer) RegisterHandler(domains domain.List, handler dns.Handler
 }
 
 func (s *DefaultServer) registerHandler(domains []string, handler dns.Handler, priority int) {
-	log.Debugf("registering handler %s with priority %d", handler, priority)
+	log.Debugf("registering handler %s with priority %d for %v", handler, priority, domains)
 
 	for _, domain := range domains {
 		if domain == "" {
@@ -245,7 +260,7 @@ func (s *DefaultServer) DeregisterHandler(domains domain.List, priority int) {
 }
 
 func (s *DefaultServer) deregisterHandler(domains []string, priority int) {
-	log.Debugf("deregistering handler %v with priority %d", domains, priority)
+	log.Debugf("deregistering handler with priority %d for %v", priority, domains)
 
 	for _, domain := range domains {
 		if domain == "" {
@@ -340,7 +355,7 @@ func (s *DefaultServer) disableDNS() error {
 
 // OnUpdatedHostDNSServer update the DNS servers addresses for root zones
 // It will be applied if the mgm server do not enforce DNS settings for root zone
-func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
+func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []netip.AddrPort) {
 	s.hostsDNSHolder.set(hostsDnsList)
 
 	// Check if there's any root handler
@@ -431,6 +446,29 @@ func (s *DefaultServer) ProbeAvailability() {
 	wg.Wait()
 }
 
+func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if s.mgmtCacheResolver != nil {
+		removedDomains, err := s.mgmtCacheResolver.UpdateFromServerDomains(s.ctx, domains)
+		if err != nil {
+			return fmt.Errorf("update management cache resolver: %w", err)
+		}
+
+		if len(removedDomains) > 0 {
+			s.deregisterHandler(removedDomains.ToPunycodeList(), PriorityMgmtCache)
+		}
+
+		newDomains := s.mgmtCacheResolver.GetCachedDomains()
+		if len(newDomains) > 0 {
+			s.registerHandler(newDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
+		}
+	}
+
+	return nil
+}
+
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	// is the service should be Disabled, we stop the listener or fake resolver
 	if update.ServiceEnable {
@@ -461,7 +499,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
 
-	if s.service.RuntimePort() != defaultPort && !s.hostManager.supportCustomPort() {
+	if s.service.RuntimePort() != DefaultPort && !s.hostManager.supportCustomPort() {
 		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
 			"Learn more at: https://docs.netbird.io/how-to/manage-dns-in-your-network#local-resolver")
 		s.currentConfig.RouteAll = false
@@ -581,14 +619,13 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	}
 
 	for _, ns := range originalNameservers {
-		if ns == config.ServerIP.String() {
+		if ns == config.ServerIP {
 			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, config.ServerIP)
 			continue
 		}
 
-		ns = formatAddr(ns, defaultPort)
-
-		handler.upstreamServers = append(handler.upstreamServers, ns)
+		addrPort := netip.AddrPortFrom(ns, DefaultPort)
+		handler.upstreamServers = append(handler.upstreamServers, addrPort)
 	}
 	handler.deactivate = func(error) { /* always active */ }
 	handler.reactivate = func() { /* always active */ }
@@ -695,7 +732,13 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 					ns.IP.String(), ns.NSType.String(), nbdns.UDPNameServerType.String())
 				continue
 			}
-			handler.upstreamServers = append(handler.upstreamServers, getNSHostPort(ns))
+
+			if ns.IP == s.service.RuntimeIP() {
+				log.Warnf("skipping nameserver %s as it matches our DNS server IP, preventing potential loop", ns.IP)
+				continue
+			}
+
+			handler.upstreamServers = append(handler.upstreamServers, ns.AddrPort())
 		}
 
 		if len(handler.upstreamServers) == 0 {
@@ -768,18 +811,6 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	}
 
 	s.dnsMuxMap = muxUpdateMap
-}
-
-func getNSHostPort(ns nbdns.NameServer) string {
-	return formatAddr(ns.IP.String(), ns.Port)
-}
-
-// formatAddr formats a nameserver address with port, handling IPv6 addresses properly
-func formatAddr(address string, port int) string {
-	if ip, err := netip.ParseAddr(address); err == nil && ip.Is6() {
-		return fmt.Sprintf("[%s]:%d", address, port)
-	}
-	return fmt.Sprintf("%s:%d", address, port)
 }
 
 // upstreamCallbacks returns two functions, the first one is used to deactivate
@@ -879,10 +910,7 @@ func (s *DefaultServer) addHostRootZone() {
 		return
 	}
 
-	handler.upstreamServers = make([]string, 0)
-	for k := range hostDNSServers {
-		handler.upstreamServers = append(handler.upstreamServers, k)
-	}
+	handler.upstreamServers = maps.Keys(hostDNSServers)
 	handler.deactivate = func(error) {}
 	handler.reactivate = func() {}
 
@@ -893,9 +921,9 @@ func (s *DefaultServer) updateNSGroupStates(groups []*nbdns.NameServerGroup) {
 	var states []peer.NSGroupState
 
 	for _, group := range groups {
-		var servers []string
+		var servers []netip.AddrPort
 		for _, ns := range group.NameServers {
-			servers = append(servers, fmt.Sprintf("%s:%d", ns.IP, ns.Port))
+			servers = append(servers, ns.AddrPort())
 		}
 
 		state := peer.NSGroupState{
@@ -927,7 +955,7 @@ func (s *DefaultServer) updateNSState(nsGroup *nbdns.NameServerGroup, err error,
 func generateGroupKey(nsGroup *nbdns.NameServerGroup) string {
 	var servers []string
 	for _, ns := range nsGroup.NameServers {
-		servers = append(servers, fmt.Sprintf("%s:%d", ns.IP, ns.Port))
+		servers = append(servers, ns.AddrPort().String())
 	}
 	return fmt.Sprintf("%v_%v", servers, nsGroup.Domains)
 }
@@ -969,4 +997,12 @@ func toZone(d domain.Domain) domain.Domain {
 			),
 		),
 	)
+}
+
+// PopulateManagementDomain populates the DNS cache with management domain
+func (s *DefaultServer) PopulateManagementDomain(mgmtURL *url.URL) error {
+	if s.mgmtCacheResolver != nil {
+		return s.mgmtCacheResolver.PopulateFromConfig(s.ctx, mgmtURL)
+	}
+	return nil
 }

@@ -503,7 +503,7 @@ func (c *GrpcClient) Logout() error {
 		return fmt.Errorf("get server public key: %w", err)
 	}
 
-	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*5)
+	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*15)
 	defer cancel()
 
 	message := &proto.Empty{}

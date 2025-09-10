@@ -11,12 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
-
-	"github.com/golang-jwt/jwt"
-	"github.com/stretchr/testify/assert"
 )
 
 type mockHTTPClient struct {

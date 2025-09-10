@@ -165,7 +165,7 @@ func (f *DNSForwarder) handleDNSQuery(w dns.ResponseWriter, query *dns.Msg) *dns
 	defer cancel()
 	ips, err := f.resolver.LookupNetIP(ctx, network, domain)
 	if err != nil {
-		f.handleDNSError(w, query, resp, domain, err)
+		f.handleDNSError(ctx, w, question, resp, domain, err)
 		return nil
 	}
 
@@ -244,20 +244,57 @@ func (f *DNSForwarder) updateFirewall(matchingEntries []*ForwarderEntry, prefixe
 	}
 }
 
+// setResponseCodeForNotFound determines and sets the appropriate response code when IsNotFound is true
+// It distinguishes between NXDOMAIN (domain doesn't exist) and NODATA (domain exists but no records of requested type)
+//
+// LIMITATION: This function only checks A and AAAA record types to determine domain existence.
+// If a domain has only other record types (MX, TXT, CNAME, etc.) but no A/AAAA records,
+// it may incorrectly return NXDOMAIN instead of NODATA. This is acceptable since the forwarder
+// only handles A/AAAA queries and returns NOTIMP for other types.
+func (f *DNSForwarder) setResponseCodeForNotFound(ctx context.Context, resp *dns.Msg, domain string, originalQtype uint16) {
+	// Try querying for a different record type to see if the domain exists
+	// If the original query was for AAAA, try A. If it was for A, try AAAA.
+	// This helps distinguish between NXDOMAIN and NODATA.
+	var alternativeNetwork string
+	switch originalQtype {
+	case dns.TypeAAAA:
+		alternativeNetwork = "ip4"
+	case dns.TypeA:
+		alternativeNetwork = "ip6"
+	default:
+		resp.Rcode = dns.RcodeNameError
+		return
+	}
+
+	if _, err := f.resolver.LookupNetIP(ctx, alternativeNetwork, domain); err != nil {
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			// Alternative query also returned not found - domain truly doesn't exist
+			resp.Rcode = dns.RcodeNameError
+			return
+		}
+		// Some other error (timeout, server failure, etc.) - can't determine, assume domain exists
+		resp.Rcode = dns.RcodeSuccess
+		return
+	}
+
+	// Alternative query succeeded - domain exists but has no records of this type
+	resp.Rcode = dns.RcodeSuccess
+}
+
 // handleDNSError processes DNS lookup errors and sends an appropriate error response
-func (f *DNSForwarder) handleDNSError(w dns.ResponseWriter, query, resp *dns.Msg, domain string, err error) {
+func (f *DNSForwarder) handleDNSError(ctx context.Context, w dns.ResponseWriter, question dns.Question, resp *dns.Msg, domain string, err error) {
 	var dnsErr *net.DNSError
 
 	switch {
 	case errors.As(err, &dnsErr):
 		resp.Rcode = dns.RcodeServerFailure
 		if dnsErr.IsNotFound {
-			// Pass through NXDOMAIN
-			resp.Rcode = dns.RcodeNameError
+			f.setResponseCodeForNotFound(ctx, resp, domain, question.Qtype)
 		}
 
 		if dnsErr.Server != "" {
-			log.Warnf("failed to resolve query for type=%s domain=%s server=%s: %v", dns.TypeToString[query.Question[0].Qtype], domain, dnsErr.Server, err)
+			log.Warnf("failed to resolve query for type=%s domain=%s server=%s: %v", dns.TypeToString[question.Qtype], domain, dnsErr.Server, err)
 		} else {
 			log.Warnf(errResolveFailed, domain, err)
 		}

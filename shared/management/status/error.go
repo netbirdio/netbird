@@ -42,7 +42,10 @@ const (
 // Type is a type of the Error
 type Type int32
 
-var ErrExtraSettingsNotFound = fmt.Errorf("extra settings not found")
+var (
+	ErrExtraSettingsNotFound = errors.New("extra settings not found")
+	ErrPeerAlreadyLoggedIn   = errors.New("peer with the same public key is already logged in")
+)
 
 // Error is an internal error
 type Error struct {
@@ -108,6 +111,11 @@ func NewUserNotFoundError(userKey string) error {
 // NewUserBlockedError creates a new Error with PermissionDenied type for a blocked user
 func NewUserBlockedError() error {
 	return Errorf(PermissionDenied, "user is blocked")
+}
+
+// NewUserPendingApprovalError creates a new Error with PermissionDenied type for a blocked user pending approval
+func NewUserPendingApprovalError() error {
+	return Errorf(PermissionDenied, "user is pending approval")
 }
 
 // NewPeerNotRegisteredError creates a new Error with Unauthenticated type unregistered peer

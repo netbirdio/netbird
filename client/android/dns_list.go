@@ -1,23 +1,34 @@
 package android
 
-import "fmt"
+import (
+	"fmt"
+	"net/netip"
 
-// DNSList is a wrapper of []string
+	"github.com/netbirdio/netbird/client/internal/dns"
+)
+
+// DNSList is a wrapper of []netip.AddrPort with default DNS port
 type DNSList struct {
-	items []string
+	items []netip.AddrPort
 }
 
-// Add new DNS address to the collection
-func (array *DNSList) Add(s string) {
-	array.items = append(array.items, s)
+// Add new DNS address to the collection, returns error if invalid
+func (array *DNSList) Add(s string) error {
+	addr, err := netip.ParseAddr(s)
+	if err != nil {
+		return fmt.Errorf("invalid DNS address: %s", s)
+	}
+	addrPort := netip.AddrPortFrom(addr.Unmap(), dns.DefaultPort)
+	array.items = append(array.items, addrPort)
+	return nil
 }
 
-// Get return an element of the collection
+// Get return an element of the collection as string
 func (array *DNSList) Get(i int) (string, error) {
 	if i >= len(array.items) || i < 0 {
 		return "", fmt.Errorf("out of range")
 	}
-	return array.items[i], nil
+	return array.items[i].Addr().String(), nil
 }
 
 // Size return with the size of the collection

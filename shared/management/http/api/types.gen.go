@@ -260,11 +260,17 @@ type AccountExtraSettings struct {
 	// NetworkTrafficLogsEnabled Enables or disables network traffic logging. If enabled, all network traffic events from peers will be stored.
 	NetworkTrafficLogsEnabled bool `json:"network_traffic_logs_enabled"`
 
+	// NetworkTrafficLogsGroups Limits traffic logging to these groups. If unset all peers are enabled.
+	NetworkTrafficLogsGroups []string `json:"network_traffic_logs_groups"`
+
 	// NetworkTrafficPacketCounterEnabled Enables or disables network traffic packet counter. If enabled, network packets and their size will be counted and reported. (This can have an slight impact on performance)
 	NetworkTrafficPacketCounterEnabled bool `json:"network_traffic_packet_counter_enabled"`
 
 	// PeerApprovalEnabled (Cloud only) Enables or disables peer approval globally. If enabled, all peers added will be in pending state until approved by an admin.
 	PeerApprovalEnabled bool `json:"peer_approval_enabled"`
+
+	// UserApprovalRequired Enables manual approval for new users joining via domain matching. When enabled, users are blocked with pending approval status until explicitly approved by an admin.
+	UserApprovalRequired bool `json:"user_approval_required"`
 }
 
 // AccountOnboarding defines model for AccountOnboarding.
@@ -1027,6 +1033,9 @@ type Peer struct {
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode CountryCode `json:"country_code"`
 
+	// CreatedAt Peer creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
@@ -1110,6 +1119,9 @@ type PeerBatch struct {
 
 	// CountryCode 2-letter ISO 3166-1 alpha-2 code that represents the country
 	CountryCode CountryCode `json:"country_code"`
+
+	// CreatedAt Peer creation date (UTC)
+	CreatedAt time.Time `json:"created_at"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
@@ -1534,6 +1546,9 @@ type Route struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+
+	// SkipAutoApply Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
 // RouteRequest defines model for RouteRequest.
@@ -1573,6 +1588,9 @@ type RouteRequest struct {
 
 	// PeerGroups Peers Group Identifier associated with route. This property can not be set together with `peer`
 	PeerGroups *[]string `json:"peer_groups,omitempty"`
+
+	// SkipAutoApply Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
+	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
 
 // RulePortRange Policy rule affected ports range
@@ -1761,8 +1779,11 @@ type User struct {
 	LastLogin *time.Time `json:"last_login,omitempty"`
 
 	// Name User's name from idp provider
-	Name        string           `json:"name"`
-	Permissions *UserPermissions `json:"permissions,omitempty"`
+	Name string `json:"name"`
+
+	// PendingApproval Is true if this user requires approval before being activated. Only applicable for users joining via domain matching when user_approval_required is enabled.
+	PendingApproval bool             `json:"pending_approval"`
+	Permissions     *UserPermissions `json:"permissions,omitempty"`
 
 	// Role User's NetBird account role
 	Role string `json:"role"`

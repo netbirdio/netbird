@@ -6,12 +6,11 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"os"
 	"runtime"
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -24,8 +23,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/id"
 	"github.com/netbirdio/netbird/client/internal/peer/worker"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
-	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/route"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
@@ -174,7 +173,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay)
 
 	conn.handshaker.AddOnNewOfferListener(conn.workerRelay.OnNewOffer)
-	if os.Getenv("NB_FORCE_RELAY") != "true" {
+	if !isForceRelayed() {
 		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
 	}
 
@@ -200,19 +199,11 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.wg.Add(1)
 	go func() {
 		defer conn.wg.Done()
+
 		conn.waitInitialRandomSleepTime(conn.ctx)
 		conn.semaphore.Done(conn.ctx)
 
-		conn.dumpState.SendOffer()
-		if err := conn.handshaker.sendOffer(); err != nil {
-			conn.Log.Errorf("failed to send initial offer: %v", err)
-		}
-
-		conn.wg.Add(1)
-		go func() {
-			conn.guard.Start(conn.ctx, conn.onGuardEvent)
-			conn.wg.Done()
-		}()
+		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
 	conn.opened = true
 	return nil
@@ -274,10 +265,10 @@ func (conn *Conn) Close(signalToRemote bool) {
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
+func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) {
 	conn.dumpState.RemoteAnswer()
 	conn.Log.Infof("OnRemoteAnswer, priority: %s, status ICE: %s, status relay: %s", conn.currentConnPriority, conn.statusICE, conn.statusRelay)
-	return conn.handshaker.OnRemoteAnswer(answer)
+	conn.handshaker.OnRemoteAnswer(answer)
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
@@ -296,10 +287,10 @@ func (conn *Conn) SetOnDisconnected(handler func(remotePeer string)) {
 	conn.onDisconnected = handler
 }
 
-func (conn *Conn) OnRemoteOffer(offer OfferAnswer) bool {
+func (conn *Conn) OnRemoteOffer(offer OfferAnswer) {
 	conn.dumpState.RemoteOffer()
 	conn.Log.Infof("OnRemoteOffer, on status ICE: %s, status Relay: %s", conn.statusICE, conn.statusRelay)
-	return conn.handshaker.OnRemoteOffer(offer)
+	conn.handshaker.OnRemoteOffer(offer)
 }
 
 // WgConfig returns the WireGuard config
@@ -548,7 +539,6 @@ func (conn *Conn) onRelayDisconnected() {
 }
 
 func (conn *Conn) onGuardEvent() {
-	conn.Log.Debugf("send offer to peer")
 	conn.dumpState.SendOffer()
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
@@ -672,7 +662,7 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 		}
 	}()
 
-	if conn.statusICE.Get() == worker.StatusDisconnected {
+	if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
 		return false
 	}
 

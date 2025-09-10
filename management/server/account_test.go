@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -783,7 +785,7 @@ func TestAccountManager_GetAccountByUserID(t *testing.T) {
 		return
 	}
 
-	exists, err := manager.Store.AccountExists(context.Background(), store.LockingStrengthShare, accountID)
+	exists, err := manager.Store.AccountExists(context.Background(), store.LockingStrengthNone, accountID)
 	assert.NoError(t, err)
 	assert.True(t, exists, "expected to get existing account after creation using userid")
 
@@ -900,11 +902,11 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 		t.Fatal(fmt.Errorf("expected to get an error when trying to get deleted account, got %v", getAccount))
 	}
 
-	pats, err := manager.Store.GetUserPATs(context.Background(), store.LockingStrengthShare, "service-user-1")
+	pats, err := manager.Store.GetUserPATs(context.Background(), store.LockingStrengthNone, "service-user-1")
 	require.NoError(t, err)
 	assert.Len(t, pats, 0)
 
-	pats, err = manager.Store.GetUserPATs(context.Background(), store.LockingStrengthShare, userId)
+	pats, err = manager.Store.GetUserPATs(context.Background(), store.LockingStrengthNone, userId)
 	require.NoError(t, err)
 	assert.Len(t, pats, 0)
 }
@@ -1786,7 +1788,7 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
 	require.NoError(t, err, "unable to create an account")
 
-	settings, err := manager.Store.GetAccountSettings(context.Background(), store.LockingStrengthShare, accountID)
+	settings, err := manager.Store.GetAccountSettings(context.Background(), store.LockingStrengthNone, accountID)
 	require.NoError(t, err, "unable to get account settings")
 
 	assert.NotNil(t, settings)
@@ -1971,7 +1973,7 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	assert.False(t, updatedSettings.PeerLoginExpirationEnabled)
 	assert.Equal(t, updatedSettings.PeerLoginExpiration, time.Hour)
 
-	settings, err := manager.Store.GetAccountSettings(context.Background(), store.LockingStrengthShare, accountID)
+	settings, err := manager.Store.GetAccountSettings(context.Background(), store.LockingStrengthNone, accountID)
 	require.NoError(t, err, "unable to get account settings")
 
 	assert.False(t, settings.PeerLoginExpirationEnabled)
@@ -2655,7 +2657,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 0, "JWT groups should not be synced")
 	})
@@ -2669,7 +2671,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err := manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Empty(t, user.AutoGroups, "auto groups must be empty")
 	})
@@ -2683,18 +2685,18 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err := manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 0)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthShare, "accountID", "group1")
+		group1, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
 		assert.Equal(t, group1.Issued, types.GroupIssuedAPI, "group should be api issued")
 	})
 
 	t.Run("jwt match existing api group in user auto groups", func(t *testing.T) {
 		account.Users["user1"].AutoGroups = []string{"group1"}
-		assert.NoError(t, manager.Store.SaveUser(context.Background(), store.LockingStrengthUpdate, account.Users["user1"]))
+		assert.NoError(t, manager.Store.SaveUser(context.Background(), account.Users["user1"]))
 
 		claims := nbcontext.UserAuth{
 			UserId:    "user1",
@@ -2704,11 +2706,11 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1)
 
-		group1, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthShare, "accountID", "group1")
+		group1, err := manager.Store.GetGroupByID(context.Background(), store.LockingStrengthNone, "accountID", "group1")
 		assert.NoError(t, err, "unable to get group")
 		assert.Equal(t, group1.Issued, types.GroupIssuedAPI, "group should be api issued")
 	})
@@ -2722,7 +2724,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 2, "groups count should not be change")
 	})
@@ -2736,7 +2738,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 2, "groups count should not be change")
 	})
@@ -2750,11 +2752,11 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		groups, err := manager.Store.GetAccountGroups(context.Background(), store.LockingStrengthShare, "accountID")
+		groups, err := manager.Store.GetAccountGroups(context.Background(), store.LockingStrengthNone, "accountID")
 		assert.NoError(t, err)
 		assert.Len(t, groups, 3, "new group3 should be added")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user2")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user2")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "new group should be added")
 	})
@@ -2768,7 +2770,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user1")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user1")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 1, "only non-JWT groups should remain")
 		assert.Contains(t, user.AutoGroups, "group1", "group1 should still be present")
@@ -2783,7 +2785,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		err = manager.SyncUserJWTGroups(context.Background(), claims)
 		assert.NoError(t, err, "unable to sync jwt groups")
 
-		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthShare, "user2")
+		user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, "user2")
 		assert.NoError(t, err, "unable to get user")
 		assert.Len(t, user.AutoGroups, 0, "all JWT groups should be removed")
 	})
@@ -3046,19 +3048,14 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			minExpected := bc.minMsPerOpLocal
 			maxExpected := bc.maxMsPerOpLocal
 			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
 				maxExpected = bc.maxMsPerOpCICD
+				testing_tools.EvaluateBenchmarkResults(b, bc.name, time.Since(start), "sync", "syncAndMark")
 			}
 
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > (maxExpected * 1.1) {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			if msPerOp > maxExpected {
+				b.Logf("Benchmark %s: too slow (%.2f ms/op, max %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -3121,19 +3118,14 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			minExpected := bc.minMsPerOpLocal
 			maxExpected := bc.maxMsPerOpLocal
 			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
 				maxExpected = bc.maxMsPerOpCICD
+				testing_tools.EvaluateBenchmarkResults(b, bc.name, time.Since(start), "login", "existingPeer")
 			}
 
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > (maxExpected * 1.1) {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			if msPerOp > maxExpected {
+				b.Logf("Benchmark %s: too slow (%.2f ms/op, max %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
@@ -3196,22 +3188,42 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
 			b.ReportMetric(msPerOp, "ms/op")
 
-			minExpected := bc.minMsPerOpLocal
 			maxExpected := bc.maxMsPerOpLocal
 			if os.Getenv("CI") == "true" {
-				minExpected = bc.minMsPerOpCICD
 				maxExpected = bc.maxMsPerOpCICD
+				testing_tools.EvaluateBenchmarkResults(b, bc.name, time.Since(start), "login", "newPeer")
 			}
 
-			if msPerOp < minExpected {
-				b.Fatalf("Benchmark %s failed: too fast (%.2f ms/op, minimum %.2f ms/op)", bc.name, msPerOp, minExpected)
-			}
-
-			if msPerOp > (maxExpected * 1.1) {
-				b.Fatalf("Benchmark %s failed: too slow (%.2f ms/op, maximum %.2f ms/op)", bc.name, msPerOp, maxExpected)
+			if msPerOp > maxExpected {
+				b.Logf("Benchmark %s: too slow (%.2f ms/op, max %.2f ms/op)", bc.name, msPerOp, maxExpected)
 			}
 		})
 	}
+}
+
+func TestMain(m *testing.M) {
+	exitCode := m.Run()
+
+	if exitCode == 0 && os.Getenv("CI") == "true" {
+		runID := os.Getenv("GITHUB_RUN_ID")
+		storeEngine := os.Getenv("NETBIRD_STORE_ENGINE")
+		err := push.New("http://localhost:9091", "account_manager_benchmark").
+			Collector(testing_tools.BenchmarkDuration).
+			Grouping("ci_run", runID).
+			Grouping("store_engine", storeEngine).
+			Push()
+		if err != nil {
+			log.Printf("Failed to push metrics: %v", err)
+		} else {
+			time.Sleep(1 * time.Minute)
+			_ = push.New("http://localhost:9091", "account_manager_benchmark").
+				Grouping("ci_run", runID).
+				Grouping("store_engine", storeEngine).
+				Delete()
+		}
+	}
+
+	os.Exit(exitCode)
 }
 
 func Test_GetCreateAccountByPrivateDomain(t *testing.T) {
@@ -3250,11 +3262,13 @@ func Test_GetCreateAccountByPrivateDomain(t *testing.T) {
 	assert.Equal(t, 0, len(account2.Users))
 	assert.Equal(t, 0, len(account2.SetupKeys))
 
-	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	assert.NoError(t, err)
+	account, err = manager.Store.GetAccount(ctx, account.Id)
 	assert.NoError(t, err)
 	assert.True(t, account.IsDomainPrimaryAccount)
 
-	_, err = manager.UpdateToPrimaryAccount(ctx, account2.Id)
+	err = manager.UpdateToPrimaryAccount(ctx, account2.Id)
 	assert.Error(t, err, "should not be able to update a second account to primary")
 }
 
@@ -3275,7 +3289,9 @@ func Test_UpdateToPrimaryAccount(t *testing.T) {
 	assert.False(t, account.IsDomainPrimaryAccount)
 	assert.Equal(t, domain, account.Domain)
 
-	account, err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	err = manager.UpdateToPrimaryAccount(ctx, account.Id)
+	assert.NoError(t, err)
+	account, err = manager.Store.GetAccount(ctx, account.Id)
 	assert.NoError(t, err)
 	assert.True(t, account.IsDomainPrimaryAccount)
 
@@ -3348,11 +3364,11 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	require.NoError(t, err)
 
 	peer1 := &nbpeer.Peer{ID: "peer1", AccountID: account.Id, UserID: initiatorId, IP: net.IP{1, 1, 1, 1}, DNSLabel: "peer1.domain.test"}
-	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer1)
+	err = manager.Store.AddPeerToAccount(ctx, peer1)
 	require.NoError(t, err)
 
 	peer2 := &nbpeer.Peer{ID: "peer2", AccountID: account.Id, UserID: initiatorId, IP: net.IP{2, 2, 2, 2}, DNSLabel: "peer2.domain.test"}
-	err = manager.Store.AddPeerToAccount(ctx, store.LockingStrengthUpdate, peer2)
+	err = manager.Store.AddPeerToAccount(ctx, peer2)
 	require.NoError(t, err)
 
 	t.Run("should skip propagation when the user has no groups", func(t *testing.T) {
@@ -3364,20 +3380,20 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 
 	t.Run("should update membership but no account peers update for unused groups", func(t *testing.T) {
 		group1 := &types.Group{ID: "group1", Name: "Group 1", AccountID: account.Id}
-		require.NoError(t, manager.Store.CreateGroup(ctx, store.LockingStrengthUpdate, group1))
+		require.NoError(t, manager.Store.CreateGroup(ctx, group1))
 
-		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorId)
 		require.NoError(t, err)
 
 		user.AutoGroups = append(user.AutoGroups, group1.ID)
-		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+		require.NoError(t, manager.Store.SaveUser(ctx, user))
 
 		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)
 		assert.True(t, groupsUpdated)
 		assert.False(t, groupChangesAffectPeers)
 
-		group, err := manager.Store.GetGroupByID(ctx, store.LockingStrengthShare, account.Id, group1.ID)
+		group, err := manager.Store.GetGroupByID(ctx, store.LockingStrengthNone, account.Id, group1.ID)
 		require.NoError(t, err)
 		assert.Len(t, group.Peers, 2)
 		assert.Contains(t, group.Peers, "peer1")
@@ -3386,13 +3402,13 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 
 	t.Run("should update membership and account peers for used groups", func(t *testing.T) {
 		group2 := &types.Group{ID: "group2", Name: "Group 2", AccountID: account.Id}
-		require.NoError(t, manager.Store.CreateGroup(ctx, store.LockingStrengthUpdate, group2))
+		require.NoError(t, manager.Store.CreateGroup(ctx, group2))
 
-		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorId)
 		require.NoError(t, err)
 
 		user.AutoGroups = append(user.AutoGroups, group2.ID)
-		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+		require.NoError(t, manager.Store.SaveUser(ctx, user))
 
 		_, err = manager.SavePolicy(context.Background(), account.Id, initiatorId, &types.Policy{
 			Name:      "Group1 Policy",
@@ -3415,7 +3431,7 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 		assert.True(t, groupsUpdated)
 		assert.True(t, groupChangesAffectPeers)
 
-		groups, err := manager.Store.GetGroupsByIDs(ctx, store.LockingStrengthShare, account.Id, []string{"group1", "group2"})
+		groups, err := manager.Store.GetGroupsByIDs(ctx, store.LockingStrengthNone, account.Id, []string{"group1", "group2"})
 		require.NoError(t, err)
 		for _, group := range groups {
 			assert.Len(t, group.Peers, 2)
@@ -3432,18 +3448,18 @@ func TestPropagateUserGroupMemberships(t *testing.T) {
 	})
 
 	t.Run("should not remove peers when groups are removed from user", func(t *testing.T) {
-		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthShare, initiatorId)
+		user, err := manager.Store.GetUserByUserID(ctx, store.LockingStrengthNone, initiatorId)
 		require.NoError(t, err)
 
 		user.AutoGroups = []string{"group1"}
-		require.NoError(t, manager.Store.SaveUser(ctx, store.LockingStrengthUpdate, user))
+		require.NoError(t, manager.Store.SaveUser(ctx, user))
 
 		groupsUpdated, groupChangesAffectPeers, err := propagateUserGroupMemberships(ctx, manager.Store, account.Id)
 		require.NoError(t, err)
 		assert.False(t, groupsUpdated)
 		assert.False(t, groupChangesAffectPeers)
 
-		groups, err := manager.Store.GetGroupsByIDs(ctx, store.LockingStrengthShare, account.Id, []string{"group1", "group2"})
+		groups, err := manager.Store.GetGroupsByIDs(ctx, store.LockingStrengthNone, account.Id, []string{"group1", "group2"})
 		require.NoError(t, err)
 		for _, group := range groups {
 			assert.Len(t, group.Peers, 2)
@@ -3589,4 +3605,94 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 		err := manager.UpdatePeerIP(context.Background(), accountID, userID, "invalid-peer-id", newAddr)
 		require.Error(t, err, "should fail with invalid peer ID")
 	})
+}
+
+func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a domain-based account with user approval enabled
+	existingAccountID := "existing-account"
+	account := newAccountWithId(context.Background(), existingAccountID, "owner-user", "example.com", false)
+	account.Settings.Extra = &types.ExtraSettings{
+		UserApprovalRequired: true,
+	}
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Set the account as domain primary account
+	account.IsDomainPrimaryAccount = true
+	account.DomainCategory = types.PrivateCategory
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Test adding new user to existing account with approval required
+	newUserID := "new-user-id"
+	userAuth := nbcontext.UserAuth{
+		UserId:         newUserID,
+		Domain:         "example.com",
+		DomainCategory: types.PrivateCategory,
+	}
+
+	acc, err := manager.Store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	require.True(t, acc.IsDomainPrimaryAccount, "Account should be primary for the domain")
+	require.Equal(t, "example.com", acc.Domain, "Account domain should match")
+
+	returnedAccountID, err := manager.getAccountIDWithAuthorizationClaims(context.Background(), userAuth)
+	require.NoError(t, err)
+	require.Equal(t, existingAccountID, returnedAccountID)
+
+	// Verify user was created with pending approval
+	user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, newUserID)
+	require.NoError(t, err)
+	assert.True(t, user.Blocked, "User should be blocked when approval is required")
+	assert.True(t, user.PendingApproval, "User should be pending approval")
+	assert.Equal(t, existingAccountID, user.AccountID)
+}
+
+func TestAddNewUserToDomainAccountWithoutApproval(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a domain-based account without user approval
+	ownerUserAuth := nbcontext.UserAuth{
+		UserId:         "owner-user",
+		Domain:         "example.com",
+		DomainCategory: types.PrivateCategory,
+	}
+	existingAccountID, err := manager.getAccountIDWithAuthorizationClaims(context.Background(), ownerUserAuth)
+	require.NoError(t, err)
+
+	// Modify the account to disable user approval
+	account, err := manager.Store.GetAccount(context.Background(), existingAccountID)
+	require.NoError(t, err)
+	account.Settings.Extra = &types.ExtraSettings{
+		UserApprovalRequired: false,
+	}
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Test adding new user to existing account without approval required
+	newUserID := "new-user-id"
+	userAuth := nbcontext.UserAuth{
+		UserId:         newUserID,
+		Domain:         "example.com",
+		DomainCategory: types.PrivateCategory,
+	}
+
+	returnedAccountID, err := manager.getAccountIDWithAuthorizationClaims(context.Background(), userAuth)
+	require.NoError(t, err)
+	require.Equal(t, existingAccountID, returnedAccountID)
+
+	// Verify user was created without pending approval
+	user, err := manager.Store.GetUserByUserID(context.Background(), store.LockingStrengthNone, newUserID)
+	require.NoError(t, err)
+	assert.False(t, user.Blocked, "User should not be blocked when approval is not required")
+	assert.False(t, user.PendingApproval, "User should not be pending approval")
+	assert.Equal(t, existingAccountID, user.AccountID)
 }

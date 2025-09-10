@@ -50,7 +50,9 @@ func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns
 }
 
 func (u *upstreamResolver) exchangeWithinVPN(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	upstreamExchangeClient := &dns.Client{}
+	upstreamExchangeClient := &dns.Client{
+		Timeout: ClientTimeout,
+	}
 	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
 }
 
@@ -72,15 +74,16 @@ func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream stri
 	}
 
 	upstreamExchangeClient := &dns.Client{
-		Dialer: dialer,
+		Dialer:  dialer,
+		Timeout: timeout,
 	}
 
-	return upstreamExchangeClient.Exchange(r, upstream)
+	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
 }
 
 func (u *upstreamResolver) isLocalResolver(upstream string) bool {
-	if u.hostsDNSHolder.isContain(upstream) {
-		return true
+	if addrPort, err := netip.ParseAddrPort(upstream); err == nil {
+		return u.hostsDNSHolder.contains(addrPort)
 	}
 	return false
 }

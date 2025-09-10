@@ -26,10 +26,10 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	peer2 "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -648,7 +648,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		_, err := manager.CreateRoute(
 			context.Background(), account.Id, newRoute.Network, newRoute.NetworkType, newRoute.Domains, newRoute.Peer,
 			newRoute.PeerGroups, newRoute.Description, newRoute.NetID, newRoute.Masquerade, newRoute.Metric,
-			newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute,
+			newRoute.Groups, []string{}, true, userID, newRoute.KeepRoute, newRoute.SkipAutoApply,
 		)
 		require.NoError(t, err)
 
@@ -898,7 +898,7 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 			}
 
 			err = manager.Store.ExecuteInTransaction(context.Background(), func(transaction store.Store) error {
-				err = transaction.AddPeerToAccount(context.Background(), store.LockingStrengthUpdate, peer)
+				err = transaction.AddPeerToAccount(context.Background(), peer)
 				if err != nil {
 					return fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
 				}
@@ -971,7 +971,7 @@ func Test_IncrementNetworkSerial(t *testing.T) {
 			<-start
 
 			err = manager.Store.ExecuteInTransaction(context.Background(), func(transaction store.Store) error {
-				err = transaction.IncrementNetworkSerial(context.Background(), store.LockingStrengthNone, accountID)
+				err = transaction.IncrementNetworkSerial(context.Background(), accountID)
 				if err != nil {
 					return fmt.Errorf("failed to get account %s: %v", accountID, err)
 				}

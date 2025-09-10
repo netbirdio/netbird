@@ -2,6 +2,7 @@ package types
 
 import (
 	"net/netip"
+	"slices"
 	"time"
 )
 
@@ -82,26 +83,30 @@ type ExtraSettings struct {
 	// PeerApprovalEnabled enables or disables the need for peers bo be approved by an administrator
 	PeerApprovalEnabled bool
 
+	// UserApprovalRequired enables or disables the need for users joining via domain matching to be approved by an administrator
+	UserApprovalRequired bool
+
 	// IntegratedValidator is the string enum for the integrated validator type
 	IntegratedValidator string
 	// IntegratedValidatorGroups list of group IDs to be used with integrated approval configurations
 	IntegratedValidatorGroups []string `gorm:"serializer:json"`
 
-	FlowEnabled              bool `gorm:"-"`
-	FlowPacketCounterEnabled bool `gorm:"-"`
-	FlowENCollectionEnabled  bool `gorm:"-"`
-	FlowDnsCollectionEnabled bool `gorm:"-"`
+	FlowEnabled              bool     `gorm:"-"`
+	FlowGroups               []string `gorm:"-"`
+	FlowPacketCounterEnabled bool     `gorm:"-"`
+	FlowENCollectionEnabled  bool     `gorm:"-"`
+	FlowDnsCollectionEnabled bool     `gorm:"-"`
 }
 
 // Copy copies the ExtraSettings struct
 func (e *ExtraSettings) Copy() *ExtraSettings {
-	var cpGroup []string
-
 	return &ExtraSettings{
 		PeerApprovalEnabled:       e.PeerApprovalEnabled,
-		IntegratedValidatorGroups: append(cpGroup, e.IntegratedValidatorGroups...),
+		UserApprovalRequired:      e.UserApprovalRequired,
+		IntegratedValidatorGroups: slices.Clone(e.IntegratedValidatorGroups),
 		IntegratedValidator:       e.IntegratedValidator,
 		FlowEnabled:               e.FlowEnabled,
+		FlowGroups:                slices.Clone(e.FlowGroups),
 		FlowPacketCounterEnabled:  e.FlowPacketCounterEnabled,
 		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
 		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,

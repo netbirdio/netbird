@@ -19,7 +19,7 @@ func ClientQUICTLSConfig() *tls.Config {
 	}
 
 	return &tls.Config{
-		NextProtos: []string{nbalpn},
+		NextProtos: []string{NBalpn},
 		RootCAs:    certPool,
 	}
 }

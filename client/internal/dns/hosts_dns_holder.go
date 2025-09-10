@@ -1,38 +1,31 @@
 package dns
 
 import (
-	"fmt"
 	"net/netip"
 	"sync"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type hostsDNSHolder struct {
-	unprotectedDNSList map[string]struct{}
+	unprotectedDNSList map[netip.AddrPort]struct{}
 	mutex              sync.RWMutex
 }
 
 func newHostsDNSHolder() *hostsDNSHolder {
 	return &hostsDNSHolder{
-		unprotectedDNSList: make(map[string]struct{}),
+		unprotectedDNSList: make(map[netip.AddrPort]struct{}),
 	}
 }
 
-func (h *hostsDNSHolder) set(list []string) {
+func (h *hostsDNSHolder) set(list []netip.AddrPort) {
 	h.mutex.Lock()
-	h.unprotectedDNSList = make(map[string]struct{})
-	for _, dns := range list {
-		dnsAddr, err := h.normalizeAddress(dns)
-		if err != nil {
-			continue
-		}
-		h.unprotectedDNSList[dnsAddr] = struct{}{}
+	h.unprotectedDNSList = make(map[netip.AddrPort]struct{})
+	for _, addrPort := range list {
+		h.unprotectedDNSList[addrPort] = struct{}{}
 	}
 	h.mutex.Unlock()
 }
 
-func (h *hostsDNSHolder) get() map[string]struct{} {
+func (h *hostsDNSHolder) get() map[netip.AddrPort]struct{} {
 	h.mutex.RLock()
 	l := h.unprotectedDNSList
 	h.mutex.RUnlock()
@@ -40,24 +33,10 @@ func (h *hostsDNSHolder) get() map[string]struct{} {
 }
 
 //nolint:unused
-func (h *hostsDNSHolder) isContain(upstream string) bool {
+func (h *hostsDNSHolder) contains(upstream netip.AddrPort) bool {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
 
 	_, ok := h.unprotectedDNSList[upstream]
 	return ok
-}
-
-func (h *hostsDNSHolder) normalizeAddress(addr string) (string, error) {
-	a, err := netip.ParseAddr(addr)
-	if err != nil {
-		log.Errorf("invalid upstream IP address: %s, error: %s", addr, err)
-		return "", err
-	}
-
-	if a.Is4() {
-		return fmt.Sprintf("%s:53", addr), nil
-	} else {
-		return fmt.Sprintf("[%s]:53", addr), nil
-	}
 }

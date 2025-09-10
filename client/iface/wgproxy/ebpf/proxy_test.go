@@ -7,7 +7,7 @@ import (
 )
 
 func TestWGEBPFProxy_connStore(t *testing.T) {
-	wgProxy := NewWGEBPFProxy(1)
+	wgProxy := NewWGEBPFProxy(1, 1280)
 
 	p, _ := wgProxy.storeTurnConn(nil)
 	if p != 1 {
@@ -27,7 +27,7 @@ func TestWGEBPFProxy_connStore(t *testing.T) {
 }
 
 func TestWGEBPFProxy_portCalculation_overflow(t *testing.T) {
-	wgProxy := NewWGEBPFProxy(1)
+	wgProxy := NewWGEBPFProxy(1, 1280)
 
 	_, _ = wgProxy.storeTurnConn(nil)
 	wgProxy.lastUsedPort = 65535
@@ -43,7 +43,7 @@ func TestWGEBPFProxy_portCalculation_overflow(t *testing.T) {
 }
 
 func TestWGEBPFProxy_portCalculation_maxConn(t *testing.T) {
-	wgProxy := NewWGEBPFProxy(1)
+	wgProxy := NewWGEBPFProxy(1, 1280)
 
 	for i := 0; i < 65535; i++ {
 		_, _ = wgProxy.storeTurnConn(nil)

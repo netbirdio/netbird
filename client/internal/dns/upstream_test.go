@@ -59,7 +59,14 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
 			resolver, _ := newUpstreamResolver(ctx, "", netip.Addr{}, netip.Prefix{}, nil, nil, ".")
-			resolver.upstreamServers = testCase.InputServers
+			// Convert test servers to netip.AddrPort
+			var servers []netip.AddrPort
+			for _, server := range testCase.InputServers {
+				if addrPort, err := netip.ParseAddrPort(server); err == nil {
+					servers = append(servers, netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port()))
+				}
+			}
+			resolver.upstreamServers = servers
 			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {
 				cancel()
@@ -117,28 +124,26 @@ func (c mockUpstreamResolver) exchange(_ context.Context, _ string, _ *dns.Msg) 
 }
 
 func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
-	resolver := &upstreamResolverBase{
-		ctx: context.TODO(),
-		upstreamClient: &mockUpstreamResolver{
-			err: nil,
-			r:   new(dns.Msg),
-			rtt: time.Millisecond,
-		},
-		upstreamTimeout:  UpstreamTimeout,
-		reactivatePeriod: reactivatePeriod,
-		failsTillDeact:   failsTillDeact,
+	mockClient := &mockUpstreamResolver{
+		err: dns.ErrTime,
+		r:   new(dns.Msg),
+		rtt: time.Millisecond,
 	}
-	resolver.upstreamServers = []string{"0.0.0.0:-1"}
-	resolver.failsTillDeact = 0
-	resolver.reactivatePeriod = time.Microsecond * 100
 
-	responseWriter := &test.MockResponseWriter{
-		WriteMsgFunc: func(m *dns.Msg) error { return nil },
+	resolver := &upstreamResolverBase{
+		ctx:              context.TODO(),
+		upstreamClient:   mockClient,
+		upstreamTimeout:  UpstreamTimeout,
+		reactivatePeriod: time.Microsecond * 100,
 	}
+	addrPort, _ := netip.ParseAddrPort("0.0.0.0:1") // Use valid port for parsing, test will still fail on connection
+	resolver.upstreamServers = []netip.AddrPort{netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port())}
 
 	failed := false
 	resolver.deactivate = func(error) {
 		failed = true
+		// After deactivation, make the mock client work again
+		mockClient.err = nil
 	}
 
 	reactivated := false
@@ -146,7 +151,7 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 		reactivated = true
 	}
 
-	resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("one.one.one.one.", dns.TypeA))
+	resolver.ProbeAvailability()
 
 	if !failed {
 		t.Errorf("expected that resolving was deactivated")
@@ -162,11 +167,6 @@ func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
 
 	if !reactivated {
 		t.Errorf("expected that resolving was reactivated")
-		return
-	}
-
-	if resolver.failsCount.Load() != 0 {
-		t.Errorf("fails count after reactivation should be 0")
 		return
 	}
 

@@ -17,7 +17,7 @@ var (
 var stateCmd = &cobra.Command{
 	Use:   "state",
 	Short: "Manage daemon state",
-	Long:  "Provides commands for managing and inspecting the Netbird daemon state.",
+	Long:  "Provides commands for managing and inspecting the NetBird daemon state.",
 }
 
 var stateListCmd = &cobra.Command{

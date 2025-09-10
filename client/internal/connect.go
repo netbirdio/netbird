@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -70,7 +72,7 @@ func (c *ConnectClient) RunOnAndroid(
 	tunAdapter device.TunAdapter,
 	iFaceDiscover stdnet.ExternalIFaceDiscover,
 	networkChangeListener listener.NetworkChangeListener,
-	dnsAddresses []string,
+	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
 ) error {
 	// in case of non Android os these variables will be nil
@@ -243,7 +245,15 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.statusRecorder.MarkSignalConnected()
 
 		relayURLs, token := parseRelayInfo(loginResp)
-		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
+		peerConfig := loginResp.GetPeerConfig()
+
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
+		if err != nil {
+			log.Error(err)
+			return wrapErr(err)
+		}
+
+		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU)
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
@@ -258,14 +268,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			}
 		}
 
-		peerConfig := loginResp.GetPeerConfig()
-
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
-		if err != nil {
-			log.Error(err)
-			return wrapErr(err)
-		}
-
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
@@ -273,10 +275,11 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
-		if err := c.engine.Start(); err != nil {
+		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
+
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
@@ -443,6 +446,8 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockInbound:        config.BlockInbound,
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
+
+		MTU: selectMTU(config.MTU, peerConfig.Mtu),
 	}
 
 	if config.PreSharedKey != "" {
@@ -463,6 +468,20 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 	engineConf.WgPort = port
 
 	return engineConf, nil
+}
+
+func selectMTU(localMTU uint16, peerMTU int32) uint16 {
+	var finalMTU uint16 = iface.DefaultMTU
+	if localMTU > 0 {
+		finalMTU = localMTU
+	} else if peerMTU > 0 {
+		finalMTU = uint16(peerMTU)
+	}
+
+	// Set global DNS MTU
+	dns.SetCurrentMTU(finalMTU)
+
+	return finalMTU
 }
 
 // connectToSignal creates Signal Service client and established a connection

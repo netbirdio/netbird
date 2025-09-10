@@ -9,32 +9,30 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/stretchr/testify/require"
-
-	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/permissions"
-	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/management/server/types"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/netbirdio/management-integrations/integrations"
-
-	"github.com/netbirdio/netbird/encryption"
-	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
-	mgmt "github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/mock_server"
-
+	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	mgmt "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/peers"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -51,7 +49,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
-	config := &types.Config{}
+	config := &config.Config{}
 	_, err := util.ReadJson("../../../management/server/testdata/management.json", config)
 	if err != nil {
 		t.Fatal(err)
@@ -70,13 +68,31 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	permissionsManagerMock.
+		EXPECT().
+		ValidateUserPermissions(
+			gomock.Any(),
+			gomock.Any(),
+			gomock.Any(),
+			gomock.Any(),
+			gomock.Any(),
+		).
+		Return(true, nil).
+		AnyTimes()
+
+	peersManger := peers.NewManager(store, permissionsManagerMock)
+	settingsManagerMock := settings.NewMockManager(ctrl)
+
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManger, settingsManagerMock, eventStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	ctrl := gomock.NewController(t)
-	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 	settingsMockManager.
 		EXPECT().
@@ -93,25 +109,14 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 
-	permissionsManagerMock := permissions.NewMockManager(ctrl)
-	permissionsManagerMock.
-		EXPECT().
-		ValidateUserPermissions(
-			gomock.Any(),
-			gomock.Any(),
-			gomock.Any(),
-			gomock.Any(),
-			gomock.Any(),
-		).
-		Return(true, nil).
-		AnyTimes()
-
 	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
+	groupsManager := groups.NewManagerMock()
+
+	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, mgmt.MockIntegratedValidator{})
 	if err != nil {
 		t.Fatal(err)

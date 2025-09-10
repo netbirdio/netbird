@@ -42,7 +42,7 @@ func (t osManagerType) String() string {
 
 type restoreHostManager interface {
 	hostManager
-	restoreUncleanShutdownDNS(*netip.Addr) error
+	restoreUncleanShutdownDNS(netip.Addr) error
 }
 
 func newHostManager(wgInterface string) (hostManager, error) {
@@ -130,8 +130,9 @@ func checkStub() bool {
 		return true
 	}
 
+	systemdResolvedAddr := netip.AddrFrom4([4]byte{127, 0, 0, 53}) // 127.0.0.53
 	for _, ns := range rConf.nameServers {
-		if ns == "127.0.0.53" {
+		if ns == systemdResolvedAddr {
 			return true
 		}
 	}

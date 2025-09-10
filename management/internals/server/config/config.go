@@ -1,10 +1,11 @@
-package types
+package config
 
 import (
 	"net/netip"
 
-	"github.com/netbirdio/netbird/shared/management/client/common"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/client/common"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -166,7 +167,7 @@ type ProviderConfig struct {
 
 // StoreConfig contains Store configuration
 type StoreConfig struct {
-	Engine Engine
+	Engine types.Engine
 }
 
 // ReverseProxy contains reverse proxy configuration in front of management.

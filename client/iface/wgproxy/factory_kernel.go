@@ -11,16 +11,18 @@ import (
 
 type KernelFactory struct {
 	wgPort int
+	mtu    uint16
 
 	ebpfProxy *ebpf.WGEBPFProxy
 }
 
-func NewKernelFactory(wgPort int) *KernelFactory {
+func NewKernelFactory(wgPort int, mtu uint16) *KernelFactory {
 	f := &KernelFactory{
 		wgPort: wgPort,
+		mtu:    mtu,
 	}
 
-	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort)
+	ebpfProxy := ebpf.NewWGEBPFProxy(wgPort, mtu)
 	if err := ebpfProxy.Listen(); err != nil {
 		log.Infof("WireGuard Proxy Factory will produce UDP proxy")
 		log.Warnf("failed to initialize ebpf proxy, fallback to user space proxy: %s", err)
@@ -33,7 +35,7 @@ func NewKernelFactory(wgPort int) *KernelFactory {
 
 func (w *KernelFactory) GetProxy() Proxy {
 	if w.ebpfProxy == nil {
-		return udpProxy.NewWGUDPProxy(w.wgPort)
+		return udpProxy.NewWGUDPProxy(w.wgPort, w.mtu)
 	}
 
 	return ebpf.NewProxyWrapper(w.ebpfProxy)
