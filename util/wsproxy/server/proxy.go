@@ -102,7 +102,7 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) proxyData(ctx context.Context, wsConn *websocket.Conn, tcpConn net.Conn) {
-	proxyCtx, cancel := context.WithCancel(ctx)
+	proxyCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
