@@ -27,7 +27,7 @@ func (p *program) Start(svc service.Service) error {
 	log.Info("starting NetBird service") //nolint
 
 	// Collect static system and platform information
-	system.UpdateStaticInfo()
+	system.UpdateStaticInfoAsync()
 
 	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
 	p.serv = grpc.NewServer()

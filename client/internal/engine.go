@@ -949,7 +949,6 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.LazyConnectionEnabled,
 		)
 
-		// err = e.mgmClient.Sync(info, e.handleSync)
 		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
@@ -960,7 +959,7 @@ func (e *Engine) receiveManagementEvents() {
 		}
 		log.Debugf("stopped receiving updates from Management Service")
 	}()
-	log.Debugf("connecting to Management Service updates stream")
+	log.Infof("connecting to Management Service updates stream")
 }
 
 func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
