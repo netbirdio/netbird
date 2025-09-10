@@ -898,7 +898,6 @@ func (e *Engine) receiveJobEvents() {
 				bundleResult, err := e.handleBundle(params.Bundle)
 				if err != nil {
 					resp.Reason = []byte(err.Error())
-					resp.Status = mgmProto.JobStatus_failed
 					return &resp
 				}
 				resp.Status = mgmProto.JobStatus_succeeded

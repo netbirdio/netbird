@@ -160,6 +160,8 @@ func (j *Job) ApplyResponse(resp *proto.JobResponse) error {
 	if resp == nil {
 		return nil
 	}
+
+	j.ID = string(resp.ID)
 	now := time.Now().UTC()
 	j.CompletedAt = &now
 	switch resp.Status {
