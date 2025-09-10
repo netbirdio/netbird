@@ -16,7 +16,7 @@ import (
 	wgConn "golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type RecvMessage struct {

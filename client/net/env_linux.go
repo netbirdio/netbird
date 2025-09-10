@@ -17,8 +17,7 @@ import (
 
 const (
 	// these have the same effect, skip socket env supported for backward compatibility
-	envSkipSocketMark   = "NB_SKIP_SOCKET_MARK"
-	envUseLegacyRouting = "NB_USE_LEGACY_ROUTING"
+	envSkipSocketMark = "NB_SKIP_SOCKET_MARK"
 )
 
 var advancedRoutingSupported bool
@@ -27,6 +26,7 @@ func Init() {
 	advancedRoutingSupported = checkAdvancedRoutingSupport()
 }
 
+// AdvancedRouting reports whether routing loops can be avoided without using exclusion routes
 func AdvancedRouting() bool {
 	return advancedRoutingSupported
 }
@@ -73,7 +73,7 @@ func checkAdvancedRoutingSupport() bool {
 }
 
 func CheckFwmarkSupport() bool {
-	// temporarily enable advanced routing to check fwmarks are supported
+	// temporarily enable advanced routing to check if fwmarks are supported
 	old := advancedRoutingSupported
 	advancedRoutingSupported = true
 	defer func() {
@@ -128,4 +128,14 @@ func CheckRuleOperationsSupport() bool {
 		log.Warnf("failed to delete test rule: %v", err)
 	}
 	return true
+}
+
+// SetVPNInterfaceName is a no-op on Linux
+func SetVPNInterfaceName(name string) {
+	// No-op on Linux - not needed for fwmark-based routing
+}
+
+// GetVPNInterfaceName returns empty string on Linux
+func GetVPNInterfaceName() string {
+	return ""
 }
