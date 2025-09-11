@@ -228,9 +228,9 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 	buf := make([]byte, bufferSize)
 	c := 0
 	for {
-		if err := tcpConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
-			log.Debugf("Failed to set TCP read deadline: %v", err)
-		}
+		// if err := tcpConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		// 	log.Debugf("Failed to set TCP read deadline: %v", err)
+		// }
 		n, err := tcpConn.Read(buf)
 
 		if err != nil {
