@@ -40,7 +40,7 @@ type Proxy struct {
 
 // New creates a new WebSocket proxy instance with optional configuration
 func New(localGRPCAddr netip.AddrPort, opts ...Option) *Proxy {
-	addr := os.Getenv("NB_ADDR")
+	addr := os.Getenv("NB_PROXY_ADDR")
 	config := Config{
 		LocalGRPCAddr:   netip.MustParseAddrPort(addr),
 		Path:            wsproxy.ProxyPath,
@@ -105,7 +105,7 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// 	tcpConn, err = net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
 	// }
 
-	domain := os.Getenv("ND_DOMAIN")
+	domain := os.Getenv("NB_PROXY_DOMAIN")
 
 	config := &tls.Config{ServerName: domain}
 	if os.Getenv("NB_PROXY_HTTP2") == "true" {
