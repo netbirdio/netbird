@@ -1,4 +1,4 @@
-package bind
+package udpmux
 
 import (
 	"fmt"
@@ -22,15 +22,18 @@ import (
 
 const receiveMTU = 8192
 
-// UDPMuxDefault is an implementation of the interface
-type UDPMuxDefault struct {
-	params UDPMuxParams
+// SingleSocketUDPMux is an implementation of the interface
+type SingleSocketUDPMux struct {
+	params Params
 
 	closedChan chan struct{}
 	closeOnce  sync.Once
 
 	// connsIPv4 and connsIPv6 are maps of all udpMuxedConn indexed by ufrag|network|candidateType
 	connsIPv4, connsIPv6 map[string]*udpMuxedConn
+
+	// candidateConnMap maps local candidate IDs to their corresponding connection.
+	candidateConnMap map[string]*udpMuxedConn
 
 	addressMapMu sync.RWMutex
 	addressMap   map[string][]*udpMuxedConn
@@ -46,8 +49,8 @@ type UDPMuxDefault struct {
 
 const maxAddrSize = 512
 
-// UDPMuxParams are parameters for UDPMux.
-type UDPMuxParams struct {
+// Params are parameters for UDPMux.
+type Params struct {
 	Logger  logging.LeveledLogger
 	UDPConn net.PacketConn
 
@@ -147,18 +150,19 @@ func isZeros(ip net.IP) bool {
 	return true
 }
 
-// NewUDPMuxDefault creates an implementation of UDPMux
-func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
+// NewSingleSocketUDPMux creates an implementation of UDPMux
+func NewSingleSocketUDPMux(params Params) *SingleSocketUDPMux {
 	if params.Logger == nil {
 		params.Logger = getLogger()
 	}
 
-	mux := &UDPMuxDefault{
-		addressMap: map[string][]*udpMuxedConn{},
-		params:     params,
-		connsIPv4:  make(map[string]*udpMuxedConn),
-		connsIPv6:  make(map[string]*udpMuxedConn),
-		closedChan: make(chan struct{}, 1),
+	mux := &SingleSocketUDPMux{
+		addressMap:       map[string][]*udpMuxedConn{},
+		params:           params,
+		connsIPv4:        make(map[string]*udpMuxedConn),
+		connsIPv6:        make(map[string]*udpMuxedConn),
+		candidateConnMap: make(map[string]*udpMuxedConn),
+		closedChan:       make(chan struct{}, 1),
 		pool: &sync.Pool{
 			New: func() interface{} {
 				// big enough buffer to fit both packet and address
@@ -171,15 +175,15 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 	return mux
 }
 
-func (m *UDPMuxDefault) updateLocalAddresses() {
+func (m *SingleSocketUDPMux) updateLocalAddresses() {
 	var localAddrsForUnspecified []net.Addr
 	if addr, ok := m.params.UDPConn.LocalAddr().(*net.UDPAddr); !ok {
 		m.params.Logger.Errorf("LocalAddr is not a net.UDPAddr, got %T", m.params.UDPConn.LocalAddr())
 	} else if ok && addr.IP.IsUnspecified() {
 		// For unspecified addresses, the correct behavior is to return errListenUnspecified, but
 		// it will break the applications that are already using unspecified UDP connection
-		// with UDPMuxDefault, so print a warn log and create a local address list for mux.
-		m.params.Logger.Warn("UDPMuxDefault should not listening on unspecified address, use NewMultiUDPMuxFromPort instead")
+		// with SingleSocketUDPMux, so print a warn log and create a local address list for mux.
+		m.params.Logger.Warn("SingleSocketUDPMux should not listening on unspecified address, use NewMultiUDPMuxFromPort instead")
 		var networks []ice.NetworkType
 		switch {
 
@@ -216,13 +220,13 @@ func (m *UDPMuxDefault) updateLocalAddresses() {
 	m.mu.Unlock()
 }
 
-// LocalAddr returns the listening address of this UDPMuxDefault
-func (m *UDPMuxDefault) LocalAddr() net.Addr {
+// LocalAddr returns the listening address of this SingleSocketUDPMux
+func (m *SingleSocketUDPMux) LocalAddr() net.Addr {
 	return m.params.UDPConn.LocalAddr()
 }
 
 // GetListenAddresses returns the list of addresses that this mux is listening on
-func (m *UDPMuxDefault) GetListenAddresses() []net.Addr {
+func (m *SingleSocketUDPMux) GetListenAddresses() []net.Addr {
 	m.updateLocalAddresses()
 
 	m.mu.Lock()
@@ -236,7 +240,7 @@ func (m *UDPMuxDefault) GetListenAddresses() []net.Addr {
 
 // GetConn returns a PacketConn given the connection's ufrag and network address
 // creates the connection if an existing one can't be found
-func (m *UDPMuxDefault) GetConn(ufrag string, addr net.Addr) (net.PacketConn, error) {
+func (m *SingleSocketUDPMux) GetConn(ufrag string, addr net.Addr, candidateID string) (net.PacketConn, error) {
 	// don't check addr for mux using unspecified address
 	m.mu.Lock()
 	lenLocalAddrs := len(m.localAddrsForUnspecified)
@@ -260,11 +264,13 @@ func (m *UDPMuxDefault) GetConn(ufrag string, addr net.Addr) (net.PacketConn, er
 		return conn, nil
 	}
 
-	c := m.createMuxedConn(ufrag)
+	c := m.createMuxedConn(ufrag, candidateID)
 	go func() {
 		<-c.CloseChannel()
 		m.RemoveConnByUfrag(ufrag)
 	}()
+
+	m.candidateConnMap[candidateID] = c
 
 	if isIPv6 {
 		m.connsIPv6[ufrag] = c
@@ -276,7 +282,7 @@ func (m *UDPMuxDefault) GetConn(ufrag string, addr net.Addr) (net.PacketConn, er
 }
 
 // RemoveConnByUfrag stops and removes the muxed packet connection
-func (m *UDPMuxDefault) RemoveConnByUfrag(ufrag string) {
+func (m *SingleSocketUDPMux) RemoveConnByUfrag(ufrag string) {
 	removedConns := make([]*udpMuxedConn, 0, 2)
 
 	// Keep lock section small to avoid deadlock with conn lock
@@ -284,10 +290,12 @@ func (m *UDPMuxDefault) RemoveConnByUfrag(ufrag string) {
 	if c, ok := m.connsIPv4[ufrag]; ok {
 		delete(m.connsIPv4, ufrag)
 		removedConns = append(removedConns, c)
+		delete(m.candidateConnMap, c.GetCandidateID())
 	}
 	if c, ok := m.connsIPv6[ufrag]; ok {
 		delete(m.connsIPv6, ufrag)
 		removedConns = append(removedConns, c)
+		delete(m.candidateConnMap, c.GetCandidateID())
 	}
 	m.mu.Unlock()
 
@@ -314,7 +322,7 @@ func (m *UDPMuxDefault) RemoveConnByUfrag(ufrag string) {
 }
 
 // IsClosed returns true if the mux had been closed
-func (m *UDPMuxDefault) IsClosed() bool {
+func (m *SingleSocketUDPMux) IsClosed() bool {
 	select {
 	case <-m.closedChan:
 		return true
@@ -324,7 +332,7 @@ func (m *UDPMuxDefault) IsClosed() bool {
 }
 
 // Close the mux, no further connections could be created
-func (m *UDPMuxDefault) Close() error {
+func (m *SingleSocketUDPMux) Close() error {
 	var err error
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
@@ -347,11 +355,11 @@ func (m *UDPMuxDefault) Close() error {
 	return err
 }
 
-func (m *UDPMuxDefault) writeTo(buf []byte, rAddr net.Addr) (n int, err error) {
+func (m *SingleSocketUDPMux) writeTo(buf []byte, rAddr net.Addr) (n int, err error) {
 	return m.params.UDPConn.WriteTo(buf, rAddr)
 }
 
-func (m *UDPMuxDefault) registerConnForAddress(conn *udpMuxedConn, addr string) {
+func (m *SingleSocketUDPMux) registerConnForAddress(conn *udpMuxedConn, addr string) {
 	if m.IsClosed() {
 		return
 	}
@@ -368,87 +376,122 @@ func (m *UDPMuxDefault) registerConnForAddress(conn *udpMuxedConn, addr string) 
 	log.Debugf("ICE: registered %s for %s", addr, conn.params.Key)
 }
 
-func (m *UDPMuxDefault) createMuxedConn(key string) *udpMuxedConn {
+func (m *SingleSocketUDPMux) createMuxedConn(key string, candidateID string) *udpMuxedConn {
 	c := newUDPMuxedConn(&udpMuxedConnParams{
-		Mux:       m,
-		Key:       key,
-		AddrPool:  m.pool,
-		LocalAddr: m.LocalAddr(),
-		Logger:    m.params.Logger,
+		Mux:         m,
+		Key:         key,
+		AddrPool:    m.pool,
+		LocalAddr:   m.LocalAddr(),
+		Logger:      m.params.Logger,
+		CandidateID: candidateID,
 	})
 	return c
 }
 
 // HandleSTUNMessage handles STUN packets and forwards them to underlying pion/ice library
-func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) error {
-
+func (m *SingleSocketUDPMux) HandleSTUNMessage(msg *stun.Message, addr net.Addr) error {
 	remoteAddr, ok := addr.(*net.UDPAddr)
 	if !ok {
 		return fmt.Errorf("underlying PacketConn did not return a UDPAddr")
 	}
 
-	// If we have already seen this address dispatch to the appropriate destination
-	// If you are using the same socket for the Host and SRFLX candidates, it might be that there are more than one
-	// muxed connection - one for the SRFLX candidate and the other one for the HOST one.
-	// We will then forward STUN packets to each of these connections.
-	m.addressMapMu.RLock()
+	// Try to route to specific candidate connection first
+	if conn := m.findCandidateConnection(msg); conn != nil {
+		return conn.writePacket(msg.Raw, remoteAddr)
+	}
+
+	// Fallback: route to all possible connections
+	return m.forwardToAllConnections(msg, addr, remoteAddr)
+}
+
+// findCandidateConnection attempts to find the specific connection for a STUN message
+func (m *SingleSocketUDPMux) findCandidateConnection(msg *stun.Message) *udpMuxedConn {
+	candidatePairID, ok, err := ice.CandidatePairIDFromSTUN(msg)
+	if err != nil {
+		return nil
+	} else if !ok {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	conn, exists := m.candidateConnMap[candidatePairID.TargetCandidateID()]
+	if !exists {
+		return nil
+	}
+	return conn
+}
+
+// forwardToAllConnections forwards STUN message to all relevant connections
+func (m *SingleSocketUDPMux) forwardToAllConnections(msg *stun.Message, addr net.Addr, remoteAddr *net.UDPAddr) error {
 	var destinationConnList []*udpMuxedConn
+
+	// Add connections from address map
+	m.addressMapMu.RLock()
 	if storedConns, ok := m.addressMap[addr.String()]; ok {
 		destinationConnList = append(destinationConnList, storedConns...)
 	}
 	m.addressMapMu.RUnlock()
 
-	var isIPv6 bool
-	if udpAddr, _ := addr.(*net.UDPAddr); udpAddr != nil && udpAddr.IP.To4() == nil {
-		isIPv6 = true
+	if conn, ok := m.findConnectionByUsername(msg, addr); ok {
+		// If we have already seen this address dispatch to the appropriate destination
+		// If you are using the same socket for the Host and SRFLX candidates, it might be that there are more than one
+		// muxed connection - one for the SRFLX candidate and the other one for the HOST one.
+		// We will then forward STUN packets to each of these connections.
+		if !m.connectionExists(conn, destinationConnList) {
+			destinationConnList = append(destinationConnList, conn)
+		}
 	}
 
-	// This block is needed to discover Peer Reflexive Candidates for which we don't know the Endpoint upfront.
-	// However, we can take a username attribute from the STUN message which contains ufrag.
-	// We can use ufrag to identify the destination conn to route packet to.
-	attr, stunAttrErr := msg.Get(stun.AttrUsername)
-	if stunAttrErr == nil {
-		ufrag := strings.Split(string(attr), ":")[0]
-
-		m.mu.Lock()
-		destinationConn := m.connsIPv4[ufrag]
-		if isIPv6 {
-			destinationConn = m.connsIPv6[ufrag]
-		}
-
-		if destinationConn != nil {
-			exists := false
-			for _, conn := range destinationConnList {
-				if conn.params.Key == destinationConn.params.Key {
-					exists = true
-					break
-				}
-			}
-			if !exists {
-				destinationConnList = append(destinationConnList, destinationConn)
-			}
-		}
-		m.mu.Unlock()
-	}
-
-	// Forward STUN packets to each destination connections even thought the STUN packet might not belong there.
-	// It will be discarded by the further ICE candidate logic if so.
+	// Forward to all found connections
 	for _, conn := range destinationConnList {
 		if err := conn.writePacket(msg.Raw, remoteAddr); err != nil {
 			log.Errorf("could not write packet: %v", err)
 		}
 	}
-
 	return nil
 }
 
-func (m *UDPMuxDefault) getConn(ufrag string, isIPv6 bool) (val *udpMuxedConn, ok bool) {
+// findConnectionByUsername finds connection using username attribute from STUN message
+func (m *SingleSocketUDPMux) findConnectionByUsername(msg *stun.Message, addr net.Addr) (*udpMuxedConn, bool) {
+	attr, err := msg.Get(stun.AttrUsername)
+	if err != nil {
+		return nil, false
+	}
+
+	ufrag := strings.Split(string(attr), ":")[0]
+	isIPv6 := isIPv6Address(addr)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.getConn(ufrag, isIPv6)
+}
+
+// connectionExists checks if a connection already exists in the list
+func (m *SingleSocketUDPMux) connectionExists(target *udpMuxedConn, conns []*udpMuxedConn) bool {
+	for _, conn := range conns {
+		if conn.params.Key == target.params.Key {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *SingleSocketUDPMux) getConn(ufrag string, isIPv6 bool) (val *udpMuxedConn, ok bool) {
 	if isIPv6 {
 		val, ok = m.connsIPv6[ufrag]
 	} else {
 		val, ok = m.connsIPv4[ufrag]
 	}
 	return
+}
+
+func isIPv6Address(addr net.Addr) bool {
+	if udpAddr, ok := addr.(*net.UDPAddr); ok {
+		return udpAddr.IP.To4() == nil
+	}
+	return false
 }
 
 type bufferHolder struct {
