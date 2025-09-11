@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
@@ -102,7 +103,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	}
 	s.EphemeralManager().LoadInitialPeers(srvCtx)
 
-	var tlsConfig *tls.Config
+	var tlsConfig, proxyTlsConfig *tls.Config
 	tlsEnabled := false
 	if s.config.HttpConfig.LetsEncryptDomain != "" {
 		s.certManager, err = encryption.CreateCertManager(s.config.Datadir, s.config.HttpConfig.LetsEncryptDomain)
@@ -110,13 +111,20 @@ func (s *BaseServer) Start(ctx context.Context) error {
 			return fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
 		}
 		tlsEnabled = true
+		proxyTlsConfig = &tls.Config{ServerName: s.config.HttpConfig.LetsEncryptDomain}
 	} else if s.config.HttpConfig.CertFile != "" && s.config.HttpConfig.CertKey != "" {
 		tlsConfig, err = loadTLSConfig(s.config.HttpConfig.CertFile, s.config.HttpConfig.CertKey)
 		if err != nil {
 			log.WithContext(srvCtx).Errorf("cannot load TLS credentials: %v", err)
 			return err
 		}
+		serverName, err := getServerNameFromCert(s.config.HttpConfig.CertFile)
+		if err != nil {
+			log.WithContext(srvCtx).Errorf("cannot get server name from certificate: %v", err)
+			return err
+		}
 		tlsEnabled = true
+		proxyTlsConfig = &tls.Config{ServerName: serverName}
 	}
 
 	installationID, err := getInstallationID(srvCtx, s.Store())
@@ -145,8 +153,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
-	tlsConfig.ServerName = "api.stage.netbird.io"
-	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter(), s.mgmtPort, tlsConfig)
+	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter(), s.mgmtPort, proxyTlsConfig)
 	switch {
 	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
@@ -350,4 +357,22 @@ func getInstallationID(ctx context.Context, store store.Store) (string, error) {
 		return "", err
 	}
 	return installationID, nil
+}
+
+func getServerNameFromCert(certFile string) (string, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, "key.pem")
+	if err != nil {
+		return "", err
+	}
+
+	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return "", err
+	}
+
+	if len(x509Cert.DNSNames) > 0 {
+		return x509Cert.DNSNames[0], nil
+	}
+
+	return x509Cert.Subject.CommonName, nil
 }

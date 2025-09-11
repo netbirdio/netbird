@@ -94,18 +94,6 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		tcpConn, err = net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
 	}
 
-	config := tls.Config{ServerName: "api.stage.netbird.io"}
-	newConfig, err := TlsConfigWithHttp2Enabled(&config)
-	if err != nil {
-		log.Fatalf("client: failed to create TLS config: %s", err)
-	}
-	tcpConn, err := tls.Dial("tcp", p.config.LocalGRPCAddr.String(), newConfig)
-	if err != nil {
-		log.Fatalf("client: dial: %s", err)
-	}
-
-	err = tcpConn.Handshake()
-
 	if err != nil {
 		p.metrics.RecordError(ctx, "tcp_dial_failed")
 		log.Warnf("Failed to connect to local gRPC server at %s: %v", p.config.LocalGRPCAddr, err)
@@ -171,7 +159,7 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 		msgType, data, err := wsConn.Read(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				log.Debugf("wsToTCP goroutine terminating due to context cancellation")
+				log.Debugf("wsToTCP goroutine terminating due to context cancellation: %v", ctx.Err())
 			} else if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
 				log.Debugf("WebSocket closed normally")
 			} else {
@@ -187,7 +175,7 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 		}
 
 		if ctx.Err() != nil {
-			log.Tracef("wsToTCP goroutine terminating due to context cancellation before TCP write")
+			log.Tracef("wsToTCP goroutine terminating due to context cancellation before TCP write: %v", ctx.Err())
 			return
 		}
 
@@ -204,7 +192,7 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 
 func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, wsConn *websocket.Conn, tcpConn net.Conn) {
 	defer wg.Done()
-	defer cancel()
+	defer log.Debugf("tcpToWS terminated")
 
 	buf := make([]byte, bufferSize)
 	for {
@@ -215,7 +203,7 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 
 		if err != nil {
 			if ctx.Err() != nil {
-				log.Tracef("tcpToWS goroutine terminating due to context cancellation")
+				log.Tracef("tcpToWS goroutine terminating due to context cancellation: %v", ctx.Err())
 				return
 			}
 
@@ -231,7 +219,7 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 		}
 
 		if ctx.Err() != nil {
-			log.Tracef("tcpToWS goroutine terminating due to context cancellation before WebSocket write")
+			log.Tracef("tcpToWS goroutine terminating due to context cancellation before WebSocket write: %v", ctx.Err())
 			return
 		}
 
