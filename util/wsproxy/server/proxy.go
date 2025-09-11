@@ -164,6 +164,8 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 	defer log.Debugf("wsToTCP terminated")
 	defer wg.Done()
 
+	ctx = context.Background()
+
 	for {
 		msgType, data, err := wsConn.Read(ctx)
 		if err != nil {
@@ -204,6 +206,7 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 	defer log.Debugf("tcpToWS terminated")
 
 	buf := make([]byte, bufferSize)
+	c := 0
 	for {
 		if err := tcpConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
 			log.Debugf("Failed to set TCP read deadline: %v", err)
@@ -222,7 +225,11 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 			}
 
 			if err != io.EOF {
-				log.Errorf("TCP read error: %v", err)
+				if c%1000 == 0 {
+					log.Warnf("TCP read error: %v", err)
+				}
+				// log.Errorf("TCP read error: %v", err)
+				continue
 			}
 			return
 		}
