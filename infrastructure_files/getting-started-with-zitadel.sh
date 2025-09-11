@@ -328,6 +328,45 @@ delete_auto_service_user() {
   echo "$PARSED_RESPONSE"
 }
 
+delete_default_zitadel_admin() {
+  INSTANCE_URL=$1
+  PAT=$2
+
+  # Search for the default zitadel-admin user
+  RESPONSE=$(
+    curl -sS -X POST "$INSTANCE_URL/management/v1/users/_search" \
+      -H "Authorization: Bearer $PAT" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "queries": [
+          {
+            "userNameQuery": {
+              "userName": "zitadel-admin@",
+              "method": "TEXT_QUERY_METHOD_STARTS_WITH"
+            }
+          }
+        ]
+      }'
+  )
+  
+  DEFAULT_ADMIN_ID=$(echo "$RESPONSE" | jq -r '.result[0].id // empty')
+  
+  if [ -n "$DEFAULT_ADMIN_ID" ] && [ "$DEFAULT_ADMIN_ID" != "null" ]; then
+    echo "Found default zitadel-admin user with ID: $DEFAULT_ADMIN_ID"
+
+    RESPONSE=$(
+        curl -sS -X DELETE "$INSTANCE_URL/management/v1/users/$DEFAULT_ADMIN_ID" \
+          -H "Authorization: Bearer $PAT" \
+          -H "Content-Type: application/json" \
+    )
+    PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.details.changeDate // "deleted"')
+    handle_zitadel_request_response "$PARSED_RESPONSE" "delete_default_zitadel_admin" "$RESPONSE"
+
+  else
+    echo "Default zitadel-admin user not found: $RESPONSE"
+  fi
+}
+
 init_zitadel() {
   echo -e "\nInitializing Zitadel with NetBird's applications\n"
   INSTANCE_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
@@ -345,6 +384,10 @@ init_zitadel() {
 
   echo -n "Waiting for Zitadel to become ready "
   wait_api "$INSTANCE_URL" "$PAT"
+
+  # Delete the default zitadel-admin user with Password1! early in the process
+  echo "Deleting default zitadel-admin user..."
+  delete_default_zitadel_admin "$INSTANCE_URL" "$PAT"
 
   #  create the zitadel project
   echo "Creating new zitadel project"
