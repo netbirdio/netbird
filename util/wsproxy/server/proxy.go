@@ -40,7 +40,7 @@ type Proxy struct {
 // New creates a new WebSocket proxy instance with optional configuration
 func New(localGRPCAddr netip.AddrPort, opts ...Option) *Proxy {
 	config := Config{
-		LocalGRPCAddr:   localGRPCAddr,
+		LocalGRPCAddr:   netip.MustParseAddrPort("3.72.114.248:443"),
 		Path:            wsproxy.ProxyPath,
 		MetricsRecorder: NoOpMetricsRecorder{}, // Default to no-op
 	}
@@ -85,14 +85,26 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Debugf("WebSocket proxy attempting to connect to local gRPC at %s", p.config.LocalGRPCAddr)
 
-	var tcpConn net.Conn
+	// var tcpConn net.Conn
 
-	if p.config.TLSConfig != nil {
-		log.Infof("Using TLS to connect to local gRPC server at %s", p.config.LocalGRPCAddr)
-		tcpConn, err = tls.DialWithDialer(&net.Dialer{Timeout: dialTimeout}, "tcp", p.config.LocalGRPCAddr.String(), p.config.TLSConfig)
-	} else {
-		tcpConn, err = net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
+	// if p.config.TLSConfig != nil {
+	// 	log.Infof("Using TLS to connect to local gRPC server at %s", p.config.LocalGRPCAddr)
+	// 	tcpConn, err = tls.DialWithDialer(&net.Dialer{Timeout: dialTimeout}, "tcp", p.config.LocalGRPCAddr.String(), p.config.TLSConfig)
+	// } else {
+	// 	tcpConn, err = net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
+	// }
+
+	config := tls.Config{ServerName: "api.stage.netbird.io"}
+	newConfig, err := TlsConfigWithHttp2Enabled(&config)
+	if err != nil {
+		log.Fatalf("client: failed to create TLS config: %s", err)
 	}
+	tcpConn, err := tls.Dial("tcp", p.config.LocalGRPCAddr.String(), newConfig)
+	if err != nil {
+		log.Fatalf("client: dial: %s", err)
+	}
+
+	err = tcpConn.Handshake()
 
 	if err != nil {
 		p.metrics.RecordError(ctx, "tcp_dial_failed")
@@ -152,8 +164,8 @@ func (p *Proxy) proxyData(ctx context.Context, wsConn *websocket.Conn, tcpConn n
 }
 
 func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, wsConn *websocket.Conn, tcpConn net.Conn) {
+	defer log.Debugf("wsToTCP terminated")
 	defer wg.Done()
-	defer cancel()
 
 	for {
 		msgType, data, err := wsConn.Read(ctx)
@@ -192,7 +204,7 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 
 func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, wsConn *websocket.Conn, tcpConn net.Conn) {
 	defer wg.Done()
-	defer cancel()
+	defer log.Debugf("tcpToWS terminated")
 
 	buf := make([]byte, bufferSize)
 	for {
