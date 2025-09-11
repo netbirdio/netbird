@@ -220,7 +220,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 	if s.config.DisableAutoConnect {
 		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan); err != nil {
-			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
+			log.Debugf("run client connection exited with error: %v", err)
 		}
 		log.Tracef("client connection exited")
 		return
