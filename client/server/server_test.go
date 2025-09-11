@@ -172,7 +172,7 @@ func TestServer_Up(t *testing.T) {
 	}
 	_, err = s.Up(upCtx, upReq)
 
-	assert.Contains(t, err.Error(), "up already in progress")
+	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
 
 type mockSubscribeEventsServer struct {

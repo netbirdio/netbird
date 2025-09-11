@@ -65,7 +65,8 @@ type Server struct {
 	mutex  sync.Mutex
 	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
-	clientRunning bool // protected by mutex
+	clientRunning     bool // protected by mutex
+	clientRunningChan chan struct{}
 
 	connectClient *internal.ConnectClient
 
@@ -178,7 +179,8 @@ func (s *Server) Start() error {
 		return nil
 	}
 	s.clientRunning = true
-	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
+	s.clientRunningChan = make(chan struct{}, 1)
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan)
 	return nil
 }
 
@@ -623,10 +625,6 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
 
-	if s.clientRunning {
-		return nil, fmt.Errorf("up already in progress")
-	}
-
 	// it should be nil here, but .
 	if s.actCancel != nil {
 		s.actCancel()
@@ -678,12 +676,14 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
 
-	runningChan := make(chan struct{}, 1) // buffered channel to do not lose the signal
-	s.clientRunning = true
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, runningChan)
+	if !s.clientRunning {
+		s.clientRunning = true
+		s.clientRunningChan = make(chan struct{}, 1)
+		go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan)
+	}
 	for {
 		select {
-		case <-runningChan:
+		case <-s.clientRunningChan:
 			s.isSessionActive.Store(true)
 			return &proto.UpResponse{}, nil
 		case <-callerCtx.Done():
