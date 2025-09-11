@@ -3,15 +3,18 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -22,6 +25,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/wsproxy"
+	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -98,7 +103,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	}
 	s.EphemeralManager().LoadInitialPeers(srvCtx)
 
-	var tlsConfig *tls.Config
+	var tlsConfig, proxyTlsConfig *tls.Config
 	tlsEnabled := false
 	if s.config.HttpConfig.LetsEncryptDomain != "" {
 		s.certManager, err = encryption.CreateCertManager(s.config.Datadir, s.config.HttpConfig.LetsEncryptDomain)
@@ -106,13 +111,20 @@ func (s *BaseServer) Start(ctx context.Context) error {
 			return fmt.Errorf("failed creating LetsEncrypt cert manager: %v", err)
 		}
 		tlsEnabled = true
+		proxyTlsConfig = &tls.Config{ServerName: s.config.HttpConfig.LetsEncryptDomain}
 	} else if s.config.HttpConfig.CertFile != "" && s.config.HttpConfig.CertKey != "" {
 		tlsConfig, err = loadTLSConfig(s.config.HttpConfig.CertFile, s.config.HttpConfig.CertKey)
 		if err != nil {
 			log.WithContext(srvCtx).Errorf("cannot load TLS credentials: %v", err)
 			return err
 		}
+		serverName, err := getServerNameFromCert(s.config.HttpConfig.CertFile)
+		if err != nil {
+			log.WithContext(srvCtx).Errorf("cannot get server name from certificate: %v", err)
+			return err
+		}
 		tlsEnabled = true
+		proxyTlsConfig = &tls.Config{ServerName: serverName}
 	}
 
 	installationID, err := getInstallationID(srvCtx, s.Store())
@@ -141,7 +153,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
-	rootHandler := handlerFunc(s.GRPCServer(), s.APIHandler())
+	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter(), s.mgmtPort, proxyTlsConfig)
 	switch {
 	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
@@ -247,13 +259,21 @@ func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config)
 	return util.DirectWriteJson(ctx, path, config)
 }
 
-func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handler {
+func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter, port int, tlsConfig *tls.Config) http.Handler {
+	tlsConfig = &tls.Config{ServerName: "api.stage.netbird.io"}
+	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithOTelMeter(meter))
+	if tlsConfig != nil {
+		wsProxy = wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithOTelMeter(meter), wsproxyserver.WithTLSConfig(tlsConfig))
+	}
+
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		grpcHeader := strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
-			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")
-		if request.ProtoMajor == 2 && grpcHeader {
+		switch {
+		case request.ProtoMajor == 2 && (strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
+			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")):
 			gRPCHandler.ServeHTTP(writer, request)
-		} else {
+		case request.URL.Path == wsproxy.ProxyPath:
+			wsProxy.Handler().ServeHTTP(writer, request)
+		default:
 			httpHandler.ServeHTTP(writer, request)
 		}
 	})
@@ -338,4 +358,22 @@ func getInstallationID(ctx context.Context, store store.Store) (string, error) {
 		return "", err
 	}
 	return installationID, nil
+}
+
+func getServerNameFromCert(certFile string) (string, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, "key.pem")
+	if err != nil {
+		return "", err
+	}
+
+	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return "", err
+	}
+
+	if len(x509Cert.DNSNames) > 0 {
+		return x509Cert.DNSNames[0], nil
+	}
+
+	return x509Cert.Subject.CommonName, nil
 }
