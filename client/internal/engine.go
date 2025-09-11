@@ -198,6 +198,9 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
+
+	// dns forwarder port
+	dnsFwdPort int
 }
 
 // Peer is an instance of the Connection Peer
@@ -240,6 +243,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
+		dnsFwdPort:     dnsfwd.ListenPort,
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -1856,7 +1860,20 @@ func (e *Engine) updateDNSForwarder(
 			}
 
 			log.Infof("started domain router service with %d entries", len(fwdEntries))
+		} else if e.dnsFwdPort != forwarderPort {
+			log.Infof("updating domain router service port from %d to %d", e.dnsFwdPort, forwarderPort)
+			// stop and start the forwarder to apply the new port
+			if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+				log.Errorf("failed to stop DNS forward: %v", err)
+			}
+			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, forwarderPort)
+			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
+				log.Errorf("failed to start DNS forward: %v", err)
+				e.dnsForwardMgr = nil
+			}
+			e.dnsFwdPort = forwarderPort
 		} else {
+
 			e.dnsForwardMgr.UpdateDomains(fwdEntries)
 		}
 	} else if e.dnsForwardMgr != nil {
