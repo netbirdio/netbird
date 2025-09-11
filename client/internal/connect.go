@@ -280,15 +280,12 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return wrapErr(err)
 		}
 
-
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
 		if runningChan != nil {
-			select {
-			case runningChan <- struct{}{}:
-			default:
-			}
+			close(runningChan)
+			runningChan = nil
 		}
 
 		<-engineCtx.Done()
