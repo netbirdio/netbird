@@ -385,7 +385,6 @@ init_zitadel() {
   echo -n "Waiting for Zitadel to become ready "
   wait_api "$INSTANCE_URL" "$PAT"
 
-  # Delete the default zitadel-admin user with Password1! early in the process
   echo "Deleting default zitadel-admin user..."
   delete_default_zitadel_admin "$INSTANCE_URL" "$PAT"
 
