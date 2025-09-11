@@ -251,6 +251,8 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 				// log.Errorf("TCP read error: %v", err)
 				continue
 			}
+
+			log.Errorf("TCP read error: %v", err)
 			return
 		}
 
