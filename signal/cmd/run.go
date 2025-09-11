@@ -256,7 +256,7 @@ func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler h
 func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter, port int, tls *tls.Config) http.Handler {
 	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithOTelMeter(meter))
 	if tls != nil {
-		wsProxy = wsproxyserver.New(netip.MustParseAddrPort("3.72.114.248:443"), wsproxyserver.WithTLSConfig(tls), wsproxyserver.WithOTelMeter(meter))
+		wsProxy = wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithTLSConfig(tls), wsproxyserver.WithOTelMeter(meter))
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

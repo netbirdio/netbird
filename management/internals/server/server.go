@@ -145,6 +145,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
+	tlsConfig.ServerName = "api.stage.netbird.io"
 	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter(), s.mgmtPort, tlsConfig)
 	switch {
 	case s.certManager != nil:
