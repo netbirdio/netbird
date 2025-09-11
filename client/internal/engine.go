@@ -1064,7 +1064,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
-	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
+	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries, int(protoDNSConfig.ForwarderPort))
 
 	// Ingress forward rules
 	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
@@ -1830,6 +1830,7 @@ func (e *Engine) GetWgAddr() netip.Addr {
 func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
+	forwarderPort int,
 ) {
 	if e.config.DisableServerRoutes {
 		return
@@ -1847,7 +1848,7 @@ func (e *Engine) updateDNSForwarder(
 
 	if len(fwdEntries) > 0 {
 		if e.dnsForwardMgr == nil {
-			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder)
+			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, forwarderPort)
 
 			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
 				log.Errorf("failed to start DNS forward: %v", err)
