@@ -198,6 +198,9 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
+
+	// WireGuard interface monitor
+	wgIfaceMonitor *WGIfaceMonitor
 }
 
 // Peer is an instance of the Connection Peer
@@ -304,6 +307,12 @@ func (e *Engine) Stop() error {
 
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
+	}
+
+	// Stop WireGuard interface monitor and wait for it to exit
+	if e.wgIfaceMonitor != nil {
+		e.wgIfaceMonitor.Stop()
+		e.wgIfaceMonitor = nil
 	}
 
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
@@ -477,6 +486,10 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
+
+	// monitor WireGuard interface lifecycle and restart engine on changes
+	e.wgIfaceMonitor = NewWGIfaceMonitor(e.restartEngine)
+	e.wgIfaceMonitor.Start(e.wgInterface.Name())
 	return nil
 }
 
@@ -1748,6 +1761,7 @@ func (e *Engine) startNetworkMonitor() {
 		e.restartEngine()
 	}()
 }
+
 
 func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 	var vpnRoutes []netip.Prefix
