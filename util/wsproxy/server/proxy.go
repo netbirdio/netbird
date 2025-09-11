@@ -89,7 +89,16 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	if p.config.TLSConfig != nil {
 		log.Infof("Using TLS to connect to local gRPC server at %s", p.config.LocalGRPCAddr)
-		tcpConn, err = tls.DialWithDialer(&net.Dialer{Timeout: dialTimeout}, "tcp", p.config.LocalGRPCAddr.String(), p.config.TLSConfig)
+		tlsConn, err := tls.DialWithDialer(&net.Dialer{Timeout: dialTimeout}, "tcp", p.config.LocalGRPCAddr.String(), p.config.TLSConfig)
+		if err != nil {
+			log.Errorf("Failed to connect to local gRPC server at %s with TLS: %v", p.config.LocalGRPCAddr, err)
+			return
+		}
+		err = tlsConn.Handshake()
+		if err != nil {
+			log.Errorf("TLS handshake with local gRPC server at %s failed: %v", p.config.LocalGRPCAddr, err)
+		}
+		tcpConn = tlsConn
 	} else {
 		tcpConn, err = net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
 	}
