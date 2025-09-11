@@ -145,7 +145,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
-	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter())
+	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter(), s.mgmtPort, tlsConfig)
 	switch {
 	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
@@ -251,8 +251,11 @@ func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config)
 	return util.DirectWriteJson(ctx, path, config)
 }
 
-func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
-	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), ManagementLegacyPort), wsproxyserver.WithOTelMeter(meter))
+func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter, port int, tlsConfig *tls.Config) http.Handler {
+	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithOTelMeter(meter))
+	if tlsConfig != nil {
+		wsProxy = wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithOTelMeter(meter), wsproxyserver.WithTLSConfig(tlsConfig))
+	}
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {

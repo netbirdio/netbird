@@ -93,7 +93,7 @@ var (
 
 			startPprof()
 
-			opts, certManager, err := getTLSConfigurations()
+			opts, certManager, tlsConfig, err := getTLSConfigurations()
 			if err != nil {
 				return err
 			}
@@ -119,7 +119,7 @@ var (
 			}
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
-			grpcRootHandler := grpcHandlerFunc(grpcServer, metricsServer.Meter)
+			grpcRootHandler := grpcHandlerFunc(grpcServer, metricsServer.Meter, signalPort, tlsConfig)
 
 			if certManager != nil {
 				startServerWithCertManager(certManager, grpcRootHandler)
@@ -201,7 +201,7 @@ func startPprof() {
 	}()
 }
 
-func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, error) {
+func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, *tls.Config, error) {
 	var (
 		err         error
 		certManager *autocert.Manager
@@ -210,33 +210,33 @@ func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, error) {
 
 	if signalLetsencryptDomain == "" && signalCertFile == "" && signalCertKey == "" {
 		log.Infof("running without TLS")
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	if signalLetsencryptDomain != "" {
 		certManager, err = encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 		if err != nil {
-			return nil, certManager, err
+			return nil, certManager, nil, err
 		}
 		tlsConfig = certManager.TLSConfig()
 		log.Infof("setting up TLS with LetsEncrypt.")
 	} else {
 		if signalCertFile == "" || signalCertKey == "" {
 			log.Errorf("both cert-file and cert-key must be provided when not using LetsEncrypt")
-			return nil, certManager, errors.New("both cert-file and cert-key must be provided when not using LetsEncrypt")
+			return nil, certManager, nil, errors.New("both cert-file and cert-key must be provided when not using LetsEncrypt")
 		}
 
 		tlsConfig, err = loadTLSConfig(signalCertFile, signalCertKey)
 		if err != nil {
 			log.Errorf("cannot load TLS credentials: %v", err)
-			return nil, certManager, err
+			return nil, certManager, nil, err
 		}
 		log.Infof("setting up TLS with custom certificates.")
 	}
 
 	transportCredentials := credentials.NewTLS(tlsConfig)
 
-	return []grpc.ServerOption{grpc.Creds(transportCredentials)}, certManager, err
+	return []grpc.ServerOption{grpc.Creds(transportCredentials)}, certManager, tlsConfig, err
 }
 
 func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler http.Handler) {
@@ -253,8 +253,11 @@ func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler h
 	}
 }
 
-func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter) http.Handler {
-	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), legacyGRPCPort), wsproxyserver.WithOTelMeter(meter))
+func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter, port int, tls *tls.Config) http.Handler {
+	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithOTelMeter(meter))
+	if tls != nil {
+		wsProxy = wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithTLSConfig(tls), wsproxyserver.WithOTelMeter(meter))
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

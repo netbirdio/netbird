@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -26,6 +28,7 @@ type Config struct {
 	LocalGRPCAddr   netip.AddrPort
 	Path            string
 	MetricsRecorder MetricsRecorder
+	TLSConfig       *tls.Config
 }
 
 // Proxy handles WebSocket to TCP proxying for gRPC connections.
@@ -81,7 +84,15 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	log.Debugf("WebSocket proxy attempting to connect to local gRPC at %s", p.config.LocalGRPCAddr)
-	tcpConn, err := net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
+
+	var tcpConn net.Conn
+
+	if p.config.TLSConfig != nil {
+		tcpConn, err = tls.DialWithDialer(&net.Dialer{Timeout: dialTimeout}, "tcp", p.config.LocalGRPCAddr.String(), p.config.TLSConfig)
+	} else {
+		tcpConn, err = net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
+	}
+
 	if err != nil {
 		p.metrics.RecordError(ctx, "tcp_dial_failed")
 		log.Warnf("Failed to connect to local gRPC server at %s: %v", p.config.LocalGRPCAddr, err)
@@ -218,5 +229,55 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 		}
 
 		p.metrics.RecordBytesTransferred(ctx, "tcp_to_ws", int64(n))
+	}
+}
+
+// This method was copied from https://github.com/mwitkow/go-conntrack/blob/master/connhelpers/tls.go#L26
+func TlsConfigWithHttp2Enabled(config *tls.Config) (*tls.Config, error) {
+	// mostly based on http2 code in the standards library.
+	if config.CipherSuites != nil {
+		// If they already provided a CipherSuite list, return
+		// an error if it has a bad order or is missing
+		// ECDHE_RSA_WITH_AES_128_GCM_SHA256.
+		const requiredCipher = tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+		haveRequired := false
+		for _, cs := range config.CipherSuites {
+			if cs == requiredCipher {
+				haveRequired = true
+			}
+		}
+		if !haveRequired {
+			return nil, fmt.Errorf("http2: TLSConfig.CipherSuites is missing HTTP/2-required TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256")
+		}
+	}
+
+	config.PreferServerCipherSuites = true
+
+	haveNPN := false
+	for _, p := range config.NextProtos {
+		if p == "h2" {
+			haveNPN = true
+			break
+		}
+	}
+	if !haveNPN {
+		config.NextProtos = append(config.NextProtos, "h2")
+	}
+	config.NextProtos = append(config.NextProtos, "h2-14")
+	// make sure http 1.1 is *after* all of the other ones.
+	config.NextProtos = append(config.NextProtos, "http/1.1")
+	return config, nil
+}
+
+// WithTLSConfig sets a TLS configuration for the proxy connection
+func WithTLSConfig(config *tls.Config) Option {
+	return func(c *Config) {
+		newConfig, err := TlsConfigWithHttp2Enabled(config)
+		if err != nil {
+			log.Warnf("Failed to enable HTTP/2 in TLS config: %v", err)
+			c.TLSConfig = config
+			return
+		}
+		c.TLSConfig = newConfig
 	}
 }
