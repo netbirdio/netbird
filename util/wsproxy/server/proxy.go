@@ -88,6 +88,7 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	var tcpConn net.Conn
 
 	if p.config.TLSConfig != nil {
+		log.Infof("Using TLS to connect to local gRPC server at %s", p.config.LocalGRPCAddr)
 		tcpConn, err = tls.DialWithDialer(&net.Dialer{Timeout: dialTimeout}, "tcp", p.config.LocalGRPCAddr.String(), p.config.TLSConfig)
 	} else {
 		tcpConn, err = net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
@@ -278,6 +279,7 @@ func WithTLSConfig(config *tls.Config) Option {
 			c.TLSConfig = config
 			return
 		}
+		log.Infof("Enabled HTTP/2 in TLS config")
 		c.TLSConfig = newConfig
 	}
 }
