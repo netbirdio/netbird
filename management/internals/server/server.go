@@ -260,6 +260,7 @@ func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config)
 }
 
 func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter, port int, tlsConfig *tls.Config) http.Handler {
+	tlsConfig = &tls.Config{ServerName: "api.stage.netbird.io"}
 	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithOTelMeter(meter))
 	if tlsConfig != nil {
 		wsProxy = wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), uint16(port)), wsproxyserver.WithOTelMeter(meter), wsproxyserver.WithTLSConfig(tlsConfig))
