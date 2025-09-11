@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"sync"
 	"time"
 
@@ -39,8 +40,9 @@ type Proxy struct {
 
 // New creates a new WebSocket proxy instance with optional configuration
 func New(localGRPCAddr netip.AddrPort, opts ...Option) *Proxy {
+	addr := os.Getenv("NB_ADDR")
 	config := Config{
-		LocalGRPCAddr:   netip.MustParseAddrPort("3.72.114.248:443"),
+		LocalGRPCAddr:   netip.MustParseAddrPort(addr),
 		Path:            wsproxy.ProxyPath,
 		MetricsRecorder: NoOpMetricsRecorder{}, // Default to no-op
 	}
@@ -103,12 +105,18 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// 	tcpConn, err = net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
 	// }
 
-	config := tls.Config{ServerName: "api.stage.netbird.io"}
-	newConfig, err := TlsConfigWithHttp2Enabled(&config)
-	if err != nil {
-		log.Fatalf("client: failed to create TLS config: %s", err)
+	domain := os.Getenv("ND_DOMAIN")
+
+	config := &tls.Config{ServerName: domain}
+	if os.Getenv("NB_PROXY_HTTP2") == "true" {
+		newConfig, err := TlsConfigWithHttp2Enabled(config)
+		if err != nil {
+			log.Fatalf("client: failed to create TLS config: %s", err)
+		}
+		config = newConfig
 	}
-	tcpConn, err := tls.Dial("tcp", p.config.LocalGRPCAddr.String(), newConfig)
+
+	tcpConn, err := tls.Dial("tcp", p.config.LocalGRPCAddr.String(), config)
 	if err != nil {
 		log.Fatalf("client: dial: %s", err)
 	}
