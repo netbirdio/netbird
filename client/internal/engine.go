@@ -55,6 +55,7 @@ import (
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
@@ -201,7 +202,8 @@ type Engine struct {
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
 
-	jobExecutor *jobexec.Executor
+	jobExecutor   *jobexec.Executor
+	jobExecutorWG sync.WaitGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -312,6 +314,8 @@ func (e *Engine) Stop() error {
 	if e.cancel != nil {
 		e.cancel()
 	}
+
+	e.jobExecutorWG.Wait() // block until job goroutines finish
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
 	// Removing peers happens in the conn.Close() asynchronously
@@ -886,8 +890,9 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	return nil
 }
 func (e *Engine) receiveJobEvents() {
+	e.jobExecutorWG.Add(1)
 	go func() {
-		// todo: engine can be restarted any time. We need to handle the case when a job is being processed while the engine is stopping
+		defer e.jobExecutorWG.Done()
 		err := e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
 			resp := mgmProto.JobResponse{
 				ID:     msg.ID,
@@ -931,13 +936,11 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 	if syncResponse == nil {
 		return nil, errors.New("sync response is not available")
 	}
+	// convert fullStatus to statusOutput
+	fullStatus := e.statusRecorder.GetFullStatus()
+	overview := nbstatus.ConvertFullStatusToOutputOverview(&fullStatus, params.Anonymize, "", "", nil, nil, nil, "", "", nil, nil)
+	statusOutput := nbstatus.ParseToFullDetailSummary(overview)
 
-	var statusOutput string
-
-	// todo: convert fullStatus to statusOutput
-	// 		fullStatus := e.statusRecorder.GetFullStatus()
-	// 		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anonymize, "", nil, nil, nil, "", "")
-	//		statusOutput = nbstatus.ParseToFullDetailSummary(overview)
 	bundleDeps := debug.GeneratorDependencies{
 		InternalConfig: e.config.ProfileConfig,
 		StatusRecorder: e.statusRecorder,
