@@ -19,21 +19,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	wgdevice "golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	wgdevice "golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
-
 	"github.com/netbirdio/management-integrations/integrations"
-	"github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/groups"
 
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
@@ -45,9 +42,12 @@ import (
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -85,7 +85,7 @@ type MockWGIface struct {
 	NameFunc                   func() string
 	AddressFunc                func() wgaddr.Address
 	ToInterfaceFunc            func() *net.Interface
-	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
+	UpFunc                     func() (*udpmux.UniversalUDPMuxDefault, error)
 	UpdateAddrFunc             func(newAddr string) error
 	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
@@ -135,7 +135,7 @@ func (m *MockWGIface) ToInterface() *net.Interface {
 	return m.ToInterfaceFunc()
 }
 
-func (m *MockWGIface) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (m *MockWGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return m.UpFunc()
 }
 
@@ -414,7 +414,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn, MTU: 1280})
+	engine.udpMux = udpmux.NewUniversalUDPMuxDefault(udpmux.UniversalUDPMuxParams{UDPConn: conn, MTU: 1280})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
 	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface)
@@ -1555,7 +1555,11 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	if err != nil {
 		return nil, "", err
 	}
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
+
+	permissionsManager := permissions.NewManager(store)
+	peersManager := peers.NewManager(store, permissionsManager)
+
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, nil, eventStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
@@ -1572,7 +1576,6 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 
-	permissionsManager := permissions.NewManager(store)
 	groupsManager := groups.NewManagerMock()
 
 	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)

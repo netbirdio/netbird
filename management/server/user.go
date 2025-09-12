@@ -946,6 +946,11 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		// nolint:staticcheck
 		ctx = context.WithValue(ctx, nbContext.PeerIDKey, peer.Key)
 
+		if peer.UserID == "" {
+			// we do not want to expire peers that are added via setup key
+			continue
+		}
+
 		if peer.Status.LoginExpired {
 			continue
 		}
