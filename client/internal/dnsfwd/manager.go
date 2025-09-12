@@ -11,8 +11,8 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 const (
@@ -35,12 +35,14 @@ type Manager struct {
 	fwRules      []firewall.Rule
 	tcpRules     []firewall.Rule
 	dnsForwarder *DNSForwarder
+	port         int
 }
 
-func NewManager(fw firewall.Manager, statusRecorder *peer.Status) *Manager {
+func NewManager(fw firewall.Manager, statusRecorder *peer.Status, port int) *Manager {
 	return &Manager{
 		firewall:       fw,
 		statusRecorder: statusRecorder,
+		port:           port,
 	}
 }
 
@@ -54,7 +56,11 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 		return err
 	}
 
-	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, m.firewall, m.statusRecorder)
+	listenPort := m.port
+	if listenPort == 0 {
+		listenPort = ListenPort
+	}
+	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", listenPort), dnsTTL, m.firewall, m.statusRecorder)
 	go func() {
 		if err := m.dnsForwarder.Listen(fwdEntries); err != nil {
 			// todo handle close error if it is exists
