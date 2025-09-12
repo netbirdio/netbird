@@ -136,18 +136,35 @@ func (s *SqlStore) CreatePeerJob(ctx context.Context, job *types.Job) error {
 	return nil
 }
 
-// job was pending for too long and has been cancelled
-// todo call it when we first start the jobChannel to make sure no stuck jobs
-func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, peerID string) error {
-	now := time.Now().UTC()
-	return s.db.
+func (s *SqlStore) CompletePeerJob(ctx context.Context, job *types.Job) error {
+	result := s.db.
 		Model(&types.Job{}).
-		Where("peer_id = ? AND status = ?", types.JobStatusPending, peerID).
-		Updates(map[string]any{
-			"status":        types.JobStatusFailed,
-			"failed_reason": "Pending job cleanup: marked as failed automatically due to being stuck too long",
-			"completed_at":  now,
-		}).Error
+		Where(idQueryCondition, job.ID).
+		Updates(job)
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to create job in store")
+	}
+	return nil
+}
+
+// job was pending for too long and has been cancelled
+func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error {
+	now := time.Now().UTC()
+	result := s.db.
+		Model(&types.Job{}).
+		Where(accountAndPeerIDQueryCondition+"AND status = ?", accountID, peerID, types.JobStatusPending).
+		Updates(types.Job{
+			Status:       types.JobStatusFailed,
+			FailedReason: reason,
+			CompletedAt:  &now,
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to mark pending jobs as Failed job in store: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to mark pending job as Failed in store")
+	}
+	return nil
 }
 
 // GetJobByID fetches job by ID
@@ -159,7 +176,11 @@ func (s *SqlStore) GetPeerJobByID(ctx context.Context, accountID, jobID string) 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, status.Errorf(status.NotFound, "job %s not found", jobID)
 	}
-	return &job, err
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to fetch job from store: %s", err)
+		return nil, err
+	}
+	return &job, nil
 }
 
 // get all jobs
@@ -171,32 +192,11 @@ func (s *SqlStore) GetPeerJobs(ctx context.Context, accountID, peerID string) ([
 		Find(&jobs).Error
 
 	if err != nil {
+		log.WithContext(ctx).Errorf("failed to fetch jobs from store: %s", err)
 		return nil, err
 	}
 
 	return jobs, nil
-}
-
-func (s *SqlStore) CompletePeerJob(accountID, jobID, result, failedReason string) error {
-	now := time.Now().UTC()
-
-	updates := map[string]any{
-		"completed_at": now,
-	}
-
-	if result != "" && failedReason == "" {
-		updates["status"] = types.JobStatusSucceeded
-		updates["result"] = result
-		updates["failed_reason"] = ""
-	} else {
-		updates["status"] = types.JobStatusFailed
-		updates["failed_reason"] = failedReason
-	}
-
-	return s.db.
-		Model(&types.Job{}).
-		Where(accountAndIDQueryCondition, accountID, jobID).
-		Updates(updates).Error
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock

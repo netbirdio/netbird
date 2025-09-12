@@ -8,7 +8,9 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	log "github.com/sirupsen/logrus"
 )
 
 const jobChannelBuffer = 100
@@ -17,7 +19,6 @@ type JobEvent struct {
 	PeerID   string
 	Request  *proto.JobRequest
 	Response *proto.JobResponse
-	Done     chan struct{} // closed when response arrives
 }
 
 type JobManager struct {
@@ -42,9 +43,11 @@ func NewJobManager(metrics telemetry.AppMetrics, store store.Store) *JobManager 
 }
 
 // CreateJobChannel creates or replaces a channel for a peer
-func (jm *JobManager) CreateJobChannel(peerID string) chan *JobEvent {
-	// TODO: all pending jobs stored in db for this peer should be failed
-	// jm.Store.MarkPendingJobsAsFailed(peerID)
+func (jm *JobManager) CreateJobChannel(ctx context.Context, accountID, peerID string) chan *JobEvent {
+	// all pending jobs stored in db for this peer should be failed
+	if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, "Pending job cleanup: marked as failed automatically due to being stuck too long"); err != nil {
+		log.WithContext(ctx).Error(err.Error())
+	}
 
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
@@ -71,7 +74,6 @@ func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req
 	event := &JobEvent{
 		PeerID:  peerID,
 		Request: req,
-		Done:    make(chan struct{}),
 	}
 
 	jm.mu.Lock()
@@ -80,14 +82,6 @@ func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req
 
 	select {
 	case ch <- event:
-	case <-time.After(5 * time.Second):
-		jm.cleanup(ctx, accountID, string(req.ID), "timed out")
-		return fmt.Errorf("job channel full for peer %s", peerID)
-	}
-
-	select {
-	case <-event.Done:
-		return nil
 	case <-time.After(jm.responseWait):
 		jm.cleanup(ctx, accountID, string(req.ID), "timed out")
 		return fmt.Errorf("job %s timed out", req.ID)
@@ -95,25 +89,32 @@ func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req
 		jm.cleanup(ctx, accountID, string(req.ID), ctx.Err().Error())
 		return ctx.Err()
 	}
+	return nil
 }
 
 // HandleResponse marks a job as finished and moves it to completed
-func (jm *JobManager) HandleResponse(ctx context.Context, accountID string, resp *proto.JobResponse) error {
+func (jm *JobManager) HandleResponse(ctx context.Context, resp *proto.JobResponse) error {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
-	event, ok := jm.pending[string(resp.ID)]
+	jobID := string(resp.ID)
+
+	event, ok := jm.pending[jobID]
 	if !ok {
-		return fmt.Errorf("job %s not found", resp.ID)
+		return fmt.Errorf("job %s not found", jobID)
+	}
+	var job types.Job
+	if err := job.ApplyResponse(resp); err != nil {
+		return fmt.Errorf("invalid job response: %v", err)
+	}
+	//update or create the store for job response
+	err := jm.Store.CompletePeerJob(ctx, &job)
+	if err == nil {
+		event.Response = resp
 	}
 
-	event.Response = resp
-	//TODO: update the store for job response
-	// jm.store.CompleteJob(ctx,accountID, string(resp.GetID()), string(resp.GetResult()),string(resp.GetReason()))
-	close(event.Done)
-	delete(jm.pending, string(resp.ID))
-
-	return nil
+	delete(jm.pending, jobID)
+	return err
 }
 
 // CloseChannel closes a peer’s channel and cleans up its jobs
@@ -130,7 +131,9 @@ func (jm *JobManager) CloseChannel(ctx context.Context, accountID, peerID string
 	for jobID, ev := range jm.pending {
 		if ev.PeerID == peerID {
 			// if the client disconnect and there is pending job then marke it as failed
-			// jm.store.CompleteJob(ctx,accountID, jobID,"", "Time out ")
+			if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, "Time out peer disconnected"); err != nil {
+				log.WithContext(ctx).Errorf(err.Error())
+			}
 			delete(jm.pending, jobID)
 		}
 	}
@@ -142,8 +145,29 @@ func (jm *JobManager) cleanup(ctx context.Context, accountID, jobID string, reas
 	defer jm.mu.Unlock()
 
 	if ev, ok := jm.pending[jobID]; ok {
-		close(ev.Done)
-		// jm.store.CompleteJob(ctx, accountID, jobID, "", reason)
+		if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, ev.PeerID, reason); err != nil {
+			log.WithContext(ctx).Errorf(err.Error())
+		}
 		delete(jm.pending, jobID)
 	}
+}
+
+func (jm *JobManager) IsPeerConnected(peerID string) bool {
+	jm.mu.RLock()
+	defer jm.mu.RUnlock()
+
+	_, ok := jm.jobChannels[peerID]
+	return ok
+}
+
+func (jm *JobManager) IsPeerHasPendingJobs(peerID string) bool {
+	jm.mu.RLock()
+	defer jm.mu.RUnlock()
+
+	for _, ev := range jm.pending {
+		if ev.PeerID == peerID {
+			return true
+		}
+	}
+	return false
 }

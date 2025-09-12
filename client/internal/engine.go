@@ -32,6 +32,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
@@ -48,11 +49,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
@@ -125,6 +128,10 @@ type EngineConfig struct {
 	BlockInbound        bool
 
 	LazyConnectionEnabled bool
+	DaemonAddress         string
+
+	// for debug bundle generation
+	ProfileConfig *profilemanager.Config
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -194,6 +201,9 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
+
+	jobExecutor   *jobexec.Executor
+	jobExecutorWG sync.WaitGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -207,17 +217,7 @@ type localIpUpdater interface {
 }
 
 // NewEngine creates a new Connection Engine with probes attached
-func NewEngine(
-	clientCtx context.Context,
-	clientCancel context.CancelFunc,
-	signalClient signal.Client,
-	mgmClient mgm.Client,
-	relayManager *relayClient.Manager,
-	config *EngineConfig,
-	mobileDep MobileDependency,
-	statusRecorder *peer.Status,
-	checks []*mgmProto.Checks,
-) *Engine {
+func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, c *profilemanager.Config) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -236,6 +236,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
+		jobExecutor:    jobexec.NewExecutor(),
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -313,6 +314,8 @@ func (e *Engine) Stop() error {
 	if e.cancel != nil {
 		e.cancel()
 	}
+
+	e.jobExecutorWG.Wait() // block until job goroutines finish
 
 	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
 	// Removing peers happens in the conn.Close() asynchronously
@@ -886,20 +889,27 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 
 	return nil
 }
-
 func (e *Engine) receiveJobEvents() {
+	e.jobExecutorWG.Add(1)
 	go func() {
+		defer e.jobExecutorWG.Done()
 		err := e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
-			// Simple test handler — replace with real logic
-			log.Infof("Received job request: %+v", msg)
-			// TODO: trigger local debug bundle or other job
-			return &mgmProto.JobResponse{
-				ID: msg.ID,
-				WorkloadResults: &mgmProto.JobResponse_Bundle{
-					Bundle: &mgmProto.BundleResult{
-						UploadKey: "upload-key",
-					},
-				},
+			resp := mgmProto.JobResponse{
+				ID:     msg.ID,
+				Status: mgmProto.JobStatus_failed,
+			}
+			switch params := msg.WorkloadParameters.(type) {
+			case *mgmProto.JobRequest_Bundle:
+				bundleResult, err := e.handleBundle(params.Bundle)
+				if err != nil {
+					resp.Reason = []byte(err.Error())
+					return &resp
+				}
+				resp.Status = mgmProto.JobStatus_succeeded
+				resp.WorkloadResults = bundleResult
+				return &resp
+			default:
+				return nil
 			}
 		})
 		if err != nil {
@@ -912,6 +922,50 @@ func (e *Engine) receiveJobEvents() {
 		log.Debugf("stopped receiving jobs from Management Service")
 	}()
 	log.Debugf("connecting to Management Service jobs stream")
+}
+
+func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
+	// todo: @Vic, do we need to latest sync response all the time here or could it be nil in the debug bundle?
+	// todo: e.GetLatestSyncResponse() is exported and has been protected by a mutex. If you will use handleBundle in
+	// also protected context then will be deadlock
+	syncResponse, err := e.GetLatestSyncResponse()
+	if err != nil {
+		return nil, fmt.Errorf("get latest sync response: %w", err)
+	}
+
+	if syncResponse == nil {
+		return nil, errors.New("sync response is not available")
+	}
+	// convert fullStatus to statusOutput
+	fullStatus := e.statusRecorder.GetFullStatus()
+	overview := nbstatus.ConvertFullStatusToOutputOverview(&fullStatus, params.Anonymize, "", "", nil, nil, nil, "", "", nil, nil)
+	statusOutput := nbstatus.ParseToFullDetailSummary(overview)
+
+	bundleDeps := debug.GeneratorDependencies{
+		InternalConfig: e.config.ProfileConfig,
+		StatusRecorder: e.statusRecorder,
+		SyncResponse:   syncResponse,
+		LogFile:        "", // todo: figure out where come from the log file. I suppose the client who invokes engine creation knows it.
+	}
+
+	bundleJobParams := debug.BundleConfig{
+		Anonymize:         params.Anonymize,
+		ClientStatus:      statusOutput,
+		IncludeSystemInfo: true,
+		LogFileCount:      uint32(params.LogFileCount),
+	}
+
+	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, e.config.ProfileConfig.ManagementURL.String())
+	if err != nil {
+		return nil, err
+	}
+
+	response := &mgmProto.JobResponse_Bundle{
+		Bundle: &mgmProto.BundleResult{
+			UploadKey: uploadKey,
+		},
+	}
+	return response, nil
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service

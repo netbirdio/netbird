@@ -180,13 +180,19 @@ func (c *GrpcClient) handleJobStream(
 	// Main loop: receive, process, respond
 	for {
 		jobReq, err := c.receiveJobRequest(ctx, stream, serverPubKey)
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-				log.WithContext(ctx).Info("job stream closed by server")
+		if err != nil && err != io.EOF {
+			c.notifyDisconnected(err)
+			s, _ := gstatus.FromError(err)
+			switch s.Code() {
+			case codes.PermissionDenied:
+				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+			case codes.Canceled:
+				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
 				return nil
+			default:
+				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+				return err
 			}
-			log.WithContext(ctx).Errorf("error receiving job request: %v", err)
-			return err
 		}
 
 		if jobReq == nil || len(jobReq.ID) == 0 {
@@ -298,7 +304,7 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		c.notifyDisconnected(err)
 		s, _ := gstatus.FromError(err)
 		switch s.Code() {
