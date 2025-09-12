@@ -91,14 +91,23 @@ type oauthAuthFlow struct {
 
 // New server instance constructor.
 func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
+	isUnixDesktop := false
+	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
+		isUnixDesktop = internal.CheckUIApp()
+	}
+
+	statusRecorder := peer.NewRecorder("")
+	sessionWatcher := internal.NewSessionWatcher(ctx, statusRecorder, isUnixDesktop)
+
 	return &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
 		persistSyncResponse:    true,
-		statusRecorder:         peer.NewRecorder(""),
+		statusRecorder:         statusRecorder,
 		profileManager:         profilemanager.NewServiceManager(configFile),
 		profilesDisabled:       profilesDisabled,
 		updateSettingsDisabled: updateSettingsDisabled,
+		sessionWatcher:         sessionWatcher,
 	}
 }
 
@@ -166,8 +175,7 @@ func (s *Server) Start() error {
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
 	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
 
-	if s.sessionWatcher == nil {
-		s.sessionWatcher = internal.NewSessionWatcher(s.rootCtx, s.statusRecorder)
+	if s.sessionWatcher != nil {
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
 	}
 

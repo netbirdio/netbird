@@ -19,14 +19,16 @@ type SessionWatcher struct {
 
 	sendNotification bool
 	onExpireListener func()
+	isUnixDesktop   bool
 }
 
 // NewSessionWatcher creates a new instance of SessionWatcher.
-func NewSessionWatcher(ctx context.Context, peerStatusRecorder *peer.Status) *SessionWatcher {
+func NewSessionWatcher(ctx context.Context, peerStatusRecorder *peer.Status, isUnixDesktop bool) *SessionWatcher {
 	s := &SessionWatcher{
 		ctx:                ctx,
 		peerStatusRecorder: peerStatusRecorder,
 		watchTicker:        time.NewTicker(2 * time.Second),
+		isUnixDesktop:      isUnixDesktop,
 	}
 	go s.startWatcher()
 	return s
@@ -49,16 +51,27 @@ func (s *SessionWatcher) startWatcher() {
 			return
 		case <-s.watchTicker.C:
 			managementState := s.peerStatusRecorder.GetManagementState()
+			wasConnected := s.sendNotification
+			
 			if managementState.Connected {
 				s.sendNotification = true
 			}
 
 			isLoginRequired := s.peerStatusRecorder.IsLoginRequired()
-			if isLoginRequired && s.sendNotification && s.onExpireListener != nil {
-				s.mutex.Lock()
-				s.onExpireListener()
-				s.sendNotification = false
-				s.mutex.Unlock()
+			if isLoginRequired && s.onExpireListener != nil {
+				// On Windows/macOS, always try to show the popup if we were previously connected
+				// On Linux, only show if it's a desktop environment
+				if (runtime.GOOS != "linux" && wasConnected) || 
+				   (s.isUnixDesktop && wasConnected) {
+					s.mutex.Lock()
+					s.onExpireListener()
+					s.sendNotification = false
+					s.mutex.Unlock()
+				} else if !s.isUnixDesktop {
+					// For non-desktop Linux, log a message about needing to reauthenticate
+					log.Info("Session expired. Please run 'netbird login' to reauthenticate.")
+					s.sendNotification = false
+				}
 			}
 		}
 	}
