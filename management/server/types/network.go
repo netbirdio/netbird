@@ -9,12 +9,7 @@ import (
 
 	"github.com/c-robinson/iplib"
 	"github.com/rs/xid"
-	"golang.org/x/exp/maps"
 
-	nbdns "github.com/netbirdio/netbird/dns"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/util"
-	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -28,40 +23,6 @@ const (
 	// AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.64.30.1/32)
 	AllowedIPsFormat = "%s/32"
 )
-
-type NetworkMap struct {
-	Peers               []*nbpeer.Peer
-	Network             *Network
-	Routes              []*route.Route
-	DNSConfig           nbdns.Config
-	OfflinePeers        []*nbpeer.Peer
-	FirewallRules       []*FirewallRule
-	RoutesFirewallRules []*RouteFirewallRule
-	ForwardingRules     []*ForwardingRule
-}
-
-func (nm *NetworkMap) Merge(other *NetworkMap) {
-	nm.Peers = mergeUniquePeersByID(nm.Peers, other.Peers)
-	nm.Routes = util.MergeUnique(nm.Routes, other.Routes)
-	nm.OfflinePeers = mergeUniquePeersByID(nm.OfflinePeers, other.OfflinePeers)
-	nm.FirewallRules = util.MergeUnique(nm.FirewallRules, other.FirewallRules)
-	nm.RoutesFirewallRules = util.MergeUnique(nm.RoutesFirewallRules, other.RoutesFirewallRules)
-	nm.ForwardingRules = util.MergeUnique(nm.ForwardingRules, other.ForwardingRules)
-}
-
-func mergeUniquePeersByID(peers1, peers2 []*nbpeer.Peer) []*nbpeer.Peer {
-	result := make(map[string]*nbpeer.Peer)
-	for _, peer := range peers1 {
-		result[peer.ID] = peer
-	}
-	for _, peer := range peers2 {
-		if _, ok := result[peer.ID]; !ok {
-			result[peer.ID] = peer
-		}
-	}
-
-	return maps.Values(result)
-}
 
 type ForwardingRule struct {
 	RuleProtocol      string
