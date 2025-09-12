@@ -330,7 +330,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
-		update:               version.NewUpdate("nb/client-ui"),
+		update:               version.NewUpdateAndStart("nb/client-ui"),
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -529,7 +529,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				var req proto.SetConfigRequest
 				req.ProfileName = activeProf.Name
 				req.Username = currUser.Username
-				
+
 				if iMngURL != "" {
 					req.ManagementUrl = iMngURL
 				}
