@@ -217,7 +217,7 @@ jobs:
           - arch: "386"
             raceFlag: ""
           - arch: "amd64"
-            raceFlag: ""
+            raceFlag: "-race"
     runs-on: ubuntu-22.04
     steps:
       - name: Install Go
