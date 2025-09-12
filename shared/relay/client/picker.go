@@ -13,11 +13,8 @@ import (
 )
 
 const (
-	maxConcurrentServers = 7
-)
-
-var (
-	connectionTimeout = 30 * time.Second
+	maxConcurrentServers     = 7
+	defaultConnectionTimeout = 30 * time.Second
 )
 
 type connResult struct {
@@ -27,14 +24,15 @@ type connResult struct {
 }
 
 type ServerPicker struct {
-	TokenStore *auth.TokenStore
-	ServerURLs atomic.Value
-	PeerID     string
-	MTU        uint16
+	TokenStore        *auth.TokenStore
+	ServerURLs        atomic.Value
+	PeerID            string
+	MTU               uint16
+	ConnectionTimeout time.Duration
 }
 
 func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
-	ctx, cancel := context.WithTimeout(parentCtx, connectionTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, sp.ConnectionTimeout)
 	defer cancel()
 
 	totalServers := len(sp.ServerURLs.Load().([]string))
