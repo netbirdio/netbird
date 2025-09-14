@@ -66,6 +66,7 @@ import (
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -128,10 +129,11 @@ type EngineConfig struct {
 	BlockInbound        bool
 
 	LazyConnectionEnabled bool
-	DaemonAddress         string
 
 	// for debug bundle generation
 	ProfileConfig *profilemanager.Config
+
+	LogFile string
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -936,16 +938,18 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 	if syncResponse == nil {
 		return nil, errors.New("sync response is not available")
 	}
+
 	// convert fullStatus to statusOutput
 	fullStatus := e.statusRecorder.GetFullStatus()
-	overview := nbstatus.ConvertFullStatusToOutputOverview(&fullStatus, params.Anonymize, "", "", nil, nil, nil, "", "", nil, nil)
+	protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
+	overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, params.Anonymize, version.NetbirdVersion(), "", nil, nil, nil, "", "")
 	statusOutput := nbstatus.ParseToFullDetailSummary(overview)
 
 	bundleDeps := debug.GeneratorDependencies{
 		InternalConfig: e.config.ProfileConfig,
 		StatusRecorder: e.statusRecorder,
 		SyncResponse:   syncResponse,
-		LogFile:        "", // todo: figure out where come from the log file. I suppose the client who invokes engine creation knows it.
+		LogFile:        e.config.LogFile,
 	}
 
 	bundleJobParams := debug.BundleConfig{

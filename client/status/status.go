@@ -11,14 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/version"
+	"golang.org/x/exp/maps"
 )
 
 type PeerStateDetailOutput struct {
@@ -102,157 +104,42 @@ type OutputOverview struct {
 	ProfileName             string                     `json:"profileName" yaml:"profileName"`
 }
 
-func ConvertToStatusOutputOverview(resp *proto.StatusResponse, anon bool, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string, profName string) OutputOverview {
-	pbFullStatus := resp.GetFullStatus()
-
+func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, anon bool, daemonVersion string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter string, profName string) OutputOverview {
 	managementState := pbFullStatus.GetManagementState()
-	signalState := pbFullStatus.GetSignalState()
-	localPeer := pbFullStatus.GetLocalPeerState()
-	protoPeers := pbFullStatus.GetPeers()
-	peers := make([]peer.State, 0, len(protoPeers))
-	for _, p := range protoPeers {
-		//!! todo: this value is not in peer struct !!		p.GetNetworks()
-		peers = append(peers, peer.State{
-			IP:     p.GetIP(),
-			PubKey: p.GetPubKey(),
-			FQDN:   p.GetFqdn(),
-			//!!	ConnStatus: peer.ConnStatus(p.GetConnStatus()), // we need way to convert this
-			ConnStatusUpdate:           p.GetConnStatusUpdate().AsTime(),
-			Relayed:                    p.GetRelayed(),
-			LocalIceCandidateType:      p.GetLocalIceCandidateType(),
-			RemoteIceCandidateType:     p.GetRemoteIceCandidateType(),
-			LocalIceCandidateEndpoint:  p.GetLocalIceCandidateEndpoint(),
-			RemoteIceCandidateEndpoint: p.GetRemoteIceCandidateEndpoint(),
-			RelayServerAddress:         p.GetRelayAddress(),
-			LastWireguardHandshake:     p.GetLastWireguardHandshake().AsTime(),
-			BytesTx:                    p.GetBytesTx(),
-			BytesRx:                    p.GetBytesRx(),
-			Latency:                    p.GetLatency().AsDuration(),
-			RosenpassEnabled:           p.GetRosenpassEnabled(),
-		})
-	}
-
-	pRelays := pbFullStatus.GetRelays()
-	relays := make([]relay.ProbeResult, 0, len(pRelays))
-	for _, r := range pRelays {
-		//!! todo : this not so good way to do that but it is working
-		available := ""
-		if r.GetAvailable() {
-			available = "available"
-		}
-
-		relays = append(relays, relay.ProbeResult{
-			URI:  r.URI,
-			Err:  fmt.Errorf(r.GetError()),
-			Addr: available,
-		})
-	}
-
-	pNsGroup := pbFullStatus.GetDnsServers()
-	nsGroup := make([]peer.NSGroupState, 0, len(pNsGroup))
-	for _, n := range nsGroup {
-		nsGroup = append(nsGroup, peer.NSGroupState{
-			ID:      n.ID,
-			Enabled: n.Enabled,
-			Error:   n.Error,
-			Domains: n.Domains,
-			Servers: n.Servers,
-		})
-	}
-
-	fullStatus := peer.FullStatus{
-		Peers:         peers,
-		Relays:        relays,
-		NSGroupStates: nsGroup,
-		ManagementState: peer.ManagementState{
-			URL:       managementState.GetURL(),
-			Connected: managementState.GetConnected(),
-			Error:     fmt.Errorf(managementState.GetError()),
-		},
-		SignalState: peer.SignalState{
-			URL:       signalState.GetURL(),
-			Connected: signalState.GetConnected(),
-			Error:     fmt.Errorf(signalState.GetError()),
-		},
-		LocalPeerState: peer.LocalPeerState{
-			IP:              localPeer.GetIP(),
-			PubKey:          localPeer.GetPubKey(),
-			FQDN:            localPeer.GetFqdn(),
-			KernelInterface: localPeer.GetKernelInterface(),
-		},
-		RosenpassState: peer.RosenpassState{
-			Enabled:    pbFullStatus.LocalPeerState.GetRosenpassEnabled(),
-			Permissive: pbFullStatus.LocalPeerState.GetRosenpassPermissive(),
-		},
-		NumOfForwardingRules:  int(pbFullStatus.GetNumberOfForwardingRules()),
-		LazyConnectionEnabled: pbFullStatus.GetLazyConnectionEnabled(),
-	}
-	events := mapEvents(pbFullStatus.GetEvents())
-
-	return ConvertFullStatusToOutputOverview(&fullStatus,
-		anon,
-		resp.GetDaemonVersion(),
-		statusFilter,
-		prefixNamesFilter,
-		prefixNamesFilterMap,
-		ipsFilter,
-		connectionTypeFilter,
-		profName,
-		resp.FullStatus.LocalPeerState.GetNetworks(),
-		events,
-	)
-}
-
-func ConvertFullStatusToOutputOverview(
-	pbFullStatus *peer.FullStatus,
-	anon bool,
-	daemonVersion string,
-	statusFilter string,
-	prefixNamesFilter []string,
-	prefixNamesFilterMap map[string]struct{},
-	ipsFilter map[string]struct{},
-	connectionTypeFilter string,
-	profName string,
-	networks []string,
-	events []SystemEventOutput,
-) OutputOverview {
-	managementState := pbFullStatus.ManagementState
 	managementOverview := ManagementStateOutput{
-		URL:       managementState.URL,
-		Connected: managementState.Connected,
-		Error:     managementState.Error.Error(),
+		URL:       managementState.GetURL(),
+		Connected: managementState.GetConnected(),
+		Error:     managementState.Error,
 	}
 
-	signalState := pbFullStatus.SignalState
+	signalState := pbFullStatus.GetSignalState()
 	signalOverview := SignalStateOutput{
-		URL:       signalState.URL,
-		Connected: signalState.Connected,
-		Error:     signalState.Error.Error(),
+		URL:       signalState.GetURL(),
+		Connected: signalState.GetConnected(),
+		Error:     signalState.Error,
 	}
 
-	relayOverview := mapRelays(pbFullStatus.Relays)
-	peersOverview := mapPeers(pbFullStatus.Peers, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
-	nSServerGroups := mapNSGroups(pbFullStatus.NSGroupStates)
-	localPeerState := pbFullStatus.LocalPeerState
+	relayOverview := mapRelays(pbFullStatus.GetRelays())
+	peersOverview := mapPeers(pbFullStatus.GetPeers(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter)
 
-		overview := OutputOverview{
+	overview := OutputOverview{
 		Peers:                   peersOverview,
 		CliVersion:              version.NetbirdVersion(),
 		DaemonVersion:           daemonVersion,
 		ManagementState:         managementOverview,
 		SignalState:             signalOverview,
 		Relays:                  relayOverview,
-		IP:                      localPeerState.IP,
-		PubKey:                  localPeerState.PubKey,
-		KernelInterface:         localPeerState.KernelInterface,
-		FQDN:                    localPeerState.FQDN,
-		RosenpassEnabled:        pbFullStatus.LazyConnectionEnabled,
-		RosenpassPermissive:     pbFullStatus.RosenpassState.Permissive,
-		Networks:                networks,
-		NumberOfForwardingRules: pbFullStatus.NumOfForwardingRules,
-		NSServerGroups:          nSServerGroups,
-		Events:                  events,
-		LazyConnectionEnabled:   pbFullStatus.LazyConnectionEnabled,
+		IP:                      pbFullStatus.GetLocalPeerState().GetIP(),
+		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
+		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
+		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
+		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
+		Networks:                pbFullStatus.GetLocalPeerState().GetNetworks(),
+		NumberOfForwardingRules: int(pbFullStatus.GetNumberOfForwardingRules()),
+		NSServerGroups:          mapNSGroups(pbFullStatus.GetDnsServers()),
+		Events:                  mapEvents(pbFullStatus.GetEvents()),
+		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
 		ProfileName:             profName,
 	}
 
@@ -264,18 +151,17 @@ func ConvertFullStatusToOutputOverview(
 	return overview
 }
 
-
-func mapRelays(relays []relay.ProbeResult) RelayStateOutput {
+func mapRelays(relays []*proto.RelayState) RelayStateOutput {
 	var relayStateDetail []RelayStateOutputDetail
 
 	var relaysAvailable int
 	for _, relay := range relays {
-		available := relay.Addr != ""
+		available := relay.GetAvailable()
 		relayStateDetail = append(relayStateDetail,
 			RelayStateOutputDetail{
 				URI:       relay.URI,
 				Available: available,
-				Error:     relay.Err.Error(),
+				Error:     relay.GetError(),
 			},
 		)
 
@@ -291,27 +177,21 @@ func mapRelays(relays []relay.ProbeResult) RelayStateOutput {
 	}
 }
 
-func mapNSGroups(servers []peer.NSGroupState) []NsServerGroupStateOutput {
+func mapNSGroups(servers []*proto.NSGroupState) []NsServerGroupStateOutput {
 	mappedNSGroups := make([]NsServerGroupStateOutput, 0, len(servers))
 	for _, pbNsGroupServer := range servers {
-		var serversAddress []string
-
-		for _, serv := range pbNsGroupServer.Servers {
-			serversAddress = append(serversAddress, serv.Addr().String())
-		}
-
 		mappedNSGroups = append(mappedNSGroups, NsServerGroupStateOutput{
-			Servers: serversAddress,
-			Domains: pbNsGroupServer.Domains,
-			Enabled: pbNsGroupServer.Enabled,
-			Error:   pbNsGroupServer.Error.Error(),
+			Servers: pbNsGroupServer.GetServers(),
+			Domains: pbNsGroupServer.GetDomains(),
+			Enabled: pbNsGroupServer.GetEnabled(),
+			Error:   pbNsGroupServer.GetError(),
 		})
 	}
 	return mappedNSGroups
 }
 
 func mapPeers(
-	peers []peer.State,
+	peers []*proto.PeerState,
 	statusFilter string,
 	prefixNamesFilter []string,
 	prefixNamesFilterMap map[string]struct{},
@@ -331,33 +211,33 @@ func mapPeers(
 		transferReceived := int64(0)
 		transferSent := int64(0)
 
-		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected
+		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
 
 		if pbPeerState.Relayed {
 			connType = "Relayed"
 		}
 
-		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus.String(), statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter, connType) {
+		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter, connType) {
 			continue
 		}
 		if isPeerConnected {
 			peersConnected++
 
-			localICE = pbPeerState.LocalIceCandidateType
-			remoteICE = pbPeerState.RemoteIceCandidateType
-			localICEEndpoint = pbPeerState.LocalIceCandidateEndpoint
-			remoteICEEndpoint = pbPeerState.RemoteIceCandidateEndpoint
-			relayServerAddress = pbPeerState.RelayServerAddress
-			lastHandshake = pbPeerState.LastWireguardHandshake.Local()
-			transferReceived = pbPeerState.BytesRx
-			transferSent = pbPeerState.BytesTx
+			localICE = pbPeerState.GetLocalIceCandidateType()
+			remoteICE = pbPeerState.GetRemoteIceCandidateType()
+			localICEEndpoint = pbPeerState.GetLocalIceCandidateEndpoint()
+			remoteICEEndpoint = pbPeerState.GetRemoteIceCandidateEndpoint()
+			relayServerAddress = pbPeerState.GetRelayAddress()
+			lastHandshake = pbPeerState.GetLastWireguardHandshake().AsTime().Local()
+			transferReceived = pbPeerState.GetBytesRx()
+			transferSent = pbPeerState.GetBytesTx()
 		}
 
-		timeLocal := pbPeerState.ConnStatusUpdate.Local()
+		timeLocal := pbPeerState.GetConnStatusUpdate().AsTime().Local()
 		peerState := PeerStateDetailOutput{
-			IP:               pbPeerState.IP,
-			PubKey:           pbPeerState.PubKey,
-			Status:           pbPeerState.ConnStatus.String(),
+			IP:               pbPeerState.GetIP(),
+			PubKey:           pbPeerState.GetPubKey(),
+			Status:           pbPeerState.GetConnStatus(),
 			LastStatusUpdate: timeLocal,
 			ConnType:         connType,
 			IceCandidateType: IceCandidateType{
@@ -369,13 +249,13 @@ func mapPeers(
 				Remote: remoteICEEndpoint,
 			},
 			RelayAddress:           relayServerAddress,
-			FQDN:                   pbPeerState.FQDN,
+			FQDN:                   pbPeerState.GetFqdn(),
 			LastWireguardHandshake: lastHandshake,
 			TransferReceived:       transferReceived,
 			TransferSent:           transferSent,
-			Latency:                pbPeerState.Latency,
-			RosenpassEnabled:       pbPeerState.RosenpassEnabled,
-			Networks:               []string{}, // DO WE NEED THIS ?
+			Latency:                pbPeerState.GetLatency().AsDuration(),
+			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
+			Networks:               pbPeerState.GetNetworks(),
 		}
 
 		peersStateDetail = append(peersStateDetail, peerState)
@@ -579,6 +459,93 @@ func ParseToFullDetailSummary(overview OutputOverview) string {
 	)
 }
 
+func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
+	pbFullStatus := proto.FullStatus{
+		ManagementState: &proto.ManagementState{},
+		SignalState:     &proto.SignalState{},
+		LocalPeerState:  &proto.LocalPeerState{},
+		Peers:           []*proto.PeerState{},
+	}
+
+	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
+	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
+	if err := fullStatus.ManagementState.Error; err != nil {
+		pbFullStatus.ManagementState.Error = err.Error()
+	}
+
+	pbFullStatus.SignalState.URL = fullStatus.SignalState.URL
+	pbFullStatus.SignalState.Connected = fullStatus.SignalState.Connected
+	if err := fullStatus.SignalState.Error; err != nil {
+		pbFullStatus.SignalState.Error = err.Error()
+	}
+
+	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
+	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
+	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
+	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
+	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
+	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
+	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
+	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
+	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
+
+	for _, peerState := range fullStatus.Peers {
+		pbPeerState := &proto.PeerState{
+			IP:                         peerState.IP,
+			PubKey:                     peerState.PubKey,
+			ConnStatus:                 peerState.ConnStatus.String(),
+			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
+			Relayed:                    peerState.Relayed,
+			LocalIceCandidateType:      peerState.LocalIceCandidateType,
+			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
+			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
+			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
+			RelayAddress:               peerState.RelayServerAddress,
+			Fqdn:                       peerState.FQDN,
+			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
+			BytesRx:                    peerState.BytesRx,
+			BytesTx:                    peerState.BytesTx,
+			RosenpassEnabled:           peerState.RosenpassEnabled,
+			Networks:                   maps.Keys(peerState.GetRoutes()),
+			Latency:                    durationpb.New(peerState.Latency),
+		}
+		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
+	}
+
+	for _, relayState := range fullStatus.Relays {
+		pbRelayState := &proto.RelayState{
+			URI:       relayState.URI,
+			Available: relayState.Err == nil,
+		}
+		if err := relayState.Err; err != nil {
+			pbRelayState.Error = err.Error()
+		}
+		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
+	}
+
+	for _, dnsState := range fullStatus.NSGroupStates {
+		var err string
+		if dnsState.Error != nil {
+			err = dnsState.Error.Error()
+		}
+
+		var servers []string
+		for _, server := range dnsState.Servers {
+			servers = append(servers, server.String())
+		}
+
+		pbDnsState := &proto.NSGroupState{
+			Servers: servers,
+			Domains: dnsState.Domains,
+			Enabled: dnsState.Enabled,
+			Error:   err,
+		}
+		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
+	}
+
+	return &pbFullStatus
+}
+
 func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bool) string {
 	var (
 		peersString = ""
@@ -669,7 +636,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 	return peersString
 }
 
-func skipDetailByFilters(peerState peer.State, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter, connType string) bool {
+func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter, connType string) bool {
 	statusEval := false
 	ipEval := false
 	nameEval := true
@@ -690,7 +657,7 @@ func skipDetailByFilters(peerState peer.State, peerStatus string, statusFilter s
 
 	if len(prefixNamesFilter) > 0 {
 		for prefixNameFilter := range prefixNamesFilterMap {
-			if strings.HasPrefix(peerState.FQDN, prefixNameFilter) {
+			if strings.HasPrefix(peerState.Fqdn, prefixNameFilter) {
 				nameEval = false
 				break
 			}
@@ -858,3 +825,4 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 		}
 	}
 }
+
