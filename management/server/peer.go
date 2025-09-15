@@ -1554,8 +1554,8 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 					RemotePeersIsEmpty:   true,
 					FirewallRules:        []*proto.FirewallRule{},
 					FirewallRulesIsEmpty: true,
+					AutoUpdateVersion:    settings.AutoUpdateVersion,
 				},
-				AutoUpdateVersion: settings.AutoUpdateVersion,
 			},
 			NetworkMap: &types.NetworkMap{},
 		})

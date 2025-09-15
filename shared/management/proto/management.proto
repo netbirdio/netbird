@@ -85,9 +85,6 @@ message SyncResponse {
 
   // Posture checks to be evaluated by client
   repeated Checks Checks = 6;
-
-  // Auto-update config
-  string autoUpdateVersion = 7;
 }
 
 message  SyncMetaRequest {
@@ -309,6 +306,9 @@ message NetworkMap {
   bool routesFirewallRulesIsEmpty = 11;
 
   repeated ForwardingRule forwardingRules = 12;
+
+  // Auto-update config
+  string autoUpdateVersion = 13;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
