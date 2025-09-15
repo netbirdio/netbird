@@ -218,7 +218,9 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 		return nil, err
 	}
 
-	if err := agent.OnSelectedCandidatePairChange(w.onICESelectedCandidatePair); err != nil {
+	if err := agent.OnSelectedCandidatePairChange(func(c1, c2 ice.Candidate) {
+		w.onICESelectedCandidatePair(agent, c1, c2)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -365,13 +367,11 @@ func (w *WorkerICE) onICECandidate(candidate ice.Candidate) {
 	}()
 }
 
-func (w *WorkerICE) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
+func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, c1, c2 ice.Candidate) {
 	w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
 		w.config.Key)
 
-	w.muxAgent.Lock()
-	pairStat, ok := w.agent.GetSelectedCandidatePairStats()
-	w.muxAgent.Unlock()
+	pairStat, ok := agent.GetSelectedCandidatePairStats()
 	if !ok {
 		w.log.Warnf("failed to get selected candidate pair stats")
 		return
@@ -382,6 +382,7 @@ func (w *WorkerICE) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidat
 		w.log.Debugf("failed to update latency for peer: %s", err)
 		return
 	}
+	return
 }
 
 func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dialerCancel context.CancelFunc) func(ice.ConnectionState) {
