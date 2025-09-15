@@ -370,21 +370,14 @@ func (w *WorkerICE) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidat
 		w.config.Key)
 
 	w.muxAgent.Lock()
-
-	pair, err := w.agent.GetSelectedCandidatePair()
-	if err != nil {
-		w.log.Warnf("failed to get selected candidate pair: %s", err)
-		w.muxAgent.Unlock()
-		return
-	}
-	if pair == nil {
-		w.log.Warnf("selected candidate pair is nil, cannot proceed")
-		w.muxAgent.Unlock()
-		return
-	}
+	pairStat, ok := w.agent.GetSelectedCandidatePairStats()
 	w.muxAgent.Unlock()
+	if !ok {
+		w.log.Warnf("failed to get selected candidate pair stats")
+		return
+	}
 
-	duration := time.Duration(pair.CurrentRoundTripTime() * float64(time.Second))
+	duration := time.Duration(pairStat.CurrentRoundTripTime * float64(time.Second))
 	if err := w.statusRecorder.UpdateLatency(w.config.Key, duration); err != nil {
 		w.log.Debugf("failed to update latency for peer: %s", err)
 		return
