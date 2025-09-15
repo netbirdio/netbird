@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -112,9 +113,7 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 	clear(b.cache.policyToRules)
 	clear(b.cache.groupToPolicies)
 
-	for id, peer := range account.Peers {
-		b.cache.globalPeers[id] = peer
-	}
+	maps.Copy(b.cache.globalPeers, account.Peers)
 
 	for groupID, group := range account.Groups {
 		peersCopy := make([]string, len(group.Peers))
@@ -153,7 +152,7 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 	}
 }
 
-func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
+func (b *NetworkMapBuilder) buildPeerACLViewOld(account *Account, peerID string) {
 	ctx := context.Background()
 	peer := account.GetPeer(peerID)
 	if peer == nil {
@@ -191,6 +190,240 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 	}
 
 	b.cache.peerACLs[peerID] = view
+}
+
+func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
+	ctx := context.Background()
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return
+	}
+
+	resourcePolicies := b.cache.resourcePolicies
+	resourceRouters := b.cache.resourceRouters
+
+	allPotentialPeers, firewallRules := b.getPeerConnectionResources(account, peerID, b.validatedPeers)
+
+	isRouter, networkResourcesRoutes, sourcePeers := account.GetNetworkResourcesRoutesToSync(ctx, peerID, resourcePolicies, resourceRouters)
+
+	var emptyExpiredPeers []*nbpeer.Peer
+	finalAllPeers := account.addNetworksRoutingPeers(
+		networkResourcesRoutes,
+		peer,
+		allPotentialPeers,
+		emptyExpiredPeers,
+		isRouter,
+		sourcePeers,
+	)
+
+	view := &PeerACLView{
+		ConnectedPeerIDs: make([]string, 0, len(finalAllPeers)),
+		FirewallRuleIDs:  make([]string, 0, len(firewallRules)),
+	}
+
+	for _, p := range finalAllPeers {
+		view.ConnectedPeerIDs = append(view.ConnectedPeerIDs, p.ID)
+	}
+
+	for _, rule := range firewallRules {
+		ruleID := b.generateFirewallRuleID(rule)
+		view.FirewallRuleIDs = append(view.FirewallRuleIDs, ruleID)
+		b.cache.globalRules[ruleID] = rule
+	}
+
+	b.cache.peerACLs[peerID] = view
+}
+
+func (b *NetworkMapBuilder) getPeerConnectionResources(
+	account *Account,
+	peerID string,
+	validatedPeersMap map[string]struct{},
+) ([]*nbpeer.Peer, []*FirewallRule) {
+
+	peer := b.cache.globalPeers[peerID]
+	if peer == nil {
+		return nil, nil
+	}
+
+	peerGroups := b.cache.peerToGroups[peerID]
+	peerGroupsMap := make(map[string]struct{}, len(peerGroups))
+	for _, groupID := range peerGroups {
+		peerGroupsMap[groupID] = struct{}{}
+	}
+
+	rulesExists := make(map[string]struct{})
+	peersExists := make(map[string]struct{})
+	fwRules := make([]*FirewallRule, 0)
+	peers := make([]*nbpeer.Peer, 0)
+
+	for _, group := range peerGroups {
+
+		policies := b.cache.groupToPolicies[group]
+		for _, policy := range policies {
+
+			rules := b.cache.policyToRules[policy.ID]
+			for _, rule := range rules {
+
+				peerInSources := b.isPeerInGroupsCached(rule.Sources, peerGroupsMap)
+				peerInDestinations := b.isPeerInGroupsCached(rule.Destinations, peerGroupsMap)
+
+				if !peerInSources && !peerInDestinations {
+					continue
+				}
+
+				var sourcePeers []*nbpeer.Peer
+				if peerInDestinations {
+					sourcePeers = b.getPeersFromGroupsCached(account, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+				}
+
+				var destinationPeers []*nbpeer.Peer
+				if peerInSources {
+					destinationPeers = b.getPeersFromGroupsCached(account, rule.Destinations, peerID, nil, validatedPeersMap)
+				}
+
+				if rule.Bidirectional {
+					if peerInSources {
+						b.generateResourcesCached(
+							rule, destinationPeers, FirewallRuleDirectionIN,
+							peer, &peers, &fwRules, peersExists, rulesExists,
+						)
+					}
+					if peerInDestinations {
+						b.generateResourcesCached(
+							rule, sourcePeers, FirewallRuleDirectionOUT,
+							peer, &peers, &fwRules, peersExists, rulesExists,
+						)
+					}
+				}
+
+				if peerInSources {
+					b.generateResourcesCached(
+						rule, destinationPeers, FirewallRuleDirectionOUT,
+						peer, &peers, &fwRules, peersExists, rulesExists,
+					)
+				}
+
+				if peerInDestinations {
+					b.generateResourcesCached(
+						rule, sourcePeers, FirewallRuleDirectionIN,
+						peer, &peers, &fwRules, peersExists, rulesExists,
+					)
+				}
+			}
+		}
+	}
+
+	return peers, fwRules
+}
+
+func (b *NetworkMapBuilder) isPeerInGroupsCached(
+	groupIDs []string,
+	peerGroupsMap map[string]struct{},
+) bool {
+	for _, groupID := range groupIDs {
+		if _, exists := peerGroupsMap[groupID]; exists {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *NetworkMapBuilder) getPeersFromGroupsCached(
+	account *Account,
+	groupIDs []string,
+	excludePeerID string,
+	postureChecksIDs []string,
+	validatedPeersMap map[string]struct{},
+) []*nbpeer.Peer {
+	ctx := context.Background()
+	uniquePeers := make(map[string]*nbpeer.Peer)
+
+	for _, groupID := range groupIDs {
+		peerIDs := b.cache.groupToPeers[groupID]
+		for _, peerID := range peerIDs {
+			if peerID == excludePeerID {
+				continue
+			}
+
+			if _, ok := validatedPeersMap[peerID]; !ok {
+				continue
+			}
+
+			peer := b.cache.globalPeers[peerID]
+			if peer == nil {
+				continue
+			}
+
+			if len(postureChecksIDs) > 0 {
+				if !account.validatePostureChecksOnPeer(ctx, postureChecksIDs, peerID) {
+					continue
+				}
+			}
+
+			uniquePeers[peerID] = peer
+		}
+	}
+
+	result := make([]*nbpeer.Peer, 0, len(uniquePeers))
+	for _, peer := range uniquePeers {
+		result = append(result, peer)
+	}
+
+	return result
+}
+
+func (b *NetworkMapBuilder) generateResourcesCached(
+	rule *PolicyRule,
+	groupPeers []*nbpeer.Peer,
+	direction int,
+	targetPeer *nbpeer.Peer,
+	peers *[]*nbpeer.Peer,
+	rules *[]*FirewallRule,
+	peersExists map[string]struct{},
+	rulesExists map[string]struct{},
+) {
+	isAll := false
+	if allGroup, err := b.account.Load().GetGroupAll(); err == nil {
+		isAll = (len(allGroup.Peers) - 1) == len(groupPeers)
+	}
+
+	for _, peer := range groupPeers {
+		if peer == nil {
+			continue
+		}
+
+		if _, ok := peersExists[peer.ID]; !ok {
+			*peers = append(*peers, peer)
+			peersExists[peer.ID] = struct{}{}
+		}
+
+		fr := FirewallRule{
+			PolicyID:  rule.ID,
+			PeerIP:    peer.IP.String(),
+			Direction: direction,
+			Action:    string(rule.Action),
+			Protocol:  string(rule.Protocol),
+		}
+
+		if isAll {
+			fr.PeerIP = "0.0.0.0"
+		}
+
+		ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +
+			fr.Protocol + fr.Action + strings.Join(rule.Ports, ",")
+
+		if _, ok := rulesExists[ruleID]; ok {
+			continue
+		}
+		rulesExists[ruleID] = struct{}{}
+
+		if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
+			*rules = append(*rules, &fr)
+			continue
+		}
+
+		*rules = append(*rules, expandPortsAndRanges(fr, rule, targetPeer)...)
+	}
 }
 
 func (b *NetworkMapBuilder) buildPeerRoutesView(account *Account, peerID string) {
