@@ -382,7 +382,6 @@ func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, 
 		w.log.Debugf("failed to update latency for peer: %s", err)
 		return
 	}
-	return
 }
 
 func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dialerCancel context.CancelFunc) func(ice.ConnectionState) {
