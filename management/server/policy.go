@@ -172,6 +172,7 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 			return err
 		}
 
+		// TODO: Refactor to support multiple rules per policy
 		existingRuleIDs := make(map[string]bool)
 		for _, rule := range existingPolicy.Rules {
 			existingRuleIDs[rule.ID] = true
