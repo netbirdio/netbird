@@ -106,6 +106,7 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 
 	if !peer.SendMessageAllowed(msg.RemoteKey, len(msg.Body), time.Now()) {
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeMessageSuppressed)))
+		s.metrics.MessageSize.Record(ctx, int64(len(msg.Body)), metric.WithAttributes(attribute.String(labelType, labelTypeMessageSuppressed)))
 		log.Tracef("message from peer [%s] to peer [%s] suppressed due to repetition", msg.Key, msg.RemoteKey)
 	}
 
