@@ -85,9 +85,6 @@ message SyncResponse {
 
   // Posture checks to be evaluated by client
   repeated Checks Checks = 6;
-
-  // Auto-update config
-  string autoUpdateVersion = 7;
 }
 
 message  SyncMetaRequest {
@@ -269,6 +266,9 @@ message PeerConfig {
   bool LazyConnectionEnabled = 6;
 
   int32 mtu = 7;
+
+  // Auto-update config
+  string autoUpdateVersion = 8;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
