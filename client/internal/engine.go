@@ -29,9 +29,9 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -166,7 +166,7 @@ type Engine struct {
 
 	wgInterface WGIface
 
-	udpMux *bind.UniversalUDPMuxDefault
+	udpMux *udpmux.UniversalUDPMuxDefault
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -461,7 +461,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		StunTurn:             &e.stunTurn,
 		InterfaceBlackList:   e.config.IFaceBlackList,
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-		UDPMux:               e.udpMux.UDPMuxDefault,
+		UDPMux:               e.udpMux.SingleSocketUDPMux,
 		UDPMuxSrflx:          e.udpMux,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
@@ -949,7 +949,6 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.LazyConnectionEnabled,
 		)
 
-		// err = e.mgmClient.Sync(info, e.handleSync)
 		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
@@ -960,7 +959,7 @@ func (e *Engine) receiveManagementEvents() {
 		}
 		log.Debugf("stopped receiving updates from Management Service")
 	}()
-	log.Debugf("connecting to Management Service updates stream")
+	log.Infof("connecting to Management Service updates stream")
 }
 
 func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
@@ -1327,7 +1326,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			StunTurn:             &e.stunTurn,
 			InterfaceBlackList:   e.config.IFaceBlackList,
 			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-			UDPMux:               e.udpMux.UDPMuxDefault,
+			UDPMux:               e.udpMux.SingleSocketUDPMux,
 			UDPMuxSrflx:          e.udpMux,
 			NATExternalIPs:       e.parseNATExternalIPMappings(),
 		},

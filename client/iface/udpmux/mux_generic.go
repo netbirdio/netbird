@@ -1,12 +1,12 @@
 //go:build !ios
 
-package bind
+package udpmux
 
 import (
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
-func (m *UDPMuxDefault) notifyAddressRemoval(addr string) {
+func (m *SingleSocketUDPMux) notifyAddressRemoval(addr string) {
 	// Kernel mode: direct nbnet.PacketConn (SharedSocket wrapped with nbnet)
 	if conn, ok := m.params.UDPConn.(*nbnet.PacketConn); ok {
 		conn.RemoveAddress(addr)
