@@ -98,9 +98,8 @@ func (p *ProxyBind) Work() {
 		go p.proxyToLocal(p.ctx)
 	}
 
-	p.pausedCond.L.Unlock()
-	// todo: review to should be inside the lock scope
 	p.pausedCond.Signal()
+	p.pausedCond.L.Unlock()
 }
 
 func (p *ProxyBind) Pause() {
@@ -119,8 +118,8 @@ func (p *ProxyBind) RedirectAs(endpoint *net.UDPAddr) {
 
 	p.wgCurrentUsed = addrToEndpoint(endpoint)
 
-	p.pausedCond.L.Unlock()
 	p.pausedCond.Signal()
+	p.pausedCond.L.Unlock()
 }
 
 func addrToEndpoint(addr *net.UDPAddr) *bind.Endpoint {
@@ -156,8 +155,8 @@ func (p *ProxyBind) close() error {
 
 	p.pausedCond.L.Lock()
 	p.paused = false
-	p.pausedCond.L.Unlock()
 	p.pausedCond.Signal()
+	p.pausedCond.L.Unlock()
 
 	p.bind.RemoveEndpoint(p.wgRelayedEndpoint.Addr())
 

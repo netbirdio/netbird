@@ -106,8 +106,8 @@ func (p *WGUDPProxy) Work() {
 		go p.proxyToRemote(p.ctx)
 		go p.proxyToLocal(p.ctx)
 	}
-	p.pausedCond.L.Unlock()
 	p.pausedCond.Signal()
+	p.pausedCond.L.Unlock()
 }
 
 // Pause pauses the proxy from receiving data from the remote peer
@@ -125,8 +125,8 @@ func (p *WGUDPProxy) Pause() {
 func (p *WGUDPProxy) RedirectAs(endpoint *net.UDPAddr) {
 	p.pausedCond.L.Lock()
 	defer func() {
-		p.pausedCond.L.Unlock()
 		p.pausedCond.Signal()
+		p.pausedCond.L.Unlock()
 	}()
 
 	p.paused = false
@@ -173,8 +173,8 @@ func (p *WGUDPProxy) close() error {
 
 	p.pausedCond.L.Lock()
 	p.paused = false
-	p.pausedCond.L.Unlock()
 	p.pausedCond.Signal()
+	p.pausedCond.L.Unlock()
 
 	if err := p.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		result = multierror.Append(result, fmt.Errorf("remote conn: %s", err))

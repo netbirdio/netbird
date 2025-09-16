@@ -75,9 +75,8 @@ func (p *ProxyWrapper) Work() {
 		go p.proxyToLocal(p.ctx)
 	}
 
-	p.pausedCond.L.Unlock()
-	// todo: review to should be inside the lock scope
 	p.pausedCond.Signal()
+	p.pausedCond.L.Unlock()
 }
 
 func (p *ProxyWrapper) Pause() {
@@ -97,8 +96,8 @@ func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
 
 	p.wgEndpointCurrentUsedAddr = endpoint
 
-	p.pausedCond.L.Unlock()
 	p.pausedCond.Signal()
+	p.pausedCond.L.Unlock()
 }
 
 // CloseConn close the remoteConn and automatically remove the conn instance from the map
@@ -113,8 +112,8 @@ func (p *ProxyWrapper) CloseConn() error {
 
 	p.pausedCond.L.Lock()
 	p.paused = false
-	p.pausedCond.L.Unlock()
 	p.pausedCond.Signal()
+	p.pausedCond.L.Unlock()
 
 	if err := p.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		return fmt.Errorf("failed to close remote conn: %w", err)
