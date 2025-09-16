@@ -42,6 +42,7 @@ func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *w
 	defer e.mu.Unlock()
 
 	if e.initiator {
+		e.log.Debugf("configure up WireGuard as initiatr")
 		return e.updateWireGuardPeer(addr, presharedKey)
 	}
 
@@ -53,6 +54,7 @@ func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *w
 	e.updateWg.Add(1)
 	go e.scheduleDelayedUpdate(ctx, addr, presharedKey)
 
+	e.log.Debugf("configure up WireGuard and wait for handshake")
 	return e.updateWireGuardPeer(nil, presharedKey)
 }
 
