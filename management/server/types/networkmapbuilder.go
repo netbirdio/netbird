@@ -1157,10 +1157,8 @@ func (b *NetworkMapBuilder) calculateIncrementalUpdates(account *Account, newPee
 }
 
 func (b *NetworkMapBuilder) calculateRouteFirewallUpdates(
-	newPeerID string,
-	newPeer *nbpeer.Peer,
-	peerGroups []string,
-	updates map[string]*PeerUpdateDelta,
+	newPeerID string, newPeer *nbpeer.Peer,
+	peerGroups []string, updates map[string]*PeerUpdateDelta,
 ) {
 	for peerID, routesView := range b.cache.peerRoutes {
 		if peerID == newPeerID {
@@ -1191,10 +1189,8 @@ func (b *NetworkMapBuilder) calculateRouteFirewallUpdates(
 }
 
 func (b *NetworkMapBuilder) addRouteFirewallUpdate(
-	updates map[string]*PeerUpdateDelta,
-	peerID string,
-	routeID string,
-	sourceIP string,
+	updates map[string]*PeerUpdateDelta, peerID string,
+	routeID string, sourceIP string,
 ) {
 	delta := updates[peerID]
 	if delta == nil {
@@ -1298,11 +1294,8 @@ type RouteFirewallRuleUpdate struct {
 }
 
 func (b *NetworkMapBuilder) addUpdateForPeersInGroups(
-	updates map[string]*PeerUpdateDelta,
-	groupIDs []string,
-	newPeerID string,
-	rule *PolicyRule,
-	direction int,
+	updates map[string]*PeerUpdateDelta, groupIDs []string, newPeerID string,
+	rule *PolicyRule, direction int,
 ) {
 	for _, groupID := range groupIDs {
 		peers := b.cache.groupToPeers[groupID]
@@ -1387,10 +1380,8 @@ func (b *NetworkMapBuilder) applyDeltaToPeer(account *Account, peerID string, de
 		b.buildPeerDNSView(account, peerID)
 	}
 }
-func (b *NetworkMapBuilder) updateRouteFirewallRules(
-	routesView *PeerRoutesView,
-	updates []*RouteFirewallRuleUpdate,
-) {
+
+func (b *NetworkMapBuilder) updateRouteFirewallRules(routesView *PeerRoutesView, updates []*RouteFirewallRuleUpdate) {
 	for _, update := range updates {
 		updated := false
 
