@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 const (
@@ -14,7 +15,7 @@ const (
 	fallbackDelay      = 5 * time.Second
 )
 
-type endpointUpdater struct {
+type EndpointUpdater struct {
 	log       *logrus.Entry
 	wgConfig  WgConfig
 	initiator bool
@@ -23,20 +24,20 @@ type endpointUpdater struct {
 	configUpdateMutex sync.Mutex
 }
 
-func newEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *endpointUpdater {
-	return &endpointUpdater{
+func NewEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *EndpointUpdater {
+	return &EndpointUpdater{
 		log:       log,
 		wgConfig:  wgConfig,
 		initiator: initiator,
 	}
 }
 
-// configureWGEndpoint sets up the WireGuard endpoint configuration.
+// ConfigureWGEndpoint sets up the WireGuard endpoint configuration.
 // The initiator immediately configures the endpoint, while the non-initiator
 // waits for a fallback period before configuring to avoid handshake congestion.
-func (e *endpointUpdater) configureWGEndpoint(addr *net.UDPAddr, remoteRPKey []byte) error {
+func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
 	if e.initiator {
-		return e.updateWireGuardPeer(addr, remoteRPKey)
+		return e.updateWireGuardPeer(addr, presharedKey)
 	}
 
 	// prevent to run new update while cancel the previous update
@@ -48,12 +49,12 @@ func (e *endpointUpdater) configureWGEndpoint(addr *net.UDPAddr, remoteRPKey []b
 
 	var ctx context.Context
 	ctx, e.cancelFunc = context.WithCancel(context.Background())
-	go e.scheduleDelayedUpdate(ctx, addr, remoteRPKey)
+	go e.scheduleDelayedUpdate(ctx, addr, presharedKey)
 
-	return e.updateWireGuardPeer(nil, remoteRPKey)
+	return e.updateWireGuardPeer(nil, presharedKey)
 }
 
-func (e *endpointUpdater) removeWgPeer() error {
+func (e *EndpointUpdater) removeWgPeer() error {
 	e.configUpdateMutex.Lock()
 	defer e.configUpdateMutex.Unlock()
 
@@ -65,7 +66,7 @@ func (e *endpointUpdater) removeWgPeer() error {
 }
 
 // scheduleDelayedUpdate waits for the fallback period before updating the endpoint
-func (e *endpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.UDPAddr, remoteRPKey []byte) {
+func (e *EndpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.UDPAddr, presharedKey *wgtypes.Key) {
 	t := time.NewTimer(fallbackDelay)
 	defer t.Stop()
 
@@ -80,19 +81,18 @@ func (e *endpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.U
 			return
 		}
 
-		if err := e.updateWireGuardPeer(addr, remoteRPKey); err != nil {
+		if err := e.updateWireGuardPeer(addr, presharedKey); err != nil {
 			e.log.Errorf("failed to update WireGuard peer, address: %s, error: %v", addr, err)
 		}
 	}
 }
 
-func (e *endpointUpdater) updateWireGuardPeer(endpoint *net.UDPAddr, remoteRPKey []byte) error {
-	// todo add, "presharedKey := e.presharedKey(remote)"
+func (e *EndpointUpdater) updateWireGuardPeer(endpoint *net.UDPAddr, presharedKey *wgtypes.Key) error {
 	return e.wgConfig.WgInterface.UpdatePeer(
 		e.wgConfig.RemoteKey,
 		e.wgConfig.AllowedIps,
 		defaultWgKeepAlive,
 		endpoint,
-		e.wgConfig.PreSharedKey,
+		presharedKey,
 	)
 }

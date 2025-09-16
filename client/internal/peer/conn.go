@@ -115,7 +115,7 @@ type Conn struct {
 	// debug purpose
 	dumpState *stateDump
 
-	endpointUpdater *endpointUpdater
+	endpointUpdater *EndpointUpdater
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -139,7 +139,7 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 		statusRelay:     worker.NewAtomicStatus(),
 		statusICE:       worker.NewAtomicStatus(),
 		dumpState:       newStateDump(config.Key, connLog, services.StatusRecorder),
-		endpointUpdater: newEndpointUpdater(connLog, config.WgConfig, isController(config)),
+		endpointUpdater: NewEndpointUpdater(connLog, config.WgConfig, isController(config)),
 	}
 
 	return conn, nil
@@ -376,7 +376,8 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	}
 
 	conn.Log.Infof("configure WireGuard endpoint to: %s", ep.String())
-	if err = conn.endpointUpdater.configureWGEndpoint(ep, iceConnInfo.RosenpassPubKey); err != nil {
+	presharedKey := conn.presharedKey(iceConnInfo.RosenpassPubKey)
+	if err = conn.endpointUpdater.ConfigureWGEndpoint(ep, presharedKey); err != nil {
 		conn.handleConfigurationFailure(err, wgProxy)
 		return
 	}
@@ -415,7 +416,8 @@ func (conn *Conn) onICEStateDisconnected() {
 		conn.dumpState.SwitchToRelay()
 		conn.wgProxyRelay.Work()
 
-		if err := conn.endpointUpdater.configureWGEndpoint(conn.wgProxyRelay.EndpointAddr(), conn.rosenpassRemoteKey); err != nil {
+		presharedKey := conn.presharedKey(conn.rosenpassRemoteKey)
+		if err := conn.endpointUpdater.ConfigureWGEndpoint(conn.wgProxyRelay.EndpointAddr(), presharedKey); err != nil {
 			conn.Log.Errorf("failed to switch to relay conn: %v", err)
 		}
 
@@ -484,7 +486,8 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 
 	wgProxy.Work()
-	if err := conn.endpointUpdater.configureWGEndpoint(wgProxy.EndpointAddr(), rci.rosenpassPubKey); err != nil {
+	presharedKey := conn.presharedKey(rci.rosenpassPubKey)
+	if err := conn.endpointUpdater.ConfigureWGEndpoint(wgProxy.EndpointAddr(), presharedKey); err != nil {
 		if err := wgProxy.CloseConn(); err != nil {
 			conn.Log.Warnf("Failed to close relay connection: %v", err)
 		}
