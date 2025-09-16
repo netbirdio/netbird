@@ -288,6 +288,7 @@ func TestGetPeerNetworkMap_Golden_New_WithOnPeerAdded(t *testing.T) {
 
 	require.JSONEq(t, string(expectedJSON), string(jsonData), "network map from NEW builder with OnPeerAdded does not match golden file")
 }
+
 func BenchmarkGetPeerNetworkMap_AfterPeerAdded(b *testing.B) {
 	account := createTestAccountWithEntities()
 	ctx := context.Background()
