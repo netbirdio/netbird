@@ -868,6 +868,7 @@ func normalizeAndSortNetworkMap(networkMap *types.NetworkMap) {
 		if peer.Status != nil {
 			peer.Status.LastSeen = time.Time{}
 		}
+		peer.LastLogin = &time.Time{}
 	}
 	for _, peer := range networkMap.OfflinePeers {
 		if peer.Status != nil {
