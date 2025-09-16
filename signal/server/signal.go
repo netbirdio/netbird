@@ -23,14 +23,16 @@ import (
 )
 
 const (
-	labelType              = "type"
-	labelTypeError         = "error"
-	labelTypeNotConnected  = "not_connected"
-	labelTypeNotRegistered = "not_registered"
-	labelTypeStream        = "stream"
-	labelTypeMessage       = "message"
-	labelTypeTimeout       = "timeout"
-	labelTypeDisconnected  = "disconnected"
+	labelType                    = "type"
+	labelTypeError               = "error"
+	labelTypeNotConnected        = "not_connected"
+	labelTypeNotRegistered       = "not_registered"
+	labelTypeSenderNotRegistered = "sender_not_registered"
+	labelTypeMessageSuppressed   = "message_suppressed"
+	labelTypeStream              = "stream"
+	labelTypeMessage             = "message"
+	labelTypeTimeout             = "timeout"
+	labelTypeDisconnected        = "disconnected"
 
 	labelError                   = "error"
 	labelErrorMissingId          = "missing_id"
@@ -94,6 +96,18 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 // Send forwards a message to the signal peer
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+
+	peer, found := s.registry.Get(msg.Key)
+	if !found {
+		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeSenderNotRegistered)))
+		log.Tracef("message from peer [%s] can't be forwarded to peer [%s] because sender peer is not registered", msg.Key, msg.RemoteKey)
+		return nil, status.Errorf(codes.FailedPrecondition, "peer not registered")
+	}
+
+	if !peer.SendMessageAllowed(msg.RemoteKey, len(msg.Body), time.Now()) {
+		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeMessageSuppressed)))
+		log.Tracef("message from peer [%s] to peer [%s] suppressed due to repetition", msg.Key, msg.RemoteKey)
+	}
 
 	if _, found := s.registry.Get(msg.RemoteKey); found {
 		s.forwardMessageToPeer(ctx, msg)

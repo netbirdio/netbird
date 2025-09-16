@@ -7,7 +7,7 @@ import (
 
 func TestSuppressor_PackageReceived(t *testing.T) {
 	destID := PeerID("remote")
-	s, _ := NewSuppressor(&Opts{RepetitionThreshold: 3})
+	s := NewSuppressor(&Opts{RepetitionThreshold: 3})
 
 	// Define sequence with base deltas (s ±10% tolerance)
 	deltas := []time.Duration{
@@ -68,7 +68,7 @@ func TestSuppressor_PackageReceived(t *testing.T) {
 
 func TestSuppressor_PackageReceivedReset(t *testing.T) {
 	destID := PeerID("remote")
-	s, _ := NewSuppressor(&Opts{RepetitionThreshold: 5})
+	s := NewSuppressor(&Opts{RepetitionThreshold: 5})
 
 	// Define sequence with base deltas (s ±10% tolerance)
 	deltas := []time.Duration{

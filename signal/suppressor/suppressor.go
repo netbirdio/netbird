@@ -1,7 +1,6 @@
 package suppressor
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -63,20 +62,20 @@ type Suppressor struct {
 	peers               map[PeerID]*packageStat
 }
 
-func NewSuppressor(opts *Opts) (*Suppressor, error) {
+func NewSuppressor(opts *Opts) *Suppressor {
 	threshold := DefaultRepetitionThreshold
 	if opts != nil {
+		threshold = opts.RepetitionThreshold
 		if opts.RepetitionThreshold < minRepetitionThreshold {
-			return nil, fmt.Errorf("invalid repetition threshold")
+			threshold = DefaultRepetitionThreshold
 		}
 
-		threshold = opts.RepetitionThreshold
 	}
 
 	return &Suppressor{
 		repetitionThreshold: threshold,
 		peers:               make(map[PeerID]*packageStat),
-	}, nil
+	}
 }
 
 // PackageReceived handles a newly received package from a peer.

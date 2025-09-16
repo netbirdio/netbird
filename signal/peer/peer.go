@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
+	"github.com/netbirdio/netbird/signal/suppressor"
 )
 
 var (
@@ -20,13 +21,11 @@ var (
 // Peer representation of a connected Peer
 type Peer struct {
 	// a unique id of the Peer (e.g. sha256 fingerprint of the Wireguard public key)
-	Id string
-
-	StreamID int64
-
+	Id         string
+	suppressor *suppressor.Suppressor
+	StreamID   int64
 	// a gRpc connection stream to the Peer
 	Stream proto.SignalExchange_ConnectStreamServer
-
 	// registration time
 	RegisteredAt time.Time
 
@@ -41,6 +40,7 @@ func NewPeer(id string, stream proto.SignalExchange_ConnectStreamServer, cancel 
 		StreamID:     time.Now().UnixNano(),
 		RegisteredAt: time.Now(),
 		Cancel:       cancel,
+		suppressor:   suppressor.NewSuppressor(nil),
 	}
 }
 
@@ -116,4 +116,8 @@ func (registry *Registry) Deregister(peer *Peer) {
 		log.Debugf("peer deregistered [%s]", peer.Id)
 		registry.metrics.Deregistrations.Add(context.Background(), 1)
 	}
+}
+
+func (peer *Peer) SendMessageAllowed(destination string, size int, arrivedTime time.Time) bool {
+	return peer.suppressor.PackageReceived(suppressor.PeerID(destination), size, arrivedTime)
 }
