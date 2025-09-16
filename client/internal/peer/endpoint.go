@@ -9,8 +9,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// fallbackDelay could be const but because of testing it is a var
-var fallbackDelay = 5 * time.Second
+const (
+	defaultWgKeepAlive = 25 * time.Second
+	fallbackDelay      = 5 * time.Second
+)
 
 type endpointUpdater struct {
 	log       *logrus.Entry
@@ -19,6 +21,14 @@ type endpointUpdater struct {
 
 	cancelFunc        func()
 	configUpdateMutex sync.Mutex
+}
+
+func newEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *endpointUpdater {
+	return &endpointUpdater{
+		log:       log,
+		wgConfig:  wgConfig,
+		initiator: initiator,
+	}
 }
 
 // configureWGEndpoint sets up the WireGuard endpoint configuration.

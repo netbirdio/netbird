@@ -29,10 +29,6 @@ import (
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
-const (
-	defaultWgKeepAlive = 25 * time.Second
-)
-
 type ServiceDependencies struct {
 	StatusRecorder     *Status
 	Signaler           *Signaler
@@ -132,22 +128,18 @@ func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
 	connLog := log.WithField("peer", config.Key)
 
 	var conn = &Conn{
-		Log:            connLog,
-		config:         config,
-		statusRecorder: services.StatusRecorder,
-		signaler:       services.Signaler,
-		iFaceDiscover:  services.IFaceDiscover,
-		relayManager:   services.RelayManager,
-		srWatcher:      services.SrWatcher,
-		semaphore:      services.Semaphore,
-		statusRelay:    worker.NewAtomicStatus(),
-		statusICE:      worker.NewAtomicStatus(),
-		dumpState:      newStateDump(config.Key, connLog, services.StatusRecorder),
-		endpointUpdater: &endpointUpdater{
-			log:       connLog,
-			wgConfig:  config.WgConfig,
-			initiator: isWireGuardInitiator(config),
-		},
+		Log:             connLog,
+		config:          config,
+		statusRecorder:  services.StatusRecorder,
+		signaler:        services.Signaler,
+		iFaceDiscover:   services.IFaceDiscover,
+		relayManager:    services.RelayManager,
+		srWatcher:       services.SrWatcher,
+		semaphore:       services.Semaphore,
+		statusRelay:     worker.NewAtomicStatus(),
+		statusICE:       worker.NewAtomicStatus(),
+		dumpState:       newStateDump(config.Key, connLog, services.StatusRecorder),
+		endpointUpdater: newEndpointUpdater(connLog, config.WgConfig, isController(config)),
 	}
 
 	return conn, nil
@@ -780,10 +772,6 @@ func (conn *Conn) rosenpassDetermKey() (*wgtypes.Key, error) {
 
 func isController(config ConnConfig) bool {
 	return config.LocalKey > config.Key
-}
-
-func isWireGuardInitiator(config ConnConfig) bool {
-	return isController(config)
 }
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
