@@ -249,7 +249,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 		conn.wgProxyICE = nil
 	}
 
-	if err := conn.endpointUpdater.removeWgPeer(); err != nil {
+	if err := conn.endpointUpdater.RemoveWgPeer(); err != nil {
 		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
 	}
 

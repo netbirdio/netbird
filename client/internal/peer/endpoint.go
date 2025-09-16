@@ -20,8 +20,10 @@ type EndpointUpdater struct {
 	wgConfig  WgConfig
 	initiator bool
 
-	cancelFunc        func()
-	configUpdateMutex sync.Mutex
+	// mu protects updateWireGuardPeer and cancelFunc
+	mu         sync.Mutex
+	cancelFunc func()
+	updateWg   sync.WaitGroup
 }
 
 func NewEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *EndpointUpdater {
@@ -36,37 +38,45 @@ func NewEndpointUpdater(log *logrus.Entry, wgConfig WgConfig, initiator bool) *E
 // The initiator immediately configures the endpoint, while the non-initiator
 // waits for a fallback period before configuring to avoid handshake congestion.
 func (e *EndpointUpdater) ConfigureWGEndpoint(addr *net.UDPAddr, presharedKey *wgtypes.Key) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	if e.initiator {
 		return e.updateWireGuardPeer(addr, presharedKey)
 	}
 
 	// prevent to run new update while cancel the previous update
-	e.configUpdateMutex.Lock()
-	if e.cancelFunc != nil {
-		e.cancelFunc()
-	}
-	e.configUpdateMutex.Unlock()
+	e.waitForCloseTheDelayedUpdate()
 
 	var ctx context.Context
 	ctx, e.cancelFunc = context.WithCancel(context.Background())
+	e.updateWg.Add(1)
 	go e.scheduleDelayedUpdate(ctx, addr, presharedKey)
 
 	return e.updateWireGuardPeer(nil, presharedKey)
 }
 
-func (e *EndpointUpdater) removeWgPeer() error {
-	e.configUpdateMutex.Lock()
-	defer e.configUpdateMutex.Unlock()
+func (e *EndpointUpdater) RemoveWgPeer() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
-	if e.cancelFunc != nil {
-		e.cancelFunc()
+	e.waitForCloseTheDelayedUpdate()
+	return e.wgConfig.WgInterface.RemovePeer(e.wgConfig.RemoteKey)
+}
+
+func (e *EndpointUpdater) waitForCloseTheDelayedUpdate() {
+	if e.cancelFunc == nil {
+		return
 	}
 
-	return e.wgConfig.WgInterface.RemovePeer(e.wgConfig.RemoteKey)
+	e.cancelFunc()
+	e.cancelFunc = nil
+	e.updateWg.Wait()
 }
 
 // scheduleDelayedUpdate waits for the fallback period before updating the endpoint
 func (e *EndpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.UDPAddr, presharedKey *wgtypes.Key) {
+	defer e.updateWg.Done()
 	t := time.NewTimer(fallbackDelay)
 	defer t.Stop()
 
@@ -74,16 +84,11 @@ func (e *EndpointUpdater) scheduleDelayedUpdate(ctx context.Context, addr *net.U
 	case <-ctx.Done():
 		return
 	case <-t.C:
-		e.configUpdateMutex.Lock()
-		defer e.configUpdateMutex.Unlock()
-
-		if ctx.Err() != nil {
-			return
-		}
-
+		e.mu.Lock()
 		if err := e.updateWireGuardPeer(addr, presharedKey); err != nil {
 			e.log.Errorf("failed to update WireGuard peer, address: %s, error: %v", addr, err)
 		}
+		e.mu.Unlock()
 	}
 }
 
