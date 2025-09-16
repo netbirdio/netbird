@@ -1435,34 +1435,36 @@ func (b *NetworkMapBuilder) OnPeerDeleted(peerID string) error {
 	delete(b.validatedPeers, peerID)
 
 	routesToDelete := []route.ID{}
-	for routeID, r := range account.Routes {
-		if r.Peer == deletedPeerKey || r.PeerID == peerID {
-			if len(r.PeerGroups) > 0 {
-				newPeerAssigned := false
-				for _, groupID := range r.PeerGroups {
-					if group := account.GetGroup(groupID); group != nil {
-						for _, candidatePeerID := range group.Peers {
-							if candidatePeerID != peerID {
-								if candidatePeer := account.GetPeer(candidatePeerID); candidatePeer != nil {
-									r.Peer = candidatePeer.Key
-									r.PeerID = candidatePeerID
-									newPeerAssigned = true
-									break
-								}
-							}
-						}
-					}
-					if newPeerAssigned {
-						break
-					}
-				}
 
-				if !newPeerAssigned {
-					routesToDelete = append(routesToDelete, routeID)
+	for routeID, r := range account.Routes {
+		if r.Peer != deletedPeerKey && r.PeerID != peerID {
+			continue
+		}
+		if len(r.PeerGroups) == 0 {
+			routesToDelete = append(routesToDelete, routeID)
+			continue
+		}
+		newPeerAssigned := false
+		for _, groupID := range r.PeerGroups {
+			candidatePeerIDs := b.cache.groupToPeers[groupID]
+			for _, candidatePeerID := range candidatePeerIDs {
+				if candidatePeerID == peerID {
+					continue
 				}
-			} else {
-				routesToDelete = append(routesToDelete, routeID)
+				if candidatePeer := b.cache.globalPeers[candidatePeerID]; candidatePeer != nil {
+					r.Peer = candidatePeer.Key
+					r.PeerID = candidatePeerID
+					newPeerAssigned = true
+					break
+				}
 			}
+			if newPeerAssigned {
+				break
+			}
+		}
+
+		if !newPeerAssigned {
+			routesToDelete = append(routesToDelete, routeID)
 		}
 	}
 
@@ -1536,23 +1538,22 @@ func (b *NetworkMapBuilder) findPeersAffectedByDeletedPeerACL(
 			continue
 		}
 
-		if slices.Contains(aclView.ConnectedPeerIDs, deletedPeerID) {
-			if affected[peerID] == nil {
-				affected[peerID] = &PeerDeletionUpdate{
-					RemovePeerID: deletedPeerID,
-					PeerIP:       peerIP,
-				}
+		if !slices.Contains(aclView.ConnectedPeerIDs, deletedPeerID) {
+			continue
+		}
+		if affected[peerID] == nil {
+			affected[peerID] = &PeerDeletionUpdate{
+				RemovePeerID: deletedPeerID,
+				PeerIP:       peerIP,
 			}
+		}
 
-			for _, ruleID := range aclView.FirewallRuleIDs {
-				if rule := b.cache.globalRules[ruleID]; rule != nil {
-					if rule.PeerIP == peerIP {
-						affected[peerID].RemoveFirewallRuleIDs = append(
-							affected[peerID].RemoveFirewallRuleIDs,
-							ruleID,
-						)
-					}
-				}
+		for _, ruleID := range aclView.FirewallRuleIDs {
+			if rule := b.cache.globalRules[ruleID]; rule != nil && rule.PeerIP == peerIP {
+				affected[peerID].RemoveFirewallRuleIDs = append(
+					affected[peerID].RemoveFirewallRuleIDs,
+					ruleID,
+				)
 			}
 		}
 	}
