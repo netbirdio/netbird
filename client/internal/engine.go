@@ -927,12 +927,16 @@ func (e *Engine) receiveJobEvents() {
 }
 
 func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
-	// todo: @Vic, do we need to latest sync response all the time here or could it be nil in the debug bundle?
-	// todo: e.GetLatestSyncResponse() is exported and has been protected by a mutex. If you will use handleBundle in
-	// also protected context then will be deadlock
-	syncResponse, err := e.GetLatestSyncResponse()
-	if err != nil {
-		return nil, fmt.Errorf("get latest sync response: %w", err)
+	// Access sync response directly without calling exported method to avoid deadlock
+	// This is safe because we're in a goroutine that doesn't hold the syncMsgMux
+	var syncResponse *mgmProto.SyncResponse
+	if e.persistSyncResponse && e.latestSyncResponse != nil {
+		log.Debugf("Retrieving latest sync response with size %d bytes", proto.Size(e.latestSyncResponse))
+		if sr, ok := proto.Clone(e.latestSyncResponse).(*mgmProto.SyncResponse); ok {
+			syncResponse = sr
+		} else {
+			return nil, fmt.Errorf("failed to clone sync response")
+		}
 	}
 
 	if syncResponse == nil {
