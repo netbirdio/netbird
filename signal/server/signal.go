@@ -23,16 +23,17 @@ import (
 )
 
 const (
-	labelType                    = "type"
-	labelTypeError               = "error"
-	labelTypeNotConnected        = "not_connected"
-	labelTypeNotRegistered       = "not_registered"
-	labelTypeSenderNotRegistered = "sender_not_registered"
-	labelTypeMessageSuppressed   = "message_suppressed"
-	labelTypeStream              = "stream"
-	labelTypeMessage             = "message"
-	labelTypeTimeout             = "timeout"
-	labelTypeDisconnected        = "disconnected"
+	labelType                              = "type"
+	labelTypeError                         = "error"
+	labelTypeNotConnected                  = "not_connected"
+	labelTypeNotRegistered                 = "not_registered"
+	labelTypeSenderNotRegistered           = "sender_not_registered"
+	labelTypeMessageSuppressed             = "message_suppressed"
+	labelTypeMessageSuppressedDisconnected = "message_suppressed_disconnected"
+	labelTypeStream                        = "stream"
+	labelTypeMessage                       = "message"
+	labelTypeTimeout                       = "timeout"
+	labelTypeDisconnected                  = "disconnected"
 
 	labelError                   = "error"
 	labelErrorMissingId          = "missing_id"
@@ -105,7 +106,11 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 	}
 
 	if !peer.SendMessageAllowed(msg.RemoteKey, len(msg.Body), time.Now()) {
-		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeMessageSuppressed)))
+		if peer == nil {
+			s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeMessageSuppressedDisconnected)))
+		} else {
+			s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeMessageSuppressed)))
+		}
 		s.metrics.MessageSize.Record(ctx, int64(len(msg.Body)), metric.WithAttributes(attribute.String(labelType, labelTypeMessageSuppressed)))
 		log.Tracef("message from peer [%s] to peer [%s] suppressed due to repetition", msg.Key, msg.RemoteKey)
 	}

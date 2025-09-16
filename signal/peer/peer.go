@@ -119,5 +119,8 @@ func (registry *Registry) Deregister(peer *Peer) {
 }
 
 func (peer *Peer) SendMessageAllowed(destination string, size int, arrivedTime time.Time) bool {
+	if peer == nil || peer.suppressor == nil {
+		return false
+	}
 	return peer.suppressor.PackageReceived(suppressor.PeerID(destination), size, arrivedTime)
 }
