@@ -101,7 +101,7 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 	if !found {
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeSenderNotRegistered)))
 		log.Tracef("message from peer [%s] can't be forwarded to peer [%s] because sender peer is not registered", msg.Key, msg.RemoteKey)
-		return nil, status.Errorf(codes.FailedPrecondition, "peer not registered")
+		// return nil, status.Errorf(codes.FailedPrecondition, "peer not registered")
 	}
 
 	if !peer.SendMessageAllowed(msg.RemoteKey, len(msg.Body), time.Now()) {
