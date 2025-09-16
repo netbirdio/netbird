@@ -718,8 +718,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if update.NetworkMap != nil {
-		e.handleAutoUpdateVersion(update.NetworkMap.AutoUpdateVersion)
+	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
+		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdateVersion)
 	}
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()
