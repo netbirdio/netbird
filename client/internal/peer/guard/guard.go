@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -63,75 +62,26 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	srReconnectedChan := g.srWatcher.NewListener()
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
-	ticker := g.initialTicker(ctx)
-	defer ticker.Stop()
-
-	tickerChannel := ticker.C
-
 	for {
 		select {
-		case t := <-tickerChannel:
-			if t.IsZero() {
-				g.log.Infof("retry timed out, stop periodic offer sending")
-				// after backoff timeout the ticker.C will be closed. We need to a dummy channel to avoid loop
-				tickerChannel = make(<-chan time.Time)
-				continue
-			}
-
+		case <-g.relayedConnDisconnected:
+			g.log.Debugf("Relay connection changed, reset reconnection ticker")
 			if !g.isConnectedOnAllWay() {
 				callback()
 			}
-		case <-g.relayedConnDisconnected:
-			g.log.Debugf("Relay connection changed, reset reconnection ticker")
-			ticker.Stop()
-			ticker = g.prepareExponentTicker(ctx)
-			tickerChannel = ticker.C
-
 		case <-g.iCEConnDisconnected:
 			g.log.Debugf("ICE connection changed, reset reconnection ticker")
-			ticker.Stop()
-			ticker = g.prepareExponentTicker(ctx)
-			tickerChannel = ticker.C
-
+			if !g.isConnectedOnAllWay() {
+				callback()
+			}
 		case <-srReconnectedChan:
 			g.log.Debugf("has network changes, reset reconnection ticker")
-			ticker.Stop()
-			ticker = g.prepareExponentTicker(ctx)
-			tickerChannel = ticker.C
-
+			if !g.isConnectedOnAllWay() {
+				callback()
+			}
 		case <-ctx.Done():
 			g.log.Debugf("context is done, stop reconnect loop")
 			return
 		}
 	}
-}
-
-// initialTicker give chance to the peer to establish the initial connection.
-func (g *Guard) initialTicker(ctx context.Context) *backoff.Ticker {
-	bo := backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     3 * time.Second,
-		RandomizationFactor: 0.1,
-		Multiplier:          2,
-		MaxInterval:         g.timeout,
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, ctx)
-
-	return backoff.NewTicker(bo)
-}
-
-func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
-	bo := backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: 0.1,
-		Multiplier:          2,
-		MaxInterval:         g.timeout,
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, ctx)
-
-	ticker := backoff.NewTicker(bo)
-	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
-
-	return ticker
 }

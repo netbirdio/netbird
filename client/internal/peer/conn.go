@@ -205,6 +205,12 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
+
+	// both peer send offer
+	if err := conn.handshaker.SendOffer(); err != nil {
+		conn.Log.Errorf("failed to send offer: %v", err)
+	}
+
 	conn.opened = true
 	return nil
 }
