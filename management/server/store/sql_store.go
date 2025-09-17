@@ -928,6 +928,10 @@ func (s *SqlStore) GetAnyAccountID(ctx context.Context) (string, error) {
 func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string) (string, error) {
 	var peer nbpeer.Peer
 	var accountID string
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Tracef("GetAccountIDByPeerPubKey for peerPubKey %s and accountId %s took %v", peerKey, accountID, time.Since(start))
+	}()
 	result := s.db.Model(&peer).Select("account_id").Where(GetKeyQueryCondition(s), peerKey).Take(&accountID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
