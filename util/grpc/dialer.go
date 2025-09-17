@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"runtime"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -35,7 +36,9 @@ func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 		}
 
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-			RootCAs: certPool,
+			// for js, outer websocket layer takes care of tls verification via WithCustomDialer
+			InsecureSkipVerify: runtime.GOOS == "js",
+			RootCAs:            certPool,
 		}))
 	}
 
