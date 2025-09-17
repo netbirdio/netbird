@@ -106,6 +106,10 @@ func (s *Server) Start() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if s.clientRunning {
+		return nil
+	}
+
 	state := internal.CtxGetState(s.rootCtx)
 
 	if err := handlePanicLog(); err != nil {
@@ -125,10 +129,6 @@ func (s *Server) Start() error {
 	}
 
 	if status != internal.StatusIdle {
-		return nil
-	}
-
-	if s.clientRunning {
 		return nil
 	}
 
@@ -609,6 +609,10 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if s.clientRunning {
+		return s.waitForUp(callerCtx)
+	}
+
 	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
@@ -624,10 +628,6 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 	if status != internal.StatusIdle {
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
-	}
-
-	if s.clientRunning {
-		return s.waitForUp(callerCtx)
 	}
 
 	// it should be nil here, but .
