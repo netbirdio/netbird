@@ -128,6 +128,10 @@ func (s *Server) Start() error {
 		return nil
 	}
 
+	if s.clientRunning {
+		return nil
+	}
+
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
 
@@ -175,9 +179,6 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	if s.clientRunning {
-		return nil
-	}
 	s.clientRunning = true
 	s.clientRunningChan = make(chan struct{}, 1)
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan)
@@ -625,6 +626,10 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
 
+	if s.clientRunning {
+		return s.waitForUp(callerCtx)
+	}
+
 	// it should be nil here, but .
 	if s.actCancel != nil {
 		s.actCancel()
@@ -673,26 +678,27 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
+	s.clientRunning = true
+	s.clientRunningChan = make(chan struct{})
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan)
+
+	return s.waitForUp(callerCtx)
+}
+
+func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error) {
 	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
 
-	if !s.clientRunning {
-		s.clientRunning = true
-		s.clientRunningChan = make(chan struct{}, 1)
-		go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan)
-	}
-	for {
-		select {
-		case <-s.clientRunningChan:
-			s.isSessionActive.Store(true)
-			return &proto.UpResponse{}, nil
-		case <-callerCtx.Done():
-			log.Debug("context done, stopping the wait for engine to become ready")
-			return nil, callerCtx.Err()
-		case <-timeoutCtx.Done():
-			log.Debug("up is timed out, stopping the wait for engine to become ready")
-			return nil, timeoutCtx.Err()
-		}
+	select {
+	case <-s.clientRunningChan:
+		s.isSessionActive.Store(true)
+		return &proto.UpResponse{}, nil
+	case <-callerCtx.Done():
+		log.Debug("context done, stopping the wait for engine to become ready")
+		return nil, callerCtx.Err()
+	case <-timeoutCtx.Done():
+		log.Debug("up is timed out, stopping the wait for engine to become ready")
+		return nil, timeoutCtx.Err()
 	}
 }
 
