@@ -848,18 +848,6 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 		expectedRecords []nbdns.SimpleRecord
 	}{
 		{
-			name: "empty custom zone domain",
-			customZone: nbdns.CustomZone{
-				Domain: "",
-				Records: []nbdns.SimpleRecord{
-					{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-				},
-			},
-			peersToConnect:  []*nbpeer.Peer{{ID: "peer1", IP: net.ParseIP("10.0.0.1")}},
-			peer:            &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
-			expectedRecords: []nbdns.SimpleRecord{},
-		},
-		{
 			name: "empty peers to connect",
 			customZone: nbdns.CustomZone{
 				Domain: "netbird.cloud.",
