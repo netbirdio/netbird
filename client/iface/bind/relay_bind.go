@@ -8,6 +8,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/conn"
+
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 )
 
 // RelayBindJS is a conn.Bind implementation for WebAssembly environments.
@@ -114,7 +116,7 @@ func (s *RelayBindJS) RemoveEndpoint(fakeIP netip.Addr) {
 }
 
 // GetICEMux returns the ICE UDPMux that was created and used by ICEBind
-func (s *RelayBindJS) GetICEMux() (*UniversalUDPMuxDefault, error) {
+func (s *RelayBindJS) GetICEMux() (*udpmux.UniversalUDPMuxDefault, error) {
 	return nil, ErrUDPMUXNotSupported
 }
 
