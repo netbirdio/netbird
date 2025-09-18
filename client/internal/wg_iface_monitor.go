@@ -26,6 +26,8 @@ func NewWGIfaceMonitor() *WGIfaceMonitor {
 
 // Start begins monitoring the WireGuard interface.
 // It relies on the provided context cancellation to stop.
+// Start only returns an error if the interface is deleted or recreated,
+// context cancellation does not return an error.
 func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) error {
 	defer close(m.done)
 
