@@ -26,27 +26,25 @@ func NewWGIfaceMonitor() *WGIfaceMonitor {
 
 // Start begins monitoring the WireGuard interface.
 // It relies on the provided context cancellation to stop.
-// Start only returns an error if the interface is deleted or recreated,
-// context cancellation does not return an error.
-func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) error {
+func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) (shouldRestart bool, err error) {
 	defer close(m.done)
 
 	// Skip on mobile platforms as they handle interface lifecycle differently
 	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
 		log.Debugf("Interface monitor: skipped on %s platform", runtime.GOOS)
-		return nil
+		return false, errors.New("not supported on mobile platforms")
 	}
 
 	if ifaceName == "" {
 		log.Debugf("Interface monitor: empty interface name, skipping monitor")
-		return nil
+		return false, errors.New("empty interface name")
 	}
 
 	// Get initial interface index to track the specific interface instance
 	expectedIndex, err := getInterfaceIndex(ifaceName)
 	if err != nil {
 		log.Debugf("Interface monitor: interface %s not found, skipping monitor", ifaceName)
-		return nil
+		return false, fmt.Errorf("interface %s not found: %w", ifaceName, err)
 	}
 
 	log.Infof("Interface monitor: watching %s (index: %d)", ifaceName, expectedIndex)
@@ -58,20 +56,20 @@ func (m *WGIfaceMonitor) Start(ctx context.Context, ifaceName string) error {
 		select {
 		case <-ctx.Done():
 			log.Infof("Interface monitor: stopped for %s", ifaceName)
-			return nil
+			return false, fmt.Errorf("wg interface monitor stopped: %v", ctx.Err())
 		case <-ticker.C:
 			currentIndex, err := getInterfaceIndex(ifaceName)
 			if err != nil {
 				// Interface was deleted
 				log.Infof("Interface monitor: %s deleted", ifaceName)
-				return fmt.Errorf("interface %s deleted", ifaceName)
+				return true, fmt.Errorf("interface %s deleted: %w", ifaceName, err)
 			}
 
 			// Check if interface index changed (interface was recreated)
 			if currentIndex != expectedIndex {
 				log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
 					ifaceName, expectedIndex, currentIndex)
-				return fmt.Errorf("interface %s recreated", ifaceName)
+				return true, nil
 			}
 		}
 	}

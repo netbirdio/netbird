@@ -479,9 +479,11 @@ func (e *Engine) Start() error {
 	go func() {
 		defer e.wgIfaceMonitorWg.Done()
 
-		if err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); err != nil {
+		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); shouldRestart {
 			log.Infof("WireGuard interface monitor: %s, restarting engine", err)
 			e.restartEngine()
+		} else if err != nil {
+			log.Warnf("WireGuard interface monitor: %s", err)
 		}
 	}()
 
