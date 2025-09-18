@@ -13,6 +13,9 @@ import (
 func setFlagsFromEnvVars(cmd *cobra.Command) {
 	flags := cmd.PersistentFlags()
 	flags.VisitAll(func(f *pflag.Flag) {
+		if f.Changed {
+			return
+		}
 		newEnvVar := flagNameToEnvVar(f.Name, "NB_")
 		value, present := os.LookupEnv(newEnvVar)
 		if !present {

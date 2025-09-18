@@ -201,6 +201,9 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 func SetFlagsFromEnvVars(cmd *cobra.Command) {
 	flags := cmd.PersistentFlags()
 	flags.VisitAll(func(f *pflag.Flag) {
+		if f.Changed {
+			return
+		}
 		oldEnvVar := FlagNameToEnvVar(f.Name, "WT_")
 
 		if value, present := os.LookupEnv(oldEnvVar); present {
