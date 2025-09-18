@@ -63,8 +63,8 @@ func NewConnectClient(
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run(runningChan chan struct{}) error {
-	return c.run(MobileDependency{}, runningChan)
+func (c *ConnectClient) Run(runningChan chan struct{}, giveUpChan chan struct{}) error {
+	return c.run(MobileDependency{}, runningChan, giveUpChan)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -83,7 +83,7 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.run(mobileDependency, nil)
+	return c.run(mobileDependency, nil, nil)
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -101,10 +101,10 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
 	}
-	return c.run(mobileDependency, nil)
+	return c.run(mobileDependency, nil, nil)
 }
 
-func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}, giveUpChan chan struct{}) error {
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -199,9 +199,9 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
 				_ = c.Stop()
-				if runningChan != nil {
-					close(runningChan)
-					runningChan = nil
+				if giveUpChan != nil {
+					close(giveUpChan)
+					giveUpChan = nil
 				}
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}

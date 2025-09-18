@@ -105,7 +105,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(maxRetryTimeVar, "5s")
 	t.Setenv(retryMultiplierVar, "1")
 
-	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
+	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil, nil)
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)
 	}
@@ -171,6 +171,7 @@ func TestServer_Up(t *testing.T) {
 		Username:    &currUser.Username,
 	}
 	_, err = s.Up(upCtx, upReq)
+	log.Errorf("error from Up: %v", err)
 
 	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
