@@ -1662,7 +1662,7 @@ func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, p
 		return nil
 	}
 
-	filteredRecords := make([]nbdns.SimpleRecord, 0, len(peersToConnect)+1)
+	filteredRecords := make([]nbdns.SimpleRecord, 0, len(customZone.Records))
 	peerIPs := make(map[string]struct{})
 
 	// Add peer's own IP to include its own DNS records
