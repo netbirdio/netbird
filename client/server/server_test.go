@@ -134,8 +134,12 @@ func TestServer_Up(t *testing.T) {
 
 	profName := "default"
 
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+
 	ic := profilemanager.ConfigInput{
-		ConfigPath: filepath.Join(tempDir, profName+".json"),
+		ConfigPath:    filepath.Join(tempDir, profName+".json"),
+		ManagementURL: u.String(),
 	}
 
 	_, err = profilemanager.UpdateOrCreateConfig(ic)
@@ -153,15 +157,8 @@ func TestServer_Up(t *testing.T) {
 	}
 
 	s := New(ctx, "console", "", false, false)
-
 	err = s.Start()
 	require.NoError(t, err)
-
-	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
-	require.NoError(t, err)
-	s.config = &profilemanager.Config{
-		ManagementURL: u,
-	}
 
 	upCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
