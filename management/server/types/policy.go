@@ -220,5 +220,4 @@ func parsePort(portStr string) (int, error) {
 		return 0, fmt.Errorf("port out of range (1–65535): %d", p)
 	}
 	return p, nil
-
 }
