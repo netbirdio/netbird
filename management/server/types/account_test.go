@@ -902,6 +902,7 @@ func Test_FilterZoneRecordsForPeers(t *testing.T) {
 				}
 				return peers
 			}(),
+			peer: &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
 			expectedRecords: func() []nbdns.SimpleRecord {
 				var records []nbdns.SimpleRecord
 				for _, i := range []int{1, 5, 10, 25, 50, 75, 100} {

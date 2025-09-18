@@ -1656,18 +1656,17 @@ func peerSupportsPortRanges(peerVer string) bool {
 	return err == nil && meetMinVer
 }
 
-// filterZoneRecordsForPeers filters DNS records to only include peers from the provided list and the requesting peer.
+// filterZoneRecordsForPeers filters DNS records to only include peers to connect.
 func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, peersToConnect []*nbpeer.Peer) []nbdns.SimpleRecord {
-	if customZone.Domain == "" {
-		return make([]nbdns.SimpleRecord, 0)
+	if peer == nil || customZone.Domain == "" {
+		return nil
 	}
 
-	filteredRecords := make([]nbdns.SimpleRecord, 0)
+	filteredRecords := make([]nbdns.SimpleRecord, 0, len(peersToConnect)+1)
 	peerIPs := make(map[string]struct{})
 
-	if peer != nil {
-		peerIPs[peer.IP.String()] = struct{}{}
-	}
+	// Add peer's own IP to include its own DNS records
+	peerIPs[peer.IP.String()] = struct{}{}
 
 	for _, peerToConnect := range peersToConnect {
 		peerIPs[peerToConnect.IP.String()] = struct{}{}
