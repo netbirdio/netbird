@@ -694,8 +694,7 @@ func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error)
 
 	select {
 	case <-s.clientGiveUpChan:
-		cancel()
-		return nil, timeoutCtx.Err()
+		return nil, fmt.Errorf("client gave up to connect")
 	case <-s.clientRunningChan:
 		s.isSessionActive.Store(true)
 		return &proto.UpResponse{}, nil
@@ -987,6 +986,8 @@ func (s *Server) Status(
 
 	if msg.WaitForReady != nil && *msg.WaitForReady && s.clientRunning {
 		select {
+		case <-s.clientGiveUpChan:
+			break
 		case <-s.clientRunningChan:
 			break
 		case <-ctx.Done():

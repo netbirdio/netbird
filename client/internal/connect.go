@@ -323,6 +323,11 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			state.Set(StatusNeedsLogin)
 			_ = c.Stop()
 		}
+
+		if giveUpChan != nil {
+			close(giveUpChan)
+			giveUpChan = nil
+		}
 		return err
 	}
 	return nil
