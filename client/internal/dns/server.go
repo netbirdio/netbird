@@ -391,7 +391,15 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	hash, err := hashstructure.Hash(update, hashstructure.FormatV2, &hashstructure.HashOptions{
+	hashType := struct {
+		ServiceEnable    bool
+		NameServerGroups []*nbdns.NameServerGroup
+	}{
+		ServiceEnable:    update.ServiceEnable,
+		NameServerGroups: update.NameServerGroups,
+	}
+
+	hash, err := hashstructure.Hash(hashType, hashstructure.FormatV2, &hashstructure.HashOptions{
 		ZeroNil:         true,
 		IgnoreZeroValue: true,
 		SlicesAsSets:    true,
