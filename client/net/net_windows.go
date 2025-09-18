@@ -14,8 +14,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
-
-	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
 const (
@@ -26,6 +24,9 @@ const (
 	// https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ipv6-socket-options
 	Ipv6V6only = 27
 )
+
+// GetBestInterfaceFunc is set at runtime to avoid import cycle
+var GetBestInterfaceFunc func(dest netip.Addr, vpnIntf string) (*net.Interface, error)
 
 // nativeToBigEndian converts a uint32 from native byte order to big-endian
 func nativeToBigEndian(v uint32) uint32 {
@@ -120,16 +121,20 @@ func selectInterfaceForZone(dest netip.Addr, zone string) *interfaceSelection {
 }
 
 func selectInterfaceForUnspecified() (*interfaceSelection, error) {
+	if GetBestInterfaceFunc == nil {
+		return nil, errors.New("GetBestInterfaceFunc not initialized")
+	}
+
 	var result interfaceSelection
 	vpnIfaceName := GetVPNInterfaceName()
 
-	if iface4, err := systemops.GetBestInterface(netip.IPv4Unspecified(), vpnIfaceName); err == nil {
+	if iface4, err := GetBestInterfaceFunc(netip.IPv4Unspecified(), vpnIfaceName); err == nil {
 		result.iface4 = iface4
 	} else {
 		log.Debugf("No IPv4 default route found: %v", err)
 	}
 
-	if iface6, err := systemops.GetBestInterface(netip.IPv6Unspecified(), vpnIfaceName); err == nil {
+	if iface6, err := GetBestInterfaceFunc(netip.IPv6Unspecified(), vpnIfaceName); err == nil {
 		result.iface6 = iface6
 	} else {
 		log.Debugf("No IPv6 default route found: %v", err)
@@ -153,7 +158,11 @@ func selectInterface(dest netip.Addr) (*interfaceSelection, error) {
 		return selectInterfaceForUnspecified()
 	}
 
-	iface, err := systemops.GetBestInterface(dest, GetVPNInterfaceName())
+	if GetBestInterfaceFunc == nil {
+		return nil, errors.New("GetBestInterfaceFunc not initialized")
+	}
+
+	iface, err := GetBestInterfaceFunc(dest, GetVPNInterfaceName())
 	if err != nil {
 		return nil, fmt.Errorf("find route for %s: %w", dest, err)
 	}

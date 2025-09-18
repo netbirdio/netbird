@@ -20,7 +20,12 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
+
+func init() {
+	nbnet.GetBestInterfaceFunc = GetBestInterface
+}
 
 const (
 	InfiniteLifetime = 0xffffffff
