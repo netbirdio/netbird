@@ -83,6 +83,9 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return nil, err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -134,6 +137,9 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -177,6 +183,9 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 

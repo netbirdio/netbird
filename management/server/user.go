@@ -937,6 +937,10 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	}
 	dnsDomain := am.GetDNSDomain(settings)
 
+	account, err := am.Store.GetAccount(ctx, accountID)
+	if err != nil {
+		return err
+	}
 	var peerIDs []string
 	for _, peer := range peers {
 		// nolint:staticcheck
@@ -961,6 +965,10 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
 		)
+
+		if am.expNewNetworkMap {
+			am.updatePeerInNetworkMapCache(account, peer)
+		}
 	}
 
 	if len(peerIDs) != 0 {
