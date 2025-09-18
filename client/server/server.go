@@ -180,7 +180,7 @@ func (s *Server) Start() error {
 	}
 
 	s.clientRunning = true
-	s.clientRunningChan = make(chan struct{}, 1)
+	s.clientRunningChan = make(chan struct{})
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan)
 	return nil
 }
@@ -978,6 +978,15 @@ func (s *Server) Status(
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if msg.WaitForReady != nil && *msg.WaitForReady && s.clientRunning {
+		select {
+		case <-s.clientRunningChan:
+			break
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 
 	status, err := internal.CtxGetState(s.rootCtx).Status()
 	if err != nil {

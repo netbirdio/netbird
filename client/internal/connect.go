@@ -199,6 +199,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
 				_ = c.Stop()
+				if runningChan != nil {
+					close(runningChan)
+					runningChan = nil
+				}
 				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
