@@ -13,15 +13,12 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/protobuf/types/known/durationpb"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -32,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -235,7 +233,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *profilemanage
 
 	runOperation := func() error {
 		log.Tracef("running client connection")
-		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
+		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, s.logFile)
 		s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
 
 		err := s.connectClient.Run(runningChan)
@@ -1026,7 +1024,7 @@ func (s *Server) Status(
 		}
 
 		fullStatus := s.statusRecorder.GetFullStatus()
-		pbFullStatus := toProtoFullStatus(fullStatus)
+		pbFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
 		statusResponse.FullStatus = pbFullStatus
 	}
@@ -1129,93 +1127,6 @@ func (s *Server) onSessionExpire() {
 			}
 		}
 	}
-}
-
-func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
-	pbFullStatus := proto.FullStatus{
-		ManagementState: &proto.ManagementState{},
-		SignalState:     &proto.SignalState{},
-		LocalPeerState:  &proto.LocalPeerState{},
-		Peers:           []*proto.PeerState{},
-	}
-
-	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
-	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
-	if err := fullStatus.ManagementState.Error; err != nil {
-		pbFullStatus.ManagementState.Error = err.Error()
-	}
-
-	pbFullStatus.SignalState.URL = fullStatus.SignalState.URL
-	pbFullStatus.SignalState.Connected = fullStatus.SignalState.Connected
-	if err := fullStatus.SignalState.Error; err != nil {
-		pbFullStatus.SignalState.Error = err.Error()
-	}
-
-	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
-	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
-	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
-	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
-	pbFullStatus.LocalPeerState.RosenpassPermissive = fullStatus.RosenpassState.Permissive
-	pbFullStatus.LocalPeerState.RosenpassEnabled = fullStatus.RosenpassState.Enabled
-	pbFullStatus.LocalPeerState.Networks = maps.Keys(fullStatus.LocalPeerState.Routes)
-	pbFullStatus.NumberOfForwardingRules = int32(fullStatus.NumOfForwardingRules)
-	pbFullStatus.LazyConnectionEnabled = fullStatus.LazyConnectionEnabled
-
-	for _, peerState := range fullStatus.Peers {
-		pbPeerState := &proto.PeerState{
-			IP:                         peerState.IP,
-			PubKey:                     peerState.PubKey,
-			ConnStatus:                 peerState.ConnStatus.String(),
-			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
-			Relayed:                    peerState.Relayed,
-			LocalIceCandidateType:      peerState.LocalIceCandidateType,
-			RemoteIceCandidateType:     peerState.RemoteIceCandidateType,
-			LocalIceCandidateEndpoint:  peerState.LocalIceCandidateEndpoint,
-			RemoteIceCandidateEndpoint: peerState.RemoteIceCandidateEndpoint,
-			RelayAddress:               peerState.RelayServerAddress,
-			Fqdn:                       peerState.FQDN,
-			LastWireguardHandshake:     timestamppb.New(peerState.LastWireguardHandshake),
-			BytesRx:                    peerState.BytesRx,
-			BytesTx:                    peerState.BytesTx,
-			RosenpassEnabled:           peerState.RosenpassEnabled,
-			Networks:                   maps.Keys(peerState.GetRoutes()),
-			Latency:                    durationpb.New(peerState.Latency),
-		}
-		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
-	}
-
-	for _, relayState := range fullStatus.Relays {
-		pbRelayState := &proto.RelayState{
-			URI:       relayState.URI,
-			Available: relayState.Err == nil,
-		}
-		if err := relayState.Err; err != nil {
-			pbRelayState.Error = err.Error()
-		}
-		pbFullStatus.Relays = append(pbFullStatus.Relays, pbRelayState)
-	}
-
-	for _, dnsState := range fullStatus.NSGroupStates {
-		var err string
-		if dnsState.Error != nil {
-			err = dnsState.Error.Error()
-		}
-
-		var servers []string
-		for _, server := range dnsState.Servers {
-			servers = append(servers, server.String())
-		}
-
-		pbDnsState := &proto.NSGroupState{
-			Servers: servers,
-			Domains: dnsState.Domains,
-			Enabled: dnsState.Enabled,
-			Error:   err,
-		}
-		pbFullStatus.DnsServers = append(pbFullStatus.DnsServers, pbDnsState)
-	}
-
-	return &pbFullStatus
 }
 
 // sendTerminalNotification sends a terminal notification message

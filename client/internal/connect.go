@@ -45,17 +45,19 @@ type ConnectClient struct {
 	engineMutex    sync.Mutex
 
 	persistSyncResponse bool
+	LogFile             string
 }
 
 func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
-
+	logFile string,
 ) *ConnectClient {
 	return &ConnectClient{
 		ctx:            ctx,
 		config:         config,
+		LogFile:        logFile,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
 	}
@@ -261,7 +263,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, c.LogFile)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -270,7 +272,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
+		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, c.config)
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
@@ -415,7 +417,7 @@ func (c *ConnectClient) SetSyncResponsePersistence(enabled bool) {
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConfig *mgmProto.PeerConfig, logFile string) (*EngineConfig, error) {
 	nm := false
 	if config.NetworkMonitor != nil {
 		nm = *config.NetworkMonitor
@@ -444,6 +446,9 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockInbound:        config.BlockInbound,
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
+		LogFile:               logFile,
+
+		ProfileConfig: config,
 	}
 
 	if config.PreSharedKey != "" {
