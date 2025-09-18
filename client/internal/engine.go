@@ -196,7 +196,8 @@ type Engine struct {
 	flowManager         nftypes.FlowManager
 
 	// WireGuard interface monitor
-	wgIfaceMonitor *WGIfaceMonitor
+	wgIfaceMonitor   *WGIfaceMonitor
+	wgIfaceMonitorWg sync.WaitGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -305,12 +306,6 @@ func (e *Engine) Stop() error {
 		e.srWatcher.Close()
 	}
 
-	// Stop WireGuard interface monitor and wait for it to exit
-	if e.wgIfaceMonitor != nil {
-		e.wgIfaceMonitor.Stop()
-		e.wgIfaceMonitor = nil
-	}
-
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
 	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
 	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
@@ -345,6 +340,9 @@ func (e *Engine) Stop() error {
 	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
 	}
+
+	// Stop WireGuard interface monitor and wait for it to exit
+	e.wgIfaceMonitorWg.Wait()
 
 	return nil
 }
@@ -475,8 +473,18 @@ func (e *Engine) Start() error {
 	e.startNetworkMonitor()
 
 	// monitor WireGuard interface lifecycle and restart engine on changes
-	e.wgIfaceMonitor = NewWGIfaceMonitor(e.restartEngine)
-	e.wgIfaceMonitor.Start(e.wgInterface.Name())
+	e.wgIfaceMonitor = NewWGIfaceMonitor()
+	e.wgIfaceMonitorWg.Add(1)
+
+	go func() {
+		defer e.wgIfaceMonitorWg.Done()
+
+		if err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); err != nil {
+			log.Infof("WireGuard interface monitor: %s, restarting engine", err)
+			e.restartEngine()
+		}
+	}()
+
 	return nil
 }
 
@@ -1713,7 +1721,6 @@ func (e *Engine) startNetworkMonitor() {
 		e.restartEngine()
 	}()
 }
-
 
 func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
 	var vpnRoutes []netip.Prefix
