@@ -1249,7 +1249,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), maps.Values(account.Peers))
+			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups))
 			update.NetworkMap.DNSConfig.ForwarderPort = dnsFwdPort
 			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
 
@@ -1361,7 +1361,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 	}
 
 	peerGroups := account.GetPeerGroups(peerId)
-	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), maps.Values(account.Peers))
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups))
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 

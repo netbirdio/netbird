@@ -713,7 +713,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, allPeers []*nbpeer.Peer) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
 		NetworkMap: &proto.NetworkMap{
@@ -806,13 +806,7 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	// Get all peers in the account for forwarder port computation
-	allPeers, err := s.accountManager.GetStore().GetAccountPeers(ctx, store.LockingStrengthNone, peer.AccountID, "", "")
-	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get account peers %s", err)
-	}
-
-	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, allPeers)
+	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
