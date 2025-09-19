@@ -495,7 +495,7 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 func TestComputeForwarderPort(t *testing.T) {
 	// Test with empty peers list
 	peers := []*nbpeer.Peer{}
-	result := computeForwarderPort(peers, "0.28.0")
+	result := computeForwarderPort(peers, "0.58.0")
 	if result != 0 {
 		t.Errorf("Expected 0 for empty peers list, got %d", result)
 	}
@@ -504,7 +504,7 @@ func TestComputeForwarderPort(t *testing.T) {
 	peers = []*nbpeer.Peer{
 		{
 			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.27.0",
+				WtVersion: "0.57.0",
 			},
 		},
 		{
@@ -513,7 +513,7 @@ func TestComputeForwarderPort(t *testing.T) {
 			},
 		},
 	}
-	result = computeForwarderPort(peers, "0.28.0")
+	result = computeForwarderPort(peers, "0.58.0")
 	if result != 0 {
 		t.Errorf("Expected 0 for peers with old versions, got %d", result)
 	}
@@ -522,16 +522,16 @@ func TestComputeForwarderPort(t *testing.T) {
 	peers = []*nbpeer.Peer{
 		{
 			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.28.0",
+				WtVersion: "0.58.0",
 			},
 		},
 		{
 			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.29.0",
+				WtVersion: "0.59.0",
 			},
 		},
 	}
-	result = computeForwarderPort(peers, "0.28.0")
+	result = computeForwarderPort(peers, "0.58.0")
 	if result != 5454 {
 		t.Errorf("Expected 5454 for peers with new versions, got %d", result)
 	}
@@ -540,16 +540,16 @@ func TestComputeForwarderPort(t *testing.T) {
 	peers = []*nbpeer.Peer{
 		{
 			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.28.0",
+				WtVersion: "0.58.0",
 			},
 		},
 		{
 			Meta: nbpeer.PeerSystemMeta{
-				WtVersion: "0.27.0",
+				WtVersion: "0.57.0",
 			},
 		},
 	}
-	result = computeForwarderPort(peers, "0.28.0")
+	result = computeForwarderPort(peers, "0.58.0")
 	if result != 0 {
 		t.Errorf("Expected 0 for peers with mixed versions, got %d", result)
 	}
