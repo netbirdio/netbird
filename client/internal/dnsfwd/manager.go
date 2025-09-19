@@ -15,10 +15,13 @@ import (
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
-const (
+var (
 	// ListenPort is the port that the DNS forwarder listens on. It has been used by the client peers also
 	ListenPort = 5353
-	dnsTTL     = 60 //seconds
+)
+
+const (
+	dnsTTL = 60 //seconds
 )
 
 // ForwarderEntry is a mapping from a domain to a resource ID and a hash of the parent domain list.
@@ -57,8 +60,8 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 	}
 
 	listenPort := m.port
-	if listenPort == 0 {
-		listenPort = ListenPort
+	if listenPort > 0 {
+		ListenPort = listenPort
 	}
 	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", listenPort), dnsTTL, m.firewall, m.statusRecorder)
 	go func() {
@@ -100,7 +103,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 func (m *Manager) allowDNSFirewall() error {
 	dport := &firewall.Port{
 		IsRange: false,
-		Values:  []uint16{ListenPort},
+		Values:  []uint16{uint16(ListenPort)},
 	}
 
 	if m.firewall == nil {
