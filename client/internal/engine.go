@@ -1854,7 +1854,6 @@ func (e *Engine) updateDNSForwarder(
 		switch {
 		case e.dnsForwardMgr == nil:
 			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, forwarderPort)
-
 			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
 				log.Errorf("failed to start DNS forward: %v", err)
 				e.dnsForwardMgr = nil
