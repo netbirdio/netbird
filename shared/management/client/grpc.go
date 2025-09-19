@@ -52,7 +52,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(addr, tlsEnabled)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled)
 		if err != nil {
 			log.Printf("createConnection error: %v", err)
 			return err
