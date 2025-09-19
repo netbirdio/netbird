@@ -21,7 +21,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -324,13 +323,13 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 		return nil, err
 	}
 
-	account.NameServerGroups[dnsNSGroup1] = &dns.NameServerGroup{
+	account.NameServerGroups[dnsNSGroup1] = &nbdns.NameServerGroup{
 		ID:   dnsNSGroup1,
 		Name: "ns-group-1",
-		NameServers: []dns.NameServer{{
+		NameServers: []nbdns.NameServer{{
 			IP:     netip.MustParseAddr(savedPeer1.IP.String()),
-			NSType: dns.UDPNameServerType,
-			Port:   dns.DefaultDNSPort,
+			NSType: nbdns.UDPNameServerType,
+			Port:   nbdns.DefaultDNSPort,
 		}},
 		Primary: true,
 		Enabled: true,
@@ -532,8 +531,8 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "0.58.0")
-	if result != 5454 {
-		t.Errorf("Expected 5454 for peers with new versions, got %d", result)
+	if result != dnsForwarderPort {
+		t.Errorf("Expected %d for peers with new versions, got %d", dnsForwarderPort, result)
 	}
 
 	// Test with peers that have mixed versions
@@ -565,6 +564,31 @@ func TestComputeForwarderPort(t *testing.T) {
 	result = computeForwarderPort(peers, "0.58.0")
 	if result != 0 {
 		t.Errorf("Expected 0 for peers with empty version, got %d", result)
+	}
+
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "development",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "0.58.0")
+	if result == 0 {
+		t.Errorf("Expected %d for peers with dev version, got %d", dnsForwarderPort, result)
+	}
+
+	// Test with peers that have unknown version string
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "unknown",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "0.58.0")
+	if result != 0 {
+		t.Errorf("Expected 0 for peers with unknown version, got %d", result)
 	}
 }
 
@@ -619,10 +643,10 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 		}()
 
 		_, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "ns-group", "ns-group", []dns.NameServer{{
+			context.Background(), account.Id, "ns-group", "ns-group", []nbdns.NameServer{{
 				IP:     netip.MustParseAddr(peer1.IP.String()),
-				NSType: dns.UDPNameServerType,
-				Port:   dns.DefaultDNSPort,
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
 			}},
 			[]string{"groupB"},
 			true, []string{}, true, userID, false,
@@ -652,10 +676,10 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 		}()
 
 		_, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "ns-group-1", "ns-group-1", []dns.NameServer{{
+			context.Background(), account.Id, "ns-group-1", "ns-group-1", []nbdns.NameServer{{
 				IP:     netip.MustParseAddr(peer1.IP.String()),
-				NSType: dns.UDPNameServerType,
-				Port:   dns.DefaultDNSPort,
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
 			}},
 			[]string{"groupA"},
 			true, []string{}, true, userID, false,

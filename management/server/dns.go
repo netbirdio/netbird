@@ -220,6 +220,11 @@ func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 
 	// Check if all peers have the required version or newer
 	for _, peer := range peers {
+
+		// Development version is always supported
+		if peer.Meta.WtVersion == "development" {
+			continue
+		}
 		peerVersion := semver.Canonical("v" + peer.Meta.WtVersion)
 		if peerVersion == "" {
 			// If any peer doesn't have version info, return 0
