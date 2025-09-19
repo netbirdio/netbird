@@ -562,7 +562,7 @@ func TestComputeForwarderPort(t *testing.T) {
 			},
 		},
 	}
-	result = computeForwarderPort(peers, "0.28.0")
+	result = computeForwarderPort(peers, "0.58.0")
 	if result != 0 {
 		t.Errorf("Expected 0 for peers with empty version, got %d", result)
 	}
