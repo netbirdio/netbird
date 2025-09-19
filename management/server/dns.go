@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/mod/semver"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -18,6 +19,10 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+const dnsForwarderPort = 22054
+
+const dnsForwarderPortMinVersion = "0.58.0"
 
 // DNSConfigCache is a thread-safe cache for DNS configuration components
 type DNSConfigCache struct {
@@ -205,30 +210,30 @@ func validateDNSSettings(ctx context.Context, transaction store.Store, accountID
 }
 
 // computeForwarderPort checks if all peers in the account have updated to a specific version or newer.
-// If all peers have the required version, it returns the new well-known port (5454), otherwise returns 0.
+// If all peers have the required version, it returns the new well-known port (22054), otherwise returns 0.
 func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 	if len(peers) == 0 {
 		return 0
 	}
 
+	reqVer := semver.Canonical(requiredVersion)
+
 	// Check if all peers have the required version or newer
 	for _, peer := range peers {
-		peerVersion := peer.Meta.WtVersion
+		peerVersion := semver.Canonical(peer.Meta.WtVersion)
 		if peerVersion == "" {
 			// If any peer doesn't have version info, return 0
 			return 0
 		}
-		
-		// Simple version comparison - assumes semantic versioning (x.y.z)
-		// For now, we'll do a simple string comparison, but this could be enhanced
-		// to do proper semantic version comparison if needed
-		if peerVersion < requiredVersion {
+
+		// Compare versions
+		if semver.Compare(peerVersion, reqVer) < 0 {
 			return 0
 		}
 	}
 
 	// All peers have the required version or newer
-	return 5454
+	return dnsForwarderPort
 }
 
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
@@ -237,7 +242,7 @@ func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache, peers []*nb
 		ServiceEnable:    update.ServiceEnable,
 		CustomZones:      make([]*proto.CustomZone, 0, len(update.CustomZones)),
 		NameServerGroups: make([]*proto.NameServerGroup, 0, len(update.NameServerGroups)),
-		ForwarderPort:    computeForwarderPort(peers, "0.28.0"), // Set the required version here
+		ForwarderPort:    computeForwarderPort(peers, dnsForwarderPortMinVersion),
 	}
 
 	for _, zone := range update.CustomZones {
