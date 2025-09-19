@@ -394,7 +394,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				toProtocolDNSConfig(testData, cache, []*nbpeer.Peer{})
+				toProtocolDNSConfig(testData, cache)
 			}
 		})
 
@@ -402,7 +402,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				cache := &DNSConfigCache{}
-				toProtocolDNSConfig(testData, cache, []*nbpeer.Peer{})
+				toProtocolDNSConfig(testData, cache)
 			}
 		})
 	}
@@ -455,13 +455,13 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	}
 
 	// First run with config1
-	result1 := toProtocolDNSConfig(config1, &cache, []*nbpeer.Peer{})
+	result1 := toProtocolDNSConfig(config1, &cache)
 
 	// Second run with config2
-	result2 := toProtocolDNSConfig(config2, &cache, []*nbpeer.Peer{})
+	result2 := toProtocolDNSConfig(config2, &cache)
 
 	// Third run with config1 again
-	result3 := toProtocolDNSConfig(config1, &cache, []*nbpeer.Peer{})
+	result3 := toProtocolDNSConfig(config1, &cache)
 
 	// Verify that result1 and result3 are identical
 	if !reflect.DeepEqual(result1, result3) {

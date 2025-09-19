@@ -719,7 +719,7 @@ func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.P
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
-			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, allPeers),
+			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}

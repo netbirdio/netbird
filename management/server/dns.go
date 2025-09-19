@@ -242,7 +242,7 @@ func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 }
 
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
-func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache, peers []*nbpeer.Peer) *proto.DNSConfig {
+func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache) *proto.DNSConfig {
 	protoUpdate := &proto.DNSConfig{
 		ServiceEnable:    update.ServiceEnable,
 		CustomZones:      make([]*proto.CustomZone, 0, len(update.CustomZones)),
