@@ -222,7 +222,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	}()
 
 	if s.config.DisableAutoConnect {
-		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan, nil); err != nil {
+		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan); err != nil {
 			log.Debugf("run client connection exited with error: %v", err)
 		}
 		log.Tracef("client connection exited")
@@ -251,7 +251,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	}()
 
 	runOperation := func() error {
-		err := s.connect(ctx, profileConfig, statusRecorder, runningChan, giveUpChan)
+		err := s.connect(ctx, profileConfig, statusRecorder, runningChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 			return err
@@ -263,6 +263,10 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 	if err := backoff.Retry(runOperation, backOff); err != nil {
 		log.Errorf("operation failed: %v", err)
+	}
+
+	if giveUpChan != nil {
+		close(giveUpChan)
 	}
 }
 
@@ -1212,11 +1216,11 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	return features, nil
 }
 
-func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) error {
+func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
 	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	if err := s.connectClient.Run(runningChan, giveUpChan); err != nil {
+	if err := s.connectClient.Run(runningChan); err != nil {
 		return err
 	}
 	return nil

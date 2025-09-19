@@ -136,10 +136,9 @@ func (c *Client) Start(startCtx context.Context) error {
 	// either startup error (permanent backoff err) or nil err (successful engine up)
 	// TODO: make after-startup backoff err available
 	run := make(chan struct{})
-	failed := make(chan struct{})
 	clientErr := make(chan error, 1)
 	go func() {
-		if err := client.Run(run, failed); err != nil {
+		if err := client.Run(run); err != nil {
 			clientErr <- err
 		}
 	}()
@@ -153,8 +152,6 @@ func (c *Client) Start(startCtx context.Context) error {
 	case err := <-clientErr:
 		return fmt.Errorf("startup: %w", err)
 	case <-run:
-	case <-failed:
-		return fmt.Errorf("client startup failed")
 	}
 
 	c.connect = client
