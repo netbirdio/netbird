@@ -960,14 +960,16 @@ func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profil
 }
 
 func waitStateShift(ctx context.Context) {
-	timer := time.NewTimer(3 * time.Second)
+	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
+			log.Warnf("context done while waiting for state shift: %v", ctx.Err())
 			timer.Stop()
 			return
 		case <-timer.C:
+			log.Warnf("state shift timed out")
 			timer.Stop()
 			return
 		default:
@@ -977,6 +979,7 @@ func waitStateShift(ctx context.Context) {
 				return
 			}
 			if status != internal.StatusConnecting {
+				log.Infof("state shifting status: %v", status)
 				return
 			}
 		}
