@@ -22,7 +22,7 @@ import (
 
 const dnsForwarderPort = 22054
 
-const dnsForwarderPortMinVersion = "0.58.0"
+const dnsForwarderPortMinVersion = "v0.58.0"
 
 // DNSConfigCache is a thread-safe cache for DNS configuration components
 type DNSConfigCache struct {
@@ -220,7 +220,7 @@ func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 
 	// Check if all peers have the required version or newer
 	for _, peer := range peers {
-		peerVersion := semver.Canonical(peer.Meta.WtVersion)
+		peerVersion := semver.Canonical("v" + peer.Meta.WtVersion)
 		if peerVersion == "" {
 			// If any peer doesn't have version info, return 0
 			return 0
