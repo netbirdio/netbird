@@ -247,7 +247,6 @@ func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache, peers []*nb
 		ServiceEnable:    update.ServiceEnable,
 		CustomZones:      make([]*proto.CustomZone, 0, len(update.CustomZones)),
 		NameServerGroups: make([]*proto.NameServerGroup, 0, len(update.NameServerGroups)),
-		ForwarderPort:    computeForwarderPort(peers, dnsForwarderPortMinVersion),
 	}
 
 	for _, zone := range update.CustomZones {

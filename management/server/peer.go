@@ -1211,6 +1211,8 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		return
 	}
 
+	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), dnsForwarderPortMinVersion)
+
 	for _, peer := range account.Peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -1248,6 +1250,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
 			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), maps.Values(account.Peers))
+			update.NetworkMap.DNSConfig.ForwarderPort = dnsFwdPort
 			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
 
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
