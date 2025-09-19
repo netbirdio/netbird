@@ -385,21 +385,10 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
 	log.Infof("--- Login called")
 	s.mutex.Lock()
-	if s.clientRunning {
-		return nil, fmt.Errorf("client already running")
-	}
-
-	s.clientRunning = true
-	defer func() {
-		s.mutex.Lock()
-		s.clientRunning = false
-		s.mutex.Unlock()
-	}()
-
 	if s.actCancel != nil {
 		s.actCancel()
 	}
-	ctx, cancel := context.WithCancel(s.rootCtx)
+	ctx, cancel := context.WithCancel(callerCtx)
 
 	md, ok := metadata.FromIncomingContext(callerCtx)
 	if ok {
@@ -409,11 +398,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
-	if err := restoreResidualState(ctx, s.profileManager.GetStatePath()); err != nil {
+	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
-	state := internal.CtxGetState(ctx)
+	state := internal.CtxGetState(s.rootCtx)
 	defer func() {
 		status, err := state.Status()
 		if err != nil || (status != internal.StatusNeedsLogin && status != internal.StatusLoginFailed) {
@@ -630,9 +619,8 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
 	if s.clientRunning {
+		s.mutex.Unlock()
 		return s.waitForUp(callerCtx)
 	}
 
@@ -647,6 +635,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	// not in the progress or already successfully established connection.
 	status, err := state.Status()
 	if err != nil {
+		s.mutex.Unlock()
 		return nil, err
 	}
 	if status != internal.StatusIdle {
@@ -669,18 +658,21 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.actCancel = cancel
 
 	if s.config == nil {
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
 		log.Errorf("failed to get active profile state: %v", err)
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
 	if msg != nil && msg.ProfileName != nil {
 		if err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
 			log.Errorf("failed to switch profile: %v", err)
+			s.mutex.Unlock()
 			return nil, fmt.Errorf("failed to switch profile: %w", err)
 		}
 	}
@@ -688,6 +680,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
 		log.Errorf("failed to get active profile state: %v", err)
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
@@ -696,6 +689,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
+		s.mutex.Unlock()
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
 	s.config = config
@@ -708,6 +702,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.clientGiveUpChan = make(chan struct{})
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 
+	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)
 }
 
@@ -1003,16 +998,13 @@ func (s *Server) Status(
 	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-
 	log.Infof("--- Status called ---")
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	clientRunning := s.clientRunning
+	s.mutex.Unlock()
 
-	log.Infof("--- status requested --- waitForReady: %v, clientRunning: %v ---", msg.WaitForReady, s.clientRunning)
-	if msg.WaitForReady != nil && *msg.WaitForReady && s.clientRunning {
+	log.Infof("--- status requested --- waitForReady: %v, clientRunning: %v ---", msg.WaitForReady, clientRunning)
+	if msg.WaitForReady != nil && *msg.WaitForReady && clientRunning {
 		log.Infof("--- waiting for client to be ready ---")
 		select {
 		case <-s.clientGiveUpChan:
