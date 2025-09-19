@@ -18,6 +18,7 @@ import (
 	"golang.org/x/net/ipv6"
 	wgConn "golang.zx2c4.com/wireguard/conn"
 
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nbnet "github.com/netbirdio/netbird/util/net"
 )
@@ -41,7 +42,7 @@ type ICEBind struct {
 	*wgConn.StdNetBind
 
 	transportNet transport.Net
-	filterFn     FilterFn
+	filterFn     udpmux.FilterFn
 	address      wgaddr.Address
 	mtu          uint16
 
@@ -56,10 +57,10 @@ type ICEBind struct {
 	activityRecorder *ActivityRecorder
 
 	muUDPMux sync.Mutex
-	udpMux   *UniversalUDPMuxDefault
+	udpMux   *udpmux.UniversalUDPMuxDefault
 }
 
-func NewICEBind(transportNet transport.Net, filterFn FilterFn, address wgaddr.Address, mtu uint16) *ICEBind {
+func NewICEBind(transportNet transport.Net, filterFn udpmux.FilterFn, address wgaddr.Address, mtu uint16) *ICEBind {
 	b, _ := wgConn.NewStdNetBind().(*wgConn.StdNetBind)
 	ib := &ICEBind{
 		StdNetBind:       b,
@@ -110,7 +111,7 @@ func (s *ICEBind) ActivityRecorder() *ActivityRecorder {
 }
 
 // GetICEMux returns the ICE UDPMux that was created and used by ICEBind
-func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
+func (s *ICEBind) GetICEMux() (*udpmux.UniversalUDPMuxDefault, error) {
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
 	if s.udpMux == nil {
@@ -163,8 +164,8 @@ func (s *ICEBind) createIPv4ReceiverFn(pc *ipv4.PacketConn, conn *net.UDPConn, r
 	s.muUDPMux.Lock()
 	defer s.muUDPMux.Unlock()
 
-	s.udpMux = NewUniversalUDPMuxDefault(
-		UniversalUDPMuxParams{
+	s.udpMux = udpmux.NewUniversalUDPMuxDefault(
+		udpmux.UniversalUDPMuxParams{
 			UDPConn:   nbnet.WrapPacketConn(conn),
 			Net:       s.transportNet,
 			FilterFn:  s.filterFn,

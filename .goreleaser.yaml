@@ -4,7 +4,7 @@ project_name: netbird
 builds:
   - id: netbird-wasm
     dir: client/wasm/cmd
-    binary: netbird.wasm
+    binary: netbird
     env: [GOOS=js, GOARCH=wasm, CGO_ENABLED=0]
     goos:
       - js
@@ -130,10 +130,8 @@ archives:
   - id: netbird-wasm
     builds:
       - netbird-wasm
-    name_template: "{{ .ProjectName }}_wasm_{{ .Version }}"
-    format: tar.gz
-    files:
-      - none*
+    name_template: "{{ .ProjectName }}_{{ .Version }}"
+    format: binary
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>

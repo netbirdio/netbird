@@ -2,31 +2,18 @@ package healthcheck
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"sync"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-// Mutex to protect global variable access in tests
-var testMutex sync.Mutex
-
 func TestNewReceiver(t *testing.T) {
-	testMutex.Lock()
-	originalTimeout := heartbeatTimeout
-	heartbeatTimeout = 5 * time.Second
-	testMutex.Unlock()
 
-	defer func() {
-		testMutex.Lock()
-		heartbeatTimeout = originalTimeout
-		testMutex.Unlock()
-	}()
-
-	r := NewReceiver(log.WithContext(context.Background()))
+	opts := ReceiverOptions{
+		HeartbeatTimeout: 5 * time.Second,
+	}
+	r := NewReceiverWithOpts(log.WithContext(context.Background()), opts)
 	defer r.Stop()
 
 	select {
@@ -38,18 +25,10 @@ func TestNewReceiver(t *testing.T) {
 }
 
 func TestNewReceiverNotReceive(t *testing.T) {
-	testMutex.Lock()
-	originalTimeout := heartbeatTimeout
-	heartbeatTimeout = 1 * time.Second
-	testMutex.Unlock()
-
-	defer func() {
-		testMutex.Lock()
-		heartbeatTimeout = originalTimeout
-		testMutex.Unlock()
-	}()
-
-	r := NewReceiver(log.WithContext(context.Background()))
+	opts := ReceiverOptions{
+		HeartbeatTimeout: 1 * time.Second,
+	}
+	r := NewReceiverWithOpts(log.WithContext(context.Background()), opts)
 	defer r.Stop()
 
 	select {
@@ -61,18 +40,10 @@ func TestNewReceiverNotReceive(t *testing.T) {
 }
 
 func TestNewReceiverAck(t *testing.T) {
-	testMutex.Lock()
-	originalTimeout := heartbeatTimeout
-	heartbeatTimeout = 2 * time.Second
-	testMutex.Unlock()
-
-	defer func() {
-		testMutex.Lock()
-		heartbeatTimeout = originalTimeout
-		testMutex.Unlock()
-	}()
-
-	r := NewReceiver(log.WithContext(context.Background()))
+	opts := ReceiverOptions{
+		HeartbeatTimeout: 2 * time.Second,
+	}
+	r := NewReceiverWithOpts(log.WithContext(context.Background()), opts)
 	defer r.Stop()
 
 	r.Heartbeat()
@@ -97,30 +68,19 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 
 	for _, tc := range testsCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testMutex.Lock()
-			originalInterval := healthCheckInterval
-			originalTimeout := heartbeatTimeout
-			healthCheckInterval = 1 * time.Second
-			heartbeatTimeout = healthCheckInterval + 500*time.Millisecond
-			testMutex.Unlock()
+			healthCheckInterval := 1 * time.Second
 
-			defer func() {
-				testMutex.Lock()
-				healthCheckInterval = originalInterval
-				heartbeatTimeout = originalTimeout
-				testMutex.Unlock()
-			}()
-			//nolint:tenv
-			os.Setenv(defaultAttemptThresholdEnv, fmt.Sprintf("%d", tc.threshold))
-			defer os.Unsetenv(defaultAttemptThresholdEnv)
+			opts := ReceiverOptions{
+				HeartbeatTimeout: healthCheckInterval + 500*time.Millisecond,
+				AttemptThreshold: tc.threshold,
+			}
 
-			receiver := NewReceiver(log.WithField("test_name", tc.name))
+			receiver := NewReceiverWithOpts(log.WithField("test_name", tc.name), opts)
 
-			testTimeout := heartbeatTimeout*time.Duration(tc.threshold) + healthCheckInterval
+			testTimeout := opts.HeartbeatTimeout*time.Duration(tc.threshold) + healthCheckInterval
 
 			if tc.resetCounterOnce {
 				receiver.Heartbeat()
-				t.Logf("reset counter once")
 			}
 
 			select {
@@ -134,7 +94,6 @@ func TestReceiverHealthCheckAttemptThreshold(t *testing.T) {
 				}
 				t.Fatalf("should have timed out before %s", testTimeout)
 			}
-
 		})
 	}
 }

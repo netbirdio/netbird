@@ -32,9 +32,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
@@ -87,7 +87,7 @@ type MockWGIface struct {
 	NameFunc                   func() string
 	AddressFunc                func() wgaddr.Address
 	ToInterfaceFunc            func() *net.Interface
-	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
+	UpFunc                     func() (*udpmux.UniversalUDPMuxDefault, error)
 	UpdateAddrFunc             func(newAddr string) error
 	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
@@ -137,7 +137,7 @@ func (m *MockWGIface) ToInterface() *net.Interface {
 	return m.ToInterfaceFunc()
 }
 
-func (m *MockWGIface) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (m *MockWGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return m.UpFunc()
 }
 
@@ -416,7 +416,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn, MTU: 1280})
+	engine.udpMux = udpmux.NewUniversalUDPMuxDefault(udpmux.UniversalUDPMuxParams{UDPConn: conn, MTU: 1280})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
 	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface)
