@@ -713,13 +713,13 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, allPeers []*nbpeer.Peer) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
-			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache),
+			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, allPeers),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
@@ -730,11 +730,11 @@ func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.P
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
-	allPeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	allPeers = appendRemotePeerConfig(allPeers, networkMap.Peers, dnsName)
-	response.RemotePeers = allPeers
-	response.NetworkMap.RemotePeers = allPeers
-	response.RemotePeersIsEmpty = len(allPeers) == 0
+	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
+	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName)
+	response.RemotePeers = remotePeers
+	response.NetworkMap.RemotePeers = remotePeers
+	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
 	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
@@ -806,7 +806,13 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups)
+	// Get all peers in the account for forwarder port computation
+	allPeers, err := s.accountManager.GetStore().GetAccountPeers(ctx, store.LockingStrengthNone, peer.AccountID, "", "")
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get account peers %s", err)
+	}
+
+	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, allPeers)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

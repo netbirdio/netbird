@@ -395,7 +395,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				toProtocolDNSConfig(testData, cache)
+				toProtocolDNSConfig(testData, cache, []*nbpeer.Peer{})
 			}
 		})
 
@@ -403,7 +403,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				cache := &DNSConfigCache{}
-				toProtocolDNSConfig(testData, cache)
+				toProtocolDNSConfig(testData, cache, []*nbpeer.Peer{})
 			}
 		})
 	}
@@ -456,13 +456,13 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	}
 
 	// First run with config1
-	result1 := toProtocolDNSConfig(config1, &cache)
+	result1 := toProtocolDNSConfig(config1, &cache, []*nbpeer.Peer{})
 
 	// Second run with config2
-	result2 := toProtocolDNSConfig(config2, &cache)
+	result2 := toProtocolDNSConfig(config2, &cache, []*nbpeer.Peer{})
 
 	// Third run with config1 again
-	result3 := toProtocolDNSConfig(config1, &cache)
+	result3 := toProtocolDNSConfig(config1, &cache, []*nbpeer.Peer{})
 
 	// Verify that result1 and result3 are identical
 	if !reflect.DeepEqual(result1, result3) {
@@ -489,6 +489,82 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 
 	if _, exists := cache.GetNameServerGroup("group2"); !exists {
 		t.Errorf("Cache should contain name server group 'group2'")
+	}
+}
+
+func TestComputeForwarderPort(t *testing.T) {
+	// Test with empty peers list
+	peers := []*nbpeer.Peer{}
+	result := computeForwarderPort(peers, "0.28.0")
+	if result != 0 {
+		t.Errorf("Expected 0 for empty peers list, got %d", result)
+	}
+
+	// Test with peers that have old versions
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.27.0",
+			},
+		},
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.26.0",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "0.28.0")
+	if result != 0 {
+		t.Errorf("Expected 0 for peers with old versions, got %d", result)
+	}
+
+	// Test with peers that have new versions
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.28.0",
+			},
+		},
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.29.0",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "0.28.0")
+	if result != 5454 {
+		t.Errorf("Expected 5454 for peers with new versions, got %d", result)
+	}
+
+	// Test with peers that have mixed versions
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.28.0",
+			},
+		},
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.27.0",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "0.28.0")
+	if result != 0 {
+		t.Errorf("Expected 0 for peers with mixed versions, got %d", result)
+	}
+
+	// Test with peers that have empty version
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "0.28.0")
+	if result != 0 {
+		t.Errorf("Expected 0 for peers with empty version, got %d", result)
 	}
 }
 

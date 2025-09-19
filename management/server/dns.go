@@ -9,6 +9,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -203,12 +204,40 @@ func validateDNSSettings(ctx context.Context, transaction store.Store, accountID
 	return validateGroups(settings.DisabledManagementGroups, groups)
 }
 
+// computeForwarderPort checks if all peers in the account have updated to a specific version or newer.
+// If all peers have the required version, it returns the new well-known port (5454), otherwise returns 0.
+func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
+	if len(peers) == 0 {
+		return 0
+	}
+
+	// Check if all peers have the required version or newer
+	for _, peer := range peers {
+		peerVersion := peer.Meta.WtVersion
+		if peerVersion == "" {
+			// If any peer doesn't have version info, return 0
+			return 0
+		}
+		
+		// Simple version comparison - assumes semantic versioning (x.y.z)
+		// For now, we'll do a simple string comparison, but this could be enhanced
+		// to do proper semantic version comparison if needed
+		if peerVersion < requiredVersion {
+			return 0
+		}
+	}
+
+	// All peers have the required version or newer
+	return 5454
+}
+
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
-func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache) *proto.DNSConfig {
+func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache, peers []*nbpeer.Peer) *proto.DNSConfig {
 	protoUpdate := &proto.DNSConfig{
 		ServiceEnable:    update.ServiceEnable,
 		CustomZones:      make([]*proto.CustomZone, 0, len(update.CustomZones)),
 		NameServerGroups: make([]*proto.NameServerGroup, 0, len(update.NameServerGroups)),
+		ForwarderPort:    computeForwarderPort(peers, "0.28.0"), // Set the required version here
 	}
 
 	for _, zone := range update.CustomZones {
