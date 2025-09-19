@@ -119,14 +119,12 @@ func (s *Server) Start() error {
 	// if current state contains any error, return it
 	// in all other cases we can continue execution only if status is idle and up command was
 	// not in the progress or already successfully established connection.
-	status, err := state.Status()
+	_, err := state.Status()
 	if err != nil {
 		return err
 	}
 
-	if status != internal.StatusIdle {
-		return nil
-	}
+	state.Set(internal.StatusConnecting)
 
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
@@ -961,6 +959,30 @@ func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profil
 	return mgmClient.Logout()
 }
 
+func waitStateShift(ctx context.Context) {
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+			timer.Stop()
+			return
+		default:
+			status, err := internal.CtxGetState(ctx).Status()
+			if err != nil {
+				log.Errorf("failed to get status: %v", err)
+				return
+			}
+			if status != internal.StatusConnecting {
+				return
+			}
+		}
+	}
+}
+
 // Status returns the daemon status
 func (s *Server) Status(
 	ctx context.Context,
@@ -972,6 +994,10 @@ func (s *Server) Status(
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if msg.WaitForConnectingShift {
+		waitStateShift(s.rootCtx)
+	}
 
 	status, err := internal.CtxGetState(s.rootCtx).Status()
 	if err != nil {
