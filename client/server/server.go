@@ -618,9 +618,11 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
+	log.Infof("--- run UP command")
 	s.mutex.Lock()
 	if s.clientRunning {
 		s.mutex.Unlock()
+		log.Infof("--- client is already running, wait for it to be up")
 		return s.waitForUp(callerCtx)
 	}
 
@@ -693,6 +695,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
 	s.config = config
+	log.Infof("--- mgm addres: %s", s.config.ManagementURL.String())
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
