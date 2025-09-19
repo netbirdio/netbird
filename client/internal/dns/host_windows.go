@@ -77,13 +77,25 @@ func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 	}
 
 	var useGPO bool
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, gpoDnsPolicyRoot, registry.QUERY_VALUE)
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, gpoDnsPolicyRoot, registry.QUERY_VALUE|registry.ENUMERATE_SUB_KEYS)
 	if err != nil {
 		log.Debugf("failed to open GPO DNS policy root: %v", err)
 	} else {
-		closer(k)
-		useGPO = true
-		log.Infof("detected GPO DNS policy configuration, using policy store")
+		// Check if the key is empty (no subkeys and no values). If empty, remove it
+		subKeys, skErr := k.ReadSubKeyNames(-1)
+		valueNames, vnErr := k.ReadValueNames(-1)
+		if skErr == nil && vnErr == nil && len(subKeys) == 0 && len(valueNames) == 0 {
+			closer(k)
+			if delErr := registry.DeleteKey(registry.LOCAL_MACHINE, gpoDnsPolicyRoot); delErr != nil {
+				log.Warnf("failed to delete empty GPO DNS policy root %s: %v", gpoDnsPolicyRoot, delErr)
+			} else {
+				log.Infof("deleted empty GPO DNS policy root %s; continuing with local DNS policy store", gpoDnsPolicyRoot)
+			}
+		} else {
+			closer(k)
+			useGPO = true
+			log.Infof("detected GPO DNS policy configuration, using policy store")
+		}
 	}
 
 	configurator := &registryConfigurator{
