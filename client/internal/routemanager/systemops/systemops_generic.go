@@ -3,7 +3,6 @@
 package systemops
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -22,7 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	"github.com/netbirdio/netbird/client/net/hooks"
 )
 
 const localSubnetsCacheTTL = 15 * time.Minute
@@ -96,9 +95,9 @@ func (r *SysOps) cleanupRefCounter(stateManager *statemanager.Manager) error {
 		return nil
 	}
 
-	// TODO: Remove hooks selectively
-	nbnet.RemoveDialerHooks()
-	nbnet.RemoveListenerHooks()
+	hooks.RemoveWriteHooks()
+	hooks.RemoveCloseHooks()
+	hooks.RemoveAddressRemoveHooks()
 
 	if err := r.refCounter.Flush(); err != nil {
 		return fmt.Errorf("flush route manager: %w", err)
@@ -290,12 +289,7 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 }
 
 func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) error {
-	beforeHook := func(connID nbnet.ConnectionID, ip net.IP) error {
-		prefix, err := util.GetPrefixFromIP(ip)
-		if err != nil {
-			return fmt.Errorf("convert ip to prefix: %w", err)
-		}
-
+	beforeHook := func(connID hooks.ConnectionID, prefix netip.Prefix) error {
 		if _, err := r.refCounter.IncrementWithID(string(connID), prefix, struct{}{}); err != nil {
 			return fmt.Errorf("adding route reference: %v", err)
 		}
@@ -304,7 +298,7 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 
 		return nil
 	}
-	afterHook := func(connID nbnet.ConnectionID) error {
+	afterHook := func(connID hooks.ConnectionID) error {
 		if err := r.refCounter.DecrementWithID(string(connID)); err != nil {
 			return fmt.Errorf("remove route reference: %w", err)
 		}
@@ -317,36 +311,20 @@ func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.M
 	var merr *multierror.Error
 
 	for _, ip := range initAddresses {
-		if err := beforeHook("init", ip); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("add initial route for %s: %w", ip, err))
+		prefix, err := util.GetPrefixFromIP(ip)
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("invalid IP address %s: %w", ip, err))
+			continue
+		}
+		if err := beforeHook("init", prefix); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add initial route for %s: %w", prefix, err))
 		}
 	}
 
-	nbnet.AddDialerHook(func(ctx context.Context, connID nbnet.ConnectionID, resolvedIPs []net.IPAddr) error {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
+	hooks.AddWriteHook(beforeHook)
+	hooks.AddCloseHook(afterHook)
 
-		var merr *multierror.Error
-		for _, ip := range resolvedIPs {
-			merr = multierror.Append(merr, beforeHook(connID, ip.IP))
-		}
-		return nberrors.FormatErrorOrNil(merr)
-	})
-
-	nbnet.AddDialerCloseHook(func(connID nbnet.ConnectionID, conn *net.Conn) error {
-		return afterHook(connID)
-	})
-
-	nbnet.AddListenerWriteHook(func(connID nbnet.ConnectionID, ip *net.IPAddr, data []byte) error {
-		return beforeHook(connID, ip.IP)
-	})
-
-	nbnet.AddListenerCloseHook(func(connID nbnet.ConnectionID, conn net.PacketConn) error {
-		return afterHook(connID)
-	})
-
-	nbnet.AddListenerAddressRemoveHook(func(connID nbnet.ConnectionID, prefix netip.Prefix) error {
+	hooks.AddAddressRemoveHook(func(connID hooks.ConnectionID, prefix netip.Prefix) error {
 		if _, err := r.refCounter.Decrement(prefix); err != nil {
 			return fmt.Errorf("remove route reference: %w", err)
 		}

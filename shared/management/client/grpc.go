@@ -17,11 +17,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 
+	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
-	nbgrpc "github.com/netbirdio/netbird/util/grpc"
 )
 
 const ConnectTimeout = 10 * time.Second
