@@ -244,11 +244,11 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 		singleDomain := []string{domain}
 
 		if err := r.configureDNSPolicy(dnsPolicyConfigMatchPath, singleDomain, ip); err != nil {
-			return i, fmt.Errorf("configure DNS policy for domain %s: %w", domain, err)
+			return i, fmt.Errorf("configure DNS Local policy for domain %s: %w", domain, err)
 		}
 
 		if err := r.configureDNSPolicy(gpoDnsPolicyConfigMatchPath, singleDomain, ip); err != nil {
-			return i, fmt.Errorf("configure local DNS policy: %w", err)
+			return i, fmt.Errorf("configure DNS GPO policy for domain %s: %w", domain, err)
 		}
 
 		log.Debugf("added NRPT entry for domain: %s", domain)
