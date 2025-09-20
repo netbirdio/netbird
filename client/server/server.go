@@ -135,7 +135,6 @@ func (s *Server) Start() error {
 
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
-	log.Infof("--- s.actCancel = %v", &s.actCancel)
 
 	// set the default config if not exists
 	if err := s.setDefaultConfigIfNotExists(ctx); err != nil {
@@ -383,7 +382,6 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 
 // Login uses setup key to prepare configuration for the daemon.
 func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
-	log.Infof("--- Login called")
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
@@ -470,18 +468,14 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.config = config
 	s.mutex.Unlock()
 
-	log.Infof("--- loginAttempt")
 	if _, err := s.loginAttempt(ctx, "", ""); err == nil {
-		log.Infof("--- loginAttempt returned with no error, setting status to idle")
 		state.Set(internal.StatusIdle)
 		return &proto.LoginResponse{}, nil
 	}
-	log.Infof("--- loginAttempt returned with error, continue the login flow")
 
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		log.Infof("--- we are in the auth flow")
 		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
@@ -618,11 +612,9 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
-	log.Infof("--- run UP command")
 	s.mutex.Lock()
 	if s.clientRunning {
 		s.mutex.Unlock()
-		log.Infof("--- client is already running, wait for it to be up")
 		return s.waitForUp(callerCtx)
 	}
 
@@ -645,13 +637,10 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 
 	// it should be nil here, but .
-	log.Infof("--- cancel the context from Up command if any, s.actCancel = %v", &s.actCancel)
 	if s.actCancel != nil {
-		log.Infof("--- cancel the context from Up command")
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
-	log.Infof("--- create new context from Up command")
 	md, ok := metadata.FromIncomingContext(callerCtx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -695,7 +684,6 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
 	s.config = config
-	log.Infof("--- mgm addres: %s", s.config.ManagementURL.String())
 
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
@@ -810,18 +798,15 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 func (s *Server) cleanupConnection() error {
 	s.oauthAuthFlow = oauthAuthFlow{}
 
-	log.Infof("--- from Down function s.actCancel = %v", &s.actCancel)
 	if s.actCancel == nil {
 		return ErrServiceNotUp
 	}
 	s.actCancel()
 
 	if s.connectClient == nil {
-		log.Infof("--- client is empty, nothing to stop")
 		return nil
 	}
 
-	log.Infof("--- stop the client")
 	if err := s.connectClient.Stop(); err != nil {
 		return err
 	}
@@ -1001,23 +986,17 @@ func (s *Server) Status(
 	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
-	log.Infof("--- Status called ---")
 	s.mutex.Lock()
 	clientRunning := s.clientRunning
 	s.mutex.Unlock()
 
-	log.Infof("--- status requested --- waitForReady: %v, clientRunning: %v ---", msg.WaitForReady, clientRunning)
 	if msg.WaitForReady != nil && *msg.WaitForReady && clientRunning {
-		log.Infof("--- waiting for client to be ready ---")
 		select {
 		case <-s.clientGiveUpChan:
-			log.Infof("--- client gave up ---")
 			break
 		case <-s.clientRunningChan:
-			log.Infof("--- client is ready ---")
 			break
 		case <-ctx.Done():
-			log.Infof("--- context done while waiting for client to be ready ---")
 			return nil, ctx.Err()
 		}
 	}
@@ -1026,8 +1005,6 @@ func (s *Server) Status(
 	if err != nil {
 		return nil, err
 	}
-
-	log.Infof("--- status is %s ---", status)
 
 	if status == internal.StatusNeedsLogin && s.isSessionActive.Load() {
 		log.Debug("status requested while session is active, returning SessionExpired")
