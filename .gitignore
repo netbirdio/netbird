@@ -31,3 +31,8 @@ infrastructure_files/setup-*.env
 .DS_Store
 vendor/
 /netbird
+
+# ignore installer files
+*.deb
+*.exe
+*.pkg
