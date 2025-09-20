@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	quictls "github.com/netbirdio/netbird/shared/relay/tls"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type Dialer struct {
