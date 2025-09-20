@@ -198,6 +198,10 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
+
+	// WireGuard interface monitor
+	wgIfaceMonitor   *WGIfaceMonitor
+	wgIfaceMonitorWg sync.WaitGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -341,6 +345,9 @@ func (e *Engine) Stop() error {
 		log.Errorf("failed to persist state: %v", err)
 	}
 
+	// Stop WireGuard interface monitor and wait for it to exit
+	e.wgIfaceMonitorWg.Wait()
+
 	return nil
 }
 
@@ -479,6 +486,22 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
+
+	// monitor WireGuard interface lifecycle and restart engine on changes
+	e.wgIfaceMonitor = NewWGIfaceMonitor()
+	e.wgIfaceMonitorWg.Add(1)
+
+	go func() {
+		defer e.wgIfaceMonitorWg.Done()
+
+		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); shouldRestart {
+			log.Infof("WireGuard interface monitor: %s, restarting engine", err)
+			e.restartEngine()
+		} else if err != nil {
+			log.Warnf("WireGuard interface monitor: %s", err)
+		}
+	}()
+
 	return nil
 }
 
