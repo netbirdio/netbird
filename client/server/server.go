@@ -996,10 +996,12 @@ func (s *Server) Status(
 	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
+	log.Infof("--- Get Status")
 	s.mutex.Lock()
 	clientRunning := s.clientRunning
 	s.mutex.Unlock()
 
+	log.Infof("--- clientRunning: %v", clientRunning)
 	if msg.WaitForReady != nil && *msg.WaitForReady && clientRunning {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
@@ -1008,17 +1010,37 @@ func (s *Server) Status(
 			return nil, err
 		}
 
+		log.Infof("--- status: %v", status)
 		if status == internal.StatusNeedsLogin {
 			s.actCancel()
 		}
 
-		select {
-		case <-s.clientGiveUpChan:
-			break
-		case <-s.clientRunningChan:
-			break
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+	loop:
+		for {
+			select {
+			case <-s.clientGiveUpChan:
+				log.Infof("--- client is giving up, breaking")
+				ticker.Stop()
+				break loop
+			case <-s.clientRunningChan:
+				log.Infof("--- client is running, breaking")
+				ticker.Stop()
+				break loop
+			case <-ticker.C:
+				status, err := state.Status()
+				if err != nil {
+					continue
+				}
+				log.Infof("--- tick status: %v", status)
+				if status == internal.StatusNeedsLogin {
+					s.actCancel()
+				}
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 	}
 
