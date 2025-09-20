@@ -627,6 +627,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 		return s.waitForUp(callerCtx)
 	}
+	defer s.mutex.Unlock()
 
 	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
@@ -639,9 +640,9 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	// not in the progress or already successfully established connection.
 	status, err := state.Status()
 	if err != nil {
-		s.mutex.Unlock()
 		return nil, err
 	}
+
 	if status != internal.StatusIdle {
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
@@ -659,21 +660,18 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.actCancel = cancel
 
 	if s.config == nil {
-		s.mutex.Unlock()
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
 		log.Errorf("failed to get active profile state: %v", err)
-		s.mutex.Unlock()
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
 	if msg != nil && msg.ProfileName != nil {
 		if err := s.switchProfileIfNeeded(*msg.ProfileName, msg.Username, activeProf); err != nil {
 			log.Errorf("failed to switch profile: %v", err)
-			s.mutex.Unlock()
 			return nil, fmt.Errorf("failed to switch profile: %w", err)
 		}
 	}
@@ -681,7 +679,6 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	activeProf, err = s.profileManager.GetActiveProfileState()
 	if err != nil {
 		log.Errorf("failed to get active profile state: %v", err)
-		s.mutex.Unlock()
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
@@ -690,7 +687,6 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
-		s.mutex.Unlock()
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
 	}
 	s.config = config
@@ -703,10 +699,10 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.clientGiveUpChan = make(chan struct{})
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 
-	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)
 }
 
+// todo: handle potential race conditions
 func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error) {
 	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
@@ -996,21 +992,17 @@ func (s *Server) Status(
 	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
-	log.Infof("--- Get Status")
 	s.mutex.Lock()
 	clientRunning := s.clientRunning
 	s.mutex.Unlock()
 
-	log.Infof("--- clientRunning: %v", clientRunning)
 	if msg.WaitForReady != nil && *msg.WaitForReady && clientRunning {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
 		if err != nil {
-			s.mutex.Unlock()
 			return nil, err
 		}
 
-		log.Infof("--- status: %v", status)
 		if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
 			s.actCancel()
 		}
@@ -1021,11 +1013,9 @@ func (s *Server) Status(
 		for {
 			select {
 			case <-s.clientGiveUpChan:
-				log.Infof("--- client is giving up, breaking")
 				ticker.Stop()
 				break loop
 			case <-s.clientRunningChan:
-				log.Infof("--- client is running, breaking")
 				ticker.Stop()
 				break loop
 			case <-ticker.C:
@@ -1033,7 +1023,6 @@ func (s *Server) Status(
 				if err != nil {
 					continue
 				}
-				log.Infof("--- tick status: %v", status)
 				if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
 					s.actCancel()
 				}
