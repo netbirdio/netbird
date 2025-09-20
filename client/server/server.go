@@ -614,7 +614,17 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
 	if s.clientRunning {
+		state := internal.CtxGetState(s.rootCtx)
+		status, err := state.Status()
+		if err != nil {
+			s.mutex.Unlock()
+			return nil, err
+		}
+		if status == internal.StatusNeedsLogin {
+			s.actCancel()
+		}
 		s.mutex.Unlock()
+
 		return s.waitForUp(callerCtx)
 	}
 
@@ -991,6 +1001,17 @@ func (s *Server) Status(
 	s.mutex.Unlock()
 
 	if msg.WaitForReady != nil && *msg.WaitForReady && clientRunning {
+		state := internal.CtxGetState(s.rootCtx)
+		status, err := state.Status()
+		if err != nil {
+			s.mutex.Unlock()
+			return nil, err
+		}
+
+		if status == internal.StatusNeedsLogin {
+			s.actCancel()
+		}
+
 		select {
 		case <-s.clientGiveUpChan:
 			break
