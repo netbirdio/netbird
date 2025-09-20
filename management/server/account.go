@@ -476,12 +476,11 @@ func (am *DefaultAccountManager) handleGroupsPropagationSettings(ctx context.Con
 }
 
 func (am *DefaultAccountManager) handleAutoUpdateVersionSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
-	if oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion {
-		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateVersionUpdated, map[string]any{
-			"old_value": oldSettings.AutoUpdateVersion,
-			"new_value": newSettings.AutoUpdateVersion,
-		})
-	}
+   if oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion {
+   	am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateVersionUpdated, map[string]any{
+   		"version": newSettings.AutoUpdateVersion,
+   	})
+   }
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
