@@ -721,7 +721,8 @@ func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.P
 			Routes:    toProtocolRoutes(networkMap.Routes),
 			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache),
 		},
-		Checks: toProtocolChecks(ctx, checks),
+		Checks:            toProtocolChecks(ctx, checks),
+		AutoUpdateVersion: settings.AutoUpdateVersion,
 	}
 
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)

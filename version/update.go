@@ -41,21 +41,28 @@ func NewUpdate(httpAgent string) *Update {
 		currentVersion, _ = goversion.NewVersion("0.0.0")
 	}
 
-	latestAvailable, _ := goversion.NewVersion("0.0.0")
-
 	u := &Update{
-		httpAgent:       httpAgent,
-		latestAvailable: latestAvailable,
-		uiVersion:       currentVersion,
-		fetchTicker:     time.NewTicker(fetchPeriod),
-		fetchDone:       make(chan struct{}),
+		httpAgent: httpAgent,
+		uiVersion: currentVersion,
+		fetchDone: make(chan struct{}),
 	}
-	go u.startFetcher()
+
+	return u
+}
+
+func NewUpdateAndStart(httpAgent string) *Update {
+	u := NewUpdate(httpAgent)
+	go u.StartFetcher()
+
 	return u
 }
 
 // StopWatch stop the version info fetch loop
 func (u *Update) StopWatch() {
+	if u.fetchTicker == nil {
+		return
+	}
+
 	u.fetchTicker.Stop()
 
 	select {
@@ -94,7 +101,18 @@ func (u *Update) SetOnUpdateListener(updateFn func()) {
 	}
 }
 
-func (u *Update) startFetcher() {
+func (u *Update) LatestVersion() *goversion.Version {
+	u.versionsLock.Lock()
+	defer u.versionsLock.Unlock()
+	return u.latestAvailable
+}
+
+func (u *Update) StartFetcher() {
+	if u.fetchTicker != nil {
+		return
+	}
+	u.fetchTicker = time.NewTicker(fetchPeriod)
+
 	if changed := u.fetchVersion(); changed {
 		u.checkUpdate()
 	}
@@ -180,6 +198,10 @@ func (u *Update) checkUpdate() bool {
 func (u *Update) isUpdateAvailable() bool {
 	u.versionsLock.Lock()
 	defer u.versionsLock.Unlock()
+
+	if u.latestAvailable == nil {
+		return false
+	}
 
 	if u.latestAvailable.GreaterThan(u.uiVersion) {
 		return true
