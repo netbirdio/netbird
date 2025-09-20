@@ -186,6 +186,8 @@ message UpResponse {}
 message StatusRequest{
   bool getFullPeerStatus = 1;
   bool shouldRunProbes   = 2;
+  // the UI do not using this yet, but CLIs could use it to wait until the status is ready
+  optional bool waitForReady     = 3;
 }
 
 message StatusResponse{
