@@ -646,7 +646,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
 
-	// it should be nil here, but .
+	// it should be nil here, but in case it isn't we cancel it.
 	if s.actCancel != nil {
 		s.actCancel()
 	}
@@ -1011,7 +1011,7 @@ func (s *Server) Status(
 		}
 
 		log.Infof("--- status: %v", status)
-		if status == internal.StatusNeedsLogin {
+		if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
 			s.actCancel()
 		}
 
@@ -1034,7 +1034,7 @@ func (s *Server) Status(
 					continue
 				}
 				log.Infof("--- tick status: %v", status)
-				if status == internal.StatusNeedsLogin {
+				if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
 					s.actCancel()
 				}
 				continue
