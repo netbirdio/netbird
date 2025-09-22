@@ -1535,6 +1535,8 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 		return nil, err
 	}
 
+	dnsFwdPort := computeForwarderPort(peers, dnsForwarderPortMinVersion)
+
 	for _, peer := range peers {
 		if err := transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
 			return nil, fmt.Errorf("failed to remove peer %s from groups", peer.ID)
@@ -1558,6 +1560,9 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 					RemotePeersIsEmpty:   true,
 					FirewallRules:        []*proto.FirewallRule{},
 					FirewallRulesIsEmpty: true,
+					DNSConfig: &proto.DNSConfig{
+						ForwarderPort: dnsFwdPort,
+					},
 				},
 			},
 			NetworkMap: &types.NetworkMap{},

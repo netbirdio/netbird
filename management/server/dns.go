@@ -22,7 +22,7 @@ import (
 
 const dnsForwarderPort = 22054
 
-const dnsForwarderPortMinVersion = "v0.58.0"
+const dnsForwarderPortMinVersion = "v0.59.0"
 
 // DNSConfigCache is a thread-safe cache for DNS configuration components
 type DNSConfigCache struct {
