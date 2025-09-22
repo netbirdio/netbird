@@ -894,6 +894,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
 			shouldStorePeer = true
+			updateRemotePeers = true
 		}
 
 		if !peer.AllowExtraDNSLabels && len(login.ExtraDNSLabels) > 0 {
