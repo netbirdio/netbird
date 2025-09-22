@@ -16,6 +16,5 @@ func NewDialer() *Dialer {
 		Dialer: &net.Dialer{},
 	}
 	dialer.init()
-
 	return dialer
 }

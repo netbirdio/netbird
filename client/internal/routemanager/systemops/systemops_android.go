@@ -12,11 +12,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-func (r *SysOps) SetupRouting([]net.IP, *statemanager.Manager) error {
+func (r *SysOps) SetupRouting([]net.IP, *statemanager.Manager, bool) error {
 	return nil
 }
 
-func (r *SysOps) CleanupRouting(*statemanager.Manager) error {
+func (r *SysOps) CleanupRouting(*statemanager.Manager, bool) error {
 	return nil
 }
 

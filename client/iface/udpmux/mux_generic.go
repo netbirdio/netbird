@@ -3,7 +3,7 @@
 package udpmux
 
 import (
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 func (m *SingleSocketUDPMux) notifyAddressRemoval(addr string) {

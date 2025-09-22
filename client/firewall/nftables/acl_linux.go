@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
