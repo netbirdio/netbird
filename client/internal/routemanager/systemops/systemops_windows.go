@@ -908,7 +908,8 @@ func GetBestInterface(dest netip.Addr, vpnIntf string) (*net.Interface, error) {
 		if iface, err := net.InterfaceByName(vpnIntf); err == nil {
 			skipInterfaceIndex = iface.Index
 		} else {
-			return nil, fmt.Errorf("get VPN interface %s: %w", vpnIntf, err)
+			// not critical, if we cannot get ahold of the interface then we won't need to skip it
+			log.Warnf("failed to get VPN interface %s: %v", vpnIntf, err)
 		}
 	}
 
