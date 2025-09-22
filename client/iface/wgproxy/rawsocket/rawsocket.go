@@ -8,7 +8,7 @@ import (
 	"os"
 	"syscall"
 
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 func PrepareSenderRawSocket() (net.PacketConn, error) {
