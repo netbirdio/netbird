@@ -168,6 +168,10 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 			return
 		}
 
+		if err := tcpConn.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			log.Debugf("Failed to set TCP write deadline: %v", err)
+		}
+
 		n, err := tcpConn.Write(data)
 		if err != nil {
 			p.metrics.RecordError(ctx, "tcp_write_error")
