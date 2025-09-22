@@ -168,7 +168,7 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 			return
 		}
 
-		if err := tcpConn.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		if err := tcpConn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
 			log.Debugf("Failed to set TCP write deadline: %v", err)
 		}
 
@@ -189,7 +189,7 @@ func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync
 
 	buf := make([]byte, bufferSize)
 	for {
-		if err := tcpConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		if err := tcpConn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 			log.Debugf("Failed to set TCP read deadline: %v", err)
 		}
 		n, err := tcpConn.Read(buf)
