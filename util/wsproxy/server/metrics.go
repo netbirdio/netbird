@@ -23,11 +23,18 @@ type MetricsRecorder interface {
 // NoOpMetricsRecorder is a no-op implementation that does nothing
 type NoOpMetricsRecorder struct{}
 
-func (n NoOpMetricsRecorder) RecordConnection(ctx context.Context)    {}
-func (n NoOpMetricsRecorder) RecordDisconnection(ctx context.Context) {}
-func (n NoOpMetricsRecorder) RecordBytesTransferred(ctx context.Context, direction string, bytes int64) {
+func (n NoOpMetricsRecorder) RecordConnection(ctx context.Context) {
+	// no-op
 }
-func (n NoOpMetricsRecorder) RecordError(ctx context.Context, errorType string) {}
+func (n NoOpMetricsRecorder) RecordDisconnection(ctx context.Context) {
+	// no-op
+}
+func (n NoOpMetricsRecorder) RecordBytesTransferred(ctx context.Context, direction string, bytes int64) {
+	// no-op
+}
+func (n NoOpMetricsRecorder) RecordError(ctx context.Context, errorType string) {
+	// no-op
+}
 
 // Recorder implements MetricsRecorder using OpenTelemetry
 type Recorder struct {

@@ -146,11 +146,12 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 	for {
 		msgType, data, err := wsConn.Read(ctx)
 		if err != nil {
-			if ctx.Err() != nil {
+			switch {
+			case ctx.Err() != nil:
 				log.Debugf("wsToTCP goroutine terminating due to context cancellation")
-			} else if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
+			case websocket.CloseStatus(err) == websocket.StatusNormalClosure:
 				log.Debugf("WebSocket closed normally")
-			} else {
+			default:
 				p.metrics.RecordError(ctx, "websocket_read_error")
 				log.Errorf("WebSocket read error: %v", err)
 			}
