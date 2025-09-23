@@ -42,6 +42,9 @@ type Manager struct {
 }
 
 func NewManager(fw firewall.Manager, statusRecorder *peer.Status, port int) *Manager {
+	if port == 0 {
+		port = 5353
+	}
 	return &Manager{
 		firewall:       fw,
 		statusRecorder: statusRecorder,
