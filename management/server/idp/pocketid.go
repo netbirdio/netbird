@@ -279,6 +279,45 @@ func (p *PocketIdManager) request(ctx context.Context, method, resource string, 
 //	return appMetadata
 //}
 
+// getAllUsersPaginated fetches all users from PocketID API using pagination
+func (p *PocketIdManager) getAllUsersPaginated(ctx context.Context, searchParams url.Values) ([]pocketIdUserDto, error) {
+	var allUsers []pocketIdUserDto
+	currentPage := 1
+
+	for {
+		params := url.Values{}
+		// Copy existing search parameters
+		for key, values := range searchParams {
+			params[key] = values
+		}
+
+		params.Set("pagination[limit]", "100")
+		params.Set("pagination[page]", fmt.Sprintf("%d", currentPage))
+
+		body, err := p.request(ctx, http.MethodGet, "users", &params, "")
+		if err != nil {
+			return nil, err
+		}
+
+		var profiles pocketIdPaginatedUserDto
+		err = p.helper.Unmarshal(body, &profiles)
+		if err != nil {
+			return nil, err
+		}
+
+		allUsers = append(allUsers, profiles.Data...)
+
+		// Check if we've reached the last page
+		if currentPage >= profiles.Pagination.TotalPages {
+			break
+		}
+
+		currentPage++
+	}
+
+	return allUsers, nil
+}
+
 func (p *PocketIdManager) UpdateUserAppMetadata(_ context.Context, _ string, _ AppMetadata) error {
 	return nil
 }
@@ -306,11 +345,8 @@ func (p *PocketIdManager) GetUserDataByID(ctx context.Context, userId string, ap
 }
 
 func (p *PocketIdManager) GetAccount(ctx context.Context, accountId string) ([]*UserData, error) {
-	params := url.Values{
-		// This value a
-		"pagination[limit]": []string{"100"},
-	}
-	body, err := p.request(ctx, http.MethodGet, "users", &params, "")
+	// Get all users using pagination
+	allUsers, err := p.getAllUsersPaginated(ctx, url.Values{})
 	if err != nil {
 		return nil, err
 	}
@@ -319,14 +355,8 @@ func (p *PocketIdManager) GetAccount(ctx context.Context, accountId string) ([]*
 		p.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
-	var profiles pocketIdPaginatedUserDto
-	err = p.helper.Unmarshal(body, &profiles)
-	if err != nil {
-		return nil, err
-	}
-
 	users := make([]*UserData, 0)
-	for _, profile := range profiles.Data {
+	for _, profile := range allUsers {
 		userData := profile.userData()
 		userData.AppMetadata.WTAccountID = accountId
 
@@ -336,11 +366,8 @@ func (p *PocketIdManager) GetAccount(ctx context.Context, accountId string) ([]*
 }
 
 func (p *PocketIdManager) GetAllAccounts(ctx context.Context) (map[string][]*UserData, error) {
-	params := url.Values{
-		// This value a
-		"pagination[limit]": []string{"100"},
-	}
-	body, err := p.request(ctx, http.MethodGet, "users", &params, "")
+	// Get all users using pagination
+	allUsers, err := p.getAllUsersPaginated(ctx, url.Values{})
 	if err != nil {
 		return nil, err
 	}
@@ -349,14 +376,8 @@ func (p *PocketIdManager) GetAllAccounts(ctx context.Context) (map[string][]*Use
 		p.appMetrics.IDPMetrics().CountGetAllAccounts()
 	}
 
-	var profiles pocketIdPaginatedUserDto
-	err = p.helper.Unmarshal(body, &profiles)
-	if err != nil {
-		return nil, err
-	}
-
 	indexedUsers := make(map[string][]*UserData)
-	for _, profile := range profiles.Data {
+	for _, profile := range allUsers {
 		userData := profile.userData()
 		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
 	}
