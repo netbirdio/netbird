@@ -482,8 +482,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	var ephemeral bool
 	var groupsToAdd []string
 	var allowExtraDNSLabels bool
-	var loginExpirationEnabled bool
-	var inactivityExpirationEnabled bool
 	if addedByUser {
 		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 		if err != nil {
@@ -492,8 +490,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		if user.PendingApproval {
 			return nil, nil, nil, status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
 		}
-		loginExpirationEnabled = true
-		inactivityExpirationEnabled = true
 		if temporary {
 			allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
 			if err != nil {
@@ -537,9 +533,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 	if temporary {
 		ephemeral = true
-		loginExpirationEnabled = false
-		// not necessarily valid but for completeness we disable it
-		inactivityExpirationEnabled = false
 	}
 
 	if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
@@ -568,10 +561,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		SSHKey:                      peer.SSHKey,
 		LastLogin:                   &registrationTime,
 		CreatedAt:                   registrationTime,
-		LoginExpirationEnabled:      loginExpirationEnabled,
+		LoginExpirationEnabled:      addedByUser && !temporary,
 		Ephemeral:                   ephemeral,
 		Location:                    peer.Location,
-		InactivityExpirationEnabled: inactivityExpirationEnabled,
+		InactivityExpirationEnabled: addedByUser && !temporary,
 		ExtraDNSLabels:              peer.ExtraDNSLabels,
 		AllowExtraDNSLabels:         allowExtraDNSLabels,
 	}
