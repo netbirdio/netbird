@@ -59,11 +59,9 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 		return err
 	}
 
-	listenPort := m.port
-	if listenPort > 0 {
-		ListenPort = listenPort
-	}
-	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", listenPort), dnsTTL, m.firewall, m.statusRecorder)
+	ListenPort = m.port
+
+	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, m.firewall, m.statusRecorder)
 	go func() {
 		if err := m.dnsForwarder.Listen(fwdEntries); err != nil {
 			// todo handle close error if it is exists
