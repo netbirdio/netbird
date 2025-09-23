@@ -20,7 +20,10 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-const dnsForwarderPort = 22054
+const (
+	dnsForwarderPort = 22054
+	oldForwarderPort = 5353
+)
 
 const dnsForwarderPortMinVersion = "v0.59.0"
 
@@ -213,7 +216,7 @@ func validateDNSSettings(ctx context.Context, transaction store.Store, accountID
 // If all peers have the required version, it returns the new well-known port (22054), otherwise returns 0.
 func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 	if len(peers) == 0 {
-		return 0
+		return oldForwarderPort
 	}
 
 	reqVer := semver.Canonical(requiredVersion)
@@ -228,12 +231,12 @@ func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 		peerVersion := semver.Canonical("v" + peer.Meta.WtVersion)
 		if peerVersion == "" {
 			// If any peer doesn't have version info, return 0
-			return 0
+			return oldForwarderPort
 		}
 
 		// Compare versions
 		if semver.Compare(peerVersion, reqVer) < 0 {
-			return 0
+			return oldForwarderPort
 		}
 	}
 

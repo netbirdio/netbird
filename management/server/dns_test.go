@@ -495,8 +495,8 @@ func TestComputeForwarderPort(t *testing.T) {
 	// Test with empty peers list
 	peers := []*nbpeer.Peer{}
 	result := computeForwarderPort(peers, "v0.59.0")
-	if result != 0 {
-		t.Errorf("Expected 0 for empty peers list, got %d", result)
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for empty peers list, got %d", oldForwarderPort, result)
 	}
 
 	// Test with peers that have old versions
@@ -513,8 +513,8 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result != 0 {
-		t.Errorf("Expected 0 for peers with old versions, got %d", result)
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for peers with old versions, got %d", oldForwarderPort, result)
 	}
 
 	// Test with peers that have new versions
@@ -549,8 +549,8 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result != 0 {
-		t.Errorf("Expected 0 for peers with mixed versions, got %d", result)
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for peers with mixed versions, got %d", oldForwarderPort, result)
 	}
 
 	// Test with peers that have empty version
@@ -562,8 +562,8 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result != 0 {
-		t.Errorf("Expected 0 for peers with empty version, got %d", result)
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for peers with empty version, got %d", oldForwarderPort, result)
 	}
 
 	peers = []*nbpeer.Peer{
@@ -574,7 +574,7 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result == 0 {
+	if result == oldForwarderPort {
 		t.Errorf("Expected %d for peers with dev version, got %d", dnsForwarderPort, result)
 	}
 
@@ -587,8 +587,8 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result != 0 {
-		t.Errorf("Expected 0 for peers with unknown version, got %d", result)
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for peers with unknown version, got %d", oldForwarderPort, result)
 	}
 }
 

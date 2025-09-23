@@ -42,9 +42,6 @@ type Manager struct {
 }
 
 func NewManager(fw firewall.Manager, statusRecorder *peer.Status, port int) *Manager {
-	if port == 0 {
-		port = 5353
-	}
 	return &Manager{
 		firewall:       fw,
 		statusRecorder: statusRecorder,
@@ -62,7 +59,9 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 		return err
 	}
 
-	ListenPort = m.port
+	if m.port > 0 {
+		ListenPort = m.port
+	}
 
 	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, m.firewall, m.statusRecorder)
 	go func() {
