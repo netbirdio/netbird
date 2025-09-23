@@ -119,8 +119,8 @@ func NewPocketIdManager(config PocketIdClientConfig, appMetrics telemetry.AppMet
 }
 
 func (p *PocketIdManager) request(ctx context.Context, method, resource string, query *url.Values, body string) ([]byte, error) {
-	var METHODS_WITH_BODY = []string{http.MethodPost, http.MethodPut}
-	if !slices.Contains(METHODS_WITH_BODY, method) && body != "" {
+	var MethodsWithBody = []string{http.MethodPost, http.MethodPut}
+	if !slices.Contains(MethodsWithBody, method) && body != "" {
 		return nil, fmt.Errorf("Body provided to unsupported method: %s", method)
 	}
 
