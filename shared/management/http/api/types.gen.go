@@ -353,12 +353,19 @@ type AvailablePorts struct {
 	Udp int `json:"udp"`
 }
 
-// BundleParameters defines model for BundleParameters.
+// BundleParameters These parameters control what gets included in the bundle and how it is processed.
 type BundleParameters struct {
-	Anonymize     bool `json:"anonymize"`
-	BundleFor     bool `json:"bundle_for"`
-	BundleForTime int  `json:"bundle_for_time"`
-	LogFileCount  int  `json:"log_file_count"`
+	// Anonymize Whether sensitive data should be anonymized in the bundle.
+	Anonymize bool `json:"anonymize"`
+
+	// BundleFor Whether to generate a bundle for the given timeframe.
+	BundleFor bool `json:"bundle_for"`
+
+	// BundleForTime Time period in minutes for which to generate the bundle.
+	BundleForTime int `json:"bundle_for_time"`
+
+	// LogFileCount Maximum number of log files to include in the bundle.
+	LogFileCount int `json:"log_file_count"`
 }
 
 // BundleResult defines model for BundleResult.
@@ -368,15 +375,23 @@ type BundleResult struct {
 
 // BundleWorkloadRequest defines model for BundleWorkloadRequest.
 type BundleWorkloadRequest struct {
+	// Parameters These parameters control what gets included in the bundle and how it is processed.
 	Parameters BundleParameters `json:"parameters"`
-	Type       WorkloadType     `json:"type"`
+
+	// Type Identifies the type of workload the job will execute.
+	// Currently only `"bundle"` is supported.
+	Type WorkloadType `json:"type"`
 }
 
 // BundleWorkloadResponse defines model for BundleWorkloadResponse.
 type BundleWorkloadResponse struct {
+	// Parameters These parameters control what gets included in the bundle and how it is processed.
 	Parameters BundleParameters `json:"parameters"`
 	Result     BundleResult     `json:"result"`
-	Type       WorkloadType     `json:"type"`
+
+	// Type Identifies the type of workload the job will execute.
+	// Currently only `"bundle"` is supported.
+	Type WorkloadType `json:"type"`
 }
 
 // Checks List of objects that perform the actual checks
@@ -1891,7 +1906,8 @@ type WorkloadResponse struct {
 	union json.RawMessage
 }
 
-// WorkloadType defines model for WorkloadType.
+// WorkloadType Identifies the type of workload the job will execute.
+// Currently only `"bundle"` is supported.
 type WorkloadType string
 
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
