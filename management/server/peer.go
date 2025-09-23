@@ -561,10 +561,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		SSHKey:                      peer.SSHKey,
 		LastLogin:                   &registrationTime,
 		CreatedAt:                   registrationTime,
-		LoginExpirationEnabled:      addedByUser,
+		LoginExpirationEnabled:      addedByUser && !temporary,
 		Ephemeral:                   ephemeral,
 		Location:                    peer.Location,
-		InactivityExpirationEnabled: addedByUser,
+		InactivityExpirationEnabled: addedByUser && !temporary,
 		ExtraDNSLabels:              peer.ExtraDNSLabels,
 		AllowExtraDNSLabels:         allowExtraDNSLabels,
 	}
