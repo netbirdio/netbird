@@ -26,7 +26,6 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/management-integrations/integrations"
-
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -235,6 +234,7 @@ func TestEngine_SSH(t *testing.T) {
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
 		nil,
+		nil,
 	)
 
 	engine.dnsServer = &dns.MockServer{
@@ -379,7 +379,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
-		nil)
+		nil, nil)
 
 	wgIface := &MockWGIface{
 		NameFunc: func() string { return "utun102" },
@@ -598,7 +598,7 @@ func TestEngine_Sync(t *testing.T) {
 		WgPrivateKey: key,
 		WgPort:       33100,
 		MTU:          iface.DefaultMTU,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, nil)
 	engine.ctx = ctx
 
 	engine.dnsServer = &dns.MockServer{
@@ -763,7 +763,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, nil)
 			engine.ctx = ctx
 			newNet, err := stdnet.NewNet()
 			if err != nil {
@@ -965,7 +965,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, nil)
 			engine.ctx = ctx
 
 			newNet, err := stdnet.NewNet()
@@ -1491,7 +1491,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
+	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, nil), nil
 	e.ctx = ctx
 	return e, err
 }

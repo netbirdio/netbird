@@ -350,22 +350,24 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	}
 
 	// check if peer connected
-	// todo: implement jobManager.IsPeerConnected
-	// if !am.jobManager.IsPeerConnected(ctx, peerID) {
-	// 	return status.NewJobFailedError("peer not connected")
-	// }
+	if !am.jobManager.IsPeerConnected(peerID) {
+		return status.Errorf(status.BadRequest, "peer not connected")
+	}
 
 	// check if already has pending jobs
-	// todo: implement jobManager.GetPendingJobsByPeerID
-	// if pending := am.jobManager.GetPendingJobsByPeerID(ctx, peerID); len(pending) > 0 {
-	// 	return status.NewJobAlreadyPendingError(peerID)
-	// }
+	if am.jobManager.IsPeerHasPendingJobs(peerID) {
+		return status.Errorf(status.BadRequest, "peer already hase pending job")
+	}
+
+	jobStream, err := job.ToStreamJobRequest()
+	if err != nil {
+		return status.Errorf(status.BadRequest, "invalid job request %v", err)
+	}
 
 	// try sending job first
-	// todo: implement am.jobManager.SendJob
-	// if err := am.jobManager.SendJob(ctx, peerID, job); err != nil {
-	// 	return status.NewJobFailedError(fmt.Sprintf("failed to send job: %v", err))
-	// }
+	if err := am.jobManager.SendJob(ctx, accountID, peerID, jobStream); err != nil {
+		return status.Errorf(status.Internal, "failed to send job: %v", err)
+	}
 
 	var peer *nbpeer.Peer
 	var eventsToStore func()
