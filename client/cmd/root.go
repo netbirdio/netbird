@@ -231,7 +231,7 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 
 // DialClientGRPCServer returns client connection to the daemon server.
 func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
 	return grpc.DialContext(

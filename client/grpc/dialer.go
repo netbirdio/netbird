@@ -26,7 +26,7 @@ func Backoff(ctx context.Context) backoff.BackOff {
 }
 
 // CreateConnection creates a gRPC client connection with the appropriate transport options
-func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
+func CreateConnection(ctx context.Context, addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 	if tlsEnabled {
 		certPool, err := x509.SystemCertPool()
@@ -42,7 +42,7 @@ func CreateConnection(addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
 		}))
 	}
 
-	connCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	connCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	conn, err := grpc.DialContext(

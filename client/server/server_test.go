@@ -108,7 +108,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(maxRetryTimeVar, "5s")
 	t.Setenv(retryMultiplierVar, "1")
 
-	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
+	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil, nil)
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)
 	}
@@ -137,8 +137,12 @@ func TestServer_Up(t *testing.T) {
 
 	profName := "default"
 
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+
 	ic := profilemanager.ConfigInput{
-		ConfigPath: filepath.Join(tempDir, profName+".json"),
+		ConfigPath:    filepath.Join(tempDir, profName+".json"),
+		ManagementURL: u.String(),
 	}
 
 	_, err = profilemanager.UpdateOrCreateConfig(ic)
@@ -156,15 +160,8 @@ func TestServer_Up(t *testing.T) {
 	}
 
 	s := New(ctx, "console", "", false, false)
-
 	err = s.Start()
 	require.NoError(t, err)
-
-	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
-	require.NoError(t, err)
-	s.config = &profilemanager.Config{
-		ManagementURL: u,
-	}
 
 	upCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
@@ -174,6 +171,7 @@ func TestServer_Up(t *testing.T) {
 		Username:    &currUser.Username,
 	}
 	_, err = s.Up(upCtx, upReq)
+	log.Errorf("error from Up: %v", err)
 
 	assert.Contains(t, err.Error(), "context deadline exceeded")
 }

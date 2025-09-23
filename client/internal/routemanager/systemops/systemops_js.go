@@ -39,10 +39,10 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error 
 	return ErrRouteNotSupported
 }
 
-func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) error {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager, _ bool) error {
 	return nil
 }
 
-func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
+func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, _ bool) error {
 	return nil
 }
