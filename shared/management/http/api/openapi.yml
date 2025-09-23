@@ -32,28 +32,43 @@ tags:
   - name: Ingress Ports
     description: Interact with and view information about the ingress peers and ports.
     x-cloud-only: true
+  - name: Jobs
+    description: Interact with and view information about remote jobs.
+    x-experimental: true
+
 components:
   schemas:
     WorkloadType:
       type: string
+      description: |
+         Identifies the type of workload the job will execute.
+         Currently only `"bundle"` is supported.
       enum:
         - bundle
+      example: "bundle"
     BundleParameters:
       type: object
+      description: These parameters control what gets included in the bundle and how it is processed.
       properties:
         bundle_for:
           type: boolean
+          description: Whether to generate a bundle for the given timeframe.
           example: true
         bundle_for_time:
           type: integer
-          minimum: 0
+          minimum: 1
+          maximum: 5
+          description: Time period in minutes for which to generate the bundle.
           example: 2
         log_file_count:
           type: integer
-          minimum: 0
+          minimum: 1
+          maximum: 1000
+          description: Maximum number of log files to include in the bundle.
           example: 100
         anonymize:
           type: boolean
+          description: Whether sensitive data should be anonymized in the bundle.
           example: false
       required: 
         - bundle_for 
@@ -2286,10 +2301,10 @@ paths:
       parameters:
         - in: path
           name: peerId
+          description: The unique identifier of a peer
           required: true
           schema:
             type: string
-          description: The unique identifier of a peer
       responses:
         '200':
           description: List of jobs
@@ -2317,10 +2332,10 @@ paths:
       parameters:
         - in: path
           name: peerId
+          description: The unique identifier of a peer
           required: true
           schema:
             type: string
-          description: The unique identifier of a peer
       requestBody:
         description: Create job request
         content:
@@ -2355,11 +2370,13 @@ paths:
         - in: path
           name: peerId
           required: true
+          description: The unique identifier of a peer
           schema:
             type: string
         - in: path
           name: jobId
           required: true
+          description: The unique identifier of a job
           schema:
             type: string
       responses:
