@@ -300,7 +300,7 @@ func (a *Account) GetPeerNetworkMap(
 
 	if dnsManagementStatus {
 		var zones []nbdns.CustomZone
-
+		log.WithContext(ctx).Tracef("peer %s has dns management enabled with peersCustomZone: %v, and %d peers to connect, peer[0] %v", peerID, peersCustomZone, len(peersToConnect), peersToConnect[0])
 		if peersCustomZone.Domain != "" {
 			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnect)
 			zones = append(zones, nbdns.CustomZone{
