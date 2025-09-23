@@ -3,6 +3,7 @@
 package device
 
 import (
+	"fmt"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -19,11 +20,12 @@ import (
 
 // WGTunDevice ignore the WGTunDevice interface on Android because the creation of the tun device is different on this platform
 type WGTunDevice struct {
-	address    wgaddr.Address
-	port       int
-	key        string
-	mtu        uint16
-	iceBind    *bind.ICEBind
+	address wgaddr.Address
+	port    int
+	key     string
+	mtu     uint16
+	iceBind *bind.ICEBind
+	// todo: review if we can eliminate the TunAdapter
 	tunAdapter TunAdapter
 	disableDNS bool
 
@@ -102,6 +104,13 @@ func (t *WGTunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	t.udpMux = udpMux
 	log.Debugf("device is ready to use: %s", t.name)
 	return udpMux, nil
+}
+
+func (t *WGTunDevice) RenewTun(fd int) error {
+	if t.device == nil {
+		return fmt.Errorf("device not initialized")
+	}
+	return fmt.Errorf("not implemented yet")
 }
 
 func (t *WGTunDevice) UpdateAddr(addr wgaddr.Address) error {

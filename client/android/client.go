@@ -4,6 +4,7 @@ package android
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"slices"
 	"sync"
@@ -17,9 +18,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/client/net"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -154,6 +155,19 @@ func (c *Client) Stop() {
 	}
 
 	c.ctxCancel()
+}
+
+func (c *Client) RenewTun(fd int) error {
+	if c.connectClient == nil {
+		return fmt.Errorf("engine not running")
+	}
+
+	e := c.connectClient.Engine()
+	if e == nil {
+		return fmt.Errorf("engine not initialized")
+	}
+
+	return e.RenewTun(fd)
 }
 
 // SetTraceLogLevel configure the logger to trace level

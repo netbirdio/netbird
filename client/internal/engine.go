@@ -446,8 +446,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
-
-
 	// if inbound conns are blocked there is no need to create the ACL manager
 	if e.firewall != nil && !e.config.BlockInbound {
 		e.acl = acl.NewDefaultManager(e.firewall)
@@ -1826,6 +1824,15 @@ func (e *Engine) GetWgAddr() netip.Addr {
 		return netip.Addr{}
 	}
 	return e.wgInterface.Address().IP
+}
+
+func (e *Engine) RenewTun(fd int) error {
+	// todo review the mutex usage here. We must to be sure we do not modify the e.wgInterface when run this function
+	if e.wgInterface == nil {
+		return fmt.Errorf("wireguard interface not initialized")
+	}
+
+	return e.wgInterface.RenewTun(fd)
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
