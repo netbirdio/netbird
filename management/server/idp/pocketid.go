@@ -53,6 +53,18 @@ type pocketIdUserCreateDto struct {
 	Username    string `json:"username"`
 }
 
+type pocketIdPaginatedUserDto struct {
+	Data       []pocketIdUserDto     `json:"data"`
+	Pagination pocketIdPaginationDto `json:"pagination"`
+}
+
+type pocketIdPaginationDto struct {
+	CurrentPage  int `json:"currentPage"`
+	ItemsPerPage int `json:"itemsPerPage"`
+	TotalItems   int `json:"totalItems"`
+	TotalPages   int `json:"totalPages"`
+}
+
 func (p *pocketIdUserDto) userData() *UserData {
 	return &UserData{
 		Email:       p.Email,
@@ -286,7 +298,11 @@ func (p *PocketIdManager) GetUserDataByID(ctx context.Context, userId string, ap
 	if err != nil {
 		return nil, err
 	}
-	return user.userData(), nil
+
+	userData := user.userData()
+	userData.AppMetadata = appMetadata
+
+	return userData, nil
 }
 
 func (p *PocketIdManager) GetAccount(ctx context.Context, accountId string) ([]*UserData, error) {
@@ -303,14 +319,14 @@ func (p *PocketIdManager) GetAccount(ctx context.Context, accountId string) ([]*
 		p.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
-	var profiles struct{ data []pocketIdUserDto }
+	var profiles pocketIdPaginatedUserDto
 	err = p.helper.Unmarshal(body, &profiles)
 	if err != nil {
 		return nil, err
 	}
 
 	users := make([]*UserData, 0)
-	for _, profile := range profiles.data {
+	for _, profile := range profiles.Data {
 		userData := profile.userData()
 		userData.AppMetadata.WTAccountID = accountId
 
@@ -333,14 +349,14 @@ func (p *PocketIdManager) GetAllAccounts(ctx context.Context) (map[string][]*Use
 		p.appMetrics.IDPMetrics().CountGetAllAccounts()
 	}
 
-	var profiles struct{ data []pocketIdUserDto }
+	var profiles pocketIdPaginatedUserDto
 	err = p.helper.Unmarshal(body, &profiles)
 	if err != nil {
 		return nil, err
 	}
 
 	indexedUsers := make(map[string][]*UserData)
-	for _, profile := range profiles.data {
+	for _, profile := range profiles.Data {
 		userData := profile.userData()
 		indexedUsers[UnsetAccountID] = append(indexedUsers[UnsetAccountID], userData)
 	}
