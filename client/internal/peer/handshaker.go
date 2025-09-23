@@ -79,18 +79,15 @@ func (h *Handshaker) Listen(ctx context.Context) {
 	for {
 		select {
 		case remoteOfferAnswer := <-h.remoteOffersCh:
-
-			if isController(h.config) {
-				if err := h.sendAnswer(); err != nil {
-					h.log.Errorf("failed to send remote offer confirmation: %s", err)
-					continue
-				}
+			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
+			if err := h.sendAnswer(); err != nil {
+				h.log.Errorf("failed to send remote offer confirmation: %s", err)
+				continue
 			}
 
 			for _, listener := range h.onNewOfferListeners {
 				listener.Notify(&remoteOfferAnswer)
 			}
-			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
 			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
 			for _, listener := range h.onNewOfferListeners {

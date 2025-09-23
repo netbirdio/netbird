@@ -7,6 +7,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	offerResendPeriod = 2 * time.Second
+)
+
 type isConnectedFunc func() bool
 
 // Guard is responsible for the reconnection logic.
@@ -24,6 +28,7 @@ type Guard struct {
 	srWatcher               *SRWatcher
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
+	offerError              chan struct{}
 }
 
 func NewGuard(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
@@ -34,6 +39,7 @@ func NewGuard(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Durati
 		srWatcher:               srWatcher,
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
+		offerError:              make(chan struct{}, 1),
 	}
 }
 
@@ -56,26 +62,48 @@ func (g *Guard) SetICEConnDisconnected() {
 	}
 }
 
+func (g *Guard) FailedToSendOffer() {
+	select {
+	case g.iCEConnDisconnected <- struct{}{}:
+	default:
+	}
+}
+
 // reconnectLoopWithRetry periodically check the connection status.
 // Try to send offer while the P2P is not established or while the Relay is not connected if is it supported
 func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	srReconnectedChan := g.srWatcher.NewListener()
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
+	offerResendTimer := time.NewTimer(0)
+	offerResendTimer.Stop()
+	defer offerResendTimer.Stop()
+
 	for {
 		select {
 		case <-g.relayedConnDisconnected:
 			g.log.Debugf("Relay connection changed, reset reconnection ticker")
+			offerResendTimer.Stop()
 			if !g.isConnectedOnAllWay() {
 				callback()
 			}
 		case <-g.iCEConnDisconnected:
 			g.log.Debugf("ICE connection changed, reset reconnection ticker")
+			offerResendTimer.Stop()
 			if !g.isConnectedOnAllWay() {
 				callback()
 			}
 		case <-srReconnectedChan:
 			g.log.Debugf("has network changes, reset reconnection ticker")
+			offerResendTimer.Stop()
+			if !g.isConnectedOnAllWay() {
+				callback()
+			}
+		case <-g.offerError:
+			g.log.Debugf("failed to send offer, reset reconnection ticker")
+			offerResendTimer.Reset(offerResendPeriod)
+			continue
+		case <-offerResendTimer.C:
 			if !g.isConnectedOnAllWay() {
 				callback()
 			}

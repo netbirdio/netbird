@@ -100,7 +100,10 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 		return &proto.EncryptedMessage{}, nil
 	}
 
-	return s.dispatcher.SendMessage(ctx, msg)
+	return nil, status.Errorf(codes.FailedPrecondition, "remote peer not connected")
+
+	// todo handle dispatcher errors
+	//return s.dispatcher.SendMessage(ctx, msg)
 }
 
 // ConnectStream connects to the exchange stream
