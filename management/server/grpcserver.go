@@ -711,6 +711,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
+		AutoUpdateVersion:               settings.AutoUpdateVersion,
 	}
 }
 
@@ -718,9 +719,10 @@ func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.P
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
 		NetworkMap: &proto.NetworkMap{
-			Serial:    networkMap.Network.CurrentSerial(),
-			Routes:    toProtocolRoutes(networkMap.Routes),
-			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache),
+			Serial:     networkMap.Network.CurrentSerial(),
+			Routes:     toProtocolRoutes(networkMap.Routes),
+			DNSConfig:  toProtocolDNSConfig(networkMap.DNSConfig, dnsCache),
+			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
