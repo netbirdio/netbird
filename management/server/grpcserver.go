@@ -163,11 +163,11 @@ func (s *GRPCServer) Job(srv proto.ManagementService_JobServer) error {
 	}
 
 	// Start background response handler
-	s.startResponseReceiver(ctx, accountID, srv)
+	s.startResponseReceiver(ctx, srv)
 
 	// Prepare per-peer state
-	updates := s.jobManager.CreateJobChannel(peer.ID)
-	log.WithContext(ctx).Debugf("Sync: took %v", time.Since(reqStart))
+	updates := s.jobManager.CreateJobChannel(ctx, accountID, peer.ID)
+	log.WithContext(ctx).Debugf("Job: took %v", time.Since(reqStart))
 
 	// Main loop: forward jobs to client
 	return s.sendJobsLoop(ctx, accountID, peerKey, peer, updates, srv)
@@ -262,7 +262,7 @@ func (s *GRPCServer) handleHandshake(ctx context.Context, srv proto.ManagementSe
 	return peerKey, nil
 }
 
-func (s *GRPCServer) startResponseReceiver(ctx context.Context, accountID string, srv proto.ManagementService_JobServer) {
+func (s *GRPCServer) startResponseReceiver(ctx context.Context, srv proto.ManagementService_JobServer) {
 	go func() {
 		for {
 			msg, err := srv.Recv()
@@ -280,7 +280,7 @@ func (s *GRPCServer) startResponseReceiver(ctx context.Context, accountID string
 				continue
 			}
 
-			if err := s.jobManager.HandleResponse(ctx, accountID, jobResp); err != nil {
+			if err := s.jobManager.HandleResponse(ctx, jobResp); err != nil {
 				log.WithContext(ctx).Errorf("handle job response failed: %v", err)
 			}
 
