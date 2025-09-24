@@ -110,7 +110,37 @@ func (t *WGTunDevice) RenewTun(fd int) error {
 	if t.device == nil {
 		return fmt.Errorf("device not initialized")
 	}
-	return fmt.Errorf("not implemented yet")
+
+	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
+	if err != nil {
+		_ = unix.Close(fd)
+		log.Errorf("failed to create Android interface: %s", err)
+		return err
+	}
+
+	var filteredDevice = newDeviceFilter(tunDevice)
+
+	log.Debugf("attaching to interface %v", name)
+	var newDevice = device.NewDevice(filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[netbird] "))
+	var configurator = configurer.NewUSPConfigurer(newDevice, name, t.iceBind.ActivityRecorder())
+	err = configurator.ConfigureInterface(t.key, t.port)
+	if err != nil {
+		newDevice.Close()
+		configurator.Close()
+		return err
+	}
+
+	// Closing old device and configurator
+	t.device.Close()
+	t.configurer.Close()
+
+	// Assigning values to class members
+	t.name = name
+	t.filteredDevice = filteredDevice
+	t.device = newDevice
+	t.configurer = configurator
+
+	return nil
 }
 
 func (t *WGTunDevice) UpdateAddr(addr wgaddr.Address) error {
