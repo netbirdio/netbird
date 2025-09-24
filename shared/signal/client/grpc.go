@@ -396,6 +396,23 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 	return err
 }
 
+func (c *GrpcClient) SendWithDeliveryCheck(msg *proto.Message) error {
+	if !c.Ready() {
+		return fmt.Errorf("no connection to signal")
+	}
+
+	encryptedMessage, err := c.encryptMessage(msg)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(c.ctx, client.ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.SendWithDeliveryCheck(ctx, encryptedMessage)
+	return err
+}
+
 // receive receives messages from other peers coming through the Signal Exchange
 // and distributes them to worker threads for processing
 func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient) error {

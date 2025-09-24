@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
@@ -100,9 +101,20 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 		return &proto.EncryptedMessage{}, nil
 	}
 
-	return nil, status.Errorf(codes.FailedPrecondition, "remote peer not connected")
+	return s.dispatcher.SendMessage(ctx, msg)
+}
 
-	// todo handle dispatcher errors
+// SendWithDeliveryCheck forwards a message to the signal peer with error handling
+func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.EncryptedMessage) (*emptypb.Empty, error) {
+	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+
+	if _, found := s.registry.Get(msg.RemoteKey); found {
+		// todo error handling here too
+		s.forwardMessageToPeer(ctx, msg)
+		return &emptypb.Empty{}, nil
+	}
+
+	return nil, status.Errorf(codes.FailedPrecondition, "remote peer not connected")
 	//return s.dispatcher.SendMessage(ctx, msg)
 }
 

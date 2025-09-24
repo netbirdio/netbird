@@ -67,7 +67,7 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 		return err
 	}
 
-	if err = s.signal.Send(msg); err != nil {
+	if err = s.signal.SendWithDeliveryCheck(msg); err != nil {
 		return err
 	}
 

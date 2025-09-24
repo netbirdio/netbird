@@ -208,8 +208,8 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	// both peer send offer
 	if err := conn.handshaker.SendOffer(); err != nil {
-		conn.guard.FailedToSendOffer()
 		conn.Log.Errorf("failed to send offer: %v", err)
+		conn.guard.FailedToSendOffer()
 	}
 
 	conn.opened = true
