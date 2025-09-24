@@ -309,7 +309,7 @@ func (a *Account) GetPeerNetworkMap(
 				Records: records,
 			})
 		}
-		log.WithContext(ctx).Tracef("peer %s custom zones are", zones)
+		log.WithContext(ctx).Tracef("peer %s custom zones are %v", peerID, zones)
 		dnsUpdate.CustomZones = zones
 		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
 	}
