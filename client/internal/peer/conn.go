@@ -554,6 +554,11 @@ func (conn *Conn) onGuardEvent() {
 	conn.dumpState.SendOffer()
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
+		// if remote peer is offline, no need to try to reconnect.
+		// The remote peer when online will send an offer to us
+		if !errors.Is(err, ErrPeerNotAvailable) {
+			conn.guard.FailedToSendOffer()
+		}
 	}
 }
 
