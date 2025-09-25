@@ -1,6 +1,8 @@
 package peer
 
 import (
+	"errors"
+
 	"github.com/pion/ice/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -8,6 +10,8 @@ import (
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 )
+
+var ErrPeerNotAvailable = signal.ErrPeerNotAvailable
 
 type Signaler struct {
 	signal       signal.Client
@@ -68,6 +72,9 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 	}
 
 	if err = s.signal.SendWithDeliveryCheck(msg); err != nil {
+		if errors.Is(err, signal.ErrPeerNotAvailable) {
+			return ErrPeerNotAvailable
+		}
 		return err
 	}
 

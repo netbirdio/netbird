@@ -105,6 +105,11 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 }
 
 // SendWithDeliveryCheck forwards a message to the signal peer with error handling
+// When the remote peer is not connected it returns codes.NotFound error, otherwise it returns other types of errors
+// that can be retried. In case codes.NotFound is returned the caller should not retry sending the message. The remote
+// peer should send a new offer to re-establish the connection when it comes back online.
+// Todo: double check the thread safe registry management. When both peer come online at the same time then both peers
+// might not be registered yet when the first message is sent.
 func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.EncryptedMessage) (*emptypb.Empty, error) {
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
@@ -113,8 +118,7 @@ func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.Encrypted
 		s.forwardMessageToPeer(ctx, msg)
 		return &emptypb.Empty{}, nil
 	}
-
-	return nil, status.Errorf(codes.FailedPrecondition, "remote peer not connected")
+	return nil, status.Errorf(codes.NotFound, "remote peer not connected")
 	//return s.dispatcher.SendMessage(ctx, msg)
 }
 

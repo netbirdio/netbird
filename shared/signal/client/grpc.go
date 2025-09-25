@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -20,6 +21,10 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
+)
+
+var (
+	ErrPeerNotAvailable = errors.New("peer not available")
 )
 
 // ConnStateNotifier is a wrapper interface of the status recorder
@@ -410,6 +415,17 @@ func (c *GrpcClient) SendWithDeliveryCheck(msg *proto.Message) error {
 	defer cancel()
 
 	_, err = c.realClient.SendWithDeliveryCheck(ctx, encryptedMessage)
+	if err != nil {
+		if st, ok := status.FromError(err); ok {
+			switch st.Code() {
+			case codes.NotFound:
+				return ErrPeerNotAvailable
+			default:
+				return fmt.Errorf("grpc error %s: %w", st.Code(), err)
+			}
+		}
+		return err // Not a gRPC status error
+	}
 	return err
 }
 
