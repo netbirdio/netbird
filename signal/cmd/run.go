@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-
 	// nolint:gosec
 	_ "net/http/pprof"
+	"os"
 	"strings"
 	"time"
 
@@ -85,7 +85,9 @@ var (
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
 
-			startPprof()
+			if os.Getenv("NB_PPROF_ENABLE") == "true" {
+				startPprof()
+			}
 
 			opts, certManager, err := getTLSConfigurations()
 			if err != nil {
@@ -132,7 +134,7 @@ var (
 				log.Infof("running gRPC server: %s", grpcListener.Addr().String())
 			}
 
-			if signalPort != 10000 {
+			if signalPort != 10000 && os.Getenv("NB_DISABLE_FALLBACK_GRPC") != "true" {
 				// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
 				// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
 				compatListener, err = serveGRPC(grpcServer, 10000)
