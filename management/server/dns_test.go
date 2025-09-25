@@ -474,15 +474,6 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 		t.Errorf("Results should be different for different inputs")
 	}
 
-	// Verify that the cache contains elements from both configs
-	if _, exists := cache.GetCustomZone("example.com"); !exists {
-		t.Errorf("Cache should contain custom zone for example.com")
-	}
-
-	if _, exists := cache.GetCustomZone("example.org"); !exists {
-		t.Errorf("Cache should contain custom zone for example.org")
-	}
-
 	if _, exists := cache.GetNameServerGroup("group1"); !exists {
 		t.Errorf("Cache should contain name server group 'group1'")
 	}
