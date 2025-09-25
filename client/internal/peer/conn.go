@@ -112,9 +112,13 @@ type Conn struct {
 	wgProxyRelay wgproxy.Proxy
 	handshaker   *Handshaker
 
-	guard     *guard.Guard
+	guard     Guard
 	semaphore *semaphoregroup.SemaphoreGroup
 	wg        sync.WaitGroup
+
+	// used for replace the new guard with the old one in a thread-safe way
+	guardCtxCancel context.CancelFunc
+	wgGuard        sync.WaitGroup
 
 	// debug purpose
 	dumpState *stateDump
@@ -198,13 +202,18 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	}
 
 	conn.wg.Add(1)
+	conn.wgGuard.Add(1)
+	guardCtx, cancel := context.WithCancel(conn.ctx)
+	conn.guardCtxCancel = cancel
 	go func() {
 		defer conn.wg.Done()
+		defer conn.wgGuard.Done()
+		defer cancel()
 
 		conn.waitInitialRandomSleepTime(conn.ctx)
 		conn.semaphore.Done(conn.ctx)
 
-		conn.guard.Start(conn.ctx, conn.onGuardEvent)
+		conn.guard.Start(guardCtx, conn.onGuardEvent)
 	}()
 
 	// both peer send offer
@@ -214,7 +223,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 		case ErrPeerNotAvailable:
 			conn.guard.FailedToSendOffer()
 		case ErrSignalNotSupportDeliveryCheck:
-			// todo replace guard with the original connection logic
+			conn.switchGuard()
 		}
 	}
 
@@ -794,6 +803,17 @@ func (conn *Conn) rosenpassDetermKey() (*wgtypes.Key, error) {
 		return nil, err
 	}
 	return &key, nil
+}
+
+func (conn *Conn) switchGuard() {
+	conn.guardCtxCancel()
+	conn.wgGuard.Wait()
+	conn.wg.Add(1)
+	go func() {
+		defer conn.wg.Done()
+		conn.guard = guard.NewGuardRetry(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
+		conn.guard.Start(conn.ctx, conn.onGuardEvent)
+	}()
 }
 
 func isController(config ConnConfig) bool {
