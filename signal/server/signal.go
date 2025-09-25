@@ -50,12 +50,19 @@ var (
 	ErrPeerRegisteredAgain = errors.New("peer registered again")
 )
 
+type Options struct {
+	// Disable SendWithDeliveryCheck method
+	DisableSendWithDeliveryCheck bool
+}
+
 // Server an instance of a Signal server
 type Server struct {
+	metrics                      *metrics.AppMetrics
+	disableSendWithDeliveryCheck bool
+
 	registry *peer.Registry
 	proto.UnimplementedSignalExchangeServer
 	dispatcher *dispatcher.Dispatcher
-	metrics    *metrics.AppMetrics
 
 	successHeader metadata.MD
 
@@ -63,7 +70,11 @@ type Server struct {
 }
 
 // NewServer creates a new Signal server
-func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
+func NewServer(ctx context.Context, meter metric.Meter, opts *Options) (*Server, error) {
+	if opts == nil {
+		opts = &Options{}
+	}
+
 	appMetrics, err := metrics.NewAppMetrics(meter)
 	if err != nil {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
@@ -82,11 +93,12 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 	}
 
 	s := &Server{
-		dispatcher:    d,
-		registry:      peer.NewRegistry(appMetrics),
-		metrics:       appMetrics,
-		successHeader: metadata.Pairs(proto.HeaderRegistered, "1"),
-		sendTimeout:   sTimeout,
+		dispatcher:                   d,
+		registry:                     peer.NewRegistry(appMetrics),
+		metrics:                      appMetrics,
+		successHeader:                metadata.Pairs(proto.HeaderRegistered, "1"),
+		sendTimeout:                  sTimeout,
+		disableSendWithDeliveryCheck: opts.DisableSendWithDeliveryCheck,
 	}
 
 	return s, nil
@@ -111,8 +123,12 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 // Todo: double check the thread safe registry management. When both peer come online at the same time then both peers
 // might not be registered yet when the first message is sent.
 func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.EncryptedMessage) (*emptypb.Empty, error) {
-	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+	if s.disableSendWithDeliveryCheck {
+		log.Tracef("SendWithDeliveryCheck is disabled")
+		return nil, status.Errorf(codes.Unimplemented, "SendWithDeliveryCheck method is disabled")
+	}
 
+	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 	if _, found := s.registry.Get(msg.RemoteKey); found {
 		// todo error handling here too
 		err := s.forwardMessageToPeer(ctx, msg)

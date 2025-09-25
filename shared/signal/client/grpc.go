@@ -24,7 +24,8 @@ import (
 )
 
 var (
-	ErrPeerNotAvailable = errors.New("peer not available")
+	ErrPeerNotAvailable    = errors.New("peer not available")
+	ErrUnimplementedMethod = errors.New("the signal client does not support SendWithDeliveryCheck")
 )
 
 // ConnStateNotifier is a wrapper interface of the status recorder
@@ -420,6 +421,8 @@ func (c *GrpcClient) SendWithDeliveryCheck(msg *proto.Message) error {
 			switch st.Code() {
 			case codes.NotFound:
 				return ErrPeerNotAvailable
+			case codes.Unimplemented:
+				return ErrUnimplementedMethod
 			default:
 				return fmt.Errorf("grpc error %s: %w", st.Code(), err)
 			}

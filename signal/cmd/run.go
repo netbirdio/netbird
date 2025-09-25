@@ -109,7 +109,11 @@ var (
 				}
 			}()
 
-			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter)
+			optsSignal := &server.Options{
+				DisableSendWithDeliveryCheck: EnvDisableSendWithDeliveryCheck(),
+			}
+
+			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter, optsSignal)
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}

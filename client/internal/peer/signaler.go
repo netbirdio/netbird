@@ -2,6 +2,7 @@ package peer
 
 import (
 	"errors"
+	"sync/atomic"
 
 	"github.com/pion/ice/v4"
 	log "github.com/sirupsen/logrus"
@@ -11,11 +12,16 @@ import (
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 )
 
-var ErrPeerNotAvailable = signal.ErrPeerNotAvailable
+var (
+	ErrPeerNotAvailable              = signal.ErrPeerNotAvailable
+	ErrSignalNotSupportDeliveryCheck = errors.New("the signal client does not support SendWithDeliveryCheck")
+)
 
 type Signaler struct {
 	signal       signal.Client
 	wgPrivateKey wgtypes.Key
+
+	deliveryCheckNotSupported atomic.Bool
 }
 
 func NewSignaler(signal signal.Client, wgPrivateKey wgtypes.Key) *Signaler {
@@ -71,13 +77,21 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 		return err
 	}
 
-	if err = s.signal.SendWithDeliveryCheck(msg); err != nil {
-		if errors.Is(err, signal.ErrPeerNotAvailable) {
-			return ErrPeerNotAvailable
-		}
-		return err
+	if s.deliveryCheckNotSupported.Load() {
+		return s.signal.Send(msg)
 	}
 
+	if err = s.signal.SendWithDeliveryCheck(msg); err != nil {
+		switch {
+		case errors.Is(err, signal.ErrPeerNotAvailable):
+			return ErrPeerNotAvailable
+		case errors.Is(err, signal.ErrUnimplementedMethod):
+			s.deliveryCheckNotSupported.Store(true)
+			return ErrSignalNotSupportDeliveryCheck
+		default:
+			return err
+		}
+	}
 	return nil
 }
 
