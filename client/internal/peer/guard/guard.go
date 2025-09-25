@@ -64,7 +64,7 @@ func (g *Guard) SetICEConnDisconnected() {
 
 func (g *Guard) FailedToSendOffer() {
 	select {
-	case g.iCEConnDisconnected <- struct{}{}:
+	case g.offerError <- struct{}{}:
 	default:
 	}
 }
