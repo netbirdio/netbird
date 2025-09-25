@@ -15,12 +15,15 @@ type isConnectedFunc func() bool
 
 // Guard is responsible for the reconnection logic.
 // It will trigger to send an offer to the peer then has connection issues.
+// Only the offer error will start the timer to resend offer periodically.
+//
 // Watch these events:
 // - Relay client reconnected to home server
 // - Signal server connection state changed
 // - ICE connection disconnected
 // - Relayed connection disconnected
 // - ICE candidate changes
+// - Failed to send offer to remote peer
 type Guard struct {
 	log                     *log.Entry
 	isConnectedOnAllWay     isConnectedFunc
@@ -82,19 +85,19 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	for {
 		select {
 		case <-g.relayedConnDisconnected:
-			g.log.Debugf("Relay connection changed, reset reconnection ticker")
+			g.log.Debugf("Relay connection changed, retry connection")
 			offerResendTimer.Stop()
 			if !g.isConnectedOnAllWay() {
 				callback()
 			}
 		case <-g.iCEConnDisconnected:
-			g.log.Debugf("ICE connection changed, reset reconnection ticker")
+			g.log.Debugf("ICE connection changed, retry connection")
 			offerResendTimer.Stop()
 			if !g.isConnectedOnAllWay() {
 				callback()
 			}
 		case <-srReconnectedChan:
-			g.log.Debugf("has network changes, reset reconnection ticker")
+			g.log.Debugf("has network changes, retry connection")
 			offerResendTimer.Stop()
 			if !g.isConnectedOnAllWay() {
 				callback()
