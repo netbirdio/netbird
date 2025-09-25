@@ -210,10 +210,11 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	// both peer send offer
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
-		// if remote peer is offline, no need to try to reconnect.
-		// The remote peer when online will send an offer to us
-		if !errors.Is(err, ErrPeerNotAvailable) {
+		switch err {
+		case ErrPeerNotAvailable:
 			conn.guard.FailedToSendOffer()
+		case ErrSignalNotSupportDeliveryCheck:
+			// todo replace guard with the original connection logic
 		}
 	}
 
