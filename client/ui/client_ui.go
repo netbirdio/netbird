@@ -469,6 +469,17 @@ func (s *serviceClient) getConnectionForm() *widget.Form {
 }
 
 func (s *serviceClient) saveSettings() {
+	// Check if update settings are disabled by daemon
+	features, err := s.getFeatures()
+	if err != nil {
+		log.Errorf("failed to get features from daemon: %v", err)
+		// Continue with default behavior if features can't be retrieved
+	} else if features != nil && features.DisableUpdateSettings {
+		log.Warn("Configuration updates are disabled by daemon")
+		dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
+		return
+	}
+
 	if err := s.validateSettings(); err != nil {
 		dialog.ShowError(err, s.wSettings)
 		return
@@ -605,6 +616,28 @@ func (s *serviceClient) sendConfigUpdate(req *proto.SetConfigRequest) error {
 		return fmt.Errorf("set config: %w", err)
 	}
 
+	// Reconnect if connected to apply the new settings
+	go func() {
+		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		if err != nil {
+			log.Errorf("get service status: %v", err)
+			return
+		}
+		if status.Status == string(internal.StatusConnected) {
+			// run down & up
+			_, err = conn.Down(s.ctx, &proto.DownRequest{})
+			if err != nil {
+				log.Errorf("down service: %v", err)
+			}
+
+			_, err = conn.Up(s.ctx, &proto.UpRequest{})
+			if err != nil {
+				log.Errorf("up service: %v", err)
+				return
+			}
+		}
+	}()
+
 	return nil
 }
 
@@ -637,7 +670,7 @@ func (s *serviceClient) getNetworkForm() *widget.Form {
 			{Text: "Disable DNS", Widget: s.sDisableDNS},
 			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
 			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
-			{Text: "Block LAN Access", Widget: s.sBlockLANAccess},
+			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
 		},
 	}
 }

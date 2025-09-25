@@ -6,12 +6,11 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"os"
 	"runtime"
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -174,7 +173,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay)
 
 	conn.handshaker.AddOnNewOfferListener(conn.workerRelay.OnNewOffer)
-	if os.Getenv("NB_FORCE_RELAY") != "true" {
+	if !isForceRelayed() {
 		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
 	}
 

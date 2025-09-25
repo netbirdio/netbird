@@ -3607,3 +3607,113 @@ func intToIPv4(n uint32) net.IP {
 	binary.BigEndian.PutUint32(ip, n)
 	return ip
 }
+
+func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	group1ID := "test-group-1"
+	group2ID := "test-group-2"
+	emptyGroupID := "empty-group"
+
+	peer1 := "cfefqs706sqkneg59g4g"
+	peer2 := "cfeg6sf06sqkneg59g50"
+
+	tests := []struct {
+		name          string
+		groupIDs      []string
+		expectedPeers []string
+		expectedCount int
+	}{
+		{
+			name:          "retrieve peers from single group with multiple peers",
+			groupIDs:      []string{group1ID},
+			expectedPeers: []string{peer1, peer2},
+			expectedCount: 2,
+		},
+		{
+			name:          "retrieve peers from single group with one peer",
+			groupIDs:      []string{group2ID},
+			expectedPeers: []string{peer1},
+			expectedCount: 1,
+		},
+		{
+			name:          "retrieve peers from multiple groups (with overlap)",
+			groupIDs:      []string{group1ID, group2ID},
+			expectedPeers: []string{peer1, peer2}, // should deduplicate
+			expectedCount: 2,
+		},
+		{
+			name:          "retrieve peers from existing 'All' group",
+			groupIDs:      []string{"cfefqs706sqkneg59g3g"}, // All group from test data
+			expectedPeers: []string{peer1, peer2},
+			expectedCount: 2,
+		},
+		{
+			name:          "retrieve peers from empty group",
+			groupIDs:      []string{emptyGroupID},
+			expectedPeers: []string{},
+			expectedCount: 0,
+		},
+		{
+			name:          "retrieve peers from non-existing group",
+			groupIDs:      []string{"non-existing-group"},
+			expectedPeers: []string{},
+			expectedCount: 0,
+		},
+		{
+			name:          "empty group IDs list",
+			groupIDs:      []string{},
+			expectedPeers: []string{},
+			expectedCount: 0,
+		},
+		{
+			name:          "mix of existing and non-existing groups",
+			groupIDs:      []string{group1ID, "non-existing-group"},
+			expectedPeers: []string{peer1, peer2},
+			expectedCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_policy_migrate.sql", t.TempDir())
+			t.Cleanup(cleanup)
+			require.NoError(t, err)
+
+			ctx := context.Background()
+
+			groups := []*types.Group{
+				{
+					ID:        group1ID,
+					AccountID: accountID,
+				},
+				{
+					ID:        group2ID,
+					AccountID: accountID,
+				},
+			}
+			require.NoError(t, store.CreateGroups(ctx, accountID, groups))
+
+			require.NoError(t, store.AddPeerToGroup(ctx, accountID, peer1, group1ID))
+			require.NoError(t, store.AddPeerToGroup(ctx, accountID, peer2, group1ID))
+			require.NoError(t, store.AddPeerToGroup(ctx, accountID, peer1, group2ID))
+
+			peers, err := store.GetPeersByGroupIDs(ctx, accountID, tt.groupIDs)
+			require.NoError(t, err)
+			require.Len(t, peers, tt.expectedCount)
+
+			if tt.expectedCount > 0 {
+				actualPeerIDs := make([]string, len(peers))
+				for i, peer := range peers {
+					actualPeerIDs[i] = peer.ID
+				}
+				assert.ElementsMatch(t, tt.expectedPeers, actualPeerIDs)
+
+				// Verify all returned peers belong to the correct account
+				for _, peer := range peers {
+					assert.Equal(t, accountID, peer.AccountID)
+				}
+			}
+		})
+	}
+}

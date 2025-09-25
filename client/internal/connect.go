@@ -34,7 +34,7 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -275,7 +275,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
-		if err := c.engine.Start(); err != nil {
+		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
@@ -284,10 +284,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		state.Set(StatusConnected)
 
 		if runningChan != nil {
-			select {
-			case runningChan <- struct{}{}:
-			default:
-			}
+			close(runningChan)
+			runningChan = nil
 		}
 
 		<-engineCtx.Done()

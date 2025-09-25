@@ -43,13 +43,6 @@ type OfferAnswer struct {
 	SessionID *ICESessionID
 }
 
-func (oa *OfferAnswer) SessionIDString() string {
-	if oa.SessionID == nil {
-		return "unknown"
-	}
-	return oa.SessionID.String()
-}
-
 type Handshaker struct {
 	mu                  sync.Mutex
 	log                 *log.Entry
@@ -57,7 +50,7 @@ type Handshaker struct {
 	signaler            *Signaler
 	ice                 *WorkerICE
 	relay               *WorkerRelay
-	onNewOfferListeners []func(*OfferAnswer)
+	onNewOfferListeners []*OfferListener
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -78,7 +71,8 @@ func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *W
 }
 
 func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAnswer)) {
-	h.onNewOfferListeners = append(h.onNewOfferListeners, offer)
+	l := NewOfferListener(offer)
+	h.onNewOfferListeners = append(h.onNewOfferListeners, l)
 }
 
 func (h *Handshaker) Listen(ctx context.Context) {
@@ -91,13 +85,13 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				continue
 			}
 			for _, listener := range h.onNewOfferListeners {
-				listener(&remoteOfferAnswer)
+				listener.Notify(&remoteOfferAnswer)
 			}
 			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
 			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
 			for _, listener := range h.onNewOfferListeners {
-				listener(&remoteOfferAnswer)
+				listener.Notify(&remoteOfferAnswer)
 			}
 		case <-ctx.Done():
 			h.log.Infof("stop listening for remote offers and answers")

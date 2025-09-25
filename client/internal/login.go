@@ -40,7 +40,7 @@ func IsLoginRequired(ctx context.Context, config *profilemanager.Config) (bool, 
 		return false, err
 	}
 
-	_, err = doMgmLogin(ctx, mgmClient, pubSSHKey, config)
+	_, _, err = doMgmLogin(ctx, mgmClient, pubSSHKey, config)
 	if isLoginNeeded(err) {
 		return true, nil
 	}
@@ -69,14 +69,18 @@ func Login(ctx context.Context, config *profilemanager.Config, setupKey string, 
 		return err
 	}
 
-	serverKey, err := doMgmLogin(ctx, mgmClient, pubSSHKey, config)
+	serverKey, _, err := doMgmLogin(ctx, mgmClient, pubSSHKey, config)
 	if serverKey != nil && isRegistrationNeeded(err) {
 		log.Debugf("peer registration required")
 		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey, config)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
 
-	return err
+	return nil
 }
 
 func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm.GrpcClient, error) {
@@ -101,11 +105,11 @@ func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm
 	return mgmClient, err
 }
 
-func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte, config *profilemanager.Config) (*wgtypes.Key, error) {
+func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte, config *profilemanager.Config) (*wgtypes.Key, *mgmProto.LoginResponse, error) {
 	serverKey, err := mgmClient.GetServerPublicKey()
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	sysInfo := system.GetInfo(ctx)
@@ -125,8 +129,8 @@ func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte
 		config.EnableSSHLocalPortForwarding,
 		config.EnableSSHRemotePortForwarding,
 	)
-	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey, config.DNSLabels)
-	return serverKey, err
+	loginResp, err := mgmClient.Login(*serverKey, sysInfo, pubSSHKey, config.DNSLabels)
+	return serverKey, loginResp, err
 }
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.

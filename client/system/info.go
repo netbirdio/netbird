@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -114,14 +115,6 @@ func (i *Info) SetFlags(
 	}
 }
 
-// StaticInfo is an object that contains machine information that does not change
-type StaticInfo struct {
-	SystemSerialNumber string
-	SystemProductName  string
-	SystemManufacturer string
-	Environment        Environment
-}
-
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
 func extractUserAgent(ctx context.Context) string {
 	md, hasMeta := metadata.FromOutgoingContext(ctx)
@@ -199,6 +192,7 @@ func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
 
 // GetInfoWithChecks retrieves and parses the system information with applied checks.
 func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, error) {
+	log.Debugf("gathering system information with checks: %d", len(checks))
 	processCheckPaths := make([]string, 0)
 	for _, check := range checks {
 		processCheckPaths = append(processCheckPaths, check.GetFiles()...)
@@ -208,16 +202,11 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, erro
 	if err != nil {
 		return nil, err
 	}
+	log.Debugf("gathering process check information completed")
 
 	info := GetInfo(ctx)
 	info.Files = files
 
+	log.Debugf("all system information gathered successfully")
 	return info, nil
-}
-
-// UpdateStaticInfo asynchronously updates static system and platform information
-func UpdateStaticInfo() {
-	go func() {
-		_ = updateStaticInfo()
-	}()
 }

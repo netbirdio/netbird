@@ -22,7 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 // ErrSharedSockStopped indicates that shared socket has been stopped
@@ -93,7 +93,7 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 	}
 
 	if err = nbnet.SetSocketMark(rawSock.conn4); err != nil {
-		return nil, fmt.Errorf("failed to set SO_MARK on ipv4 socket: %w", err)
+		return nil, fmt.Errorf("set SO_MARK on ipv4 socket: %w", err)
 	}
 
 	var sockErr error
@@ -102,7 +102,7 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 		log.Errorf("Failed to create ipv6 raw socket: %v", err)
 	} else {
 		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
-			return nil, fmt.Errorf("failed to set SO_MARK on ipv6 socket: %w", err)
+			return nil, fmt.Errorf("set SO_MARK on ipv6 socket: %w", err)
 		}
 	}
 
@@ -230,10 +230,8 @@ func (s *SharedSocket) Close() error {
 
 // read start a read loop for a specific receiver and sends the packet to the packetDemux channel
 func (s *SharedSocket) read(receiver receiver) {
-	// Buffer reuse is safe: packetDemux is unbuffered, so read() blocks until
-	// ReadFrom() synchronously processes the packet before next iteration
-	buf := make([]byte, s.mtu+maxIPUDPOverhead)
 	for {
+		buf := make([]byte, s.mtu+maxIPUDPOverhead)
 		n, addr, err := receiver(s.ctx, buf, 0)
 		select {
 		case <-s.ctx.Done():
