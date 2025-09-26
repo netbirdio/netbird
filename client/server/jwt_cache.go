@@ -65,17 +65,6 @@ func (c *jwtCache) get() (string, bool) {
 	return token, true
 }
 
-func (c *jwtCache) clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.timer != nil {
-		c.timer.Stop()
-		c.timer = nil
-	}
-	c.cleanup()
-}
-
 // cleanup destroys the secure enclave, must be called with lock held
 func (c *jwtCache) cleanup() {
 	if c.enclave != nil {

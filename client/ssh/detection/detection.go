@@ -39,8 +39,9 @@ func DetectSSHServerType(host string, port int, username string) (ServerType, er
 	}
 
 	config := &ssh.ClientConfig{
-		User:            username,
-		Auth:            []ssh.AuthMethod{},
+		User: username,
+		Auth: []ssh.AuthMethod{},
+		// #nosec G106 - InsecureIgnoreHostKey is acceptable for server type detection
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         detectionTimeout,
 	}

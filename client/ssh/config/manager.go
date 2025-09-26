@@ -82,24 +82,6 @@ func writeFileWithTimeout(filename string, data []byte, perm os.FileMode) error 
 	}
 }
 
-// writeFileOperationWithTimeout performs a file operation with timeout
-func writeFileOperationWithTimeout(filename string, operation func() error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), fileWriteTimeout)
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- operation()
-	}()
-
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return fmt.Errorf("file write timeout after %v: %s", fileWriteTimeout, filename)
-	}
-}
-
 // Manager handles SSH client configuration for NetBird peers
 type Manager struct {
 	sshConfigDir  string
@@ -282,6 +264,7 @@ func (m *Manager) getNetBirdExecutablePath() (string, error) {
 
 	realPath, err := filepath.EvalSymlinks(execPath)
 	if err != nil {
+		log.Debugf("symlink resolution failed: %v", err)
 		return execPath, nil
 	}
 

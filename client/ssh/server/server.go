@@ -653,25 +653,6 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	return conn
 }
 
-// isShutdownError checks if the error is expected during normal shutdown
-func (s *Server) serve(ln net.Listener, sshServer *ssh.Server) {
-	if ln == nil {
-		log.Debug("SSH server serve called with nil listener, skipping serve operation")
-		return
-	}
-
-	err := sshServer.Serve(ln)
-	if err == nil {
-		return
-	}
-
-	if isShutdownError(err) {
-		return
-	}
-
-	log.Errorf("SSH server error: %v", err)
-}
-
 func isShutdownError(err error) bool {
 	if errors.Is(err, net.ErrClosed) {
 		return true

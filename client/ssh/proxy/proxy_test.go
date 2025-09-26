@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 			if len(os.Args) > 3 {
 				cmd := os.Args[3]
 				if cmd == "echo" && len(os.Args) > 4 {
-					fmt.Println(os.Args[4])
+					fmt.Fprintln(os.Stdout, os.Args[4])
 					os.Exit(0)
 				}
 			}
