@@ -712,7 +712,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	var peer *nbpeer.Peer
 	var peerNotValid bool
 	var isStatusChanged bool
-	var updated bool
+	var updated, versionChanged bool
 	var err error
 	var postureChecks []*posture.Checks
 
@@ -752,7 +752,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			return err
 		}
 
-		updated = peer.UpdateMetaIfNew(sync.Meta)
+		updated, versionChanged = peer.UpdateMetaIfNew(sync.Meta)
 		if updated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
@@ -771,7 +771,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, err
 	}
 
-	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
+	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -863,7 +863,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return err
 		}
 
-		isPeerUpdated = peer.UpdateMetaIfNew(login.Meta)
+		isPeerUpdated, _ = peer.UpdateMetaIfNew(login.Meta)
 		if isPeerUpdated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			shouldStorePeer = true
