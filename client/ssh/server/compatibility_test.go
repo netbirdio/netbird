@@ -58,13 +58,11 @@ func TestSSHServerCompatibility(t *testing.T) {
 	require.NoError(t, err)
 
 	// Generate OpenSSH-compatible keys for client
-	clientPrivKeyOpenSSH, clientPubKeyOpenSSH, err := generateOpenSSHKey(t)
+	clientPrivKeyOpenSSH, _, err := generateOpenSSHKey(t)
 	require.NoError(t, err)
 
 	server := New(hostKey, nil)
-	server.SetAllowRootLogin(true) // Allow root login for testing
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKeyOpenSSH))
-	require.NoError(t, err)
+	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
 	defer func() {
@@ -446,13 +444,9 @@ func TestSSHServerFeatureCompatibility(t *testing.T) {
 
 	clientPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
-	clientPubKey, err := nbssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
 
 	server := New(hostKey, nil)
-	server.SetAllowRootLogin(true) // Allow root login for testing
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
+	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
 	defer func() {
@@ -583,13 +577,9 @@ func TestSSHServerSecurityFeatures(t *testing.T) {
 
 	clientPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
-	clientPubKey, err := nbssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
 
 	server := New(hostKey, nil)
-	server.SetAllowRootLogin(true) // Allow root login for testing
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
+	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
 	defer func() {
@@ -668,13 +658,9 @@ func TestCrossPlatformCompatibility(t *testing.T) {
 
 	clientPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
-	clientPubKey, err := nbssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
 
 	server := New(hostKey, nil)
-	server.SetAllowRootLogin(true) // Allow root login for testing
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
+	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
 	defer func() {

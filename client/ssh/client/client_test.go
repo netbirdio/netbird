@@ -47,18 +47,9 @@ func TestSSHClient_DialWithKey(t *testing.T) {
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	// Generate client key pair
-	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-
 	// Create and start server
 	server := sshserver.New(hostKey, nil)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
-
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
 
 	serverAddr := sshserver.StartTestServer(t, server)
 	defer func() {
@@ -139,12 +130,6 @@ func TestSSHClient_ConnectionHandling(t *testing.T) {
 	}()
 
 	// Generate client key for multiple connections
-	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-	err = server.AddAuthorizedKey("multi-peer", string(clientPubKey))
-	require.NoError(t, err)
 
 	const numClients = 3
 	clients := make([]*Client, numClients)
@@ -173,19 +158,12 @@ func TestSSHClient_ContextCancellation(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-	err = server.AddAuthorizedKey("cancel-peer", string(clientPubKey))
-	require.NoError(t, err)
-
 	t.Run("connection with short timeout", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()
 
 		currentUser := getCurrentUsername()
-		_, err = Dial(ctx, serverAddr, currentUser, DialOptions{
+		_, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 			InsecureSkipVerify: true,
 		})
 		if err != nil {
@@ -300,16 +278,8 @@ func setupTestSSHServerAndClient(t *testing.T) (*sshserver.Server, string, *Clie
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-
 	server := sshserver.New(hostKey, nil)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
-
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
 
 	serverAddr := sshserver.StartTestServer(t, server)
 
@@ -381,17 +351,9 @@ func TestSSHClient_PortForwardingDataTransfer(t *testing.T) {
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-
 	server := sshserver.New(hostKey, nil)
 	server.SetAllowLocalPortForwarding(true)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
-
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
 
 	serverAddr := sshserver.StartTestServer(t, server)
 	defer func() {

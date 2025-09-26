@@ -15,16 +15,6 @@ import (
 
 // sessionHandler handles SSH sessions
 func (s *Server) sessionHandler(session ssh.Session) {
-	if s.jwtEnabled && !s.isSessionAuthenticated(session.Context()) {
-		log.Infof("SSH session rejected: JWT authentication required but not provided for user %s from %s",
-			session.User(), session.RemoteAddr())
-		if _, err := session.Write([]byte("JWT authentication required\r\n")); err != nil {
-			log.Debugf("write JWT error message: %v", err)
-		}
-		session.Close()
-		return
-	}
-
 	sessionKey := s.registerSession(session)
 	sessionStart := time.Now()
 
@@ -103,7 +93,6 @@ func (s *Server) registerSession(session ssh.Session) SessionKey {
 func (s *Server) unregisterSession(sessionKey SessionKey, _ ssh.Session) {
 	s.mu.Lock()
 	delete(s.sessions, sessionKey)
-	delete(s.authSessions, string(sessionKey))
 
 	// Cancel all port forwarding connections for this session
 	var connectionsToCancel []ConnectionKey

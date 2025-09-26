@@ -3,7 +3,6 @@ package proxy
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +21,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/client/ssh/detection"
+	"github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -65,31 +66,9 @@ func (p *SSHProxy) Connect(ctx context.Context) error {
 	return p.runProxySSHServer(ctx, jwtToken)
 }
 
-func (p *SSHProxy) sendJWTAuthRequest(client *cryptossh.Client, token string) error {
-	authReq := struct {
-		Token string `json:"token"`
-	}{
-		Token: token,
-	}
-
-	payload, err := json.Marshal(authReq)
-	if err != nil {
-		return fmt.Errorf("marshal auth request: %w", err)
-	}
-
-	ok, response, err := client.SendRequest("netbird-auth", true, payload)
-	if err != nil {
-		return fmt.Errorf("send auth request: %w", err)
-	}
-
-	if !ok {
-		return fmt.Errorf("authentication rejected: %s", string(response))
-	}
-
-	return nil
-}
-
 func (p *SSHProxy) runProxySSHServer(ctx context.Context, jwtToken string) error {
+	serverVersion := fmt.Sprintf("%s-%s", detection.ProxyIdentifier, version.NetbirdVersion())
+
 	sshServer := &ssh.Server{
 		Handler: func(s ssh.Session) {
 			p.handleSSHSession(ctx, s, jwtToken)
@@ -107,6 +86,7 @@ func (p *SSHProxy) runProxySSHServer(ctx context.Context, jwtToken string) error
 			"tcpip-forward":        p.tcpipForwardHandler,
 			"cancel-tcpip-forward": p.cancelTcpipForwardHandler,
 		},
+		Version: serverVersion,
 	}
 
 	hostKey, err := generateHostKey()
@@ -350,6 +330,7 @@ func (p *SSHProxy) cancelTcpipForwardHandler(_ ssh.Context, _ *ssh.Server, _ *cr
 func (p *SSHProxy) dialBackend(ctx context.Context, addr, user, jwtToken string) (*cryptossh.Client, error) {
 	config := &cryptossh.ClientConfig{
 		User:            user,
+		Auth:            []cryptossh.AuthMethod{cryptossh.Password(jwtToken)},
 		Timeout:         sshHandshakeTimeout,
 		HostKeyCallback: p.verifyHostKey,
 	}
@@ -368,14 +349,7 @@ func (p *SSHProxy) dialBackend(ctx context.Context, addr, user, jwtToken string)
 		return nil, fmt.Errorf("SSH handshake: %w", err)
 	}
 
-	sshClient := cryptossh.NewClient(clientConn, chans, reqs)
-
-	if err := p.sendJWTAuthRequest(sshClient, jwtToken); err != nil {
-		_ = sshClient.Close()
-		return nil, fmt.Errorf(jwtAuthErrorMsg, err)
-	}
-
-	return sshClient, nil
+	return cryptossh.NewClient(clientConn, chans, reqs), nil
 }
 
 func (p *SSHProxy) buildAddressList(hostname string, remote net.Addr) []string {

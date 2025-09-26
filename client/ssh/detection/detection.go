@@ -1,6 +1,7 @@
 package detection
 
 import (
+	"bufio"
 	"context"
 	"net"
 	"strconv"
@@ -8,12 +9,13 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/ssh"
 )
 
 const (
 	// ServerIdentifier is the base response for NetBird SSH servers
 	ServerIdentifier = "NetBird-SSH-Server"
+	// ProxyIdentifier is the base response for NetBird SSH proxy
+	ProxyIdentifier = "NetBird-SSH-Proxy"
 	// JWTRequiredMarker is appended to responses when JWT is required
 	JWTRequiredMarker = "NetBird-JWT-Required"
 
@@ -34,53 +36,45 @@ func (s ServerType) RequiresJWT() bool {
 }
 
 // DetectSSHServerType detects SSH server type with optional username
-func DetectSSHServerType(ctx context.Context, host string, port int, username string) (ServerType, error) {
-	if username == "" {
-		username = "netbird-detect"
-	}
-
-	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{},
-		// #nosec G106 - InsecureIgnoreHostKey is acceptable for server type detection
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         detectionTimeout,
-	}
-
+func DetectSSHServerType(ctx context.Context, host string, port int) (ServerType, error) {
 	targetAddr := net.JoinHostPort(host, strconv.Itoa(port))
 
-	dialer := &net.Dialer{}
+	dialer := &net.Dialer{
+		Timeout: detectionTimeout,
+	}
 	conn, err := dialer.DialContext(ctx, "tcp", targetAddr)
 	if err != nil {
 		log.Debugf("SSH connection failed for detection: %v", err)
 		return ServerTypeRegular, nil
 	}
+	defer conn.Close()
 
-	clientConn, chans, reqs, err := ssh.NewClientConn(conn, targetAddr, config)
+	if err := conn.SetReadDeadline(time.Now().Add(detectionTimeout)); err != nil {
+		log.Debugf("set read deadline: %v", err)
+		return ServerTypeRegular, nil
+	}
+
+	reader := bufio.NewReader(conn)
+	serverBanner, err := reader.ReadString('\n')
 	if err != nil {
-		if closeErr := conn.Close(); closeErr != nil {
-			log.Debugf("connection close after handshake failure: %v", closeErr)
-		}
-		log.Debugf("SSH connection failed for detection: %v", err)
+		log.Debugf("read SSH banner: %v", err)
 		return ServerTypeRegular, nil
 	}
 
-	client := ssh.NewClient(clientConn, chans, reqs)
-	defer client.Close()
+	serverBanner = strings.TrimSpace(serverBanner)
+	log.Debugf("SSH server banner: %s", serverBanner)
 
-	ok, response, err := client.SendRequest("netbird-detect", true, nil)
-	if err != nil || !ok {
-		log.Debugf("Detection request failed: %v", err)
+	if !strings.HasPrefix(serverBanner, "SSH-") {
+		log.Debugf("Invalid SSH banner")
 		return ServerTypeRegular, nil
 	}
 
-	responseStr := string(response)
-
-	if !strings.Contains(responseStr, ServerIdentifier) {
+	if !strings.Contains(serverBanner, ServerIdentifier) {
+		log.Debugf("Server banner does not contain identifier '%s'", ServerIdentifier)
 		return ServerTypeRegular, nil
 	}
 
-	if strings.Contains(responseStr, JWTRequiredMarker) {
+	if strings.Contains(serverBanner, JWTRequiredMarker) {
 		return ServerTypeNetBirdJWT, nil
 	}
 

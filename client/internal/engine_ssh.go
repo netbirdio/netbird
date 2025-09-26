@@ -20,8 +20,6 @@ import (
 type sshServer interface {
 	Start(ctx context.Context, addr netip.AddrPort) error
 	Stop() error
-	RemoveAuthorizedKey(peer string)
-	AddAuthorizedKey(peer, newKey string) error
 	SetSocketFilter(ifIdx int)
 }
 

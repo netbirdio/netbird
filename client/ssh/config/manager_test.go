@@ -66,9 +66,6 @@ func TestManager_SetupSSHClientConfig(t *testing.T) {
 	}
 }
 
-
-
-
 func TestGetSystemSSHConfigDir(t *testing.T) {
 	configDir := getSystemSSHConfigDir()
 

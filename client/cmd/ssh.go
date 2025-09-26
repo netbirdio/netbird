@@ -695,6 +695,10 @@ func sshProxyFn(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+var (
+	errNotNetBird = errors.New("not netbird")
+)
+
 var sshDetectCmd = &cobra.Command{
 	Use:    "detect <host> <port>",
 	Short:  "Detect if a host is running NetBird SSH",
@@ -705,27 +709,26 @@ var sshDetectCmd = &cobra.Command{
 }
 
 func sshDetectFn(cmd *cobra.Command, args []string) error {
+	if err := util.InitLog(logLevel, "console"); err != nil {
+		return errNotNetBird
+	}
+
 	host := args[0]
 	portStr := args[1]
 
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return fmt.Errorf("not netbird")
+		return errNotNetBird
 	}
 
-	username := ""
-	if currentUser, err := user.Current(); err == nil {
-		username = currentUser.Username
-	}
-
-	serverType, err := detection.DetectSSHServerType(cmd.Context(), host, port, username)
+	serverType, err := detection.DetectSSHServerType(cmd.Context(), host, port)
 	if err != nil {
-		return errors.New("not netbird")
+		return errNotNetBird
 	}
 
 	if serverType == detection.ServerTypeNetBirdJWT || serverType == detection.ServerTypeNetBirdNoJWT {
 		return nil
 	}
 
-	return errors.New("not netbird")
+	return errNotNetBird
 }

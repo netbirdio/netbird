@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -342,7 +341,7 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 		return nil, fmt.Errorf("parse port %s: %w", portStr, err)
 	}
 
-	serverType, err := detection.DetectSSHServerType(ctx, host, port, config.User)
+	serverType, err := detection.DetectSSHServerType(ctx, host, port)
 	if err != nil {
 		log.Debugf("SSH server detection failed: %v, falling back to regular SSH", err)
 		return dialSSH(ctx, network, addr, config)
@@ -357,30 +356,12 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 		return nil, fmt.Errorf("request JWT token: %w", err)
 	}
 
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, network, addr)
-	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", addr, err)
+	configWithJWT := *config
+	configWithJWT.Auth = []ssh.AuthMethod{
+		ssh.Password(jwtToken),
 	}
 
-	clientConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
-	if err != nil {
-		if closeErr := conn.Close(); closeErr != nil {
-			log.Debugf("connection close after handshake failure: %v", closeErr)
-		}
-		return nil, fmt.Errorf("ssh handshake: %w", err)
-	}
-
-	client := ssh.NewClient(clientConn, chans, reqs)
-
-	if err := sendJWTAuthRequest(client, jwtToken); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("JWT auth: %w", err)
-	}
-
-	return &Client{
-		client: client,
-	}, nil
+	return dialSSH(ctx, network, addr, &configWithJWT)
 }
 
 // requestJWTToken requests a JWT token from the NetBird daemon
@@ -393,31 +374,6 @@ func requestJWTToken(ctx context.Context, daemonAddr, targetHost string, skipCac
 
 	client := proto.NewDaemonServiceClient(conn)
 	return nbssh.RequestJWTToken(ctx, client, os.Stdout, os.Stderr, !skipCache)
-}
-
-// sendJWTAuthRequest sends JWT authentication request to SSH server
-func sendJWTAuthRequest(client *ssh.Client, jwtToken string) error {
-	authRequest := struct {
-		Token string `json:"token"`
-	}{
-		Token: jwtToken,
-	}
-
-	payload, err := json.Marshal(authRequest)
-	if err != nil {
-		return fmt.Errorf("marshal auth request: %w", err)
-	}
-
-	accepted, _, err := client.SendRequest("netbird-auth", true, payload)
-	if err != nil {
-		return fmt.Errorf("send auth request: %w", err)
-	}
-
-	if !accepted {
-		return fmt.Errorf("authentication request rejected")
-	}
-
-	return nil
 }
 
 // verifyHostKeyViaDaemon verifies SSH host key by querying the NetBird daemon

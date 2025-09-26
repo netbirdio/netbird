@@ -18,18 +18,6 @@ func (s *Server) SetAllowSFTP(allow bool) {
 
 // sftpSubsystemHandler handles SFTP subsystem requests
 func (s *Server) sftpSubsystemHandler(sess ssh.Session) {
-	if s.jwtEnabled && !s.isSessionAuthenticated(sess.Context()) {
-		log.Infof("SFTP subsystem request denied: JWT authentication required but not provided for user %s from %s",
-			sess.User(), sess.RemoteAddr())
-		if _, err := sess.Write([]byte("JWT authentication required\r\n")); err != nil {
-			log.Debugf("write JWT error message: %v", err)
-		}
-		if err := sess.Exit(1); err != nil {
-			log.Debugf("SFTP session exit failed: %v", err)
-		}
-		return
-	}
-
 	s.mu.RLock()
 	allowSFTP := s.allowSFTP
 	s.mu.RUnlock()

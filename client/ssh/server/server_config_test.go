@@ -22,12 +22,6 @@ func TestServer_RootLoginRestriction(t *testing.T) {
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	// Generate client key pair
-	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-
 	tests := []struct {
 		name        string
 		allowRoot   bool
@@ -119,8 +113,6 @@ func TestServer_RootLoginRestriction(t *testing.T) {
 			// Create server with specific configuration
 			server := New(hostKey, nil)
 			server.SetAllowRootLogin(tt.allowRoot)
-			err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-			require.NoError(t, err)
 
 			// Test the userNameLookup method directly
 			user, err := server.userNameLookup(tt.username)
@@ -234,17 +226,9 @@ func TestServer_PortConflictHandling(t *testing.T) {
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	// Generate client key pair
-	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-
 	// Create server
 	server := New(hostKey, nil)
-	server.SetAllowRootLogin(true) // Allow root login for testing
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
+	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
 	defer func() {

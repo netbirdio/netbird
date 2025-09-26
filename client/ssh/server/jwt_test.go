@@ -6,7 +6,6 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -45,11 +44,6 @@ func TestJWTEnforcement(t *testing.T) {
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	clientPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := nbssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-
 	t.Run("blocks_without_jwt", func(t *testing.T) {
 		jwtConfig := &JWTConfig{
 			Issuer:       "test-issuer",
@@ -58,8 +52,6 @@ func TestJWTEnforcement(t *testing.T) {
 		}
 		server := New(hostKey, jwtConfig)
 		server.SetAllowRootLogin(true)
-		err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-		require.NoError(t, err)
 
 		serverAddr := StartTestServer(t, server)
 		defer require.NoError(t, server.Stop())
@@ -68,7 +60,7 @@ func TestJWTEnforcement(t *testing.T) {
 		require.NoError(t, err)
 		port, err := strconv.Atoi(portStr)
 		require.NoError(t, err)
-		serverType, err := detection.DetectSSHServerType(context.Background(), host, port, "")
+		serverType, err := detection.DetectSSHServerType(context.Background(), host, port)
 		if err != nil {
 			t.Logf("Detection failed: %v", err)
 		}
@@ -81,25 +73,14 @@ func TestJWTEnforcement(t *testing.T) {
 			Timeout:         2 * time.Second,
 		}
 
-		conn, err := cryptossh.Dial("tcp", net.JoinHostPort(host, portStr), config)
-		require.NoError(t, err, "Connection should succeed")
-		defer conn.Close()
-
-		session, err := conn.NewSession()
-		require.NoError(t, err, "Session creation should succeed")
-		defer session.Close()
-
-		output, err := session.CombinedOutput("echo test")
-		assert.Error(t, err, "Should return error when JWT required")
-		assert.Contains(t, string(output), "JWT authentication required")
+		_, err = cryptossh.Dial("tcp", net.JoinHostPort(host, portStr), config)
+		assert.Error(t, err, "SSH connection should fail when JWT is required but not provided")
 	})
 
 	t.Run("allows_when_disabled", func(t *testing.T) {
 		serverNoJWT := New(hostKey, nil)
 		require.False(t, serverNoJWT.jwtEnabled, "JWT should be disabled without config")
 		serverNoJWT.SetAllowRootLogin(true)
-		err := serverNoJWT.AddAuthorizedKey("test-peer", string(clientPubKey))
-		require.NoError(t, err)
 
 		serverAddrNoJWT := StartTestServer(t, serverNoJWT)
 		defer require.NoError(t, serverNoJWT.Stop())
@@ -109,12 +90,12 @@ func TestJWTEnforcement(t *testing.T) {
 		portNoJWT, err := strconv.Atoi(portStrNoJWT)
 		require.NoError(t, err)
 
-		serverType, err := detection.DetectSSHServerType(context.Background(), hostNoJWT, portNoJWT, "")
+		serverType, err := detection.DetectSSHServerType(context.Background(), hostNoJWT, portNoJWT)
 		require.NoError(t, err)
 		assert.Equal(t, detection.ServerTypeNetBirdNoJWT, serverType)
 		assert.False(t, serverType.RequiresJWT())
 
-		client, err := connectWithNetBirdClient(t, hostNoJWT, portNoJWT, clientPrivKey)
+		client, err := connectWithNetBirdClient(t, hostNoJWT, portNoJWT)
 		require.NoError(t, err)
 		defer client.Close()
 	})
@@ -185,33 +166,8 @@ func generateValidJWT(t *testing.T, privateKey *rsa.PrivateKey, issuer, audience
 	return tokenString
 }
 
-// sendJWTAuthRequest sends a JWT auth request over SSH connection
-func sendJWTAuthRequest(conn *cryptossh.Client, token string) error {
-	authReq := struct {
-		Token string `json:"token"`
-	}{
-		Token: token,
-	}
-
-	payload, err := json.Marshal(authReq)
-	if err != nil {
-		return err
-	}
-
-	ok, response, err := conn.SendRequest("netbird-auth", true, payload)
-	if err != nil {
-		return err
-	}
-
-	if !ok {
-		return fmt.Errorf("authentication rejected: %s", string(response))
-	}
-
-	return nil
-}
-
 // connectWithNetBirdClient connects to SSH server using NetBird's SSH client
-func connectWithNetBirdClient(t *testing.T, host string, port int, privateKey []byte) (*client.Client, error) {
+func connectWithNetBirdClient(t *testing.T, host string, port int) (*client.Client, error) {
 	t.Helper()
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
@@ -254,7 +210,7 @@ func TestJWTDetection(t *testing.T) {
 	port, err := strconv.Atoi(portStr)
 	require.NoError(t, err)
 
-	serverType, err := detection.DetectSSHServerType(context.Background(), host, port, "")
+	serverType, err := detection.DetectSSHServerType(context.Background(), host, port)
 	require.NoError(t, err)
 	assert.Equal(t, detection.ServerTypeNetBirdJWT, serverType)
 	assert.True(t, serverType.RequiresJWT())
@@ -459,34 +415,41 @@ func TestJWTAuthentication(t *testing.T) {
 			host, portStr, err := net.SplitHostPort(serverAddr)
 			require.NoError(t, err)
 
+			var authMethods []cryptossh.AuthMethod
+			if tc.token == "valid" {
+				token := generateValidJWT(t, privateKey, issuer, audience)
+				authMethods = []cryptossh.AuthMethod{
+					cryptossh.Password(token),
+				}
+			} else if tc.token == "invalid" {
+				invalidToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.invalid"
+				authMethods = []cryptossh.AuthMethod{
+					cryptossh.Password(invalidToken),
+				}
+			}
+
 			config := &cryptossh.ClientConfig{
 				User:            getCurrentUsername(t),
-				Auth:            []cryptossh.AuthMethod{},
+				Auth:            authMethods,
 				HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
 				Timeout:         2 * time.Second,
 			}
 
 			conn, err := cryptossh.Dial("tcp", net.JoinHostPort(host, portStr), config)
-			require.NoError(t, err)
-			defer func() {
-				if err := conn.Close(); err != nil {
-					t.Logf("close connection: %v", err)
-				}
-			}()
-
-			if tc.token == "valid" {
-				token := generateValidJWT(t, privateKey, issuer, audience)
-				err = sendJWTAuthRequest(conn, token)
-				if tc.wantAuthOK {
-					require.NoError(t, err, "JWT authentication should succeed")
-				}
-			} else if tc.token == "invalid" {
-				invalidToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.invalid"
-				ok, _, err := conn.SendRequest("netbird-auth", true, []byte(`{"token":"`+invalidToken+`"}`))
+			if tc.wantAuthOK {
+				require.NoError(t, err, "JWT authentication should succeed")
+			} else {
 				if err != nil {
-					t.Logf("SendRequest error (expected): %v", err)
+					t.Logf("Connection failed as expected: %v", err)
+					return
 				}
-				assert.False(t, ok, "Invalid JWT should be rejected")
+			}
+			if conn != nil {
+				defer func() {
+					if err := conn.Close(); err != nil {
+						t.Logf("close connection: %v", err)
+					}
+				}()
 			}
 
 			err = tc.testOperation(t, conn, serverAddr)
