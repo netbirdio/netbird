@@ -215,6 +215,12 @@ func (c *Client) Networks() *NetworkArray {
 		return nil
 	}
 
+	routeSelector := routeManager.GetRouteSelector()
+	if routeSelector == nil {
+		log.Error("could not get route selector")
+		return nil
+	}
+
 	networkArray := &NetworkArray{
 		items: make([]Network, 0),
 	}
@@ -230,16 +236,17 @@ func (c *Client) Networks() *NetworkArray {
 			netStr = r.Domains.SafeString()
 		}
 
-		peer, err := c.recorder.GetPeer(routes[0].Peer)
+		routePeer, err := c.recorder.GetPeer(routes[0].Peer)
 		if err != nil {
 			log.Errorf("could not get peer info for %s: %v", routes[0].Peer, err)
 			continue
 		}
 		network := Network{
-			Name:    string(id),
-			Network: netStr,
-			Peer:    peer.FQDN,
-			Status:  peer.ConnStatus.String(),
+			Name:       string(id),
+			Network:    netStr,
+			Peer:       routePeer.FQDN,
+			Status:     routePeer.ConnStatus.String(),
+			IsSelected: routeSelector.IsSelected(id),
 		}
 		networkArray.Add(network)
 	}

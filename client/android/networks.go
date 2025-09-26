@@ -3,10 +3,11 @@
 package android
 
 type Network struct {
-	Name    string
-	Network string
-	Peer    string
-	Status  string
+	Name       string
+	Network    string
+	Peer       string
+	Status     string
+	IsSelected bool
 }
 
 type NetworkArray struct {
