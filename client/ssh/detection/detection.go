@@ -1,6 +1,7 @@
 package detection
 
 import (
+	"context"
 	"net"
 	"strconv"
 	"strings"
@@ -33,7 +34,7 @@ func (s ServerType) RequiresJWT() bool {
 }
 
 // DetectSSHServerType detects SSH server type with optional username
-func DetectSSHServerType(host string, port int, username string) (ServerType, error) {
+func DetectSSHServerType(ctx context.Context, host string, port int, username string) (ServerType, error) {
 	if username == "" {
 		username = "netbird-detect"
 	}
@@ -47,11 +48,24 @@ func DetectSSHServerType(host string, port int, username string) (ServerType, er
 	}
 
 	targetAddr := net.JoinHostPort(host, strconv.Itoa(port))
-	client, err := ssh.Dial("tcp", targetAddr, config)
+
+	dialer := &net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "tcp", targetAddr)
 	if err != nil {
 		log.Debugf("SSH connection failed for detection: %v", err)
 		return ServerTypeRegular, nil
 	}
+
+	clientConn, chans, reqs, err := ssh.NewClientConn(conn, targetAddr, config)
+	if err != nil {
+		if closeErr := conn.Close(); closeErr != nil {
+			log.Debugf("connection close after handshake failure: %v", closeErr)
+		}
+		log.Debugf("SSH connection failed for detection: %v", err)
+		return ServerTypeRegular, nil
+	}
+
+	client := ssh.NewClient(clientConn, chans, reqs)
 	defer client.Close()
 
 	ok, response, err := client.SendRequest("netbird-detect", true, nil)

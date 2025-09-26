@@ -342,7 +342,7 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 		return nil, fmt.Errorf("parse port %s: %w", portStr, err)
 	}
 
-	serverType, err := detection.DetectSSHServerType(host, port, config.User)
+	serverType, err := detection.DetectSSHServerType(ctx, host, port, config.User)
 	if err != nil {
 		log.Debugf("SSH server detection failed: %v, falling back to regular SSH", err)
 		return dialSSH(ctx, network, addr, config)

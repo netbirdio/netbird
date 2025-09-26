@@ -688,8 +688,7 @@ func sshProxyFn(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create SSH proxy: %w", err)
 	}
 
-	ctx := context.Background()
-	if err := proxy.Connect(ctx); err != nil {
+	if err := proxy.Connect(cmd.Context()); err != nil {
 		return fmt.Errorf("SSH proxy: %w", err)
 	}
 
@@ -705,7 +704,7 @@ var sshDetectCmd = &cobra.Command{
 	RunE:   sshDetectFn,
 }
 
-func sshDetectFn(_ *cobra.Command, args []string) error {
+func sshDetectFn(cmd *cobra.Command, args []string) error {
 	host := args[0]
 	portStr := args[1]
 
@@ -719,7 +718,7 @@ func sshDetectFn(_ *cobra.Command, args []string) error {
 		username = currentUser.Username
 	}
 
-	serverType, err := detection.DetectSSHServerType(host, port, username)
+	serverType, err := detection.DetectSSHServerType(cmd.Context(), host, port, username)
 	if err != nil {
 		return errors.New("not netbird")
 	}

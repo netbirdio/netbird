@@ -68,7 +68,7 @@ func TestJWTEnforcement(t *testing.T) {
 		require.NoError(t, err)
 		port, err := strconv.Atoi(portStr)
 		require.NoError(t, err)
-		serverType, err := detection.DetectSSHServerType(host, port, "")
+		serverType, err := detection.DetectSSHServerType(context.Background(), host, port, "")
 		if err != nil {
 			t.Logf("Detection failed: %v", err)
 		}
@@ -109,7 +109,7 @@ func TestJWTEnforcement(t *testing.T) {
 		portNoJWT, err := strconv.Atoi(portStrNoJWT)
 		require.NoError(t, err)
 
-		serverType, err := detection.DetectSSHServerType(hostNoJWT, portNoJWT, "")
+		serverType, err := detection.DetectSSHServerType(context.Background(), hostNoJWT, portNoJWT, "")
 		require.NoError(t, err)
 		assert.Equal(t, detection.ServerTypeNetBirdNoJWT, serverType)
 		assert.False(t, serverType.RequiresJWT())
