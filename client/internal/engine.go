@@ -248,7 +248,7 @@ func NewEngine(
 	sm := profilemanager.NewServiceManager("")
 
 	path := sm.GetStatePath()
-	if runtime.GOOS == "ios" {
+	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
 			if err != nil {
