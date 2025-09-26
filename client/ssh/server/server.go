@@ -138,6 +138,10 @@ type AuthenticatedSession struct {
 	ExpiresAt time.Time
 }
 
+type jwtAuthRequest struct {
+	Token string `json:"token"`
+}
+
 // New creates an SSH server instance with the provided host key and optional JWT configuration
 // If jwtConfig is nil, JWT authentication is disabled
 func New(hostKeyPEM []byte, jwtConfig *JWTConfig) *Server {
@@ -323,6 +327,36 @@ func (s *Server) ensureJWTValidator() error {
 
 // handleJWTAuthRequest handles JWT authentication requests from SSH clients
 func (s *Server) handleJWTAuthRequest(ctx ssh.Context, _ *ssh.Server, req *cryptossh.Request) (bool, []byte) {
+	if ok, msg := s.checkJWTEnabled(ctx); !ok {
+		return false, msg
+	}
+
+	if err := s.ensureJWTValidator(); err != nil {
+		log.Errorf("Failed to initialize JWT validator: %v", err)
+		return false, []byte("JWT authentication not available")
+	}
+
+	authReq, ok, msg := s.parseJWTAuthRequest(req)
+	if !ok {
+		return false, msg
+	}
+
+	token, ok, msg := s.validateJWTToken(ctx, authReq.Token)
+	if !ok {
+		return false, msg
+	}
+
+	userAuth, ok, msg := s.extractAndValidateUser(ctx, token)
+	if !ok {
+		return false, msg
+	}
+
+	s.createAuthenticatedSession(ctx, authReq.Token, userAuth.UserId)
+	log.Infof("JWT authentication successful for user %s from %s", userAuth.UserId, ctx.RemoteAddr())
+	return true, []byte("authentication successful")
+}
+
+func (s *Server) checkJWTEnabled(ctx ssh.Context) (bool, []byte) {
 	s.mu.RLock()
 	jwtEnabled := s.jwtEnabled
 	s.mu.RUnlock()
@@ -331,80 +365,112 @@ func (s *Server) handleJWTAuthRequest(ctx ssh.Context, _ *ssh.Server, req *crypt
 		log.Debugf("JWT authentication request from %s rejected: JWT not enabled on SSH server", ctx.RemoteAddr())
 		return false, []byte("JWT authentication not enabled")
 	}
+	return true, nil
+}
 
-	if err := s.ensureJWTValidator(); err != nil {
-		log.Errorf("Failed to initialize JWT validator: %v", err)
-		return false, []byte("JWT authentication not available")
-	}
-
-	var authReq struct {
-		Token string `json:"token"`
-	}
+func (s *Server) parseJWTAuthRequest(req *cryptossh.Request) (*jwtAuthRequest, bool, []byte) {
+	var authReq jwtAuthRequest
 
 	if err := json.Unmarshal(req.Payload, &authReq); err != nil {
 		log.Errorf("Failed to parse JWT auth request: %v", err)
-		return false, []byte("invalid request format")
+		return nil, false, []byte("invalid request format")
 	}
+	return &authReq, true, nil
+}
 
+func (s *Server) validateJWTToken(ctx ssh.Context, tokenString string) (*gojwt.Token, bool, []byte) {
 	s.mu.RLock()
 	jwtValidator := s.jwtValidator
-	jwtExtractor := s.jwtExtractor
 	jwtConfig := s.jwtConfig
 	s.mu.RUnlock()
 
-	if jwtValidator == nil || jwtExtractor == nil {
-		log.Errorf("JWT validator or extractor is nil despite JWT being enabled - denying access")
-		return false, []byte("JWT authentication not available")
+	if jwtValidator == nil {
+		log.Errorf("JWT validator is nil despite JWT being enabled - denying access")
+		return nil, false, []byte("JWT authentication not available")
 	}
 
-	token, err := jwtValidator.ValidateAndParse(context.Background(), authReq.Token)
+	token, err := jwtValidator.ValidateAndParse(context.Background(), tokenString)
 	if err != nil {
-		log.Errorf("JWT validation failed for user %s from %s: %v", ctx.User(), ctx.RemoteAddr(), err)
-		if jwtConfig != nil {
-			log.Debugf("JWT config - Expected Issuer: %s, Expected Audience: %s", jwtConfig.Issuer, jwtConfig.Audience)
-		}
-		if claims, parseErr := s.parseTokenWithoutValidation(authReq.Token); parseErr == nil {
-			log.Debugf("JWT token claims - Actual Issuer: %v, Actual Audience: %v", claims["iss"], claims["aud"])
-		}
-		return false, []byte("token validation failed")
+		s.logValidationFailure(ctx, tokenString, jwtConfig, err)
+		return nil, false, []byte("token validation failed")
 	}
 
-	if jwtConfig != nil && jwtConfig.MaxTokenAge > 0 {
-		if claims, ok := token.Claims.(gojwt.MapClaims); ok {
-			if iat, ok := claims["iat"].(float64); ok {
-				issuedAt := time.Unix(int64(iat), 0)
-				tokenAge := time.Since(issuedAt)
-				if tokenAge > time.Duration(jwtConfig.MaxTokenAge)*time.Second {
-					log.Errorf("JWT token too old based on iat claim for user %s from %s: age=%v, max=%v",
-						ctx.User(), ctx.RemoteAddr(), tokenAge, time.Duration(jwtConfig.MaxTokenAge)*time.Second)
-					return false, []byte("token expired")
-				}
-			}
-		}
+	if ok, msg := s.checkTokenAge(ctx, token, jwtConfig); !ok {
+		return nil, false, msg
+	}
+
+	return token, true, nil
+}
+
+func (s *Server) logValidationFailure(ctx ssh.Context, tokenString string, jwtConfig *JWTConfig, err error) {
+	log.Errorf("JWT validation failed for user %s from %s: %v", ctx.User(), ctx.RemoteAddr(), err)
+	if jwtConfig != nil {
+		log.Debugf("JWT config - Expected Issuer: %s, Expected Audience: %s", jwtConfig.Issuer, jwtConfig.Audience)
+	}
+	if claims, parseErr := s.parseTokenWithoutValidation(tokenString); parseErr == nil {
+		log.Debugf("JWT token claims - Actual Issuer: %v, Actual Audience: %v", claims["iss"], claims["aud"])
+	}
+}
+
+func (s *Server) checkTokenAge(ctx ssh.Context, token *gojwt.Token, jwtConfig *JWTConfig) (bool, []byte) {
+	if jwtConfig == nil || jwtConfig.MaxTokenAge <= 0 {
+		return true, nil
+	}
+
+	claims, ok := token.Claims.(gojwt.MapClaims)
+	if !ok {
+		return true, nil
+	}
+
+	iat, ok := claims["iat"].(float64)
+	if !ok {
+		return true, nil
+	}
+
+	issuedAt := time.Unix(int64(iat), 0)
+	tokenAge := time.Since(issuedAt)
+	if tokenAge > time.Duration(jwtConfig.MaxTokenAge)*time.Second {
+		log.Errorf("JWT token too old based on iat claim for user %s from %s: age=%v, max=%v",
+			ctx.User(), ctx.RemoteAddr(), tokenAge, time.Duration(jwtConfig.MaxTokenAge)*time.Second)
+		return false, []byte("token expired")
+	}
+
+	return true, nil
+}
+
+func (s *Server) extractAndValidateUser(ctx ssh.Context, token *gojwt.Token) (*nbcontext.UserAuth, bool, []byte) {
+	s.mu.RLock()
+	jwtExtractor := s.jwtExtractor
+	s.mu.RUnlock()
+
+	if jwtExtractor == nil {
+		log.Errorf("JWT extractor is nil despite JWT being enabled - denying access")
+		return nil, false, []byte("JWT authentication not available")
 	}
 
 	userAuth, err := jwtExtractor.ToUserAuth(token)
 	if err != nil {
 		log.Errorf("Failed to extract user auth from token: %v", err)
-		return false, []byte("token processing failed")
+		return nil, false, []byte("token processing failed")
 	}
 
 	if !s.hasSSHAccess(&userAuth) {
 		log.Errorf("User %s does not have SSH access permissions", userAuth.UserId)
-		return false, []byte("insufficient permissions")
+		return nil, false, []byte("insufficient permissions")
 	}
 
+	return &userAuth, true, nil
+}
+
+func (s *Server) createAuthenticatedSession(ctx ssh.Context, token, userID string) {
 	sessionID := s.generateSessionID(ctx)
 	s.mu.Lock()
 	s.authenticatedSessions[sessionID] = &AuthenticatedSession{
-		UserID:    userAuth.UserId,
-		Token:     authReq.Token,
+		UserID:    userID,
+		Token:     token,
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
 	s.mu.Unlock()
-
-	log.Infof("JWT authentication successful for user %s from %s", userAuth.UserId, ctx.RemoteAddr())
-	return true, []byte("authentication successful")
 }
 
 func (s *Server) generateSessionID(ctx ssh.Context) string {
