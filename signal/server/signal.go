@@ -141,8 +141,7 @@ func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.Encrypted
 		return &emptypb.Empty{}, nil
 	}
 
-	msg, err := s.dispatcher.SendMessage(ctx, msg, true)
-	if err != nil {
+	if _, err := s.dispatcher.SendMessage(ctx, msg, true); err != nil {
 		return nil, err
 	}
 
