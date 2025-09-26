@@ -564,11 +564,9 @@ func TestJWTAuthentication(t *testing.T) {
 			conn, err := cryptossh.Dial("tcp", net.JoinHostPort(host, portStr), config)
 			if tc.wantAuthOK {
 				require.NoError(t, err, "JWT authentication should succeed")
-			} else {
-				if err != nil {
-					t.Logf("Connection failed as expected: %v", err)
-					return
-				}
+			} else if err != nil {
+				t.Logf("Connection failed as expected: %v", err)
+				return
 			}
 			if conn != nil {
 				defer func() {
