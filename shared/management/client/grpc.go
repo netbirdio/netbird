@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -44,6 +45,8 @@ type GrpcClient struct {
 	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
+	// lastNetworkMapSerial stores last seen network map serial to optimize sync
+	lastNetworkMapSerial uint64
 }
 
 // NewClient creates a new client to Management service
@@ -216,11 +219,34 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 		return nil, fmt.Errorf("invalid msg, required network map")
 	}
 
+	// update last seen serial
+	atomic.StoreUint64(&c.lastNetworkMapSerial, decryptedResp.GetNetworkMap().GetSerial())
+
 	return decryptedResp.GetNetworkMap(), nil
 }
 
 func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
-	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
+	// Always compute latest system info to ensure up-to-date PeerSystemMeta on first and subsequent syncs
+	recomputed := system.GetInfo(c.ctx)
+	if sysInfo != nil {
+		recomputed.SetFlags(
+			sysInfo.RosenpassEnabled,
+			sysInfo.RosenpassPermissive,
+			&sysInfo.ServerSSHAllowed,
+			sysInfo.DisableClientRoutes,
+			sysInfo.DisableServerRoutes,
+			sysInfo.DisableDNS,
+			sysInfo.DisableFirewall,
+			sysInfo.BlockLANAccess,
+			sysInfo.BlockInbound,
+			sysInfo.LazyConnectionEnabled,
+		)
+		// carry over posture files if any were computed
+		if len(sysInfo.Files) > 0 {
+			recomputed.Files = sysInfo.Files
+		}
+	}
+	req := &proto.SyncRequest{Meta: infoToMetaData(recomputed), NetworkMapSerial: atomic.LoadUint64(&c.lastNetworkMapSerial)}
 
 	myPrivateKey := c.key
 	myPublicKey := myPrivateKey.PublicKey()
@@ -256,6 +282,11 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 		if err != nil {
 			log.Errorf("failed decrypting update message from Management Service: %s", err)
 			return err
+		}
+
+		// track latest network map serial if present
+		if decryptedResp.GetNetworkMap() != nil {
+			atomic.StoreUint64(&c.lastNetworkMapSerial, decryptedResp.GetNetworkMap().GetSerial())
 		}
 
 		if err := msgHandler(decryptedResp); err != nil {

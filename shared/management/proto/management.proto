@@ -63,6 +63,8 @@ message EncryptedMessage {
 message SyncRequest {
   // Meta data of the peer
   PeerSystemMeta meta = 1;
+  // Optional: last known NetworkMap serial number on the client
+  uint64 networkMapSerial = 2;
 }
 
 // SyncResponse represents a state that should be applied to the local peer (e.g. Netbird servers config as well as local peer and remote peers configs)
