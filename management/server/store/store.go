@@ -202,6 +202,7 @@ type Store interface {
 	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
+	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
 }
 
 const (

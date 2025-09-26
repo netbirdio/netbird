@@ -450,7 +450,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 // to it. We also add the User ID to the peer metadata to identify registrant. If no userID provided, then fail with status.PermissionDenied
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if setupKey == "" && userID == "" {
 		// no auth method provided => reject access
 		return nil, nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
@@ -482,8 +482,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	var ephemeral bool
 	var groupsToAdd []string
 	var allowExtraDNSLabels bool
-	var accountID string
-	var isEphemeral bool
 	if addedByUser {
 		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 		if err != nil {
@@ -492,10 +490,21 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		if user.PendingApproval {
 			return nil, nil, nil, status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
 		}
-		groupsToAdd = user.AutoGroups
+		if temporary {
+			allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
+			if err != nil {
+				return nil, nil, nil, status.NewPermissionValidationError(err)
+			}
+
+			if !allowed {
+				return nil, nil, nil, status.NewPermissionDeniedError()
+			}
+		} else {
+			accountID = user.AccountID
+			groupsToAdd = user.AutoGroups
+		}
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
-		accountID = user.AccountID
 	} else {
 		// Validate the setup key
 		sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
@@ -516,12 +525,15 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		setupKeyName = sk.Name
 		allowExtraDNSLabels = sk.AllowExtraDNSLabels
 		accountID = sk.AccountID
-		isEphemeral = sk.Ephemeral
 		if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
 			return nil, nil, nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
 		}
 	}
 	opEvent.AccountID = accountID
+
+	if temporary {
+		ephemeral = true
+	}
 
 	if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
 		if am.idpManager != nil {
@@ -549,10 +561,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		SSHKey:                      peer.SSHKey,
 		LastLogin:                   &registrationTime,
 		CreatedAt:                   registrationTime,
-		LoginExpirationEnabled:      addedByUser,
+		LoginExpirationEnabled:      addedByUser && !temporary,
 		Ephemeral:                   ephemeral,
 		Location:                    peer.Location,
-		InactivityExpirationEnabled: addedByUser,
+		InactivityExpirationEnabled: addedByUser && !temporary,
 		ExtraDNSLabels:              peer.ExtraDNSLabels,
 		AllowExtraDNSLabels:         allowExtraDNSLabels,
 	}
@@ -588,7 +600,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 
 		var freeLabel string
-		if isEphemeral || attempt > 1 {
+		if ephemeral || attempt > 1 {
 			freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
@@ -620,6 +632,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
 			if err != nil {
 				return fmt.Errorf("failed adding peer to All group: %w", err)
+			}
+
+			if temporary {
+				// we are running the on disconnect handler so that it is considered not connected as we are adding the peer manually
+				am.ephemeralManager.OnPeerDisconnected(ctx, newPeer)
 			}
 
 			if addedByUser {
@@ -790,7 +807,7 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 			ExtraDNSLabels: login.ExtraDNSLabels,
 		}
 
-		return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
+		return am.AddPeer(ctx, "", login.SetupKey, login.UserID, newPeer, false)
 	}
 
 	log.WithContext(ctx).Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
@@ -877,6 +894,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
 			shouldStorePeer = true
+			updateRemotePeers = true
 		}
 
 		if !peer.AllowExtraDNSLabels && len(login.ExtraDNSLabels) > 0 {
@@ -1538,6 +1556,26 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 
 		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID, settings.Extra); err != nil {
 			return nil, err
+		}
+
+		peerPolicyRules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthNone, accountID, peer.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range peerPolicyRules {
+			policy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, rule.PolicyID)
+			if err != nil {
+				return nil, err
+			}
+
+			err = transaction.DeletePolicy(ctx, accountID, rule.PolicyID)
+			if err != nil {
+				return nil, err
+			}
+
+			peerDeletedEvents = append(peerDeletedEvents, func() {
+				am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
+			})
 		}
 
 		if err = transaction.DeletePeer(ctx, accountID, peer.ID); err != nil {

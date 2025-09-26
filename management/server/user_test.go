@@ -1439,10 +1439,10 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedPeerKey := key.PublicKey().String()
-	peer4, _, _, err := manager.AddPeer(context.Background(), "", "regularUser2", &nbpeer.Peer{
+	peer4, _, _, err := manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-	})
+	}, false)
 	require.NoError(t, err)
 
 	// updating user with linked peers should update account peers and send peer update

@@ -65,6 +65,10 @@ func (s *BaseServer) AccountManager() account.Manager {
 		if err != nil {
 			log.Fatalf("failed to create account manager: %v", err)
 		}
+
+		s.AfterInit(func(s *BaseServer) {
+			accountManager.SetEphemeralManager(s.EphemeralManager())
+		})
 		return accountManager
 	})
 }
