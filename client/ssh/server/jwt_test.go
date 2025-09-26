@@ -254,7 +254,7 @@ func TestJWTDetection(t *testing.T) {
 	port, err := strconv.Atoi(portStr)
 	require.NoError(t, err)
 
-	serverType, err := detection.DetectSSHServerType(host, port, "")
+	serverType, err := detection.DetectSSHServerType(context.Background(), host, port, "")
 	require.NoError(t, err)
 	assert.Equal(t, detection.ServerTypeNetBirdJWT, serverType)
 	assert.True(t, serverType.RequiresJWT())

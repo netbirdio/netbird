@@ -346,13 +346,13 @@ func (s *Server) handleJWTAuthRequest(ctx ssh.Context, _ *ssh.Server, req *crypt
 		return false, msg
 	}
 
-	userAuth, ok, msg := s.extractAndValidateUser(ctx, token)
+	userAuth, ok, msg := s.extractAndValidateUser(token)
 	if !ok {
 		return false, msg
 	}
 
-	s.createAuthenticatedSession(ctx, authReq.Token, userAuth.UserId)
-	log.Infof("JWT authentication successful for user %s from %s", userAuth.UserId, ctx.RemoteAddr())
+	sessionID := s.createAuthenticatedSession(ctx, authReq.Token, userAuth.UserId)
+	log.WithField("session", sessionID).Infof("JWT authentication successful for user %s from %s", userAuth.UserId, ctx.RemoteAddr())
 	return true, []byte("authentication successful")
 }
 
@@ -438,7 +438,7 @@ func (s *Server) checkTokenAge(ctx ssh.Context, token *gojwt.Token, jwtConfig *J
 	return true, nil
 }
 
-func (s *Server) extractAndValidateUser(ctx ssh.Context, token *gojwt.Token) (*nbcontext.UserAuth, bool, []byte) {
+func (s *Server) extractAndValidateUser(token *gojwt.Token) (*nbcontext.UserAuth, bool, []byte) {
 	s.mu.RLock()
 	jwtExtractor := s.jwtExtractor
 	s.mu.RUnlock()
@@ -462,7 +462,7 @@ func (s *Server) extractAndValidateUser(ctx ssh.Context, token *gojwt.Token) (*n
 	return &userAuth, true, nil
 }
 
-func (s *Server) createAuthenticatedSession(ctx ssh.Context, token, userID string) {
+func (s *Server) createAuthenticatedSession(ctx ssh.Context, token, userID string) string {
 	sessionID := s.generateSessionID(ctx)
 	s.mu.Lock()
 	s.authenticatedSessions[sessionID] = &AuthenticatedSession{
@@ -471,6 +471,7 @@ func (s *Server) createAuthenticatedSession(ctx ssh.Context, token, userID strin
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
 	s.mu.Unlock()
+	return sessionID
 }
 
 func (s *Server) generateSessionID(ctx ssh.Context) string {
@@ -645,11 +646,11 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	}
 
 	if !netbirdNetwork.Contains(remoteIP) {
-		log.Warnf("SSH connection rejected from non-NetBird IP %s (allowed range: %s)", remoteIP, netbirdNetwork)
+		log.Warnf("SSH connection rejected from non-NetBird IP %s", remoteIP)
 		return nil
 	}
 
-	log.Debugf("SSH connection from NetBird peer %s allowed (network: %s)", remoteIP, netbirdNetwork)
+	log.Debugf("SSH connection from NetBird peer %s allowed", remoteIP)
 	return conn
 }
 
