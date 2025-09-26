@@ -23,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/signal/peer"
 )
 
+var ErrPeerNotConnected = errors.New("peer not connected")
+
 const (
 	labelType              = "type"
 	labelTypeError         = "error"
@@ -109,7 +111,7 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
 	if _, found := s.registry.Get(msg.RemoteKey); found {
-		s.forwardMessageToPeer(ctx, msg)
+		_ = s.forwardMessageToPeer(ctx, msg)
 		return &proto.EncryptedMessage{}, nil
 	}
 
@@ -130,9 +132,13 @@ func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.Encrypted
 
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 	if _, found := s.registry.Get(msg.RemoteKey); found {
-		// todo error handling here too
-		err := s.forwardMessageToPeer(ctx, msg)
-		return &emptypb.Empty{}, err
+		if err := s.forwardMessageToPeer(ctx, msg); err != nil {
+			if errors.Is(err, ErrPeerNotConnected) {
+				return nil, status.Errorf(codes.NotFound, "remote peer not connected")
+			}
+			return nil, status.Errorf(codes.Internal, "error forwarding message to peer: %v", err)
+		}
+		return &emptypb.Empty{}, nil
 	}
 
 	msg, err := s.dispatcher.SendMessage(ctx, msg, true)
@@ -210,7 +216,7 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeNotConnected)))
 		log.Tracef("message from peer [%s] can't be forwarded to peer [%s] because destination peer is not connected", msg.Key, msg.RemoteKey)
 		// todo respond to the sender?
-		return fmt.Errorf("destination peer not connected")
+		return ErrPeerNotConnected
 	}
 
 	s.metrics.GetRegistrationDelay.Record(ctx, float64(time.Since(getRegistrationStart).Nanoseconds())/1e6, metric.WithAttributes(attribute.String(labelType, labelTypeStream), attribute.String(labelRegistrationStatus, labelRegistrationFound)))
