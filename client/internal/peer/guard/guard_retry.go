@@ -8,7 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// GuardRetry is responsible for the reconnection logic.
+// RetryGuard is responsible for the reconnection logic.
 // It will trigger to send an offer to the peer then has connection issues.
 // Watch these events:
 // - Relay client reconnected to home server
@@ -16,7 +16,7 @@ import (
 // - ICE connection disconnected
 // - Relayed connection disconnected
 // - ICE candidate changes
-type GuardRetry struct {
+type RetryGuard struct {
 	log                     *log.Entry
 	isConnectedOnAllWay     isConnectedFunc
 	timeout                 time.Duration
@@ -25,12 +25,12 @@ type GuardRetry struct {
 	iCEConnDisconnected     chan struct{}
 }
 
-func (g *GuardRetry) FailedToSendOffer() {
+func (g *RetryGuard) FailedToSendOffer() {
 	log.Errorf("FailedToSendOffer is not implemented in GuardRetry")
 }
 
-func NewGuardRetry(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *GuardRetry {
-	return &GuardRetry{
+func NewRetryGuard(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *RetryGuard {
+	return &RetryGuard{
 		log:                     log,
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
@@ -40,19 +40,19 @@ func NewGuardRetry(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.D
 	}
 }
 
-func (g *GuardRetry) Start(ctx context.Context, eventCallback func()) {
+func (g *RetryGuard) Start(ctx context.Context, eventCallback func()) {
 	g.log.Infof("starting guard for reconnection with MaxInterval: %s", g.timeout)
 	g.reconnectLoopWithRetry(ctx, eventCallback)
 }
 
-func (g *GuardRetry) SetRelayedConnDisconnected() {
+func (g *RetryGuard) SetRelayedConnDisconnected() {
 	select {
 	case g.relayedConnDisconnected <- struct{}{}:
 	default:
 	}
 }
 
-func (g *GuardRetry) SetICEConnDisconnected() {
+func (g *RetryGuard) SetICEConnDisconnected() {
 	select {
 	case g.iCEConnDisconnected <- struct{}{}:
 	default:
@@ -61,7 +61,7 @@ func (g *GuardRetry) SetICEConnDisconnected() {
 
 // reconnectLoopWithRetry periodically check the connection status.
 // Try to send offer while the P2P is not established or while the Relay is not connected if is it supported
-func (g *GuardRetry) reconnectLoopWithRetry(ctx context.Context, callback func()) {
+func (g *RetryGuard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	srReconnectedChan := g.srWatcher.NewListener()
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
@@ -109,7 +109,7 @@ func (g *GuardRetry) reconnectLoopWithRetry(ctx context.Context, callback func()
 }
 
 // initialTicker give chance to the peer to establish the initial connection.
-func (g *GuardRetry) initialTicker(ctx context.Context) *backoff.Ticker {
+func (g *RetryGuard) initialTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     3 * time.Second,
 		RandomizationFactor: 0.1,
@@ -122,7 +122,7 @@ func (g *GuardRetry) initialTicker(ctx context.Context) *backoff.Ticker {
 	return backoff.NewTicker(bo)
 }
 
-func (g *GuardRetry) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
+func (g *RetryGuard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: 0.1,

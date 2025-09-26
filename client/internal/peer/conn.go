@@ -811,7 +811,7 @@ func (conn *Conn) switchGuard() {
 	conn.wg.Add(1)
 	go func() {
 		defer conn.wg.Done()
-		conn.guard = guard.NewGuardRetry(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
+		conn.guard = guard.NewRetryGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
 		conn.guard.Start(conn.ctx, conn.onGuardEvent)
 	}()
 }
