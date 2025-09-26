@@ -249,7 +249,7 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 
 		if r.gpo {
 			if err := r.configureDNSPolicy(gpoDnsPolicyConfigMatchPath, singleDomain, ip); err != nil {
-				return i, fmt.Errorf("configure local DNS policy: %w", err)
+				return i, fmt.Errorf("configure gpo DNS policy: %w", err)
 			}
 		}
 
@@ -403,10 +403,9 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 	if err := removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigMatchPath); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove local base entry: %w", err))
 	}
-	if r.gpo {
-		if err := removeRegistryKeyFromDNSPolicyConfig(gpoDnsPolicyConfigMatchPath); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("remove GPO base entry: %w", err))
-		}
+
+	if err := removeRegistryKeyFromDNSPolicyConfig(gpoDnsPolicyConfigMatchPath); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("remove GPO base entry: %w", err))
 	}
 
 	for i := 0; i < r.nrptEntryCount; i++ {
@@ -416,10 +415,9 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 		if err := removeRegistryKeyFromDNSPolicyConfig(localPath); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove local entry %d: %w", i, err))
 		}
-		if r.gpo {
-			if err := removeRegistryKeyFromDNSPolicyConfig(gpoPath); err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("remove GPO entry %d: %w", i, err))
-			}
+
+		if err := removeRegistryKeyFromDNSPolicyConfig(gpoPath); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove GPO entry %d: %w", i, err))
 		}
 	}
 
