@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/server"
+	"github.com/netbirdio/netbird/client/ssh/testutil"
 	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
 )
 
@@ -47,7 +48,7 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	server.CleanupTestUsers()
+	testutil.CleanupTestUsers()
 
 	os.Exit(code)
 }
@@ -180,7 +181,7 @@ func TestSSHProxy_Connect(t *testing.T) {
 	}()
 
 	sshConfig := &cryptossh.ClientConfig{
-		User:            server.GetTestUsername(t),
+		User:            testutil.GetTestUsername(t),
 		Auth:            []cryptossh.AuthMethod{},
 		HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
 		Timeout:         3 * time.Second,

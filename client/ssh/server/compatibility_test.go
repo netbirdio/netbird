@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/client/ssh/testutil"
 )
 
 // TestMain handles package-level setup and cleanup
@@ -36,7 +37,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Cleanup any created test users
-	CleanupTestUsers()
+	testutil.CleanupTestUsers()
 
 	os.Exit(code)
 }
@@ -78,7 +79,7 @@ func TestSSHServerCompatibility(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get appropriate user for SSH connection (handle system accounts)
-	username := GetTestUsername(t)
+	username := testutil.GetTestUsername(t)
 
 	t.Run("basic command execution", func(t *testing.T) {
 		testSSHCommandExecutionWithUser(t, host, portStr, clientKeyFile, username)
@@ -118,7 +119,7 @@ func testSSHCommandExecutionWithUser(t *testing.T, host, port, keyFile, username
 // testSSHInteractiveCommand tests interactive shell session.
 func testSSHInteractiveCommand(t *testing.T, host, port, keyFile string) {
 	// Get appropriate user for SSH connection
-	username := GetTestUsername(t)
+	username := testutil.GetTestUsername(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -183,7 +184,7 @@ func testSSHInteractiveCommand(t *testing.T, host, port, keyFile string) {
 // testSSHPortForwarding tests port forwarding compatibility.
 func testSSHPortForwarding(t *testing.T, host, port, keyFile string) {
 	// Get appropriate user for SSH connection
-	username := GetTestUsername(t)
+	username := testutil.GetTestUsername(t)
 
 	testServer, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -406,7 +407,7 @@ func TestSSHServerFeatureCompatibility(t *testing.T) {
 		t.Skip("Skipping SSH feature compatibility tests in short mode")
 	}
 
-	if runtime.GOOS == "windows" && IsCI() {
+	if runtime.GOOS == "windows" && testutil.IsCI() {
 		t.Skip("Skipping Windows SSH compatibility tests in CI due to S4U authentication issues")
 	}
 
@@ -469,7 +470,7 @@ func TestSSHServerFeatureCompatibility(t *testing.T) {
 // testCommandWithFlags tests that commands with flags work properly
 func testCommandWithFlags(t *testing.T, host, port, keyFile string) {
 	// Get appropriate user for SSH connection
-	username := GetTestUsername(t)
+	username := testutil.GetTestUsername(t)
 
 	// Test ls with flags
 	cmd := exec.Command("ssh",
@@ -496,7 +497,7 @@ func testCommandWithFlags(t *testing.T, host, port, keyFile string) {
 // testEnvironmentVariables tests that environment is properly set up
 func testEnvironmentVariables(t *testing.T, host, port, keyFile string) {
 	// Get appropriate user for SSH connection
-	username := GetTestUsername(t)
+	username := testutil.GetTestUsername(t)
 
 	cmd := exec.Command("ssh",
 		"-i", keyFile,
@@ -523,7 +524,7 @@ func testEnvironmentVariables(t *testing.T, host, port, keyFile string) {
 // testExitCodes tests that exit codes are properly handled
 func testExitCodes(t *testing.T, host, port, keyFile string) {
 	// Get appropriate user for SSH connection
-	username := GetTestUsername(t)
+	username := testutil.GetTestUsername(t)
 
 	// Test successful command (exit code 0)
 	cmd := exec.Command("ssh",
@@ -568,7 +569,7 @@ func TestSSHServerSecurityFeatures(t *testing.T) {
 	}
 
 	// Get appropriate user for SSH connection
-	username := GetTestUsername(t)
+	username := testutil.GetTestUsername(t)
 
 	// Set up SSH server with specific security settings
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
@@ -649,7 +650,7 @@ func TestCrossPlatformCompatibility(t *testing.T) {
 	}
 
 	// Get appropriate user for SSH connection
-	username := GetTestUsername(t)
+	username := testutil.GetTestUsername(t)
 
 	// Set up SSH server
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/ssh"
 	sshserver "github.com/netbirdio/netbird/client/ssh/server"
+	"github.com/netbirdio/netbird/client/ssh/testutil"
 )
 
 // TestMain handles package-level setup and cleanup
@@ -35,7 +36,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Cleanup any created test users
-	sshserver.CleanupTestUsers()
+	testutil.CleanupTestUsers()
 
 	os.Exit(code)
 }
@@ -59,7 +60,7 @@ func TestSSHClient_DialWithKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	currentUser := sshserver.GetTestUsername(t)
+	currentUser := testutil.GetTestUsername(t)
 	client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 		InsecureSkipVerify: true,
 	})
@@ -74,7 +75,7 @@ func TestSSHClient_DialWithKey(t *testing.T) {
 }
 
 func TestSSHClient_CommandExecution(t *testing.T) {
-	if runtime.GOOS == "windows" && sshserver.IsCI() {
+	if runtime.GOOS == "windows" && testutil.IsCI() {
 		t.Skip("Skipping Windows command execution tests in CI due to S4U authentication issues")
 	}
 
@@ -134,7 +135,7 @@ func TestSSHClient_ConnectionHandling(t *testing.T) {
 
 	for i := 0; i < numClients; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		currentUser := sshserver.GetTestUsername(t)
+		currentUser := testutil.GetTestUsername(t)
 		client, err := Dial(ctx, serverAddr, fmt.Sprintf("%s-%d", currentUser, i), DialOptions{
 			InsecureSkipVerify: true,
 		})
@@ -160,7 +161,7 @@ func TestSSHClient_ContextCancellation(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()
 
-		currentUser := sshserver.GetTestUsername(t)
+		currentUser := testutil.GetTestUsername(t)
 		_, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 			InsecureSkipVerify: true,
 		})
@@ -177,7 +178,7 @@ func TestSSHClient_ContextCancellation(t *testing.T) {
 	t.Run("command execution cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		currentUser := sshserver.GetTestUsername(t)
+		currentUser := testutil.GetTestUsername(t)
 		client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 			InsecureSkipVerify: true,
 		})
@@ -218,7 +219,7 @@ func TestSSHClient_NoAuthMode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	currentUser := sshserver.GetTestUsername(t)
+	currentUser := testutil.GetTestUsername(t)
 
 	t.Run("any key succeeds in no-auth mode", func(t *testing.T) {
 		client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
@@ -284,7 +285,7 @@ func setupTestSSHServerAndClient(t *testing.T) (*sshserver.Server, string, *Clie
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	currentUser := sshserver.GetTestUsername(t)
+	currentUser := testutil.GetTestUsername(t)
 	client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 		InsecureSkipVerify: true,
 	})
@@ -367,7 +368,7 @@ func TestSSHClient_PortForwardingDataTransfer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Skip if running as system account that can't do port forwarding
-	if sshserver.IsSystemAccount(realUser) {
+	if testutil.IsSystemAccount(realUser) {
 		t.Skipf("Skipping port forwarding test - running as system account: %s", realUser)
 	}
 
