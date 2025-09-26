@@ -87,6 +87,12 @@ service DaemonService {
 
   // GetPeerSSHHostKey retrieves SSH host key for a specific peer
   rpc GetPeerSSHHostKey(GetPeerSSHHostKeyRequest) returns (GetPeerSSHHostKeyResponse) {}
+
+  // RequestJWTAuth initiates JWT authentication flow for SSH
+  rpc RequestJWTAuth(RequestJWTAuthRequest) returns (RequestJWTAuthResponse) {}
+  
+  // WaitJWTToken waits for JWT authentication completion
+  rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
 }
 
 
@@ -680,4 +686,44 @@ message GetPeerSSHHostKeyResponse {
   string peerFQDN = 3;
   // indicates if the SSH host key was found
   bool found = 4;
+}
+
+// RequestJWTAuthRequest for initiating JWT authentication flow
+message RequestJWTAuthRequest {
+}
+
+// RequestJWTAuthResponse contains authentication flow information
+message RequestJWTAuthResponse {
+  // verification URI for user authentication
+  string verificationURI = 1;
+  // complete verification URI (with embedded user code)
+  string verificationURIComplete = 2;
+  // user code to enter on verification URI
+  string userCode = 3;
+  // device code for polling
+  string deviceCode = 4;
+  // expiration time in seconds
+  int64 expiresIn = 5;
+  // if a cached token is available, it will be returned here
+  string cachedToken = 6;
+  // maximum age of JWT tokens in seconds (from management server)
+  int64 maxTokenAge = 7;
+}
+
+// WaitJWTTokenRequest for waiting for authentication completion
+message WaitJWTTokenRequest {
+  // device code from RequestJWTAuthResponse
+  string deviceCode = 1;
+  // user code for verification
+  string userCode = 2;
+}
+
+// WaitJWTTokenResponse contains the JWT token after authentication
+message WaitJWTTokenResponse {
+  // JWT token (access token or ID token)
+  string token = 1;
+  // token type (e.g., "Bearer")
+  string tokenType = 2;
+  // expiration time in seconds
+  int64 expiresIn = 3;
 }

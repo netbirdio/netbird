@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
@@ -587,7 +589,7 @@ func (s *GRPCServer) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		NetbirdConfig: toNetbirdConfig(s.config, nil, relayToken, nil),
-		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(settings), settings),
+		PeerConfig:    toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain(settings), settings, s.config),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
 
@@ -702,12 +704,21 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	return nbConfig
 }
 
-func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings) *proto.PeerConfig {
+func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, config *nbconfig.Config) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
+
+	sshConfig := &proto.SSHConfig{
+		SshEnabled: peer.SSHEnabled,
+	}
+
+	if peer.SSHEnabled {
+		sshConfig.JwtConfig = buildJWTConfig(config)
+	}
+
 	return &proto.PeerConfig{
-		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
-		SshConfig:                       &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
+		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask),
+		SshConfig:                       sshConfig,
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
@@ -716,7 +727,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 
 func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
+		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, config),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
@@ -757,6 +768,55 @@ func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.P
 	}
 
 	return response
+}
+
+// buildJWTConfig constructs JWT configuration for SSH servers from management server config
+func buildJWTConfig(config *nbconfig.Config) *proto.JWTConfig {
+	if config == nil {
+		return nil
+	}
+
+	if config.HttpConfig == nil || config.HttpConfig.AuthAudience == "" {
+		return nil
+	}
+
+	var tokenEndpoint string
+	if config.DeviceAuthorizationFlow != nil {
+		tokenEndpoint = config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint
+	}
+
+	issuer := deriveIssuerFromTokenEndpoint(tokenEndpoint)
+	if issuer == "" && config.HttpConfig.AuthIssuer != "" {
+		issuer = config.HttpConfig.AuthIssuer
+	}
+	if issuer == "" {
+		return nil
+	}
+
+	keysLocation := config.HttpConfig.AuthKeysLocation
+	if keysLocation == "" {
+		keysLocation = strings.TrimSuffix(issuer, "/") + "/.well-known/jwks.json"
+	}
+
+	return &proto.JWTConfig{
+		Issuer:       issuer,
+		Audience:     config.HttpConfig.AuthAudience,
+		KeysLocation: keysLocation,
+	}
+}
+
+// deriveIssuerFromTokenEndpoint extracts the issuer URL from a token endpoint
+func deriveIssuerFromTokenEndpoint(tokenEndpoint string) string {
+	if tokenEndpoint == "" {
+		return ""
+	}
+
+	u, err := url.Parse(tokenEndpoint)
+	if err != nil {
+		return ""
+	}
+
+	return fmt.Sprintf("%s://%s/", u.Scheme, u.Host)
 }
 
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {

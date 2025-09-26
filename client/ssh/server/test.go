@@ -14,7 +14,6 @@ func StartTestServer(t *testing.T, server *Server) string {
 	errChan := make(chan error, 1)
 
 	go func() {
-		// Get a free port
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			errChan <- err
@@ -26,9 +25,12 @@ func StartTestServer(t *testing.T, server *Server) string {
 			return
 		}
 
-		started <- actualAddr
 		addrPort := netip.MustParseAddrPort(actualAddr)
-		errChan <- server.Start(context.Background(), addrPort)
+		if err := server.Start(context.Background(), addrPort); err != nil {
+			errChan <- err
+			return
+		}
+		started <- actualAddr
 	}()
 
 	select {

@@ -49,6 +49,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
+	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
@@ -260,6 +261,7 @@ func NewEngine(
 		path = mobileDep.StateFilePath
 	}
 	engine.stateManager = statemanager.New(path)
+	engine.stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
@@ -679,13 +681,9 @@ func (e *Engine) removeAllPeers() error {
 	return nil
 }
 
-// removePeer closes an existing peer connection, removes a peer, and clears authorized key of the SSH server
+// removePeer closes an existing peer connection and removes a peer
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
-
-	if e.sshServer != nil {
-		e.sshServer.RemoveAuthorizedKey(peerKey)
-	}
 
 	e.connMgr.RemovePeerConn(peerKey)
 
@@ -1077,24 +1075,10 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 		e.statusRecorder.FinishPeerListModifications()
 
-		// update SSHServer by adding remote peer SSH keys
-		if e.sshServer != nil {
-			for _, config := range networkMap.GetRemotePeers() {
-				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
-					err := e.sshServer.AddAuthorizedKey(config.WgPubKey, string(config.GetSshConfig().GetSshPubKey()))
-					if err != nil {
-						log.Warnf("failed adding authorized key to SSH DefaultServer %v", err)
-					}
-				}
-			}
-		}
-
-		// update peer SSH host keys in status recorder for daemon API access
 		e.updatePeerSSHHostKeys(networkMap.GetRemotePeers())
 
-		// update SSH client known_hosts with peer host keys for OpenSSH client
-		if err := e.updateSSHKnownHosts(networkMap.GetRemotePeers()); err != nil {
-			log.Warnf("failed to update SSH known_hosts: %v", err)
+		if err := e.updateSSHClientConfig(networkMap.GetRemotePeers()); err != nil {
+			log.Warnf("failed to update SSH client config: %v", err)
 		}
 	}
 
