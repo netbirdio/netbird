@@ -15,9 +15,8 @@ import (
 
 // sessionHandler handles SSH sessions
 func (s *Server) sessionHandler(session ssh.Session) {
-	// Enforce JWT authentication if enabled
 	if s.jwtEnabled && !s.isSessionAuthenticated(session.Context()) {
-		log.Debugf("SSH session rejected: JWT authentication required but not provided for user %s from %s",
+		log.Infof("SSH session rejected: JWT authentication required but not provided for user %s from %s",
 			session.User(), session.RemoteAddr())
 		if _, err := session.Write([]byte("JWT authentication required\r\n")); err != nil {
 			log.Debugf("write JWT error message: %v", err)

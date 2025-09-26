@@ -510,20 +510,6 @@ func (s *Server) isSessionAuthenticated(ctx ssh.Context) bool {
 		return true
 	}
 
-	if err := s.ensureJWTValidator(); err != nil {
-		log.Errorf("Failed to ensure JWT validator: %v", err)
-		return false
-	}
-
-	s.mu.RLock()
-	jwtValidator := s.jwtValidator
-	s.mu.RUnlock()
-
-	if jwtValidator == nil {
-		log.Errorf("JWT validator is nil despite JWT being enabled - denying access")
-		return false
-	}
-
 	sessionID := s.generateSessionID(ctx)
 	s.mu.RLock()
 	session, exists := s.authenticatedSessions[sessionID]
