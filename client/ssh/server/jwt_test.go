@@ -209,6 +209,139 @@ func TestJWTDetection(t *testing.T) {
 	assert.True(t, serverType.RequiresJWT())
 }
 
+func TestJWTFailClose(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping JWT fail-close tests in short mode")
+	}
+
+	jwksServer, privateKey, jwksURL := setupJWKSServer(t)
+	defer jwksServer.Close()
+
+	const (
+		issuer   = "https://test-issuer.example.com"
+		audience = "test-audience"
+	)
+
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name        string
+		tokenClaims jwt.MapClaims
+	}{
+		{
+			name: "blocks_token_missing_iat",
+			tokenClaims: jwt.MapClaims{
+				"iss": issuer,
+				"aud": audience,
+				"sub": "test-user",
+				"exp": time.Now().Add(time.Hour).Unix(),
+			},
+		},
+		{
+			name: "blocks_token_missing_sub",
+			tokenClaims: jwt.MapClaims{
+				"iss": issuer,
+				"aud": audience,
+				"exp": time.Now().Add(time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			},
+		},
+		{
+			name: "blocks_token_missing_iss",
+			tokenClaims: jwt.MapClaims{
+				"aud": audience,
+				"sub": "test-user",
+				"exp": time.Now().Add(time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			},
+		},
+		{
+			name: "blocks_token_missing_aud",
+			tokenClaims: jwt.MapClaims{
+				"iss": issuer,
+				"sub": "test-user",
+				"exp": time.Now().Add(time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			},
+		},
+		{
+			name: "blocks_token_wrong_issuer",
+			tokenClaims: jwt.MapClaims{
+				"iss": "wrong-issuer",
+				"aud": audience,
+				"sub": "test-user",
+				"exp": time.Now().Add(time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			},
+		},
+		{
+			name: "blocks_token_wrong_audience",
+			tokenClaims: jwt.MapClaims{
+				"iss": issuer,
+				"aud": "wrong-audience",
+				"sub": "test-user",
+				"exp": time.Now().Add(time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			},
+		},
+		{
+			name: "blocks_expired_token",
+			tokenClaims: jwt.MapClaims{
+				"iss": issuer,
+				"aud": audience,
+				"sub": "test-user",
+				"exp": time.Now().Add(-time.Hour).Unix(),
+				"iat": time.Now().Add(-2 * time.Hour).Unix(),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jwtConfig := &JWTConfig{
+				Issuer:       issuer,
+				Audience:     audience,
+				KeysLocation: jwksURL,
+				MaxTokenAge:  3600,
+			}
+			server := New(hostKey, jwtConfig)
+			server.SetAllowRootLogin(true)
+
+			serverAddr := StartTestServer(t, server)
+			defer require.NoError(t, server.Stop())
+
+			host, portStr, err := net.SplitHostPort(serverAddr)
+			require.NoError(t, err)
+
+			token := jwt.NewWithClaims(jwt.SigningMethodRS256, tc.tokenClaims)
+			token.Header["kid"] = "test-key-id"
+			tokenString, err := token.SignedString(privateKey)
+			require.NoError(t, err)
+
+			config := &cryptossh.ClientConfig{
+				User: testutil.GetTestUsername(t),
+				Auth: []cryptossh.AuthMethod{
+					cryptossh.Password(tokenString),
+				},
+				HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
+				Timeout:         2 * time.Second,
+			}
+
+			conn, err := cryptossh.Dial("tcp", net.JoinHostPort(host, portStr), config)
+			if conn != nil {
+				defer func() {
+					if err := conn.Close(); err != nil {
+						t.Logf("close connection: %v", err)
+					}
+				}()
+			}
+
+			assert.Error(t, err, "Authentication should fail (fail-close)")
+		})
+	}
+}
+
 // TestJWTAuthentication tests JWT authentication with valid/invalid tokens and enforcement for various connection types
 func TestJWTAuthentication(t *testing.T) {
 	if testing.Short() {
