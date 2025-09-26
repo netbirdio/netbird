@@ -230,7 +230,9 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	client := proto.NewDaemonServiceClient(conn)
 
-	status, err := client.Status(ctx, &proto.StatusRequest{})
+	status, err := client.Status(ctx, &proto.StatusRequest{
+		WaitForReady: func() *bool { b := true; return &b }(),
+	})
 	if err != nil {
 		return fmt.Errorf("unable to get daemon status: %v", err)
 	}

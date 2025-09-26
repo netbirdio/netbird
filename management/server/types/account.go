@@ -300,9 +300,12 @@ func (a *Account) GetPeerNetworkMap(
 
 	if dnsManagementStatus {
 		var zones []nbdns.CustomZone
-
 		if peersCustomZone.Domain != "" {
-			zones = append(zones, peersCustomZone)
+			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnect)
+			zones = append(zones, nbdns.CustomZone{
+				Domain:  peersCustomZone.Domain,
+				Records: records,
+			})
 		}
 		dnsUpdate.CustomZones = zones
 		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
@@ -1650,4 +1653,25 @@ func peerSupportsPortRanges(peerVer string) bool {
 
 	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
 	return err == nil && meetMinVer
+}
+
+// filterZoneRecordsForPeers filters DNS records to only include peers to connect.
+func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, peersToConnect []*nbpeer.Peer) []nbdns.SimpleRecord {
+	filteredRecords := make([]nbdns.SimpleRecord, 0, len(customZone.Records))
+	peerIPs := make(map[string]struct{})
+
+	// Add peer's own IP to include its own DNS records
+	peerIPs[peer.IP.String()] = struct{}{}
+
+	for _, peerToConnect := range peersToConnect {
+		peerIPs[peerToConnect.IP.String()] = struct{}{}
+	}
+
+	for _, record := range customZone.Records {
+		if _, exists := peerIPs[record.RData]; exists {
+			filteredRecords = append(filteredRecords, record)
+		}
+	}
+
+	return filteredRecords
 }
