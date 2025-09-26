@@ -204,7 +204,7 @@ type Engine struct {
 	wgIfaceMonitorWg sync.WaitGroup
 
 	// dns forwarder port
-	dnsFwdPort int
+	dnsFwdPort uint16
 }
 
 // Peer is an instance of the Connection Peer
@@ -247,7 +247,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
-		dnsFwdPort:     dnsfwd.ListenPort,
+		dnsFwdPort:     dnsfwd.ListenPort(),
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -1091,7 +1091,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
-	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries, int(protoDNSConfig.ForwarderPort))
+	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries, uint16(protoDNSConfig.ForwarderPort))
 
 	// Ingress forward rules
 	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
@@ -1857,7 +1857,7 @@ func (e *Engine) GetWgAddr() netip.Addr {
 func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
-	forwarderPort int,
+	forwarderPort uint16,
 ) {
 	if e.config.DisableServerRoutes {
 		return
@@ -1900,7 +1900,7 @@ func (e *Engine) updateDNSForwarder(
 
 }
 
-func (e *Engine) restartDnsFwd(fwdEntries []*dnsfwd.ForwarderEntry, forwarderPort int) {
+func (e *Engine) restartDnsFwd(fwdEntries []*dnsfwd.ForwarderEntry, forwarderPort uint16) {
 	log.Infof("updating domain router service port from %d to %d", e.dnsFwdPort, forwarderPort)
 	// stop and start the forwarder to apply the new port
 	if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {

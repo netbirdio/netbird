@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -17,7 +18,8 @@ import (
 
 var (
 	// ListenPort is the port that the DNS forwarder listens on. It has been used by the client peers also
-	ListenPort = 5353
+	listenPort   uint16 = 5353
+	listenPortMu sync.RWMutex
 )
 
 const (
@@ -38,10 +40,16 @@ type Manager struct {
 	fwRules      []firewall.Rule
 	tcpRules     []firewall.Rule
 	dnsForwarder *DNSForwarder
-	port         int
+	port         uint16
 }
 
-func NewManager(fw firewall.Manager, statusRecorder *peer.Status, port int) *Manager {
+func ListenPort() uint16 {
+	listenPortMu.RLock()
+	defer listenPortMu.RUnlock()
+	return listenPort
+}
+
+func NewManager(fw firewall.Manager, statusRecorder *peer.Status, port uint16) *Manager {
 	return &Manager{
 		firewall:       fw,
 		statusRecorder: statusRecorder,
@@ -60,10 +68,12 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 	}
 
 	if m.port > 0 {
-		ListenPort = m.port
+		listenPortMu.Lock()
+		listenPort = m.port
+		listenPortMu.Unlock()
 	}
 
-	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, m.firewall, m.statusRecorder)
+	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort()), dnsTTL, m.firewall, m.statusRecorder)
 	go func() {
 		if err := m.dnsForwarder.Listen(fwdEntries); err != nil {
 			// todo handle close error if it is exists
@@ -103,7 +113,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 func (m *Manager) allowDNSFirewall() error {
 	dport := &firewall.Port{
 		IsRange: false,
-		Values:  []uint16{uint16(ListenPort)},
+		Values:  []uint16{ListenPort()},
 	}
 
 	if m.firewall == nil {
