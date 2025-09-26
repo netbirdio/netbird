@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os/user"
 	"strconv"
 	"testing"
 	"time"
@@ -27,13 +26,6 @@ import (
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
 )
-
-func getCurrentUsername(t *testing.T) string {
-	t.Helper()
-	currentUser, err := user.Current()
-	require.NoError(t, err)
-	return currentUser.Username
-}
 
 func TestJWTEnforcement(t *testing.T) {
 	if testing.Short() {
@@ -67,7 +59,7 @@ func TestJWTEnforcement(t *testing.T) {
 		t.Logf("Detected server type: %s", serverType)
 
 		config := &cryptossh.ClientConfig{
-			User:            getCurrentUsername(t),
+			User:            GetTestUsername(t),
 			Auth:            []cryptossh.AuthMethod{},
 			HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
 			Timeout:         2 * time.Second,
@@ -172,7 +164,7 @@ func connectWithNetBirdClient(t *testing.T, host string, port int) (*client.Clie
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
 	ctx := context.Background()
-	return client.Dial(ctx, addr, getCurrentUsername(t), client.DialOptions{
+	return client.Dial(ctx, addr, GetTestUsername(t), client.DialOptions{
 		InsecureSkipVerify: true,
 	})
 }
@@ -429,7 +421,7 @@ func TestJWTAuthentication(t *testing.T) {
 			}
 
 			config := &cryptossh.ClientConfig{
-				User:            getCurrentUsername(t),
+				User:            GetTestUsername(t),
 				Auth:            authMethods,
 				HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
 				Timeout:         2 * time.Second,

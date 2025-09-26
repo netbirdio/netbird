@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/user"
 	"strconv"
 	"testing"
 	"time"
@@ -46,7 +45,11 @@ func TestMain(m *testing.M) {
 		}
 	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+
+	server.CleanupTestUsers()
+
+	os.Exit(code)
 }
 
 func TestSSHProxy_verifyHostKey(t *testing.T) {
@@ -177,7 +180,7 @@ func TestSSHProxy_Connect(t *testing.T) {
 	}()
 
 	sshConfig := &cryptossh.ClientConfig{
-		User:            getCurrentUsername(t),
+		User:            server.GetTestUsername(t),
 		Auth:            []cryptossh.AuthMethod{},
 		HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
 		Timeout:         3 * time.Second,
@@ -351,11 +354,4 @@ func generateValidJWT(t *testing.T, privateKey *rsa.PrivateKey, issuer, audience
 	require.NoError(t, err)
 
 	return tokenString
-}
-
-func getCurrentUsername(t *testing.T) string {
-	t.Helper()
-	currentUser, err := user.Current()
-	require.NoError(t, err)
-	return currentUser.Username
 }

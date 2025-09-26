@@ -7,14 +7,12 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"os/user"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cryptossh "golang.org/x/crypto/ssh"
@@ -37,7 +35,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Cleanup any created test users
-	cleanupTestUsers()
+	sshserver.CleanupTestUsers()
 
 	os.Exit(code)
 }
@@ -61,7 +59,7 @@ func TestSSHClient_DialWithKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	currentUser := getCurrentUsername()
+	currentUser := sshserver.GetTestUsername(t)
 	client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 		InsecureSkipVerify: true,
 	})
@@ -76,7 +74,7 @@ func TestSSHClient_DialWithKey(t *testing.T) {
 }
 
 func TestSSHClient_CommandExecution(t *testing.T) {
-	if runtime.GOOS == "windows" && isCI() {
+	if runtime.GOOS == "windows" && sshserver.IsCI() {
 		t.Skip("Skipping Windows command execution tests in CI due to S4U authentication issues")
 	}
 
@@ -136,7 +134,7 @@ func TestSSHClient_ConnectionHandling(t *testing.T) {
 
 	for i := 0; i < numClients; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		currentUser := getCurrentUsername()
+		currentUser := sshserver.GetTestUsername(t)
 		client, err := Dial(ctx, serverAddr, fmt.Sprintf("%s-%d", currentUser, i), DialOptions{
 			InsecureSkipVerify: true,
 		})
@@ -162,7 +160,7 @@ func TestSSHClient_ContextCancellation(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()
 
-		currentUser := getCurrentUsername()
+		currentUser := sshserver.GetTestUsername(t)
 		_, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 			InsecureSkipVerify: true,
 		})
@@ -179,7 +177,7 @@ func TestSSHClient_ContextCancellation(t *testing.T) {
 	t.Run("command execution cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		currentUser := getCurrentUsername()
+		currentUser := sshserver.GetTestUsername(t)
 		client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 			InsecureSkipVerify: true,
 		})
@@ -220,7 +218,7 @@ func TestSSHClient_NoAuthMode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	currentUser := getCurrentUsername()
+	currentUser := sshserver.GetTestUsername(t)
 
 	t.Run("any key succeeds in no-auth mode", func(t *testing.T) {
 		client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
@@ -286,7 +284,7 @@ func setupTestSSHServerAndClient(t *testing.T) (*sshserver.Server, string, *Clie
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	currentUser := getCurrentUsername()
+	currentUser := sshserver.GetTestUsername(t)
 	client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 		InsecureSkipVerify: true,
 	})
@@ -369,7 +367,7 @@ func TestSSHClient_PortForwardingDataTransfer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Skip if running as system account that can't do port forwarding
-	if isSystemAccount(realUser) {
+	if sshserver.IsSystemAccount(realUser) {
 		t.Skipf("Skipping port forwarding test - running as system account: %s", realUser)
 	}
 
@@ -460,180 +458,6 @@ func TestSSHClient_PortForwardingDataTransfer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, len(expectedResponse), n)
 	assert.Equal(t, expectedResponse, string(response))
-}
-
-// getCurrentUsername returns the current username for SSH connections
-func getCurrentUsername() string {
-	if runtime.GOOS == "windows" {
-		if currentUser, err := user.Current(); err == nil {
-			// Check if this is a system account that can't authenticate
-			if isSystemAccount(currentUser.Username) {
-				// In CI environments, create a test user; otherwise try Administrator
-				if isCI() {
-					if testUser := getOrCreateTestUser(); testUser != "" {
-						return testUser
-					}
-				} else {
-					// Try Administrator first for local development
-					if _, err := user.Lookup("Administrator"); err == nil {
-						return "Administrator"
-					}
-					if testUser := getOrCreateTestUser(); testUser != "" {
-						return testUser
-					}
-				}
-			}
-			// On Windows, return the full domain\username for proper authentication
-			return currentUser.Username
-		}
-	}
-
-	if username := os.Getenv("USER"); username != "" {
-		return username
-	}
-
-	if currentUser, err := user.Current(); err == nil {
-		return currentUser.Username
-	}
-
-	return "test-user"
-}
-
-// isCI checks if we're running in GitHub Actions CI
-func isCI() bool {
-	// Check standard CI environment variables
-	if os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("CI") == "true" {
-		return true
-	}
-
-	// Check for GitHub Actions runner hostname pattern (when running as SYSTEM)
-	hostname, err := os.Hostname()
-	if err == nil && strings.HasPrefix(hostname, "runner") {
-		return true
-	}
-
-	return false
-}
-
-// getOrCreateTestUser creates a test user on Windows if needed
-func getOrCreateTestUser() string {
-	testUsername := "netbird-test-user"
-
-	// Check if user already exists
-	if _, err := user.Lookup(testUsername); err == nil {
-		return testUsername
-	}
-
-	// Try to create the user using PowerShell
-	if createWindowsTestUser(testUsername) {
-		// Register cleanup for the test user
-		registerTestUserCleanup(testUsername)
-		return testUsername
-	}
-
-	return ""
-}
-
-var createdTestUsers = make(map[string]bool)
-var testUsersToCleanup []string
-
-// registerTestUserCleanup registers a test user for cleanup
-func registerTestUserCleanup(username string) {
-	if !createdTestUsers[username] {
-		createdTestUsers[username] = true
-		testUsersToCleanup = append(testUsersToCleanup, username)
-	}
-}
-
-// cleanupTestUsers removes all created test users
-func cleanupTestUsers() {
-	for _, username := range testUsersToCleanup {
-		removeWindowsTestUser(username)
-	}
-	testUsersToCleanup = nil
-	createdTestUsers = make(map[string]bool)
-}
-
-// removeWindowsTestUser removes a local user on Windows using PowerShell
-func removeWindowsTestUser(username string) {
-	if runtime.GOOS != "windows" {
-		return
-	}
-
-	// PowerShell command to remove a local user
-	psCmd := fmt.Sprintf(`
-		try {
-			Remove-LocalUser -Name "%s" -ErrorAction Stop
-			Write-Output "User removed successfully"
-		} catch {
-			if ($_.Exception.Message -like "*cannot be found*") {
-				Write-Output "User not found (already removed)"
-			} else {
-				Write-Error $_.Exception.Message
-			}
-		}
-	`, username)
-
-	cmd := exec.Command("powershell", "-Command", psCmd)
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		log.Printf("Failed to remove test user %s: %v, output: %s", username, err, string(output))
-	} else {
-		log.Printf("Test user %s cleanup result: %s", username, string(output))
-	}
-}
-
-// createWindowsTestUser creates a local user on Windows using PowerShell
-func createWindowsTestUser(username string) bool {
-	if runtime.GOOS != "windows" {
-		return false
-	}
-
-	// PowerShell command to create a local user
-	psCmd := fmt.Sprintf(`
-		try {
-			$password = ConvertTo-SecureString "TestPassword123!" -AsPlainText -Force
-			New-LocalUser -Name "%s" -Password $password -Description "NetBird test user" -UserMayNotChangePassword -PasswordNeverExpires
-			Add-LocalGroupMember -Group "Users" -Member "%s"
-			Write-Output "User created successfully"
-		} catch {
-			if ($_.Exception.Message -like "*already exists*") {
-				Write-Output "User already exists"
-			} else {
-				Write-Error $_.Exception.Message
-				exit 1
-			}
-		}
-	`, username, username)
-
-	cmd := exec.Command("powershell", "-Command", psCmd)
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		log.Printf("Failed to create test user: %v, output: %s", err, string(output))
-		return false
-	}
-
-	log.Printf("Test user creation result: %s", string(output))
-	return true
-}
-
-// isSystemAccount checks if the user is a system account that can't authenticate
-func isSystemAccount(username string) bool {
-	systemAccounts := []string{
-		"system",
-		"NT AUTHORITY\\SYSTEM",
-		"NT AUTHORITY\\LOCAL SERVICE",
-		"NT AUTHORITY\\NETWORK SERVICE",
-	}
-
-	for _, sysAccount := range systemAccounts {
-		if strings.EqualFold(username, sysAccount) {
-			return true
-		}
-	}
-	return false
 }
 
 // getRealCurrentUser returns the actual current user (not test user) for features like port forwarding
