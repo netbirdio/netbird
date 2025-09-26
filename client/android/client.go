@@ -140,7 +140,7 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 	defer c.ctxCancel()
 	c.ctxCancelLock.Unlock()
 
-	// todo do not throw error in case of cancelled context
+	// todo toggleRoute not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
 	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener)
@@ -272,6 +272,48 @@ func (c *Client) SetConnectionListener(listener ConnectionListener) {
 // RemoveConnectionListener remove connection listener
 func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
+}
+
+func (c *Client) toggleRoute(command routeCommand) error {
+	return command.toggleRoute()
+}
+
+func (c *Client) SelectRoute(route string) error {
+	client := c.connectClient
+	if client == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	engine := client.Engine()
+	if engine == nil {
+		return fmt.Errorf("engine is not running")
+	}
+
+	manager := engine.GetRouteManager()
+	if manager == nil {
+		return fmt.Errorf("could not get route manager")
+	}
+
+	return c.toggleRoute(selectRouteCommand{route: route, manager: manager})
+}
+
+func (c *Client) DeselectRoute(route string) error {
+	client := c.connectClient
+	if client == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	engine := client.Engine()
+	if engine == nil {
+		return fmt.Errorf("engine is not running")
+	}
+
+	manager := engine.GetRouteManager()
+	if manager == nil {
+		return fmt.Errorf("could not get route manager")
+	}
+
+	return c.toggleRoute(deselectRouteCommand{route: route, manager: manager})
 }
 
 func exportEnvList(list *EnvList) {
