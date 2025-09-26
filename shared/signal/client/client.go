@@ -35,6 +35,7 @@ type Client interface {
 	WaitStreamConnected()
 	SendToStream(msg *proto.EncryptedMessage) error
 	Send(msg *proto.Message) error
+	SendWithDeliveryCheck(msg *proto.Message) error
 	SetOnReconnectedListener(func())
 }
 

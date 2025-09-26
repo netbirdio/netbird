@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -111,9 +112,13 @@ type Conn struct {
 	wgProxyRelay wgproxy.Proxy
 	handshaker   *Handshaker
 
-	guard     *guard.Guard
+	guard     Guard
 	semaphore *semaphoregroup.SemaphoreGroup
 	wg        sync.WaitGroup
+
+	// used for replace the new guard with the old one in a thread-safe way
+	guardCtxCancel context.CancelFunc
+	wgGuard        sync.WaitGroup
 
 	// debug purpose
 	dumpState *stateDump
@@ -197,14 +202,31 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	}
 
 	conn.wg.Add(1)
+	conn.wgGuard.Add(1)
+	guardCtx, cancel := context.WithCancel(conn.ctx)
+	conn.guardCtxCancel = cancel
 	go func() {
 		defer conn.wg.Done()
+		defer conn.wgGuard.Done()
+		defer cancel()
 
 		conn.waitInitialRandomSleepTime(conn.ctx)
 		conn.semaphore.Done(conn.ctx)
 
-		conn.guard.Start(conn.ctx, conn.onGuardEvent)
+		conn.guard.Start(guardCtx, conn.onGuardEvent)
 	}()
+
+	// both peer send offer
+	if err := conn.handshaker.SendOffer(); err != nil {
+		conn.Log.Errorf("failed to send offer: %v", err)
+		switch err {
+		case ErrPeerNotAvailable:
+			conn.guard.FailedToSendOffer()
+		case ErrSignalNotSupportDeliveryCheck:
+			conn.switchGuard()
+		}
+	}
+
 	conn.opened = true
 	return nil
 }
@@ -542,6 +564,11 @@ func (conn *Conn) onGuardEvent() {
 	conn.dumpState.SendOffer()
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
+		// if remote peer is offline, no need to try to reconnect.
+		// The remote peer when online will send an offer to us
+		if !errors.Is(err, ErrPeerNotAvailable) {
+			conn.guard.FailedToSendOffer()
+		}
 	}
 }
 
@@ -776,6 +803,17 @@ func (conn *Conn) rosenpassDetermKey() (*wgtypes.Key, error) {
 		return nil, err
 	}
 	return &key, nil
+}
+
+func (conn *Conn) switchGuard() {
+	conn.guardCtxCancel()
+	conn.wgGuard.Wait()
+	conn.wg.Add(1)
+	go func() {
+		defer conn.wg.Done()
+		conn.guard = guard.NewRetryGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
+		conn.guard.Start(conn.ctx, conn.onGuardEvent)
+	}()
 }
 
 func isController(config ConnConfig) bool {

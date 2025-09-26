@@ -7,6 +7,7 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -20,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion7
 type SignalExchangeClient interface {
 	// Synchronously connect to the Signal Exchange service offering connection candidates and waiting for connection candidates from the other party (remote peer)
 	Send(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
+	SendWithDeliveryCheck(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Connect to the Signal Exchange service offering connection candidates and maintain a channel for receiving candidates from the other party (remote peer)
 	ConnectStream(ctx context.Context, opts ...grpc.CallOption) (SignalExchange_ConnectStreamClient, error)
 }
@@ -35,6 +37,15 @@ func NewSignalExchangeClient(cc grpc.ClientConnInterface) SignalExchangeClient {
 func (c *signalExchangeClient) Send(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
 	out := new(EncryptedMessage)
 	err := c.cc.Invoke(ctx, "/signalexchange.SignalExchange/Send", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *signalExchangeClient) SendWithDeliveryCheck(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, "/signalexchange.SignalExchange/SendWithDeliveryCheck", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +89,7 @@ func (x *signalExchangeConnectStreamClient) Recv() (*EncryptedMessage, error) {
 type SignalExchangeServer interface {
 	// Synchronously connect to the Signal Exchange service offering connection candidates and waiting for connection candidates from the other party (remote peer)
 	Send(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
+	SendWithDeliveryCheck(context.Context, *EncryptedMessage) (*emptypb.Empty, error)
 	// Connect to the Signal Exchange service offering connection candidates and maintain a channel for receiving candidates from the other party (remote peer)
 	ConnectStream(SignalExchange_ConnectStreamServer) error
 	mustEmbedUnimplementedSignalExchangeServer()
@@ -89,6 +101,9 @@ type UnimplementedSignalExchangeServer struct {
 
 func (UnimplementedSignalExchangeServer) Send(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Send not implemented")
+}
+func (UnimplementedSignalExchangeServer) SendWithDeliveryCheck(context.Context, *EncryptedMessage) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendWithDeliveryCheck not implemented")
 }
 func (UnimplementedSignalExchangeServer) ConnectStream(SignalExchange_ConnectStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method ConnectStream not implemented")
@@ -120,6 +135,24 @@ func _SignalExchange_Send_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(SignalExchangeServer).Send(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SignalExchange_SendWithDeliveryCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SignalExchangeServer).SendWithDeliveryCheck(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/signalexchange.SignalExchange/SendWithDeliveryCheck",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SignalExchangeServer).SendWithDeliveryCheck(ctx, req.(*EncryptedMessage))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -160,6 +193,10 @@ var SignalExchange_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Send",
 			Handler:    _SignalExchange_Send_Handler,
+		},
+		{
+			MethodName: "SendWithDeliveryCheck",
+			Handler:    _SignalExchange_SendWithDeliveryCheck_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
