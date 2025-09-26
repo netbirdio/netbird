@@ -119,10 +119,10 @@ type Server struct {
 	remoteForwardListeners map[ForwardKey]net.Listener
 	sshConnections         map[*cryptossh.ServerConn]*sshConnectionState
 
-	jwtValidator          *jwt.Validator
-	jwtExtractor          *jwt.ClaimsExtractor
-	jwtConfig             *JWTConfig
-	authenticatedSessions map[string]*AuthenticatedSession
+	jwtValidator *jwt.Validator
+	jwtExtractor *jwt.ClaimsExtractor
+	jwtConfig    *JWTConfig
+	authSessions map[string]*AuthenticatedSession
 }
 
 type JWTConfig struct {
@@ -152,7 +152,7 @@ func New(hostKeyPEM []byte, jwtConfig *JWTConfig) *Server {
 		sessions:               make(map[SessionKey]ssh.Session),
 		remoteForwardListeners: make(map[ForwardKey]net.Listener),
 		sshConnections:         make(map[*cryptossh.ServerConn]*sshConnectionState),
-		authenticatedSessions:  make(map[string]*AuthenticatedSession),
+		authSessions:           make(map[string]*AuthenticatedSession),
 		jwtEnabled:             jwtConfig != nil,
 		jwtConfig:              jwtConfig,
 	}
@@ -351,7 +351,7 @@ func (s *Server) handleJWTAuthRequest(ctx ssh.Context, _ *ssh.Server, req *crypt
 		return false, msg
 	}
 
-	sessionID := s.createAuthenticatedSession(ctx, authReq.Token, userAuth.UserId)
+	sessionID := s.createAuthSession(ctx, authReq.Token, userAuth.UserId)
 	log.WithField("session", sessionID).Infof("JWT authentication successful for user %s from %s", userAuth.UserId, ctx.RemoteAddr())
 	return true, []byte("authentication successful")
 }
@@ -462,10 +462,10 @@ func (s *Server) extractAndValidateUser(token *gojwt.Token) (*nbcontext.UserAuth
 	return &userAuth, true, nil
 }
 
-func (s *Server) createAuthenticatedSession(ctx ssh.Context, token, userID string) string {
+func (s *Server) createAuthSession(ctx ssh.Context, token, userID string) string {
 	sessionID := s.generateSessionID(ctx)
 	s.mu.Lock()
-	s.authenticatedSessions[sessionID] = &AuthenticatedSession{
+	s.authSessions[sessionID] = &AuthenticatedSession{
 		UserID:    userID,
 		Token:     token,
 		ExpiresAt: time.Now().Add(time.Hour),
@@ -512,7 +512,7 @@ func (s *Server) isSessionAuthenticated(ctx ssh.Context) bool {
 
 	sessionID := s.generateSessionID(ctx)
 	s.mu.RLock()
-	session, exists := s.authenticatedSessions[sessionID]
+	session, exists := s.authSessions[sessionID]
 	s.mu.RUnlock()
 
 	if !exists {
@@ -521,7 +521,7 @@ func (s *Server) isSessionAuthenticated(ctx ssh.Context) bool {
 
 	if time.Now().After(session.ExpiresAt) {
 		s.mu.Lock()
-		delete(s.authenticatedSessions, sessionID)
+		delete(s.authSessions, sessionID)
 		s.mu.Unlock()
 		return false
 	}

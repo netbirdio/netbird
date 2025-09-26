@@ -103,6 +103,7 @@ func (s *Server) registerSession(session ssh.Session) SessionKey {
 func (s *Server) unregisterSession(sessionKey SessionKey, _ ssh.Session) {
 	s.mu.Lock()
 	delete(s.sessions, sessionKey)
+	delete(s.authSessions, string(sessionKey))
 
 	// Cancel all port forwarding connections for this session
 	var connectionsToCancel []ConnectionKey
