@@ -43,7 +43,8 @@ type SSHProxy struct {
 }
 
 func New(daemonAddr, targetHost string, targetPort int, stderr io.Writer) (*SSHProxy, error) {
-	grpcConn, err := grpc.NewClient(daemonAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	grpcAddr := strings.TrimPrefix(daemonAddr, "tcp://")
+	grpcConn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("connect to daemon: %w", err)
 	}
