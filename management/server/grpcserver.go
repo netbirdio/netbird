@@ -258,6 +258,7 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
 
 			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
+				log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
 				return err
 			}
 
