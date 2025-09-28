@@ -1112,6 +1112,31 @@ func (s *Server) GetPeerSSHHostKey(
 	return response, nil
 }
 
+// getJWTCacheTTL returns the JWT cache TTL from environment variable or default
+// NB_SSH_JWT_CACHE_TTL=0 disables caching
+// NB_SSH_JWT_CACHE_TTL=<seconds> sets custom cache TTL
+func getJWTCacheTTL() time.Duration {
+	envValue := os.Getenv("NB_SSH_JWT_CACHE_TTL")
+	if envValue == "" {
+		return defaultJWTCacheTTL
+	}
+
+	seconds, err := strconv.Atoi(envValue)
+	if err != nil {
+		log.Warnf("invalid NB_SSH_JWT_CACHE_TTL value %s, using default: %v", envValue, defaultJWTCacheTTL)
+		return defaultJWTCacheTTL
+	}
+
+	if seconds == 0 {
+		log.Info("SSH JWT cache disabled via NB_SSH_JWT_CACHE_TTL=0")
+		return 0
+	}
+
+	ttl := time.Duration(seconds) * time.Second
+	log.Infof("SSH JWT cache TTL set to %v via NB_SSH_JWT_CACHE_TTL", ttl)
+	return ttl
+}
+
 // RequestJWTAuth initiates JWT authentication flow for SSH
 func (s *Server) RequestJWTAuth(
 	ctx context.Context,
@@ -1129,13 +1154,16 @@ func (s *Server) RequestJWTAuth(
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "client is not configured")
 	}
 
-	if cachedToken, found := s.jwtCache.get(); found {
-		log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
+	jwtCacheTTL := getJWTCacheTTL()
+	if jwtCacheTTL > 0 {
+		if cachedToken, found := s.jwtCache.get(); found {
+			log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
 
-		return &proto.RequestJWTAuthResponse{
-			CachedToken: cachedToken,
-			MaxTokenAge: int64(defaultJWTCacheTTL.Seconds()),
-		}, nil
+			return &proto.RequestJWTAuthResponse{
+				CachedToken: cachedToken,
+				MaxTokenAge: int64(jwtCacheTTL.Seconds()),
+			}, nil
+		}
 	}
 
 	isDesktop := isUnixRunningDesktop()
@@ -1161,7 +1189,7 @@ func (s *Server) RequestJWTAuth(
 		UserCode:                authInfo.UserCode,
 		DeviceCode:              authInfo.DeviceCode,
 		ExpiresIn:               int64(authInfo.ExpiresIn),
-		MaxTokenAge:             int64(defaultJWTCacheTTL.Seconds()),
+		MaxTokenAge:             int64(jwtCacheTTL.Seconds()),
 	}, nil
 }
 
@@ -1190,8 +1218,13 @@ func (s *Server) WaitJWTToken(
 
 	token := tokenInfo.GetTokenToUse()
 
-	s.jwtCache.store(token, defaultJWTCacheTTL)
-	log.Debugf("JWT token cached for SSH authentication, TTL: %v", defaultJWTCacheTTL)
+	jwtCacheTTL := getJWTCacheTTL()
+	if jwtCacheTTL > 0 {
+		s.jwtCache.store(token, jwtCacheTTL)
+		log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
+	} else {
+		log.Debug("JWT caching disabled, not storing token")
+	}
 
 	s.mutex.Lock()
 	s.oauthAuthFlow = oauthAuthFlow{}

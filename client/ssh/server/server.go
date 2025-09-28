@@ -503,8 +503,8 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	remoteAddr := conn.RemoteAddr()
 	tcpAddr, ok := remoteAddr.(*net.TCPAddr)
 	if !ok {
-		log.Debugf("SSH connection from non-TCP address %s allowed (skipping NetBird network validation)", remoteAddr)
-		return conn
+		log.Warnf("SSH connection rejected: non-TCP address %s", remoteAddr)
+		return nil
 	}
 
 	remoteIP, ok := netip.AddrFromSlice(tcpAddr.IP)
@@ -524,7 +524,7 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 		return nil
 	}
 
-	log.Debugf("SSH connection from NetBird peer %s allowed", remoteIP)
+	log.Infof("SSH connection from NetBird peer %s allowed", remoteIP)
 	return conn
 }
 
