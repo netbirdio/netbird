@@ -119,7 +119,10 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 		return &proto.EncryptedMessage{}, nil
 	}
 
-	return s.dispatcher.SendMessage(ctx, msg, false)
+	if _, err := s.dispatcher.SendMessage(ctx, msg, false); err != nil {
+		log.Errorf("error sending message via dispatcher: %v", err)
+	}
+	return &proto.EncryptedMessage{}, nil
 }
 
 // SendWithDeliveryCheck forwards a message to the signal peer with error handling

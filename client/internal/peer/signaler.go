@@ -93,7 +93,7 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 
 			s.deliveryCheckNotSupported.Store(true)
 			if err := s.signal.Send(msg); err != nil {
-				log.Errorf("failed to send msg to signal: %v", err)
+				log.Warnf("failed to send signal msg to remote peer: %v", err)
 			}
 			return ErrSignalNotSupportDeliveryCheck
 		default:
