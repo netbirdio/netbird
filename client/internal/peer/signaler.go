@@ -86,6 +86,11 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 		case errors.Is(err, signal.ErrPeerNotAvailable):
 			return ErrPeerNotAvailable
 		case errors.Is(err, signal.ErrUnimplementedMethod):
+			// print out the warning only once
+			if !s.deliveryCheckNotSupported.Load() {
+				log.Warnf("signal client does not support delivery check, falling back to Send method and resend")
+			}
+
 			s.deliveryCheckNotSupported.Store(true)
 			if err := s.signal.Send(msg); err != nil {
 				log.Errorf("failed to send msg to signal: %v", err)
