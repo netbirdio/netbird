@@ -2,7 +2,6 @@ package peer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -218,12 +217,15 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	// both peer send offer
 	if err := conn.handshaker.SendOffer(); err != nil {
-		conn.Log.Errorf("failed to send offer: %v", err)
 		switch err {
 		case ErrPeerNotAvailable:
-			conn.guard.FailedToSendOffer()
+			conn.Log.Warnf("failed to deliver offer to peer. Peer is not available")
 		case ErrSignalNotSupportDeliveryCheck:
+			conn.Log.Infof("signal delivery check is not supported, switch guard to retry mode")
 			conn.switchGuard()
+		default:
+			conn.Log.Errorf("failed to deliver offer to peer: %v", err)
+			conn.guard.FailedToSendOffer()
 		}
 	}
 
@@ -563,10 +565,15 @@ func (conn *Conn) onRelayDisconnected() {
 func (conn *Conn) onGuardEvent() {
 	conn.dumpState.SendOffer()
 	if err := conn.handshaker.SendOffer(); err != nil {
-		conn.Log.Errorf("failed to send offer: %v", err)
-		// if remote peer is offline, no need to try to reconnect.
-		// The remote peer when online will send an offer to us
-		if !errors.Is(err, ErrPeerNotAvailable) {
+		switch err {
+		case ErrPeerNotAvailable:
+			conn.Log.Warnf("failed to deliver offer to peer. Peer is not available")
+		case ErrSignalNotSupportDeliveryCheck:
+			conn.Log.Infof("signal delivery check is not supported, switch guard to retry mode")
+			// must run on a separate goroutine to prevent deadlock while close the old guard
+			go conn.switchGuard()
+		default:
+			conn.Log.Errorf("failed to deliver offer to peer: %v", err)
 			conn.guard.FailedToSendOffer()
 		}
 	}
