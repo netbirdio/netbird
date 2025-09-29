@@ -103,6 +103,10 @@ func NewServer(ctx context.Context, meter metric.Meter, opts *Options) (*Server,
 		disableSendWithDeliveryCheck: opts.DisableSendWithDeliveryCheck,
 	}
 
+	if opts.DisableSendWithDeliveryCheck {
+		log.Warn("SendWithDeliveryCheck method is disabled")
+	}
+
 	return s, nil
 }
 
