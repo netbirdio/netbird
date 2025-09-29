@@ -86,15 +86,7 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 		case errors.Is(err, signal.ErrPeerNotAvailable):
 			return ErrPeerNotAvailable
 		case errors.Is(err, signal.ErrUnimplementedMethod):
-			// print out the warning only once
-			if !s.deliveryCheckNotSupported.Load() {
-				log.Warnf("signal client does not support delivery check, falling back to Send method and resend")
-			}
-
-			s.deliveryCheckNotSupported.Store(true)
-			if err := s.signal.Send(msg); err != nil {
-				log.Warnf("failed to send signal msg to remote peer: %v", err)
-			}
+			s.handleUnimplementedMethod(msg)
 			return ErrSignalNotSupportDeliveryCheck
 		default:
 			return err
@@ -111,4 +103,16 @@ func (s *Signaler) SignalIdle(remoteKey string) error {
 			Type: sProto.Body_GO_IDLE,
 		},
 	})
+}
+
+func (s *Signaler) handleUnimplementedMethod(msg *sProto.Message) {
+	// print out the warning only once
+	if !s.deliveryCheckNotSupported.Load() {
+		log.Warnf("signal client does not support delivery check, falling back to Send method and resend")
+	}
+
+	s.deliveryCheckNotSupported.Store(true)
+	if err := s.signal.Send(msg); err != nil {
+		log.Warnf("failed to send signal msg to remote peer: %v", err)
+	}
 }
