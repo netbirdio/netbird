@@ -229,18 +229,7 @@ func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.K
 	// Always compute latest system info to ensure up-to-date PeerSystemMeta on first and subsequent syncs
 	recomputed := system.GetInfo(c.ctx)
 	if sysInfo != nil {
-		recomputed.SetFlags(
-			sysInfo.RosenpassEnabled,
-			sysInfo.RosenpassPermissive,
-			&sysInfo.ServerSSHAllowed,
-			sysInfo.DisableClientRoutes,
-			sysInfo.DisableServerRoutes,
-			sysInfo.DisableDNS,
-			sysInfo.DisableFirewall,
-			sysInfo.BlockLANAccess,
-			sysInfo.BlockInbound,
-			sysInfo.LazyConnectionEnabled,
-		)
+		recomputed.CopyFlagsFrom(sysInfo)
 		// carry over posture files if any were computed
 		if len(sysInfo.Files) > 0 {
 			recomputed.Files = sysInfo.Files

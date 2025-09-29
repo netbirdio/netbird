@@ -96,6 +96,21 @@ func (i *Info) SetFlags(
 	i.LazyConnectionEnabled = lazyConnectionEnabled
 }
 
+func (i *Info) CopyFlagsFrom(other *Info) {
+	i.SetFlags(
+		other.RosenpassEnabled,
+		other.RosenpassPermissive,
+		&other.ServerSSHAllowed,
+		other.DisableClientRoutes,
+		other.DisableServerRoutes,
+		other.DisableDNS,
+		other.DisableFirewall,
+		other.BlockLANAccess,
+		other.BlockInbound,
+		other.LazyConnectionEnabled,
+	)
+}
+
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
 func extractUserAgent(ctx context.Context) string {
 	md, hasMeta := metadata.FromOutgoingContext(ctx)
