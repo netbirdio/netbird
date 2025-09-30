@@ -509,6 +509,8 @@ github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502 h1:3tHlFmhTdX9ax
 github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502/go.mod h1:CIMRFEJVL+0DS1a3Nx06NaMn4Dz63Ng6O7dl0qH0zVM=
 github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250925150112-98e1c4202426 h1:muI1lTyHQ/jKB4x+HrBO9rjBA9Deaprum/OqWF4PKvI=
 github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250925150112-98e1c4202426/go.mod h1:Gxdn5+2EdHR1gPKnnA023/p6CuW+IWHQYXy9P+DzFkA=
+github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250930085516-e6f21a569b1d h1:LgYPZ2tmmaRNncNoWEzry5i9b+DN1CEMGQ+4YDkegf4=
+github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250930085516-e6f21a569b1d/go.mod h1:Gxdn5+2EdHR1gPKnnA023/p6CuW+IWHQYXy9P+DzFkA=
 github.com/netbirdio/wireguard-go v0.0.0-20241230120307-6a676aebaaf6 h1:X5h5QgP7uHAv78FWgHV8+WYLjHxK9v3ilkVXT1cpCrQ=
 github.com/netbirdio/wireguard-go v0.0.0-20241230120307-6a676aebaaf6/go.mod h1:tkCQ4FQXmpAgYVh++1cq16/dH4QJtmvpRv19DWGAHSA=
 github.com/nicksnyder/go-i18n/v2 v2.4.0 h1:3IcvPOAvnCKwNm0TB0dLDTuawWEj+ax/RERNC+diLMM=
