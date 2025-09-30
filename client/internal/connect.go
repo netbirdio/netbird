@@ -269,7 +269,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 				log.Error(err)
 			}
 		}
-
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
@@ -445,7 +444,9 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		BlockInbound:        config.BlockInbound,
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
-		LogFile:               logFile,
+
+		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
+		LogFile: logFile,
 
 		ProfileConfig: config,
 	}
