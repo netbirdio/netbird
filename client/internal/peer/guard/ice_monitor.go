@@ -3,6 +3,7 @@ package guard
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -24,8 +25,8 @@ type ICEMonitor struct {
 	iFaceDiscover stdnet.ExternalIFaceDiscover
 	iceConfig     icemaker.Config
 
-	currentCandidates []ice.Candidate
-	candidatesMu      sync.Mutex
+	currentCandidatesAddress []string
+	candidatesMu             sync.Mutex
 }
 
 func NewICEMonitor(iFaceDiscover stdnet.ExternalIFaceDiscover, config icemaker.Config) *ICEMonitor {
@@ -115,14 +116,22 @@ func (cm *ICEMonitor) updateCandidates(newCandidates []ice.Candidate) bool {
 	cm.candidatesMu.Lock()
 	defer cm.candidatesMu.Unlock()
 
-	if len(cm.currentCandidates) != len(newCandidates) {
-		cm.currentCandidates = newCandidates
+	newAddresses := make([]string, len(newCandidates))
+	for i, c := range newCandidates {
+		newAddresses[i] = c.Address()
+	}
+	sort.Strings(newAddresses)
+
+	if len(cm.currentCandidatesAddress) != len(newAddresses) {
+		cm.currentCandidatesAddress = newAddresses
 		return true
 	}
 
-	for i, candidate := range cm.currentCandidates {
-		if candidate.Address() != newCandidates[i].Address() {
-			cm.currentCandidates = newCandidates
+	// Compare elements
+	for i, addr := range cm.currentCandidatesAddress {
+		log.Infof("Updating ICE candidate: %v", addr)
+		if addr != newAddresses[i] {
+			cm.currentCandidatesAddress = newAddresses
 			return true
 		}
 	}
