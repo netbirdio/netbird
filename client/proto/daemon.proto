@@ -156,6 +156,8 @@ message LoginRequest {
 
   optional string profileName = 30;
   optional string username = 31;
+
+  optional int64 mtu = 32;
 }
 
 message LoginResponse {
@@ -184,6 +186,8 @@ message UpResponse {}
 message StatusRequest{
   bool getFullPeerStatus = 1;
   bool shouldRunProbes   = 2;
+  // the UI do not using this yet, but CLIs could use it to wait until the status is ready
+  optional bool waitForReady     = 3;
 }
 
 message StatusResponse{
@@ -222,6 +226,8 @@ message GetConfigResponse {
   string interfaceName = 6;
 
   int64 wireguardPort = 7;
+
+  int64 mtu = 8;
 
   bool disableAutoConnect = 9;
 
@@ -538,36 +544,36 @@ message SetConfigRequest {
     string profileName = 2;
     // managementUrl to authenticate.
     string managementUrl = 3;
-  
+
     // adminUrl to manage keys.
     string adminURL = 4;
-        
+
     optional bool rosenpassEnabled = 5;
-  
+
     optional string interfaceName = 6;
-  
+
     optional int64 wireguardPort = 7;
-  
+
     optional string optionalPreSharedKey = 8;
-  
+
     optional bool disableAutoConnect = 9;
-  
+
     optional bool serverSSHAllowed = 10;
-  
+
     optional bool rosenpassPermissive = 11;
-  
+
     optional bool networkMonitor = 12;
-  
+
     optional bool disable_client_routes = 13;
     optional bool disable_server_routes = 14;
     optional bool disable_dns = 15;
     optional bool disable_firewall = 16;
     optional bool block_lan_access = 17;
-  
+
     optional bool disable_notifications = 18;
-  
+
     optional bool lazyConnectionEnabled = 19;
-  
+
     optional bool block_inbound = 20;
 
     repeated string natExternalIPs = 21;
@@ -583,6 +589,7 @@ message SetConfigRequest {
 
     optional google.protobuf.Duration dnsRouteInterval = 27;
 
+    optional int64 mtu = 28;
 }
 
 message SetConfigResponse{}

@@ -14,7 +14,7 @@ import (
 	"github.com/ti-mo/netfilter"
 
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const defaultChannelSize = 100

@@ -1,6 +1,3 @@
-//go:build !android
-// +build !android
-
 package device
 
 import (
@@ -13,8 +10,9 @@ import (
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type TunNetstackDevice struct {
@@ -22,20 +20,20 @@ type TunNetstackDevice struct {
 	address       wgaddr.Address
 	port          int
 	key           string
-	mtu           int
+	mtu           uint16
 	listenAddress string
 	iceBind       *bind.ICEBind
 
 	device         *device.Device
 	filteredDevice *FilteredDevice
 	nsTun          *nbnetstack.NetStackTun
-	udpMux         *bind.UniversalUDPMuxDefault
+	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 
 	net *netstack.Net
 }
 
-func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu int, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
+func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
 	return &TunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -47,7 +45,7 @@ func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key stri
 	}
 }
 
-func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
+func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 	log.Info("create nbnetstack tun interface")
 
 	// TODO: get from service listener runtime IP
@@ -57,7 +55,7 @@ func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
 	}
 
 	log.Debugf("netstack using address: %s", t.address.IP)
-	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, t.address.IP, dnsAddr, t.mtu)
+	t.nsTun = nbnetstack.NewNetStackTun(t.listenAddress, t.address.IP, dnsAddr, int(t.mtu))
 	log.Debugf("netstack using dns address: %s", dnsAddr)
 	tunIface, net, err := t.nsTun.Create()
 	if err != nil {
@@ -83,7 +81,7 @@ func (t *TunNetstackDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *TunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunNetstackDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	if t.device == nil {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
@@ -123,6 +121,10 @@ func (t *TunNetstackDevice) Close() error {
 
 func (t *TunNetstackDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunNetstackDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunNetstackDevice) DeviceName() string {

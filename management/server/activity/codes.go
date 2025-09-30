@@ -177,6 +177,8 @@ const (
 
 	AccountNetworkRangeUpdated Activity = 87
 	PeerIPUpdated              Activity = 88
+	UserApproved               Activity = 89
+	UserRejected               Activity = 90
 
 	JobCreatedByUser Activity = 89
 
@@ -288,6 +290,9 @@ var activityMap = map[Activity]Code{
 	PeerIPUpdated: {"Peer IP updated", "peer.ip.update"},
 
 	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
+
+	UserApproved:  {"User approved", "user.approve"},
+	UserRejected:  {"User rejected", "user.reject"},
 }
 
 // StringCode returns a string code of the activity

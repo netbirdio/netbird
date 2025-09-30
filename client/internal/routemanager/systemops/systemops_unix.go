@@ -20,11 +20,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager) error {
+func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager, advancedRouting bool) error {
 	return r.setupRefCounter(initAddresses, stateManager)
 }
 
-func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager) error {
+func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRouting bool) error {
 	return r.cleanupRefCounter(stateManager)
 }
 
