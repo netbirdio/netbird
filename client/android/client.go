@@ -5,6 +5,7 @@ package android
 import (
 	"context"
 	"fmt"
+	"golang.org/x/exp/maps"
 	"os"
 	"slices"
 	"sync"
@@ -193,6 +194,7 @@ func (c *Client) PeersList() *PeerInfoArray {
 			p.IP,
 			p.FQDN,
 			p.ConnStatus.String(),
+			PeerRoutes{routes: maps.Keys(p.GetRoutes())},
 		}
 		peerInfos[n] = pi
 	}
@@ -233,6 +235,12 @@ func (c *Client) Networks() *NetworkArray {
 		}
 
 		r := routes[0]
+		domains := NetworkDomains{}
+
+		for _, domain := range r.Domains {
+			domains.Add(domain.SafeString())
+		}
+
 		netStr := r.Network.String()
 		if r.IsDynamic() {
 			netStr = r.Domains.SafeString()
@@ -249,6 +257,7 @@ func (c *Client) Networks() *NetworkArray {
 			Peer:       routePeer.FQDN,
 			Status:     routePeer.ConnStatus.String(),
 			IsSelected: routeSelector.IsSelected(id),
+			Domains:    domains,
 		}
 		networkArray.Add(network)
 	}

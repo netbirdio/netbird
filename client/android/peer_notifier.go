@@ -5,6 +5,11 @@ type PeerInfo struct {
 	IP         string
 	FQDN       string
 	ConnStatus string // Todo replace to enum
+	Routes     PeerRoutes
+}
+
+func (p *PeerInfo) GetPeerRoutes() *PeerRoutes {
+	return &p.Routes
 }
 
 // PeerInfoArray is a wrapper of []PeerInfo

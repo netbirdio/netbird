@@ -8,6 +8,11 @@ type Network struct {
 	Peer       string
 	Status     string
 	IsSelected bool
+	Domains    NetworkDomains
+}
+
+func (n Network) GetNetworkDomains() *NetworkDomains {
+	return &n.Domains
 }
 
 type NetworkArray struct {
