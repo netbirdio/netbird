@@ -149,6 +149,9 @@ func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.Encrypted
 	}
 
 	if _, err := s.dispatcher.SendMessage(ctx, msg, true); err != nil {
+		if errors.Is(err, dispatcher.ErrPeerNotConnected) {
+			return nil, status.Errorf(codes.NotFound, "remote peer not connected")
+		}
 		return nil, err
 	}
 
