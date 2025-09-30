@@ -3,6 +3,7 @@ package guard
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -128,11 +129,9 @@ func (cm *ICEMonitor) updateCandidates(newCandidates []ice.Candidate) bool {
 	}
 
 	// Compare elements
-	for i, addr := range cm.currentCandidatesAddress {
-		if addr != newAddresses[i] {
-			cm.currentCandidatesAddress = newAddresses
-			return true
-		}
+	if !slices.Equal(cm.currentCandidatesAddress, newAddresses) {
+		cm.currentCandidatesAddress = newAddresses
+		return true
 	}
 
 	return false
