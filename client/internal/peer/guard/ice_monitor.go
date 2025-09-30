@@ -129,7 +129,6 @@ func (cm *ICEMonitor) updateCandidates(newCandidates []ice.Candidate) bool {
 
 	// Compare elements
 	for i, addr := range cm.currentCandidatesAddress {
-		log.Infof("Updating ICE candidate: %v", addr)
 		if addr != newAddresses[i] {
 			cm.currentCandidatesAddress = newAddresses
 			return true
