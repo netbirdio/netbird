@@ -258,7 +258,7 @@ func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == wsproxy.ProxyPath:
+		case r.URL.Path == wsproxy.ProxyPath+wsproxy.SignalComponent:
 			wsProxy.Handler().ServeHTTP(w, r)
 		default:
 			grpcServer.ServeHTTP(w, r)

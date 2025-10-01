@@ -96,13 +96,14 @@ func (s stringAddr) Network() string { return "tcp" }
 func (s stringAddr) String() string  { return string(s) }
 
 // WithWebSocketDialer returns a gRPC dial option that uses WebSocket transport for JS/WASM environments.
-func WithWebSocketDialer(tlsEnabled bool) grpc.DialOption {
+// The component parameter specifies the WebSocket proxy component path (e.g., "/management", "/signal").
+func WithWebSocketDialer(tlsEnabled bool, component string) grpc.DialOption {
 	return grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 		scheme := "wss"
 		if !tlsEnabled {
 			scheme = "ws"
 		}
-		wsURL := fmt.Sprintf("%s://%s%s", scheme, addr, wsproxy.ProxyPath)
+		wsURL := fmt.Sprintf("%s://%s%s%s", scheme, addr, wsproxy.ProxyPath, component)
 
 		ws := js.Global().Get("WebSocket").New(wsURL)
 
