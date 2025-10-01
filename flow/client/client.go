@@ -38,7 +38,8 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 		return nil, fmt.Errorf("parsing url: %w", err)
 	}
 	var opts []grpc.DialOption
-	if parsedURL.Scheme == "https" {
+	tlsEnabled := parsedURL.Scheme == "https"
+	if tlsEnabled {
 		certPool, err := x509.SystemCertPool()
 		if err != nil || certPool == nil {
 			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
@@ -53,7 +54,7 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 	}
 
 	opts = append(opts,
-		nbgrpc.WithCustomDialer(),
+		nbgrpc.WithCustomDialer(tlsEnabled),
 		grpc.WithIdleTimeout(interval*2),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,

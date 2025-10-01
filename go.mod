@@ -37,7 +37,7 @@ require (
 	github.com/c-robinson/iplib v1.0.3
 	github.com/caddyserver/certmagic v0.21.3
 	github.com/cilium/ebpf v0.15.0
-	github.com/coder/websocket v1.8.12
+	github.com/coder/websocket v1.8.13
 	github.com/coreos/go-iptables v0.7.0
 	github.com/creack/pty v1.1.18
 	github.com/eko/gocache/lib/v4 v4.2.0
