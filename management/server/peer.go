@@ -729,7 +729,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	var peer *nbpeer.Peer
 	var peerNotValid bool
 	var isStatusChanged bool
-	var updated bool
+	var updated, versionChanged bool
 	var err error
 	var postureChecks []*posture.Checks
 
@@ -769,7 +769,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			return err
 		}
 
-		updated = peer.UpdateMetaIfNew(sync.Meta)
+		updated, versionChanged = peer.UpdateMetaIfNew(sync.Meta)
 		if updated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
@@ -788,7 +788,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, err
 	}
 
-	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
+	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -880,7 +880,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return err
 		}
 
-		isPeerUpdated = peer.UpdateMetaIfNew(login.Meta)
+		isPeerUpdated, _ = peer.UpdateMetaIfNew(login.Meta)
 		if isPeerUpdated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			shouldStorePeer = true
@@ -1229,6 +1229,8 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		return
 	}
 
+	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), dnsForwarderPortMinVersion)
+
 	for _, peer := range account.Peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -1265,7 +1267,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups))
+			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
 			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
 
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
@@ -1376,7 +1378,9 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 	}
 
 	peerGroups := account.GetPeerGroups(peerId)
-	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups))
+	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), dnsForwarderPortMinVersion)
+
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 
@@ -1549,6 +1553,8 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 		return nil, err
 	}
 
+	dnsFwdPort := computeForwarderPort(peers, dnsForwarderPortMinVersion)
+
 	for _, peer := range peers {
 		if err := transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
 			return nil, fmt.Errorf("failed to remove peer %s from groups", peer.ID)
@@ -1592,6 +1598,9 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 					RemotePeersIsEmpty:   true,
 					FirewallRules:        []*proto.FirewallRule{},
 					FirewallRulesIsEmpty: true,
+					DNSConfig: &proto.DNSConfig{
+						ForwarderPort: dnsFwdPort,
+					},
 				},
 			},
 			NetworkMap: &types.NetworkMap{},

@@ -1161,7 +1161,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 	accountSettings := &types.Settings{RoutingPeerDNSResolutionEnabled: true}
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{})
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{}, dnsForwarderPort)
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1212,6 +1212,7 @@ func TestToSyncResponse(t *testing.T) {
 	assert.Equal(t, "route1", response.NetworkMap.Routes[0].NetID)
 	// assert network map DNSConfig
 	assert.Equal(t, true, response.NetworkMap.DNSConfig.ServiceEnable)
+	assert.Equal(t, int64(dnsForwarderPort), response.NetworkMap.DNSConfig.ForwarderPort)
 	assert.Equal(t, 1, len(response.NetworkMap.DNSConfig.CustomZones))
 	assert.Equal(t, 2, len(response.NetworkMap.DNSConfig.NameServerGroups))
 	// assert network map DNSConfig.CustomZones
