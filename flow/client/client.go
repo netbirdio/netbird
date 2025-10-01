@@ -23,6 +23,7 @@ import (
 	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/flow/proto"
 	"github.com/netbirdio/netbird/util/embeddedroots"
+	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
 type GRPCClient struct {
@@ -54,7 +55,7 @@ func NewClient(addr, payload, signature string, interval time.Duration) (*GRPCCl
 	}
 
 	opts = append(opts,
-		nbgrpc.WithCustomDialer(tlsEnabled, ""),
+		nbgrpc.WithCustomDialer(tlsEnabled, wsproxy.FlowComponent),
 		grpc.WithIdleTimeout(interval*2),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,

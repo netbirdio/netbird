@@ -9,6 +9,7 @@ const ProxyPath = "/ws-proxy"
 const (
 	ManagementComponent = "/management"
 	SignalComponent     = "/signal"
+	FlowComponent       = "/flow"
 )
 
 // Common errors
