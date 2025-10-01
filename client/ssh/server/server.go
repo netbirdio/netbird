@@ -113,7 +113,6 @@ type Server struct {
 	netstackNet *netstack.Net
 
 	wgAddress wgaddr.Address
-	ifIdx     int
 
 	remoteForwardListeners map[ForwardKey]net.Listener
 	sshConnections         map[*cryptossh.ServerConn]*sshConnectionState
@@ -162,7 +161,7 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 
 	sshServer, err := s.createSSHServer(ln.Addr())
 	if err != nil {
-		s.cleanupOnError(ln)
+		s.closeListener(ln)
 		return fmt.Errorf("create SSH server: %w", err)
 	}
 
@@ -196,17 +195,12 @@ func (s *Server) createListener(ctx context.Context, addr netip.AddrPort) (net.L
 }
 
 func (s *Server) closeListener(ln net.Listener) {
+	if ln == nil {
+		return
+	}
 	if err := ln.Close(); err != nil {
 		log.Debugf("listener close error: %v", err)
 	}
-}
-
-func (s *Server) cleanupOnError(ln net.Listener) {
-	if s.ifIdx == 0 || ln == nil {
-		return
-	}
-
-	s.closeListener(ln)
 }
 
 // Stop closes the SSH server
@@ -239,13 +233,6 @@ func (s *Server) SetNetworkValidation(addr wgaddr.Address) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.wgAddress = addr
-}
-
-// SetSocketFilter configures eBPF socket filtering for the SSH server
-func (s *Server) SetSocketFilter(ifIdx int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ifIdx = ifIdx
 }
 
 // ensureJWTValidator initializes the JWT validator and extractor if not already initialized

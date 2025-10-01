@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"runtime"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -20,7 +19,6 @@ import (
 type sshServer interface {
 	Start(ctx context.Context, addr netip.AddrPort) error
 	Stop() error
-	SetSocketFilter(ifIdx int)
 }
 
 func (e *Engine) setupSSHPortRedirection() error {
@@ -37,22 +35,6 @@ func (e *Engine) setupSSHPortRedirection() error {
 		return fmt.Errorf("add SSH port redirection: %w", err)
 	}
 	log.Infof("SSH port redirection enabled: %s:22 -> %s:22022", localAddr, localAddr)
-
-	return nil
-}
-
-func (e *Engine) setupSSHSocketFilter(server sshServer) error {
-	if runtime.GOOS != "linux" {
-		return nil
-	}
-
-	netInterface := e.wgInterface.ToInterface()
-	if netInterface == nil {
-		return errors.New("failed to get WireGuard network interface")
-	}
-
-	server.SetSocketFilter(netInterface.Index)
-	log.Debugf("SSH socket filter configured for interface %s (index: %d)", netInterface.Name, netInterface.Index)
 
 	return nil
 }
@@ -239,10 +221,6 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 
 	if err := e.setupSSHPortRedirection(); err != nil {
 		log.Warnf("failed to setup SSH port redirection: %v", err)
-	}
-
-	if err := e.setupSSHSocketFilter(server); err != nil {
-		return fmt.Errorf("set socket filter: %w", err)
 	}
 
 	if err := server.Start(e.ctx, listenAddr); err != nil {
