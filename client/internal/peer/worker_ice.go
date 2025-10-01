@@ -93,13 +93,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("OnNewOffer for ICE, serial: %s", remoteOfferAnswer.SessionIDString())
 	w.muxAgent.Lock()
 
-	if w.agentConnecting {
-		w.log.Debugf("agent connection is in progress, skipping the offer")
-		w.muxAgent.Unlock()
-		return
-	}
-
-	if w.agent != nil {
+	if w.agent != nil || w.agentConnecting {
 		// backward compatibility with old clients that do not send session ID
 		if remoteOfferAnswer.SessionID == nil {
 			w.log.Debugf("agent already exists, skipping the offer")
@@ -137,6 +131,9 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.agent = agent
 	w.agentDialerCancel = dialerCancel
 	w.agentConnecting = true
+	if remoteOfferAnswer.SessionID != nil {
+		w.remoteSessionID = *remoteOfferAnswer.SessionID
+	}
 	w.muxAgent.Unlock()
 
 	go w.connect(dialerCtx, agent, remoteOfferAnswer)
@@ -293,9 +290,6 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 	w.muxAgent.Lock()
 	w.agentConnecting = false
 	w.lastSuccess = time.Now()
-	if remoteOfferAnswer.SessionID != nil {
-		w.remoteSessionID = *remoteOfferAnswer.SessionID
-	}
 	w.muxAgent.Unlock()
 
 	// todo: the potential problem is a race between the onConnectionStateChange
