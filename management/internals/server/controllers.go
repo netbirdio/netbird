@@ -18,6 +18,12 @@ func (s *BaseServer) PeersUpdateManager() *server.PeersUpdateManager {
 	})
 }
 
+func (s *BaseServer) JobManager() *server.JobManager {
+	return Create(s, func() *server.JobManager {
+		return server.NewJobManager(s.Metrics(), s.Store())
+	})
+}
+
 func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValidator {
 	return Create(s, func() integrated_validator.IntegratedValidator {
 		integratedPeerValidator, err := integrations.NewIntegratedValidator(

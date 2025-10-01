@@ -197,7 +197,8 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	r := peer.NewRecorder(config.ManagementURL.String())
 	r.GetFullStatus()
 
-	connectClient := internal.NewConnectClient(ctx, config, r)
+	//todo: do we need to pass logFile here ?
+	connectClient := internal.NewConnectClient(ctx, config, r, "")
 	SetupDebugHandler(ctx, config, r, connectClient, "")
 
 	return connectClient.Run(nil)

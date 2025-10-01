@@ -126,4 +126,7 @@ type Manager interface {
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
 	AllowSync(string, uint64) bool
+	CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
+	GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
+	GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
 }
