@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 // Peer represents a machine connected to the network.
@@ -332,6 +333,17 @@ func (p *Peer) UpdateLastLogin() *Peer {
 	newStatus.LoginExpired = false
 	p.Status = newStatus
 	return p
+}
+
+func (p *Peer) FromAPITemporaryAccessRequest(a *api.PeerTemporaryAccessRequest) {
+	p.Ephemeral = true
+	p.Name = a.Name
+	p.Key = a.WgPubKey
+	p.Meta = PeerSystemMeta{
+		Hostname: a.Name,
+		GoOS:     "js",
+		OS:       "js",
+	}
 }
 
 func (f Flags) isEqual(other Flags) bool {
