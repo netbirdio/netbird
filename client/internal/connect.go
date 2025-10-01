@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -34,7 +35,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -437,6 +437,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		EnableSSHSFTP:                 config.EnableSSHSFTP,
 		EnableSSHLocalPortForwarding:  config.EnableSSHLocalPortForwarding,
 		EnableSSHRemotePortForwarding: config.EnableSSHRemotePortForwarding,
+		DisableSSHAuth:                config.DisableSSHAuth,
 		DNSRouteInterval:              config.DNSRouteInterval,
 
 		DisableClientRoutes: config.DisableClientRoutes,
@@ -527,6 +528,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.EnableSSHSFTP,
 		config.EnableSSHLocalPortForwarding,
 		config.EnableSSHRemotePortForwarding,
+		config.DisableSSHAuth,
 	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {

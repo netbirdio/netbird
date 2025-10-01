@@ -360,6 +360,9 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
 		req.EnableSSHRemotePortForward = &enableSSHRemotePortForward
 	}
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		req.DisableSSHAuth = &disableSSHAuth
+	}
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			log.Errorf("parse interface name: %v", err)
@@ -458,6 +461,10 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 
 	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
 		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		ic.DisableSSHAuth = &disableSSHAuth
 	}
 
 	if cmd.Flag(interfaceNameFlag).Changed {
@@ -574,6 +581,10 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
 		loginRequest.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		loginRequest.DisableSSHAuth = &disableSSHAuth
 	}
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {

@@ -270,6 +270,7 @@ type serviceClient struct {
 	sEnableSSHSFTP              *widget.Check
 	sEnableSSHLocalPortForward  *widget.Check
 	sEnableSSHRemotePortForward *widget.Check
+	sDisableSSHAuth             *widget.Check
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL string
@@ -288,6 +289,7 @@ type serviceClient struct {
 	enableSSHSFTP              bool
 	enableSSHLocalPortForward  bool
 	enableSSHRemotePortForward bool
+	disableSSHAuth             bool
 
 	connected            bool
 	update               *version.Update
@@ -437,6 +439,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.sEnableSSHSFTP = widget.NewCheck("Enable SSH SFTP", nil)
 	s.sEnableSSHLocalPortForward = widget.NewCheck("Enable SSH Local Port Forwarding", nil)
 	s.sEnableSSHRemotePortForward = widget.NewCheck("Enable SSH Remote Port Forwarding", nil)
+	s.sDisableSSHAuth = widget.NewCheck("Disable SSH Authentication", nil)
 
 	s.wSettings.SetContent(s.getSettingsForm())
 	s.wSettings.Resize(fyne.NewSize(600, 400))
@@ -597,6 +600,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	req.EnableSSHSFTP = &s.sEnableSSHSFTP.Checked
 	req.EnableSSHLocalPortForward = &s.sEnableSSHLocalPortForward.Checked
 	req.EnableSSHRemotePortForward = &s.sEnableSSHRemotePortForward.Checked
+	req.DisableSSHAuth = &s.sDisableSSHAuth.Checked
 
 	if s.iPreSharedKey.Text != censoredPreSharedKey {
 		req.OptionalPreSharedKey = &s.iPreSharedKey.Text
@@ -682,6 +686,7 @@ func (s *serviceClient) getSSHForm() *widget.Form {
 			{Text: "Enable SSH SFTP", Widget: s.sEnableSSHSFTP},
 			{Text: "Enable SSH Local Port Forwarding", Widget: s.sEnableSSHLocalPortForward},
 			{Text: "Enable SSH Remote Port Forwarding", Widget: s.sEnableSSHRemotePortForward},
+			{Text: "Disable SSH Authentication", Widget: s.sDisableSSHAuth},
 		},
 	}
 }
@@ -690,7 +695,8 @@ func (s *serviceClient) hasSSHChanges() bool {
 	return s.enableSSHRoot != s.sEnableSSHRoot.Checked ||
 		s.enableSSHSFTP != s.sEnableSSHSFTP.Checked ||
 		s.enableSSHLocalPortForward != s.sEnableSSHLocalPortForward.Checked ||
-		s.enableSSHRemotePortForward != s.sEnableSSHRemotePortForward.Checked
+		s.enableSSHRemotePortForward != s.sEnableSSHRemotePortForward.Checked ||
+		s.disableSSHAuth != s.sDisableSSHAuth.Checked
 }
 
 func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
@@ -1233,6 +1239,7 @@ func (s *serviceClient) getSrvConfig() {
 	if cfg.EnableSSHRemotePortForwarding != nil {
 		s.enableSSHRemotePortForward = *cfg.EnableSSHRemotePortForwarding
 	}
+	s.disableSSHAuth = cfg.DisableSSHAuth
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
@@ -1266,6 +1273,7 @@ func (s *serviceClient) getSrvConfig() {
 		if cfg.EnableSSHRemotePortForwarding != nil {
 			s.sEnableSSHRemotePortForward.SetChecked(*cfg.EnableSSHRemotePortForwarding)
 		}
+		s.sDisableSSHAuth.SetChecked(cfg.DisableSSHAuth)
 	}
 
 	if s.mNotifications == nil {
@@ -1348,6 +1356,7 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	if cfg.EnableSSHRemotePortForwarding {
 		config.EnableSSHRemotePortForwarding = &cfg.EnableSSHRemotePortForwarding
 	}
+	config.DisableSSHAuth = cfg.DisableSSHAuth
 
 	return &config
 }
