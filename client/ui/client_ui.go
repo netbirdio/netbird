@@ -355,7 +355,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 	case args.showProfiles:
 		s.showProfilesUI()
 	case args.showUpdate:
-		s.showUpdateProgress()
+		s.showUpdateProgress(ctx)
 	}
 
 	return s
@@ -401,11 +401,24 @@ func (s *serviceClient) updateIcon() {
 	s.updateIndicationLock.Unlock()
 }
 
-func (s *serviceClient) showUpdateProgress() {
+func (s *serviceClient) showUpdateProgress(ctx context.Context) {
 	s.wUpdateProgress = s.app.NewWindow("Automatically updating client")
-	progressBar := widget.NewProgressBarInfinite()
-	s.wUpdateProgress.SetContent(container.NewGridWithRows(2, widget.NewLabel("Your client version is older than auto-update version set in Management, updating client now."), progressBar))
+	loadingLabel := widget.NewLabel("Updating")
+	s.wUpdateProgress.SetContent(container.NewGridWithRows(2, widget.NewLabel("Your client version is older than auto-update version set in Management, updating client now."), loadingLabel))
 	s.wUpdateProgress.Show()
+	go func() {
+		dotCount := 0
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+				dotCount++
+				dotCount %= 4
+				loadingLabel.SetText(fmt.Sprintf("Updating%s", strings.Repeat(".", dotCount)))
+			}
+		}
+	}()
 	s.wUpdateProgress.CenterOnScreen()
 	s.wUpdateProgress.SetFixedSize(true)
 	s.wUpdateProgress.SetCloseIntercept(func() {})
