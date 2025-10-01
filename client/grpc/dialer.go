@@ -25,8 +25,9 @@ func Backoff(ctx context.Context) backoff.BackOff {
 	return backoff.WithContext(b, ctx)
 }
 
-// CreateConnection creates a gRPC client connection with the appropriate transport options
-func CreateConnection(ctx context.Context, addr string, tlsEnabled bool) (*grpc.ClientConn, error) {
+// CreateConnection creates a gRPC client connection with the appropriate transport options.
+// The component parameter specifies the WebSocket proxy component path (e.g., "/management", "/signal").
+func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, component string) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 	if tlsEnabled {
 		certPool, err := x509.SystemCertPool()
@@ -49,7 +50,7 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool) (*grpc.
 		connCtx,
 		addr,
 		transportOption,
-		WithCustomDialer(tlsEnabled),
+		WithCustomDialer(tlsEnabled, component),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    30 * time.Second,
