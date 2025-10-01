@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	clientProto "github.com/netbirdio/netbird/client/proto"
 	client "github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/management/internals/server/config"
@@ -55,7 +56,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	srv, err := sig.NewServer(context.Background(), otel.Meter(""))
+	srv, err := sig.NewServer(context.Background(), otel.Meter(""), nil)
 	require.NoError(t, err)
 
 	sigProto.RegisterSignalExchangeServer(s, srv)

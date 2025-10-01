@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/descriptor.proto";
+import "google/protobuf/empty.proto";
 
 option go_package = "/proto";
 
@@ -9,6 +10,7 @@ package signalexchange;
 service SignalExchange {
   // Synchronously connect to the Signal Exchange service offering connection candidates and waiting for connection candidates from the other party (remote peer)
   rpc Send(EncryptedMessage) returns (EncryptedMessage) {}
+  rpc SendWithDeliveryCheck(EncryptedMessage) returns (google.protobuf.Empty) {}
   // Connect to the Signal Exchange service offering connection candidates and maintain a channel for receiving candidates from the other party (remote peer)
   rpc ConnectStream(stream EncryptedMessage) returns (stream EncryptedMessage) {}
 }
