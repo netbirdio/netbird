@@ -5,6 +5,8 @@ package android
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	"golang.org/x/exp/maps"
 	"os"
 	"slices"
@@ -229,19 +231,17 @@ func (c *Client) Networks() *NetworkArray {
 		items: make([]Network, 0),
 	}
 
+	resolvedDomains := c.recorder.GetResolvedDomainsStates()
+
 	for id, routes := range routeManager.GetClientRoutesWithNetID() {
 		if len(routes) == 0 {
 			continue
 		}
 
 		r := routes[0]
-		domains := NetworkDomains{}
-
-		for _, domain := range r.Domains {
-			domains.Add(domain.SafeString())
-		}
-
+		domains := c.getNetworkDomainsFromRoute(r, resolvedDomains)
 		netStr := r.Network.String()
+
 		if r.IsDynamic() {
 			netStr = r.Domains.SafeString()
 		}
@@ -325,6 +325,26 @@ func (c *Client) DeselectRoute(route string) error {
 	}
 
 	return c.toggleRoute(deselectRouteCommand{route: route, manager: manager})
+}
+
+func (c *Client) getNetworkDomainsFromRoute(route *route.Route, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo) NetworkDomains {
+	domains := NetworkDomains{}
+
+	for _, d := range route.Domains {
+		networkDomain := NetworkDomain{
+			Address: d.SafeString(),
+		}
+
+		if info, exists := resolvedDomains[d]; exists {
+			for _, prefix := range info.Prefixes {
+				networkDomain.addResolvedIP(prefix.Addr().String())
+			}
+		}
+
+		domains.Add(networkDomain)
+	}
+
+	return domains
 }
 
 func exportEnvList(list *EnvList) {

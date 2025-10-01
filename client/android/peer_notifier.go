@@ -1,3 +1,5 @@
+//go:build android
+
 package android
 
 // PeerInfo describe information about the peers. It designed for the UI usage

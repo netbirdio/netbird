@@ -1,3 +1,5 @@
+//go:build android
+
 package android
 
 import "fmt"
