@@ -80,6 +80,11 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		return nil
 	}
 
+	if e.config.DisableSSHAuth != nil && *e.config.DisableSSHAuth {
+		log.Info("starting SSH server without JWT authentication (authentication disabled by config)")
+		return e.startSSHServer(nil)
+	}
+
 	if protoJWT := sshConf.GetJwtConfig(); protoJWT != nil {
 		jwtConfig := &sshserver.JWTConfig{
 			Issuer:       protoJWT.GetIssuer(),
@@ -90,6 +95,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 
 		return e.startSSHServer(jwtConfig)
 	}
+
 	return errors.New("SSH server requires valid JWT configuration")
 }
 

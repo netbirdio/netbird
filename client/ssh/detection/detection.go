@@ -35,6 +35,20 @@ func (s ServerType) RequiresJWT() bool {
 	return s == ServerTypeNetBirdJWT
 }
 
+// ExitCode returns the exit code for the detect command
+func (s ServerType) ExitCode() int {
+	switch s {
+	case ServerTypeNetBirdJWT:
+		return 0
+	case ServerTypeNetBirdNoJWT:
+		return 1
+	case ServerTypeRegular:
+		return 2
+	default:
+		return 2
+	}
+}
+
 // DetectSSHServerType detects SSH server type with optional username
 func DetectSSHServerType(ctx context.Context, host string, port int) (ServerType, error) {
 	targetAddr := net.JoinHostPort(host, strconv.Itoa(port))

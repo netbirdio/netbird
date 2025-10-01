@@ -283,6 +283,7 @@ type LoginRequest struct {
 	EnableSSHSFTP                 *bool   `protobuf:"varint,34,opt,name=enableSSHSFTP,proto3,oneof" json:"enableSSHSFTP,omitempty"`
 	EnableSSHLocalPortForwarding  *bool   `protobuf:"varint,35,opt,name=enableSSHLocalPortForwarding,proto3,oneof" json:"enableSSHLocalPortForwarding,omitempty"`
 	EnableSSHRemotePortForwarding *bool   `protobuf:"varint,36,opt,name=enableSSHRemotePortForwarding,proto3,oneof" json:"enableSSHRemotePortForwarding,omitempty"`
+	DisableSSHAuth                *bool   `protobuf:"varint,37,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -566,6 +567,13 @@ func (x *LoginRequest) GetEnableSSHLocalPortForwarding() bool {
 func (x *LoginRequest) GetEnableSSHRemotePortForwarding() bool {
 	if x != nil && x.EnableSSHRemotePortForwarding != nil {
 		return *x.EnableSSHRemotePortForwarding
+	}
+	return false
+}
+
+func (x *LoginRequest) GetDisableSSHAuth() bool {
+	if x != nil && x.DisableSSHAuth != nil {
+		return *x.DisableSSHAuth
 	}
 	return false
 }
@@ -1100,6 +1108,7 @@ type GetConfigResponse struct {
 	EnableSSHSFTP                 bool   `protobuf:"varint,24,opt,name=enableSSHSFTP,proto3" json:"enableSSHSFTP,omitempty"`
 	EnableSSHLocalPortForwarding  bool   `protobuf:"varint,22,opt,name=enableSSHLocalPortForwarding,proto3" json:"enableSSHLocalPortForwarding,omitempty"`
 	EnableSSHRemotePortForwarding bool   `protobuf:"varint,23,opt,name=enableSSHRemotePortForwarding,proto3" json:"enableSSHRemotePortForwarding,omitempty"`
+	DisableSSHAuth                bool   `protobuf:"varint,25,opt,name=disableSSHAuth,proto3" json:"disableSSHAuth,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -1298,6 +1307,13 @@ func (x *GetConfigResponse) GetEnableSSHLocalPortForwarding() bool {
 func (x *GetConfigResponse) GetEnableSSHRemotePortForwarding() bool {
 	if x != nil {
 		return x.EnableSSHRemotePortForwarding
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetDisableSSHAuth() bool {
+	if x != nil {
+		return x.DisableSSHAuth
 	}
 	return false
 }
@@ -3781,6 +3797,7 @@ type SetConfigRequest struct {
 	EnableSSHSFTP              *bool                `protobuf:"varint,30,opt,name=enableSSHSFTP,proto3,oneof" json:"enableSSHSFTP,omitempty"`
 	EnableSSHLocalPortForward  *bool                `protobuf:"varint,31,opt,name=enableSSHLocalPortForward,proto3,oneof" json:"enableSSHLocalPortForward,omitempty"`
 	EnableSSHRemotePortForward *bool                `protobuf:"varint,32,opt,name=enableSSHRemotePortForward,proto3,oneof" json:"enableSSHRemotePortForward,omitempty"`
+	DisableSSHAuth             *bool                `protobuf:"varint,33,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -4035,6 +4052,13 @@ func (x *SetConfigRequest) GetEnableSSHLocalPortForward() bool {
 func (x *SetConfigRequest) GetEnableSSHRemotePortForward() bool {
 	if x != nil && x.EnableSSHRemotePortForward != nil {
 		return *x.EnableSSHRemotePortForward
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetDisableSSHAuth() bool {
+	if x != nil && x.DisableSSHAuth != nil {
+		return *x.DisableSSHAuth
 	}
 	return false
 }
@@ -5087,7 +5111,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\x94\x11\n" +
+	"\fEmptyRequest\"\xd4\x11\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -5128,7 +5152,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\renableSSHRoot\x18! \x01(\bH\x14R\renableSSHRoot\x88\x01\x01\x12)\n" +
 	"\renableSSHSFTP\x18\" \x01(\bH\x15R\renableSSHSFTP\x88\x01\x01\x12G\n" +
 	"\x1cenableSSHLocalPortForwarding\x18# \x01(\bH\x16R\x1cenableSSHLocalPortForwarding\x88\x01\x01\x12I\n" +
-	"\x1denableSSHRemotePortForwarding\x18$ \x01(\bH\x17R\x1denableSSHRemotePortForwarding\x88\x01\x01B\x13\n" +
+	"\x1denableSSHRemotePortForwarding\x18$ \x01(\bH\x17R\x1denableSSHRemotePortForwarding\x88\x01\x01\x12+\n" +
+	"\x0edisableSSHAuth\x18% \x01(\bH\x18R\x0edisableSSHAuth\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -5152,7 +5177,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0e_enableSSHRootB\x10\n" +
 	"\x0e_enableSSHSFTPB\x1f\n" +
 	"\x1d_enableSSHLocalPortForwardingB \n" +
-	"\x1e_enableSSHRemotePortForwarding\"\xb5\x01\n" +
+	"\x1e_enableSSHRemotePortForwardingB\x11\n" +
+	"\x0f_disableSSHAuth\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -5185,7 +5211,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\x8b\b\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xb3\b\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -5214,7 +5240,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\renableSSHRoot\x18\x15 \x01(\bR\renableSSHRoot\x12$\n" +
 	"\renableSSHSFTP\x18\x18 \x01(\bR\renableSSHSFTP\x12B\n" +
 	"\x1cenableSSHLocalPortForwarding\x18\x16 \x01(\bR\x1cenableSSHLocalPortForwarding\x12D\n" +
-	"\x1denableSSHRemotePortForwarding\x18\x17 \x01(\bR\x1denableSSHRemotePortForwarding\"\xfe\x05\n" +
+	"\x1denableSSHRemotePortForwarding\x18\x17 \x01(\bR\x1denableSSHRemotePortForwarding\x12&\n" +
+	"\x0edisableSSHAuth\x18\x19 \x01(\bR\x0edisableSSHAuth\"\xfe\x05\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -5417,7 +5444,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"\x17\n" +
-	"\x15SwitchProfileResponse\"\xcd\x0f\n" +
+	"\x15SwitchProfileResponse\"\x8d\x10\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -5454,7 +5481,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\renableSSHRoot\x18\x1d \x01(\bH\x12R\renableSSHRoot\x88\x01\x01\x12)\n" +
 	"\renableSSHSFTP\x18\x1e \x01(\bH\x13R\renableSSHSFTP\x88\x01\x01\x12A\n" +
 	"\x19enableSSHLocalPortForward\x18\x1f \x01(\bH\x14R\x19enableSSHLocalPortForward\x88\x01\x01\x12C\n" +
-	"\x1aenableSSHRemotePortForward\x18  \x01(\bH\x15R\x1aenableSSHRemotePortForward\x88\x01\x01B\x13\n" +
+	"\x1aenableSSHRemotePortForward\x18  \x01(\bH\x15R\x1aenableSSHRemotePortForward\x88\x01\x01\x12+\n" +
+	"\x0edisableSSHAuth\x18! \x01(\bH\x16R\x0edisableSSHAuth\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -5476,7 +5504,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0e_enableSSHRootB\x10\n" +
 	"\x0e_enableSSHSFTPB\x1c\n" +
 	"\x1a_enableSSHLocalPortForwardB\x1d\n" +
-	"\x1b_enableSSHRemotePortForward\"\x13\n" +
+	"\x1b_enableSSHRemotePortForwardB\x11\n" +
+	"\x0f_disableSSHAuth\"\x13\n" +
 	"\x11SetConfigResponse\"Q\n" +
 	"\x11AddProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +

@@ -151,6 +151,7 @@ message Flags {
   bool enableSSHSFTP = 12;
   bool enableSSHLocalPortForwarding = 13;
   bool enableSSHRemotePortForwarding = 14;
+  bool disableSSHAuth = 15;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.

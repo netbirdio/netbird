@@ -376,6 +376,9 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.EnableSSHSFTP = msg.EnableSSHSFTP
 	config.EnableSSHLocalPortForwarding = msg.EnableSSHLocalPortForward
 	config.EnableSSHRemotePortForwarding = msg.EnableSSHRemotePortForward
+	if msg.DisableSSHAuth != nil {
+		config.DisableSSHAuth = msg.DisableSSHAuth
+	}
 
 	if msg.Mtu != nil {
 		mtu := uint16(*msg.Mtu)
@@ -1328,6 +1331,11 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		enableSSHRemotePortForwarding = *s.config.EnableSSHRemotePortForwarding
 	}
 
+	disableSSHAuth := false
+	if s.config.DisableSSHAuth != nil {
+		disableSSHAuth = *s.config.DisableSSHAuth
+	}
+
 	return &proto.GetConfigResponse{
 		ManagementUrl:                 managementURL.String(),
 		PreSharedKey:                  preSharedKey,
@@ -1351,6 +1359,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		EnableSSHSFTP:                 enableSSHSFTP,
 		EnableSSHLocalPortForwarding:  enableSSHLocalPortForwarding,
 		EnableSSHRemotePortForwarding: enableSSHRemotePortForwarding,
+		DisableSSHAuth:                disableSSHAuth,
 	}, nil
 }
 

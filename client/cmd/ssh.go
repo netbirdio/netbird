@@ -32,6 +32,7 @@ const (
 	enableSSHSFTPFlag              = "enable-ssh-sftp"
 	enableSSHLocalPortForwardFlag  = "enable-ssh-local-port-forwarding"
 	enableSSHRemotePortForwardFlag = "enable-ssh-remote-port-forwarding"
+	disableSSHAuthFlag             = "disable-ssh-auth"
 )
 
 var (
@@ -53,6 +54,7 @@ var (
 	enableSSHSFTP              bool
 	enableSSHLocalPortForward  bool
 	enableSSHRemotePortForward bool
+	disableSSHAuth             bool
 )
 
 func init() {
@@ -61,6 +63,7 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&enableSSHSFTP, enableSSHSFTPFlag, false, "Enable SFTP subsystem for SSH server")
 	upCmd.PersistentFlags().BoolVar(&enableSSHLocalPortForward, enableSSHLocalPortForwardFlag, false, "Enable local port forwarding for SSH server")
 	upCmd.PersistentFlags().BoolVar(&enableSSHRemotePortForward, enableSSHRemotePortForwardFlag, false, "Enable remote port forwarding for SSH server")
+	upCmd.PersistentFlags().BoolVar(&disableSSHAuth, disableSSHAuthFlag, false, "Disable SSH authentication")
 
 	sshCmd.PersistentFlags().IntVarP(&port, "port", "p", sshserver.DefaultSSHPort, "Remote SSH port")
 	sshCmd.PersistentFlags().StringVarP(&username, "user", "u", "", sshUsernameDesc)
@@ -695,14 +698,10 @@ func sshProxyFn(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var (
-	errNotNetBird = errors.New("not netbird")
-)
-
 var sshDetectCmd = &cobra.Command{
 	Use:    "detect <host> <port>",
 	Short:  "Detect if a host is running NetBird SSH",
-	Long:   "Internal command used by SSH Match exec to detect NetBird SSH servers",
+	Long:   "Internal command used by SSH Match exec to detect NetBird SSH servers. Exit codes: 0=JWT, 1=no-JWT, 2=regular SSH",
 	Hidden: true,
 	Args:   cobra.ExactArgs(2),
 	RunE:   sshDetectFn,
@@ -710,7 +709,7 @@ var sshDetectCmd = &cobra.Command{
 
 func sshDetectFn(cmd *cobra.Command, args []string) error {
 	if err := util.InitLog(logLevel, "console"); err != nil {
-		return errNotNetBird
+		os.Exit(detection.ServerTypeRegular.ExitCode())
 	}
 
 	host := args[0]
@@ -718,17 +717,14 @@ func sshDetectFn(cmd *cobra.Command, args []string) error {
 
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return errNotNetBird
+		os.Exit(detection.ServerTypeRegular.ExitCode())
 	}
 
 	serverType, err := detection.DetectSSHServerType(cmd.Context(), host, port)
 	if err != nil {
-		return errNotNetBird
+		os.Exit(detection.ServerTypeRegular.ExitCode())
 	}
 
-	if serverType == detection.ServerTypeNetBirdJWT || serverType == detection.ServerTypeNetBirdNoJWT {
-		return nil
-	}
-
-	return errNotNetBird
+	os.Exit(serverType.ExitCode())
+	return nil
 }

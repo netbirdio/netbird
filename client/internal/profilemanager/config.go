@@ -54,6 +54,7 @@ type ConfigInput struct {
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
 	EnableSSHRemotePortForwarding *bool
+	DisableSSHAuth                *bool
 	NATExternalIPs                []string
 	CustomDNSAddress              []byte
 	RosenpassEnabled              *bool
@@ -102,6 +103,7 @@ type Config struct {
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
 	EnableSSHRemotePortForwarding *bool
+	DisableSSHAuth                *bool
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -420,6 +422,16 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("disabling SSH remote port forwarding")
 		}
 		config.EnableSSHRemotePortForwarding = input.EnableSSHRemotePortForwarding
+		updated = true
+	}
+
+	if input.DisableSSHAuth != nil && input.DisableSSHAuth != config.DisableSSHAuth {
+		if *input.DisableSSHAuth {
+			log.Infof("disabling SSH authentication")
+		} else {
+			log.Infof("enabling SSH authentication")
+		}
+		config.DisableSSHAuth = input.DisableSSHAuth
 		updated = true
 	}
 

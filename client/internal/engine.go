@@ -118,6 +118,7 @@ type EngineConfig struct {
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
 	EnableSSHRemotePortForwarding *bool
+	DisableSSHAuth                *bool
 
 	DNSRouteInterval time.Duration
 
@@ -860,6 +861,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,
 		e.config.EnableSSHRemotePortForwarding,
+		e.config.DisableSSHAuth,
 	)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
@@ -921,6 +923,7 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.EnableSSHSFTP,
 			e.config.EnableSSHLocalPortForwarding,
 			e.config.EnableSSHRemotePortForwarding,
+			e.config.DisableSSHAuth,
 		)
 
 		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
@@ -1474,6 +1477,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		e.config.EnableSSHSFTP,
 		e.config.EnableSSHLocalPortForwarding,
 		e.config.EnableSSHRemotePortForwarding,
+		e.config.DisableSSHAuth,
 	)
 
 	netMap, err := e.mgmClient.GetNetworkMap(info)
