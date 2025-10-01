@@ -259,7 +259,7 @@ func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Hand
 		case request.ProtoMajor == 2 && (strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
 			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")):
 			gRPCHandler.ServeHTTP(writer, request)
-		case request.URL.Path == wsproxy.ProxyPath:
+		case request.URL.Path == wsproxy.ProxyPath+wsproxy.ManagementComponent:
 			wsProxy.Handler().ServeHTTP(writer, request)
 		default:
 			httpHandler.ServeHTTP(writer, request)

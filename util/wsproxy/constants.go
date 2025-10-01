@@ -2,8 +2,14 @@ package wsproxy
 
 import "errors"
 
-// ProxyPath is the standard path where the WebSocket proxy is mounted on servers.
+// ProxyPath is the base path where the WebSocket proxy is mounted on servers.
 const ProxyPath = "/ws-proxy"
+
+// Component paths that are appended to ProxyPath
+const (
+	ManagementComponent = "/management"
+	SignalComponent     = "/signal"
+)
 
 // Common errors
 var (
