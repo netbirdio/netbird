@@ -5,9 +5,8 @@ package updatemanager
 import (
 	"context"
 	"fmt"
-	"os/exec"
-
 	"golang.org/x/sys/windows/registry"
+	"os/exec"
 
 	log "github.com/sirupsen/logrus"
 )

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	"net"
 	"net/netip"
 	"runtime"
@@ -272,6 +273,18 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		c.engineMutex.Lock()
 		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
+		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
+			if c.engine.updateManager == nil && loginResp.PeerConfig.AutoUpdate.Version != "disabled" {
+				c.engine.updateManager = updatemanager.NewUpdateManager(c.statusRecorder, c.engine.stateManager)
+				c.engine.updateManager.StartWithTimeout(engineCtx, time.Minute)
+			} else if c.engine.updateManager != nil && loginResp.PeerConfig.AutoUpdate.Version == "disabled" {
+				c.engine.updateManager.Stop()
+				c.engine.updateManager = nil
+			}
+			if c.engine.updateManager != nil {
+				c.engine.updateManager.SetVersion(loginResp.PeerConfig.AutoUpdate.Version)
+			}
+		}
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
@@ -279,7 +292,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
-
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
