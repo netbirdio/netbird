@@ -38,7 +38,7 @@ require (
 	github.com/c-robinson/iplib v1.0.3
 	github.com/caddyserver/certmagic v0.21.3
 	github.com/cilium/ebpf v0.15.0
-	github.com/coder/websocket v1.8.12
+	github.com/coder/websocket v1.8.13
 	github.com/coreos/go-iptables v0.7.0
 	github.com/creack/pty v1.1.18
 	github.com/eko/gocache/lib/v4 v4.2.0
@@ -104,6 +104,7 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a
+	golang.org/x/mod v0.26.0
 	golang.org/x/net v0.42.0
 	golang.org/x/oauth2 v0.28.0
 	golang.org/x/sync v0.16.0
@@ -247,7 +248,6 @@ require (
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/image v0.18.0 // indirect
-	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.35.0 // indirect
