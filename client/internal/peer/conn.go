@@ -171,9 +171,9 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay)
 
-	conn.handshaker.AddOnNewOfferListener(conn.workerRelay.OnNewOffer)
+	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
 	if !isForceRelayed() {
-		conn.handshaker.AddOnNewOfferListener(conn.workerICE.OnNewOffer)
+		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
 	}
 
 	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
