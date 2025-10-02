@@ -240,15 +240,17 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 	// if the gpo key is present, we need to put our DNS settings there, otherwise our config might be ignored
 	// see https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpnrpt/8cc31cb9-20cb-4140-9e85-3e08703b4745
 	for i, domain := range domains {
+		localPath := fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i)
+		gpoPath := fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, i)
 
 		singleDomain := []string{domain}
 
-		if err := r.configureDNSPolicy(dnsPolicyConfigMatchPath, singleDomain, ip); err != nil {
+		if err := r.configureDNSPolicy(localPath, singleDomain, ip); err != nil {
 			return i, fmt.Errorf("configure DNS Local policy for domain %s: %w", domain, err)
 		}
 
 		if r.gpo {
-			if err := r.configureDNSPolicy(gpoDnsPolicyConfigMatchPath, singleDomain, ip); err != nil {
+			if err := r.configureDNSPolicy(gpoPath, singleDomain, ip); err != nil {
 				return i, fmt.Errorf("configure gpo DNS policy: %w", err)
 			}
 		}
