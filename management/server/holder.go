@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -16,6 +18,19 @@ func (am *DefaultAccountManager) enrichAccountFromHolder(account *types.Account)
 	}
 	account.NetworkMapCache.UpdateAccountPointer(account)
 	am.holder.AddAccount(account)
+}
+
+func (am *DefaultAccountManager) getAccountFromHolder(accountID string) *types.Account {
+	a := am.holder.GetAccount(accountID)
+	if a != nil {
+		return a
+	}
+	account, err := am.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		return nil
+	}
+	am.holder.AddAccount(account)
+	return account
 }
 
 func (am *DefaultAccountManager) updateAccountInHolder(account *types.Account) {

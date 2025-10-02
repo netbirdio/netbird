@@ -19,13 +19,13 @@ func (am *DefaultAccountManager) initNetworkMapBuilderIfNeeded(account *types.Ac
 
 func (am *DefaultAccountManager) getPeerNetworkMapExp(
 	ctx context.Context,
-	account *types.Account,
+	accountId string,
 	peerId string,
 	validatedPeers map[string]struct{},
 	customZone nbdns.CustomZone,
 	metrics *telemetry.AccountManagerMetrics,
 ) *types.NetworkMap {
-	am.enrichAccountFromHolder(account)
+	account := am.getAccountFromHolder(accountId)
 	return account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
 }
 
