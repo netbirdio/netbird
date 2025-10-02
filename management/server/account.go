@@ -2162,15 +2162,11 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 	}
 
 	if updateNetworkMap {
-		account, err := am.Store.GetAccountByPeerID(ctx, peerID)
-		if err != nil {
-			return err
-		}
 		peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 		if err != nil {
 			return err
 		}
-		am.updatePeerInNetworkMapCache(account, peer)
+		am.updatePeerInNetworkMapCache(peer.AccountID, peer)
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 	return nil

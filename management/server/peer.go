@@ -146,11 +146,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 
 	if expired {
 		if am.expNewNetworkMap {
-			account, err := am.Store.GetAccountByPeerID(ctx, peer.ID)
-			if err != nil {
-				return err
-			}
-			am.updatePeerInNetworkMapCache(account, peer)
+			am.updatePeerInNetworkMapCache(peer.AccountID, peer)
 		}
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
@@ -329,11 +325,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	}
 
 	if am.expNewNetworkMap {
-		account, err := am.Store.GetAccount(ctx, accountID)
-		if err != nil {
-			return nil, err
-		}
-		am.updatePeerInNetworkMapCache(account, peer)
+		am.updatePeerInNetworkMapCache(peer.AccountID, peer)
 	}
 
 	if peerLabelChanged || requiresPeerUpdates {
@@ -834,11 +826,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 
 	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
 		if am.expNewNetworkMap {
-			account, err := am.Store.GetAccountByPeerID(ctx, peer.ID)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			am.updatePeerInNetworkMapCache(account, peer)
+			am.updatePeerInNetworkMapCache(peer.AccountID, peer)
 		}
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
@@ -966,11 +954,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		if am.expNewNetworkMap {
-			account, err := am.Store.GetAccountByPeerID(ctx, peer.ID)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			am.updatePeerInNetworkMapCache(account, peer)
+			am.updatePeerInNetworkMapCache(peer.AccountID, peer)
 		}
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
