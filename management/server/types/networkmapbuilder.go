@@ -957,7 +957,6 @@ func (b *NetworkMapBuilder) isPeerRouter(account *Account, peerID string) bool {
 			return true
 		}
 
-		// ??
 		if peer := b.cache.globalPeers[peerID]; peer != nil {
 			if r.Peer == peer.Key && r.PeerID == "" {
 				return true
