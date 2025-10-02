@@ -2,6 +2,7 @@ package dnsfwd
 
 import (
 	"net/netip"
+	"strings"
 	"sync"
 
 	"github.com/miekg/dns"
@@ -26,7 +27,8 @@ func newCache() *cache {
 func (c *cache) get(domain string, reqType uint16) ([]netip.Addr, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	entry, exists := c.records[domain]
+
+	entry, exists := c.records[normalizeDomain(domain)]
 	if !exists {
 		return nil, false
 	}
@@ -45,10 +47,11 @@ func (c *cache) get(domain string, reqType uint16) ([]netip.Addr, bool) {
 func (c *cache) set(domain string, reqType uint16, addrs []netip.Addr) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	entry, exists := c.records[domain]
+	norm := normalizeDomain(domain)
+	entry, exists := c.records[norm]
 	if !exists {
 		entry = &cacheEntry{}
-		c.records[domain] = entry
+		c.records[norm] = entry
 	}
 
 	switch reqType {
@@ -57,6 +60,13 @@ func (c *cache) set(domain string, reqType uint16, addrs []netip.Addr) {
 	case dns.TypeAAAA:
 		entry.ip6Addrs = cloneAddrs(addrs)
 	}
+}
+
+// normalizeDomain converts an input domain into a canonical form used as cache key:
+// lowercase and fully-qualified (with trailing dot).
+func normalizeDomain(domain string) string {
+	// dns.Fqdn ensures trailing dot; ToLower for consistent casing
+	return dns.Fqdn(strings.ToLower(domain))
 }
 
 func cloneAddrs(in []netip.Addr) []netip.Addr {
