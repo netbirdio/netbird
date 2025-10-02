@@ -249,7 +249,7 @@ func TestDefaultManagerSquashRules(t *testing.T) {
 	}
 
 	manager := &DefaultManager{}
-	rules, _ := manager.squashAcceptRules(networkMap)
+	rules := manager.squashAcceptRules(networkMap)
 	assert.Equal(t, 2, len(rules))
 
 	r := rules[0]
@@ -326,7 +326,7 @@ func TestDefaultManagerSquashRulesNoAffect(t *testing.T) {
 	}
 
 	manager := &DefaultManager{}
-	rules, _ := manager.squashAcceptRules(networkMap)
+	rules := manager.squashAcceptRules(networkMap)
 	assert.Equal(t, len(networkMap.FirewallRules), len(rules))
 }
 
@@ -660,7 +660,7 @@ func TestDefaultManagerSquashRulesWithPortRestrictions(t *testing.T) {
 			}
 
 			manager := &DefaultManager{}
-			rules, _ := manager.squashAcceptRules(networkMap)
+			rules := manager.squashAcceptRules(networkMap)
 
 			assert.Equal(t, tt.expectedCount, len(rules), tt.description)
 
@@ -818,9 +818,6 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 
 	acl.ApplyFiltering(networkMap, false)
 
-	expectedRules := 3
-	if fw.IsStateful() {
-		expectedRules = 3 // 2 inbound rules + SSH rule
-	}
+	expectedRules := 2
 	assert.Equal(t, expectedRules, len(acl.peerRulesPairs))
 }

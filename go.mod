@@ -75,6 +75,7 @@ require (
 	github.com/pion/stun/v3 v3.0.0
 	github.com/pion/transport/v3 v3.0.7
 	github.com/pion/turn/v3 v3.0.1
+	github.com/pkg/sftp v1.13.9
 	github.com/prometheus/client_golang v1.22.0
 	github.com/quic-go/quic-go v0.48.2
 	github.com/redis/go-redis/v9 v9.7.3
@@ -193,6 +194,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/libdns/libdns v0.2.2 // indirect
 	github.com/lufia/plan9stats v0.0.0-20240513124658-fba389f38bae // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
