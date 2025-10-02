@@ -973,6 +973,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
+		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
 		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
