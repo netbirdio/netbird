@@ -453,7 +453,7 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 	var networkMap *types.NetworkMap
 
 	if am.expNewNetworkMap {
-		networkMap = am.getPeerNetworkMapExp(ctx, account, peerID, validatedPeers, customZone, nil)
+		networkMap = am.getPeerNetworkMapExp(ctx, peer.AccountID, peerID, validatedPeers, customZone, nil)
 	} else {
 		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
 	}
@@ -1093,7 +1093,7 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 	var networkMap *types.NetworkMap
 
 	if am.expNewNetworkMap {
-		networkMap = am.getPeerNetworkMapExp(ctx, account, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+		networkMap = am.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
 	} else {
 		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics())
 	}
@@ -1305,7 +1305,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			var remotePeerNetworkMap *types.NetworkMap
 
 			if am.expNewNetworkMap {
-				remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, account, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+				remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, p.AccountID, p.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
 			} else {
 				remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
 			}
@@ -1421,7 +1421,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 	var remotePeerNetworkMap *types.NetworkMap
 
 	if am.expNewNetworkMap {
-		remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, account, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+		remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
 	} else {
 		remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
 	}
