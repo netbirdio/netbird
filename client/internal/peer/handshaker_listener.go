@@ -13,20 +13,20 @@ func (oa *OfferAnswer) SessionIDString() string {
 	return oa.SessionID.String()
 }
 
-type OfferListener struct {
+type AsyncOfferListener struct {
 	fn      callbackFunc
 	running bool
 	latest  *OfferAnswer
 	mu      sync.Mutex
 }
 
-func NewOfferListener(fn callbackFunc) *OfferListener {
-	return &OfferListener{
+func NewAsyncOfferListener(fn callbackFunc) *AsyncOfferListener {
+	return &AsyncOfferListener{
 		fn: fn,
 	}
 }
 
-func (o *OfferListener) Notify(remoteOfferAnswer *OfferAnswer) {
+func (o *AsyncOfferListener) Notify(remoteOfferAnswer *OfferAnswer) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 

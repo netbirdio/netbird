@@ -14,7 +14,7 @@ func Test_newOfferListener(t *testing.T) {
 		runChan <- struct{}{}
 	}
 
-	hl := NewOfferListener(longRunningFn)
+	hl := NewAsyncOfferListener(longRunningFn)
 
 	hl.Notify(dummyOfferAnswer)
 	hl.Notify(dummyOfferAnswer)
