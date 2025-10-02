@@ -39,8 +39,8 @@ func (am *DefaultAccountManager) onPeerDeletedUpdNetworkMapCache(account *types.
 	return account.OnPeerDeletedUpdNetworkMapCache(peerId)
 }
 
-func (am *DefaultAccountManager) updatePeerInNetworkMapCache(account *types.Account, peer *nbpeer.Peer) {
-	am.enrichAccountFromHolder(account)
+func (am *DefaultAccountManager) updatePeerInNetworkMapCache(accountId string, peer *nbpeer.Peer) {
+	account := am.getAccountFromHolder(accountId)
 	account.UpdatePeerInNetworkMapCache(peer)
 }
 
@@ -51,7 +51,7 @@ func (am *DefaultAccountManager) recalculateNetworkMapCache(account *types.Accou
 
 func (am *DefaultAccountManager) RecalculateNetworkMapCache(ctx context.Context, accountId string) error {
 	if am.expNewNetworkMap {
-		account, err := am.Store.GetAccount(ctx, accountId)
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountId)
 		if err != nil {
 			return err
 		}
