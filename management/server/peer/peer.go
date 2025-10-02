@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 // Peer represents a machine connected to the network.
@@ -232,10 +233,12 @@ func (p *Peer) Copy() *Peer {
 
 // UpdateMetaIfNew updates peer's system metadata if new information is provided
 // returns true if meta was updated, false otherwise
-func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
+func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged bool) {
 	if meta.isEmpty() {
-		return false
+		return updated, versionChanged
 	}
+
+	versionChanged = p.Meta.WtVersion != meta.WtVersion
 
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
@@ -243,10 +246,11 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
 	}
 
 	if p.Meta.isEqual(meta) {
-		return false
+		return updated, versionChanged
 	}
 	p.Meta = meta
-	return true
+	updated = true
+	return updated, versionChanged
 }
 
 // GetLastLogin returns the last login time of the peer.
@@ -332,6 +336,17 @@ func (p *Peer) UpdateLastLogin() *Peer {
 	newStatus.LoginExpired = false
 	p.Status = newStatus
 	return p
+}
+
+func (p *Peer) FromAPITemporaryAccessRequest(a *api.PeerTemporaryAccessRequest) {
+	p.Ephemeral = true
+	p.Name = a.Name
+	p.Key = a.WgPubKey
+	p.Meta = PeerSystemMeta{
+		Hostname: a.Name,
+		GoOS:     "js",
+		OS:       "js",
+	}
 }
 
 func (f Flags) isEqual(other Flags) bool {

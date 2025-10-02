@@ -415,6 +415,7 @@ message DNSConfig {
   bool ServiceEnable = 1;
   repeated NameServerGroup NameServerGroups = 2;
   repeated CustomZone CustomZones = 3;
+  int64 ForwarderPort = 4;
 }
 
 // CustomZone represents a dns.CustomZone
