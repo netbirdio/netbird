@@ -1495,19 +1495,8 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 		}
 
 		if removedGroupAffectsPeers || newGroupsAffectsPeers {
-
-			if am.expNewNetworkMap {
-				account, err := am.Store.GetAccount(ctx, userAuth.AccountId)
-				if err != nil {
-					return err
-				}
-
-				validatedPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
-				if err != nil {
-					return err
-				}
-
-				am.recalculateNetworkMapCache(account, validatedPeers)
+			if err := am.RecalculateNetworkMapCache(ctx, userAuth.AccountId); err != nil {
+				return err
 			}
 
 			log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)

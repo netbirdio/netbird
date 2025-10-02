@@ -395,7 +395,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	}
 
 	if updateAccountPeers && am.expNewNetworkMap {
-		account, err := am.Store.GetAccount(ctx, accountID)
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
 			return err
 		}
@@ -727,7 +727,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
 	if am.expNewNetworkMap {
-		account, err := am.Store.GetAccount(ctx, accountID)
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -1228,11 +1228,18 @@ func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accoun
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Tracef("updating peers for account %s from %s", accountID, util.GetCallerName())
-
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send out updates to peers. failed to get account: %v", err)
-		return
+	var (
+		account *types.Account
+		err     error
+	)
+	if am.expNewNetworkMap {
+		account = am.getAccountFromHolder(accountID)
+	} else {
+		account, err = am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to send out updates to peers. failed to get account: %v", err)
+			return
+		}
 	}
 
 	globalStart := time.Now()

@@ -25,7 +25,7 @@ func (am *DefaultAccountManager) getAccountFromHolder(accountID string) *types.A
 	if a != nil {
 		return a
 	}
-	account, err := am.Store.GetAccount(context.Background(), accountID)
+	account, err := am.requestBuffer.GetAccountWithBackpressure(context.Background(), accountID)
 	if err != nil {
 		return nil
 	}
