@@ -1,4 +1,4 @@
-package server
+package manager
 
 import (
 	"context"
@@ -7,12 +7,15 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
+	nbdns "github.com/netbirdio/netbird/dns"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/route"
 )
 
 type MockStore struct {
@@ -222,4 +225,58 @@ func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) 
 		}
 		store.account.Peers[p.ID] = p
 	}
+}
+
+// newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
+func newAccountWithId(ctx context.Context, accountID, userID, domain string, disableDefaultPolicy bool) *types.Account {
+	log.WithContext(ctx).Debugf("creating new account")
+
+	network := types.NewNetwork()
+	peers := make(map[string]*nbpeer.Peer)
+	users := make(map[string]*types.User)
+	routes := make(map[route.ID]*route.Route)
+	setupKeys := map[string]*types.SetupKey{}
+	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
+
+	owner := types.NewOwnerUser(userID)
+	owner.AccountID = accountID
+	users[userID] = owner
+
+	dnsSettings := types.DNSSettings{
+		DisabledManagementGroups: make([]string, 0),
+	}
+	log.WithContext(ctx).Debugf("created new account %s", accountID)
+
+	acc := &types.Account{
+		Id:               accountID,
+		CreatedAt:        time.Now().UTC(),
+		SetupKeys:        setupKeys,
+		Network:          network,
+		Peers:            peers,
+		Users:            users,
+		CreatedBy:        userID,
+		Domain:           domain,
+		Routes:           routes,
+		NameServerGroups: nameServersGroups,
+		DNSSettings:      dnsSettings,
+		Settings: &types.Settings{
+			PeerLoginExpirationEnabled: true,
+			PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+			GroupsPropagationEnabled:   true,
+			RegularUsersViewBlocked:    true,
+
+			PeerInactivityExpirationEnabled: false,
+			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
+			RoutingPeerDNSResolutionEnabled: true,
+		},
+		Onboarding: types.AccountOnboarding{
+			OnboardingFlowPending: true,
+			SignupFormPending:     true,
+		},
+	}
+
+	if err := acc.AddAllGroup(disableDefaultPolicy); err != nil {
+		log.WithContext(ctx).Errorf("error adding all group to account %s: %v", acc.Id, err)
+	}
+	return acc
 }
