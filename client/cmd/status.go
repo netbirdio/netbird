@@ -52,7 +52,7 @@ func init() {
 }
 
 func statusFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
+	util.SetFlagsFromEnvVars(rootCmd)
 
 	cmd.SetOut(cmd.OutOrStdout())
 
