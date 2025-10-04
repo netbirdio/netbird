@@ -32,9 +32,7 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 		return nil, err
 	}
 
-	opts := &websocket.DialOptions{
-		HTTPClient: httpClientNbDialer(),
-	}
+	opts := createDialOptions()
 
 	parsedURL, err := url.Parse(wsURL)
 	if err != nil {

@@ -6,9 +6,11 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/mod/semver"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -17,6 +19,13 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+const (
+	dnsForwarderPort = 22054
+	oldForwarderPort = 5353
+)
+
+const dnsForwarderPortMinVersion = "v0.59.0"
 
 // DNSConfigCache is a thread-safe cache for DNS configuration components
 type DNSConfigCache struct {
@@ -183,12 +192,45 @@ func validateDNSSettings(ctx context.Context, transaction store.Store, accountID
 	return validateGroups(settings.DisabledManagementGroups, groups)
 }
 
+// computeForwarderPort checks if all peers in the account have updated to a specific version or newer.
+// If all peers have the required version, it returns the new well-known port (22054), otherwise returns 0.
+func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
+	if len(peers) == 0 {
+		return oldForwarderPort
+	}
+
+	reqVer := semver.Canonical(requiredVersion)
+
+	// Check if all peers have the required version or newer
+	for _, peer := range peers {
+
+		// Development version is always supported
+		if peer.Meta.WtVersion == "development" {
+			continue
+		}
+		peerVersion := semver.Canonical("v" + peer.Meta.WtVersion)
+		if peerVersion == "" {
+			// If any peer doesn't have version info, return 0
+			return oldForwarderPort
+		}
+
+		// Compare versions
+		if semver.Compare(peerVersion, reqVer) < 0 {
+			return oldForwarderPort
+		}
+	}
+
+	// All peers have the required version or newer
+	return dnsForwarderPort
+}
+
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
-func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache) *proto.DNSConfig {
+func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache, forwardPort int64) *proto.DNSConfig {
 	protoUpdate := &proto.DNSConfig{
 		ServiceEnable:    update.ServiceEnable,
 		CustomZones:      make([]*proto.CustomZone, 0, len(update.CustomZones)),
 		NameServerGroups: make([]*proto.NameServerGroup, 0, len(update.NameServerGroups)),
+		ForwarderPort:    forwardPort,
 	}
 
 	for _, zone := range update.CustomZones {
