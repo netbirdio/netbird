@@ -16,7 +16,7 @@ var regKeyAppPath = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Ne
 func DownloadUrl() string {
 	_, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyAppPath, registry.QUERY_VALUE)
 	if err == nil {
-		return urlWinExe
+		goto PKGINSTALL
 	} else {
 		return downloadURL
 	}
