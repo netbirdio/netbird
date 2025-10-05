@@ -109,7 +109,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		if err := w.agent.Close(); err != nil {
 			w.log.Warnf("failed to close ICE agent: %s", err)
 		}
-		// todo consider to move outside of this scope
+
 		sessionID, err := NewICESessionID()
 		if err != nil {
 			w.log.Errorf("failed to create new session ID: %s", err)
@@ -310,7 +310,6 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 	}
 
 	w.muxAgent.Lock()
-	// todo review does it make sense to generate new session ID all the time when w.agent==agent
 
 	if w.agent == agent {
 		// consider to remove from here and move to the OnNewOffer
