@@ -2,42 +2,40 @@ package server
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net"
 	"net/http"
-	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/http2"
 
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
 const (
-	dialTimeout = 10 * time.Second
-	bufferSize  = 32 * 1024
+	bufferSize = 32 * 1024
 )
 
 // Config contains the configuration for the WebSocket proxy.
 type Config struct {
-	LocalGRPCAddr   netip.AddrPort
+	Handler         http.Handler
 	Path            string
 	MetricsRecorder MetricsRecorder
 }
 
-// Proxy handles WebSocket to TCP proxying for gRPC connections.
+// Proxy handles WebSocket to gRPC handler proxying.
 type Proxy struct {
 	config  Config
 	metrics MetricsRecorder
 }
 
 // New creates a new WebSocket proxy instance with optional configuration
-func New(localGRPCAddr netip.AddrPort, opts ...Option) *Proxy {
+func New(handler http.Handler, opts ...Option) *Proxy {
 	config := Config{
-		LocalGRPCAddr:   localGRPCAddr,
+		Handler:         handler,
 		Path:            wsproxy.ProxyPath,
 		MetricsRecorder: NoOpMetricsRecorder{}, // Default to no-op
 	}
@@ -63,7 +61,7 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	p.metrics.RecordConnection(ctx)
 	defer p.metrics.RecordDisconnection(ctx)
 
-	log.Debugf("WebSocket proxy handling connection from %s, forwarding to %s", r.RemoteAddr, p.config.LocalGRPCAddr)
+	log.Debugf("WebSocket proxy handling connection from %s, forwarding to internal gRPC handler", r.RemoteAddr)
 	acceptOptions := &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
 	}
@@ -75,71 +73,41 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() {
-		if err := wsConn.Close(websocket.StatusNormalClosure, ""); err != nil {
-			log.Debugf("Failed to close WebSocket: %v", err)
-		}
+		_ = wsConn.Close(websocket.StatusNormalClosure, "")
 	}()
 
-	log.Debugf("WebSocket proxy attempting to connect to local gRPC at %s", p.config.LocalGRPCAddr)
-	tcpConn, err := net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
-	if err != nil {
-		p.metrics.RecordError(ctx, "tcp_dial_failed")
-		log.Warnf("Failed to connect to local gRPC server at %s: %v", p.config.LocalGRPCAddr, err)
-		if err := wsConn.Close(websocket.StatusInternalError, "Backend unavailable"); err != nil {
-			log.Debugf("Failed to close WebSocket after connection failure: %v", err)
-		}
-		return
-	}
+	clientConn, serverConn := net.Pipe()
 	defer func() {
-		if err := tcpConn.Close(); err != nil {
-			log.Debugf("Failed to close TCP connection: %v", err)
-		}
+		_ = clientConn.Close()
+		_ = serverConn.Close()
 	}()
 
-	log.Debugf("WebSocket proxy established: client %s -> local gRPC %s", r.RemoteAddr, p.config.LocalGRPCAddr)
+	log.Debugf("WebSocket proxy established: %s -> gRPC handler", r.RemoteAddr)
 
-	p.proxyData(ctx, wsConn, tcpConn)
+	go func() {
+		(&http2.Server{}).ServeConn(serverConn, &http2.ServeConnOpts{
+			Context: ctx,
+			Handler: p.config.Handler,
+		})
+	}()
+
+	p.proxyData(ctx, wsConn, clientConn, r.RemoteAddr)
 }
 
-func (p *Proxy) proxyData(ctx context.Context, wsConn *websocket.Conn, tcpConn net.Conn) {
+func (p *Proxy) proxyData(ctx context.Context, wsConn *websocket.Conn, pipeConn net.Conn, clientAddr string) {
 	proxyCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	go p.wsToTCP(proxyCtx, cancel, &wg, wsConn, tcpConn)
-	go p.tcpToWS(proxyCtx, cancel, &wg, wsConn, tcpConn)
+	go p.wsToPipe(proxyCtx, cancel, &wg, wsConn, pipeConn, clientAddr)
+	go p.pipeToWS(proxyCtx, cancel, &wg, wsConn, pipeConn, clientAddr)
 
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		log.Tracef("Proxy data transfer completed, both goroutines terminated")
-	case <-proxyCtx.Done():
-		log.Tracef("Proxy data transfer cancelled, forcing connection closure")
-
-		if err := wsConn.Close(websocket.StatusGoingAway, "proxy cancelled"); err != nil {
-			log.Tracef("Error closing WebSocket during cancellation: %v", err)
-		}
-		if err := tcpConn.Close(); err != nil {
-			log.Tracef("Error closing TCP connection during cancellation: %v", err)
-		}
-
-		select {
-		case <-done:
-			log.Tracef("Goroutines terminated after forced connection closure")
-		case <-time.After(2 * time.Second):
-			log.Tracef("Goroutines did not terminate within timeout after connection closure")
-		}
-	}
+	wg.Wait()
 }
 
-func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, wsConn *websocket.Conn, tcpConn net.Conn) {
+func (p *Proxy) wsToPipe(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, wsConn *websocket.Conn, pipeConn net.Conn, clientAddr string) {
 	defer wg.Done()
 	defer cancel()
 
@@ -148,80 +116,54 @@ func (p *Proxy) wsToTCP(ctx context.Context, cancel context.CancelFunc, wg *sync
 		if err != nil {
 			switch {
 			case ctx.Err() != nil:
-				log.Debugf("wsToTCP goroutine terminating due to context cancellation")
-			case websocket.CloseStatus(err) == websocket.StatusNormalClosure:
-				log.Debugf("WebSocket closed normally")
+				log.Debugf("WebSocket from %s terminating due to context cancellation", clientAddr)
+			case websocket.CloseStatus(err) != -1:
+				log.Debugf("WebSocket from %s disconnected", clientAddr)
 			default:
 				p.metrics.RecordError(ctx, "websocket_read_error")
-				log.Errorf("WebSocket read error: %v", err)
+				log.Debugf("WebSocket read error from %s: %v", clientAddr, err)
 			}
 			return
 		}
 
 		if msgType != websocket.MessageBinary {
-			log.Warnf("Unexpected WebSocket message type: %v", msgType)
+			log.Warnf("Unexpected WebSocket message type from %s: %v", clientAddr, msgType)
 			continue
 		}
 
-		if ctx.Err() != nil {
-			log.Tracef("wsToTCP goroutine terminating due to context cancellation before TCP write")
-			return
-		}
-
-		if err := tcpConn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-			log.Debugf("Failed to set TCP write deadline: %v", err)
-		}
-
-		n, err := tcpConn.Write(data)
+		n, err := pipeConn.Write(data)
 		if err != nil {
-			p.metrics.RecordError(ctx, "tcp_write_error")
-			log.Errorf("TCP write error: %v", err)
+			p.metrics.RecordError(ctx, "pipe_write_error")
+			log.Warnf("Pipe write error for %s: %v", clientAddr, err)
 			return
 		}
 
-		p.metrics.RecordBytesTransferred(ctx, "ws_to_tcp", int64(n))
+		p.metrics.RecordBytesTransferred(ctx, "ws_to_grpc", int64(n))
 	}
 }
 
-func (p *Proxy) tcpToWS(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, wsConn *websocket.Conn, tcpConn net.Conn) {
+func (p *Proxy) pipeToWS(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, wsConn *websocket.Conn, pipeConn net.Conn, clientAddr string) {
 	defer wg.Done()
 	defer cancel()
 
 	buf := make([]byte, bufferSize)
 	for {
-		if err := tcpConn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-			log.Debugf("Failed to set TCP read deadline: %v", err)
-		}
-		n, err := tcpConn.Read(buf)
-
+		n, err := pipeConn.Read(buf)
 		if err != nil {
-			if ctx.Err() != nil {
-				log.Tracef("tcpToWS goroutine terminating due to context cancellation")
+			if err != io.EOF && ctx.Err() == nil {
+				log.Debugf("Pipe read error for %s: %v", clientAddr, err)
+			}
+			return
+		}
+
+		if n > 0 {
+			if err := wsConn.Write(ctx, websocket.MessageBinary, buf[:n]); err != nil {
+				p.metrics.RecordError(ctx, "websocket_write_error")
+				log.Warnf("WebSocket write error for %s: %v", clientAddr, err)
 				return
 			}
 
-			var netErr net.Error
-			if errors.As(err, &netErr) && netErr.Timeout() {
-				continue
-			}
-
-			if err != io.EOF {
-				log.Errorf("TCP read error: %v", err)
-			}
-			return
+			p.metrics.RecordBytesTransferred(ctx, "grpc_to_ws", int64(n))
 		}
-
-		if ctx.Err() != nil {
-			log.Tracef("tcpToWS goroutine terminating due to context cancellation before WebSocket write")
-			return
-		}
-
-		if err := wsConn.Write(ctx, websocket.MessageBinary, buf[:n]); err != nil {
-			p.metrics.RecordError(ctx, "websocket_write_error")
-			log.Errorf("WebSocket write error: %v", err)
-			return
-		}
-
-		p.metrics.RecordBytesTransferred(ctx, "tcp_to_ws", int64(n))
 	}
 }

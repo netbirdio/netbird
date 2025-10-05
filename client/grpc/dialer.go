@@ -29,7 +29,8 @@ func Backoff(ctx context.Context) backoff.BackOff {
 // The component parameter specifies the WebSocket proxy component path (e.g., "/management", "/signal").
 func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, component string) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
-	if tlsEnabled {
+	// for js, the outer websocket layer takes care of tls
+	if tlsEnabled && runtime.GOOS != "js"{
 		certPool, err := x509.SystemCertPool()
 		if err != nil || certPool == nil {
 			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)
@@ -37,9 +38,7 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 		}
 
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-			// for js, outer websocket layer takes care of tls verification via WithCustomDialer
-			InsecureSkipVerify: runtime.GOOS == "js",
-			RootCAs:            certPool,
+			RootCAs: certPool,
 		}))
 	}
 
