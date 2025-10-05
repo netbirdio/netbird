@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/netip"
 	"sync"
 	"time"
 
@@ -23,7 +22,7 @@ const (
 
 // Config contains the configuration for the WebSocket proxy.
 type Config struct {
-	LocalGRPCAddr   netip.AddrPort
+	LocalGRPCAddr   string
 	Path            string
 	MetricsRecorder MetricsRecorder
 }
@@ -35,7 +34,7 @@ type Proxy struct {
 }
 
 // New creates a new WebSocket proxy instance with optional configuration
-func New(localGRPCAddr netip.AddrPort, opts ...Option) *Proxy {
+func New(localGRPCAddr string, opts ...Option) *Proxy {
 	config := Config{
 		LocalGRPCAddr:   localGRPCAddr,
 		Path:            wsproxy.ProxyPath,
@@ -81,7 +80,7 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	log.Debugf("WebSocket proxy attempting to connect to local gRPC at %s", p.config.LocalGRPCAddr)
-	tcpConn, err := net.DialTimeout("tcp", p.config.LocalGRPCAddr.String(), dialTimeout)
+	tcpConn, err := net.DialTimeout("tcp", p.config.LocalGRPCAddr, dialTimeout)
 	if err != nil {
 		p.metrics.RecordError(ctx, "tcp_dial_failed")
 		log.Warnf("Failed to connect to local gRPC server at %s: %v", p.config.LocalGRPCAddr, err)

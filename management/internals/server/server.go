@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +57,7 @@ type BaseServer struct {
 	mgmtSingleAccModeDomain  string
 	mgmtMetricsPort          int
 	mgmtPort                 int
+	wsProxyAddr              string
 
 	listener    net.Listener
 	certManager *autocert.Manager
@@ -69,7 +69,7 @@ type BaseServer struct {
 }
 
 // NewServer initializes and configures a new Server instance
-func NewServer(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool) *BaseServer {
+func NewServer(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain string, mgmtPort, mgmtMetricsPort int, disableMetrics, disableGeoliteUpdate, userDeleteFromIDPEnabled bool, wsProxyAddr string) *BaseServer {
 	return &BaseServer{
 		config:                   config,
 		container:                make(map[string]any),
@@ -80,6 +80,7 @@ func NewServer(config *nbconfig.Config, dnsDomain, mgmtSingleAccModeDomain strin
 		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 		mgmtPort:                 mgmtPort,
 		mgmtMetricsPort:          mgmtMetricsPort,
+		wsProxyAddr:              wsProxyAddr,
 	}
 }
 
@@ -182,6 +183,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 
 	log.WithContext(ctx).Infof("management server version %s", version.NetbirdVersion())
 	log.WithContext(ctx).Infof("running HTTP server and gRPC server on the same port: %s", s.listener.Addr().String())
+	log.WithContext(ctx).Infof("WebSocket proxy configured to forward to: %s", s.wsProxyAddr)
 	s.serveGRPCWithHTTP(ctx, s.listener, rootHandler, tlsEnabled)
 
 	s.update = version.NewUpdate("nb/management")
@@ -252,7 +254,7 @@ func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config)
 }
 
 func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
-	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), ManagementLegacyPort), wsproxyserver.WithOTelMeter(meter))
+	wsProxy := wsproxyserver.New(s.wsProxyAddr, wsproxyserver.WithOTelMeter(meter))
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {

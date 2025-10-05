@@ -1,5 +1,11 @@
 package cmd
 
+import (
+	"fmt"
+
+	"github.com/netbirdio/netbird/management/internals/server"
+)
+
 const (
 	defaultMgmtDataDir   = "/var/lib/netbird/"
 	defaultMgmtConfigDir = "/etc/netbird"
@@ -16,3 +22,5 @@ const (
 
 	defaultSingleAccModeDomain = "netbird.selfhosted"
 )
+
+var defaultWSProxyAddr = fmt.Sprintf("127.0.0.1:%d", server.ManagementLegacyPort)
