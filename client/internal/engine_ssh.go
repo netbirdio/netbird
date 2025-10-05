@@ -180,6 +180,29 @@ func (e *Engine) updatePeerSSHHostKeys(remotePeers []*mgmProto.RemotePeerConfig)
 	log.Debugf("updated peer SSH host keys for daemon API access")
 }
 
+// GetPeerSSHKey returns the SSH host key for a specific peer by IP or FQDN
+func (e *Engine) GetPeerSSHKey(peerAddress string) ([]byte, bool) {
+	e.syncMsgMux.Lock()
+	statusRecorder := e.statusRecorder
+	e.syncMsgMux.Unlock()
+
+	if statusRecorder == nil {
+		return nil, false
+	}
+
+	fullStatus := statusRecorder.GetFullStatus()
+	for _, peerState := range fullStatus.Peers {
+		if peerState.IP == peerAddress || peerState.FQDN == peerAddress {
+			if len(peerState.SSHHostKey) > 0 {
+				return peerState.SSHHostKey, true
+			}
+			return nil, false
+		}
+	}
+
+	return nil, false
+}
+
 // cleanupSSHConfig removes NetBird SSH client configuration on shutdown
 func (e *Engine) cleanupSSHConfig() {
 	configMgr := sshconfig.New()

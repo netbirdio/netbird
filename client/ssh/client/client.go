@@ -341,31 +341,27 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 		return nil, fmt.Errorf("parse port %s: %w", portStr, err)
 	}
 
-	serverType, err := detection.DetectSSHServerType(ctx, host, port)
+	dialer := &net.Dialer{Timeout: detection.Timeout}
+	serverType, err := detection.DetectSSHServerType(ctx, dialer, host, port)
 	if err != nil {
-		log.Debugf("SSH server detection failed: %v, falling back to regular SSH", err)
-		return dialSSH(ctx, network, addr, config)
+		return nil, fmt.Errorf("SSH server detection failed: %w", err)
 	}
 
 	if !serverType.RequiresJWT() {
 		return dialSSH(ctx, network, addr, config)
 	}
 
-	jwtToken, err := requestJWTToken(ctx, daemonAddr, host, skipCache)
+	jwtToken, err := requestJWTToken(ctx, daemonAddr, skipCache)
 	if err != nil {
 		return nil, fmt.Errorf("request JWT token: %w", err)
 	}
 
-	configWithJWT := *config
-	configWithJWT.Auth = []ssh.AuthMethod{
-		ssh.Password(jwtToken),
-	}
-
-	return dialSSH(ctx, network, addr, &configWithJWT)
+	configWithJWT := nbssh.AddJWTAuth(config, jwtToken)
+	return dialSSH(ctx, network, addr, configWithJWT)
 }
 
 // requestJWTToken requests a JWT token from the NetBird daemon
-func requestJWTToken(ctx context.Context, daemonAddr, targetHost string, skipCache bool) (string, error) {
+func requestJWTToken(ctx context.Context, daemonAddr string, skipCache bool) (string, error) {
 	conn, err := connectToDaemon(daemonAddr)
 	if err != nil {
 		return "", fmt.Errorf("connect to daemon: %w", err)
@@ -378,20 +374,20 @@ func requestJWTToken(ctx context.Context, daemonAddr, targetHost string, skipCac
 
 // verifyHostKeyViaDaemon verifies SSH host key by querying the NetBird daemon
 func verifyHostKeyViaDaemon(hostname string, remote net.Addr, key ssh.PublicKey, daemonAddr string) error {
-	client, err := connectToDaemon(daemonAddr)
+	conn, err := connectToDaemon(daemonAddr)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if err := client.Close(); err != nil {
+		if err := conn.Close(); err != nil {
 			log.Debugf("daemon connection close error: %v", err)
 		}
 	}()
 
-	addresses := buildAddressList(hostname, remote)
-	log.Debugf("verifying SSH host key for hostname=%s, remote=%s, addresses=%v", hostname, remote.String(), addresses)
-
-	return verifyKeyWithDaemon(client, addresses, key)
+	client := proto.NewDaemonServiceClient(conn)
+	verifier := nbssh.NewDaemonHostKeyVerifier(client)
+	callback := nbssh.CreateHostKeyCallback(verifier)
+	return callback(hostname, remote, key)
 }
 
 func connectToDaemon(daemonAddr string) (*grpc.ClientConn, error) {
@@ -407,65 +403,6 @@ func connectToDaemon(daemonAddr string) (*grpc.ClientConn, error) {
 	}
 
 	return conn, nil
-}
-
-func buildAddressList(hostname string, remote net.Addr) []string {
-	addresses := []string{hostname}
-	if host, _, err := net.SplitHostPort(remote.String()); err == nil {
-		if host != hostname {
-			addresses = append(addresses, host)
-		}
-	}
-	return addresses
-}
-
-func verifyKeyWithDaemon(conn *grpc.ClientConn, addresses []string, key ssh.PublicKey) error {
-	client := proto.NewDaemonServiceClient(conn)
-
-	for _, addr := range addresses {
-		if err := checkAddressKey(client, addr, key); err == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("SSH host key %s not found or does not match in NetBird daemon", key)
-}
-
-func checkAddressKey(client proto.DaemonServiceClient, addr string, key ssh.PublicKey) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	response, err := client.GetPeerSSHHostKey(ctx, &proto.GetPeerSSHHostKeyRequest{
-		PeerAddress: addr,
-	})
-
-	if err != nil {
-		log.Debugf("daemon query for address %s: error=%v", addr, err)
-		return fmt.Errorf("daemon query for %s: %v", addr, err)
-	}
-
-	log.Debugf("daemon query for address %s: found=%v", addr, response.GetFound())
-
-	if !response.GetFound() {
-		return errors.New("key not found")
-	}
-
-	return compareKeys(response.GetSshHostKey(), key, addr)
-}
-
-func compareKeys(storedKeyData []byte, presentedKey ssh.PublicKey, addr string) error {
-	storedKey, _, _, _, err := ssh.ParseAuthorizedKey(storedKeyData)
-	if err != nil {
-		log.Debugf("failed to parse stored SSH host key for %s: %v", addr, err)
-		return err
-	}
-
-	if presentedKey.Type() == storedKey.Type() && string(presentedKey.Marshal()) == string(storedKey.Marshal()) {
-		log.Debugf("SSH host key verified via NetBird daemon for %s", addr)
-		return nil
-	}
-
-	log.Debugf("SSH host key mismatch for %s: stored type=%s, presented type=%s", addr, storedKey.Type(), presentedKey.Type())
-	return fmt.Errorf("key mismatch")
 }
 
 // getKnownHostsFiles returns paths to known_hosts files in order of preference

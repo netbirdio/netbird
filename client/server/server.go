@@ -1086,28 +1086,41 @@ func (s *Server) GetPeerSSHHostKey(
 	}
 
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	connectClient := s.connectClient
+	statusRecorder := s.statusRecorder
+	s.mutex.Unlock()
 
-	response := &proto.GetPeerSSHHostKeyResponse{
-		Found: false,
+	if connectClient == nil {
+		return nil, errors.New("client not initialized")
 	}
 
-	if s.statusRecorder == nil {
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil, errors.New("engine not started")
+	}
+
+	peerAddress := req.GetPeerAddress()
+	hostKey, found := engine.GetPeerSSHKey(peerAddress)
+
+	response := &proto.GetPeerSSHHostKeyResponse{
+		Found: found,
+	}
+
+	if !found {
 		return response, nil
 	}
 
-	fullStatus := s.statusRecorder.GetFullStatus()
-	peerAddress := req.GetPeerAddress()
+	response.SshHostKey = hostKey
 
-	// Search for peer by IP or FQDN
+	if statusRecorder == nil {
+		return response, nil
+	}
+
+	fullStatus := statusRecorder.GetFullStatus()
 	for _, peerState := range fullStatus.Peers {
 		if peerState.IP == peerAddress || peerState.FQDN == peerAddress {
-			if len(peerState.SSHHostKey) > 0 {
-				response.SshHostKey = peerState.SSHHostKey
-				response.PeerIP = peerState.IP
-				response.PeerFQDN = peerState.FQDN
-				response.Found = true
-			}
+			response.PeerIP = peerState.IP
+			response.PeerFQDN = peerState.FQDN
 			break
 		}
 	}

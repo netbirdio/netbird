@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -353,64 +352,8 @@ func (p *SSHProxy) dialBackend(ctx context.Context, addr, user, jwtToken string)
 	return cryptossh.NewClient(clientConn, chans, reqs), nil
 }
 
-func (p *SSHProxy) buildAddressList(hostname string, remote net.Addr) []string {
-	var addresses []string
-
-	if hostname != "" {
-		addresses = append(addresses, hostname)
-	}
-
-	if remote != nil {
-		host, _, err := net.SplitHostPort(remote.String())
-		if err == nil && host != hostname {
-			addresses = append(addresses, host)
-		}
-	}
-
-	return addresses
-}
-
 func (p *SSHProxy) verifyHostKey(hostname string, remote net.Addr, key cryptossh.PublicKey) error {
-	addresses := p.buildAddressList(hostname, remote)
-	for _, addr := range addresses {
-		if err := p.checkAddressKey(addr, key); err == nil {
-			return nil
-		}
-	}
-	return errors.New("SSH host key not found or does not match in NetBird daemon")
-}
-
-func (p *SSHProxy) checkAddressKey(addr string, key cryptossh.PublicKey) error {
-	ctx, cancel := context.WithTimeout(context.Background(), sshConnectionTimeout)
-	defer cancel()
-
-	response, err := p.daemonClient.GetPeerSSHHostKey(ctx, &proto.GetPeerSSHHostKeyRequest{
-		PeerAddress: addr,
-	})
-	if err != nil {
-		return fmt.Errorf("daemon query for %s: %w", addr, err)
-	}
-
-	if !response.GetFound() {
-		return errors.New("key not found")
-	}
-
-	return p.compareKeys(response.GetSshHostKey(), key, addr)
-}
-
-func (p *SSHProxy) compareKeys(storedKeyData []byte, presentedKey cryptossh.PublicKey, addr string) error {
-	storedKey, _, _, _, err := cryptossh.ParseAuthorizedKey(storedKeyData)
-	if err != nil {
-		return fmt.Errorf("parse stored key for %s: %w", addr, err)
-	}
-
-	if storedKey.Type() != presentedKey.Type() {
-		return fmt.Errorf("key type mismatch for %s: expected %s, got %s", addr, storedKey.Type(), presentedKey.Type())
-	}
-
-	if !bytes.Equal(storedKey.Marshal(), presentedKey.Marshal()) {
-		return fmt.Errorf("key mismatch for %s", addr)
-	}
-
-	return nil
+	verifier := nbssh.NewDaemonHostKeyVerifier(p.daemonClient)
+	callback := nbssh.CreateHostKeyCallback(verifier)
+	return callback(hostname, remote, key)
 }

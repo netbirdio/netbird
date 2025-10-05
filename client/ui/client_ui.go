@@ -1239,7 +1239,9 @@ func (s *serviceClient) getSrvConfig() {
 	if cfg.EnableSSHRemotePortForwarding != nil {
 		s.enableSSHRemotePortForward = *cfg.EnableSSHRemotePortForwarding
 	}
-	s.disableSSHAuth = cfg.DisableSSHAuth
+	if cfg.DisableSSHAuth != nil {
+		s.disableSSHAuth = *cfg.DisableSSHAuth
+	}
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
@@ -1273,7 +1275,9 @@ func (s *serviceClient) getSrvConfig() {
 		if cfg.EnableSSHRemotePortForwarding != nil {
 			s.sEnableSSHRemotePortForward.SetChecked(*cfg.EnableSSHRemotePortForwarding)
 		}
-		s.sDisableSSHAuth.SetChecked(cfg.DisableSSHAuth)
+		if cfg.DisableSSHAuth != nil {
+			s.sDisableSSHAuth.SetChecked(*cfg.DisableSSHAuth)
+		}
 	}
 
 	if s.mNotifications == nil {
@@ -1356,7 +1360,9 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	if cfg.EnableSSHRemotePortForwarding {
 		config.EnableSSHRemotePortForwarding = &cfg.EnableSSHRemotePortForwarding
 	}
-	config.DisableSSHAuth = cfg.DisableSSHAuth
+	if cfg.DisableSSHAuth {
+		config.DisableSSHAuth = &cfg.DisableSSHAuth
+	}
 
 	return &config
 }

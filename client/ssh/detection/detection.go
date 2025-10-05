@@ -19,7 +19,8 @@ const (
 	// JWTRequiredMarker is appended to responses when JWT is required
 	JWTRequiredMarker = "NetBird-JWT-Required"
 
-	detectionTimeout = 5 * time.Second
+	// Timeout is the timeout for SSH server detection
+	Timeout = 5 * time.Second
 )
 
 type ServerType string
@@ -29,6 +30,11 @@ const (
 	ServerTypeNetBirdNoJWT ServerType = "netbird-no-jwt"
 	ServerTypeRegular      ServerType = "regular"
 )
+
+// Dialer provides network connection capabilities
+type Dialer interface {
+	DialContext(ctx context.Context, network, address string) (net.Conn, error)
+}
 
 // RequiresJWT checks if the server type requires JWT authentication
 func (s ServerType) RequiresJWT() bool {
@@ -49,13 +55,10 @@ func (s ServerType) ExitCode() int {
 	}
 }
 
-// DetectSSHServerType detects SSH server type with optional username
-func DetectSSHServerType(ctx context.Context, host string, port int) (ServerType, error) {
+// DetectSSHServerType detects SSH server type using the provided dialer
+func DetectSSHServerType(ctx context.Context, dialer Dialer, host string, port int) (ServerType, error) {
 	targetAddr := net.JoinHostPort(host, strconv.Itoa(port))
 
-	dialer := &net.Dialer{
-		Timeout: detectionTimeout,
-	}
 	conn, err := dialer.DialContext(ctx, "tcp", targetAddr)
 	if err != nil {
 		log.Debugf("SSH connection failed for detection: %v", err)
@@ -63,7 +66,7 @@ func DetectSSHServerType(ctx context.Context, host string, port int) (ServerType
 	}
 	defer conn.Close()
 
-	if err := conn.SetReadDeadline(time.Now().Add(detectionTimeout)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(Timeout)); err != nil {
 		log.Debugf("set read deadline: %v", err)
 		return ServerTypeRegular, nil
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"os/user"
@@ -720,7 +721,8 @@ func sshDetectFn(cmd *cobra.Command, args []string) error {
 		os.Exit(detection.ServerTypeRegular.ExitCode())
 	}
 
-	serverType, err := detection.DetectSSHServerType(cmd.Context(), host, port)
+	dialer := &net.Dialer{Timeout: detection.Timeout}
+	serverType, err := detection.DetectSSHServerType(cmd.Context(), dialer, host, port)
 	if err != nil {
 		os.Exit(detection.ServerTypeRegular.ExitCode())
 	}

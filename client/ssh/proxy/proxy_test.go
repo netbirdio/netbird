@@ -98,7 +98,7 @@ func TestSSHProxy_verifyHostKey(t *testing.T) {
 
 		err = proxy.verifyHostKey("unknown-host", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 22}, mustParsePublicKey(t, unknownPubKey))
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "host key not found")
+		assert.Contains(t, err.Error(), "peer unknown-host not found in network")
 	})
 }
 
