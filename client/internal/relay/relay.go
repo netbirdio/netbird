@@ -58,7 +58,7 @@ func (p *StunTurnProbe) ProbeAll(ctx context.Context, stuns []*stun.URI, turns [
 	if p.cacheKey == cacheKey && len(p.cacheResults) > 0 {
 		age := time.Since(p.cacheTimestamp)
 		if age < p.cacheTTL {
-			results := p.cacheResults
+			results := append([]ProbeResult(nil), p.cacheResults...)
 			log.Debugf("Returning cached probe results (age: %v)", age)
 			return results
 		}
@@ -89,11 +89,11 @@ func (p *StunTurnProbe) doProbe(ctx context.Context, stuns []*stun.URI, turns []
 		go func(idx int, stunURI *stun.URI) {
 			defer wg.Done()
 
-			ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+			probeCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 			defer cancel()
 
 			results[idx].URI = stunURI.String()
-			results[idx].Addr, results[idx].Err = p.probeSTUN(ctx, stunURI)
+			results[idx].Addr, results[idx].Err = p.probeSTUN(probeCtx, stunURI)
 		}(i, uri)
 	}
 
@@ -103,11 +103,11 @@ func (p *StunTurnProbe) doProbe(ctx context.Context, stuns []*stun.URI, turns []
 		go func(idx int, turnURI *stun.URI) {
 			defer wg.Done()
 
-			ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+			probeCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 			defer cancel()
 
 			results[idx].URI = turnURI.String()
-			results[idx].Addr, results[idx].Err = p.probeTURN(ctx, turnURI)
+			results[idx].Addr, results[idx].Err = p.probeTURN(probeCtx, turnURI)
 		}(stunOffset+i, uri)
 	}
 
@@ -121,7 +121,6 @@ func (p *StunTurnProbe) doProbe(ctx context.Context, stuns []*stun.URI, turns []
 	p.mu.Unlock()
 
 	log.Debug("Stored new probe results in cache")
-	return
 }
 
 // ProbeSTUN tries binding to the given STUN uri and acquiring an address
