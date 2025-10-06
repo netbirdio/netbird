@@ -10,7 +10,6 @@ import (
 	"net/http"
 	// nolint:gosec
 	_ "net/http/pprof"
-	"net/netip"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -46,6 +45,7 @@ var (
 	defaultSignalSSLDir     string
 	signalCertFile          string
 	signalCertKey           string
+	wsProxyBackendAddr      string
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -63,10 +63,10 @@ var (
 		Use:          "run",
 		Short:        "start NetBird Signal Server daemon",
 		SilenceUsage: true,
-		PreRun: func(cmd *cobra.Command, args []string) {
+		PreRunE: func(cmd *cobra.Command, args []string) error {
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
-				log.Fatalf("failed initializing log %v", err)
+				return fmt.Errorf("failed initializing log: %w", err)
 			}
 
 			flag.Parse()
@@ -79,6 +79,10 @@ var (
 				tlsEnabled = true
 			}
 
+			if _, _, err := net.SplitHostPort(wsProxyBackendAddr); err != nil {
+				return fmt.Errorf("invalid ws-proxy-backend-addr format: %w", err)
+			}
+
 			if !userPort {
 				// different defaults for signalPort
 				if tlsEnabled {
@@ -87,6 +91,8 @@ var (
 					signalPort = 80
 				}
 			}
+
+			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
@@ -160,6 +166,7 @@ var (
 			}
 
 			log.Infof("signal server version %s", version.NetbirdVersion())
+			log.Infof("WebSocket proxy configured to forward to: %s", wsProxyBackendAddr)
 			log.Infof("started Signal Service")
 
 			SetupCloseHandler()
@@ -254,7 +261,7 @@ func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler h
 }
 
 func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter) http.Handler {
-	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), legacyGRPCPort), wsproxyserver.WithOTelMeter(meter))
+	wsProxy := wsproxyserver.New(wsProxyBackendAddr, wsproxyserver.WithOTelMeter(meter))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -328,5 +335,6 @@ func init() {
 	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	runCmd.Flags().StringVar(&signalCertFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	runCmd.Flags().StringVar(&signalCertKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	runCmd.Flags().StringVar(&wsProxyBackendAddr, "ws-proxy-backend-addr", fmt.Sprintf("127.0.0.1:%d", legacyGRPCPort), "WebSocket proxy backend address in host:port format that the proxy will dial")
 	setFlagsFromEnvVars(runCmd)
 }
