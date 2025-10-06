@@ -54,7 +54,8 @@ const (
 	emptyUserID                = "empty user ID in claims"
 	errorGettingDomainAccIDFmt = "error getting account ID by private domain: %v"
 
-	envNewNetworkMapBuilder = "NB_EXPERIMENT_NETWORK_MAP"
+	envNewNetworkMapBuilder  = "NB_EXPERIMENT_NETWORK_MAP"
+	envNewNetworkMapAccounts = "NB_EXPERIMENT_NETWORK_MAP_ACCOUNTS"
 )
 
 type userLoggedInOnce bool
@@ -114,7 +115,8 @@ type DefaultAccountManager struct {
 
 	holder *types.Holder
 
-	expNewNetworkMap bool
+	expNewNetworkMap     bool
+	expNewNetworkMapAIDs map[string]struct{}
 }
 
 func isUniqueConstraintError(err error) bool {
@@ -208,6 +210,12 @@ func BuildManager(
 		newNetworkMapBuilder = false
 	}
 
+	ids := strings.Split(os.Getenv(envNewNetworkMapAccounts), ",")
+	expIDs := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		expIDs[id] = struct{}{}
+	}
+
 	am := &DefaultAccountManager{
 		Store:                    store,
 		geo:                      geo,
@@ -231,7 +239,8 @@ func BuildManager(
 		disableDefaultPolicy:     disableDefaultPolicy,
 		holder:                   types.NewHolder(),
 
-		expNewNetworkMap: newNetworkMapBuilder,
+		expNewNetworkMap:     newNetworkMapBuilder,
+		expNewNetworkMapAIDs: expIDs,
 	}
 
 	am.startWarmup(ctx)
