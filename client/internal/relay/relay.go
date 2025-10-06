@@ -2,6 +2,8 @@ package relay
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -15,6 +17,14 @@ import (
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
+const (
+	DefaultCacheTTL = 20 * time.Second
+)
+
+var (
+	ErrCheckInProgress = errors.New("probe check is already in progress")
+)
+
 // ProbeResult holds the info about the result of a relay probe request
 type ProbeResult struct {
 	URI  string
@@ -22,8 +32,100 @@ type ProbeResult struct {
 	Addr string
 }
 
+type StunTurnProbe struct {
+	cacheResults    []ProbeResult
+	cacheTimestamp  time.Time
+	cacheKey        string
+	cacheTTL        time.Duration
+	probeInProgress bool
+	mu              sync.Mutex
+}
+
+func NewStunTurnProb(cacheTTL time.Duration) *StunTurnProbe {
+	return &StunTurnProbe{
+		cacheTTL: cacheTTL,
+	}
+}
+
+// ProbeAll probes all given servers asynchronously and returns the results
+func (p *StunTurnProbe) ProbeAll(ctx context.Context, stuns []*stun.URI, turns []*stun.URI) []ProbeResult {
+	cacheKey := generateCacheKey(stuns, turns)
+
+	// Check cache first
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.cacheKey == cacheKey && len(p.cacheResults) > 0 {
+		age := time.Since(p.cacheTimestamp)
+		if age < p.cacheTTL {
+			results := p.cacheResults
+			log.Debugf("Returning cached probe results (age: %v)", age)
+			return results
+		}
+	}
+
+	if p.probeInProgress {
+		return createErrorResults(stuns, turns)
+	}
+
+	p.probeInProgress = true
+	go p.doProbe(ctx, stuns, turns, cacheKey)
+
+	log.Infof("started new probe for STUN, TURN servers")
+	return createErrorResults(stuns, turns)
+}
+
+func (p *StunTurnProbe) doProbe(ctx context.Context, stuns []*stun.URI, turns []*stun.URI, cacheKey string) {
+	defer func() {
+		p.mu.Lock()
+		p.probeInProgress = false
+		p.mu.Unlock()
+	}()
+	results := make([]ProbeResult, len(stuns)+len(turns))
+
+	var wg sync.WaitGroup
+	for i, uri := range stuns {
+		wg.Add(1)
+		go func(idx int, stunURI *stun.URI) {
+			defer wg.Done()
+
+			ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+			defer cancel()
+
+			results[idx].URI = stunURI.String()
+			results[idx].Addr, results[idx].Err = p.probeSTUN(ctx, stunURI)
+		}(i, uri)
+	}
+
+	stunOffset := len(stuns)
+	for i, uri := range turns {
+		wg.Add(1)
+		go func(idx int, turnURI *stun.URI) {
+			defer wg.Done()
+
+			ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+			defer cancel()
+
+			results[idx].URI = turnURI.String()
+			results[idx].Addr, results[idx].Err = p.probeTURN(ctx, turnURI)
+		}(stunOffset+i, uri)
+	}
+
+	wg.Wait()
+
+	// Store results in cache
+	p.mu.Lock()
+	p.cacheResults = results
+	p.cacheTimestamp = time.Now()
+	p.cacheKey = cacheKey
+	p.mu.Unlock()
+
+	log.Debug("Stored new probe results in cache")
+	return
+}
+
 // ProbeSTUN tries binding to the given STUN uri and acquiring an address
-func ProbeSTUN(ctx context.Context, uri *stun.URI) (addr string, probeErr error) {
+func (p *StunTurnProbe) probeSTUN(ctx context.Context, uri *stun.URI) (addr string, probeErr error) {
 	defer func() {
 		if probeErr != nil {
 			log.Debugf("stun probe error from %s: %s", uri, probeErr)
@@ -83,7 +185,7 @@ func ProbeSTUN(ctx context.Context, uri *stun.URI) (addr string, probeErr error)
 }
 
 // ProbeTURN tries allocating a session from the given TURN URI
-func ProbeTURN(ctx context.Context, uri *stun.URI) (addr string, probeErr error) {
+func (p *StunTurnProbe) probeTURN(ctx context.Context, uri *stun.URI) (addr string, probeErr error) {
 	defer func() {
 		if probeErr != nil {
 			log.Debugf("turn probe error from %s: %s", uri, probeErr)
@@ -160,28 +262,35 @@ func ProbeTURN(ctx context.Context, uri *stun.URI) (addr string, probeErr error)
 	return relayConn.LocalAddr().String(), nil
 }
 
-// ProbeAll probes all given servers asynchronously and returns the results
-func ProbeAll(
-	ctx context.Context,
-	fn func(ctx context.Context, uri *stun.URI) (addr string, probeErr error),
-	relays []*stun.URI,
-) []ProbeResult {
-	results := make([]ProbeResult, len(relays))
+func createErrorResults(stuns []*stun.URI, turns []*stun.URI) []ProbeResult {
+	results := make([]ProbeResult, len(stuns)+len(turns))
 
-	var wg sync.WaitGroup
-	for i, uri := range relays {
-		ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
-		defer cancel()
-
-		wg.Add(1)
-		go func(res *ProbeResult, stunURI *stun.URI) {
-			defer wg.Done()
-			res.URI = stunURI.String()
-			res.Addr, res.Err = fn(ctx, stunURI)
-		}(&results[i], uri)
+	for i, uri := range stuns {
+		results[i] = ProbeResult{
+			URI: uri.String(),
+			Err: ErrCheckInProgress,
+		}
 	}
 
-	wg.Wait()
+	stunOffset := len(stuns)
+	for i, uri := range turns {
+		results[stunOffset+i] = ProbeResult{
+			URI: uri.String(),
+			Err: ErrCheckInProgress,
+		}
+	}
 
 	return results
+}
+
+// generateCacheKey creates a unique key based on the URIs being probed
+func generateCacheKey(stuns []*stun.URI, turns []*stun.URI) string {
+	h := sha256.New()
+	for _, uri := range stuns {
+		h.Write([]byte(uri.String()))
+	}
+	for _, uri := range turns {
+		h.Write([]byte(uri.String()))
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
