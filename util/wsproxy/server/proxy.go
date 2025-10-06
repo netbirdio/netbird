@@ -158,10 +158,6 @@ func (p *Proxy) pipeToWS(ctx context.Context, cancel context.CancelFunc, wg *syn
 
 	buf := make([]byte, bufferSize)
 	for {
-		if err := pipeConn.SetReadDeadline(time.Now().Add(ioTimeout)); err != nil {
-			log.Debugf("Failed to set pipe read deadline: %v", err)
-		}
-
 		n, err := pipeConn.Read(buf)
 		if err != nil {
 			if ctx.Err() != nil {
