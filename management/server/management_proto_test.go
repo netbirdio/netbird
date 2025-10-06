@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -461,7 +462,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 
 	secretsManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 
-	ephemeralMgr := NewEphemeralManager(store, accountManager)
+	ephemeralMgr := manager.NewEphemeralManager(store, accountManager)
 	mgmtServer, err := NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, jobManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{})
 	if err != nil {
 		return nil, nil, "", cleanup, err

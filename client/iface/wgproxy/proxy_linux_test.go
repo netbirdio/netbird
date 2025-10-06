@@ -74,7 +74,7 @@ func seedProxyForProxyCloseByRemoteConn() ([]proxyInstance, error) {
 
 	pBind := proxyInstance{
 		name:         "bind proxy",
-		proxy:        bindproxy.NewProxyBind(iceBind),
+		proxy:        bindproxy.NewProxyBind(iceBind, 0),
 		endpointAddr: endpointAddress,
 		closeFn:      func() error { return nil },
 	}

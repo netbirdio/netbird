@@ -35,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -75,6 +76,7 @@ type DefaultAccountManager struct {
 	ctx                  context.Context
 	eventStore           activity.Store
 	geo                  geolocation.Geolocation
+	ephemeralManager     ephemeral.Manager
 
 	requestBuffer *AccountRequestBuffer
 
@@ -262,6 +264,10 @@ func BuildManager(
 	})
 
 	return am, nil
+}
+
+func (am *DefaultAccountManager) SetEphemeralManager(em ephemeral.Manager) {
+	am.ephemeralManager = em
 }
 
 func (am *DefaultAccountManager) startWarmup(ctx context.Context) {

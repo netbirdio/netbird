@@ -23,6 +23,7 @@ import (
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -56,7 +57,7 @@ type GRPCServer struct {
 	config             *nbconfig.Config
 	secretsManager     SecretsManager
 	appMetrics         telemetry.AppMetrics
-	ephemeralManager   *EphemeralManager
+	ephemeralManager   ephemeral.Manager
 	peerLocks          sync.Map
 	authManager        auth.Manager
 
@@ -76,7 +77,7 @@ func NewServer(
 	jobManager *JobManager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
-	ephemeralManager *EphemeralManager,
+	ephemeralManager ephemeral.Manager,
 	authManager auth.Manager,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 ) (*GRPCServer, error) {
@@ -842,13 +843,13 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	}
 }
 
-func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string) *proto.SyncResponse {
+func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
-			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache),
+			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
@@ -859,11 +860,11 @@ func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.P
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
-	allPeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	allPeers = appendRemotePeerConfig(allPeers, networkMap.Peers, dnsName)
-	response.RemotePeers = allPeers
-	response.NetworkMap.RemotePeers = allPeers
-	response.RemotePeersIsEmpty = len(allPeers) == 0
+	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
+	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName)
+	response.RemotePeers = remotePeers
+	response.NetworkMap.RemotePeers = remotePeers
+	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
 	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
@@ -935,7 +936,14 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups)
+	// Get all peers in the account for forwarder port computation
+	allPeers, err := s.accountManager.GetStore().GetAccountPeers(ctx, store.LockingStrengthNone, peer.AccountID, "", "")
+	if err != nil {
+		return fmt.Errorf("get account peers: %w", err)
+	}
+	dnsFwdPort := computeForwarderPort(allPeers, dnsForwarderPortMinVersion)
+
+	plainResp := toSyncResponse(ctx, s.config, peer, turnToken, relayToken, networkMap, s.accountManager.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

@@ -876,11 +876,11 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 		return nil, err
 	}
 
-	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer1)
+	_, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer1, false)
 	if err != nil {
 		return nil, err
 	}
-	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer2)
+	_, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer2, false)
 	if err != nil {
 		return nil, err
 	}
