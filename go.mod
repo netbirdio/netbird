@@ -1,6 +1,8 @@
 module github.com/netbirdio/netbird
 
-go 1.23.0
+go 1.24.0
+
+toolchain go1.24.4
 
 require (
 	cunicu.li/go-rosenpass v0.4.0
@@ -17,8 +19,8 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/spf13/pflag v1.0.5
 	github.com/vishvananda/netlink v1.3.0
-	golang.org/x/crypto v0.40.0
-	golang.org/x/sys v0.34.0
+	golang.org/x/crypto v0.41.0
+	golang.org/x/sys v0.35.0
 	golang.zx2c4.com/wireguard v0.0.0-20230704135630-469159ecf7d1
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6
 	golang.zx2c4.com/wireguard/windows v0.5.3
@@ -102,17 +104,17 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a
-	golang.org/x/mod v0.25.0
-	golang.org/x/net v0.42.0
+	golang.org/x/mod v0.27.0
+	golang.org/x/net v0.43.0
 	golang.org/x/oauth2 v0.28.0
-	golang.org/x/sync v0.16.0
-	golang.org/x/term v0.33.0
+	golang.org/x/sync v0.17.0
+	golang.org/x/term v0.34.0
 	google.golang.org/api v0.177.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/driver/postgres v1.5.7
-	gorm.io/driver/sqlite v1.5.7
-	gorm.io/gorm v1.25.12
+	gorm.io/driver/sqlite v1.6.0
+	gorm.io/gorm v1.31.0
 	gvisor.dev/gvisor v0.0.0-20231020174304-b8a429915ff1
 )
 
@@ -163,6 +165,7 @@ require (
 	github.com/fyne-io/image v0.0.0-20220602074514-4956b0afb3d2 // indirect
 	github.com/go-gl/gl v0.0.0-20211210172815-726fda9656d6 // indirect
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20240506104042-037f3cc74f2a // indirect
+	github.com/go-gorm/caches/v4 v4.0.5 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -244,9 +247,9 @@ require (
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/image v0.18.0 // indirect
-	golang.org/x/text v0.27.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.34.0 // indirect
+	golang.org/x/tools v0.36.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect

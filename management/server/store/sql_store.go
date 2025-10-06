@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-gorm/caches/v4"
+	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -30,6 +32,7 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store/cache"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -46,6 +49,8 @@ const (
 	accountAndIDsQueryCondition = "account_id = ? AND id IN ?"
 	accountIDCondition          = "account_id = ?"
 	peerNotFoundFMT             = "peer %s not found"
+	storeCacheEnabledEnv        = "NB_STORE_CACHE_ENABLE"
+	storeCacheRedisAddrEnv      = "NB_STORE_CACHE_REDIS_ADDR"
 )
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
@@ -66,6 +71,13 @@ type migrationFunc func(*gorm.DB) error
 
 // NewSqlStore creates a new SqlStore instance.
 func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+	if os.Getenv(storeCacheEnabledEnv) == "true" {
+		err := configureStoreCache(ctx, db)
+		if err != nil {
+			return nil, fmt.Errorf("failed to configure store cache: %w", err)
+		}
+	}
+
 	sql, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -114,6 +126,26 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 	}
 
 	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1}, nil
+}
+
+func configureStoreCache(ctx context.Context, db *gorm.DB) error {
+	var cacher caches.Cacher = &cache.MemoryCacher{}
+	if addr := os.Getenv("storeCacheRedisAddrEnv"); addr != "" {
+		opt, err := redis.ParseURL(addr)
+		if err != nil {
+			return fmt.Errorf("failed to parse redis url from %s: %w", addr, err)
+		}
+		cacher = cache.NewRedisCacher(redis.NewClient(opt))
+		log.WithContext(ctx).Infof("using redis store cache at %s", addr)
+	} else {
+		log.WithContext(ctx).Infof("using in-memory store cache")
+	}
+
+	cachesPlugin := &caches.Caches{Conf: &caches.Config{
+		Cacher: cacher,
+	}}
+
+	return db.Use(cachesPlugin)
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
