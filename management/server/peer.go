@@ -775,6 +775,17 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
+	// Optimization: if client's network map serial matches current, skip full map calculation
+	if !peerNotValid && !isStatusChanged && !sync.UpdateAccountPeers && !(updated && len(postureChecks) > 0) && sync.NetworkMapSerial > 0 {
+		network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+		if err == nil {
+			currentSerial := network.CurrentSerial()
+			if currentSerial == sync.NetworkMapSerial {
+				return peer, nil, postureChecks, nil
+			}
+		}
+	}
+
 	return am.getValidatedPeerWithMap(ctx, peerNotValid, accountID, peer)
 }
 

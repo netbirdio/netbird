@@ -209,7 +209,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		log.WithContext(ctx).Tracef("peer system meta has to be provided on sync. Peer %s, remote addr %s", peerKey.String(), realIP)
 	}
 
-	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP)
+	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP, syncReq.GetNetworkMapSerial())
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
 		return mapError(ctx, err)
@@ -716,39 +716,59 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 
 func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
-		NetworkMap: &proto.NetworkMap{
+		Checks: toProtocolChecks(ctx, checks),
+	}
+
+	// If networkMap is nil, indicate skip and omit NetworkMap
+	if networkMap == nil {
+		response.SkipNetworkMapUpdate = true
+	} else {
+		response.PeerConfig = toPeerConfig(peer, networkMap.Network, dnsName, settings)
+		response.NetworkMap = &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
 			DNSConfig: toProtocolDNSConfig(networkMap.DNSConfig, dnsCache),
-		},
-		Checks: toProtocolChecks(ctx, checks),
+		}
 	}
 
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
 
-	response.NetworkMap.PeerConfig = response.PeerConfig
+	if response.NetworkMap != nil {
+		response.NetworkMap.PeerConfig = response.PeerConfig
+	}
 
-	allPeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	allPeers = appendRemotePeerConfig(allPeers, networkMap.Peers, dnsName)
-	response.RemotePeers = allPeers
-	response.NetworkMap.RemotePeers = allPeers
-	response.RemotePeersIsEmpty = len(allPeers) == 0
-	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
+	if networkMap != nil {
+		allPeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
+		allPeers = appendRemotePeerConfig(allPeers, networkMap.Peers, dnsName)
+		response.RemotePeers = allPeers
+		if response.NetworkMap != nil {
+			response.NetworkMap.RemotePeers = allPeers
+		}
+		response.RemotePeersIsEmpty = len(allPeers) == 0
+		if response.NetworkMap != nil {
+			response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
+		}
+	}
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	if networkMap != nil && response.NetworkMap != nil {
+		response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	}
 
-	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
-	response.NetworkMap.FirewallRules = firewallRules
-	response.NetworkMap.FirewallRulesIsEmpty = len(firewallRules) == 0
+	if networkMap != nil && response.NetworkMap != nil {
+		firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
+		response.NetworkMap.FirewallRules = firewallRules
+		response.NetworkMap.FirewallRulesIsEmpty = len(firewallRules) == 0
+	}
 
-	routesFirewallRules := toProtocolRoutesFirewallRules(networkMap.RoutesFirewallRules)
-	response.NetworkMap.RoutesFirewallRules = routesFirewallRules
-	response.NetworkMap.RoutesFirewallRulesIsEmpty = len(routesFirewallRules) == 0
+	if networkMap != nil && response.NetworkMap != nil {
+		routesFirewallRules := toProtocolRoutesFirewallRules(networkMap.RoutesFirewallRules)
+		response.NetworkMap.RoutesFirewallRules = routesFirewallRules
+		response.NetworkMap.RoutesFirewallRulesIsEmpty = len(routesFirewallRules) == 0
+	}
 
-	if networkMap.ForwardingRules != nil {
+	if networkMap != nil && response.NetworkMap != nil && networkMap.ForwardingRules != nil {
 		forwardingRules := make([]*proto.ForwardingRule, 0, len(networkMap.ForwardingRules))
 		for _, rule := range networkMap.ForwardingRules {
 			forwardingRules = append(forwardingRules, rule.ToProto())

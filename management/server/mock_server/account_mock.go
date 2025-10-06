@@ -37,7 +37,7 @@ type MockAccountManager struct {
 	ListUsersFunc                         func(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, connected bool, realIP net.IP) error
-	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, networkMapSerial uint64) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
 	GetPeerNetworkFunc                    func(ctx context.Context, peerKey string) (*types.Network, error)
@@ -176,11 +176,11 @@ func (am *MockAccountManager) DeleteSetupKey(ctx context.Context, accountID, use
 	return status.Errorf(codes.Unimplemented, "method DeleteSetupKey is not implemented")
 }
 
-func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, networkMapSerial uint64) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if am.SyncAndMarkPeerFunc != nil {
-		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP)
+		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP, networkMapSerial)
 	}
-	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
+	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method SyncAndMarkPeer is not implemented")
 }
 
 func (am *MockAccountManager) OnPeerDisconnected(_ context.Context, accountID string, peerPubKey string) error {

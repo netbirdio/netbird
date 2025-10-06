@@ -12,6 +12,8 @@ type PeerSync struct {
 	WireGuardPubKey string
 	// Meta is the system information passed by peer, must be always present
 	Meta nbpeer.PeerSystemMeta
+	// NetworkMapSerial is the last known network map serial from the client
+	NetworkMapSerial uint64
 	// UpdateAccountPeers indicate updating account peers,
 	// which occurs when the peer's metadata is updated
 	UpdateAccountPeers bool

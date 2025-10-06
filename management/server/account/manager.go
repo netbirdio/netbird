@@ -109,7 +109,7 @@ type Manager interface {
 	UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
 	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error)
-	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, networkMapSerial uint64) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
