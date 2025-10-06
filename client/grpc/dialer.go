@@ -30,7 +30,7 @@ func Backoff(ctx context.Context) backoff.BackOff {
 func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, component string) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 	// for js, the outer websocket layer takes care of tls
-	if tlsEnabled && runtime.GOOS != "js"{
+	if tlsEnabled && runtime.GOOS != "js" {
 		certPool, err := x509.SystemCertPool()
 		if err != nil || certPool == nil {
 			log.Debugf("System cert pool not available; falling back to embedded cert, error: %v", err)

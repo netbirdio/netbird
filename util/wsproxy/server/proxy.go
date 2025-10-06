@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
