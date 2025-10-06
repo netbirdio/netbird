@@ -132,6 +132,11 @@ func (p *Proxy) wsToPipe(ctx context.Context, cancel context.CancelFunc, wg *syn
 			continue
 		}
 
+		if ctx.Err() != nil {
+			log.Tracef("wsToPipe goroutine terminating due to context cancellation before pipe write")
+			return
+		}
+
 		if err := pipeConn.SetWriteDeadline(time.Now().Add(ioTimeout)); err != nil {
 			log.Debugf("Failed to set pipe write deadline: %v", err)
 		}
@@ -159,9 +164,19 @@ func (p *Proxy) pipeToWS(ctx context.Context, cancel context.CancelFunc, wg *syn
 
 		n, err := pipeConn.Read(buf)
 		if err != nil {
-			if err != io.EOF && ctx.Err() == nil {
+			if ctx.Err() != nil {
+				log.Tracef("pipeToWS goroutine terminating due to context cancellation")
+				return
+			}
+
+			if err != io.EOF {
 				log.Debugf("Pipe read error for %s: %v", clientAddr, err)
 			}
+			return
+		}
+
+		if ctx.Err() != nil {
+			log.Tracef("pipeToWS goroutine terminating due to context cancellation before WebSocket write")
 			return
 		}
 
