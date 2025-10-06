@@ -13,12 +13,15 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
@@ -249,7 +252,7 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	}()
 
 	runOperation := func() error {
-		err := s.connect(ctx, profileConfig, statusRecorder, s.logFile, runningChan)
+		err := s.connect(ctx, profileConfig, statusRecorder, runningChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 			return err
@@ -1250,7 +1253,7 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
+	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, s.logFile)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
 	if err := s.connectClient.Run(runningChan); err != nil {
 		return err

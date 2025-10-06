@@ -249,7 +249,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		relayURLs, token := parseRelayInfo(loginResp)
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, c.LogFile)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
