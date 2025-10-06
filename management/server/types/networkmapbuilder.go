@@ -991,6 +991,8 @@ func (b *NetworkMapBuilder) OnPeerAddedIncremental(peerID string) error {
 	b.cache.mu.Lock()
 	defer b.cache.mu.Unlock()
 
+	log.Debugf("NetworkMapBuilder: Adding peer %s (IP: %s) to cache", peerID, peer.IP.String())
+
 	b.validatedPeers[peerID] = struct{}{}
 
 	b.cache.globalPeers[peerID] = peer
@@ -1002,6 +1004,8 @@ func (b *NetworkMapBuilder) OnPeerAddedIncremental(peerID string) error {
 	b.buildPeerDNSView(account, peerID)
 
 	b.incrementalUpdateAffectedPeers(account, peerID, peerGroups)
+
+	log.Debugf("NetworkMapBuilder: Added peer %s to cache", peerID)
 
 	return nil
 }

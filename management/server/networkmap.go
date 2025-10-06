@@ -50,7 +50,7 @@ func (am *DefaultAccountManager) recalculateNetworkMapCache(account *types.Accou
 }
 
 func (am *DefaultAccountManager) RecalculateNetworkMapCache(ctx context.Context, accountId string) error {
-	if am.expNewNetworkMap {
+	if am.experimentalNetworkMap(accountId) {
 		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountId)
 		if err != nil {
 			return err
@@ -63,4 +63,9 @@ func (am *DefaultAccountManager) RecalculateNetworkMapCache(ctx context.Context,
 		am.recalculateNetworkMapCache(account, validatedPeers)
 	}
 	return nil
+}
+
+func (am *DefaultAccountManager) experimentalNetworkMap(accountId string) bool {
+	_, ok := am.expNewNetworkMapAIDs[accountId]
+	return am.expNewNetworkMap || ok
 }
