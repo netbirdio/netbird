@@ -807,7 +807,12 @@ func (conn *Conn) rosenpassDetermKey() (*wgtypes.Key, error) {
 }
 
 func (conn *Conn) switchGuard() {
+	if conn.guardCtxCancel == nil {
+		return
+	}
+
 	conn.guardCtxCancel()
+	conn.guardCtxCancel = nil
 	conn.wgGuard.Wait()
 	conn.wg.Add(1)
 	go func() {
