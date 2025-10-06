@@ -2151,6 +2151,25 @@ func (s *SqlStore) DeletePolicy(ctx context.Context, accountID, policyID string)
 	})
 }
 
+func (s *SqlStore) GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, resourceID string) ([]*types.PolicyRule, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var policyRules []*types.PolicyRule
+	resourceIDPattern := `%"ID":"` + resourceID + `"%`
+	result := tx.Where("source_resource LIKE ? OR destination_resource LIKE ?", resourceIDPattern, resourceIDPattern).
+		Find(&policyRules)
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get policy rules for resource id from store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get policy rules for resource id from store")
+	}
+
+	return policyRules, nil
+}
+
 // GetAccountPostureChecks retrieves posture checks for an account.
 func (s *SqlStore) GetAccountPostureChecks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*posture.Checks, error) {
 	tx := s.db

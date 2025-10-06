@@ -135,7 +135,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 
 		res := nbtypes.Resource{
 			ID:   resource.ID,
-			Type: resource.Type.String(),
+			Type: nbtypes.ResourceType(resource.Type.String()),
 		}
 		for _, groupID := range resource.GroupIDs {
 			event, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, userID, groupID, &res)
@@ -271,7 +271,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction store.Store, userID string, newResource, oldResource *types.NetworkResource) ([]func(), error) {
 	res := nbtypes.Resource{
 		ID:   newResource.ID,
-		Type: newResource.Type.String(),
+		Type: nbtypes.ResourceType(newResource.Type.String()),
 	}
 
 	oldResourceGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, oldResource.AccountID, oldResource.ID)

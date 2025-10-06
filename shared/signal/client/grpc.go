@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	nbgrpc "github.com/netbirdio/netbird/util/grpc"
+	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
 // ConnStateNotifier is a wrapper interface of the status recorder
@@ -57,7 +58,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(addr, tlsEnabled)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent)
 		if err != nil {
 			log.Printf("createConnection error: %v", err)
 			return err

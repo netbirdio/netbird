@@ -157,12 +157,24 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 			return false, nil
 		}
 
+		for _, rule := range existingPolicy.Rules {
+			if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
+				return true, nil
+			}
+		}
+
 		hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
 		if err != nil {
 			return false, err
 		}
 
 		if hasPeers {
+			return true, nil
+		}
+	}
+
+	for _, rule := range policy.Rules {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
 			return true, nil
 		}
 	}

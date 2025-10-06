@@ -25,7 +25,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress)
 		wgIFace.tun = device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr())
 		wgIFace.userspaceBind = true
-		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind)
+		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind, opts.MTU)
 		return wgIFace, nil
 	}
 
@@ -38,7 +38,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress)
 		wgIFace.tun = device.NewUSPDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind)
 		wgIFace.userspaceBind = true
-		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind)
+		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind, opts.MTU)
 		return wgIFace, nil
 	}
 

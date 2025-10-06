@@ -27,30 +27,30 @@ func TestProxyCloseByRemoteConnEBPF(t *testing.T) {
 		}
 	}()
 
-	tests := []struct {
-		name  string
-		proxy Proxy
-	}{
-		{
-			name: "ebpf proxy",
-			proxy: &ebpf.ProxyWrapper{
-				WgeBPFProxy: ebpfProxy,
-			},
-		},
+	pUDP := proxyInstance{
+		name:    "udp kernel proxy",
+		proxy:   udp.NewWGUDPProxy(51832, 1280),
+		wgPort:  51832,
+		closeFn: func() error { return nil },
+	}
+	pl = append(pl, pUDP)
+	wgAddress, err := wgaddr.ParseWGAddress("10.0.0.1/32")
+	if err != nil {
+		return nil, err
+	}
+	iceBind := bind.NewICEBind(nil, nil, wgAddress, 1280)
+	endpointAddress := &net.UDPAddr{
+		IP:   net.IPv4(10, 0, 0, 1),
+		Port: 1234,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			relayedConn := newMockConn()
-			err := tt.proxy.AddTurnConn(ctx, nil, relayedConn)
-			if err != nil {
-				t.Errorf("error: %v", err)
-			}
-
-			_ = relayedConn.Close()
-			if err := tt.proxy.CloseConn(); err != nil {
-				t.Errorf("error: %v", err)
-			}
-		})
+	pBind := proxyInstance{
+		name:         "bind proxy",
+		proxy:        bindproxy.NewProxyBind(iceBind, 0),
+		endpointAddr: endpointAddress,
+		closeFn:      func() error { return nil },
 	}
+	pl = append(pl, pBind)
+
+	return pl, nil
 }

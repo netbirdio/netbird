@@ -36,6 +36,7 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/peers/{peerId}/jobs", peersHandler.ListJobs).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/jobs", peersHandler.CreateJob).Methods("POST", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/jobs/{jobId}", peersHandler.GetJob).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/temporary-access", peersHandler.CreateTemporaryAccess).Methods("POST", "OPTIONS")
 }
 
 // NewHandler creates a new peers Handler
@@ -413,6 +414,88 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
 
 	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
+}
+
+func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+	if len(peerID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
+		return
+	}
+
+	var req api.PeerTemporaryAccessRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	newPeer := &nbpeer.Peer{}
+	newPeer.FromAPITemporaryAccessRequest(&req)
+
+	targetPeer, err := h.accountManager.GetPeer(r.Context(), userAuth.AccountId, peerID, userAuth.UserId)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	peer, _, _, err := h.accountManager.AddPeer(r.Context(), userAuth.AccountId, "", userAuth.UserId, newPeer, true)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	for _, rule := range req.Rules {
+		protocol, portRange, err := types.ParseRuleString(rule)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+		policy := &types.Policy{
+			AccountID:   userAuth.AccountId,
+			Description: "Temporary access policy for peer " + peer.Name,
+			Name:        "Temporary access policy for peer " + peer.Name,
+			Enabled:     true,
+			Rules: []*types.PolicyRule{{
+				Name:        "Temporary access rule",
+				Description: "Temporary access rule",
+				Enabled:     true,
+				Action:      types.PolicyTrafficActionAccept,
+				SourceResource: types.Resource{
+					Type: types.ResourceTypePeer,
+					ID:   peer.ID,
+				},
+				DestinationResource: types.Resource{
+					Type: types.ResourceTypePeer,
+					ID:   targetPeer.ID,
+				},
+				Bidirectional: false,
+				Protocol:      protocol,
+				PortRanges:    []types.RulePortRange{portRange},
+			}},
+		}
+
+		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+	}
+
+	resp := &api.PeerTemporaryAccessResponse{
+		Id:    peer.ID,
+		Name:  peer.Name,
+		Rules: req.Rules,
+	}
+
+	util.WriteJSONObject(r.Context(), w, resp)
 }
 
 func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
