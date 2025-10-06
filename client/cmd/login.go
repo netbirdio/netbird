@@ -227,7 +227,7 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 	}
 
 	// update host's static platform and system information
-	system.UpdateStaticInfoAsync()
+	system.UpdateStaticInfo()
 
 	configFilePath, err := activeProf.FilePath()
 	if err != nil {

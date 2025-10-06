@@ -13,11 +13,10 @@ import (
 	"github.com/pion/logging"
 	"github.com/pion/turn/v3"
 
-	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 	"github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client"
+	"github.com/netbirdio/netbird/relay/server"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -101,7 +100,7 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 
 	clientsSender := make([]*client.Client, peerPairs)
 	for i := 0; i < cap(clientsSender); i++ {
-		c := client.NewClient(serverConnURL, hmacTokenStore, "sender-"+fmt.Sprint(i), iface.DefaultMTU)
+		c := client.NewClient(serverConnURL, hmacTokenStore, "sender-"+fmt.Sprint(i))
 		err := c.Connect(ctx)
 		if err != nil {
 			t.Fatalf("failed to connect to server: %s", err)
@@ -111,7 +110,7 @@ func transfer(t *testing.T, testData []byte, peerPairs int) {
 
 	clientsReceiver := make([]*client.Client, peerPairs)
 	for i := 0; i < cap(clientsReceiver); i++ {
-		c := client.NewClient(serverConnURL, hmacTokenStore, "receiver-"+fmt.Sprint(i), iface.DefaultMTU)
+		c := client.NewClient(serverConnURL, hmacTokenStore, "receiver-"+fmt.Sprint(i))
 		err := c.Connect(ctx)
 		if err != nil {
 			t.Fatalf("failed to connect to server: %s", err)

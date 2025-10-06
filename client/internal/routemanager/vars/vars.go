@@ -13,6 +13,4 @@ var (
 
 	Defaultv4 = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
 	Defaultv6 = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
-
-	ExitNodeCIDR = "0.0.0.0/0"
 )

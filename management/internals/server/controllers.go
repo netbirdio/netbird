@@ -26,11 +26,7 @@ func (s *BaseServer) JobManager() *server.JobManager {
 
 func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValidator {
 	return Create(s, func() integrated_validator.IntegratedValidator {
-		integratedPeerValidator, err := integrations.NewIntegratedValidator(
-			context.Background(),
-			s.PeersManager(),
-			s.SettingsManager(),
-			s.EventStore())
+		integratedPeerValidator, err := integrations.NewIntegratedValidator(context.Background(), s.EventStore())
 		if err != nil {
 			log.Errorf("failed to create integrated peer validator: %v", err)
 		}

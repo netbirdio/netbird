@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"net/url"
 	"os"
 	"reflect"
 	"runtime"
@@ -18,8 +17,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/pion/ice/v4"
-	"github.com/pion/stun/v3"
+	"github.com/pion/ice/v3"
+	"github.com/pion/stun/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -29,13 +28,12 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
-	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
-	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/netflow"
@@ -136,7 +134,6 @@ type EngineConfig struct {
 	ProfileConfig *profilemanager.Config
 
 	LogFile string
-	MTU uint16
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -174,7 +171,7 @@ type Engine struct {
 
 	wgInterface WGIface
 
-	udpMux *udpmux.UniversalUDPMuxDefault
+	udpMux *bind.UniversalUDPMuxDefault
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -210,10 +207,6 @@ type Engine struct {
 
 	jobExecutor   *jobexec.Executor
 	jobExecutorWG sync.WaitGroup
-
-	// WireGuard interface monitor
-	wgIfaceMonitor   *WGIfaceMonitor
-	wgIfaceMonitorWg sync.WaitGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -350,22 +343,15 @@ func (e *Engine) Stop() error {
 		log.Errorf("failed to persist state: %v", err)
 	}
 
-	// Stop WireGuard interface monitor and wait for it to exit
-	e.wgIfaceMonitorWg.Wait()
-
 	return nil
 }
 
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
-func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) error {
+func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
-
-	if err := iface.ValidateMTU(e.config.MTU); err != nil {
-		return fmt.Errorf("invalid MTU configuration: %w", err)
-	}
 
 	if e.cancel != nil {
 		e.cancel()
@@ -415,11 +401,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 	e.dnsServer = dnsServer
 
-	// Populate DNS cache with NetbirdConfig and management URL for early resolution
-	if err := e.PopulateNetbirdConfig(netbirdConfig, mgmtURL); err != nil {
-		log.Warnf("failed to populate DNS cache: %v", err)
-	}
-
 	e.routeManager = routemanager.NewManager(routemanager.ManagerConfig{
 		Context:             e.ctx,
 		PublicKey:           e.config.WgPrivateKey.PublicKey().String(),
@@ -458,8 +439,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("up wg interface: %w", err)
 	}
 
-
-
 	// if inbound conns are blocked there is no need to create the ACL manager
 	if e.firewall != nil && !e.config.BlockInbound {
 		e.acl = acl.NewDefaultManager(e.firewall)
@@ -475,7 +454,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		StunTurn:             &e.stunTurn,
 		InterfaceBlackList:   e.config.IFaceBlackList,
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-		UDPMux:               e.udpMux.SingleSocketUDPMux,
+		UDPMux:               e.udpMux.UDPMuxDefault,
 		UDPMuxSrflx:          e.udpMux,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
@@ -492,22 +471,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
-
-	// monitor WireGuard interface lifecycle and restart engine on changes
-	e.wgIfaceMonitor = NewWGIfaceMonitor()
-	e.wgIfaceMonitorWg.Add(1)
-
-	go func() {
-		defer e.wgIfaceMonitorWg.Done()
-
-		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); shouldRestart {
-			log.Infof("WireGuard interface monitor: %s, restarting engine", err)
-			e.restartEngine()
-		} else if err != nil {
-			log.Warnf("WireGuard interface monitor: %s", err)
-		}
-	}()
-
 	return nil
 }
 
@@ -699,30 +662,6 @@ func (e *Engine) removePeer(peerKey string) error {
 	return nil
 }
 
-// PopulateNetbirdConfig populates the DNS cache with infrastructure domains from login response
-func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) error {
-	if e.dnsServer == nil {
-		return nil
-	}
-
-	// Populate management URL if provided
-	if mgmtURL != nil {
-		if err := e.dnsServer.PopulateManagementDomain(mgmtURL); err != nil {
-			log.Warnf("failed to populate DNS cache with management URL: %v", err)
-		}
-	}
-
-	// Populate NetbirdConfig domains if provided
-	if netbirdConfig != nil {
-		serverDomains := dnsconfig.ExtractFromNetbirdConfig(netbirdConfig)
-		if err := e.dnsServer.UpdateServerConfig(serverDomains); err != nil {
-			return fmt.Errorf("update DNS server config from NetbirdConfig: %w", err)
-		}
-	}
-
-	return nil
-}
-
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
@@ -752,10 +691,6 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		err = e.handleFlowUpdate(wCfg.GetFlow())
 		if err != nil {
 			return fmt.Errorf("handle the flow configuration: %w", err)
-		}
-
-		if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
-			log.Warnf("Failed to update DNS server config: %v", err)
 		}
 
 		// todo update signal
@@ -1066,6 +1001,7 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.LazyConnectionEnabled,
 		)
 
+		// err = e.mgmClient.Sync(info, e.handleSync)
 		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
@@ -1076,7 +1012,7 @@ func (e *Engine) receiveManagementEvents() {
 		}
 		log.Debugf("stopped receiving updates from Management Service")
 	}()
-	log.Infof("connecting to Management Service updates stream")
+	log.Debugf("connecting to Management Service updates stream")
 }
 
 func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
@@ -1268,16 +1204,15 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 		}
 
 		convertedRoute := &route.Route{
-			ID:            route.ID(protoRoute.ID),
-			Network:       prefix.Masked(),
-			Domains:       domain.FromPunycodeList(protoRoute.Domains),
-			NetID:         route.NetID(protoRoute.NetID),
-			NetworkType:   route.NetworkType(protoRoute.NetworkType),
-			Peer:          protoRoute.Peer,
-			Metric:        int(protoRoute.Metric),
-			Masquerade:    protoRoute.Masquerade,
-			KeepRoute:     protoRoute.KeepRoute,
-			SkipAutoApply: protoRoute.SkipAutoApply,
+			ID:          route.ID(protoRoute.ID),
+			Network:     prefix.Masked(),
+			Domains:     domain.FromPunycodeList(protoRoute.Domains),
+			NetID:       route.NetID(protoRoute.NetID),
+			NetworkType: route.NetworkType(protoRoute.NetworkType),
+			Peer:        protoRoute.Peer,
+			Metric:      int(protoRoute.Metric),
+			Masquerade:  protoRoute.Masquerade,
+			KeepRoute:   protoRoute.KeepRoute,
 		}
 		routes = append(routes, convertedRoute)
 	}
@@ -1443,7 +1378,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			StunTurn:             &e.stunTurn,
 			InterfaceBlackList:   e.config.IFaceBlackList,
 			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-			UDPMux:               e.udpMux.SingleSocketUDPMux,
+			UDPMux:               e.udpMux.UDPMuxDefault,
 			UDPMuxSrflx:          e.udpMux,
 			NATExternalIPs:       e.parseNATExternalIPMappings(),
 		},
@@ -1649,7 +1584,7 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 		Address:      e.config.WgAddr,
 		WGPort:       e.config.WgPort,
 		WGPrivKey:    e.config.WgPrivateKey.String(),
-		MTU:          e.config.MTU,
+		MTU:          iface.DefaultMTU,
 		TransportNet: transportNet,
 		FilterFn:     e.addrViaRoutes,
 		DisableDNS:   e.config.DisableDNS,
@@ -1708,14 +1643,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 		return dnsServer, nil
 
 	default:
-
-		dnsServer, err := dns.NewDefaultServer(e.ctx, dns.DefaultServerConfig{
-			WgInterface:    e.wgInterface,
-			CustomAddress:  e.config.CustomDNSAddress,
-			StatusRecorder: e.statusRecorder,
-			StateManager:   e.stateManager,
-			DisableSys:     e.config.DisableDNS,
-		})
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, e.statusRecorder, e.stateManager, e.config.DisableDNS)
 		if err != nil {
 			return nil, err
 		}

@@ -12,7 +12,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
-	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -21,16 +20,16 @@ type USPDevice struct {
 	address wgaddr.Address
 	port    int
 	key     string
-	mtu     uint16
+	mtu     int
 	iceBind *bind.ICEBind
 
 	device         *device.Device
 	filteredDevice *FilteredDevice
-	udpMux         *udpmux.UniversalUDPMuxDefault
+	udpMux         *bind.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 }
 
-func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *USPDevice {
+func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu int, iceBind *bind.ICEBind) *USPDevice {
 	log.Infof("using userspace bind mode")
 
 	return &USPDevice{
@@ -45,9 +44,9 @@ func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu
 
 func (t *USPDevice) Create() (WGConfigurer, error) {
 	log.Info("create tun interface")
-	tunIface, err := tun.CreateTUN(t.name, int(t.mtu))
+	tunIface, err := tun.CreateTUN(t.name, t.mtu)
 	if err != nil {
-		log.Debugf("failed to create tun interface (%s, %d): %s", t.name, int(t.mtu), err)
+		log.Debugf("failed to create tun interface (%s, %d): %s", t.name, t.mtu, err)
 		return nil, fmt.Errorf("error creating tun device: %s", err)
 	}
 	t.filteredDevice = newDeviceFilter(tunIface)
@@ -75,7 +74,7 @@ func (t *USPDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *USPDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
+func (t *USPDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 	if t.device == nil {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
@@ -117,10 +116,6 @@ func (t *USPDevice) Close() error {
 
 func (t *USPDevice) WgAddress() wgaddr.Address {
 	return t.address
-}
-
-func (t *USPDevice) MTU() uint16 {
-	return t.mtu
 }
 
 func (t *USPDevice) DeviceName() string {

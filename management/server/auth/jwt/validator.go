@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/golang-jwt/jwt"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -63,10 +63,12 @@ type Validator struct {
 }
 
 var (
-	errKeyNotFound  = errors.New("unable to find appropriate key")
-	errTokenEmpty   = errors.New("required authorization token not found")
-	errTokenInvalid = errors.New("token is invalid")
-	errTokenParsing = errors.New("token could not be parsed")
+	errKeyNotFound     = errors.New("unable to find appropriate key")
+	errInvalidAudience = errors.New("invalid audience")
+	errInvalidIssuer   = errors.New("invalid issuer")
+	errTokenEmpty      = errors.New("required authorization token not found")
+	errTokenInvalid    = errors.New("token is invalid")
+	errTokenParsing    = errors.New("token could not be parsed")
 )
 
 func NewValidator(issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) *Validator {
@@ -86,6 +88,24 @@ func NewValidator(issuer string, audienceList []string, keysLocation string, idp
 
 func (v *Validator) getKeyFunc(ctx context.Context) jwt.Keyfunc {
 	return func(token *jwt.Token) (interface{}, error) {
+		// Verify 'aud' claim
+		var checkAud bool
+		for _, audience := range v.audienceList {
+			checkAud = token.Claims.(jwt.MapClaims).VerifyAudience(audience, false)
+			if checkAud {
+				break
+			}
+		}
+		if !checkAud {
+			return token, errInvalidAudience
+		}
+
+		// Verify 'issuer' claim
+		checkIss := token.Claims.(jwt.MapClaims).VerifyIssuer(v.issuer, false)
+		if !checkIss {
+			return token, errInvalidIssuer
+		}
+
 		// If keys are rotated, verify the keys prior to token validation
 		if v.idpSignkeyRefreshEnabled {
 			// If the keys are invalid, retrieve new ones
@@ -124,7 +144,7 @@ func (v *Validator) getKeyFunc(ctx context.Context) jwt.Keyfunc {
 }
 
 // ValidateAndParse validates the token and returns the parsed token
-func (v *Validator) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
+func (m *Validator) ValidateAndParse(ctx context.Context, token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {
 		// If we get here, the required token is missing
@@ -133,13 +153,7 @@ func (v *Validator) ValidateAndParse(ctx context.Context, token string) (*jwt.To
 	}
 
 	// Now parse the token
-	parsedToken, err := jwt.Parse(
-		token,
-		v.getKeyFunc(ctx),
-		jwt.WithAudience(v.audienceList...),
-		jwt.WithIssuer(v.issuer),
-		jwt.WithIssuedAt(),
-	)
+	parsedToken, err := jwt.Parse(token, m.getKeyFunc(ctx))
 
 	// Check if there was an error in parsing...
 	if err != nil {

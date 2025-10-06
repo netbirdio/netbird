@@ -303,8 +303,6 @@ message PeerConfig {
   bool RoutingPeerDnsResolutionEnabled = 5;
 
   bool LazyConnectionEnabled = 6;
-
-  int32 mtu = 7;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
@@ -441,7 +439,6 @@ message Route {
   string NetID = 7;
   repeated string Domains = 8;
   bool keepRoute = 9;
-  bool skipAutoApply = 10;
 }
 
 // DNSConfig represents a dns.Update

@@ -3,6 +3,7 @@ package testing_tools
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,12 +14,32 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/server/peers"
+	"github.com/netbirdio/netbird/management/server/permissions"
+	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/users"
+
+	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/auth"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/geolocation"
+	"github.com/netbirdio/netbird/management/server/groups"
+	nbhttp "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/networks"
+	"github.com/netbirdio/netbird/management/server/networks/resources"
+	"github.com/netbirdio/netbird/management/server/networks/routers"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 )
@@ -202,11 +223,11 @@ func ReadResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedSta
 	return content, expectedStatus == http.StatusOK
 }
 
-func PopulateTestData(b *testing.B, am account.Manager, peers, groups, users, setupKeys int) {
+func PopulateTestData(b *testing.B, am *server.DefaultAccountManager, peers, groups, users, setupKeys int) {
 	b.Helper()
 
 	ctx := context.Background()
-	acc, err := am.GetAccount(ctx, TestAccountId)
+	account, err := am.GetAccount(ctx, TestAccountId)
 	if err != nil {
 		b.Fatalf("Failed to get account: %v", err)
 	}
@@ -222,23 +243,23 @@ func PopulateTestData(b *testing.B, am account.Manager, peers, groups, users, se
 			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   TestUserId,
 		}
-		acc.Peers[peer.ID] = peer
+		account.Peers[peer.ID] = peer
 	}
 
 	// Create users
 	for i := 0; i < users; i++ {
 		user := &types.User{
 			Id:        fmt.Sprintf("olduser-%d", i),
-			AccountID: acc.Id,
+			AccountID: account.Id,
 			Role:      types.UserRoleUser,
 		}
-		acc.Users[user.Id] = user
+		account.Users[user.Id] = user
 	}
 
 	for i := 0; i < setupKeys; i++ {
 		key := &types.SetupKey{
 			Id:         fmt.Sprintf("oldkey-%d", i),
-			AccountID:  acc.Id,
+			AccountID:  account.Id,
 			AutoGroups: []string{"someGroupID"},
 			UpdatedAt:  time.Now().UTC(),
 			ExpiresAt:  util.ToPtr(time.Now().Add(ExpiresIn * time.Second)),
@@ -246,11 +267,11 @@ func PopulateTestData(b *testing.B, am account.Manager, peers, groups, users, se
 			Type:       "reusable",
 			UsageLimit: 0,
 		}
-		acc.SetupKeys[key.Id] = key
+		account.SetupKeys[key.Id] = key
 	}
 
 	// Create groups and policies
-	acc.Policies = make([]*types.Policy, 0, groups)
+	account.Policies = make([]*types.Policy, 0, groups)
 	for i := 0; i < groups; i++ {
 		groupID := fmt.Sprintf("group-%d", i)
 		group := &types.Group{
@@ -261,7 +282,7 @@ func PopulateTestData(b *testing.B, am account.Manager, peers, groups, users, se
 			peerIndex := i*(peers/groups) + j
 			group.Peers = append(group.Peers, fmt.Sprintf("peer-%d", peerIndex))
 		}
-		acc.Groups[groupID] = group
+		account.Groups[groupID] = group
 
 		// Create a policy for this group
 		policy := &types.Policy{
@@ -281,10 +302,10 @@ func PopulateTestData(b *testing.B, am account.Manager, peers, groups, users, se
 				},
 			},
 		}
-		acc.Policies = append(acc.Policies, policy)
+		account.Policies = append(account.Policies, policy)
 	}
 
-	acc.PostureChecks = []*posture.Checks{
+	account.PostureChecks = []*posture.Checks{
 		{
 			ID:   "PostureChecksAll",
 			Name: "All",
@@ -296,32 +317,23 @@ func PopulateTestData(b *testing.B, am account.Manager, peers, groups, users, se
 		},
 	}
 
-	store := am.GetStore()
-
-	err = store.SaveAccount(context.Background(), acc)
+	err = am.Store.SaveAccount(context.Background(), account)
 	if err != nil {
 		b.Fatalf("Failed to save account: %v", err)
 	}
 
 }
 
-func EvaluateAPIBenchmarkResults(b *testing.B, testCase string, duration time.Duration, recorder *httptest.ResponseRecorder, module string, operation string) {
-	b.Helper()
-
-	if recorder.Code != http.StatusOK {
-		b.Fatalf("Benchmark %s failed: unexpected status code %d", testCase, recorder.Code)
-	}
-
-	EvaluateBenchmarkResults(b, testCase, duration, module, operation)
-
-}
-
-func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Duration, module string, operation string) {
+func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Duration, recorder *httptest.ResponseRecorder, module string, operation string) {
 	b.Helper()
 
 	branch := os.Getenv("GIT_BRANCH")
-	if branch == "" && os.Getenv("CI") == "true" {
+	if branch == "" {
 		b.Fatalf("environment variable GIT_BRANCH is not set")
+	}
+
+	if recorder.Code != http.StatusOK {
+		b.Fatalf("Benchmark %s failed: unexpected status code %d", testCase, recorder.Code)
 	}
 
 	msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
@@ -330,4 +342,27 @@ func EvaluateBenchmarkResults(b *testing.B, testCase string, duration time.Durat
 	gauge.Set(msPerOp)
 
 	b.ReportMetric(msPerOp, "ms/op")
+
+}
+
+func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserAuth, *jwt.Token, error) {
+	userAuth := nbcontext.UserAuth{}
+
+	switch token {
+	case "testUserId", "testAdminId", "testOwnerId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
+		userAuth.UserId = token
+		userAuth.AccountId = "testAccountId"
+		userAuth.Domain = "test.com"
+		userAuth.DomainCategory = "private"
+	case "otherUserId":
+		userAuth.UserId = "otherUserId"
+		userAuth.AccountId = "otherAccountId"
+		userAuth.Domain = "other.com"
+		userAuth.DomainCategory = "private"
+	case "invalidToken":
+		return userAuth, nil, errors.New("invalid token")
+	}
+
+	jwtToken := jwt.New(jwt.SigningMethodHS256)
+	return userAuth, jwtToken, nil
 }

@@ -1,5 +1,3 @@
-//go:build linux && !android
-
 package udp
 
 import (
@@ -14,38 +12,32 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	cerrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
 // WGUDPProxy proxies
 type WGUDPProxy struct {
 	localWGListenPort int
-	mtu               uint16
 
-	remoteConn   net.Conn
-	localConn    net.Conn
-	srcFakerConn *SrcFaker
-	sendPkg      func(data []byte) (int, error)
-	ctx          context.Context
-	cancel       context.CancelFunc
-	closeMu      sync.Mutex
-	closed       bool
+	remoteConn net.Conn
+	localConn  net.Conn
+	ctx        context.Context
+	cancel     context.CancelFunc
+	closeMu    sync.Mutex
+	closed     bool
 
-	paused     bool
-	pausedCond *sync.Cond
-	isStarted  bool
+	pausedMu  sync.Mutex
+	paused    bool
+	isStarted bool
 
 	closeListener *listener.CloseListener
 }
 
 // NewWGUDPProxy instantiate a UDP based WireGuard proxy. This is not a thread safe implementation
-func NewWGUDPProxy(wgPort int, mtu uint16) *WGUDPProxy {
+func NewWGUDPProxy(wgPort int) *WGUDPProxy {
 	log.Debugf("Initializing new user space proxy with port %d", wgPort)
 	p := &WGUDPProxy{
 		localWGListenPort: wgPort,
-		mtu:               mtu,
-		pausedCond:        sync.NewCond(&sync.Mutex{}),
 		closeListener:     listener.NewCloseListener(),
 	}
 	return p
@@ -66,7 +58,6 @@ func (p *WGUDPProxy) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, rem
 
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.localConn = localConn
-	p.sendPkg = p.localConn.Write
 	p.remoteConn = remoteConn
 
 	return err
@@ -90,24 +81,15 @@ func (p *WGUDPProxy) Work() {
 		return
 	}
 
-	p.pausedCond.L.Lock()
+	p.pausedMu.Lock()
 	p.paused = false
-	p.sendPkg = p.localConn.Write
-
-	if p.srcFakerConn != nil {
-		if err := p.srcFakerConn.Close(); err != nil {
-			log.Errorf("failed to close src faker conn: %s", err)
-		}
-		p.srcFakerConn = nil
-	}
+	p.pausedMu.Unlock()
 
 	if !p.isStarted {
 		p.isStarted = true
 		go p.proxyToRemote(p.ctx)
 		go p.proxyToLocal(p.ctx)
 	}
-	p.pausedCond.Signal()
-	p.pausedCond.L.Unlock()
 }
 
 // Pause pauses the proxy from receiving data from the remote peer
@@ -116,35 +98,9 @@ func (p *WGUDPProxy) Pause() {
 		return
 	}
 
-	p.pausedCond.L.Lock()
+	p.pausedMu.Lock()
 	p.paused = true
-	p.pausedCond.L.Unlock()
-}
-
-// RedirectAs start to use the fake sourced raw socket as package sender
-func (p *WGUDPProxy) RedirectAs(endpoint *net.UDPAddr) {
-	p.pausedCond.L.Lock()
-	defer func() {
-		p.pausedCond.Signal()
-		p.pausedCond.L.Unlock()
-	}()
-
-	p.paused = false
-	if p.srcFakerConn != nil {
-		if err := p.srcFakerConn.Close(); err != nil {
-			log.Errorf("failed to close src faker conn: %s", err)
-		}
-		p.srcFakerConn = nil
-	}
-	srcFakerConn, err := NewSrcFaker(p.localWGListenPort, endpoint)
-	if err != nil {
-		log.Errorf("failed to create src faker conn: %s", err)
-		// fallback to continue without redirecting
-		p.paused = true
-		return
-	}
-	p.srcFakerConn = srcFakerConn
-	p.sendPkg = p.srcFakerConn.SendPkg
+	p.pausedMu.Unlock()
 }
 
 // CloseConn close the localConn
@@ -156,8 +112,6 @@ func (p *WGUDPProxy) CloseConn() error {
 }
 
 func (p *WGUDPProxy) close() error {
-	var result *multierror.Error
-
 	p.closeMu.Lock()
 	defer p.closeMu.Unlock()
 
@@ -171,11 +125,7 @@ func (p *WGUDPProxy) close() error {
 
 	p.cancel()
 
-	p.pausedCond.L.Lock()
-	p.paused = false
-	p.pausedCond.Signal()
-	p.pausedCond.L.Unlock()
-
+	var result *multierror.Error
 	if err := p.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		result = multierror.Append(result, fmt.Errorf("remote conn: %s", err))
 	}
@@ -183,13 +133,6 @@ func (p *WGUDPProxy) close() error {
 	if err := p.localConn.Close(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("local conn: %s", err))
 	}
-
-	if p.srcFakerConn != nil {
-		if err := p.srcFakerConn.Close(); err != nil {
-			result = multierror.Append(result, fmt.Errorf("src faker raw conn: %s", err))
-		}
-	}
-
 	return cerrors.FormatErrorOrNil(result)
 }
 
@@ -201,7 +144,7 @@ func (p *WGUDPProxy) proxyToRemote(ctx context.Context) {
 		}
 	}()
 
-	buf := make([]byte, p.mtu+bufsize.WGBufferOverhead)
+	buf := make([]byte, 1500)
 	for ctx.Err() == nil {
 		n, err := p.localConn.Read(buf)
 		if err != nil {
@@ -236,7 +179,7 @@ func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 		}
 	}()
 
-	buf := make([]byte, p.mtu+bufsize.WGBufferOverhead)
+	buf := make([]byte, 1500)
 	for {
 		n, err := p.remoteConnRead(ctx, buf)
 		if err != nil {
@@ -248,12 +191,14 @@ func (p *WGUDPProxy) proxyToLocal(ctx context.Context) {
 			return
 		}
 
-		p.pausedCond.L.Lock()
-		for p.paused {
-			p.pausedCond.Wait()
+		p.pausedMu.Lock()
+		if p.paused {
+			p.pausedMu.Unlock()
+			continue
 		}
-		_, err = p.sendPkg(buf[:n])
-		p.pausedCond.L.Unlock()
+
+		_, err = p.localConn.Write(buf[:n])
+		p.pausedMu.Unlock()
 
 		if err != nil {
 			if ctx.Err() != nil {

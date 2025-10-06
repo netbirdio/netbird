@@ -9,11 +9,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
-	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/management/server/users"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 )
@@ -31,8 +31,6 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/users/{userId}", userHandler.deleteUser).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/users", userHandler.createUser).Methods("POST", "OPTIONS")
 	router.HandleFunc("/users/{userId}/invite", userHandler.inviteUser).Methods("POST", "OPTIONS")
-	router.HandleFunc("/users/{userId}/approve", userHandler.approveUser).Methods("POST", "OPTIONS")
-	router.HandleFunc("/users/{userId}/reject", userHandler.rejectUser).Methods("DELETE", "OPTIONS")
 	addUsersTokensEndpoint(accountManager, router)
 }
 
@@ -325,76 +323,17 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 	}
 
 	isCurrent := user.ID == currenUserID
-
 	return &api.User{
-		Id:              user.ID,
-		Name:            user.Name,
-		Email:           user.Email,
-		Role:            user.Role,
-		AutoGroups:      autoGroups,
-		Status:          userStatus,
-		IsCurrent:       &isCurrent,
-		IsServiceUser:   &user.IsServiceUser,
-		IsBlocked:       user.IsBlocked,
-		LastLogin:       &user.LastLogin,
-		Issued:          &user.Issued,
-		PendingApproval: user.PendingApproval,
+		Id:            user.ID,
+		Name:          user.Name,
+		Email:         user.Email,
+		Role:          user.Role,
+		AutoGroups:    autoGroups,
+		Status:        userStatus,
+		IsCurrent:     &isCurrent,
+		IsServiceUser: &user.IsServiceUser,
+		IsBlocked:     user.IsBlocked,
+		LastLogin:     &user.LastLogin,
+		Issued:        &user.Issued,
 	}
-}
-
-// approveUser is a POST request to approve a user that is pending approval
-func (h *handler) approveUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
-	vars := mux.Vars(r)
-	targetUserID := vars["userId"]
-	if len(targetUserID) == 0 {
-		util.WriteErrorResponse("invalid user ID", http.StatusBadRequest, w)
-		return
-	}
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	user, err := h.accountManager.ApproveUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	userResponse := toUserResponse(user, userAuth.UserId)
-	util.WriteJSONObject(r.Context(), w, userResponse)
-}
-
-// rejectUser is a DELETE request to reject a user that is pending approval
-func (h *handler) rejectUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
-	vars := mux.Vars(r)
-	targetUserID := vars["userId"]
-	if len(targetUserID) == 0 {
-		util.WriteErrorResponse("invalid user ID", http.StatusBadRequest, w)
-		return
-	}
-
-	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-	err = h.accountManager.RejectUser(r.Context(), userAuth.AccountId, userAuth.UserId, targetUserID)
-	if err != nil {
-		util.WriteError(r.Context(), err, w)
-		return
-	}
-
-	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }

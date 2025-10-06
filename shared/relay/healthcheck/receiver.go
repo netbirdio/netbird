@@ -7,14 +7,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	defaultHeartbeatTimeout = defaultHealthCheckInterval + 10*time.Second
+var (
+	heartbeatTimeout = healthCheckInterval + 10*time.Second
 )
-
-type ReceiverOptions struct {
-	HeartbeatTimeout time.Duration
-	AttemptThreshold int
-}
 
 // Receiver is a healthcheck receiver
 // It will listen for heartbeat and check if the heartbeat is not received in a certain time
@@ -32,23 +27,6 @@ type Receiver struct {
 
 // NewReceiver creates a new healthcheck receiver and start the timer in the background
 func NewReceiver(log *log.Entry) *Receiver {
-	opts := ReceiverOptions{
-		HeartbeatTimeout: defaultHeartbeatTimeout,
-		AttemptThreshold: getAttemptThresholdFromEnv(),
-	}
-	return NewReceiverWithOpts(log, opts)
-}
-
-func NewReceiverWithOpts(log *log.Entry, opts ReceiverOptions) *Receiver {
-	heartbeatTimeout := opts.HeartbeatTimeout
-	if heartbeatTimeout <= 0 {
-		heartbeatTimeout = defaultHeartbeatTimeout
-	}
-	attemptThreshold := opts.AttemptThreshold
-	if attemptThreshold <= 0 {
-		attemptThreshold = defaultAttemptThreshold
-	}
-
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
 	r := &Receiver{
@@ -57,10 +35,10 @@ func NewReceiverWithOpts(log *log.Entry, opts ReceiverOptions) *Receiver {
 		ctx:              ctx,
 		ctxCancel:        ctxCancel,
 		heartbeat:        make(chan struct{}, 1),
-		attemptThreshold: attemptThreshold,
+		attemptThreshold: getAttemptThresholdFromEnv(),
 	}
 
-	go r.waitForHealthcheck(heartbeatTimeout)
+	go r.waitForHealthcheck()
 	return r
 }
 
@@ -77,7 +55,7 @@ func (r *Receiver) Stop() {
 	r.ctxCancel()
 }
 
-func (r *Receiver) waitForHealthcheck(heartbeatTimeout time.Duration) {
+func (r *Receiver) waitForHealthcheck() {
 	ticker := time.NewTicker(heartbeatTimeout)
 	defer ticker.Stop()
 	defer r.ctxCancel()

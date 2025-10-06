@@ -10,7 +10,7 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
-	nbnet "github.com/netbirdio/netbird/client/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type ServiceViaMemory struct {

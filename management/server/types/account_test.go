@@ -2,17 +2,14 @@ package types
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
 	"slices"
 	"testing"
 
-	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
@@ -837,110 +834,4 @@ func Test_NetworksNetMapGenShouldExcludeOtherRouters(t *testing.T) {
 	assert.True(t, isRouter, "should be router")
 	assert.Len(t, networkResourcesRoutes, 1, "expected network resource route don't match")
 	assert.Len(t, sourcePeers, 2, "expected source peers don't match")
-}
-
-func Test_FilterZoneRecordsForPeers(t *testing.T) {
-	tests := []struct {
-		name            string
-		peer            *nbpeer.Peer
-		customZone      nbdns.CustomZone
-		peersToConnect  []*nbpeer.Peer
-		expectedRecords []nbdns.SimpleRecord
-	}{
-		{
-			name: "empty peers to connect",
-			customZone: nbdns.CustomZone{
-				Domain: "netbird.cloud.",
-				Records: []nbdns.SimpleRecord{
-					{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-					{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
-				},
-			},
-			peersToConnect: []*nbpeer.Peer{},
-			peer:           &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
-			expectedRecords: []nbdns.SimpleRecord{
-				{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
-			},
-		},
-		{
-			name: "multiple peers multiple records match",
-			customZone: nbdns.CustomZone{
-				Domain: "netbird.cloud.",
-				Records: func() []nbdns.SimpleRecord {
-					var records []nbdns.SimpleRecord
-					for i := 1; i <= 100; i++ {
-						records = append(records, nbdns.SimpleRecord{
-							Name:  fmt.Sprintf("peer%d.netbird.cloud", i),
-							Type:  int(dns.TypeA),
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: fmt.Sprintf("10.0.%d.%d", i/256, i%256),
-						})
-					}
-					return records
-				}(),
-			},
-			peersToConnect: func() []*nbpeer.Peer {
-				var peers []*nbpeer.Peer
-				for _, i := range []int{1, 5, 10, 25, 50, 75, 100} {
-					peers = append(peers, &nbpeer.Peer{
-						ID: fmt.Sprintf("peer%d", i),
-						IP: net.ParseIP(fmt.Sprintf("10.0.%d.%d", i/256, i%256)),
-					})
-				}
-				return peers
-			}(),
-			peer: &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
-			expectedRecords: func() []nbdns.SimpleRecord {
-				var records []nbdns.SimpleRecord
-				for _, i := range []int{1, 5, 10, 25, 50, 75, 100} {
-					records = append(records, nbdns.SimpleRecord{
-						Name:  fmt.Sprintf("peer%d.netbird.cloud", i),
-						Type:  int(dns.TypeA),
-						Class: nbdns.DefaultClass,
-						TTL:   300,
-						RData: fmt.Sprintf("10.0.%d.%d", i/256, i%256),
-					})
-				}
-				return records
-			}(),
-		},
-		{
-			name: "peers with multiple DNS labels",
-			customZone: nbdns.CustomZone{
-				Domain: "netbird.cloud.",
-				Records: []nbdns.SimpleRecord{
-					{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-					{Name: "peer1-alt.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-					{Name: "peer1-backup.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-					{Name: "peer2.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.2"},
-					{Name: "peer2-service.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.2"},
-					{Name: "peer3.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.3"},
-					{Name: "peer3-alt.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.3"},
-					{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
-				},
-			},
-			peersToConnect: []*nbpeer.Peer{
-				{ID: "peer1", IP: net.ParseIP("10.0.0.1"), DNSLabel: "peer1", ExtraDNSLabels: []string{"peer1-alt", "peer1-backup"}},
-				{ID: "peer2", IP: net.ParseIP("10.0.0.2"), DNSLabel: "peer2", ExtraDNSLabels: []string{"peer2-service"}},
-			},
-			peer: &nbpeer.Peer{ID: "router", IP: net.ParseIP("10.0.0.100")},
-			expectedRecords: []nbdns.SimpleRecord{
-				{Name: "peer1.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-				{Name: "peer1-alt.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-				{Name: "peer1-backup.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.1"},
-				{Name: "peer2.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.2"},
-				{Name: "peer2-service.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.2"},
-				{Name: "router.netbird.cloud", Type: int(dns.TypeA), Class: nbdns.DefaultClass, TTL: 300, RData: "10.0.0.100"},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := filterZoneRecordsForPeers(tt.peer, tt.customZone, tt.peersToConnect)
-			assert.Equal(t, len(tt.expectedRecords), len(result))
-			assert.ElementsMatch(t, tt.expectedRecords, result)
-		})
-	}
 }

@@ -20,7 +20,27 @@ import (
 
 // DNSConfigCache is a thread-safe cache for DNS configuration components
 type DNSConfigCache struct {
+	CustomZones      sync.Map
 	NameServerGroups sync.Map
+}
+
+// GetCustomZone retrieves a cached custom zone
+func (c *DNSConfigCache) GetCustomZone(key string) (*proto.CustomZone, bool) {
+	if c == nil {
+		return nil, false
+	}
+	if value, ok := c.CustomZones.Load(key); ok {
+		return value.(*proto.CustomZone), true
+	}
+	return nil, false
+}
+
+// SetCustomZone stores a custom zone in the cache
+func (c *DNSConfigCache) SetCustomZone(key string, value *proto.CustomZone) {
+	if c == nil {
+		return
+	}
+	c.CustomZones.Store(key, value)
 }
 
 // GetNameServerGroup retrieves a cached name server group
@@ -93,11 +113,11 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		events := am.prepareDNSSettingsEvents(ctx, transaction, accountID, userID, addedGroups, removedGroups)
 		eventsToStore = append(eventsToStore, events...)
 
-		if err = transaction.SaveDNSSettings(ctx, accountID, dnsSettingsToSave); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.SaveDNSSettings(ctx, accountID, dnsSettingsToSave)
 	})
 	if err != nil {
 		return err
@@ -192,8 +212,14 @@ func toProtocolDNSConfig(update nbdns.Config, cache *DNSConfigCache) *proto.DNSC
 	}
 
 	for _, zone := range update.CustomZones {
-		protoZone := convertToProtoCustomZone(zone)
-		protoUpdate.CustomZones = append(protoUpdate.CustomZones, protoZone)
+		cacheKey := zone.Domain
+		if cachedZone, exists := cache.GetCustomZone(cacheKey); exists {
+			protoUpdate.CustomZones = append(protoUpdate.CustomZones, cachedZone)
+		} else {
+			protoZone := convertToProtoCustomZone(zone)
+			cache.SetCustomZone(cacheKey, protoZone)
+			protoUpdate.CustomZones = append(protoUpdate.CustomZones, protoZone)
+		}
 	}
 
 	for _, nsGroup := range update.NameServerGroups {

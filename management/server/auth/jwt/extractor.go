@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/golang-jwt/jwt"
 	log "github.com/sirupsen/logrus"
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"

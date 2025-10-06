@@ -16,10 +16,10 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
+	nbgrpc "github.com/netbirdio/netbird/util/grpc"
 )
 
 // ConnStateNotifier is a wrapper interface of the status recorder
@@ -57,7 +57,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled)
+		conn, err = nbgrpc.CreateConnection(addr, tlsEnabled)
 		if err != nil {
 			log.Printf("createConnection error: %v", err)
 			return err

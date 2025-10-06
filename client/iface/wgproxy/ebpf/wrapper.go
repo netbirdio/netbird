@@ -12,48 +12,46 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/iface/bufsize"
 	"github.com/netbirdio/netbird/client/iface/wgproxy/listener"
 )
 
 // ProxyWrapper help to keep the remoteConn instance for net.Conn.Close function call
 type ProxyWrapper struct {
-	wgeBPFProxy *WGEBPFProxy
+	WgeBPFProxy *WGEBPFProxy
 
 	remoteConn net.Conn
 	ctx        context.Context
 	cancel     context.CancelFunc
 
-	wgRelayedEndpointAddr     *net.UDPAddr
-	wgEndpointCurrentUsedAddr *net.UDPAddr
+	wgEndpointAddr *net.UDPAddr
 
-	paused     bool
-	pausedCond *sync.Cond
-	isStarted  bool
+	pausedMu  sync.Mutex
+	paused    bool
+	isStarted bool
 
 	closeListener *listener.CloseListener
 }
 
-func NewProxyWrapper(proxy *WGEBPFProxy) *ProxyWrapper {
+func NewProxyWrapper(WgeBPFProxy *WGEBPFProxy) *ProxyWrapper {
 	return &ProxyWrapper{
-		wgeBPFProxy:   proxy,
-		pausedCond:    sync.NewCond(&sync.Mutex{}),
+		WgeBPFProxy:   WgeBPFProxy,
 		closeListener: listener.NewCloseListener(),
 	}
 }
+
 func (p *ProxyWrapper) AddTurnConn(ctx context.Context, endpoint *net.UDPAddr, remoteConn net.Conn) error {
-	addr, err := p.wgeBPFProxy.AddTurnConn(remoteConn)
+	addr, err := p.WgeBPFProxy.AddTurnConn(remoteConn)
 	if err != nil {
 		return fmt.Errorf("add turn conn: %w", err)
 	}
 	p.remoteConn = remoteConn
 	p.ctx, p.cancel = context.WithCancel(ctx)
-	p.wgRelayedEndpointAddr = addr
+	p.wgEndpointAddr = addr
 	return err
 }
 
 func (p *ProxyWrapper) EndpointAddr() *net.UDPAddr {
-	return p.wgRelayedEndpointAddr
+	return p.wgEndpointAddr
 }
 
 func (p *ProxyWrapper) SetDisconnectListener(disconnected func()) {
@@ -65,18 +63,14 @@ func (p *ProxyWrapper) Work() {
 		return
 	}
 
-	p.pausedCond.L.Lock()
+	p.pausedMu.Lock()
 	p.paused = false
-
-	p.wgEndpointCurrentUsedAddr = p.wgRelayedEndpointAddr
+	p.pausedMu.Unlock()
 
 	if !p.isStarted {
 		p.isStarted = true
 		go p.proxyToLocal(p.ctx)
 	}
-
-	p.pausedCond.Signal()
-	p.pausedCond.L.Unlock()
 }
 
 func (p *ProxyWrapper) Pause() {
@@ -85,59 +79,45 @@ func (p *ProxyWrapper) Pause() {
 	}
 
 	log.Tracef("pause proxy reading from: %s", p.remoteConn.RemoteAddr())
-	p.pausedCond.L.Lock()
+	p.pausedMu.Lock()
 	p.paused = true
-	p.pausedCond.L.Unlock()
-}
-
-func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
-	p.pausedCond.L.Lock()
-	p.paused = false
-
-	p.wgEndpointCurrentUsedAddr = endpoint
-
-	p.pausedCond.Signal()
-	p.pausedCond.L.Unlock()
+	p.pausedMu.Unlock()
 }
 
 // CloseConn close the remoteConn and automatically remove the conn instance from the map
-func (p *ProxyWrapper) CloseConn() error {
-	if p.cancel == nil {
+func (e *ProxyWrapper) CloseConn() error {
+	if e.cancel == nil {
 		return fmt.Errorf("proxy not started")
 	}
 
-	p.cancel()
+	e.cancel()
 
-	p.closeListener.SetCloseListener(nil)
+	e.closeListener.SetCloseListener(nil)
 
-	p.pausedCond.L.Lock()
-	p.paused = false
-	p.pausedCond.Signal()
-	p.pausedCond.L.Unlock()
-
-	if err := p.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-		return fmt.Errorf("failed to close remote conn: %w", err)
+	if err := e.remoteConn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return fmt.Errorf("close remote conn: %w", err)
 	}
 	return nil
 }
 
 func (p *ProxyWrapper) proxyToLocal(ctx context.Context) {
-	defer p.wgeBPFProxy.removeTurnConn(uint16(p.wgRelayedEndpointAddr.Port))
+	defer p.WgeBPFProxy.removeTurnConn(uint16(p.wgEndpointAddr.Port))
 
-	buf := make([]byte, p.wgeBPFProxy.mtu+bufsize.WGBufferOverhead)
+	buf := make([]byte, 1500)
 	for {
 		n, err := p.readFromRemote(ctx, buf)
 		if err != nil {
 			return
 		}
 
-		p.pausedCond.L.Lock()
-		for p.paused {
-			p.pausedCond.Wait()
+		p.pausedMu.Lock()
+		if p.paused {
+			p.pausedMu.Unlock()
+			continue
 		}
 
-		err = p.wgeBPFProxy.sendPkg(buf[:n], p.wgEndpointCurrentUsedAddr)
-		p.pausedCond.L.Unlock()
+		err = p.WgeBPFProxy.sendPkg(buf[:n], p.wgEndpointAddr.Port)
+		p.pausedMu.Unlock()
 
 		if err != nil {
 			if ctx.Err() != nil {
@@ -156,7 +136,7 @@ func (p *ProxyWrapper) readFromRemote(ctx context.Context, buf []byte) (int, err
 		}
 		p.closeListener.Notify()
 		if !errors.Is(err, io.EOF) {
-			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgRelayedEndpointAddr.Port, err)
+			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", p.wgEndpointAddr.Port, err)
 		}
 		return 0, err
 	}

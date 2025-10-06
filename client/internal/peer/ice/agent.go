@@ -1,10 +1,9 @@
 package ice
 
 import (
-	"sync"
 	"time"
 
-	"github.com/pion/ice/v4"
+	"github.com/pion/ice/v3"
 	"github.com/pion/logging"
 	"github.com/pion/randutil"
 	log "github.com/sirupsen/logrus"
@@ -24,20 +23,7 @@ const (
 	iceRelayAcceptanceMinWaitDefault = 2 * time.Second
 )
 
-type ThreadSafeAgent struct {
-	*ice.Agent
-	once sync.Once
-}
-
-func (a *ThreadSafeAgent) Close() error {
-	var err error
-	a.once.Do(func() {
-		err = a.Agent.Close()
-	})
-	return err
-}
-
-func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ThreadSafeAgent, error) {
+func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ice.Agent, error) {
 	iceKeepAlive := iceKeepAlive()
 	iceDisconnectedTimeout := iceDisconnectedTimeout()
 	iceFailedTimeout := iceFailedTimeout()
@@ -75,12 +61,7 @@ func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candida
 		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
 	}
 
-	agent, err := ice.NewAgent(agentConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ThreadSafeAgent{Agent: agent}, nil
+	return ice.NewAgent(agentConfig)
 }
 
 func GenerateICECredentials() (string, string, error) {

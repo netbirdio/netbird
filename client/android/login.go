@@ -33,7 +33,6 @@ type ErrListener interface {
 // the backend want to show an url for the user
 type URLOpener interface {
 	Open(string)
-	OnLoginSuccess()
 }
 
 // Auth can register or login new client
@@ -182,11 +181,6 @@ func (a *Auth) login(urlOpener URLOpener) error {
 
 	err = a.withBackOff(a.ctx, func() error {
 		err := internal.Login(a.ctx, a.config, "", jwtToken)
-
-		if err == nil {
-			go urlOpener.OnLoginSuccess()
-		}
-
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			return nil
 		}

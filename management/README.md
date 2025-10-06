@@ -111,6 +111,3 @@ Generate gRpc code:
 #!/bin/bash
 protoc -I proto/ proto/management.proto --go_out=. --go-grpc_out=.
 ```
-
-
-

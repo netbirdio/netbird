@@ -3,17 +3,15 @@ package auth
 import (
 	"context"
 	"fmt"
+	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/stretchr/testify/require"
-
-	"github.com/netbirdio/netbird/client/internal"
 )
 
 type mockHTTPClient struct {

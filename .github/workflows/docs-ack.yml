@@ -16,29 +16,19 @@ jobs:
     steps:
       - name: Read PR body
         id: body
-        shell: bash
         run: |
-          set -euo pipefail
-          BODY_B64=$(jq -r '.pull_request.body // "" | @base64' "$GITHUB_EVENT_PATH")
-          {
-            echo "body_b64=$BODY_B64"
-          } >> "$GITHUB_OUTPUT"
+          BODY=$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Validate checkbox selection
         id: validate
-        shell: bash
-        env:
-          BODY_B64: ${{ steps.body.outputs.body_b64 }}
         run: |
-          set -euo pipefail
-          if ! body="$(printf '%s' "$BODY_B64" | base64 -d)"; then
-            echo "::error::Failed to decode PR body from base64. Data may be corrupted or missing."
-            exit 1
-          fi
+          body='${{ steps.body.outputs.body }}'
 
-          added_checked=$(printf '%s' "$body" | grep -Ei '^[[:space:]]*-\s*\[x\]\s*I added/updated documentation' | wc -l | tr -d '[:space:]' || true)
-          noneed_checked=$(printf '%s' "$body" | grep -Ei '^[[:space:]]*-\s*\[x\]\s*Documentation is \*\*not needed\*\*' | wc -l | tr -d '[:space:]' || true)
-
+          added_checked=$(printf "%s" "$body" | grep -E '^- \[x\] I added/updated documentation' -i | wc -l | tr -d ' ')
+          noneed_checked=$(printf "%s" "$body" | grep -E '^- \[x\] Documentation is \*\*not needed\*\*' -i | wc -l | tr -d ' ')
 
           if [ "$added_checked" -eq 1 ] && [ "$noneed_checked" -eq 1 ]; then
             echo "::error::Choose exactly one: either 'docs added' OR 'not needed'."
@@ -51,35 +41,30 @@ jobs:
           fi
 
           if [ "$added_checked" -eq 1 ]; then
-            echo "mode=added" >> "$GITHUB_OUTPUT"
+            echo "mode=added" >> $GITHUB_OUTPUT
           else
-            echo "mode=noneed" >> "$GITHUB_OUTPUT"
+            echo "mode=noneed" >> $GITHUB_OUTPUT
           fi
 
       - name: Extract docs PR URL (when 'docs added')
         if: steps.validate.outputs.mode == 'added'
         id: extract
-        shell: bash
-        env:
-          BODY_B64: ${{ steps.body.outputs.body_b64 }}
         run: |
-          set -euo pipefail
-          body="$(printf '%s' "$BODY_B64" | base64 -d)"
+          body='${{ steps.body.outputs.body }}'
 
           # Strictly require HTTPS and that it's a PR in netbirdio/docs
-          # e.g., https://github.com/netbirdio/docs/pull/1234
-          url="$(printf '%s' "$body" | grep -Eo 'https://github\.com/netbirdio/docs/pull/[0-9]+' | head -n1 || true)"
+          # Examples accepted:
+          #   https://github.com/netbirdio/docs/pull/1234
+          url=$(printf "%s" "$body" | grep -Eo 'https://github\.com/netbirdio/docs/pull/[0-9]+' | head -n1 || true)
 
-          if [ -z "${url:-}" ]; then
+          if [ -z "$url" ]; then
             echo "::error::You checked 'docs added' but didn't include a valid HTTPS PR link to netbirdio/docs (e.g., https://github.com/netbirdio/docs/pull/1234)."
             exit 1
           fi
 
-          pr_number="$(printf '%s' "$url" | sed -E 's#.*/pull/([0-9]+)$#\1#')"
-          {
-            echo "url=$url"
-            echo "pr_number=$pr_number"
-          } >> "$GITHUB_OUTPUT"
+          pr_number=$(echo "$url" | sed -E 's#.*/pull/([0-9]+)$#\1#')
+          echo "url=$url" >> $GITHUB_OUTPUT
+          echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
 
       - name: Verify docs PR exists (and is open or merged)
         if: steps.validate.outputs.mode == 'added'

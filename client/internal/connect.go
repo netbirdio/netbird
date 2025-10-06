@@ -18,7 +18,6 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
@@ -34,7 +33,7 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -247,15 +246,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.statusRecorder.MarkSignalConnected()
 
 		relayURLs, token := parseRelayInfo(loginResp)
-		peerConfig := loginResp.GetPeerConfig()
-
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
-		if err != nil {
-			log.Error(err)
-			return wrapErr(err)
-		}
-
-		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU)
+		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String())
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if token != nil {
@@ -271,6 +262,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		peerConfig := loginResp.GetPeerConfig()
+
 		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, c.LogFile)
 		if err != nil {
 			log.Error(err)
@@ -284,7 +276,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
-		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
+		if err := c.engine.Start(); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
@@ -293,8 +285,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		state.Set(StatusConnected)
 
 		if runningChan != nil {
-			close(runningChan)
-			runningChan = nil
+			select {
+			case runningChan <- struct{}{}:
+			default:
+			}
 		}
 
 		<-engineCtx.Done()
@@ -453,8 +447,8 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 		LogFile:               logFile,
+
 		ProfileConfig: config,
-		MTU: selectMTU(config.MTU, peerConfig.Mtu),
 	}
 
 	if config.PreSharedKey != "" {
@@ -475,20 +469,6 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 	engineConf.WgPort = port
 
 	return engineConf, nil
-}
-
-func selectMTU(localMTU uint16, peerMTU int32) uint16 {
-	var finalMTU uint16 = iface.DefaultMTU
-	if localMTU > 0 {
-		finalMTU = localMTU
-	} else if peerMTU > 0 {
-		finalMTU = uint16(peerMTU)
-	}
-
-	// Set global DNS MTU
-	dns.SetCurrentMTU(finalMTU)
-
-	return finalMTU
 }
 
 // connectToSignal creates Signal Service client and established a connection

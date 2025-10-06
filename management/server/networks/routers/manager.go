@@ -88,6 +88,9 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	unlock := m.store.AcquireWriteLockByUID(ctx, router.AccountID)
+	defer unlock()
+
 	var network *networkTypes.Network
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
@@ -154,6 +157,9 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	unlock := m.store.AcquireWriteLockByUID(ctx, router.AccountID)
+	defer unlock()
+
 	var network *networkTypes.Network
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
@@ -196,6 +202,9 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 	if !ok {
 		return status.NewPermissionDeniedError()
 	}
+
+	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
 
 	var event func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {

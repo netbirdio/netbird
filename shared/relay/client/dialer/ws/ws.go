@@ -16,7 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/relay"
 	"github.com/netbirdio/netbird/util/embeddedroots"
-	nbnet "github.com/netbirdio/netbird/client/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type Dialer struct {

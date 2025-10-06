@@ -130,6 +130,36 @@ repo_gpgcheck=1
 EOF
 }
 
+install_aur_package() {
+    INSTALL_PKGS="git base-devel go"
+    REMOVE_PKGS=""
+
+    # Check if dependencies are installed
+    for PKG in $INSTALL_PKGS; do
+        if ! pacman -Q "$PKG" > /dev/null 2>&1; then
+            # Install missing package(s)
+            ${SUDO} pacman -S "$PKG" --noconfirm
+
+            # Add installed package for clean up later
+            REMOVE_PKGS="$REMOVE_PKGS $PKG"
+        fi
+    done
+
+    # Build package from AUR
+    cd /tmp && git clone https://aur.archlinux.org/netbird.git
+    cd netbird && makepkg -sri --noconfirm
+
+    if ! $SKIP_UI_APP; then
+        cd /tmp && git clone https://aur.archlinux.org/netbird-ui.git
+        cd netbird-ui && makepkg -sri --noconfirm
+    fi
+
+    if [ -n "$REMOVE_PKGS" ]; then
+      # Clean up the installed packages
+      ${SUDO} pacman -Rs "$REMOVE_PKGS" --noconfirm
+    fi
+}
+
 prepare_tun_module() {
   # Create the necessary file structure for /dev/net/tun
   if [ ! -c /dev/net/tun ]; then
@@ -246,9 +276,12 @@ install_netbird() {
         if ! $SKIP_UI_APP; then
             ${SUDO} rpm-ostree -y install netbird-ui
         fi
-        # ensure the service is started after install
-         ${SUDO} netbird service install || true
-         ${SUDO} netbird service start || true
+    ;;
+    pacman)
+        ${SUDO} pacman -Syy
+        install_aur_package
+        # in-line with the docs at https://wiki.archlinux.org/title/Netbird
+        ${SUDO} systemctl enable --now netbird@main.service
     ;;
     pkg)
         # Check if the package is already installed
@@ -425,7 +458,11 @@ if type uname >/dev/null 2>&1; then
               elif [ -x "$(command -v yum)" ]; then
                   PACKAGE_MANAGER="yum"
                   echo "The installation will be performed using yum package manager"
+              elif [ -x "$(command -v pacman)" ]; then
+                  PACKAGE_MANAGER="pacman"
+                  echo "The installation will be performed using pacman package manager"
               fi
+
             else
               echo "Unable to determine OS type from /etc/os-release"
               exit 1

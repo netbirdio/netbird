@@ -17,8 +17,8 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/monotime"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -394,13 +394,6 @@ func toLastHandshake(stringVar string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, fmt.Errorf("parse handshake sec: %w", err)
 	}
-
-	// If sec is 0 (Unix epoch), return zero time instead
-	// This indicates no handshake has occurred
-	if sec == 0 {
-		return time.Time{}, nil
-	}
-
 	return time.Unix(sec, 0), nil
 }
 
@@ -409,7 +402,7 @@ func toBytes(s string) (int64, error) {
 }
 
 func getFwmark() int {
-	if nbnet.AdvancedRouting() && runtime.GOOS == "linux" {
+	if nbnet.AdvancedRouting() {
 		return nbnet.ControlPlaneMark
 	}
 	return 0

@@ -32,6 +32,9 @@ func (am *DefaultAccountManager) GetPostureChecks(ctx context.Context, accountID
 
 // SavePostureChecks saves a posture check.
 func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, create bool) (*posture.Checks, error) {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	operation := operations.Create
 	if !create {
 		operation = operations.Update
@@ -59,19 +62,15 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 				return err
 			}
 
+			if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+				return err
+			}
+
 			action = activity.PostureCheckUpdated
 		}
 
 		postureChecks.AccountID = accountID
-		if err = transaction.SavePostureChecks(ctx, postureChecks); err != nil {
-			return err
-		}
-
-		if isUpdate {
-			return transaction.IncrementNetworkSerial(ctx, accountID)
-		}
-
-		return nil
+		return transaction.SavePostureChecks(ctx, postureChecks)
 	})
 	if err != nil {
 		return nil, err
@@ -88,6 +87,9 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 // DeletePostureChecks deletes a posture check by ID.
 func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Routes, operations.Read)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -108,11 +110,11 @@ func (am *DefaultAccountManager) DeletePostureChecks(ctx context.Context, accoun
 			return err
 		}
 
-		if err = transaction.DeletePostureChecks(ctx, accountID, postureChecksID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.DeletePostureChecks(ctx, accountID, postureChecksID)
 	})
 	if err != nil {
 		return err

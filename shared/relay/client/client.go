@@ -9,7 +9,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/iface"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer/quic"
@@ -144,12 +143,10 @@ type Client struct {
 	listenerMutex        sync.Mutex
 
 	stateSubscription *PeersStateSubscription
-
-	mtu uint16
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
-func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
+func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string) *Client {
 	hashedID := messages.HashID(peerID)
 	relayLog := log.WithFields(log.Fields{"relay": serverURL})
 
@@ -158,7 +155,6 @@ func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string,
 		connectionURL:  serverURL,
 		authTokenStore: authTokenStore,
 		hashedID:       hashedID,
-		mtu:            mtu,
 		bufPool: &sync.Pool{
 			New: func() any {
 				buf := make([]byte, bufferSize)
@@ -296,16 +292,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
-	// Force WebSocket for MTUs larger than default to avoid QUIC DATAGRAM frame size issues
-	var dialers []dialer.DialeFn
-	if c.mtu > 0 && c.mtu > iface.DefaultMTU {
-		c.log.Infof("MTU %d exceeds default (%d), forcing WebSocket transport to avoid DATAGRAM frame size issues", c.mtu, iface.DefaultMTU)
-		dialers = []dialer.DialeFn{ws.Dialer{}}
-	} else {
-		dialers = []dialer.DialeFn{quic.Dialer{}, ws.Dialer{}}
-	}
-
-	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
+	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, quic.Dialer{}, ws.Dialer{})
 	conn, err := rd.Dial()
 	if err != nil {
 		return nil, err

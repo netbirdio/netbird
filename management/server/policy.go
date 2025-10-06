@@ -32,6 +32,9 @@ func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, polic
 
 // SavePolicy in the store
 func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, userID string, policy *types.Policy, create bool) (*types.Policy, error) {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	operation := operations.Create
 	if !create {
 		operation = operations.Update
@@ -58,17 +61,17 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			return err
 		}
 
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
+
 		saveFunc := transaction.CreatePolicy
 		if isUpdate {
 			action = activity.PolicyUpdated
 			saveFunc = transaction.SavePolicy
 		}
 
-		if err = saveFunc(ctx, policy); err != nil {
-			return err
-		}
-
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return saveFunc(ctx, policy)
 	})
 	if err != nil {
 		return nil, err
@@ -85,6 +88,9 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 // DeletePolicy from the store
 func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, policyID, userID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -107,11 +113,11 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		if err = transaction.DeletePolicy(ctx, accountID, policyID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.DeletePolicy(ctx, accountID, policyID)
 	})
 	if err != nil {
 		return err
@@ -167,21 +173,9 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 // validatePolicy validates the policy and its rules.
 func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) error {
 	if policy.ID != "" {
-		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
+		_, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
 		if err != nil {
 			return err
-		}
-
-		// TODO: Refactor to support multiple rules per policy
-		existingRuleIDs := make(map[string]bool)
-		for _, rule := range existingPolicy.Rules {
-			existingRuleIDs[rule.ID] = true
-		}
-
-		for _, rule := range policy.Rules {
-			if rule.ID != "" && !existingRuleIDs[rule.ID] {
-				return status.Errorf(status.InvalidArgument, "invalid rule ID: %s", rule.ID)
-			}
 		}
 	} else {
 		policy.ID = xid.New().String()

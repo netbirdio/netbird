@@ -9,6 +9,6 @@ import (
 )
 
 // Listen is not supported on other platforms then Linux
-func Listen(port int, filter BPFFilter, mtu uint16) (net.PacketConn, error) {
+func Listen(port int, filter BPFFilter) (net.PacketConn, error) {
 	return nil, fmt.Errorf("not supported OS %s. SharedSocket is only supported on Linux", runtime.GOOS)
 }

@@ -52,6 +52,7 @@ const (
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
 type SqlStore struct {
 	db                *gorm.DB
+	resourceLocks     sync.Map
 	globalAccountLock sync.Mutex
 	metrics           telemetry.AppMetrics
 	installationPK    int
@@ -213,6 +214,44 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	log.WithContext(ctx).Tracef("took %v to acquire global lock", took)
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
+	}
+
+	return unlock
+}
+
+// AcquireWriteLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
+func (s *SqlStore) AcquireWriteLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+	log.WithContext(ctx).Tracef("acquiring write lock for ID %s", uniqueID)
+
+	startWait := time.Now()
+	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
+	mtx := value.(*sync.RWMutex)
+	mtx.Lock()
+	log.WithContext(ctx).Tracef("waiting to acquire write lock for ID %s in %v", uniqueID, time.Since(startWait))
+	startHold := time.Now()
+
+	unlock = func() {
+		mtx.Unlock()
+		log.WithContext(ctx).Tracef("released write lock for ID %s in %v", uniqueID, time.Since(startHold))
+	}
+
+	return unlock
+}
+
+// AcquireReadLockByUID acquires an ID lock for writing to a resource and returns a function that releases the lock
+func (s *SqlStore) AcquireReadLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+	log.WithContext(ctx).Tracef("acquiring read lock for ID %s", uniqueID)
+
+	startWait := time.Now()
+	value, _ := s.resourceLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
+	mtx := value.(*sync.RWMutex)
+	mtx.RLock()
+	log.WithContext(ctx).Tracef("waiting to acquire read lock for ID %s in %v", uniqueID, time.Since(startWait))
+	startHold := time.Now()
+
+	unlock = func() {
+		mtx.RUnlock()
+		log.WithContext(ctx).Tracef("released read lock for ID %s in %v", uniqueID, time.Since(startHold))
 	}
 
 	return unlock
@@ -989,7 +1028,7 @@ func (s *SqlStore) GetAccountByPeerPubKey(ctx context.Context, peerKey string) (
 
 func (s *SqlStore) GetAnyAccountID(ctx context.Context) (string, error) {
 	var account types.Account
-	result := s.db.Select("id").Order("created_at desc").Limit(1).Find(&account)
+	result := s.db.WithContext(ctx).Select("id").Order("created_at desc").Limit(1).Find(&account)
 	if result.Error != nil {
 		return "", status.NewGetAccountFromStoreError(result.Error)
 	}
@@ -1474,7 +1513,7 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupI
 		PeerID:    peerID,
 	}
 
-	err := s.db.Clauses(clause.OnConflict{
+	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "group_id"}, {Name: "peer_id"}},
 		DoNothing: true,
 	}).Create(peer).Error
@@ -1489,7 +1528,7 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupI
 
 // RemovePeerFromGroup removes a peer from a group
 func (s *SqlStore) RemovePeerFromGroup(ctx context.Context, peerID string, groupID string) error {
-	err := s.db.
+	err := s.db.WithContext(ctx).
 		Delete(&types.GroupPeer{}, "group_id = ? AND peer_id = ?", groupID, peerID).Error
 
 	if err != nil {
@@ -1502,7 +1541,7 @@ func (s *SqlStore) RemovePeerFromGroup(ctx context.Context, peerID string, group
 
 // RemovePeerFromAllGroups removes a peer from all groups
 func (s *SqlStore) RemovePeerFromAllGroups(ctx context.Context, peerID string) error {
-	err := s.db.
+	err := s.db.WithContext(ctx).
 		Delete(&types.GroupPeer{}, "peer_id = ?", peerID).Error
 
 	if err != nil {
@@ -2090,7 +2129,7 @@ func (s *SqlStore) SavePolicy(ctx context.Context, policy *types.Policy) error {
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, accountID, policyID string) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("policy_id = ?", policyID).Delete(&types.PolicyRule{}).Error; err != nil {
 			return fmt.Errorf("delete policy rules: %w", err)
 		}
@@ -2781,7 +2820,7 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 }
 
 func (s *SqlStore) GetPeerIdByLabel(ctx context.Context, lockStrength LockingStrength, accountID string, hostname string) (string, error) {
-	tx := s.db
+	tx := s.db.WithContext(ctx)
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
@@ -2921,23 +2960,4 @@ func (s *SqlStore) UpdateAccountNetwork(ctx context.Context, accountID string, i
 		return status.NewAccountNotFoundError(accountID)
 	}
 	return nil
-}
-
-func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, groupIDs []string) ([]*nbpeer.Peer, error) {
-	if len(groupIDs) == 0 {
-		return []*nbpeer.Peer{}, nil
-	}
-
-	var peers []*nbpeer.Peer
-	peerIDsSubquery := s.db.Model(&types.GroupPeer{}).
-		Select("DISTINCT peer_id").
-		Where("account_id = ? AND group_id IN ?", accountID, groupIDs)
-
-	result := s.db.Where("id IN (?)", peerIDsSubquery).Find(&peers)
-	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to get peers by group IDs: %s", result.Error)
-		return nil, status.Errorf(status.Internal, "failed to get peers by group IDs")
-	}
-
-	return peers, nil
 }

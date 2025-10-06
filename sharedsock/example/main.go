@@ -5,16 +5,14 @@ import (
 	"os"
 	"os/signal"
 
-	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/sharedsock"
+	log "github.com/sirupsen/logrus"
 )
 
 func main() {
 
 	port := 51820
-	rawSock, err := sharedsock.Listen(port, sharedsock.NewIncomingSTUNFilter(), iface.DefaultMTU)
+	rawSock, err := sharedsock.Listen(port, sharedsock.NewIncomingSTUNFilter())
 	if err != nil {
 		panic(err)
 	}

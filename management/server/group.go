@@ -67,6 +67,9 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 
 // CreateGroup object of the peers
 func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -93,6 +96,10 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
+
 		if err := transaction.CreateGroup(ctx, newGroup); err != nil {
 			return status.Errorf(status.Internal, "failed to create group: %v", err)
 		}
@@ -102,8 +109,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 				return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, newGroup.ID, err)
 			}
 		}
-
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return nil
 	})
 	if err != nil {
 		return err
@@ -122,6 +128,9 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 
 // UpdateGroup object of the peers
 func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -167,11 +176,11 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
-		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.UpdateGroup(ctx, newGroup)
 	})
 	if err != nil {
 		return err
@@ -202,45 +211,35 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
+	var groupsToSave []*types.Group
 	var updateAccountPeers bool
 
-	var globalErr error
-	groupIDs := make([]string, 0, len(groups))
-	for _, newGroup := range groups {
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		groupIDs := make([]string, 0, len(groups))
+		for _, newGroup := range groups {
 			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 				return err
 			}
 
 			newGroup.AccountID = accountID
-
-			if err = transaction.CreateGroup(ctx, newGroup); err != nil {
-				return err
-			}
-
-			err = transaction.IncrementNetworkSerial(ctx, accountID)
-			if err != nil {
-				return err
-			}
-
+			groupsToSave = append(groupsToSave, newGroup)
 			groupIDs = append(groupIDs, newGroup.ID)
 
 			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 			eventsToStore = append(eventsToStore, events...)
-
-			return nil
-		})
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
-			if len(groupIDs) == 1 {
-				return err
-			}
-			globalErr = errors.Join(globalErr, err)
-			// continue updating other groups
 		}
-	}
 
-	updateAccountPeers, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, groupIDs)
+		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, groupIDs)
+		if err != nil {
+			return err
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
+
+		return transaction.CreateGroups(ctx, accountID, groupsToSave)
+	})
 	if err != nil {
 		return err
 	}
@@ -253,7 +252,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
-	return globalErr
+	return nil
 }
 
 // UpdateGroups updates groups in the account.
@@ -270,45 +269,35 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
+	var groupsToSave []*types.Group
 	var updateAccountPeers bool
 
-	var globalErr error
-	groupIDs := make([]string, 0, len(groups))
-	for _, newGroup := range groups {
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		groupIDs := make([]string, 0, len(groups))
+		for _, newGroup := range groups {
 			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 				return err
 			}
 
 			newGroup.AccountID = accountID
-
-			if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
-				return err
-			}
-
-			err = transaction.IncrementNetworkSerial(ctx, accountID)
-			if err != nil {
-				return err
-			}
+			groupsToSave = append(groupsToSave, newGroup)
+			groupIDs = append(groupIDs, newGroup.ID)
 
 			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 			eventsToStore = append(eventsToStore, events...)
-
-			groupIDs = append(groupIDs, newGroup.ID)
-
-			return nil
-		})
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
-			if len(groups) == 1 {
-				return err
-			}
-			globalErr = errors.Join(globalErr, err)
-			// continue updating other groups
 		}
-	}
 
-	updateAccountPeers, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, groupIDs)
+		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, groupIDs)
+		if err != nil {
+			return err
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
+
+		return transaction.UpdateGroups(ctx, accountID, groupsToSave)
+	})
 	if err != nil {
 		return err
 	}
@@ -321,7 +310,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
-	return globalErr
+	return nil
 }
 
 // prepareGroupEvents prepares a list of event functions to be stored.
@@ -393,6 +382,8 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 
 // DeleteGroup object of the peers.
 func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, userID, groupID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
 	return am.DeleteGroups(ctx, accountID, userID, []string{groupID})
 }
 
@@ -432,11 +423,11 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 			deletedGroups = append(deletedGroups, group)
 		}
 
-		if err = transaction.DeleteGroups(ctx, accountID, groupIDsToDelete); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.DeleteGroups(ctx, accountID, groupIDsToDelete)
 	})
 	if err != nil {
 		return err
@@ -451,6 +442,9 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	var updateAccountPeers bool
 	var err error
 
@@ -460,11 +454,11 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 			return err
 		}
 
-		if err = transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.AddPeerToGroup(ctx, accountID, peerID, groupID)
 	})
 	if err != nil {
 		return err
@@ -479,6 +473,9 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 
 // GroupAddResource appends resource to the group
 func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	var group *types.Group
 	var updateAccountPeers bool
 	var err error
@@ -498,11 +495,11 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 			return err
 		}
 
-		if err = transaction.UpdateGroup(ctx, group); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.UpdateGroup(ctx, group)
 	})
 	if err != nil {
 		return err
@@ -517,6 +514,9 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	var updateAccountPeers bool
 	var err error
 
@@ -526,11 +526,11 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 			return err
 		}
 
-		if err = transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.RemovePeerFromGroup(ctx, peerID, groupID)
 	})
 	if err != nil {
 		return err
@@ -545,6 +545,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 
 // GroupDeleteResource removes resource from the group
 func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	var group *types.Group
 	var updateAccountPeers bool
 	var err error
@@ -564,11 +567,11 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 			return err
 		}
 
-		if err = transaction.UpdateGroup(ctx, group); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.UpdateGroup(ctx, group)
 	})
 	if err != nil {
 		return err
@@ -602,6 +605,13 @@ func validateNewGroup(ctx context.Context, transaction store.Store, accountID st
 		}
 
 		newGroup.ID = xid.New().String()
+	}
+
+	for _, peerID := range newGroup.Peers {
+		_, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+		if err != nil {
+			return status.Errorf(status.InvalidArgument, "peer with ID \"%s\" not found", peerID)
+		}
 	}
 
 	return nil

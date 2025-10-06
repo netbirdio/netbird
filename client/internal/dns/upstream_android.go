@@ -10,7 +10,7 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
-	nbnet "github.com/netbirdio/netbird/client/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type upstreamResolver struct {
@@ -50,9 +50,7 @@ func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns
 }
 
 func (u *upstreamResolver) exchangeWithinVPN(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	upstreamExchangeClient := &dns.Client{
-		Timeout: ClientTimeout,
-	}
+	upstreamExchangeClient := &dns.Client{}
 	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
 }
 
@@ -74,11 +72,10 @@ func (u *upstreamResolver) exchangeWithoutVPN(ctx context.Context, upstream stri
 	}
 
 	upstreamExchangeClient := &dns.Client{
-		Dialer:  dialer,
-		Timeout: timeout,
+		Dialer: dialer,
 	}
 
-	return upstreamExchangeClient.ExchangeContext(ctx, r, upstream)
+	return upstreamExchangeClient.Exchange(r, upstream)
 }
 
 func (u *upstreamResolver) isLocalResolver(upstream string) bool {

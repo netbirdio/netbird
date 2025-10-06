@@ -19,7 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/client/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // constants needed to manage and create iptable rules

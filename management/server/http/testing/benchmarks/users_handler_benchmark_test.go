@@ -18,9 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
-	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools/channel"
 	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 )
 
 const moduleUsers = "users"
@@ -47,7 +46,7 @@ func BenchmarkUpdateUser(b *testing.B) {
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			recorder := httptest.NewRecorder()
@@ -72,7 +71,7 @@ func BenchmarkUpdateUser(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, moduleUsers, testing_tools.OperationUpdate)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleUsers, testing_tools.OperationUpdate)
 		})
 	}
 }
@@ -85,18 +84,18 @@ func BenchmarkGetOneUser(b *testing.B) {
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			recorder := httptest.NewRecorder()
 			b.ResetTimer()
 			start := time.Now()
-			req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/users/"+testing_tools.TestUserId, testing_tools.TestAdminId)
 			for i := 0; i < b.N; i++ {
+				req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/users/"+testing_tools.TestUserId, testing_tools.TestAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, moduleUsers, testing_tools.OperationGetOne)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleUsers, testing_tools.OperationGetOne)
 		})
 	}
 }
@@ -111,18 +110,18 @@ func BenchmarkGetAllUsers(b *testing.B) {
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			recorder := httptest.NewRecorder()
 			b.ResetTimer()
 			start := time.Now()
-			req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/users", testing_tools.TestAdminId)
 			for i := 0; i < b.N; i++ {
+				req := testing_tools.BuildRequest(b, nil, http.MethodGet, "/api/users", testing_tools.TestAdminId)
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, moduleUsers, testing_tools.OperationGetAll)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleUsers, testing_tools.OperationGetAll)
 		})
 	}
 }
@@ -137,7 +136,7 @@ func BenchmarkDeleteUsers(b *testing.B) {
 
 	for name, bc := range benchCasesUsers {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
+			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/users.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, 1000, bc.SetupKeys)
 
 			recorder := httptest.NewRecorder()
@@ -148,7 +147,7 @@ func BenchmarkDeleteUsers(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, moduleUsers, testing_tools.OperationDelete)
+			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleUsers, testing_tools.OperationDelete)
 		})
 	}
 }

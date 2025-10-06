@@ -5,7 +5,7 @@ import (
 
 	"github.com/pion/transport/v3"
 
-	nbnet "github.com/netbirdio/netbird/client/net"
+	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 // Dial connects to the address on the named network.

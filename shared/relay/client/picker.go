@@ -13,8 +13,11 @@ import (
 )
 
 const (
-	maxConcurrentServers     = 7
-	defaultConnectionTimeout = 30 * time.Second
+	maxConcurrentServers = 7
+)
+
+var (
+	connectionTimeout = 30 * time.Second
 )
 
 type connResult struct {
@@ -24,15 +27,13 @@ type connResult struct {
 }
 
 type ServerPicker struct {
-	TokenStore        *auth.TokenStore
-	ServerURLs        atomic.Value
-	PeerID            string
-	MTU               uint16
-	ConnectionTimeout time.Duration
+	TokenStore *auth.TokenStore
+	ServerURLs atomic.Value
+	PeerID     string
 }
 
 func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
-	ctx, cancel := context.WithTimeout(parentCtx, sp.ConnectionTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, connectionTimeout)
 	defer cancel()
 
 	totalServers := len(sp.ServerURLs.Load().([]string))
@@ -69,7 +70,7 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 
 func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
 	log.Infof("try to connecting to relay server: %s", url)
-	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
+	relayClient := NewClient(url, sp.TokenStore, sp.PeerID)
 	err := relayClient.Connect(ctx)
 	resultChan <- connResult{
 		RelayClient: relayClient,

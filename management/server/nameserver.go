@@ -37,6 +37,9 @@ func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, account
 
 // CreateNameServerGroup creates and saves a new nameserver group
 func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string, searchDomainEnabled bool) (*nbdns.NameServerGroup, error) {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -70,11 +73,11 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
-		if err = transaction.SaveNameServerGroup(ctx, newNSGroup); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.SaveNameServerGroup(ctx, newNSGroup)
 	})
 	if err != nil {
 		return nil, err
@@ -91,6 +94,9 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 // SaveNameServerGroup saves nameserver group
 func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	if nsGroupToSave == nil {
 		return status.Errorf(status.InvalidArgument, "nameserver group provided is nil")
 	}
@@ -121,11 +127,11 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 			return err
 		}
 
-		if err = transaction.SaveNameServerGroup(ctx, nsGroupToSave); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.SaveNameServerGroup(ctx, nsGroupToSave)
 	})
 	if err != nil {
 		return err
@@ -142,6 +148,9 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 
 // DeleteNameServerGroup deletes nameserver group with nsGroupID
 func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, accountID, nsGroupID, userID string) error {
+	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
+	defer unlock()
+
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Nameservers, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
@@ -164,11 +173,11 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
-		if err = transaction.DeleteNameServerGroup(ctx, accountID, nsGroupID); err != nil {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
 
-		return transaction.IncrementNetworkSerial(ctx, accountID)
+		return transaction.DeleteNameServerGroup(ctx, accountID, nsGroupID)
 	})
 	if err != nil {
 		return err

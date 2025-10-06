@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-
 	// nolint:gosec
 	_ "net/http/pprof"
 	"strings"

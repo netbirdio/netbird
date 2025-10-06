@@ -4,7 +4,6 @@ package android
 
 import (
 	"context"
-	"os"
 	"slices"
 	"sync"
 
@@ -19,7 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/client/net"
+	"github.com/netbirdio/netbird/util/net"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -84,8 +83,7 @@ func NewClient(cfgFile string, androidSDKVersion int, deviceName string, uiVersi
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
-	exportEnvList(envList)
+func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsReadyListener) error {
 	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -120,8 +118,7 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 
 // RunWithoutLogin we apply this type of run function when the backed has been started without UI (i.e. after reboot).
 // In this case make no sense handle registration steps.
-func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
-	exportEnvList(envList)
+func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener) error {
 	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -251,15 +248,4 @@ func (c *Client) SetConnectionListener(listener ConnectionListener) {
 // RemoveConnectionListener remove connection listener
 func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
-}
-
-func exportEnvList(list *EnvList) {
-	if list == nil {
-		return
-	}
-	for k, v := range list.AllItems() {
-		if err := os.Setenv(k, v); err != nil {
-			log.Errorf("could not set env variable %s: %v", k, err)
-		}
-	}
 }

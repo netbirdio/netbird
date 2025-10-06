@@ -2,7 +2,7 @@
 set -eEuo pipefail
 
 : ${NB_ENTRYPOINT_SERVICE_TIMEOUT:="5"}
-: ${NB_ENTRYPOINT_LOGIN_TIMEOUT:="5"}
+: ${NB_ENTRYPOINT_LOGIN_TIMEOUT:="1"}
 NETBIRD_BIN="${NETBIRD_BIN:-"netbird"}"
 export NB_LOG_FILE="${NB_LOG_FILE:-"console,/var/log/netbird/client.log"}"
 service_pids=()
@@ -39,7 +39,7 @@ wait_for_message() {
     info "not waiting for log line ${message@Q} due to zero timeout."
   elif test -n "${log_file_path}"; then
     info "waiting for log line ${message@Q} for ${timeout} seconds..."
-    grep -E -q "${message}" <(timeout "${timeout}" tail -F "${log_file_path}" 2>/dev/null)
+    grep -q "${message}" <(timeout "${timeout}" tail -F "${log_file_path}" 2>/dev/null)
   else
     info "log file unsupported, sleeping for ${timeout} seconds..."
     sleep "${timeout}"
@@ -81,7 +81,7 @@ wait_for_daemon_startup() {
 login_if_needed() {
   local timeout="${1}"
 
-  if test -n "${log_file_path}" && wait_for_message "${timeout}" 'peer has been successfully registered|management connection state READY'; then
+  if test -n "${log_file_path}" && wait_for_message "${timeout}" 'peer has been successfully registered'; then
     info "already logged in, skipping 'netbird up'..."
   else
     info "logging in..."

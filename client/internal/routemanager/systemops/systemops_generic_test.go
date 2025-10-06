@@ -22,7 +22,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
-	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type dialer interface {
@@ -144,11 +143,10 @@ func TestAddVPNRoute(t *testing.T) {
 			wgInterface := createWGInterface(t, fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100+n)
 
 			r := NewSysOps(wgInterface, nil)
-			advancedRouting := nbnet.AdvancedRouting()
-			err := r.SetupRouting(nil, nil, advancedRouting)
+			err := r.SetupRouting(nil, nil)
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				assert.NoError(t, r.CleanupRouting(nil, advancedRouting))
+				assert.NoError(t, r.CleanupRouting(nil))
 			})
 
 			intf, err := net.InterfaceByName(wgInterface.Name())
@@ -343,11 +341,10 @@ func TestAddRouteToNonVPNIntf(t *testing.T) {
 			wgInterface := createWGInterface(t, fmt.Sprintf("utun54%d", n), "100.65.75.2/24", 33200+n)
 
 			r := NewSysOps(wgInterface, nil)
-			advancedRouting := nbnet.AdvancedRouting()
-			err := r.SetupRouting(nil, nil, advancedRouting)
+			err := r.SetupRouting(nil, nil)
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				assert.NoError(t, r.CleanupRouting(nil, advancedRouting))
+				assert.NoError(t, r.CleanupRouting(nil))
 			})
 
 			initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
@@ -487,11 +484,10 @@ func setupTestEnv(t *testing.T) {
 	})
 
 	r := NewSysOps(wgInterface, nil)
-	advancedRouting := nbnet.AdvancedRouting()
-	err := r.SetupRouting(nil, nil, advancedRouting)
+	err := r.SetupRouting(nil, nil)
 	require.NoError(t, err, "setupRouting should not return err")
 	t.Cleanup(func() {
-		assert.NoError(t, r.CleanupRouting(nil, advancedRouting))
+		assert.NoError(t, r.CleanupRouting(nil))
 	})
 
 	index, err := net.InterfaceByName(wgInterface.Name())

@@ -8,15 +8,15 @@ import (
 )
 
 func TestServerPicker_UnavailableServers(t *testing.T) {
-	timeout := 5 * time.Second
+	connectionTimeout = 5 * time.Second
+
 	sp := ServerPicker{
-		TokenStore:        nil,
-		PeerID:            "test",
-		ConnectionTimeout: timeout,
+		TokenStore: nil,
+		PeerID:     "test",
 	}
 	sp.ServerURLs.Store([]string{"rel://dummy1", "rel://dummy2"})
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout+1)
+	ctx, cancel := context.WithTimeout(context.Background(), connectionTimeout+1)
 	defer cancel()
 
 	go func() {

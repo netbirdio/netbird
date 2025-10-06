@@ -54,12 +54,8 @@ func (m *managerImpl) ValidateUserPermissions(
 		return false, status.NewUserNotFoundError(userID)
 	}
 
-	if user.IsBlocked() && !user.PendingApproval {
+	if user.IsBlocked() {
 		return false, status.NewUserBlockedError()
-	}
-
-	if user.IsBlocked() && user.PendingApproval {
-		return false, status.NewUserPendingApprovalError()
 	}
 
 	if err := m.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
