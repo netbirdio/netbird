@@ -563,27 +563,28 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					return
 				}
 
-				status, err := conn.Status(s.ctx, &proto.StatusRequest{})
-				if err != nil {
-					log.Errorf("get service status: %v", err)
-					dialog.ShowError(fmt.Errorf("Failed to get service status: %v", err), s.wSettings)
-					return
-				}
-				if status.Status == string(internal.StatusConnected) {
-					// run down & up
-					_, err = conn.Down(s.ctx, &proto.DownRequest{})
+				go func() {
+					status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 					if err != nil {
-						log.Errorf("down service: %v", err)
-					}
-
-					_, err = conn.Up(s.ctx, &proto.UpRequest{})
-					if err != nil {
-						log.Errorf("up service: %v", err)
-						dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
+						log.Errorf("get service status: %v", err)
+						dialog.ShowError(fmt.Errorf("Failed to get service status: %v", err), s.wSettings)
 						return
 					}
-				}
+					if status.Status == string(internal.StatusConnected) {
+						// run down & up
+						_, err = conn.Down(s.ctx, &proto.DownRequest{})
+						if err != nil {
+							log.Errorf("down service: %v", err)
+						}
 
+						_, err = conn.Up(s.ctx, &proto.UpRequest{})
+						if err != nil {
+							log.Errorf("up service: %v", err)
+							dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
+							return
+						}
+					}
+				}()
 			}
 		},
 		OnCancel: func() {

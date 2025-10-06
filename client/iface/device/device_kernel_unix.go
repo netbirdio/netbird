@@ -12,11 +12,11 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/sharedsock"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type TunKernelDevice struct {
@@ -31,9 +31,9 @@ type TunKernelDevice struct {
 
 	link       *wgLink
 	udpMuxConn net.PacketConn
-	udpMux     *bind.UniversalUDPMuxDefault
+	udpMux     *udpmux.UniversalUDPMuxDefault
 
-	filterFn bind.FilterFn
+	filterFn udpmux.FilterFn
 }
 
 func NewKernelDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, transportNet transport.Net) *TunKernelDevice {
@@ -79,7 +79,7 @@ func (t *TunKernelDevice) Create() (WGConfigurer, error) {
 	return configurer, nil
 }
 
-func (t *TunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunKernelDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	if t.udpMux != nil {
 		return t.udpMux, nil
 	}
@@ -101,19 +101,14 @@ func (t *TunKernelDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 
-	var udpConn net.PacketConn = rawSock
-	if !nbnet.AdvancedRouting() {
-		udpConn = nbnet.WrapPacketConn(rawSock)
-	}
-
-	bindParams := bind.UniversalUDPMuxParams{
-		UDPConn:   udpConn,
+	bindParams := udpmux.UniversalUDPMuxParams{
+		UDPConn:   nbnet.WrapPacketConn(rawSock),
 		Net:       t.transportNet,
 		FilterFn:  t.filterFn,
 		WGAddress: t.address,
 		MTU:       t.mtu,
 	}
-	mux := bind.NewUniversalUDPMuxDefault(bindParams)
+	mux := udpmux.NewUniversalUDPMuxDefault(bindParams)
 	go mux.ReadFromConn(t.ctx)
 	t.udpMuxConn = rawSock
 	t.udpMux = mux

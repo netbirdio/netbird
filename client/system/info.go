@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -172,6 +173,7 @@ func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
 
 // GetInfoWithChecks retrieves and parses the system information with applied checks.
 func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, error) {
+	log.Debugf("gathering system information with checks: %d", len(checks))
 	processCheckPaths := make([]string, 0)
 	for _, check := range checks {
 		processCheckPaths = append(processCheckPaths, check.GetFiles()...)
@@ -181,9 +183,11 @@ func GetInfoWithChecks(ctx context.Context, checks []*proto.Checks) (*Info, erro
 	if err != nil {
 		return nil, err
 	}
+	log.Debugf("gathering process check information completed")
 
 	info := GetInfo(ctx)
 	info.Files = files
 
+	log.Debugf("all system information gathered successfully")
 	return info, nil
 }

@@ -168,6 +168,7 @@ const (
 const (
 	ResourceTypeDomain ResourceType = "domain"
 	ResourceTypeHost   ResourceType = "host"
+	ResourceTypePeer   ResourceType = "peer"
 	ResourceTypeSubnet ResourceType = "subnet"
 )
 
@@ -1224,6 +1225,30 @@ type PeerRequest struct {
 	SshEnabled             bool    `json:"ssh_enabled"`
 }
 
+// PeerTemporaryAccessRequest defines model for PeerTemporaryAccessRequest.
+type PeerTemporaryAccessRequest struct {
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// Rules List of temporary access rules
+	Rules []string `json:"rules"`
+
+	// WgPubKey Peer's WireGuard public key
+	WgPubKey string `json:"wg_pub_key"`
+}
+
+// PeerTemporaryAccessResponse defines model for PeerTemporaryAccessResponse.
+type PeerTemporaryAccessResponse struct {
+	// Id Peer ID
+	Id string `json:"id"`
+
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// Rules List of temporary access rules
+	Rules []string `json:"rules"`
+}
+
 // PersonalAccessToken defines model for PersonalAccessToken.
 type PersonalAccessToken struct {
 	// CreatedAt Date the token was created
@@ -1951,6 +1976,9 @@ type PostApiPeersPeerIdIngressPortsJSONRequestBody = IngressPortAllocationReques
 
 // PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody defines body for PutApiPeersPeerIdIngressPortsAllocationId for application/json ContentType.
 type PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody = IngressPortAllocationRequest
+
+// PostApiPeersPeerIdTemporaryAccessJSONRequestBody defines body for PostApiPeersPeerIdTemporaryAccess for application/json ContentType.
+type PostApiPeersPeerIdTemporaryAccessJSONRequestBody = PeerTemporaryAccessRequest
 
 // PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
 type PostApiPoliciesJSONRequestBody = PolicyUpdate

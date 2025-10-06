@@ -6,9 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"sync"
-	"syscall"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -18,13 +16,18 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/rawsocket"
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
 	loopbackAddr = "127.0.0.1"
+)
+
+var (
+	localHostNetIP = net.ParseIP("127.0.0.1")
 )
 
 // WGEBPFProxy definition for proxy with EBPF support
@@ -64,7 +67,7 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 
-	p.rawConn, err = p.prepareSenderRawSocket()
+	p.rawConn, err = rawsocket.PrepareSenderRawSocket()
 	if err != nil {
 		return err
 	}
@@ -214,57 +217,17 @@ generatePort:
 	return p.lastUsedPort, nil
 }
 
-func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
-	// Create a raw socket.
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
-	if err != nil {
-		return nil, fmt.Errorf("creating raw socket failed: %w", err)
-	}
-
-	// Set the IP_HDRINCL option on the socket to tell the kernel that headers are included in the packet.
-	err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
-	if err != nil {
-		return nil, fmt.Errorf("setting IP_HDRINCL failed: %w", err)
-	}
-
-	// Bind the socket to the "lo" interface.
-	err = syscall.SetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, "lo")
-	if err != nil {
-		return nil, fmt.Errorf("binding to lo interface failed: %w", err)
-	}
-
-	// Set the fwmark on the socket.
-	err = nbnet.SetSocketOpt(fd)
-	if err != nil {
-		return nil, fmt.Errorf("setting fwmark failed: %w", err)
-	}
-
-	// Convert the file descriptor to a PacketConn.
-	file := os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd))
-	if file == nil {
-		return nil, fmt.Errorf("converting fd to file failed")
-	}
-	packetConn, err := net.FilePacketConn(file)
-	if err != nil {
-		return nil, fmt.Errorf("converting file to packet conn failed: %w", err)
-	}
-
-	return packetConn, nil
-}
-
-func (p *WGEBPFProxy) sendPkg(data []byte, port int) error {
-	localhost := net.ParseIP("127.0.0.1")
-
+func (p *WGEBPFProxy) sendPkg(data []byte, endpointAddr *net.UDPAddr) error {
 	payload := gopacket.Payload(data)
 	ipH := &layers.IPv4{
-		DstIP:    localhost,
-		SrcIP:    localhost,
+		DstIP:    localHostNetIP,
+		SrcIP:    endpointAddr.IP,
 		Version:  4,
 		TTL:      64,
 		Protocol: layers.IPProtocolUDP,
 	}
 	udpH := &layers.UDP{
-		SrcPort: layers.UDPPort(port),
+		SrcPort: layers.UDPPort(endpointAddr.Port),
 		DstPort: layers.UDPPort(p.localWGListenPort),
 	}
 
@@ -279,7 +242,7 @@ func (p *WGEBPFProxy) sendPkg(data []byte, port int) error {
 	if err != nil {
 		return fmt.Errorf("serialize layers: %w", err)
 	}
-	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localhost}); err != nil {
+	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localHostNetIP}); err != nil {
 		return fmt.Errorf("write to raw conn: %w", err)
 	}
 	return nil

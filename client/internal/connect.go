@@ -34,7 +34,7 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -280,15 +280,12 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return wrapErr(err)
 		}
 
-
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
 		if runningChan != nil {
-			select {
-			case runningChan <- struct{}{}:
-			default:
-			}
+			close(runningChan)
+			runningChan = nil
 		}
 
 		<-engineCtx.Done()

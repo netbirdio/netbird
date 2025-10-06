@@ -511,6 +511,48 @@ components:
             - serial_number
             - extra_dns_labels
             - ephemeral
+    PeerTemporaryAccessRequest:
+      type: object
+      properties:
+        name:
+          description: Peer's hostname
+          type: string
+          example: temp-host-1
+        wg_pub_key:
+          description: Peer's WireGuard public key
+          type: string
+          example: "n0r3pL4c3h0ld3rK3y=="
+        rules:
+          description: List of temporary access rules
+          type: array
+          items:
+            type: string
+            example: "tcp/80"
+      required:
+        - name
+        - wg_pub_key
+        - rules
+    PeerTemporaryAccessResponse:
+      type: object
+      properties:
+        name:
+          description: Peer's hostname
+          type: string
+          example: temp-host-1
+        id:
+          description: Peer ID
+          type: string
+          example: chacbco6lnnbn6cg5s90
+        rules:
+          description: List of temporary access rules
+          type: array
+          items:
+            type: string
+            example: "tcp/80"
+      required:
+        - name
+        - id
+        - rules
     AccessiblePeer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -1408,7 +1450,8 @@ components:
       allOf:
         - $ref: '#/components/schemas/NetworkResourceType'
         - type: string
-          example: host
+          enum: ["peer"]
+          example: peer
     NetworkRequest:
       type: object
       properties:
@@ -2789,6 +2832,42 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/AccessiblePeer'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/peers/{peerId}/temporary-access:
+    post:
+      summary: Create a Temporary Access Peer
+      description: Creates a temporary access peer that can be used to access this peer and this peer only. The temporary access peer and its access policies will be automatically deleted after it disconnects.
+      tags: [ Peers ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: peerId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a peer
+      requestBody:
+        description: Temporary Access Peer create request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/PeerTemporaryAccessRequest'
+      responses:
+        '200':
+          description: Temporary Access Peer response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeerTemporaryAccessResponse'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

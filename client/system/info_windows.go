@@ -48,6 +48,5 @@ func GetInfo(ctx context.Context) *Info {
 	gio.Hostname = extractDeviceName(ctx, systemHostname)
 	gio.NetbirdVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
-
 	return gio
 }
