@@ -1,6 +1,7 @@
 package device
 
 import (
+	"errors"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun"
 	"os"
@@ -12,12 +13,24 @@ type RenewableTUN struct {
 
 func (r *RenewableTUN) File() *os.File {
 	log.Debug("sending device file.")
-	return r.peekLast().File()
+
+	device := r.peekLast()
+	if device == nil {
+		return nil
+	}
+
+	return device.File()
 }
 
 func (r *RenewableTUN) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
 	log.Debug("reading from device.")
-	n, err = r.peekLast().Read(bufs, sizes, offset)
+
+	device := r.peekLast()
+	if device == nil {
+		return 0, errors.New("no available devices")
+	}
+
+	n, err = device.Read(bufs, sizes, offset)
 
 	if err != nil {
 		log.Debugf("error reading from device: %v", err)
@@ -28,7 +41,13 @@ func (r *RenewableTUN) Read(bufs [][]byte, sizes []int, offset int) (n int, err 
 
 func (r *RenewableTUN) Write(bufs [][]byte, offset int) (int, error) {
 	log.Debug("writing to device.")
-	n, err := r.peekLast().Write(bufs, offset)
+
+	device := r.peekLast()
+	if device == nil {
+		return 0, nil
+	}
+
+	n, err := device.Write(bufs, offset)
 
 	if err != nil {
 		log.Debugf("error writing to device: %v", err)
@@ -39,26 +58,48 @@ func (r *RenewableTUN) Write(bufs [][]byte, offset int) (int, error) {
 
 func (r *RenewableTUN) MTU() (int, error) {
 	log.Debug("sending mtu.")
-	return r.peekLast().MTU()
+
+	device := r.peekLast()
+	if device == nil {
+		return 0, nil
+	}
+
+	return device.MTU()
 }
 
 func (r *RenewableTUN) Name() (string, error) {
 	log.Debug("sending name.")
-	return r.peekLast().Name()
+
+	device := r.peekLast()
+	if device == nil {
+		return "", nil
+	}
+
+	return device.Name()
 }
 
 func (r *RenewableTUN) Events() <-chan tun.Event {
 	log.Debug("returning events channel.")
-	return r.peekLast().Events()
+
+	device := r.peekLast()
+	if device == nil {
+		return nil
+	}
+
+	return device.Events()
 }
 
 func (r *RenewableTUN) Close() error {
-	log.Debug("closing.")
+	log.Debugf("closing %d devices.", len(r.devices))
 
 	var err error
 
 	for _, device := range r.devices {
 		err = device.Close()
+
+		if err != nil {
+			log.Debugf("error closing a device: %v", err)
+		}
 	}
 
 	clear(r.devices)
@@ -75,6 +116,7 @@ func (r *RenewableTUN) BatchSize() int {
 func (r *RenewableTUN) addDevice(device tun.Device) {
 	first := r.dequeue()
 
+	// defers closing the old device after adding the new one if there was any.
 	if first != nil {
 		defer func(first tun.Device) {
 			err := first.Close()
