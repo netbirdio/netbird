@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -544,6 +545,14 @@ func TestJWTAuthentication(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// TODO: Skip port forwarding tests on Windows - user switching not supported
+			// These features are tested on Linux/Unix platforms
+			if runtime.GOOS == "windows" &&
+				(tc.name == "allows_port_forward_with_jwt" ||
+					tc.name == "blocks_port_forward_without_jwt") {
+				t.Skip("Skipping port forwarding test on Windows - covered by Linux tests")
+			}
+
 			jwtConfig := &JWTConfig{
 				Issuer:       issuer,
 				Audience:     audience,
