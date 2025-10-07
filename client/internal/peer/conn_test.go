@@ -118,10 +118,10 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 		return
 	}
 
-	onNewOffeChan := make(chan struct{})
+	onNewOfferChan := make(chan struct{})
 
 	conn.handshaker.AddRelayListener(func(remoteOfferAnswer *OfferAnswer) {
-		onNewOffeChan <- struct{}{}
+		onNewOfferChan <- struct{}{}
 	})
 
 	conn.OnRemoteAnswer(OfferAnswer{
@@ -136,7 +136,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 	defer cancel()
 
 	select {
-	case <-onNewOffeChan:
+	case <-onNewOfferChan:
 		// success
 	case <-ctx.Done():
 		t.Error("expected to receive a new offer notification, but timed out")
