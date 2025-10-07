@@ -10,7 +10,6 @@ import (
 	"net/http"
 	// nolint:gosec
 	_ "net/http/pprof"
-	"net/netip"
 	"os"
 	"time"
 
@@ -64,10 +63,10 @@ var (
 		Use:          "run",
 		Short:        "start NetBird Signal Server daemon",
 		SilenceUsage: true,
-		PreRun: func(cmd *cobra.Command, args []string) {
+		PreRunE: func(cmd *cobra.Command, args []string) error {
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
-				log.Fatalf("failed initializing log %v", err)
+				return fmt.Errorf("failed initializing log: %w", err)
 			}
 
 			flag.Parse()
@@ -88,6 +87,8 @@ var (
 					signalPort = 80
 				}
 			}
+
+			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
@@ -261,7 +262,7 @@ func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler h
 }
 
 func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter) http.Handler {
-	wsProxy := wsproxyserver.New(netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), legacyGRPCPort), wsproxyserver.WithOTelMeter(meter))
+	wsProxy := wsproxyserver.New(grpcServer, wsproxyserver.WithOTelMeter(meter))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
