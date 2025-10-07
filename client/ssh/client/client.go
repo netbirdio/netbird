@@ -21,6 +21,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/proto"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/client/ssh/detection"
 )
 
 const (
@@ -40,12 +42,10 @@ type Client struct {
 	windowsStdinMode  uint32 // nolint:unused
 }
 
-// Close terminates the SSH connection
 func (c *Client) Close() error {
 	return c.client.Close()
 }
 
-// OpenTerminal opens an interactive terminal session
 func (c *Client) OpenTerminal(ctx context.Context) error {
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -259,43 +259,29 @@ func (c *Client) createSession(ctx context.Context) (*ssh.Session, func(), error
 	return session, cleanup, nil
 }
 
-// Dial connects to the given ssh server with proper host key verification
-func Dial(ctx context.Context, addr, user string) (*Client, error) {
-	hostKeyCallback, err := createHostKeyCallback(addr)
-	if err != nil {
-		return nil, fmt.Errorf("create host key callback: %w", err)
+// getDefaultDaemonAddr returns the daemon address from environment or default for the OS
+func getDefaultDaemonAddr() string {
+	if addr := os.Getenv("NB_DAEMON_ADDR"); addr != "" {
+		return addr
 	}
-
-	config := &ssh.ClientConfig{
-		User:            user,
-		Timeout:         30 * time.Second,
-		HostKeyCallback: hostKeyCallback,
+	if runtime.GOOS == "windows" {
+		return DefaultDaemonAddrWindows
 	}
-
-	return dial(ctx, "tcp", addr, config)
-}
-
-// DialInsecure connects to the given ssh server without host key verification (for testing only)
-func DialInsecure(ctx context.Context, addr, user string) (*Client, error) {
-	config := &ssh.ClientConfig{
-		User:            user,
-		Timeout:         30 * time.Second,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106 - Only used for tests
-	}
-
-	return dial(ctx, "tcp", addr, config)
+	return DefaultDaemonAddr
 }
 
 // DialOptions contains options for SSH connections
 type DialOptions struct {
-	KnownHostsFile string
-	IdentityFile   string
-	DaemonAddr     string
+	KnownHostsFile     string
+	IdentityFile       string
+	DaemonAddr         string
+	SkipCachedToken    bool
+	InsecureSkipVerify bool
 }
 
-// DialWithOptions connects to the given ssh server with specified options
-func DialWithOptions(ctx context.Context, addr, user string, opts DialOptions) (*Client, error) {
-	hostKeyCallback, err := createHostKeyCallbackWithOptions(addr, opts)
+// Dial connects to the given ssh server with specified options
+func Dial(ctx context.Context, addr, user string, opts DialOptions) (*Client, error) {
+	hostKeyCallback, err := createHostKeyCallback(opts)
 	if err != nil {
 		return nil, fmt.Errorf("create host key callback: %w", err)
 	}
@@ -306,7 +292,6 @@ func DialWithOptions(ctx context.Context, addr, user string, opts DialOptions) (
 		HostKeyCallback: hostKeyCallback,
 	}
 
-	// Add SSH key authentication if identity file is specified
 	if opts.IdentityFile != "" {
 		authMethod, err := createSSHKeyAuth(opts.IdentityFile)
 		if err != nil {
@@ -315,11 +300,16 @@ func DialWithOptions(ctx context.Context, addr, user string, opts DialOptions) (
 		config.Auth = append(config.Auth, authMethod)
 	}
 
-	return dial(ctx, "tcp", addr, config)
+	daemonAddr := opts.DaemonAddr
+	if daemonAddr == "" {
+		daemonAddr = getDefaultDaemonAddr()
+	}
+
+	return dialWithJWT(ctx, "tcp", addr, config, daemonAddr, opts.SkipCachedToken)
 }
 
-// dial establishes an SSH connection
-func dial(ctx context.Context, network, addr string, config *ssh.ClientConfig) (*Client, error) {
+// dialSSH establishes an SSH connection without JWT authentication
+func dialSSH(ctx context.Context, network, addr string, config *ssh.ClientConfig) (*Client, error) {
 	dialer := &net.Dialer{}
 	conn, err := dialer.DialContext(ctx, network, addr)
 	if err != nil {
@@ -340,141 +330,82 @@ func dial(ctx context.Context, network, addr string, config *ssh.ClientConfig) (
 	}, nil
 }
 
-// createHostKeyCallback creates a host key verification callback that checks daemon first, then known_hosts files
-func createHostKeyCallback(addr string) (ssh.HostKeyCallback, error) {
-	daemonAddr := os.Getenv("NB_DAEMON_ADDR")
-	if daemonAddr == "" {
-		if runtime.GOOS == "windows" {
-			daemonAddr = DefaultDaemonAddrWindows
-		} else {
-			daemonAddr = DefaultDaemonAddr
-		}
+// dialWithJWT establishes an SSH connection with optional JWT authentication based on server detection
+func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientConfig, daemonAddr string, skipCache bool) (*Client, error) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("parse address %s: %w", addr, err)
 	}
-	return createHostKeyCallbackWithDaemonAddr(addr, daemonAddr)
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse port %s: %w", portStr, err)
+	}
+
+	dialer := &net.Dialer{Timeout: detection.Timeout}
+	serverType, err := detection.DetectSSHServerType(ctx, dialer, host, port)
+	if err != nil {
+		return nil, fmt.Errorf("SSH server detection failed: %w", err)
+	}
+
+	if !serverType.RequiresJWT() {
+		return dialSSH(ctx, network, addr, config)
+	}
+
+	jwtCtx, cancel := context.WithTimeout(ctx, config.Timeout)
+	defer cancel()
+
+	jwtToken, err := requestJWTToken(jwtCtx, daemonAddr, skipCache)
+	if err != nil {
+		return nil, fmt.Errorf("request JWT token: %w", err)
+	}
+
+	configWithJWT := nbssh.AddJWTAuth(config, jwtToken)
+	return dialSSH(ctx, network, addr, configWithJWT)
 }
 
-// createHostKeyCallbackWithDaemonAddr creates a host key verification callback with specified daemon address
-func createHostKeyCallbackWithDaemonAddr(addr, daemonAddr string) (ssh.HostKeyCallback, error) {
-	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		// First try to get host key from NetBird daemon
-		if err := verifyHostKeyViaDaemon(hostname, remote, key, daemonAddr); err == nil {
-			return nil
-		}
+// requestJWTToken requests a JWT token from the NetBird daemon
+func requestJWTToken(ctx context.Context, daemonAddr string, skipCache bool) (string, error) {
+	conn, err := connectToDaemon(daemonAddr)
+	if err != nil {
+		return "", fmt.Errorf("connect to daemon: %w", err)
+	}
+	defer conn.Close()
 
-		// Fallback to known_hosts files
-		knownHostsFiles := getKnownHostsFiles()
-
-		var hostKeyCallbacks []ssh.HostKeyCallback
-
-		for _, file := range knownHostsFiles {
-			if callback, err := knownhosts.New(file); err == nil {
-				hostKeyCallbacks = append(hostKeyCallbacks, callback)
-			}
-		}
-
-		// Try each known_hosts callback
-		for _, callback := range hostKeyCallbacks {
-			if err := callback(hostname, remote, key); err == nil {
-				return nil
-			}
-		}
-
-		return fmt.Errorf("host key verification failed: key not found in NetBird daemon or any known_hosts file")
-	}, nil
+	client := proto.NewDaemonServiceClient(conn)
+	return nbssh.RequestJWTToken(ctx, client, os.Stdout, os.Stderr, !skipCache)
 }
 
 // verifyHostKeyViaDaemon verifies SSH host key by querying the NetBird daemon
 func verifyHostKeyViaDaemon(hostname string, remote net.Addr, key ssh.PublicKey, daemonAddr string) error {
-	client, err := connectToDaemon(daemonAddr)
+	conn, err := connectToDaemon(daemonAddr)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if err := client.Close(); err != nil {
+		if err := conn.Close(); err != nil {
 			log.Debugf("daemon connection close error: %v", err)
 		}
 	}()
 
-	addresses := buildAddressList(hostname, remote)
-	log.Debugf("verifying SSH host key for hostname=%s, remote=%s, addresses=%v", hostname, remote.String(), addresses)
-
-	return verifyKeyWithDaemon(client, addresses, key)
+	client := proto.NewDaemonServiceClient(conn)
+	verifier := nbssh.NewDaemonHostKeyVerifier(client)
+	callback := nbssh.CreateHostKeyCallback(verifier)
+	return callback(hostname, remote, key)
 }
 
 func connectToDaemon(daemonAddr string) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	addr := strings.TrimPrefix(daemonAddr, "tcp://")
 
-	conn, err := grpc.DialContext(
-		ctx,
-		strings.TrimPrefix(daemonAddr, "tcp://"),
+	conn, err := grpc.NewClient(
+		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	if err != nil {
-		log.Debugf("failed to connect to NetBird daemon at %s: %v", daemonAddr, err)
+		log.Debugf("failed to create gRPC client for NetBird daemon at %s: %v", daemonAddr, err)
 		return nil, fmt.Errorf("failed to connect to NetBird daemon: %w", err)
 	}
+
 	return conn, nil
-}
-
-func buildAddressList(hostname string, remote net.Addr) []string {
-	addresses := []string{hostname}
-	if host, _, err := net.SplitHostPort(remote.String()); err == nil {
-		if host != hostname {
-			addresses = append(addresses, host)
-		}
-	}
-	return addresses
-}
-
-func verifyKeyWithDaemon(conn *grpc.ClientConn, addresses []string, key ssh.PublicKey) error {
-	client := proto.NewDaemonServiceClient(conn)
-
-	for _, addr := range addresses {
-		if err := checkAddressKey(client, addr, key); err == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("SSH host key not found or does not match in NetBird daemon")
-}
-
-func checkAddressKey(client proto.DaemonServiceClient, addr string, key ssh.PublicKey) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	response, err := client.GetPeerSSHHostKey(ctx, &proto.GetPeerSSHHostKeyRequest{
-		PeerAddress: addr,
-	})
-	log.Debugf("daemon query for address %s: found=%v, error=%v", addr, response != nil && response.GetFound(), err)
-
-	if err != nil {
-		log.Debugf("daemon query error for %s: %v", addr, err)
-		return err
-	}
-
-	if !response.GetFound() {
-		log.Debugf("SSH host key not found in daemon for address: %s", addr)
-		return fmt.Errorf("key not found")
-	}
-
-	return compareKeys(response.GetSshHostKey(), key, addr)
-}
-
-func compareKeys(storedKeyData []byte, presentedKey ssh.PublicKey, addr string) error {
-	storedKey, _, _, _, err := ssh.ParseAuthorizedKey(storedKeyData)
-	if err != nil {
-		log.Debugf("failed to parse stored SSH host key for %s: %v", addr, err)
-		return err
-	}
-
-	if presentedKey.Type() == storedKey.Type() && string(presentedKey.Marshal()) == string(storedKey.Marshal()) {
-		log.Debugf("SSH host key verified via NetBird daemon for %s", addr)
-		return nil
-	}
-
-	log.Debugf("SSH host key mismatch for %s: stored type=%s, presented type=%s", addr, storedKey.Type(), presentedKey.Type())
-	return fmt.Errorf("key mismatch")
 }
 
 // getKnownHostsFiles returns paths to known_hosts files in order of preference
@@ -503,8 +434,12 @@ func getKnownHostsFiles() []string {
 	return files
 }
 
-// createHostKeyCallbackWithOptions creates a host key verification callback with custom options
-func createHostKeyCallbackWithOptions(addr string, opts DialOptions) (ssh.HostKeyCallback, error) {
+// createHostKeyCallback creates a host key verification callback
+func createHostKeyCallback(opts DialOptions) (ssh.HostKeyCallback, error) {
+	if opts.InsecureSkipVerify {
+		return ssh.InsecureIgnoreHostKey(), nil // #nosec G106 - User explicitly requested insecure mode
+	}
+
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		if err := tryDaemonVerification(hostname, remote, key, opts.DaemonAddr); err == nil {
 			return nil

@@ -35,17 +35,15 @@ func TestSSHServer_SFTPSubsystem(t *testing.T) {
 	// Generate client key pair
 	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
 
 	// Create server with SFTP enabled
-	server := New(hostKey)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 	server.SetAllowSFTP(true)
-	server.SetAllowRootLogin(true) // Allow root login for testing
-
-	// Add client's public key as authorized
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
+	server.SetAllowRootLogin(true)
 
 	// Start server
 	serverAddr := "127.0.0.1:0"
@@ -144,16 +142,14 @@ func TestSSHServer_SFTPDisabled(t *testing.T) {
 	// Generate client key pair
 	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
 
 	// Create server with SFTP disabled
-	server := New(hostKey)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 	server.SetAllowSFTP(false)
-
-	// Add client's public key as authorized
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
 
 	// Start server
 	serverAddr := "127.0.0.1:0"

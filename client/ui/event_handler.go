@@ -245,6 +245,6 @@ func (h *eventHandler) logout(ctx context.Context) error {
 	}
 
 	h.client.getSrvConfig()
-	
+
 	return nil
 }

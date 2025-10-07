@@ -87,7 +87,6 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 	rules := d.squashAcceptRules(networkMap)
 
-
 	// if we got empty rules list but management not set networkMap.FirewallRulesIsEmpty flag
 	// we have old version of management without rules handling, we should allow all traffic
 	if len(networkMap.FirewallRules) == 0 && !networkMap.FirewallRulesIsEmpty {
@@ -350,7 +349,7 @@ func (d *DefaultManager) getPeerRuleID(
 //
 // NOTE: It will not squash two rules for same protocol if one covers all peers in the network,
 // but other has port definitions or has drop policy.
- func (d *DefaultManager) squashAcceptRules(networkMap *mgmProto.NetworkMap, ) []*mgmProto.FirewallRule {
+func (d *DefaultManager) squashAcceptRules(networkMap *mgmProto.NetworkMap) []*mgmProto.FirewallRule {
 	totalIPs := 0
 	for _, p := range append(networkMap.RemotePeers, networkMap.OfflinePeers...) {
 		for range p.AllowedIps {

@@ -281,7 +281,15 @@ func TestEngine_SSH(t *testing.T) {
 	networkMap = &mgmtProto.NetworkMap{
 		Serial: 7,
 		PeerConfig: &mgmtProto.PeerConfig{Address: "100.64.0.1/24",
-			SshConfig: &mgmtProto.SSHConfig{SshEnabled: true}},
+			SshConfig: &mgmtProto.SSHConfig{
+				SshEnabled: true,
+				JwtConfig: &mgmtProto.JWTConfig{
+					Issuer:       "test-issuer",
+					Audience:     "test-audience",
+					KeysLocation: "test-keys",
+					MaxTokenAge:  3600,
+				},
+			}},
 		RemotePeers:        []*mgmtProto.RemotePeerConfig{peerWithSSH},
 		RemotePeersIsEmpty: false,
 	}

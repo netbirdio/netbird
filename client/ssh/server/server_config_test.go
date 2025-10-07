@@ -22,12 +22,6 @@ func TestServer_RootLoginRestriction(t *testing.T) {
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	// Generate client key pair
-	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-
 	tests := []struct {
 		name        string
 		allowRoot   bool
@@ -117,10 +111,12 @@ func TestServer_RootLoginRestriction(t *testing.T) {
 			defer cleanup()
 
 			// Create server with specific configuration
-			server := New(hostKey)
+			serverConfig := &Config{
+				HostKeyPEM: hostKey,
+				JWT:        nil,
+			}
+			server := New(serverConfig)
 			server.SetAllowRootLogin(tt.allowRoot)
-			err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-			require.NoError(t, err)
 
 			// Test the userNameLookup method directly
 			user, err := server.userNameLookup(tt.username)
@@ -196,7 +192,11 @@ func TestServer_PortForwardingRestriction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create server with specific configuration
-			server := New(hostKey)
+			serverConfig := &Config{
+				HostKeyPEM: hostKey,
+				JWT:        nil,
+			}
+			server := New(serverConfig)
 			server.SetAllowLocalPortForwarding(tt.allowLocalForwarding)
 			server.SetAllowRemotePortForwarding(tt.allowRemoteForwarding)
 
@@ -234,17 +234,13 @@ func TestServer_PortConflictHandling(t *testing.T) {
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	// Generate client key pair
-	clientPrivKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	require.NoError(t, err)
-	clientPubKey, err := ssh.GeneratePublicKey(clientPrivKey)
-	require.NoError(t, err)
-
 	// Create server
-	server := New(hostKey)
-	server.SetAllowRootLogin(true) // Allow root login for testing
-	err = server.AddAuthorizedKey("test-peer", string(clientPubKey))
-	require.NoError(t, err)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
+	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
 	defer func() {
@@ -263,7 +259,9 @@ func TestServer_PortConflictHandling(t *testing.T) {
 	ctx1, cancel1 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel1()
 
-	client1, err := sshclient.DialInsecure(ctx1, serverAddr, currentUser.Username)
+	client1, err := sshclient.Dial(ctx1, serverAddr, currentUser.Username, sshclient.DialOptions{
+		InsecureSkipVerify: true,
+	})
 	require.NoError(t, err)
 	defer func() {
 		err := client1.Close()
@@ -274,7 +272,9 @@ func TestServer_PortConflictHandling(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()
 
-	client2, err := sshclient.DialInsecure(ctx2, serverAddr, currentUser.Username)
+	client2, err := sshclient.Dial(ctx2, serverAddr, currentUser.Username, sshclient.DialOptions{
+		InsecureSkipVerify: true,
+	})
 	require.NoError(t, err)
 	defer func() {
 		err := client2.Close()
