@@ -856,6 +856,10 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 	routesView := b.cache.peerRoutes[peerID]
 	dnsConfig := b.cache.peerDNS[peerID]
 
+	if aclView == nil || routesView == nil || dnsConfig == nil {
+		return &NetworkMap{Network: account.Network.Copy()}
+	}
+
 	nm := b.assembleNetworkMap(account, peer, aclView, routesView, dnsConfig, peersCustomZone, validatedPeers)
 
 	if metrics != nil {
