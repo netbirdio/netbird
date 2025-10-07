@@ -36,6 +36,7 @@ type NetworkMapCache struct {
 	policyToRules   map[string][]*PolicyRule //policyId
 	groupToPolicies map[string][]*Policy
 	groupToRoutes   map[string][]*route.Route
+	peerToRoutes    map[string][]*route.Route
 
 	peerACLs   map[string]*PeerACLView
 	peerRoutes map[string]*PeerRoutesView
@@ -57,6 +58,7 @@ type PeerACLView struct {
 type PeerRoutesView struct {
 	OwnRouteIDs          []route.ID
 	NetworkResourceIDs   []route.ID
+	InheritedRouteIDs    []route.ID
 	RouteFirewallRuleIDs []string
 }
 
@@ -78,6 +80,7 @@ func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) 
 			policyToRules:    make(map[string][]*PolicyRule),
 			groupToPolicies:  make(map[string][]*Policy),
 			groupToRoutes:    make(map[string][]*route.Route),
+			peerToRoutes:     make(map[string][]*route.Route),
 			peerACLs:         make(map[string]*PeerACLView),
 			peerRoutes:       make(map[string]*PeerRoutesView),
 			peerDNS:          make(map[string]*nbdns.Config),
@@ -126,6 +129,7 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 	clear(b.cache.globalRouteRules)
 	clear(b.cache.globalResources)
 	clear(b.cache.groupToRoutes)
+	clear(b.cache.peerToRoutes)
 
 	maps.Copy(b.cache.globalPeers, account.Peers)
 
@@ -176,8 +180,13 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 		if !r.Enabled {
 			continue
 		}
-		for _, groupID := range r.Groups {
+		for _, groupID := range r.PeerGroups {
 			b.cache.groupToRoutes[groupID] = append(b.cache.groupToRoutes[groupID], r)
+		}
+		if r.Peer != "" {
+			if peer, ok := b.cache.globalPeers[r.Peer]; ok {
+				b.cache.peerToRoutes[peer.ID] = append(b.cache.peerToRoutes[peer.ID], r)
+			}
 		}
 	}
 }
@@ -223,7 +232,7 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peerID string,
 	validatedPeersMap map[string]struct{},
 ) ([]*nbpeer.Peer, []*FirewallRule) {
-
+	ctx := context.Background()
 	peer := b.cache.globalPeers[peerID]
 	if peer == nil {
 		return nil, nil
@@ -243,6 +252,9 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peerID 
 	for _, group := range peerGroups {
 		policies := b.cache.groupToPolicies[group]
 		for _, policy := range policies {
+			if isValid := account.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID); !isValid {
+				continue
+			}
 			rules := b.cache.policyToRules[policy.ID]
 			for _, rule := range rules {
 				peerInSources := b.isPeerInGroupscached(rule.Sources, peerGroupsMap)
@@ -359,7 +371,6 @@ func (b *NetworkMapBuilder) generateResourcescached(
 		if peer == nil {
 			continue
 		}
-
 		if _, ok := peersExists[peer.ID]; !ok {
 			*peers = append(*peers, peer)
 			peersExists[peer.ID] = struct{}{}
@@ -567,12 +578,12 @@ func (b *NetworkMapBuilder) buildPeerRoutesView(account *Account, peerID string)
 			if aclPeerID == peerID {
 				continue
 			}
-
 			activeRoutes, _ := b.getRoutingPeerRoutes(aclPeerID)
 			groupFilteredRoutes := account.filterRoutesByGroups(activeRoutes, peerGroupsMap)
 			haFilteredRoutes := account.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
 
 			for _, inheritedRoute := range haFilteredRoutes {
+				view.InheritedRouteIDs = append(view.InheritedRouteIDs, inheritedRoute.ID)
 				b.cache.globalRoutes[inheritedRoute.ID] = inheritedRoute
 			}
 		}
@@ -637,12 +648,11 @@ func (b *NetworkMapBuilder) getRoutingPeerRoutes(peerID string) (enabledRoutes [
 			newPeerRoute.PeerGroups = nil
 			newPeerRoute.ID = route.ID(string(r.ID) + ":" + peerID)
 			takeRoute(newPeerRoute, peerID)
-			if r.Peer == peerID {
-				takeRoute(r.Copy(), peerID)
-			}
 		}
 	}
-
+	for _, r := range b.cache.peerToRoutes[peerID] {
+		takeRoute(r.Copy(), peerID)
+	}
 	return enabledRoutes, disabledRoutes
 }
 
@@ -846,7 +856,7 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 	routesView := b.cache.peerRoutes[peerID]
 	dnsConfig := b.cache.peerDNS[peerID]
 
-	nm := b.assembleNetworkMap(account, aclView, routesView, dnsConfig, peersCustomZone, validatedPeers)
+	nm := b.assembleNetworkMap(account, peer, aclView, routesView, dnsConfig, peersCustomZone, validatedPeers)
 
 	if metrics != nil {
 		objectCount := int64(len(nm.Peers) + len(nm.OfflinePeers) + len(nm.Routes) + len(nm.FirewallRules) + len(nm.RoutesFirewallRules))
@@ -863,7 +873,7 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 }
 
 func (b *NetworkMapBuilder) assembleNetworkMap(
-	account *Account, aclView *PeerACLView, routesView *PeerRoutesView,
+	account *Account, peer *nbpeer.Peer, aclView *PeerACLView, routesView *PeerRoutesView,
 	dnsConfig *nbdns.Config, customZone nbdns.CustomZone, validatedPeers map[string]struct{},
 ) *NetworkMap {
 
@@ -889,7 +899,7 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 	}
 
 	var routes []*route.Route
-	allRouteIDs := slices.Concat(routesView.OwnRouteIDs, routesView.NetworkResourceIDs)
+	allRouteIDs := slices.Concat(routesView.OwnRouteIDs, routesView.NetworkResourceIDs, routesView.InheritedRouteIDs)
 
 	for _, routeID := range allRouteIDs {
 		if route := b.cache.globalRoutes[routeID]; route != nil {
@@ -913,7 +923,13 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 
 	finalDNSConfig := *dnsConfig
 	if finalDNSConfig.ServiceEnable && customZone.Domain != "" {
-		finalDNSConfig.CustomZones = append(finalDNSConfig.CustomZones, customZone)
+		var zones []nbdns.CustomZone
+		records := filterZoneRecordsForPeers(peer, customZone, peersToConnect)
+		zones = append(zones, nbdns.CustomZone{
+			Domain:  customZone.Domain,
+			Records: records,
+		})
+		finalDNSConfig.CustomZones = zones
 	}
 
 	return &NetworkMap{
@@ -1028,8 +1044,17 @@ func (b *NetworkMapBuilder) updateIndexesForNewPeer(account *Account, peerID str
 		if !r.Enabled || b.cache.globalRoutes[r.ID] != nil {
 			continue
 		}
-		for _, groupID := range r.Groups {
-			b.cache.groupToRoutes[groupID] = append(b.cache.groupToRoutes[groupID], r)
+		for _, groupID := range r.PeerGroups {
+			if !slices.Contains(b.cache.groupToRoutes[groupID], r) {
+				b.cache.groupToRoutes[groupID] = append(b.cache.groupToRoutes[groupID], r)
+			}
+		}
+		if r.Peer != "" {
+			if peer, ok := b.cache.globalPeers[r.Peer]; ok {
+				if !slices.Contains(b.cache.peerToRoutes[peer.ID], r) {
+					b.cache.peerToRoutes[peer.ID] = append(b.cache.peerToRoutes[peer.ID], r)
+				}
+			}
 		}
 		b.cache.globalRoutes[r.ID] = r
 	}
