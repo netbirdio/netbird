@@ -220,7 +220,11 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 		return errors.New("wg interface not initialized")
 	}
 
-	server := sshserver.New(e.config.SSHKey, jwtConfig)
+	serverConfig := &sshserver.Config{
+		HostKeyPEM: e.config.SSHKey,
+		JWT:        jwtConfig,
+	}
+	server := sshserver.New(serverConfig)
 
 	wgAddr := e.wgInterface.Address()
 	server.SetNetworkValidation(wgAddr)

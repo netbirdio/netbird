@@ -346,32 +346,51 @@ func parseSpacedFormat(arg string, args []string, currentIndex int, flagHandlers
 }
 
 // createSSHFlagSet creates and configures the flag set for SSH command parsing
-func createSSHFlagSet() (*flag.FlagSet, *int, *string, *string, *bool, *string, *string, *bool, *string, *string) {
+// sshFlags contains all SSH-related flags and parameters
+type sshFlags struct {
+	Port                  int
+	Username              string
+	Login                 string
+	StrictHostKeyChecking bool
+	KnownHostsFile        string
+	IdentityFile          string
+	SkipCachedToken       bool
+	ConfigPath            string
+	LogLevel              string
+	LocalForwards         []string
+	RemoteForwards        []string
+	Host                  string
+	Command               string
+}
+
+func createSSHFlagSet() (*flag.FlagSet, *sshFlags) {
 	defaultConfigPath := getEnvOrDefault("CONFIG", configPath)
 	defaultLogLevel := getEnvOrDefault("LOG_LEVEL", logLevel)
 
 	fs := flag.NewFlagSet("ssh-flags", flag.ContinueOnError)
 	fs.SetOutput(nil)
 
-	portFlag := fs.Int("p", sshserver.DefaultSSHPort, "SSH port")
+	flags := &sshFlags{}
+
+	fs.IntVar(&flags.Port, "p", sshserver.DefaultSSHPort, "SSH port")
 	fs.Int("port", sshserver.DefaultSSHPort, "SSH port")
-	userFlag := fs.String("u", "", sshUsernameDesc)
+	fs.StringVar(&flags.Username, "u", "", sshUsernameDesc)
 	fs.String("user", "", sshUsernameDesc)
-	loginFlag := fs.String("login", "", sshUsernameDesc+" (alias for --user)")
+	fs.StringVar(&flags.Login, "login", "", sshUsernameDesc+" (alias for --user)")
 
-	strictHostKeyCheckingFlag := fs.Bool("strict-host-key-checking", true, "Enable strict host key checking")
-	knownHostsFlag := fs.String("o", "", "Path to known_hosts file")
+	fs.BoolVar(&flags.StrictHostKeyChecking, "strict-host-key-checking", true, "Enable strict host key checking")
+	fs.StringVar(&flags.KnownHostsFile, "o", "", "Path to known_hosts file")
 	fs.String("known-hosts", "", "Path to known_hosts file")
-	identityFlag := fs.String("i", "", "Path to SSH private key file")
+	fs.StringVar(&flags.IdentityFile, "i", "", "Path to SSH private key file")
 	fs.String("identity", "", "Path to SSH private key file")
-	noCacheFlag := fs.Bool("no-cache", false, "Skip cached JWT token and force fresh authentication")
+	fs.BoolVar(&flags.SkipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
 
-	configFlag := fs.String("c", defaultConfigPath, "Netbird config file location")
+	fs.StringVar(&flags.ConfigPath, "c", defaultConfigPath, "Netbird config file location")
 	fs.String("config", defaultConfigPath, "Netbird config file location")
-	logLevelFlag := fs.String("l", defaultLogLevel, "sets Netbird log level")
+	fs.StringVar(&flags.LogLevel, "l", defaultLogLevel, "sets Netbird log level")
 	fs.String("log-level", defaultLogLevel, "sets Netbird log level")
 
-	return fs, portFlag, userFlag, loginFlag, strictHostKeyCheckingFlag, knownHostsFlag, identityFlag, noCacheFlag, configFlag, logLevelFlag
+	return fs, flags
 }
 
 func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
@@ -387,7 +406,7 @@ func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
 
 	filteredArgs, localForwardFlags, remoteForwardFlags := parseCustomSSHFlags(args)
 
-	fs, portFlag, userFlag, loginFlag, strictHostKeyCheckingFlag, knownHostsFlag, identityFlag, noCacheFlag, configFlag, logLevelFlag := createSSHFlagSet()
+	fs, flags := createSSHFlagSet()
 
 	if err := fs.Parse(filteredArgs); err != nil {
 		return parseHostnameAndCommand(filteredArgs)
@@ -398,23 +417,23 @@ func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
 		return errors.New(hostArgumentRequired)
 	}
 
-	port = *portFlag
-	if *userFlag != "" {
-		username = *userFlag
-	} else if *loginFlag != "" {
-		username = *loginFlag
+	port = flags.Port
+	if flags.Username != "" {
+		username = flags.Username
+	} else if flags.Login != "" {
+		username = flags.Login
 	}
 
-	strictHostKeyChecking = *strictHostKeyCheckingFlag
-	knownHostsFile = *knownHostsFlag
-	identityFile = *identityFlag
-	skipCachedToken = *noCacheFlag
+	strictHostKeyChecking = flags.StrictHostKeyChecking
+	knownHostsFile = flags.KnownHostsFile
+	identityFile = flags.IdentityFile
+	skipCachedToken = flags.SkipCachedToken
 
-	if *configFlag != getEnvOrDefault("CONFIG", configPath) {
-		configPath = *configFlag
+	if flags.ConfigPath != getEnvOrDefault("CONFIG", configPath) {
+		configPath = flags.ConfigPath
 	}
-	if *logLevelFlag != getEnvOrDefault("LOG_LEVEL", logLevel) {
-		logLevel = *logLevelFlag
+	if flags.LogLevel != getEnvOrDefault("LOG_LEVEL", logLevel) {
+		logLevel = flags.LogLevel
 	}
 
 	localForwards = localForwardFlags

@@ -61,7 +61,11 @@ func TestSSHServerCompatibility(t *testing.T) {
 	clientPrivKeyOpenSSH, _, err := generateOpenSSHKey(t)
 	require.NoError(t, err)
 
-	server := New(hostKey, nil)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
@@ -445,7 +449,11 @@ func TestSSHServerFeatureCompatibility(t *testing.T) {
 	clientPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server := New(hostKey, nil)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
@@ -578,7 +586,11 @@ func TestSSHServerSecurityFeatures(t *testing.T) {
 	clientPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server := New(hostKey, nil)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
@@ -659,7 +671,11 @@ func TestCrossPlatformCompatibility(t *testing.T) {
 	clientPrivKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server := New(hostKey, nil)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)

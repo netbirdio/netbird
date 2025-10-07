@@ -120,12 +120,15 @@ func TestSSHProxy_Connect(t *testing.T) {
 	hostPubKey, err := nbssh.GeneratePublicKey(hostKey)
 	require.NoError(t, err)
 
-	jwtConfig := &server.JWTConfig{
-		Issuer:       issuer,
-		Audience:     audience,
-		KeysLocation: jwksURL,
+	serverConfig := &server.Config{
+		HostKeyPEM: hostKey,
+		JWT: &server.JWTConfig{
+			Issuer:       issuer,
+			Audience:     audience,
+			KeysLocation: jwksURL,
+		},
 	}
-	sshServer := server.New(hostKey, jwtConfig)
+	sshServer := server.New(serverConfig)
 	sshServer.SetAllowRootLogin(true)
 
 	sshServerAddr := server.StartTestServer(t, sshServer)

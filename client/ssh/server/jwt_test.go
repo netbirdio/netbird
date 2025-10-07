@@ -43,7 +43,11 @@ func TestJWTEnforcement(t *testing.T) {
 			Audience:     "test-audience",
 			KeysLocation: "test-keys",
 		}
-		server := New(hostKey, jwtConfig)
+		serverConfig := &Config{
+			HostKeyPEM: hostKey,
+			JWT:        jwtConfig,
+		}
+		server := New(serverConfig)
 		server.SetAllowRootLogin(true)
 
 		serverAddr := StartTestServer(t, server)
@@ -72,7 +76,11 @@ func TestJWTEnforcement(t *testing.T) {
 	})
 
 	t.Run("allows_when_disabled", func(t *testing.T) {
-		serverNoJWT := New(hostKey, nil)
+		serverConfigNoJWT := &Config{
+			HostKeyPEM: hostKey,
+			JWT:        nil,
+		}
+		serverNoJWT := New(serverConfigNoJWT)
 		require.False(t, serverNoJWT.jwtEnabled, "JWT should be disabled without config")
 		serverNoJWT.SetAllowRootLogin(true)
 
@@ -194,7 +202,11 @@ func TestJWTDetection(t *testing.T) {
 		Audience:     audience,
 		KeysLocation: jwksURL,
 	}
-	server := New(hostKey, jwtConfig)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        jwtConfig,
+	}
+	server := New(serverConfig)
 	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)
@@ -308,7 +320,11 @@ func TestJWTFailClose(t *testing.T) {
 				KeysLocation: jwksURL,
 				MaxTokenAge:  3600,
 			}
-			server := New(hostKey, jwtConfig)
+			serverConfig := &Config{
+				HostKeyPEM: hostKey,
+				JWT:        jwtConfig,
+			}
+			server := New(serverConfig)
 			server.SetAllowRootLogin(true)
 
 			serverAddr := StartTestServer(t, server)
@@ -533,7 +549,11 @@ func TestJWTAuthentication(t *testing.T) {
 				Audience:     audience,
 				KeysLocation: jwksURL,
 			}
-			server := New(hostKey, jwtConfig)
+			serverConfig := &Config{
+				HostKeyPEM: hostKey,
+				JWT:        jwtConfig,
+			}
+			server := New(serverConfig)
 			if tc.setupServer != nil {
 				tc.setupServer(server)
 			}

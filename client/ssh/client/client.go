@@ -351,7 +351,10 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 		return dialSSH(ctx, network, addr, config)
 	}
 
-	jwtToken, err := requestJWTToken(ctx, daemonAddr, skipCache)
+	jwtCtx, cancel := context.WithTimeout(ctx, config.Timeout)
+	defer cancel()
+
+	jwtToken, err := requestJWTToken(jwtCtx, daemonAddr, skipCache)
 	if err != nil {
 		return nil, fmt.Errorf("request JWT token: %w", err)
 	}

@@ -129,17 +129,26 @@ type JWTConfig struct {
 	MaxTokenAge  int64
 }
 
+// Config contains all SSH server configuration options
+type Config struct {
+	// JWT authentication configuration. If nil, JWT authentication is disabled
+	JWT *JWTConfig
+
+	// HostKey is the SSH server host key in PEM format
+	HostKeyPEM []byte
+}
+
 // New creates an SSH server instance with the provided host key and optional JWT configuration
 // If jwtConfig is nil, JWT authentication is disabled
-func New(hostKeyPEM []byte, jwtConfig *JWTConfig) *Server {
+func New(config *Config) *Server {
 	s := &Server{
 		mu:                     sync.RWMutex{},
-		hostKeyPEM:             hostKeyPEM,
+		hostKeyPEM:             config.HostKeyPEM,
 		sessions:               make(map[SessionKey]ssh.Session),
 		remoteForwardListeners: make(map[ForwardKey]net.Listener),
 		sshConnections:         make(map[*cryptossh.ServerConn]*sshConnectionState),
-		jwtEnabled:             jwtConfig != nil,
-		jwtConfig:              jwtConfig,
+		jwtEnabled:             config.JWT != nil,
+		jwtConfig:              config.JWT,
 	}
 
 	return s

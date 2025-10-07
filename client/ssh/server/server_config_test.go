@@ -111,7 +111,11 @@ func TestServer_RootLoginRestriction(t *testing.T) {
 			defer cleanup()
 
 			// Create server with specific configuration
-			server := New(hostKey, nil)
+			serverConfig := &Config{
+				HostKeyPEM: hostKey,
+				JWT:        nil,
+			}
+			server := New(serverConfig)
 			server.SetAllowRootLogin(tt.allowRoot)
 
 			// Test the userNameLookup method directly
@@ -188,7 +192,11 @@ func TestServer_PortForwardingRestriction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create server with specific configuration
-			server := New(hostKey, nil)
+			serverConfig := &Config{
+				HostKeyPEM: hostKey,
+				JWT:        nil,
+			}
+			server := New(serverConfig)
 			server.SetAllowLocalPortForwarding(tt.allowLocalForwarding)
 			server.SetAllowRemotePortForwarding(tt.allowRemoteForwarding)
 
@@ -227,7 +235,11 @@ func TestServer_PortConflictHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create server
-	server := New(hostKey, nil)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 	server.SetAllowRootLogin(true)
 
 	serverAddr := StartTestServer(t, server)

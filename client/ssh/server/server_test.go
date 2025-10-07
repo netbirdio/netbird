@@ -21,7 +21,11 @@ func TestServer_StartStop(t *testing.T) {
 	key, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server := New(key, nil)
+	serverConfig := &Config{
+		HostKeyPEM: key,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 
 	err = server.Stop()
 	assert.NoError(t, err)
@@ -37,7 +41,11 @@ func TestSSHServerIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create server with random port
-	server := New(hostKey, nil)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 
 	// Start server in background
 	serverAddr := "127.0.0.1:0"
@@ -135,7 +143,11 @@ func TestSSHServerMultipleConnections(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create server
-	server := New(hostKey, nil)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 
 	// Start server
 	serverAddr := "127.0.0.1:0"
@@ -242,7 +254,11 @@ func TestSSHServerNoAuthMode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create server
-	server := New(hostKey, nil)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 
 	// Start server
 	serverAddr := "127.0.0.1:0"
@@ -319,7 +335,11 @@ func TestSSHServerStartStopCycle(t *testing.T) {
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server := New(hostKey, nil)
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
 	serverAddr := "127.0.0.1:0"
 
 	// Test multiple start/stop cycles
@@ -392,8 +412,17 @@ func TestSSHServer_PortForwardingConfiguration(t *testing.T) {
 	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	require.NoError(t, err)
 
-	server1 := New(hostKey, nil)
-	server2 := New(hostKey, nil)
+	serverConfig1 := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server1 := New(serverConfig1)
+
+	serverConfig2 := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server2 := New(serverConfig2)
 
 	assert.False(t, server1.allowLocalPortForwarding, "Local port forwarding should be disabled by default for security")
 	assert.False(t, server1.allowRemotePortForwarding, "Remote port forwarding should be disabled by default for security")

@@ -47,7 +47,11 @@ func TestSSHClient_DialWithKey(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create and start server
-	server := sshserver.New(hostKey, nil)
+	serverConfig := &sshserver.Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := sshserver.New(serverConfig)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
 
 	serverAddr := sshserver.StartTestServer(t, server)
@@ -207,7 +211,11 @@ func TestSSHClient_NoAuthMode(t *testing.T) {
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	server := sshserver.New(hostKey, nil)
+	serverConfig := &sshserver.Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := sshserver.New(serverConfig)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
 
 	serverAddr := sshserver.StartTestServer(t, server)
@@ -277,7 +285,11 @@ func setupTestSSHServerAndClient(t *testing.T) (*sshserver.Server, string, *Clie
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	server := sshserver.New(hostKey, nil)
+	serverConfig := &sshserver.Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := sshserver.New(serverConfig)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
 
 	serverAddr := sshserver.StartTestServer(t, server)
@@ -350,7 +362,11 @@ func TestSSHClient_PortForwardingDataTransfer(t *testing.T) {
 	hostKey, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	require.NoError(t, err)
 
-	server := sshserver.New(hostKey, nil)
+	serverConfig := &sshserver.Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := sshserver.New(serverConfig)
 	server.SetAllowLocalPortForwarding(true)
 	server.SetAllowRootLogin(true) // Allow root/admin login for tests
 
