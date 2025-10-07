@@ -34,17 +34,19 @@ type WGTunDevice struct {
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
+	renewableTun   *RenewableTUN
 }
 
 func NewTunDevice(address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunAdapter TunAdapter, disableDNS bool) *WGTunDevice {
 	return &WGTunDevice{
-		address:    address,
-		port:       port,
-		key:        key,
-		mtu:        mtu,
-		iceBind:    iceBind,
-		tunAdapter: tunAdapter,
-		disableDNS: disableDNS,
+		address:      address,
+		port:         port,
+		key:          key,
+		mtu:          mtu,
+		iceBind:      iceBind,
+		tunAdapter:   tunAdapter,
+		disableDNS:   disableDNS,
+		renewableTun: NewRenewableTUN(),
 	}
 }
 
@@ -67,14 +69,17 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 		return nil, err
 	}
 
-	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
+	unmonitoredTUN, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
 	if err != nil {
 		_ = unix.Close(fd)
 		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err
 	}
+
+	t.renewableTun.addDevice(unmonitoredTUN)
+
 	t.name = name
-	t.filteredDevice = newDeviceFilter(tunDevice)
+	t.filteredDevice = newDeviceFilter(t.renewableTun)
 
 	log.Debugf("attaching to interface %v", name)
 	t.device = device.NewDevice(t.filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[netbird] "))
@@ -111,34 +116,14 @@ func (t *WGTunDevice) RenewTun(fd int) error {
 		return fmt.Errorf("device not initialized")
 	}
 
-	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
+	unmonitoredTUN, _, err := tun.CreateUnmonitoredTUNFromFD(fd)
 	if err != nil {
 		_ = unix.Close(fd)
-		log.Errorf("failed to create Android interface: %s", err)
+		log.Errorf("failed to renew Android interface: %s", err)
 		return err
 	}
 
-	var filteredDevice = newDeviceFilter(tunDevice)
-
-	log.Debugf("attaching to interface %v", name)
-	var newDevice = device.NewDevice(filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[netbird] "))
-	var configurator = configurer.NewUSPConfigurer(newDevice, name, t.iceBind.ActivityRecorder())
-	err = configurator.ConfigureInterface(t.key, t.port)
-	if err != nil {
-		newDevice.Close()
-		configurator.Close()
-		return err
-	}
-
-	// Closing old device and configurator
-	t.device.Close()
-	t.configurer.Close()
-
-	// Assigning values to class members
-	t.name = name
-	t.filteredDevice = filteredDevice
-	t.device = newDevice
-	t.configurer = configurator
+	t.renewableTun.addDevice(unmonitoredTUN)
 
 	return nil
 }
