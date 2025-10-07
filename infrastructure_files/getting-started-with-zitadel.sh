@@ -621,7 +621,7 @@ renderCaddyfile() {
     # relay
     reverse_proxy /relay* relay:80
     # Signal
-    reverse_proxy /ws-proxy/signal* signal:10000
+    reverse_proxy /ws-proxy/signal* signal:80
     reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
     # Management
     reverse_proxy /api/* management:80
