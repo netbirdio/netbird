@@ -1074,7 +1074,7 @@ func (s *Server) runProbes() {
 	}
 
 	if time.Since(s.lastProbe) > probeThreshold {
-		if engine.RunHealthProbes() {
+		if engine.RunHealthProbes(true) {
 			s.lastProbe = time.Now()
 		}
 	}

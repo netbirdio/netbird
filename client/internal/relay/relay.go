@@ -19,6 +19,7 @@ import (
 
 const (
 	DefaultCacheTTL = 20 * time.Second
+	probeTimeout    = 6 * time.Second
 )
 
 var (
@@ -38,6 +39,7 @@ type StunTurnProbe struct {
 	cacheKey        string
 	cacheTTL        time.Duration
 	probeInProgress bool
+	probeDone       chan struct{}
 	mu              sync.Mutex
 }
 
@@ -47,21 +49,40 @@ func NewStunTurnProb(cacheTTL time.Duration) *StunTurnProbe {
 	}
 }
 
+func (p *StunTurnProbe) ProbeAllWaitResult(ctx context.Context, stuns []*stun.URI, turns []*stun.URI) []ProbeResult {
+	cacheKey := generateCacheKey(stuns, turns)
+
+	p.mu.Lock()
+	if p.probeInProgress {
+		doneChan := p.probeDone
+		p.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			log.Debugf("Context cancelled while waiting for probe results")
+			return createErrorResults(stuns, turns)
+		case <-doneChan:
+			return p.getCachedResults(cacheKey, stuns, turns)
+		}
+	}
+
+	p.probeInProgress = true
+	p.probeDone = make(chan struct{})
+	p.mu.Unlock()
+
+	p.doProbe(ctx, stuns, turns, cacheKey)
+	return p.getCachedResults(cacheKey, stuns, turns)
+}
+
 // ProbeAll probes all given servers asynchronously and returns the results
 func (p *StunTurnProbe) ProbeAll(ctx context.Context, stuns []*stun.URI, turns []*stun.URI) []ProbeResult {
 	cacheKey := generateCacheKey(stuns, turns)
 
-	// Check cache first
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.cacheKey == cacheKey && len(p.cacheResults) > 0 {
-		age := time.Since(p.cacheTimestamp)
-		if age < p.cacheTTL {
-			results := append([]ProbeResult(nil), p.cacheResults...)
-			log.Debugf("Returning cached probe results (age: %v)", age)
-			return results
-		}
+	if results := p.checkCache(cacheKey); results != nil {
+		return results
 	}
 
 	if p.probeInProgress {
@@ -69,9 +90,32 @@ func (p *StunTurnProbe) ProbeAll(ctx context.Context, stuns []*stun.URI, turns [
 	}
 
 	p.probeInProgress = true
+	p.probeDone = make(chan struct{})
 	go p.doProbe(ctx, stuns, turns, cacheKey)
 
 	log.Infof("started new probe for STUN, TURN servers")
+	return createErrorResults(stuns, turns)
+}
+
+func (p *StunTurnProbe) checkCache(cacheKey string) []ProbeResult {
+	if p.cacheKey == cacheKey && len(p.cacheResults) > 0 {
+		age := time.Since(p.cacheTimestamp)
+		if age < p.cacheTTL {
+			results := append([]ProbeResult(nil), p.cacheResults...)
+			log.Debugf("returning cached probe results (age: %v)", age)
+			return results
+		}
+	}
+	return nil
+}
+
+func (p *StunTurnProbe) getCachedResults(cacheKey string, stuns []*stun.URI, turns []*stun.URI) []ProbeResult {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.cacheKey == cacheKey && len(p.cacheResults) > 0 {
+		return append([]ProbeResult(nil), p.cacheResults...)
+	}
 	return createErrorResults(stuns, turns)
 }
 
@@ -79,6 +123,7 @@ func (p *StunTurnProbe) doProbe(ctx context.Context, stuns []*stun.URI, turns []
 	defer func() {
 		p.mu.Lock()
 		p.probeInProgress = false
+		close(p.probeDone)
 		p.mu.Unlock()
 	}()
 	results := make([]ProbeResult, len(stuns)+len(turns))
@@ -89,7 +134,7 @@ func (p *StunTurnProbe) doProbe(ctx context.Context, stuns []*stun.URI, turns []
 		go func(idx int, stunURI *stun.URI) {
 			defer wg.Done()
 
-			probeCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+			probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 			defer cancel()
 
 			results[idx].URI = stunURI.String()
@@ -103,7 +148,7 @@ func (p *StunTurnProbe) doProbe(ctx context.Context, stuns []*stun.URI, turns []
 		go func(idx int, turnURI *stun.URI) {
 			defer wg.Done()
 
-			probeCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+			probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 			defer cancel()
 
 			results[idx].URI = turnURI.String()
@@ -113,7 +158,6 @@ func (p *StunTurnProbe) doProbe(ctx context.Context, stuns []*stun.URI, turns []
 
 	wg.Wait()
 
-	// Store results in cache
 	p.mu.Lock()
 	p.cacheResults = results
 	p.cacheTimestamp = time.Now()
@@ -262,18 +306,12 @@ func (p *StunTurnProbe) probeTURN(ctx context.Context, uri *stun.URI) (addr stri
 }
 
 func createErrorResults(stuns []*stun.URI, turns []*stun.URI) []ProbeResult {
-	results := make([]ProbeResult, len(stuns)+len(turns))
+	total := len(stuns) + len(turns)
+	results := make([]ProbeResult, total)
 
-	for i, uri := range stuns {
+	allURIs := append(append([]*stun.URI{}, stuns...), turns...)
+	for i, uri := range allURIs {
 		results[i] = ProbeResult{
-			URI: uri.String(),
-			Err: ErrCheckInProgress,
-		}
-	}
-
-	stunOffset := len(stuns)
-	for i, uri := range turns {
-		results[stunOffset+i] = ProbeResult{
 			URI: uri.String(),
 			Err: ErrCheckInProgress,
 		}
@@ -282,7 +320,6 @@ func createErrorResults(stuns []*stun.URI, turns []*stun.URI) []ProbeResult {
 	return results
 }
 
-// generateCacheKey creates a unique key based on the URIs being probed
 func generateCacheKey(stuns []*stun.URI, turns []*stun.URI) string {
 	h := sha256.New()
 	for _, uri := range stuns {

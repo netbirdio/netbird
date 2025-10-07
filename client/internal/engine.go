@@ -1670,7 +1670,7 @@ func (e *Engine) getRosenpassAddr() string {
 
 // RunHealthProbes executes health checks for Signal, Management, Relay and WireGuard services
 // and updates the status recorder with the latest states.
-func (e *Engine) RunHealthProbes() bool {
+func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	e.syncMsgMux.Lock()
 
 	signalHealthy := e.signal.IsHealthy()
@@ -1702,8 +1702,12 @@ func (e *Engine) RunHealthProbes() bool {
 	}
 
 	e.syncMsgMux.Unlock()
-
-	results := e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
+	var results []relay.ProbeResult
+	if waitForResult {
+		results = e.probeStunTurn.ProbeAllWaitResult(e.ctx, stuns, turns)
+	} else {
+		results = e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
+	}
 	e.statusRecorder.UpdateRelayStates(results)
 
 	relayHealthy := true
