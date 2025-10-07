@@ -15,19 +15,14 @@ var regKeyAppPath = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Ne
 // DownloadUrl return with the proper download link
 func DownloadUrl() string {
 	_, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyAppPath, registry.QUERY_VALUE)
-	if err == nil {
-		goto PKGINSTALL
-	} else {
+	if err != nil {
 		return downloadURL
 	}
-
-PKGINSTALL:
-	switch runtime.GOARCH {
-	case "amd64":
-		return urlWinExe
-	case "arm64":
-		return urlWinExeArm
-	default:
-		return downloadURL
+	
+	url := urlWinExe
+	if untime.GOARCH == arm64 {
+		url = urlWinExeArm
 	}
+	
+	return url
 }
