@@ -100,8 +100,9 @@ func (p *PeersUpdateManager) SendNetworkMapUpdate(ctx context.Context, peerID st
 	if channel, ok := p.peerChannels[peerID]; ok {
 		found = true
 		channel.NetworkMap.Push(update)
+		log.WithContext(ctx).Debugf("update was sent to network map buffer for peer %s", peerID)
 	} else {
-		log.WithContext(ctx).Debugf("peer %s has no networkmap buffer", peerID)
+		log.WithContext(ctx).Debugf("peer %s has no network map buffer", peerID)
 	}
 }
 
