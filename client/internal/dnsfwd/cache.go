@@ -2,6 +2,7 @@ package dnsfwd
 
 import (
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 
@@ -35,9 +36,9 @@ func (c *cache) get(domain string, reqType uint16) ([]netip.Addr, bool) {
 
 	switch reqType {
 	case dns.TypeA:
-		return cloneAddrs(entry.ip4Addrs), len(entry.ip4Addrs) > 0
+		return slices.Clone(entry.ip4Addrs), len(entry.ip4Addrs) > 0
 	case dns.TypeAAAA:
-		return cloneAddrs(entry.ip6Addrs), len(entry.ip6Addrs) > 0
+		return slices.Clone(entry.ip6Addrs), len(entry.ip6Addrs) > 0
 	default:
 		return nil, false
 	}
@@ -56,9 +57,9 @@ func (c *cache) set(domain string, reqType uint16, addrs []netip.Addr) {
 
 	switch reqType {
 	case dns.TypeA:
-		entry.ip4Addrs = cloneAddrs(addrs)
+		entry.ip4Addrs = slices.Clone(addrs)
 	case dns.TypeAAAA:
-		entry.ip6Addrs = cloneAddrs(addrs)
+		entry.ip6Addrs = slices.Clone(addrs)
 	}
 }
 
@@ -67,13 +68,4 @@ func (c *cache) set(domain string, reqType uint16, addrs []netip.Addr) {
 func normalizeDomain(domain string) string {
 	// dns.Fqdn ensures trailing dot; ToLower for consistent casing
 	return dns.Fqdn(strings.ToLower(domain))
-}
-
-func cloneAddrs(in []netip.Addr) []netip.Addr {
-	if in == nil {
-		return nil
-	}
-	out := make([]netip.Addr, len(in))
-	copy(out, in)
-	return out
 }
