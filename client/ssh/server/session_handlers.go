@@ -115,6 +115,8 @@ func (s *Server) unregisterSession(sessionKey SessionKey, _ ssh.Session) {
 }
 
 func (s *Server) handlePrivError(logger *log.Entry, session ssh.Session, err error) {
+	logger.Warnf("user privilege check failed: %v", err)
+
 	errorMsg := s.buildUserLookupErrorMessage(err)
 
 	if _, writeErr := fmt.Fprint(session, errorMsg); writeErr != nil {
