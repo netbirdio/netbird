@@ -255,11 +255,14 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 				close(networkMapCh)
 				return
 			}
+			start := time.Now()
 			select {
 			case networkMapCh <- update:
+				log.WithContext(ctx).Debugf("forwarded an update for peer %s from the network map buffer in %v", peerKey.String(), time.Since(start))
 			case <-ctx.Done():
 				return
 			}
+			time.Sleep(1 * time.Second)
 		}
 	}()
 
