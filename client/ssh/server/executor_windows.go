@@ -80,7 +80,7 @@ func (pd *PrivilegeDropper) CreateWindowsExecutorCommand(ctx context.Context, co
 
 	log.Tracef("creating Windows direct shell command: %s %v", shellArgs[0], shellArgs)
 
-	cmd, err := pd.CreateWindowsProcessAsUserWithArgs(
+	cmd, err := pd.CreateWindowsProcessAsUser(
 		ctx, shellArgs[0], shellArgs, config.Username, config.Domain, config.WorkingDir)
 	if err != nil {
 		return nil, fmt.Errorf("create Windows process as user: %w", err)
@@ -454,14 +454,13 @@ func (pd *PrivilegeDropper) authenticateDomainUser(username, domain, fullUsernam
 	return token, nil
 }
 
-// CreateWindowsProcessAsUserWithArgs creates a process as user with safe argument passing (for SFTP and executables)
-func (pd *PrivilegeDropper) CreateWindowsProcessAsUserWithArgs(ctx context.Context, executablePath string, args []string, username, domain, workingDir string) (*exec.Cmd, error) {
+// CreateWindowsProcessAsUser creates a process as user with safe argument passing (for SFTP and executables)
+func (pd *PrivilegeDropper) CreateWindowsProcessAsUser(ctx context.Context, executablePath string, args []string, username, domain, workingDir string) (*exec.Cmd, error) {
 	fullUsername := buildUserCpn(username, domain)
 
 	token, err := pd.createToken(username, domain)
 	if err != nil {
-		log.Debugf("S4U authentication failed for user %s: %v", fullUsername, err)
-		return nil, fmt.Errorf("user authentication failed: %w", err)
+		return nil, fmt.Errorf("user authentication: %w", err)
 	}
 
 	log.Debugf("using S4U authentication for user %s", fullUsername)
@@ -472,26 +471,6 @@ func (pd *PrivilegeDropper) CreateWindowsProcessAsUserWithArgs(ctx context.Conte
 	}()
 
 	return pd.createProcessWithToken(ctx, windows.Token(token), executablePath, args, workingDir)
-}
-
-// CreateWindowsShellAsUser creates a shell process as user (for SSH commands/sessions)
-func (pd *PrivilegeDropper) CreateWindowsShellAsUser(ctx context.Context, shell, command string, username, domain, workingDir string) (*exec.Cmd, error) {
-	fullUsername := buildUserCpn(username, domain)
-
-	token, err := pd.createToken(username, domain)
-	if err != nil {
-		return nil, fmt.Errorf("user authentication failed: %w", err)
-	}
-
-	log.Debugf("using S4U authentication for user %s", fullUsername)
-	defer func() {
-		if err := windows.CloseHandle(token); err != nil {
-			log.Debugf(closeTokenErrorMsg, err)
-		}
-	}()
-
-	shellArgs := buildShellArgs(shell, command)
-	return pd.createProcessWithToken(ctx, windows.Token(token), shell, shellArgs, workingDir)
 }
 
 // createProcessWithToken creates process with the specified token and executable path

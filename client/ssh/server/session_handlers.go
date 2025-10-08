@@ -44,13 +44,13 @@ func (s *Server) sessionHandler(session ssh.Session) {
 	switch {
 	case isPty && hasCommand:
 		// ssh -t <host> <cmd> - Pty command execution
-		s.handleCommand(logger, session, privilegeResult, ptyReq, winCh)
+		s.handleCommand(logger, session, privilegeResult, winCh)
 	case isPty:
 		// ssh <host> - Pty interactive session (login)
 		s.handlePty(logger, session, privilegeResult, ptyReq, winCh)
 	case hasCommand:
 		// ssh <host> <cmd> - non-Pty command execution
-		s.handleCommand(logger, session, privilegeResult, ssh.Pty{}, nil)
+		s.handleCommand(logger, session, privilegeResult, nil)
 	default:
 		s.rejectInvalidSession(logger, session)
 	}

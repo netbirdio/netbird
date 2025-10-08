@@ -13,7 +13,7 @@ import (
 )
 
 // handleCommand executes an SSH command with privilege validation
-func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) {
+func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, winCh <-chan ssh.Window) {
 	localUser := privilegeResult.User
 	hasPty := winCh != nil
 
