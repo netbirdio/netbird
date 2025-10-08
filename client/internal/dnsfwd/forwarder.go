@@ -321,12 +321,19 @@ func (f *DNSForwarder) handleDNSError(
 	}
 
 	// Upstream failed but we might have a cached answer—serve it if present.
-	if ips, ok := f.cache.get(domain, qType); ok && len(ips) > 0 {
-		log.Debugf("serving cached DNS response after upstream failure: domain=%s type=%s", domain, qTypeName)
-		f.addIPsToResponse(resp, domain, ips)
-		resp.Rcode = dns.RcodeSuccess
-		if writeErr := w.WriteMsg(resp); writeErr != nil {
-			log.Errorf("failed to write cached DNS response: %v", writeErr)
+	if ips, ok := f.cache.get(domain, qType); ok {
+		if len(ips) > 0 {
+			log.Debugf("serving cached DNS response after upstream failure: domain=%s type=%s", domain, qTypeName)
+			f.addIPsToResponse(resp, domain, ips)
+			resp.Rcode = dns.RcodeSuccess
+			if writeErr := w.WriteMsg(resp); writeErr != nil {
+				log.Errorf("failed to write cached DNS response: %v", writeErr)
+			}
+		} else { // send NXDOMAIN / appropriate code if cache is empty
+			f.setResponseCodeForNotFound(ctx, resp, domain, qType)
+			if writeErr := w.WriteMsg(resp); writeErr != nil {
+				log.Errorf("failed to write failure DNS response: %v", writeErr)
+			}
 		}
 		return
 	}
