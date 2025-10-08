@@ -103,6 +103,11 @@ type MockWGIface struct {
 	GetProxyFunc               func() wgproxy.Proxy
 	GetNetFunc                 func() *netstack.Net
 	LastActivitiesFunc         func() map[string]monotime.Time
+	RenewFd                    func(int) error
+}
+
+func (m *MockWGIface) RenewTun(_ int) error {
+	return nil
 }
 
 func (m *MockWGIface) RemoveEndpointAddress(_ string) error {
