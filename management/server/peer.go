@@ -1270,11 +1270,9 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
 			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
 
-			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
+			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
 		}(peer)
 	}
-
-	//
 
 	wg.Wait()
 	if am.metrics != nil {
@@ -1381,7 +1379,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), dnsForwarderPortMinVersion)
 
 	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
-	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
+	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update})
 }
 
 // getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
@@ -1603,7 +1601,6 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 					},
 				},
 			},
-			NetworkMap: &types.NetworkMap{},
 		})
 		am.peersUpdateManager.CloseChannel(ctx, peer.ID)
 		peerDeletedEvents = append(peerDeletedEvents, func() {
