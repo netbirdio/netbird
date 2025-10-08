@@ -721,16 +721,19 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 	return nil
 }
 
-func (e *Engine) handleAutoUpdateVersion(autoUpdateVersion string) {
-	if e.updateManager == nil && autoUpdateVersion != disableAutoUpdate {
-		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder)
+func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
+	if autoUpdateSettings == nil {
+		return
+	}
+	if e.updateManager == nil && autoUpdateSettings.Version != disableAutoUpdate && autoUpdateSettings.AlwaysUpdate {
+		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
 		e.updateManager.Start(e.ctx)
-	} else if e.updateManager != nil && autoUpdateVersion == disableAutoUpdate {
+	} else if e.updateManager != nil && autoUpdateSettings.Version == disableAutoUpdate {
 		e.updateManager.Stop()
 		e.updateManager = nil
 	}
-	if e.updateManager != nil {
-		e.updateManager.SetVersion(autoUpdateVersion)
+	if e.updateManager != nil && autoUpdateSettings.AlwaysUpdate {
+		e.updateManager.SetVersion(autoUpdateSettings.Version)
 	}
 }
 
@@ -739,7 +742,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	defer e.syncMsgMux.Unlock()
 
 	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
-		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdateVersion)
+		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
 	}
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()

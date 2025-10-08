@@ -2,8 +2,11 @@ package updatemanager
 
 import (
 	"context"
+	"fmt"
 	v "github.com/hashicorp/go-version"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"path"
 	"testing"
 	"time"
 )
@@ -61,9 +64,10 @@ func Test_LatestVersion(t *testing.T) {
 		},
 	}
 
-	for _, c := range testMatrix {
+	for idx, c := range testMatrix {
 		mockUpdate := &versionUpdateMock{latestVersion: c.initialLatestVersion}
-		m := NewUpdateManager(peer.NewRecorder("")).WithCustomVersionUpdate(mockUpdate)
+		tmpFile := path.Join(t.TempDir(), fmt.Sprintf("update-test-%d.json", idx))
+		m := NewUpdateManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(mockUpdate)
 
 		targetVersionChan := make(chan string, 1)
 
@@ -174,8 +178,9 @@ func Test_HandleUpdate(t *testing.T) {
 			shouldUpdate:    false,
 		},
 	}
-	for _, c := range testMatrix {
-		m := NewUpdateManager(peer.NewRecorder("")).WithCustomVersionUpdate(&versionUpdateMock{latestVersion: c.latestVersion})
+	for idx, c := range testMatrix {
+		tmpFile := path.Join(t.TempDir(), fmt.Sprintf("update-test-%d.json", idx))
+		m := NewUpdateManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(&versionUpdateMock{latestVersion: c.latestVersion})
 		targetVersionChan := make(chan string, 1)
 
 		m.updateFunc = func(ctx context.Context, targetVersion string) error {

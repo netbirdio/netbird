@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -32,6 +33,15 @@ type UpdateInterface interface {
 	StartFetcher()
 }
 
+type UpdateState struct {
+	PreUpdateVersion string
+	TargetVersion    string
+}
+
+func (u UpdateState) Name() string {
+	return "autoUpdate"
+}
+
 type UpdateManager struct {
 	lastTrigger    time.Time
 	statusRecorder *peer.Status
@@ -40,6 +50,7 @@ type UpdateManager struct {
 	wg             sync.WaitGroup
 	currentVersion string
 	updateFunc     func(ctx context.Context, targetVersion string) error
+	stateManager   *statemanager.Manager
 
 	cancel context.CancelFunc
 	update UpdateInterface
@@ -49,7 +60,7 @@ type UpdateManager struct {
 	expectedVersionMutex  sync.Mutex
 }
 
-func NewUpdateManager(statusRecorder *peer.Status) *UpdateManager {
+func NewUpdateManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *UpdateManager {
 	manager := &UpdateManager{
 		statusRecorder: statusRecorder,
 		mgmUpdateChan:  make(chan struct{}, 1),
@@ -57,8 +68,24 @@ func NewUpdateManager(statusRecorder *peer.Status) *UpdateManager {
 		currentVersion: version.NetbirdVersion(),
 		updateFunc:     triggerUpdate,
 		update:         version.NewUpdate("nb/client"),
+		stateManager:   stateManager,
 	}
+
 	return manager
+}
+
+func (u *UpdateManager) StartWithTimeout(ctx context.Context, timeout time.Duration) {
+	if u.cancel != nil {
+		log.Errorf("UpdateManager already started")
+		return
+	}
+
+	u.startInit(ctx)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	u.cancel = cancel
+
+	u.wg.Add(1)
+	go u.updateLoop(ctx)
 }
 
 func (u *UpdateManager) Start(ctx context.Context) {
@@ -67,7 +94,15 @@ func (u *UpdateManager) Start(ctx context.Context) {
 		return
 	}
 
-	go u.update.StartFetcher()
+	u.startInit(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	u.cancel = cancel
+
+	u.wg.Add(1)
+	go u.updateLoop(ctx)
+}
+
+func (u *UpdateManager) startInit(ctx context.Context) {
 	u.update.SetDaemonVersion(u.currentVersion)
 	u.update.SetOnUpdateListener(func() {
 		select {
@@ -75,12 +110,33 @@ func (u *UpdateManager) Start(ctx context.Context) {
 		default:
 		}
 	})
+	go u.update.StartFetcher()
 
-	ctx, cancel := context.WithCancel(ctx)
-	u.cancel = cancel
-
-	u.wg.Add(1)
-	go u.updateLoop(ctx)
+	u.stateManager.RegisterState(&UpdateState{})
+	if err := u.stateManager.LoadState(&UpdateState{}); err != nil {
+		log.Warnf("failed to load state: %v", err)
+		return
+	}
+	if u.stateManager.GetState(&UpdateState{}) == nil {
+		return
+	}
+	updateState := u.stateManager.GetState(&UpdateState{}).(*UpdateState)
+	log.Warnf("autoUpdate state loaded, %v", *updateState)
+	if updateState.TargetVersion == u.currentVersion {
+		log.Warnf("published notification event")
+		u.statusRecorder.PublishEvent(
+			cProto.SystemEvent_INFO,
+			cProto.SystemEvent_SYSTEM,
+			"Auto-update completed",
+			fmt.Sprintf("Your NetBird Client was auto-updated to version %s", u.currentVersion),
+			nil,
+		)
+	}
+	if err := u.stateManager.DeleteState(updateState); err != nil {
+		log.Warnf("failed to delete state: %v", err)
+	} else if err = u.stateManager.PersistState(ctx); err != nil {
+		log.Warnf("failed to persist state: %v", err)
+	}
 }
 
 func (u *UpdateManager) SetVersion(expectedVersion string) {
@@ -129,12 +185,26 @@ func (u *UpdateManager) Stop() {
 	u.wg.Wait()
 }
 
+func (u *UpdateManager) onContextCancel() {
+	if u.cancel == nil {
+		return
+	}
+
+	u.expectedVersionMutex.Lock()
+	defer u.expectedVersionMutex.Unlock()
+	if u.update != nil {
+		u.update.StopWatch()
+		u.update = nil
+	}
+}
+
 func (u *UpdateManager) updateLoop(ctx context.Context) {
 	defer u.wg.Done()
 
 	for {
 		select {
 		case <-ctx.Done():
+			u.onContextCancel()
 			return
 		case <-u.mgmUpdateChan:
 		case <-u.updateChannel:
@@ -189,9 +259,46 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 		nil,
 	)
 
-	err := u.updateFunc(ctx, updateVersion.String())
+	u.statusRecorder.PublishEvent(
+		cProto.SystemEvent_INFO,
+		cProto.SystemEvent_SYSTEM,
+		"",
+		"",
+		map[string]string{"progress_window": "show"},
+	)
+
+	updateState := UpdateState{
+		PreUpdateVersion: u.currentVersion,
+		TargetVersion:    updateVersion.String(),
+	}
+	err := u.stateManager.UpdateState(updateState)
+	if err != nil {
+		log.Warnf("failed to update state: %v", err)
+	} else {
+		err = u.stateManager.PersistState(ctx)
+		if err != nil {
+			log.Warnf("failed to persist state: %v", err)
+		}
+	}
+
+	err = u.updateFunc(ctx, updateVersion.String())
+
 	if err != nil {
 		log.Errorf("Error triggering auto-update: %v", err)
+		u.statusRecorder.PublishEvent(
+			cProto.SystemEvent_ERROR,
+			cProto.SystemEvent_SYSTEM,
+			"Auto-update failed",
+			fmt.Sprintf("Auto-update failed: %v", err),
+			nil,
+		)
+		u.statusRecorder.PublishEvent(
+			cProto.SystemEvent_INFO,
+			cProto.SystemEvent_SYSTEM,
+			"",
+			"",
+			map[string]string{"progress_window": "hide"},
+		)
 	}
 }
 
