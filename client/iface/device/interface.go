@@ -21,4 +21,5 @@ type WGConfigurer interface {
 	GetStats() (map[string]configurer.WGStats, error)
 	FullStats() (*configurer.Stats, error)
 	LastActivities() map[string]monotime.Time
+	RemoveEndpointAddress(peerKey string) error
 }
