@@ -255,24 +255,39 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates *UpdateChannel, srv proto.ManagementService_SyncServer) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
 
-	// Channel to receive network map updates
-	networkMapCh := make(chan *UpdateMessage)
+	// Channel to receive network map updates with metadata
+	type networkMapUpdate struct {
+		msg              *UpdateMessage
+		overwrites       int
+		timeSinceLastPop time.Duration
+	}
+	networkMapCh := make(chan networkMapUpdate)
 
 	// Start goroutine to Pop from buffer
 	go func() {
 		for {
-			update, ok := updates.NetworkMap.Pop(ctx)
+			update, overwrites, timeSinceLastPop, ok := updates.NetworkMap.Pop(ctx)
 			if !ok {
 				close(networkMapCh)
 				return
 			}
 			start := time.Now()
 			select {
-			case networkMapCh <- update:
-				log.WithContext(ctx).Debugf("forwarded an update for peer %s from the network map buffer in %v", peerKey.String(), time.Since(start))
-				start = time.Now()
-				time.Sleep(time.Duration(s.debounce) * time.Second)
-				log.WithContext(ctx).Debugf("debounced for %v seconds for peer %s", time.Since(start), peerKey.String())
+			case networkMapCh <- networkMapUpdate{
+				msg:              update,
+				overwrites:       overwrites,
+				timeSinceLastPop: timeSinceLastPop,
+			}:
+				log.WithContext(ctx).Debugf("forwarded an update for peer %s from the network map buffer in %v (overwrites: %d)", peerKey.String(), time.Since(start), overwrites)
+
+				// Adaptive debounce: increase delay based on overwrite rate
+				// If many overwrites happened, wait longer to let things settle
+				debounce := s.calculateDebounce(overwrites, timeSinceLastPop)
+				if debounce > 0 {
+					start = time.Now()
+					time.Sleep(debounce)
+					log.WithContext(ctx).Debugf("debounced for %v for peer %s (overwrites: %d)", time.Since(start), peerKey.String(), overwrites)
+				}
 			case <-ctx.Done():
 				return
 			}
@@ -299,14 +314,14 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 				return err
 			}
 
-		case update, ok := <-networkMapCh:
+		case updateData, ok := <-networkMapCh:
 			if !ok {
 				log.WithContext(ctx).Debugf("update buffer for peer %s closed", peerKey.String())
 				s.cancelPeerRoutines(ctx, accountID, peer)
 				return nil
 			}
-			log.WithContext(ctx).Debugf("sending latest update to peer %s", peerKey.String())
-			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
+			log.WithContext(ctx).Debugf("sending latest update to peer %s (overwrites: %d)", peerKey.String(), updateData.overwrites)
+			if err := s.sendUpdate(ctx, accountID, peerKey, peer, updateData.msg, srv); err != nil {
 				return err
 			}
 
@@ -318,6 +333,33 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 			return srv.Context().Err()
 		}
 	}
+}
+
+// calculateDebounce calculates adaptive debounce duration based on overwrite rate
+// More overwrites = longer debounce to let updates settle
+func (s *GRPCServer) calculateDebounce(overwrites int, timeSinceLastPop time.Duration) time.Duration {
+	if overwrites == 0 {
+		// No overwrites, use base debounce
+		return time.Duration(s.debounce) * time.Second
+	}
+
+	var rate float64
+	if timeSinceLastPop > 0 {
+		rate = float64(overwrites) / timeSinceLastPop.Seconds()
+	} else {
+		rate = float64(overwrites)
+	}
+
+	multiplier := 2.0
+	adaptiveDebounce := float64(s.debounce) + (rate * multiplier)
+
+	// Cap at 10x base debounce
+	maxDebounce := float64(s.debounce) * 10
+	if adaptiveDebounce > maxDebounce {
+		adaptiveDebounce = maxDebounce
+	}
+
+	return time.Duration(adaptiveDebounce * float64(time.Second))
 }
 
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
