@@ -73,6 +73,44 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix,
 	return nil
 }
 
+func (c *KernelConfigurer) RemoveEndpointAddress(peerKey string) error {
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	// Get the existing peer to preserve its allowed IPs
+	existingPeer, err := c.getPeer(c.deviceName, peerKey)
+	if err != nil {
+		return fmt.Errorf("get peer: %w", err)
+	}
+
+	removePeerCfg := wgtypes.PeerConfig{
+		PublicKey: peerKeyParsed,
+		Remove:    true,
+	}
+
+	if err := c.configure(wgtypes.Config{Peers: []wgtypes.PeerConfig{removePeerCfg}}); err != nil {
+		return fmt.Errorf(`error removing peer %s from interface %s: %w`, peerKey, c.deviceName, err)
+	}
+
+	//Re-add the peer without the endpoint but same AllowedIPs
+	reAddPeerCfg := wgtypes.PeerConfig{
+		PublicKey:         peerKeyParsed,
+		AllowedIPs:        existingPeer.AllowedIPs,
+		ReplaceAllowedIPs: true,
+	}
+
+	if err := c.configure(wgtypes.Config{Peers: []wgtypes.PeerConfig{reAddPeerCfg}}); err != nil {
+		return fmt.Errorf(
+			`error re-adding peer %s to interface %s with allowed IPs %v: %w`,
+			peerKey, c.deviceName, existingPeer.AllowedIPs, err,
+		)
+	}
+
+	return nil
+}
+
 func (c *KernelConfigurer) RemovePeer(peerKey string) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
