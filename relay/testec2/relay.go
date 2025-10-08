@@ -43,7 +43,7 @@ func relayTransfer(serverConnURL string, testData []byte, peerPairs int) {
 }
 
 func runWriter(conn net.Conn, testData []byte) {
-	si := NewStartInidication(time.Now(), len(testData))
+	si := NewStartIndication(time.Now(), len(testData))
 	_, err := conn.Write(si)
 	if err != nil {
 		log.Errorf("failed to write to channel: %s", err)

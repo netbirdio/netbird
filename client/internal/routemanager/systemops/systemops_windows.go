@@ -181,7 +181,7 @@ var (
 )
 
 const (
-	MibParemeterModification MIB_NOTIFICATION_TYPE = iota
+	MibParameterModification MIB_NOTIFICATION_TYPE = iota
 	MibAddInstance
 	MibDeleteInstance
 	MibInitialNotification
@@ -489,7 +489,7 @@ func (rm *RouteMonitor) parseUpdate(row *MIB_IPFORWARD_ROW2, notificationType MI
 
 	updateType := RouteModified
 	switch notificationType {
-	case MibParemeterModification:
+	case MibParameterModification:
 		updateType = RouteModified
 	case MibAddInstance:
 		updateType = RouteAdded

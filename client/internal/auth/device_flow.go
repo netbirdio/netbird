@@ -120,7 +120,7 @@ func (d *DeviceAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlow
 	deviceCode := AuthFlowInfo{}
 	err = json.Unmarshal(body, &deviceCode)
 	if err != nil {
-		return AuthFlowInfo{}, fmt.Errorf("unmarshaling response failed with error: %v", err)
+		return AuthFlowInfo{}, fmt.Errorf("unmarshalling response failed with error: %v", err)
 	}
 
 	// Fallback to the verification_uri if the IdP doesn't support verification_uri_complete

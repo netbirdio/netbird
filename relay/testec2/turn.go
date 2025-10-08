@@ -31,7 +31,7 @@ func runTurnWriting(tcpConn net.Conn, testData []byte, testDataLen int, wg *sync
 
 	log.Infof("start to sending test data: %s", tcpConn.RemoteAddr())
 
-	si := NewStartInidication(time.Now(), testDataLen)
+	si := NewStartIndication(time.Now(), testDataLen)
 	_, err := tcpConn.Write(si)
 	if err != nil {
 		log.Errorf("failed to write to tcp: %s", err)

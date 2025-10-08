@@ -12,7 +12,7 @@ import (
 const (
 	reconnThreshold   = 5 * time.Minute
 	baseBlockDuration = 10 * time.Minute // Duration for which a peer is banned after exceeding the reconnection limit
-	reconnLimitForBan = 30               // Number of reconnections within the reconnTreshold that triggers a ban
+	reconnLimitForBan = 30               // Number of reconnections within the reconnThreshold that triggers a ban
 	metaChangeLimit   = 3                // Number of reconnections with different metadata that triggers a ban of one peer
 )
 

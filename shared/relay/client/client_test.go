@@ -280,7 +280,7 @@ func TestEcho(t *testing.T) {
 	}
 }
 
-func TestBindToUnavailabePeer(t *testing.T) {
+func TestBindToUnavailablePeer(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}

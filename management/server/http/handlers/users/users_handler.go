@@ -304,7 +304,7 @@ func toUserWithPermissionsResponse(user *users.UserInfoWithPermissions, userID s
 	return response
 }
 
-func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
+func toUserResponse(user *types.UserInfo, currentUserID string) *api.User {
 	autoGroups := user.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
@@ -324,7 +324,7 @@ func toUserResponse(user *types.UserInfo, currenUserID string) *api.User {
 		userStatus = api.UserStatusBlocked
 	}
 
-	isCurrent := user.ID == currenUserID
+	isCurrent := user.ID == currentUserID
 
 	return &api.User{
 		Id:              user.ID,
