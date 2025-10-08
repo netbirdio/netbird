@@ -86,7 +86,7 @@ func NewServer(
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
 		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
-			return int64(len(peersUpdateManager.peerChannels))
+			return int64(peersUpdateManager.GetChannelCount())
 		})
 		if err != nil {
 			return nil, err
@@ -241,14 +241,34 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 }
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
-func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates *UpdateChannel, srv proto.ManagementService_SyncServer) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
+
+	// Channel to receive network map updates
+	networkMapCh := make(chan *UpdateMessage)
+
+	// Start goroutine to Pop from buffer
+	go func() {
+		for {
+			update, ok := updates.NetworkMap.Pop(ctx)
+			if !ok {
+				close(networkMapCh)
+				return
+			}
+			select {
+			case networkMapCh <- update:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	for {
 		select {
 		// condition when there are some updates
-		case update, open := <-updates:
+		case update, open := <-updates.Important:
 			if s.appMetrics != nil {
-				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates) + 1)
+				s.appMetrics.GRPCMetrics().UpdateChannelQueueLength(len(updates.Important) + 1)
 			}
 
 			if !open {
@@ -260,6 +280,17 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 
 			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
 				log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
+				return err
+			}
+
+		case update, ok := <-networkMapCh:
+			if !ok {
+				log.WithContext(ctx).Debugf("update buffer for peer %s closed", peerKey.String())
+				s.cancelPeerRoutines(ctx, accountID, peer)
+				return nil
+			}
+			log.WithContext(ctx).Debugf("sending latest update to peer %s", peerKey.String())
+			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
 				return err
 			}
 

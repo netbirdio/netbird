@@ -227,7 +227,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
-	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
+	m.updateManager.SendImportantUpdate(ctx, peerID, &UpdateMessage{Update: update})
 }
 
 func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, accountID, peerID string) {
@@ -251,7 +251,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
-	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
+	m.updateManager.SendImportantUpdate(ctx, peerID, &UpdateMessage{Update: update})
 }
 
 func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, peerID, accountID string, update *proto.SyncResponse) {

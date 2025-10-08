@@ -33,15 +33,15 @@ func TestSendUpdate(t *testing.T) {
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
 	}
-	peersUpdater.SendUpdate(context.Background(), peer, update1)
+	peersUpdater.SendImportantUpdate(context.Background(), peer, update1)
 	select {
-	case <-peersUpdater.peerChannels[peer]:
+	case <-peersUpdater.peerChannels[peer].Important:
 	default:
 		t.Error("Update wasn't send")
 	}
 
 	for range [channelBufferSize]int{} {
-		peersUpdater.SendUpdate(context.Background(), peer, update1)
+		peersUpdater.SendImportantUpdate(context.Background(), peer, update1)
 	}
 
 	update2 := &UpdateMessage{Update: &proto.SyncResponse{
@@ -50,13 +50,13 @@ func TestSendUpdate(t *testing.T) {
 		},
 	}}
 
-	peersUpdater.SendUpdate(context.Background(), peer, update2)
+	peersUpdater.SendImportantUpdate(context.Background(), peer, update2)
 	timeout := time.After(5 * time.Second)
 	for range [channelBufferSize]int{} {
 		select {
 		case <-timeout:
 			t.Error("timed out reading previously sent updates")
-		case updateReader := <-peersUpdater.peerChannels[peer]:
+		case updateReader := <-peersUpdater.peerChannels[peer].Important:
 			if updateReader.Update.NetworkMap.Serial == update2.Update.NetworkMap.Serial {
 				t.Error("got the update that shouldn't have been sent")
 			}
