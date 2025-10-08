@@ -5,10 +5,12 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun"
 	"os"
+	"sync"
 )
 
 type RenewableTUN struct {
 	devices []tun.Device
+	mu      sync.Mutex
 }
 
 func (r *RenewableTUN) File() *os.File {
@@ -90,6 +92,9 @@ func (r *RenewableTUN) Events() <-chan tun.Event {
 }
 
 func (r *RenewableTUN) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	log.Debugf("closing %d devices.", len(r.devices))
 
 	var err error
@@ -126,12 +131,14 @@ func (r *RenewableTUN) addDevice(device tun.Device) {
 		}(first)
 	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.devices = append(r.devices, device)
 }
 
 func (r *RenewableTUN) peekLast() tun.Device {
-	//r.mu.Lock()
-	//defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	if len(r.devices) == 0 {
 		return nil
@@ -140,19 +147,9 @@ func (r *RenewableTUN) peekLast() tun.Device {
 	return r.devices[len(r.devices)-1]
 }
 
-func (r *RenewableTUN) peek() tun.Device {
-	//r.mu.Lock()
-	//defer r.mu.Unlock()
-	if len(r.devices) == 0 {
-		return nil
-	}
-
-	return r.devices[0]
-}
-
 func (r *RenewableTUN) dequeue() tun.Device {
-	//r.mu.Lock()
-	//defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	if len(r.devices) == 0 {
 		return nil
@@ -166,6 +163,7 @@ func (r *RenewableTUN) dequeue() tun.Device {
 func NewRenewableTUN() *RenewableTUN {
 	r := &RenewableTUN{
 		devices: make([]tun.Device, 0),
+		mu:      sync.Mutex{},
 	}
 
 	return r
