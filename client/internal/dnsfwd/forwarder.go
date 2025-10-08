@@ -316,6 +316,7 @@ func (f *DNSForwarder) handleDNSError(
 		if writeErr := w.WriteMsg(resp); writeErr != nil {
 			log.Errorf("failed to write failure DNS response: %v", writeErr)
 		}
+		f.cache.set(domain, question.Qtype, nil)
 		return
 	}
 

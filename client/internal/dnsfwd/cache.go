@@ -36,9 +36,9 @@ func (c *cache) get(domain string, reqType uint16) ([]netip.Addr, bool) {
 
 	switch reqType {
 	case dns.TypeA:
-		return slices.Clone(entry.ip4Addrs), len(entry.ip4Addrs) > 0
+		return slices.Clone(entry.ip4Addrs), true
 	case dns.TypeAAAA:
-		return slices.Clone(entry.ip6Addrs), len(entry.ip6Addrs) > 0
+		return slices.Clone(entry.ip6Addrs), true
 	default:
 		return nil, false
 	}
