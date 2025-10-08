@@ -48,12 +48,13 @@ func (s *Server) configurePortForwarding(server *ssh.Server) {
 
 	server.LocalPortForwardingCallback = func(ctx ssh.Context, dstHost string, dstPort uint32) bool {
 		if !allowLocal {
-			log.Debugf("local port forwarding denied: %s:%d (disabled by configuration)", dstHost, dstPort)
+			log.Warnf("local port forwarding denied for %s from %s: disabled by configuration",
+				net.JoinHostPort(dstHost, fmt.Sprintf("%d", dstPort)), ctx.RemoteAddr())
 			return false
 		}
 
 		if err := s.checkPortForwardingPrivileges(ctx, "local", dstPort); err != nil {
-			log.Infof("local port forwarding denied: %v", err)
+			log.Warnf("local port forwarding denied for %s:%d from %s: %v", dstHost, dstPort, ctx.RemoteAddr(), err)
 			return false
 		}
 
@@ -63,12 +64,13 @@ func (s *Server) configurePortForwarding(server *ssh.Server) {
 
 	server.ReversePortForwardingCallback = func(ctx ssh.Context, bindHost string, bindPort uint32) bool {
 		if !allowRemote {
-			log.Debugf("remote port forwarding denied: %s:%d (disabled by configuration)", bindHost, bindPort)
+			log.Warnf("remote port forwarding denied for %s from %s: disabled by configuration",
+				net.JoinHostPort(bindHost, fmt.Sprintf("%d", bindPort)), ctx.RemoteAddr())
 			return false
 		}
 
 		if err := s.checkPortForwardingPrivileges(ctx, "remote", bindPort); err != nil {
-			log.Infof("remote port forwarding denied: %v", err)
+			log.Warnf("remote port forwarding denied for %s:%d from %s: %v", bindHost, bindPort, ctx.RemoteAddr(), err)
 			return false
 		}
 
@@ -115,7 +117,7 @@ func (s *Server) tcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *crypto
 	logger := s.getRequestLogger(ctx)
 
 	if !s.isRemotePortForwardingAllowed() {
-		logger.Debugf("tcpip-forward request denied: remote port forwarding disabled")
+		logger.Warnf("tcpip-forward request denied: remote port forwarding disabled")
 		return false, nil
 	}
 
@@ -126,7 +128,7 @@ func (s *Server) tcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *crypto
 	}
 
 	if err := s.checkPortForwardingPrivileges(ctx, "tcpip-forward", payload.Port); err != nil {
-		logger.Infof("tcpip-forward denied: %v", err)
+		logger.Warnf("tcpip-forward denied: %v", err)
 		return false, nil
 	}
 
@@ -134,7 +136,7 @@ func (s *Server) tcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *crypto
 
 	sshConn, err := s.getSSHConnection(ctx)
 	if err != nil {
-		logger.Debugf("tcpip-forward request denied: %v", err)
+		logger.Warnf("tcpip-forward request denied: %v", err)
 		return false, nil
 	}
 
@@ -153,7 +155,7 @@ func (s *Server) cancelTcpipForwardHandler(ctx ssh.Context, _ *ssh.Server, req *
 
 	key := ForwardKey(fmt.Sprintf("%s:%d", payload.Host, payload.Port))
 	if s.removeRemoteForwardListener(key) {
-		logger.Infof("cancelled remote port forwarding: %s:%d", payload.Host, payload.Port)
+		logger.Infof("remote port forwarding cancelled: %s:%d", payload.Host, payload.Port)
 		return true, nil
 	}
 
