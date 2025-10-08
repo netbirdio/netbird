@@ -73,13 +73,13 @@ func (p *PeersUpdateManager) SendImportantUpdate(ctx context.Context, peerID str
 		found = true
 		select {
 		case channel.Important <- update:
-			log.WithContext(ctx).Debugf("update was sent to important channel for peer %s", peerID)
+			// log.WithContext(ctx).Debugf("update was sent to important channel for peer %s", peerID)
 		default:
 			dropped = true
-			log.WithContext(ctx).Warnf("important channel for peer %s is %d full or closed", peerID, len(channel.Important))
+			// log.WithContext(ctx).Warnf("important channel for peer %s is %d full or closed", peerID, len(channel.Important))
 		}
 	} else {
-		log.WithContext(ctx).Debugf("peer %s has no important channel", peerID)
+		// log.WithContext(ctx).Debugf("peer %s has no important channel", peerID)
 	}
 }
 
@@ -100,9 +100,9 @@ func (p *PeersUpdateManager) SendNetworkMapUpdate(ctx context.Context, peerID st
 	if channel, ok := p.peerChannels[peerID]; ok {
 		found = true
 		channel.NetworkMap.Push(update)
-		log.WithContext(ctx).Debugf("update was sent to network map buffer for peer %s", peerID)
+		// log.WithContext(ctx).Debugf("update was sent to network map buffer for peer %s", peerID)
 	} else {
-		log.WithContext(ctx).Debugf("peer %s has no network map buffer", peerID)
+		// log.WithContext(ctx).Debugf("peer %s has no network map buffer", peerID)
 	}
 }
 

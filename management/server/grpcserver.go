@@ -266,27 +266,29 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 	// Start goroutine to Pop from buffer
 	go func() {
 		for {
+			start := time.Now()
 			update, overwrites, timeSinceLastPop, ok := updates.NetworkMap.Pop(ctx)
+			log.WithContext(ctx).Debugf("popped an update for peer %s from the network map buffer in %v (overwrites: %d)", peerKey.String(), time.Since(start), overwrites)
 			if !ok {
 				close(networkMapCh)
 				return
 			}
-			start := time.Now()
+			// start := time.Now()
 			select {
 			case networkMapCh <- networkMapUpdate{
 				msg:              update,
 				overwrites:       overwrites,
 				timeSinceLastPop: timeSinceLastPop,
 			}:
-				log.WithContext(ctx).Debugf("forwarded an update for peer %s from the network map buffer in %v (overwrites: %d)", peerKey.String(), time.Since(start), overwrites)
+				// log.WithContext(ctx).Debugf("forwarded an update for peer %s from the network map buffer in %v (overwrites: %d)", peerKey.String(), time.Since(start), overwrites)
 
 				// Adaptive debounce: increase delay based on overwrite rate
 				// If many overwrites happened, wait longer to let things settle
 				debounce := s.calculateDebounce(overwrites, timeSinceLastPop)
 				if debounce > 0 {
-					start = time.Now()
+					// start = time.Now()
 					time.Sleep(debounce)
-					log.WithContext(ctx).Debugf("debounced for %v for peer %s (overwrites: %d)", time.Since(start), peerKey.String(), overwrites)
+					// log.WithContext(ctx).Debugf("debounced for %v for peer %s (overwrites: %d)", time.Since(start), peerKey.String(), overwrites)
 				}
 			case <-ctx.Done():
 				return
@@ -307,7 +309,7 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 				s.cancelPeerRoutines(ctx, accountID, peer)
 				return nil
 			}
-			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
+			// log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
 
 			if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv); err != nil {
 				log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
@@ -320,7 +322,7 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 				s.cancelPeerRoutines(ctx, accountID, peer)
 				return nil
 			}
-			log.WithContext(ctx).Debugf("sending latest update to peer %s (overwrites: %d)", peerKey.String(), updateData.overwrites)
+			// log.WithContext(ctx).Debugf("sending latest update to peer %s (overwrites: %d)", peerKey.String(), updateData.overwrites)
 			if err := s.sendUpdate(ctx, accountID, peerKey, peer, updateData.msg, srv); err != nil {
 				return err
 			}
