@@ -1264,7 +1264,6 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	}
 
 	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 10)
 
 	dnsCache := &DNSConfigCache{}
 	dnsDomain := am.GetDNSDomain(account.Settings)
@@ -1297,10 +1296,8 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		}
 
 		wg.Add(1)
-		semaphore <- struct{}{}
 		go func(p *nbpeer.Peer) {
 			defer wg.Done()
-			defer func() { <-semaphore }()
 
 			start := time.Now()
 
@@ -1338,8 +1335,6 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			am.peersUpdateManager.SendNetworkMapUpdate(ctx, p.ID, &UpdateMessage{Update: update})
 		}(peer)
 	}
-
-	//
 
 	wg.Wait()
 	if am.metrics != nil {
