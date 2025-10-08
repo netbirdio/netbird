@@ -67,10 +67,13 @@ func (p *StunTurnProbe) ProbeAllWaitResult(ctx context.Context, stuns []*stun.UR
 	}
 
 	p.probeInProgress = true
-	p.probeDone = make(chan struct{})
+	probeDone := make(chan struct{})
+	p.probeDone = probeDone
 	p.mu.Unlock()
 
 	p.doProbe(ctx, stuns, turns, cacheKey)
+	close(p.probeDone)
+
 	return p.getCachedResults(cacheKey, stuns, turns)
 }
 
@@ -79,22 +82,39 @@ func (p *StunTurnProbe) ProbeAll(ctx context.Context, stuns []*stun.URI, turns [
 	cacheKey := generateCacheKey(stuns, turns)
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	if results := p.checkCache(cacheKey); results != nil {
+		p.mu.Unlock()
 		return results
 	}
 
 	if p.probeInProgress {
+		p.mu.Unlock()
 		return createErrorResults(stuns, turns)
 	}
 
 	p.probeInProgress = true
-	p.probeDone = make(chan struct{})
-	go p.doProbe(ctx, stuns, turns, cacheKey)
-
+	probeDone := make(chan struct{})
+	p.probeDone = probeDone
 	log.Infof("started new probe for STUN, TURN servers")
-	return createErrorResults(stuns, turns)
+	go func() {
+		p.doProbe(ctx, stuns, turns, cacheKey)
+		close(probeDone)
+	}()
+
+	p.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		log.Debugf("Context cancelled while waiting for probe results")
+		return createErrorResults(stuns, turns)
+	case <-probeDone:
+		// when the probe is return fast, return the results right away
+		return p.getCachedResults(cacheKey, stuns, turns)
+	case <-time.After(1300 * time.Millisecond):
+		// if the probe takes longer than 1.3s, return error results to avoid blocking
+		return createErrorResults(stuns, turns)
+	}
 }
 
 func (p *StunTurnProbe) checkCache(cacheKey string) []ProbeResult {
@@ -123,7 +143,6 @@ func (p *StunTurnProbe) doProbe(ctx context.Context, stuns []*stun.URI, turns []
 	defer func() {
 		p.mu.Lock()
 		p.probeInProgress = false
-		close(p.probeDone)
 		p.mu.Unlock()
 	}()
 	results := make([]ProbeResult, len(stuns)+len(turns))
