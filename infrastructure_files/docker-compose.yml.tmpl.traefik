@@ -47,7 +47,7 @@ services:
     - traefik.enable=true
     - traefik.http.routers.netbird-wsproxy-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/ws-proxy/signal`)
     - traefik.http.routers.netbird-wsproxy-signal.service=netbird-wsproxy-signal
-    - traefik.http.services.netbird-wsproxy-signal.loadbalancer.server.port=10000
+    - traefik.http.services.netbird-wsproxy-signal.loadbalancer.server.port=80
     - traefik.http.routers.netbird-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/signalexchange.SignalExchange/`)
     - traefik.http.services.netbird-signal.loadbalancer.server.port=10000
     - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
