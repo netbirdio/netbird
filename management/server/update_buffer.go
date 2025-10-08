@@ -28,13 +28,13 @@ func (b *UpdateBuffer) Push(update *UpdateMessage) {
 	if b.update == nil || update.Update.NetworkMap.Serial > b.update.Update.NetworkMap.Serial || b.update.Update.NetworkMap.Serial == 0 {
 		if b.update == nil {
 			b.metrics.CountBufferPush()
-			return
+		} else {
+			b.metrics.CountBufferOverwrite()
 		}
 
 		b.update = update
 		b.cond.Signal()
 
-		b.metrics.CountBufferOverwrite()
 		return
 	}
 
