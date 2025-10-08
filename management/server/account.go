@@ -26,6 +26,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/formatter/hook"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
@@ -81,6 +82,9 @@ type DefaultAccountManager struct {
 
 	proxyController port_forwarding.Controller
 	settingsManager settings.Manager
+
+	// config contains the management server configuration
+	config *nbconfig.Config
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -176,6 +180,7 @@ func (am *DefaultAccountManager) getJWTGroupsChanges(user *types.User, groups []
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(
 	ctx context.Context,
+	config *nbconfig.Config,
 	store store.Store,
 	peersUpdateManager *PeersUpdateManager,
 	idpManager idp.Manager,
@@ -198,6 +203,7 @@ func BuildManager(
 
 	am := &DefaultAccountManager{
 		Store:                    store,
+		config:                   config,
 		geo:                      geo,
 		peersUpdateManager:       peersUpdateManager,
 		idpManager:               idpManager,

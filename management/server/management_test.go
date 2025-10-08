@@ -201,6 +201,7 @@ func startServer(
 	permissionsManager := permissions.NewManager(str)
 	accountManager, err := server.BuildManager(
 		context.Background(),
+		nil,
 		str,
 		peersUpdateManager,
 		nil,
