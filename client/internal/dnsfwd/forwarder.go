@@ -105,8 +105,37 @@ func (f *DNSForwarder) UpdateDomains(entries []*ForwarderEntry) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
+	// remove cache entries for domains that no longer appear
+	f.removeStaleCacheEntries(f.fwdEntries, entries)
+
 	f.fwdEntries = entries
 	log.Debugf("Updated DNS forwarder with %d domains", len(entries))
+}
+
+// removeStaleCacheEntries unsets cache items for domains that were present
+// in the old list but not present in the new list.
+func (f *DNSForwarder) removeStaleCacheEntries(oldEntries, newEntries []*ForwarderEntry) {
+	if f.cache == nil {
+		return
+	}
+
+	newSet := make(map[string]struct{}, len(newEntries))
+	for _, e := range newEntries {
+		if e == nil {
+			continue
+		}
+		newSet[e.Domain.PunycodeString()] = struct{}{}
+	}
+
+	for _, e := range oldEntries {
+		if e == nil {
+			continue
+		}
+		pattern := e.Domain.PunycodeString()
+		if _, ok := newSet[pattern]; !ok {
+			f.cache.unset(pattern)
+		}
+	}
 }
 
 func (f *DNSForwarder) Close(ctx context.Context) error {

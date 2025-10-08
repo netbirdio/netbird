@@ -63,6 +63,13 @@ func (c *cache) set(domain string, reqType uint16, addrs []netip.Addr) {
 	}
 }
 
+// unset removes cached entries for the given domain and request type.
+func (c *cache) unset(domain string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.records, normalizeDomain(domain))
+}
+
 // normalizeDomain converts an input domain into a canonical form used as cache key:
 // lowercase and fully-qualified (with trailing dot).
 func normalizeDomain(domain string) string {
