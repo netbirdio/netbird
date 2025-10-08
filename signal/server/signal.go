@@ -68,7 +68,8 @@ type Server struct {
 
 	successHeader metadata.MD
 
-	sendTimeout time.Duration
+	sendTimeout        time.Duration
+	directSendDisabled bool
 }
 
 // NewServer creates a new Signal server
@@ -103,6 +104,11 @@ func NewServer(ctx context.Context, meter metric.Meter, opts *Options) (*Server,
 		disableSendWithDeliveryCheck: opts.DisableSendWithDeliveryCheck,
 	}
 
+	if directSendDisabled := os.Getenv("NB_SIGNAL_DIRECT_SEND_DISABLED"); directSendDisabled == "true" {
+		s.directSendDisabled = true
+		log.Warn("direct send to connected peers is disabled")
+	}
+
 	if opts.DisableSendWithDeliveryCheck {
 		log.Warn("SendWithDeliveryCheck method is disabled")
 	}
@@ -114,7 +120,7 @@ func NewServer(ctx context.Context, meter metric.Meter, opts *Options) (*Server,
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
-	if _, found := s.registry.Get(msg.RemoteKey); found {
+	if _, found := s.registry.Get(msg.RemoteKey); found && !s.directSendDisabled {
 		_ = s.forwardMessageToPeer(ctx, msg)
 		return &proto.EncryptedMessage{}, nil
 	}
@@ -138,7 +144,7 @@ func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.Encrypted
 	}
 
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
-	if _, found := s.registry.Get(msg.RemoteKey); found {
+	if _, found := s.registry.Get(msg.RemoteKey); found && !s.directSendDisabled {
 		if err := s.forwardMessageToPeer(ctx, msg); err != nil {
 			if errors.Is(err, ErrPeerNotConnected) {
 				return nil, status.Errorf(codes.NotFound, "remote peer not connected")
