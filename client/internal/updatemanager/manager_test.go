@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+func (u *UpdateManager) WithCustomVersionUpdate(versionUpdate UpdateInterface) *UpdateManager {
+	u.update = versionUpdate
+	return u
+}
+
 type versionUpdateMock struct {
 	latestVersion *v.Version
 	onUpdate      func()

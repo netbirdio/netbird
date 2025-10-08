@@ -61,11 +61,6 @@ func NewUpdateManager(statusRecorder *peer.Status) *UpdateManager {
 	return manager
 }
 
-func (u *UpdateManager) WithCustomVersionUpdate(versionUpdate UpdateInterface) *UpdateManager {
-	u.update = versionUpdate
-	return u
-}
-
 func (u *UpdateManager) Start(ctx context.Context) {
 	if u.cancel != nil {
 		log.Errorf("UpdateManager already started")
@@ -124,10 +119,12 @@ func (u *UpdateManager) Stop() {
 	}
 
 	u.cancel()
+	u.expectedVersionMutex.Lock()
 	if u.update != nil {
 		u.update.StopWatch()
 		u.update = nil
 	}
+	u.expectedVersionMutex.Unlock()
 
 	u.wg.Wait()
 }
@@ -151,6 +148,9 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 	var updateVersion *v.Version
 
 	u.expectedVersionMutex.Lock()
+	if u.update == nil {
+		return
+	}
 	expectedVersion := u.expectedVersion
 	useLatest := u.updateToLatestVersion
 	curLatestVersion := u.update.LatestVersion()
@@ -176,7 +176,7 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Minute))
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
 	u.lastTrigger = time.Now()
