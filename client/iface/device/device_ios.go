@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -22,21 +23,23 @@ type TunDevice struct {
 	address wgaddr.Address
 	port    int
 	key     string
+	mtu     uint16
 	iceBind *bind.ICEBind
 	tunFd   int
 
 	device         *device.Device
 	filteredDevice *FilteredDevice
-	udpMux         *bind.UniversalUDPMuxDefault
+	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 }
 
-func NewTunDevice(name string, address wgaddr.Address, port int, key string, iceBind *bind.ICEBind, tunFd int) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunFd int) *TunDevice {
 	return &TunDevice{
 		name:    name,
 		address: address,
 		port:    port,
 		key:     key,
+		mtu:     mtu,
 		iceBind: iceBind,
 		tunFd:   tunFd,
 	}
@@ -81,7 +84,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -123,6 +126,10 @@ func (t *TunDevice) Close() error {
 
 func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
+}
+
+func (t *TunDevice) MTU() uint16 {
+	return t.mtu
 }
 
 func (t *TunDevice) UpdateAddr(_ wgaddr.Address) error {

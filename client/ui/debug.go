@@ -395,12 +395,12 @@ func (s *serviceClient) configureServiceForDebug(
 	time.Sleep(time.Second)
 
 	if enablePersistence {
-		if _, err := conn.SetNetworkMapPersistence(s.ctx, &proto.SetNetworkMapPersistenceRequest{
+		if _, err := conn.SetSyncResponsePersistence(s.ctx, &proto.SetSyncResponsePersistenceRequest{
 			Enabled: true,
 		}); err != nil {
-			return fmt.Errorf("enable network map persistence: %v", err)
+			return fmt.Errorf("enable sync response persistence: %v", err)
 		}
-		log.Info("Network map persistence enabled for debug")
+		log.Info("Sync response persistence enabled for debug")
 	}
 
 	if _, err := conn.Up(s.ctx, &proto.UpRequest{}); err != nil {

@@ -6,12 +6,14 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
+	log "github.com/sirupsen/logrus"
+
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/relay/protocol"
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/quic"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
-	quictls "github.com/netbirdio/netbird/relay/tls"
-	log "github.com/sirupsen/logrus"
+	quictls "github.com/netbirdio/netbird/shared/relay/tls"
 )
 
 // ListenerConfig is the configuration for the listener.
@@ -26,8 +28,11 @@ type ListenerConfig struct {
 // It is the gate between the WebSocket listener and the Relay server logic.
 // In a new HTTP connection, the server will accept the connection and pass it to the Relay server via the Accept method.
 type Server struct {
-	relay     *Relay
-	listeners []listener.Listener
+	listenAddr string
+
+	relay       *Relay
+	listeners   []listener.Listener
+	listenerMux sync.Mutex
 }
 
 // NewServer creates and returns a new relay server instance.
@@ -57,10 +62,14 @@ func NewServer(config Config) (*Server, error) {
 
 // Listen starts the relay server.
 func (r *Server) Listen(cfg ListenerConfig) error {
+	r.listenAddr = cfg.Address
+
 	wSListener := &ws.Listener{
 		Address:   cfg.Address,
 		TLSConfig: cfg.TLSConfig,
 	}
+
+	r.listenerMux.Lock()
 	r.listeners = append(r.listeners, wSListener)
 
 	tlsConfigQUIC, err := quictls.ServerQUICTLSConfig(cfg.TLSConfig)
@@ -85,6 +94,8 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 		}(l)
 	}
 
+	r.listenerMux.Unlock()
+
 	wg.Wait()
 	close(errChan)
 	var multiErr *multierror.Error
@@ -100,16 +111,34 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 func (r *Server) Shutdown(ctx context.Context) error {
 	r.relay.Shutdown(ctx)
 
+	r.listenerMux.Lock()
 	var multiErr *multierror.Error
 	for _, l := range r.listeners {
 		if err := l.Shutdown(ctx); err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
+	r.listeners = r.listeners[:0]
+	r.listenerMux.Unlock()
 	return nberrors.FormatErrorOrNil(multiErr)
 }
 
 // InstanceURL returns the instance URL of the relay server.
 func (r *Server) InstanceURL() string {
 	return r.relay.instanceURL
+}
+
+func (r *Server) ListenerProtocols() []protocol.Protocol {
+	result := make([]protocol.Protocol, 0)
+
+	r.listenerMux.Lock()
+	for _, l := range r.listeners {
+		result = append(result, l.Protocol())
+	}
+	r.listenerMux.Unlock()
+	return result
+}
+
+func (r *Server) ListenAddress() string {
+	return r.listenAddr
 }

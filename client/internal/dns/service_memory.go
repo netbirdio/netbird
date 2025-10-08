@@ -10,7 +10,7 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type ServiceViaMemory struct {
@@ -33,7 +33,7 @@ func NewServiceViaMemory(wgIface WGIface) *ServiceViaMemory {
 		dnsMux:      dns.NewServeMux(),
 
 		runtimeIP:   lastIP,
-		runtimePort: defaultPort,
+		runtimePort: DefaultPort,
 	}
 	return s
 }

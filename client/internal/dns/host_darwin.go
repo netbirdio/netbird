@@ -166,9 +166,10 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 
 func (s *systemConfigurator) addLocalDNS() error {
 	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
-		err := s.recordSystemDNSSettings(true)
-		log.Errorf("Unable to get system DNS configuration")
-		return err
+		if err := s.recordSystemDNSSettings(true); err != nil {
+			log.Errorf("Unable to get system DNS configuration")
+			return fmt.Errorf("recordSystemDNSSettings(): %w", err)
+		}
 	}
 	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
 	if s.systemDNSSettings.ServerIP.IsValid() && len(s.systemDNSSettings.Domains) != 0 {
@@ -239,7 +240,7 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 		} else if inServerAddressesArray {
 			address := strings.Split(line, " : ")[1]
 			if ip, err := netip.ParseAddr(address); err == nil && ip.Is4() {
-				dnsSettings.ServerIP = ip
+				dnsSettings.ServerIP = ip.Unmap()
 				inServerAddressesArray = false // Stop reading after finding the first IPv4 address
 			}
 		}
@@ -250,7 +251,7 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	}
 
 	// default to 53 port
-	dnsSettings.ServerPort = defaultPort
+	dnsSettings.ServerPort = DefaultPort
 
 	return dnsSettings, nil
 }

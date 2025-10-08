@@ -1,11 +1,12 @@
 package peer
 
 import (
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
+	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	signal "github.com/netbirdio/netbird/signal/client"
-	sProto "github.com/netbirdio/netbird/signal/proto"
+	signal "github.com/netbirdio/netbird/shared/signal/client"
+	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 )
 
 type Signaler struct {
@@ -45,6 +46,10 @@ func (s *Signaler) Ready() bool {
 
 // SignalOfferAnswer signals either an offer or an answer to remote peer
 func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, bodyType sProto.Body_Type) error {
+	sessionIDBytes, err := offerAnswer.SessionID.Bytes()
+	if err != nil {
+		log.Warnf("failed to get session ID bytes: %v", err)
+	}
 	msg, err := signal.MarshalCredential(
 		s.wgPrivateKey,
 		offerAnswer.WgListenPort,
@@ -56,13 +61,13 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 		bodyType,
 		offerAnswer.RosenpassPubKey,
 		offerAnswer.RosenpassAddr,
-		offerAnswer.RelaySrvAddress)
+		offerAnswer.RelaySrvAddress,
+		sessionIDBytes)
 	if err != nil {
 		return err
 	}
 
-	err = s.signal.Send(msg)
-	if err != nil {
+	if err = s.signal.Send(msg); err != nil {
 		return err
 	}
 

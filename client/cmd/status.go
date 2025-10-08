@@ -32,7 +32,8 @@ var (
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "status of the Netbird Service",
+	Short: "Display NetBird client status",
+	Long:  "Display the current status of the NetBird client, including connection status, peer information, and network details.",
 	RunE:  statusFunc,
 }
 

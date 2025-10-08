@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/netip"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
@@ -13,11 +14,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/groups"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 // Handler is a handler that returns peers of the account
@@ -31,6 +32,7 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/accessible-peers", peersHandler.GetAccessiblePeers).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/temporary-access", peersHandler.CreateTemporaryAccess).Methods("POST", "OPTIONS")
 }
 
 // NewHandler creates a new peers Handler
@@ -108,6 +110,19 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		// todo: looks like that we reset all status property, is it right?
 		update.Status = &nbpeer.PeerStatus{
 			RequiresApproval: *req.ApprovalRequired,
+		}
+	}
+
+	if req.Ip != nil {
+		addr, err := netip.ParseAddr(*req.Ip)
+		if err != nil {
+			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "invalid IP address %s: %v", *req.Ip, err), w)
+			return
+		}
+
+		if err = h.accountManager.UpdatePeerIP(ctx, accountID, userID, peerID, addr); err != nil {
+			util.WriteError(ctx, err, w)
+			return
 		}
 	}
 
@@ -304,6 +319,88 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
 }
 
+func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+	if len(peerID) == 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
+		return
+	}
+
+	var req api.PeerTemporaryAccessRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	newPeer := &nbpeer.Peer{}
+	newPeer.FromAPITemporaryAccessRequest(&req)
+
+	targetPeer, err := h.accountManager.GetPeer(r.Context(), userAuth.AccountId, peerID, userAuth.UserId)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	peer, _, _, err := h.accountManager.AddPeer(r.Context(), userAuth.AccountId, "", userAuth.UserId, newPeer, true)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	for _, rule := range req.Rules {
+		protocol, portRange, err := types.ParseRuleString(rule)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+		policy := &types.Policy{
+			AccountID:   userAuth.AccountId,
+			Description: "Temporary access policy for peer " + peer.Name,
+			Name:        "Temporary access policy for peer " + peer.Name,
+			Enabled:     true,
+			Rules: []*types.PolicyRule{{
+				Name:        "Temporary access rule",
+				Description: "Temporary access rule",
+				Enabled:     true,
+				Action:      types.PolicyTrafficActionAccept,
+				SourceResource: types.Resource{
+					Type: types.ResourceTypePeer,
+					ID:   peer.ID,
+				},
+				DestinationResource: types.Resource{
+					Type: types.ResourceTypePeer,
+					ID:   targetPeer.ID,
+				},
+				Bidirectional: false,
+				Protocol:      protocol,
+				PortRanges:    []types.RulePortRange{portRange},
+			}},
+		}
+
+		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+	}
+
+	resp := &api.PeerTemporaryAccessResponse{
+		Id:    peer.ID,
+		Name:  peer.Name,
+		Rules: req.Rules,
+	}
+
+	util.WriteJSONObject(r.Context(), w, resp)
+}
+
 func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
 	accessiblePeers := make([]api.AccessiblePeer, 0, len(netMap.Peers)+len(netMap.OfflinePeers))
 	for _, p := range netMap.Peers {
@@ -340,6 +437,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 	}
 
 	return &api.Peer{
+		CreatedAt:                   peer.CreatedAt,
 		Id:                          peer.ID,
 		Name:                        peer.Name,
 		Ip:                          peer.IP.String(),
@@ -376,32 +474,33 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 	}
 
 	return &api.PeerBatch{
-		Id:                     peer.ID,
-		Name:                   peer.Name,
-		Ip:                     peer.IP.String(),
-		ConnectionIp:           peer.Location.ConnectionIP.String(),
-		Connected:              peer.Status.Connected,
-		LastSeen:               peer.Status.LastSeen,
-		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
-		KernelVersion:          peer.Meta.KernelVersion,
-		GeonameId:              int(peer.Location.GeoNameID),
-		Version:                peer.Meta.WtVersion,
-		Groups:                 groupsInfo,
-		SshEnabled:             peer.SSHEnabled,
-		Hostname:               peer.Meta.Hostname,
-		UserId:                 peer.UserID,
-		UiVersion:              peer.Meta.UIVersion,
-		DnsLabel:               fqdn(peer, dnsDomain),
-		ExtraDnsLabels:         fqdnList(peer.ExtraDNSLabels, dnsDomain),
-		LoginExpirationEnabled: peer.LoginExpirationEnabled,
-		LastLogin:              peer.GetLastLogin(),
-		LoginExpired:           peer.Status.LoginExpired,
-		AccessiblePeersCount:   accessiblePeersCount,
-		CountryCode:            peer.Location.CountryCode,
-		CityName:               peer.Location.CityName,
-		SerialNumber:           peer.Meta.SystemSerialNumber,
-
+		CreatedAt:                   peer.CreatedAt,
+		Id:                          peer.ID,
+		Name:                        peer.Name,
+		Ip:                          peer.IP.String(),
+		ConnectionIp:                peer.Location.ConnectionIP.String(),
+		Connected:                   peer.Status.Connected,
+		LastSeen:                    peer.Status.LastSeen,
+		Os:                          fmt.Sprintf("%s %s", peer.Meta.OS, osVersion),
+		KernelVersion:               peer.Meta.KernelVersion,
+		GeonameId:                   int(peer.Location.GeoNameID),
+		Version:                     peer.Meta.WtVersion,
+		Groups:                      groupsInfo,
+		SshEnabled:                  peer.SSHEnabled,
+		Hostname:                    peer.Meta.Hostname,
+		UserId:                      peer.UserID,
+		UiVersion:                   peer.Meta.UIVersion,
+		DnsLabel:                    fqdn(peer, dnsDomain),
+		ExtraDnsLabels:              fqdnList(peer.ExtraDNSLabels, dnsDomain),
+		LoginExpirationEnabled:      peer.LoginExpirationEnabled,
+		LastLogin:                   peer.GetLastLogin(),
+		LoginExpired:                peer.Status.LoginExpired,
+		AccessiblePeersCount:        accessiblePeersCount,
+		CountryCode:                 peer.Location.CountryCode,
+		CityName:                    peer.Location.CityName,
+		SerialNumber:                peer.Meta.SystemSerialNumber,
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
+		Ephemeral:                   peer.Ephemeral,
 	}
 }
 

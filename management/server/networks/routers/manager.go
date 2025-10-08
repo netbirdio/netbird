@@ -14,8 +14,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type Manager interface {
@@ -54,7 +54,7 @@ func (m *managerImpl) GetAllRoutersInNetwork(ctx context.Context, accountID, use
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetNetworkRoutersByNetID(ctx, store.LockingStrengthShare, accountID, networkID)
+	return m.store.GetNetworkRoutersByNetID(ctx, store.LockingStrengthNone, accountID, networkID)
 }
 
 func (m *managerImpl) GetAllRoutersInAccount(ctx context.Context, accountID, userID string) (map[string][]*types.NetworkRouter, error) {
@@ -66,7 +66,7 @@ func (m *managerImpl) GetAllRoutersInAccount(ctx context.Context, accountID, use
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	routers, err := m.store.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthShare, accountID)
+	routers, err := m.store.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network routers: %w", err)
 	}
@@ -88,12 +88,9 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	unlock := m.store.AcquireWriteLockByUID(ctx, router.AccountID)
-	defer unlock()
-
 	var network *networkTypes.Network
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthShare, router.AccountID, router.NetworkID)
+		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
 		if err != nil {
 			return fmt.Errorf("failed to get network: %w", err)
 		}
@@ -104,12 +101,12 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 		router.ID = xid.New().String()
 
-		err = transaction.SaveNetworkRouter(ctx, store.LockingStrengthUpdate, router)
+		err = transaction.SaveNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to create network router: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, router.AccountID)
+		err = transaction.IncrementNetworkSerial(ctx, router.AccountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -136,7 +133,7 @@ func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkI
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	router, err := m.store.GetNetworkRouterByID(ctx, store.LockingStrengthShare, accountID, routerID)
+	router, err := m.store.GetNetworkRouterByID(ctx, store.LockingStrengthNone, accountID, routerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network router: %w", err)
 	}
@@ -157,12 +154,9 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	unlock := m.store.AcquireWriteLockByUID(ctx, router.AccountID)
-	defer unlock()
-
 	var network *networkTypes.Network
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthShare, router.AccountID, router.NetworkID)
+		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
 		if err != nil {
 			return fmt.Errorf("failed to get network: %w", err)
 		}
@@ -171,12 +165,12 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 			return status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
 		}
 
-		err = transaction.SaveNetworkRouter(ctx, store.LockingStrengthUpdate, router)
+		err = transaction.SaveNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to update network router: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, router.AccountID)
+		err = transaction.IncrementNetworkSerial(ctx, router.AccountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -203,9 +197,6 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 		return status.NewPermissionDeniedError()
 	}
 
-	unlock := m.store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	var event func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		event, err = m.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, routerID)
@@ -213,7 +204,7 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 			return fmt.Errorf("failed to delete network router: %w", err)
 		}
 
-		err = transaction.IncrementNetworkSerial(ctx, store.LockingStrengthUpdate, accountID)
+		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
@@ -232,7 +223,7 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 }
 
 func (m *managerImpl) DeleteRouterInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, routerID string) (func(), error) {
-	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthShare, accountID, networkID)
+	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthNone, accountID, networkID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network: %w", err)
 	}
@@ -246,7 +237,7 @@ func (m *managerImpl) DeleteRouterInTransaction(ctx context.Context, transaction
 		return nil, status.NewRouterNotPartOfNetworkError(routerID, networkID)
 	}
 
-	err = transaction.DeleteNetworkRouter(ctx, store.LockingStrengthUpdate, accountID, routerID)
+	err = transaction.DeleteNetworkRouter(ctx, accountID, routerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete network router: %w", err)
 	}

@@ -14,7 +14,8 @@ import (
 
 var downCmd = &cobra.Command{
 	Use:   "down",
-	Short: "down netbird connections",
+	Short: "Disconnect from the NetBird network",
+	Long:  "Disconnect the NetBird client from the network and management service. This will terminate all active connections with the remote peers.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
 
@@ -26,7 +27,7 @@ var downCmd = &cobra.Command{
 			return err
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*7)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 		defer cancel()
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
