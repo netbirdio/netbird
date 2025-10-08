@@ -86,7 +86,7 @@ func NewServer(
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
 		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
-			return int64(len(peersUpdateManager.peerChannels))
+			return int64(peersUpdateManager.GetChannelCount())
 		})
 		if err != nil {
 			return nil, err
