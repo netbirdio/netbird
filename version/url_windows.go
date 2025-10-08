@@ -20,7 +20,7 @@ func DownloadUrl() string {
 	}
 	
 	url := urlWinExe
-	if untime.GOARCH == arm64 {
+	if runtime.GOARCH == "arm64" {
 		url = urlWinExeArm
 	}
 	
