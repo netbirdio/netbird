@@ -3,7 +3,6 @@ package updatemanager
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"io"
 	"net/http"
 	"os"
@@ -17,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -103,7 +103,6 @@ func (u *UpdateManager) Start(ctx context.Context) {
 }
 
 func (u *UpdateManager) startInit(ctx context.Context) {
-	go u.update.StartFetcher()
 	u.update.SetDaemonVersion(u.currentVersion)
 	u.update.SetOnUpdateListener(func() {
 		select {
@@ -111,6 +110,7 @@ func (u *UpdateManager) startInit(ctx context.Context) {
 		default:
 		}
 	})
+	go u.update.StartFetcher()
 
 	u.stateManager.RegisterState(&UpdateState{})
 	if err := u.stateManager.LoadState(&UpdateState{}); err != nil {
@@ -190,6 +190,8 @@ func (u *UpdateManager) onContextCancel() {
 		return
 	}
 
+	u.expectedVersionMutex.Lock()
+	defer u.expectedVersionMutex.Unlock()
 	if u.update != nil {
 		u.update.StopWatch()
 		u.update = nil

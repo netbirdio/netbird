@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	"net"
 	"net/netip"
 	"runtime"
@@ -26,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -35,7 +35,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -274,16 +273,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engineMutex.Lock()
 		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
 		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
-			if c.engine.updateManager == nil && loginResp.PeerConfig.AutoUpdate.Version != "disabled" {
-				c.engine.updateManager = updatemanager.NewUpdateManager(c.statusRecorder, c.engine.stateManager)
-				c.engine.updateManager.StartWithTimeout(engineCtx, time.Minute)
-			} else if c.engine.updateManager != nil && loginResp.PeerConfig.AutoUpdate.Version == "disabled" {
-				c.engine.updateManager.Stop()
-				c.engine.updateManager = nil
-			}
-			if c.engine.updateManager != nil {
-				c.engine.updateManager.SetVersion(loginResp.PeerConfig.AutoUpdate.Version)
-			}
+			c.engine.handleAutoUpdateVersion(loginResp.PeerConfig.AutoUpdate)
 		}
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
