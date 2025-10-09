@@ -73,12 +73,12 @@ type Client struct {
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile string, androidSDKVersion int, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener, stateFile string) *Client {
+func NewClient(platformFiles PlatformFiles, androidSDKVersion int, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
 	execWorkaround(androidSDKVersion)
 
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
 	return &Client{
-		cfgFile:               cfgFile,
+		cfgFile:               platformFiles.ConfigurationFilePath(),
 		deviceName:            deviceName,
 		uiVersion:             uiVersion,
 		tunAdapter:            tunAdapter,
@@ -86,7 +86,7 @@ func NewClient(cfgFile string, androidSDKVersion int, deviceName string, uiVersi
 		recorder:              peer.NewRecorder(""),
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
-		stateFile:             stateFile,
+		stateFile:             platformFiles.StateFilePath(),
 	}
 }
 
