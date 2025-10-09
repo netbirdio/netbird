@@ -147,8 +147,10 @@ func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.Encrypted
 	if _, found := s.registry.Get(msg.RemoteKey); found && !s.directSendDisabled {
 		if err := s.forwardMessageToPeer(ctx, msg); err != nil {
 			if errors.Is(err, ErrPeerNotConnected) {
+				log.Tracef("remote peer [%s] not connected", msg.RemoteKey)
 				return nil, status.Errorf(codes.NotFound, "remote peer not connected")
 			}
+			log.Errorf("error sending message with delivery check to peer [%s]: %v", msg.RemoteKey, err)
 			return nil, status.Errorf(codes.Internal, "error forwarding message to peer: %v", err)
 		}
 		return &emptypb.Empty{}, nil
@@ -156,6 +158,7 @@ func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.Encrypted
 
 	if _, err := s.dispatcher.SendMessage(ctx, msg, true); err != nil {
 		if errors.Is(err, dispatcher.ErrPeerNotConnected) {
+			log.Tracef("remote peer [%s] doesn't have a listener", msg.RemoteKey)
 			return nil, status.Errorf(codes.NotFound, "remote peer not connected")
 		}
 		return nil, err
@@ -169,6 +172,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	ctx, cancel := context.WithCancel(context.Background())
 	p, err := s.RegisterPeer(stream, cancel)
 	if err != nil {
+		log.Errorf("error registering peer: %v", err)
 		return err
 	}
 
@@ -178,6 +182,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	err = stream.SendHeader(s.successHeader)
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedHeader)))
+		log.Errorf("error sending registration header to peer [%s] [streamID %d] : %v", p.Id, p.StreamID, err)
 		return err
 	}
 
@@ -202,7 +207,7 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, c
 
 	p := peer.NewPeer(id[0], stream, cancel)
 	if err := s.registry.Register(p); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error adding peer to registry peer: %w", err)
 	}
 	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
 	if err != nil {
