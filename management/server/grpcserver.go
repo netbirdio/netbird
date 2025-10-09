@@ -267,9 +267,9 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 	go func() {
 		for {
 			start := time.Now()
-			update, overwrites, timeSinceLastPop, ok := updates.NetworkMap.Pop(ctx)
+			update, overwrites, timeSinceLastPop, err := updates.NetworkMap.Pop(ctx)
 			log.WithContext(ctx).Debugf("popped an update for peer %s from the network map buffer in %v (overwrites: %d)", peerKey.String(), time.Since(start), overwrites)
-			if !ok {
+			if err != nil {
 				close(networkMapCh)
 				return
 			}

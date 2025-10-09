@@ -121,7 +121,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 loop:
 	for timeout := time.After(5 * time.Second); ; {
 		select {
-		case update := <-updateChannel:
+		case update := <-updateChannel.Important:
 			updates = append(updates, update)
 		case <-timeout:
 			break loop

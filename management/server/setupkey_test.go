@@ -431,7 +431,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 	t.Run("creating setup key", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -449,7 +449,7 @@ func TestSetupKeyAccountPeersUpdate(t *testing.T) {
 	t.Run("saving setup key", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 

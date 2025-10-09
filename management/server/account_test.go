@@ -1190,7 +1190,7 @@ func testAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updChan := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
 	wg := sync.WaitGroup{}
@@ -1198,7 +1198,12 @@ func testAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		message, _, _, err := updChan.NetworkMap.Pop(ctx)
+		if err != nil {
+			t.Errorf("timeout waiting for network update")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 2 {
 			t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
@@ -1229,12 +1234,11 @@ func testAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 	defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 
-	// Ensure that we do not receive an update message before the policy is deleted
-	time.Sleep(time.Second)
-	select {
-	case <-updMsg:
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _, _, err := updMsg.NetworkMap.Pop(ctx)
+	if err != nil {
 		t.Logf("received addPeer update message before policy deletion")
-	default:
 	}
 
 	wg := sync.WaitGroup{}
@@ -1242,7 +1246,12 @@ func testAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		message, _, _, err := updMsg.NetworkMap.Pop(ctx)
+		if err != nil {
+			t.Errorf("timeout waiting for network update")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 0 {
 			t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
@@ -1288,7 +1297,12 @@ func testAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		message, _, _, err := updMsg.NetworkMap.Pop(ctx)
+		if err != nil {
+			t.Errorf("timeout waiting for network update")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 2 {
 			t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
@@ -1362,7 +1376,12 @@ func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		message, _, _, err := updMsg.NetworkMap.Pop(ctx)
+		if err != nil {
+			t.Errorf("timeout waiting for network update")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 1 {
 			t.Errorf("mismatch peers count: 1 expected, got %v", len(networkMap.RemotePeers))
@@ -1427,7 +1446,12 @@ func testAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		message := <-updMsg
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		message, _, _, err := updMsg.NetworkMap.Pop(ctx)
+		if err != nil {
+			t.Errorf("timeout waiting for network update")
+		}
 		networkMap := message.Update.GetNetworkMap()
 		if len(networkMap.RemotePeers) != 0 {
 			t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
@@ -2939,7 +2963,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, error) {
 
 	permissionsManager := permissions.NewManager(store)
 
-	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	manager, err := BuildManager(context.Background(), store, NewPeersUpdateManager(metrics), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	if err != nil {
 		return nil, err
 	}
@@ -3020,27 +3044,33 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *types.Account, 
 	return manager, account, peer1, peer2, peer3
 }
 
-func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) {
+func peerShouldNotReceiveUpdate(t *testing.T, updateMessageBuffer *UpdateBuffer) {
 	t.Helper()
-	select {
-	case msg := <-updateMessage:
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	msg, _, _, _ := updateMessageBuffer.Pop(ctx)
+	if msg != nil {
 		t.Errorf("Unexpected message received: %+v", msg)
-	case <-time.After(500 * time.Millisecond):
-		return
 	}
+
+	return
 }
 
-func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *UpdateMessage) {
+func peerShouldReceiveUpdate(t *testing.T, updateMessageBuffer *UpdateBuffer) {
 	t.Helper()
 
-	select {
-	case msg := <-updateMessage:
-		if msg == nil {
-			t.Errorf("Received nil update message, expected valid message")
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Error("Timed out waiting for update message")
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	msg, _, _, err := updateMessageBuffer.Pop(ctx)
+	if err != nil {
+		t.Errorf("Expected update message, but none received")
 	}
+	if msg == nil {
+		t.Errorf("Received nil update message, expected valid message")
+	}
+
+	return
 }
 
 func BenchmarkSyncAndMarkPeer(b *testing.B) {
@@ -3077,11 +3107,13 @@ func BenchmarkSyncAndMarkPeer(b *testing.B) {
 			if err != nil {
 				b.Fatalf("Failed to get account: %v", err)
 			}
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateChannel)
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = &UpdateChannel{
+					Important:  make(chan *UpdateMessage, channelBufferSize),
+					NetworkMap: NewUpdateBuffer(manager.metrics.UpdateChannelMetrics()),
+				}
 			}
-			manager.peersUpdateManager.peerChannels = peerChannels
 
 			b.ResetTimer()
 			start := time.Now()
@@ -3140,9 +3172,12 @@ func BenchmarkLoginPeer_ExistingPeer(b *testing.B) {
 			if err != nil {
 				b.Fatalf("Failed to get account: %v", err)
 			}
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateChannel)
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = &UpdateChannel{
+					Important:  make(chan *UpdateMessage, channelBufferSize),
+					NetworkMap: NewUpdateBuffer(manager.metrics.UpdateChannelMetrics()),
+				}
 			}
 			manager.peersUpdateManager.peerChannels = peerChannels
 
@@ -3210,9 +3245,12 @@ func BenchmarkLoginPeer_NewPeer(b *testing.B) {
 			if err != nil {
 				b.Fatalf("Failed to get account: %v", err)
 			}
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateChannel)
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = &UpdateChannel{
+					Important:  make(chan *UpdateMessage, channelBufferSize),
+					NetworkMap: NewUpdateBuffer(manager.metrics.UpdateChannelMetrics()),
+				}
 			}
 			manager.peersUpdateManager.peerChannels = peerChannels
 

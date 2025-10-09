@@ -1998,7 +1998,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -2034,7 +2034,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -2070,7 +2070,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	t.Run("creating route with a routing peer", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -2095,7 +2095,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -2113,7 +2113,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting route", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -2149,7 +2149,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -2189,7 +2189,7 @@ func TestRouteAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 

@@ -609,7 +609,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 	t.Run("saving dns setting with unused groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -629,7 +629,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 	t.Run("creating dns setting with unused groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -662,7 +662,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -688,7 +688,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 	t.Run("saving dns setting with used groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -708,7 +708,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 	t.Run("removing group with no peers from dns settings", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -728,7 +728,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 	t.Run("removing group with peers from dns settings", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 

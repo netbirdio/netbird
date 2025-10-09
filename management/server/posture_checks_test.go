@@ -180,7 +180,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("saving unused posture check", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -198,7 +198,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("updating unused posture check", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -235,7 +235,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("linking posture check to policy with peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -264,7 +264,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -282,7 +282,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("removing posture check from policy", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -301,7 +301,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting unused posture check", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -337,7 +337,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -381,7 +381,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg1)
+			peerShouldReceiveUpdate(t, updMsg1.NetworkMap)
 			close(done)
 		}()
 
@@ -420,7 +420,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 

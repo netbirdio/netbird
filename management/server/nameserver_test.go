@@ -1004,7 +1004,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("creating nameserver group with distribution group no peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1031,7 +1031,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("saving nameserver group with distribution group no peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1049,7 +1049,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("creating nameserver group with distribution group has peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1075,7 +1075,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("saving nameserver group with distribution group has peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1105,7 +1105,7 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting nameserver group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 

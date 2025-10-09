@@ -451,7 +451,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("saving unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -474,7 +474,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -493,7 +493,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("removing peer from unliked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -511,7 +511,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -544,7 +544,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("saving linked group to policy", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -566,7 +566,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to linked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -584,7 +584,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("removing peer from linked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -613,7 +613,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -654,7 +654,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -681,7 +681,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -728,7 +728,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 

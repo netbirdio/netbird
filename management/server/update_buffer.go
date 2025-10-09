@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -45,11 +46,17 @@ func (b *UpdateBuffer) Push(update *UpdateMessage) {
 	b.metrics.CountBufferIgnore()
 }
 
-func (b *UpdateBuffer) Pop(ctx context.Context) (*UpdateMessage, int, time.Duration, bool) {
+func (b *UpdateBuffer) Pop(ctx context.Context) (*UpdateMessage, int, time.Duration, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	for b.update == nil && !b.closed {
+		select {
+		case <-ctx.Done():
+			return nil, 0, 0, fmt.Errorf("context cancelled")
+		default:
+		}
+
 		waitCh := make(chan struct{})
 		go func() {
 			select {
@@ -61,10 +68,16 @@ func (b *UpdateBuffer) Pop(ctx context.Context) (*UpdateMessage, int, time.Durat
 		}()
 		b.cond.Wait()
 		close(waitCh)
+
+		select {
+		case <-ctx.Done():
+			return nil, 0, 0, fmt.Errorf("context cancelled")
+		default:
+		}
 	}
 
 	if b.closed {
-		return nil, 0, 0, false
+		return nil, 0, 0, fmt.Errorf("buffer closed")
 	}
 
 	msg := b.update
@@ -82,7 +95,7 @@ func (b *UpdateBuffer) Pop(ctx context.Context) (*UpdateMessage, int, time.Durat
 	b.overwriteCount = 0
 	b.lastPopTime = now
 
-	return msg, overwrites, timeSinceLastPop, true
+	return msg, overwrites, timeSinceLastPop, nil
 }
 
 func (b *UpdateBuffer) Close() {

@@ -1343,9 +1343,11 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 }
 
 type bufferUpdate struct {
-	mu     sync.Mutex
-	next   *time.Timer
-	update atomic.Bool
+	mu            sync.Mutex
+	next          *time.Timer
+	update        atomic.Bool
+	requestCount  atomic.Int32
+	lastResetTime atomic.Int64 // Unix timestamp in milliseconds
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
@@ -1356,6 +1358,7 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 
 	if !b.mu.TryLock() {
 		b.update.Store(true)
+		b.requestCount.Add(1)
 		return
 	}
 
@@ -1365,18 +1368,41 @@ func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, a
 
 	go func() {
 		defer b.mu.Unlock()
+
+		start := time.Now()
+
+		b.requestCount.Store(0)
+
 		am.UpdateAccountPeers(ctx, accountID)
+
 		if !b.update.Load() {
 			return
 		}
 		b.update.Store(false)
+
+		requestsDuringProcessing := b.requestCount.Load()
+		executionTime := time.Since(start)
+
+		requestsPerMinute := float64(requestsDuringProcessing) / executionTime.Seconds() * 60
+
+		adaptiveDelay := time.Duration(requestsPerMinute) * 250 * time.Millisecond
+
+		// cap the maximum delay to avoid too long delays
+		maxDelay := 30 * time.Second
+		if adaptiveDelay > maxDelay {
+			adaptiveDelay = maxDelay
+		}
+
+		log.WithContext(ctx).Debugf("adaptive debounce for account %s: %d requests during %v execution, waiting %v",
+			accountID, requestsDuringProcessing, executionTime, adaptiveDelay)
+
 		if b.next == nil {
-			b.next = time.AfterFunc(time.Duration(am.updateAccountPeersBufferInterval.Load()), func() {
+			b.next = time.AfterFunc(adaptiveDelay, func() {
 				am.UpdateAccountPeers(ctx, accountID)
 			})
 			return
 		}
-		b.next.Reset(time.Duration(am.updateAccountPeersBufferInterval.Load()))
+		b.next.Reset(adaptiveDelay)
 	}()
 }
 

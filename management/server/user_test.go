@@ -1366,7 +1366,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	t.Run("creating new regular user with no groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1389,7 +1389,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	t.Run("updating user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1412,7 +1412,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1449,7 +1449,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	t.Run("updating user with linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1477,7 +1477,7 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting user with linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, peer4UpdMsg)
+			peerShouldReceiveUpdate(t, peer4UpdMsg.NetworkMap)
 			close(done)
 		}()
 

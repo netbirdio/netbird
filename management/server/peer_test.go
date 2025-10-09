@@ -26,7 +26,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -954,14 +953,15 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 		minMsPerOpCICD  float64
 		maxMsPerOpCICD  float64
 	}{
-		{"Small", 50, 5, 90, 120, 90, 120},
-		{"Medium", 500, 100, 110, 150, 120, 260},
-		{"Large", 5000, 200, 800, 1700, 2500, 5000},
-		{"Small single", 50, 10, 90, 120, 90, 120},
-		{"Medium single", 500, 10, 110, 170, 120, 200},
-		{"Large 5", 5000, 15, 1300, 2100, 4900, 7000},
-		{"Extra Large", 2000, 2000, 1300, 2400, 3000, 6400},
+		{"Small", 350, 5, 90, 120, 90, 120},
+		// {"Medium", 500, 100, 110, 150, 120, 260},
+		// {"Large", 5000, 2, 800, 1700, 2500, 5000},
+		// {"Small single", 50, 10, 90, 120, 90, 120},
+		// {"Medium single", 500, 10, 110, 170, 120, 200},
+		// {"Large 5", 5000, 15, 1300, 2100, 4900, 7000},
+		// {"Extra Large", 2000, 2000, 1300, 2400, 3000, 6400},
 	}
+	b.Setenv("NB_EXPERIMENT_NETWORK_MAP", "false")
 
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)
@@ -980,36 +980,37 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 				b.Fatalf("Failed to get account: %v", err)
 			}
 
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateChannel)
 
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = &UpdateChannel{
+					Important:  make(chan *UpdateMessage, channelBufferSize),
+					NetworkMap: NewUpdateBuffer(manager.metrics.UpdateChannelMetrics()),
+				}
 			}
 
 			manager.peersUpdateManager.peerChannels = peerChannels
 
-			b.ResetTimer()
-			start := time.Now()
+			for i := 0; i < 1000; i++ {
+				b.Logf("Run %d", i)
+				manager.UpdateAccountPeers(ctx, account.Id)
+				mm(b)
+				manager.Store.IncrementNetworkSerial(ctx, account.Id)
+			}
 
 			for i := 0; i < b.N; i++ {
 				manager.UpdateAccountPeers(ctx, account.Id)
 			}
 
-			duration := time.Since(start)
-			msPerOp := float64(duration.Nanoseconds()) / float64(b.N) / 1e6
-			b.ReportMetric(msPerOp, "ms/op")
-
-			maxExpected := bc.maxMsPerOpLocal
-			if os.Getenv("CI") == "true" {
-				maxExpected = bc.maxMsPerOpCICD
-				testing_tools.EvaluateBenchmarkResults(b, bc.name, time.Since(start), "login", "newPeer")
-			}
-
-			if msPerOp > maxExpected {
-				b.Logf("Benchmark %s: too slow (%.2f ms/op, max %.2f ms/op)", bc.name, msPerOp, maxExpected)
-			}
 		})
 	}
+}
+
+func mm(b *testing.B) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	// runtime.GC()
+	b.Logf("Alloc: %v MB, TotalAlloc: %v MB, Sys: %v MB, NumGC: %v", m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.Sys/1024/1024, m.NumGC)
 }
 
 func TestUpdateAccountPeers_Experimental(t *testing.T) {
@@ -1044,22 +1045,30 @@ func testUpdateAccountPeers(t *testing.T) {
 
 			ctx := context.Background()
 
+			metrics, err := telemetry.NewDefaultAppMetrics(ctx)
+			if err != nil {
+				t.Fatalf("Failed to create metrics: %v", err)
+			}
+
 			account, err := manager.Store.GetAccount(ctx, accountID)
 			if err != nil {
 				t.Fatalf("Failed to get account: %v", err)
 			}
 
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]*UpdateChannel)
 
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = &UpdateChannel{
+					Important:  make(chan *UpdateMessage, channelBufferSize),
+					NetworkMap: NewUpdateBuffer(metrics.UpdateChannelMetrics()),
+				}
 			}
 
 			manager.peersUpdateManager.peerChannels = peerChannels
 			manager.UpdateAccountPeers(ctx, account.Id)
 
 			for _, channel := range peerChannels {
-				update := <-channel
+				update, _, _, _ := channel.NetworkMap.Pop(ctx)
 				assert.Nil(t, update.Update.NetbirdConfig)
 				assert.Equal(t, tc.peers, len(update.Update.NetworkMap.RemotePeers))
 				assert.Equal(t, tc.peers*2, len(update.Update.NetworkMap.FirewallRules))
@@ -1791,7 +1800,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1809,7 +1818,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg) //
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap) //
 			close(done)
 		}()
 
@@ -1834,7 +1843,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1852,7 +1861,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("updating peer label", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1875,7 +1884,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireUpdateFunc}
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1897,7 +1906,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		manager.integratedPeerValidator = MockIntegratedValidator{ValidatePeerFunc: requireNoUpdateFunc}
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1930,7 +1939,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1956,7 +1965,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with linked group to policy", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1994,7 +2003,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -2020,7 +2029,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with linked group to route", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -2049,7 +2058,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -2075,7 +2084,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with linked group to route", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 

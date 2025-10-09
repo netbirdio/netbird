@@ -1034,7 +1034,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("saving policy with rule groups with no peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1065,7 +1065,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("saving policy where source has peers but destination does not", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1097,7 +1097,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("saving policy where destination has peers but source does not", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1129,7 +1129,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("saving policy with source and destination groups with peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1160,7 +1160,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("disabling policy with source and destination groups with peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1180,7 +1180,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("updating disabled policy with source and destination groups with peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1201,7 +1201,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("enabling policy with source and destination groups with peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1220,7 +1220,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting policy with source and destination groups with peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1240,7 +1240,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting policy where destination has peers but source does not", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
@@ -1258,7 +1258,7 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting policy with no peers in groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg.NetworkMap)
 			close(done)
 		}()
 
