@@ -5,9 +5,15 @@ Load testing tool for the NetBird signal server.
 ## Features
 
 - **Rate-based peer pair creation**: Spawn peer pairs at configurable rates (e.g., 10, 20 pairs/sec)
-- **Message exchange validation**: Each pair exchanges one message and validates encrypted body size > 0
+- **Two exchange modes**:
+  - **Single message**: Each pair exchanges one message for validation
+  - **Continuous exchange**: Pairs continuously exchange messages for a specified duration (e.g., 30 seconds, 10 minutes)
+- **Configurable message interval**: Control message send rate in continuous mode
+- **Message exchange validation**: Validates encrypted body size > 0
 - **Comprehensive metrics**: Tracks throughput, success/failure rates, and latency statistics
 - **Local server testing**: Tests include embedded signal server for easy development
+- **Worker pool pattern**: Efficient concurrent execution
+- **Graceful shutdown**: Context-based cancellation
 
 ## Usage
 
@@ -15,19 +21,25 @@ Load testing tool for the NetBird signal server.
 
 ```bash
 # Run all tests (includes load tests)
-go test -v -timeout 60s
+go test -v -timeout 2m
 
-# Run specific load test
+# Run specific single-message load tests
 go test -v -run TestLoadTest_10PairsPerSecond -timeout 40s
 go test -v -run TestLoadTest_20PairsPerSecond -timeout 40s
 go test -v -run TestLoadTest_SmallBurst -timeout 30s
 
-# Skip load tests in quick runs
+# Run continuous exchange tests
+go test -v -run TestLoadTest_ContinuousExchange_ShortBurst -timeout 30s
+go test -v -run TestLoadTest_ContinuousExchange_30Seconds -timeout 2m
+go test -v -run TestLoadTest_ContinuousExchange_10Minutes -timeout 15m
+
+# Skip long-running tests in quick runs
 go test -short
 ```
 
 ### Programmatic Usage
 
+#### Single Message Exchange
 ```go
 package main
 
@@ -55,6 +67,36 @@ func main() {
 }
 ```
 
+#### Continuous Message Exchange
+```go
+package main
+
+import (
+    "github.com/netbirdio/netbird/signal/loadtest"
+    "time"
+)
+
+func main() {
+    config := loadtest.LoadTestConfig{
+        ServerURL:        "http://localhost:10000",
+        PairsPerSecond:   10,
+        TotalPairs:       20,
+        MessageSize:      200,
+        ExchangeDuration: 10 * time.Minute,  // Each pair exchanges messages for 10 minutes
+        MessageInterval:  200 * time.Millisecond,  // Send message every 200ms
+        TestDuration:     15 * time.Minute,  // Overall test timeout
+    }
+
+    lt := loadtest.NewLoadTest(config)
+    if err := lt.Run(); err != nil {
+        panic(err)
+    }
+
+    metrics := lt.GetMetrics()
+    metrics.PrintReport()
+}
+```
+
 ## Configuration Options
 
 - **ServerURL**: Signal server URL (e.g., `http://localhost:10000` or `https://signal.example.com:443`)
@@ -62,6 +104,8 @@ func main() {
 - **TotalPairs**: Total number of peer pairs to create
 - **MessageSize**: Size of test message payload in bytes
 - **TestDuration**: Maximum test duration (optional, 0 = no limit)
+- **ExchangeDuration**: Duration for continuous message exchange per pair (0 = single message)
+- **MessageInterval**: Interval between messages in continuous mode (default: 100ms)
 - **RampUpDuration**: Gradual ramp-up period (not yet implemented)
 
 ## Metrics

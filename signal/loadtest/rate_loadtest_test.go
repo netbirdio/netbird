@@ -103,6 +103,99 @@ func TestLoadTest_SmallBurst(t *testing.T) {
 	require.Less(t, metrics.FailedExchanges.Load(), int64(5), "Less than 50% failure rate")
 }
 
+func TestLoadTest_ContinuousExchange_30Seconds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping continuous exchange test in short mode")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	grpcServer, serverAddr := startTestSignalServerForLoad(t, ctx)
+	defer grpcServer.Stop()
+
+	config := LoadTestConfig{
+		ServerURL:        serverAddr,
+		PairsPerSecond:   5,
+		TotalPairs:       10,
+		MessageSize:      100,
+		ExchangeDuration: 30 * time.Second,
+		MessageInterval:  100 * time.Millisecond,
+		TestDuration:     2 * time.Minute,
+	}
+
+	loadTest := NewLoadTest(config)
+	err := loadTest.Run()
+	require.NoError(t, err)
+
+	metrics := loadTest.GetMetrics()
+	metrics.PrintReport()
+
+	require.Equal(t, int64(10), metrics.TotalPairsSent.Load())
+	require.Greater(t, metrics.TotalMessagesExchanged.Load(), int64(2000), "Should exchange many messages over 30 seconds")
+}
+
+func TestLoadTest_ContinuousExchange_10Minutes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping long continuous exchange test in short mode")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	grpcServer, serverAddr := startTestSignalServerForLoad(t, ctx)
+	defer grpcServer.Stop()
+
+	config := LoadTestConfig{
+		ServerURL:        serverAddr,
+		PairsPerSecond:   10,
+		TotalPairs:       20,
+		MessageSize:      200,
+		ExchangeDuration: 10 * time.Minute,
+		MessageInterval:  200 * time.Millisecond,
+		TestDuration:     15 * time.Minute,
+	}
+
+	loadTest := NewLoadTest(config)
+	err := loadTest.Run()
+	require.NoError(t, err)
+
+	metrics := loadTest.GetMetrics()
+	metrics.PrintReport()
+
+	require.Equal(t, int64(20), metrics.TotalPairsSent.Load())
+	require.Greater(t, metrics.TotalMessagesExchanged.Load(), int64(50000), "Should exchange many messages over 10 minutes")
+}
+
+func TestLoadTest_ContinuousExchange_ShortBurst(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	grpcServer, serverAddr := startTestSignalServerForLoad(t, ctx)
+	defer grpcServer.Stop()
+
+	config := LoadTestConfig{
+		ServerURL:        serverAddr,
+		PairsPerSecond:   3,
+		TotalPairs:       5,
+		MessageSize:      50,
+		ExchangeDuration: 3 * time.Second,
+		MessageInterval:  100 * time.Millisecond,
+		TestDuration:     10 * time.Second,
+	}
+
+	loadTest := NewLoadTest(config)
+	err := loadTest.Run()
+	require.NoError(t, err)
+
+	metrics := loadTest.GetMetrics()
+	metrics.PrintReport()
+
+	require.Equal(t, int64(5), metrics.TotalPairsSent.Load())
+	require.Greater(t, metrics.TotalMessagesExchanged.Load(), int64(100), "Should exchange multiple messages in 3 seconds")
+	require.Equal(t, int64(5), metrics.SuccessfulExchanges.Load(), "All pairs should complete successfully")
+}
+
 func BenchmarkLoadTest_Throughput(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

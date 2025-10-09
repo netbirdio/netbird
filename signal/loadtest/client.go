@@ -102,7 +102,6 @@ func (c *Client) ReceiveMessage() (*proto.EncryptedMessage, error) {
 // Close closes the client connection
 func (c *Client) Close() error {
 	c.cancel()
-	close(c.msgChannel)
 	if c.conn != nil {
 		return c.conn.Close()
 	}
@@ -110,6 +109,7 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) receiveMessages() {
+	defer close(c.msgChannel)
 	for {
 		msg, err := c.stream.Recv()
 		if err != nil {

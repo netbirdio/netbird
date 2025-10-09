@@ -12,12 +12,14 @@ import (
 
 // LoadTestConfig configuration for the load test
 type LoadTestConfig struct {
-	ServerURL      string
-	PairsPerSecond int
-	TotalPairs     int
-	MessageSize    int
-	TestDuration   time.Duration
-	RampUpDuration time.Duration
+	ServerURL        string
+	PairsPerSecond   int
+	TotalPairs       int
+	MessageSize      int
+	TestDuration     time.Duration
+	ExchangeDuration time.Duration
+	MessageInterval  time.Duration
+	RampUpDuration   time.Duration
 }
 
 // LoadTestMetrics metrics collected during the load test
@@ -67,8 +69,12 @@ func (lt *LoadTest) Run() error {
 		lt.metrics.endTime = time.Now()
 	}()
 
-	log.Infof("Starting load test: %d pairs/sec, %d total pairs, message size: %d bytes",
-		lt.config.PairsPerSecond, lt.config.TotalPairs, lt.config.MessageSize)
+	exchangeInfo := "single message"
+	if lt.config.ExchangeDuration > 0 {
+		exchangeInfo = fmt.Sprintf("continuous for %v", lt.config.ExchangeDuration)
+	}
+	log.Infof("Starting load test: %d pairs/sec, %d total pairs, message size: %d bytes, exchange: %s",
+		lt.config.PairsPerSecond, lt.config.TotalPairs, lt.config.MessageSize, exchangeInfo)
 
 	var wg sync.WaitGroup
 	pairChan := make(chan int, lt.config.PairsPerSecond)
@@ -159,6 +165,14 @@ func (lt *LoadTest) executePairExchange(pairID int) error {
 		testMessage[i] = byte(i % 256)
 	}
 
+	if lt.config.ExchangeDuration > 0 {
+		return lt.continuousExchange(pairID, sender, receiver, receiverID, testMessage)
+	}
+
+	return lt.singleExchange(sender, receiver, receiverID, testMessage)
+}
+
+func (lt *LoadTest) singleExchange(sender, receiver *Client, receiverID string, testMessage []byte) error {
 	startTime := time.Now()
 
 	if err := sender.SendMessage(receiverID, testMessage); err != nil {
@@ -192,6 +206,92 @@ func (lt *LoadTest) executePairExchange(pairID int) error {
 		return fmt.Errorf("timeout waiting for message")
 	case <-lt.ctx.Done():
 		return lt.ctx.Err()
+	}
+}
+
+func (lt *LoadTest) continuousExchange(pairID int, sender, receiver *Client, receiverID string, testMessage []byte) error {
+	exchangeCtx, cancel := context.WithTimeout(lt.ctx, lt.config.ExchangeDuration)
+	defer cancel()
+
+	messageInterval := lt.config.MessageInterval
+	if messageInterval == 0 {
+		messageInterval = 100 * time.Millisecond
+	}
+
+	errChan := make(chan error, 1)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := lt.receiverLoop(exchangeCtx, receiver, pairID); err != nil && err != context.DeadlineExceeded && err != context.Canceled {
+			select {
+			case errChan <- err:
+			default:
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := lt.senderLoop(exchangeCtx, sender, receiverID, testMessage, messageInterval); err != nil && err != context.DeadlineExceeded && err != context.Canceled {
+			select {
+			case errChan <- err:
+			default:
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	select {
+	case err := <-errChan:
+		return err
+	default:
+		return nil
+	}
+}
+
+func (lt *LoadTest) senderLoop(ctx context.Context, sender *Client, receiverID string, message []byte, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			startTime := time.Now()
+			if err := sender.SendMessage(receiverID, message); err != nil {
+				lt.metrics.TotalErrors.Add(1)
+				log.Debugf("Send error: %v", err)
+				continue
+			}
+			lt.recordLatency(time.Since(startTime))
+		}
+	}
+}
+
+func (lt *LoadTest) receiverLoop(ctx context.Context, receiver *Client, pairID int) error {
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		select {
+		case msg, ok := <-receiver.msgChannel:
+			if !ok {
+				return nil
+			}
+			if len(msg.Body) > 0 {
+				lt.metrics.TotalMessagesExchanged.Add(1)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+			continue
+		}
 	}
 }
 
@@ -234,23 +334,23 @@ func (m *LoadTestMetrics) PrintReport() {
 
 	if len(latencies) > 0 {
 		var total time.Duration
-		min := latencies[0]
-		max := latencies[0]
+		minLatency := latencies[0]
+		maxLatency := latencies[0]
 
 		for _, lat := range latencies {
 			total += lat
-			if lat < min {
-				min = lat
+			if lat < minLatency {
+				minLatency = lat
 			}
-			if lat > max {
-				max = lat
+			if lat > maxLatency {
+				maxLatency = lat
 			}
 		}
 
 		avg := total / time.Duration(len(latencies))
 		fmt.Printf("\nLatency Statistics:\n")
-		fmt.Printf("  Min: %v\n", min)
-		fmt.Printf("  Max: %v\n", max)
+		fmt.Printf("  Min: %v\n", minLatency)
+		fmt.Printf("  Max: %v\n", maxLatency)
 		fmt.Printf("  Avg: %v\n", avg)
 	}
 	fmt.Println("========================")
