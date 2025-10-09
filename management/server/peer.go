@@ -1514,16 +1514,6 @@ func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID str
 	return transaction.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
-// IsPeerInActiveGroup checks if the given peer is part of a group that is used
-// in an active DNS, route, or ACL configuration.
-func isPeerInActiveGroup(ctx context.Context, transaction store.Store, accountID, peerID string) (bool, error) {
-	peerGroupIDs, err := getPeerGroupIDs(ctx, transaction, accountID, peerID)
-	if err != nil {
-		return false, err
-	}
-	return areGroupChangesAffectPeers(ctx, transaction, accountID, peerGroupIDs) // TODO: use transaction
-}
-
 // deletePeers deletes all specified peers and sends updates to the remote peers.
 // Returns a slice of functions to save events after successful peer deletion.
 func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction store.Store, accountID, userID string, peers []*nbpeer.Peer) ([]func(), error) {
