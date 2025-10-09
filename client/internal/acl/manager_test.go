@@ -758,6 +758,129 @@ func TestPortInfoEmpty(t *testing.T) {
 	}
 }
 
+func TestDefaultManagerSquashRulesMixed(t *testing.T) {
+	networkMap := &mgmProto.NetworkMap{
+		RemotePeers: []*mgmProto.RemotePeerConfig{
+			{AllowedIps: []string{"100.66.152.160"}},
+		},
+		FirewallRules: []*mgmProto.FirewallRule{
+			{
+				PeerIP:    "0.0.0.0",
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
+			},
+			{
+				PeerIP:    "100.66.152.160",
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
+			},
+		},
+	}
+
+	manager := &DefaultManager{}
+	rules := manager.squashAcceptRules(networkMap)
+
+	assert.Equal(t, 2, len(rules))
+
+	var inRules, outRules []*mgmProto.FirewallRule
+	for _, r := range rules {
+		if r.Direction == mgmProto.RuleDirection_IN {
+			inRules = append(inRules, r)
+		} else {
+			outRules = append(outRules, r)
+		}
+	}
+
+	assert.Equal(t, 1, len(inRules))
+	assert.Equal(t, 1, len(outRules))
+	assert.Equal(t, "0.0.0.0", outRules[0].PeerIP)
+	assert.Equal(t, "100.66.152.160", inRules[0].PeerIP)
+}
+
+func TestDefaultManagerSquashRulesBothOptimized(t *testing.T) {
+	networkMap := &mgmProto.NetworkMap{
+		RemotePeers: []*mgmProto.RemotePeerConfig{
+			{AllowedIps: []string{"100.66.152.160"}},
+		},
+		FirewallRules: []*mgmProto.FirewallRule{
+			{
+				PeerIP:    "0.0.0.0",
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
+			},
+			{
+				PeerIP:    "0.0.0.0",
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
+			},
+		},
+	}
+
+	manager := &DefaultManager{}
+	rules := manager.squashAcceptRules(networkMap)
+
+	assert.Equal(t, 2, len(rules))
+
+	var inRules, outRules []*mgmProto.FirewallRule
+	for _, r := range rules {
+		if r.Direction == mgmProto.RuleDirection_IN {
+			inRules = append(inRules, r)
+		} else {
+			outRules = append(outRules, r)
+		}
+	}
+
+	assert.Equal(t, 1, len(inRules))
+	assert.Equal(t, 1, len(outRules))
+	assert.Equal(t, "0.0.0.0", outRules[0].PeerIP)
+	assert.Equal(t, "0.0.0.0", inRules[0].PeerIP)
+}
+
+func TestDefaultManagerSquashRulesBothSpecific(t *testing.T) {
+	networkMap := &mgmProto.NetworkMap{
+		RemotePeers: []*mgmProto.RemotePeerConfig{
+			{AllowedIps: []string{"100.66.152.160"}},
+		},
+		FirewallRules: []*mgmProto.FirewallRule{
+			{
+				PeerIP:    "100.66.152.160",
+				Direction: mgmProto.RuleDirection_OUT,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
+			},
+			{
+				PeerIP:    "100.66.152.160",
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_ALL,
+			},
+		},
+	}
+
+	manager := &DefaultManager{}
+	rules := manager.squashAcceptRules(networkMap)
+
+	assert.Equal(t, 2, len(rules))
+
+	var inRules, outRules []*mgmProto.FirewallRule
+	for _, r := range rules {
+		if r.Direction == mgmProto.RuleDirection_IN {
+			inRules = append(inRules, r)
+		} else {
+			outRules = append(outRules, r)
+		}
+	}
+
+	assert.Equal(t, 1, len(inRules))
+	assert.Equal(t, 1, len(outRules))
+	assert.Equal(t, "100.66.152.160", outRules[0].PeerIP)
+	assert.Equal(t, "100.66.152.160", inRules[0].PeerIP)
+}
+
 func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	networkMap := &mgmProto.NetworkMap{
 		PeerConfig: &mgmProto.PeerConfig{

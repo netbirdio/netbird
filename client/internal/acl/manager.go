@@ -388,7 +388,8 @@ func (d *DefaultManager) squashAcceptRules(
 
 	// trace which type of protocols was squashed
 	squashedRules := []*mgmProto.FirewallRule{}
-	squashedProtocols := map[mgmProto.RuleProtocol]struct{}{}
+	squashedProtocolsIn := map[mgmProto.RuleProtocol]struct{}{}
+	squashedProtocolsOut := map[mgmProto.RuleProtocol]struct{}{}
 
 	// this function we use to do calculation, can we squash the rules by protocol or not.
 	// We summ amount of Peers IP for given protocol we found in original rules list.
@@ -397,7 +398,7 @@ func (d *DefaultManager) squashAcceptRules(
 	// 2. Any of rule contains Port.
 	//
 	// We zeroed this to notify squash function that this protocol can't be squashed.
-	addRuleToCalculationMap := func(i int, r *mgmProto.FirewallRule, protocols map[mgmProto.RuleProtocol]*protoMatch) {
+	addRuleToCalculationMap := func(i int, r *mgmProto.FirewallRule, protocols map[mgmProto.RuleProtocol]*protoMatch, squashedProtocols map[mgmProto.RuleProtocol]struct{}) {
 		hasPortRestrictions := r.Action == mgmProto.RuleAction_DROP ||
 			r.Port != "" || !portInfoEmpty(r.PortInfo)
 
@@ -435,9 +436,9 @@ func (d *DefaultManager) squashAcceptRules(
 	for i, r := range networkMap.FirewallRules {
 		// calculate squash for different directions
 		if r.Direction == mgmProto.RuleDirection_IN {
-			addRuleToCalculationMap(i, r, in)
+			addRuleToCalculationMap(i, r, in, squashedProtocolsIn)
 		} else {
-			addRuleToCalculationMap(i, r, out)
+			addRuleToCalculationMap(i, r, out, squashedProtocolsOut)
 		}
 	}
 
@@ -450,7 +451,7 @@ func (d *DefaultManager) squashAcceptRules(
 		mgmProto.RuleProtocol_UDP,
 	}
 
-	squash := func(matches map[mgmProto.RuleProtocol]*protoMatch, direction mgmProto.RuleDirection) {
+	squash := func(matches map[mgmProto.RuleProtocol]*protoMatch, direction mgmProto.RuleDirection, squashedProtocols map[mgmProto.RuleProtocol]struct{}) {
 		for _, protocol := range protocolOrders {
 			match, ok := matches[protocol]
 			if !ok || len(match.ips) != totalIPs || len(match.ips) < 2 {
@@ -478,11 +479,22 @@ func (d *DefaultManager) squashAcceptRules(
 		}
 	}
 
-	squash(in, mgmProto.RuleDirection_IN)
-	squash(out, mgmProto.RuleDirection_OUT)
+	squash(in, mgmProto.RuleDirection_IN, squashedProtocolsIn)
+	squash(out, mgmProto.RuleDirection_OUT, squashedProtocolsOut)
 
 	// if all protocol was squashed everything is allow and we can ignore all other rules
-	if _, ok := squashedProtocols[mgmProto.RuleProtocol_ALL]; ok {
+	_, inSquashed := squashedProtocolsIn[mgmProto.RuleProtocol_ALL]
+	_, outSquashed := squashedProtocolsOut[mgmProto.RuleProtocol_ALL]
+
+	squashedProtocols := make(map[mgmProto.RuleProtocol]struct{})
+	for k := range squashedProtocolsIn {
+		squashedProtocols[k] = struct{}{}
+	}
+	for k := range squashedProtocolsOut {
+		squashedProtocols[k] = struct{}{}
+	}
+
+	if inSquashed && outSquashed {
 		return squashedRules, squashedProtocols
 	}
 
@@ -494,10 +506,15 @@ func (d *DefaultManager) squashAcceptRules(
 	// filter out rules which was squashed from final list
 	// if we also have other not squashed rules.
 	for i, r := range networkMap.FirewallRules {
+		squashedProtocols := squashedProtocolsIn
+		protocols := in
+		if r.Direction == mgmProto.RuleDirection_OUT {
+			squashedProtocols = squashedProtocolsOut
+			protocols = out
+		}
+
 		if _, ok := squashedProtocols[r.Protocol]; ok {
-			if m, ok := in[r.Protocol]; ok && m.ips[r.PeerIP] == i {
-				continue
-			} else if m, ok := out[r.Protocol]; ok && m.ips[r.PeerIP] == i {
+			if m, ok := protocols[r.Protocol]; ok && m.ips[r.PeerIP] == i {
 				continue
 			}
 		}
