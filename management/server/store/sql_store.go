@@ -77,10 +77,6 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 	}
 
 	switch storeEngine {
-	case types.MysqlStoreEngine:
-		if err := db.Exec("SET FOREIGN_KEY_CHECKS = 0").Error; err != nil {
-			return nil, err
-		}
 	case types.SqliteStoreEngine:
 		if err == nil {
 			log.WithContext(ctx).Warnf("setting NB_SQL_MAX_OPEN_CONNS is not supported for sqlite, using default value 1")
@@ -162,7 +158,7 @@ func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) erro
 		group.StoreGroupPeers()
 	}
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
@@ -257,7 +253,7 @@ func (s *SqlStore) checkAccountDomainBeforeSave(ctx context.Context, accountID, 
 func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) error {
 	start := time.Now()
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(func(tx *gorm.DB) error {
 		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error
@@ -307,7 +303,7 @@ func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.
 	peerCopy := peer.Copy()
 	peerCopy.AccountID = accountID
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(func(tx *gorm.DB) error {
 		// check if peer exists before saving
 		var peerID string
 		result := tx.Model(&nbpeer.Peer{}).Select("id").Take(&peerID, accountAndIDQueryCondition, accountID, peer.ID)
@@ -596,7 +592,7 @@ func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStre
 }
 
 func (s *SqlStore) DeleteUser(ctx context.Context, accountID, userID string) error {
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(func(tx *gorm.DB) error {
 		result := tx.Delete(&types.PersonalAccessToken{}, "user_id = ?", userID)
 		if result.Error != nil {
 			return result.Error
@@ -1735,11 +1731,29 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	if tx.Error != nil {
 		return tx.Error
 	}
+
+	// For MySQL, disable FK checks within this transaction to avoid deadlocks
+	// This is session-scoped and doesn't require SUPER privileges
+	if s.storeEngine == types.MysqlStoreEngine {
+		if err := tx.Exec("SET FOREIGN_KEY_CHECKS = 0").Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to disable FK checks: %w", err)
+		}
+	}
+
 	repo := s.withTx(tx)
 	err := operation(repo)
 	if err != nil {
 		tx.Rollback()
 		return err
+	}
+
+	// Re-enable FK checks before commit (optional, as transaction end resets it)
+	if s.storeEngine == types.MysqlStoreEngine {
+		if err := tx.Exec("SET FOREIGN_KEY_CHECKS = 1").Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to re-enable FK checks: %w", err)
+		}
 	}
 
 	err = tx.Commit().Error
@@ -1757,6 +1771,31 @@ func (s *SqlStore) withTx(tx *gorm.DB) Store {
 		db:          tx,
 		storeEngine: s.storeEngine,
 	}
+}
+
+// transaction wraps a GORM transaction with MySQL-specific FK checks handling
+// Use this instead of db.Transaction() directly to avoid deadlocks on MySQL/Aurora
+func (s *SqlStore) transaction(fn func(*gorm.DB) error) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// For MySQL, disable FK checks within this transaction to avoid deadlocks
+		// This is session-scoped and doesn't require SUPER privileges
+		if s.storeEngine == types.MysqlStoreEngine {
+			if err := tx.Exec("SET FOREIGN_KEY_CHECKS = 0").Error; err != nil {
+				return fmt.Errorf("failed to disable FK checks: %w", err)
+			}
+		}
+
+		err := fn(tx)
+
+		// Re-enable FK checks before commit (optional, as transaction end resets it)
+		if s.storeEngine == types.MysqlStoreEngine && err == nil {
+			if fkErr := tx.Exec("SET FOREIGN_KEY_CHECKS = 1").Error; fkErr != nil {
+				return fmt.Errorf("failed to re-enable FK checks: %w", fkErr)
+			}
+		}
+
+		return err
+	})
 }
 
 func (s *SqlStore) GetDB() *gorm.DB {
@@ -2015,7 +2054,7 @@ func (s *SqlStore) SavePolicy(ctx context.Context, policy *types.Policy) error {
 }
 
 func (s *SqlStore) DeletePolicy(ctx context.Context, accountID, policyID string) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	return s.transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("policy_id = ?", policyID).Delete(&types.PolicyRule{}).Error; err != nil {
 			return fmt.Errorf("delete policy rules: %w", err)
 		}
