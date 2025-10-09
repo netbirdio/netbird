@@ -78,7 +78,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 
 	switch storeEngine {
 	case types.MysqlStoreEngine:
-		if err := db.Exec("SET GLOBAL FOREIGN_KEY_CHECKS = 0").Error; err != nil {
+		if err := db.Exec("SET FOREIGN_KEY_CHECKS = 0").Error; err != nil {
 			return nil, err
 		}
 	case types.SqliteStoreEngine:
