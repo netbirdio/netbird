@@ -17,6 +17,56 @@ Load testing tool for the NetBird signal server.
 
 ## Usage
 
+### Standalone Binary
+
+Build and run the load test as a standalone binary:
+
+```bash
+# Build the binary
+cd signal/loadtest/cmd/signal-loadtest
+go build -o signal-loadtest
+
+# Single message exchange
+./signal-loadtest \
+  -server http://localhost:10000 \
+  -pairs-per-sec 10 \
+  -total-pairs 100 \
+  -message-size 100
+
+# Continuous exchange for 30 seconds
+./signal-loadtest \
+  -server http://localhost:10000 \
+  -pairs-per-sec 10 \
+  -total-pairs 20 \
+  -message-size 200 \
+  -exchange-duration 30s \
+  -message-interval 200ms
+
+# Long-running test (10 minutes)
+./signal-loadtest \
+  -server http://localhost:10000 \
+  -pairs-per-sec 20 \
+  -total-pairs 50 \
+  -message-size 500 \
+  -exchange-duration 10m \
+  -message-interval 100ms \
+  -test-duration 15m \
+  -log-level debug
+
+# Show help
+./signal-loadtest -h
+```
+
+**Available Flags:**
+- `-server`: Signal server URL (default: `http://localhost:10000`)
+- `-pairs-per-sec`: Peer pairs created per second (default: 10)
+- `-total-pairs`: Total number of peer pairs (default: 100)
+- `-message-size`: Message size in bytes (default: 100)
+- `-test-duration`: Maximum test duration, 0 = unlimited (default: 0)
+- `-exchange-duration`: Continuous exchange duration per pair, 0 = single message (default: 0)
+- `-message-interval`: Interval between messages in continuous mode (default: 100ms)
+- `-log-level`: Log level: trace, debug, info, warn, error (default: info)
+
 ### Running Tests
 
 ```bash
