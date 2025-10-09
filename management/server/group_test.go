@@ -442,15 +442,12 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
-	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-	})
-
 	// Saving a group that is not linked to any resource should update account peers
 	t.Run("saving unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -474,6 +471,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -493,6 +492,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("removing peer from unliked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -511,6 +512,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -544,6 +547,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("saving linked group to policy", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -566,6 +571,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to linked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -584,6 +591,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("removing peer from linked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -613,6 +622,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -654,6 +665,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -681,6 +694,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
@@ -728,6 +743,8 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
+			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
 			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
