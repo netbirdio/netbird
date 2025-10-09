@@ -473,7 +473,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		go func() {
 			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -494,7 +494,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		go func() {
 			updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
 			defer manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
