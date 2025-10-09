@@ -780,7 +780,7 @@ func TestDefaultManagerSquashRulesMixed(t *testing.T) {
 	}
 
 	manager := &DefaultManager{}
-	rules := manager.squashAcceptRules(networkMap)
+	rules, _ := manager.squashAcceptRules(networkMap)
 
 	assert.Equal(t, 2, len(rules))
 
@@ -821,7 +821,7 @@ func TestDefaultManagerSquashRulesBothOptimized(t *testing.T) {
 	}
 
 	manager := &DefaultManager{}
-	rules := manager.squashAcceptRules(networkMap)
+	rules, _ := manager.squashAcceptRules(networkMap)
 
 	assert.Equal(t, 2, len(rules))
 
@@ -862,7 +862,7 @@ func TestDefaultManagerSquashRulesBothSpecific(t *testing.T) {
 	}
 
 	manager := &DefaultManager{}
-	rules := manager.squashAcceptRules(networkMap)
+	rules, _ := manager.squashAcceptRules(networkMap)
 
 	assert.Equal(t, 2, len(rules))
 
