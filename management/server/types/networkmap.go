@@ -313,7 +313,7 @@ func (a *Account) validatePostureChecksOnPeer(ctx context.Context, sourcePosture
 
 // expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules
 func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
-	var expanded []*FirewallRule
+	expanded := make([]*FirewallRule, len(rule.Ports)+len(rule.PortRanges))
 
 	if len(rule.Ports) > 0 {
 		for _, port := range rule.Ports {
