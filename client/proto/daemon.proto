@@ -252,6 +252,8 @@ message GetConfigResponse {
   bool disable_server_routes = 19;
 
   bool block_lan_access = 20;
+
+  bool disable_firewall = 21;
 }
 
 // PeerState contains the latest state of a peer
