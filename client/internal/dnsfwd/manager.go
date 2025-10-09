@@ -40,7 +40,6 @@ type Manager struct {
 	fwRules      []firewall.Rule
 	tcpRules     []firewall.Rule
 	dnsForwarder *DNSForwarder
-	port         uint16
 }
 
 func ListenPort() uint16 {
@@ -49,11 +48,16 @@ func ListenPort() uint16 {
 	return listenPort
 }
 
-func NewManager(fw firewall.Manager, statusRecorder *peer.Status, port uint16) *Manager {
+func SetListenPort(port uint16) {
+	listenPortMu.Lock()
+	listenPort = port
+	listenPortMu.Unlock()
+}
+
+func NewManager(fw firewall.Manager, statusRecorder *peer.Status) *Manager {
 	return &Manager{
 		firewall:       fw,
 		statusRecorder: statusRecorder,
-		port:           port,
 	}
 }
 
@@ -65,12 +69,6 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 
 	if err := m.allowDNSFirewall(); err != nil {
 		return err
-	}
-
-	if m.port > 0 {
-		listenPortMu.Lock()
-		listenPort = m.port
-		listenPortMu.Unlock()
 	}
 
 	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort()), dnsTTL, m.firewall, m.statusRecorder)
