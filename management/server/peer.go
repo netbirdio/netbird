@@ -350,7 +350,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	}
 
 	var peer *nbpeer.Peer
-	var updateAccountPeers bool
 	var eventsToStore []func()
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -360,11 +359,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		}
 
 		if err = am.validatePeerDelete(ctx, transaction, accountID, peerID); err != nil {
-			return err
-		}
-
-		updateAccountPeers, err = isPeerInActiveGroup(ctx, transaction, accountID, peerID)
-		if err != nil {
 			return err
 		}
 
@@ -387,7 +381,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		storeEvent()
 	}
 
-	if updateAccountPeers && userID != activity.SystemInitiator {
+	if userID != activity.SystemInitiator {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -684,11 +678,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database after %d attempts: %w", maxAttempts, err)
 	}
 
-	updateAccountPeers, err := isPeerInActiveGroup(ctx, am.Store, accountID, newPeer.ID)
-	if err != nil {
-		updateAccountPeers = true
-	}
-
 	if newPeer == nil {
 		return nil, nil, nil, fmt.Errorf("new peer is nil")
 	}
@@ -701,9 +690,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	if updateAccountPeers {
-		am.BufferUpdateAccountPeers(ctx, accountID)
-	}
+	am.BufferUpdateAccountPeers(ctx, accountID)
 
 	return am.getValidatedPeerWithMap(ctx, false, accountID, newPeer)
 }
