@@ -5,12 +5,11 @@ package android
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/shared/management/domain"
-	"golang.org/x/exp/maps"
 	"os"
 	"slices"
 	"sync"
+
+	"golang.org/x/exp/maps"
 
 	log "github.com/sirupsen/logrus"
 
@@ -24,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
+	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // ConnectionListener export internal Listener for mobile

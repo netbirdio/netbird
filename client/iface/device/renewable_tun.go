@@ -4,10 +4,11 @@ package device
 
 import (
 	"errors"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
 	"os"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun"
 )
 
 type RenewableTUN struct {
