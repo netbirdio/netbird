@@ -584,7 +584,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 	t.Run("removing peer from linked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -594,7 +594,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 		select {
 		case <-done:
 		case <-time.After(time.Second):
-			t.Error("timeout waiting for peerShouldNotReceiveUpdate")
+			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 
