@@ -1,0 +1,143 @@
+# Signal Server Load Test
+
+Load testing tool for the NetBird signal server.
+
+## Features
+
+- **Rate-based peer pair creation**: Spawn peer pairs at configurable rates (e.g., 10, 20 pairs/sec)
+- **Message exchange validation**: Each pair exchanges one message and validates encrypted body size > 0
+- **Comprehensive metrics**: Tracks throughput, success/failure rates, and latency statistics
+- **Local server testing**: Tests include embedded signal server for easy development
+
+## Usage
+
+### Running Tests
+
+```bash
+# Run all tests (includes load tests)
+go test -v -timeout 60s
+
+# Run specific load test
+go test -v -run TestLoadTest_10PairsPerSecond -timeout 40s
+go test -v -run TestLoadTest_20PairsPerSecond -timeout 40s
+go test -v -run TestLoadTest_SmallBurst -timeout 30s
+
+# Skip load tests in quick runs
+go test -short
+```
+
+### Programmatic Usage
+
+```go
+package main
+
+import (
+    "github.com/netbirdio/netbird/signal/loadtest"
+    "time"
+)
+
+func main() {
+    config := loadtest.LoadTestConfig{
+        ServerURL:      "http://localhost:10000",
+        PairsPerSecond: 10,
+        TotalPairs:     100,
+        MessageSize:    100,
+        TestDuration:   30 * time.Second,
+    }
+
+    lt := loadtest.NewLoadTest(config)
+    if err := lt.Run(); err != nil {
+        panic(err)
+    }
+
+    metrics := lt.GetMetrics()
+    metrics.PrintReport()
+}
+```
+
+## Configuration Options
+
+- **ServerURL**: Signal server URL (e.g., `http://localhost:10000` or `https://signal.example.com:443`)
+- **PairsPerSecond**: Rate at which peer pairs are created (e.g., 10, 20)
+- **TotalPairs**: Total number of peer pairs to create
+- **MessageSize**: Size of test message payload in bytes
+- **TestDuration**: Maximum test duration (optional, 0 = no limit)
+- **RampUpDuration**: Gradual ramp-up period (not yet implemented)
+
+## Metrics
+
+The load test collects and reports:
+
+- **Total Pairs Sent**: Number of peer pairs attempted
+- **Successful Exchanges**: Completed message exchanges
+- **Failed Exchanges**: Failed message exchanges
+- **Total Messages Exchanged**: Count of successfully exchanged messages
+- **Total Errors**: Cumulative error count
+- **Throughput**: Pairs per second (actual)
+- **Latency Statistics**: Min, Max, Avg message exchange latency
+
+## Test Results
+
+Example output from a 20 pairs/sec test:
+
+```
+=== Load Test Report ===
+Test Duration: 5.055249917s
+Total Pairs Sent: 100
+Successful Exchanges: 100
+Failed Exchanges: 0
+Total Messages Exchanged: 100
+Total Errors: 0
+Throughput: 19.78 pairs/sec
+
+Latency Statistics:
+  Min: 170.375µs
+  Max: 5.176916ms
+  Avg: 441.566µs
+========================
+```
+
+## Architecture
+
+### Client (`client.go`)
+- Manages gRPC connection to signal server
+- Establishes bidirectional stream for receiving messages
+- Sends messages via `Send` RPC method
+- Handles message reception asynchronously
+
+### Load Test Engine (`rate_loadtest.go`)
+- Worker pool pattern for concurrent peer pairs
+- Rate-limited pair creation using ticker
+- Atomic counters for thread-safe metrics collection
+- Graceful shutdown on context cancellation
+
+### Test Suite
+- `loadtest_test.go`: Single pair validation test
+- `rate_loadtest_test.go`: Multiple rate-based load tests and benchmarks
+
+## Implementation Details
+
+### Message Flow
+1. Create sender and receiver clients with unique IDs
+2. Both clients connect to signal server via bidirectional stream
+3. Sender sends encrypted message using `Send` RPC
+4. Signal server forwards message to receiver's stream
+5. Receiver reads message from stream
+6. Validate encrypted body size > 0
+7. Record latency and success metrics
+
+### Concurrency
+- Worker pool size = `PairsPerSecond`
+- Each worker handles multiple peer pairs sequentially
+- Atomic operations for metrics to avoid lock contention
+- Channel-based work distribution
+
+## Future Enhancements
+
+- [ ] TLS/HTTPS support for production servers
+- [ ] Ramp-up period implementation
+- [ ] Percentile latency metrics (p50, p95, p99)
+- [ ] Connection reuse for multiple messages per pair
+- [ ] Support for custom message payloads
+- [ ] CSV/JSON metrics export
+- [ ] Real-time metrics dashboard
