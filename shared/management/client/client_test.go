@@ -69,6 +69,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	t.Cleanup(cleanUp)
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager(nil)
+	jobManager := mgmt.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 
 	ctrl := gomock.NewController(t)
@@ -111,7 +112,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 
-	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
+	accountManager, err := mgmt.BuildManager(context.Background(), store, peersUpdateManager, jobManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	groupsManager := groups.NewManagerMock()
 
 	secretsManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
-	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, &manager.EphemeralManager{}, nil, mgmt.MockIntegratedValidator{})
+	mgmtServer, err := mgmt.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, jobManager, secretsManager, nil, &manager.EphemeralManager{}, nil, mgmt.MockIntegratedValidator{})
 	if err != nil {
 		t.Fatal(err)
 	}
