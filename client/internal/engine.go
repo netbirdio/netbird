@@ -992,9 +992,9 @@ func (e *Engine) receiveJobEvents() {
 			e.clientCancel()
 			return
 		}
-		log.Debugf("stopped receiving jobs from Management Service")
+		log.Info("stopped receiving jobs from Management Service")
 	}()
-	log.Debugf("connecting to Management Service jobs stream")
+	log.Info("connecting to Management Service jobs stream")
 }
 
 func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
