@@ -46,27 +46,24 @@ type ConnectClient struct {
 	engineMutex    sync.Mutex
 
 	persistSyncResponse bool
-	LogFile             string
 }
 
 func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
-	logFile string,
 ) *ConnectClient {
 	return &ConnectClient{
 		ctx:            ctx,
 		config:         config,
-		LogFile:        logFile,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
 	}
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run(runningChan chan struct{}) error {
-	return c.run(MobileDependency{}, runningChan)
+func (c *ConnectClient) Run(runningChan chan struct{}, logFile string) error {
+	return c.run(MobileDependency{}, runningChan, logFile)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -85,7 +82,7 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.run(mobileDependency, nil)
+	return c.run(mobileDependency, nil, "")
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -103,10 +100,10 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
 	}
-	return c.run(mobileDependency, nil)
+	return c.run(mobileDependency, nil, "")
 }
 
-func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}, logFile string) error {
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -249,7 +246,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		relayURLs, token := parseRelayInfo(loginResp)
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, c.LogFile)
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, logFile)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)

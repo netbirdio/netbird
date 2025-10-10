@@ -170,15 +170,14 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	recorder := peer.NewRecorder(c.config.ManagementURL.String())
 
-	//todo: do we need to pass logFile here ?
-	client := internal.NewConnectClient(ctx, c.config, recorder, "")
+	client := internal.NewConnectClient(ctx, c.config, recorder)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
 	// TODO: make after-startup backoff err available
 	run := make(chan struct{})
 	clientErr := make(chan error, 1)
 	go func() {
-		if err := client.Run(run); err != nil {
+		if err := client.Run(run, ""); err != nil {
 			clientErr <- err
 		}
 	}()

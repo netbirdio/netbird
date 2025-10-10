@@ -1250,9 +1250,9 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 
 func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
-	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder, s.logFile)
+	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
 	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
-	if err := s.connectClient.Run(runningChan); err != nil {
+	if err := s.connectClient.Run(runningChan, s.logFile); err != nil {
 		return err
 	}
 	return nil

@@ -128,7 +128,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	cfg.WgIface = interfaceName
 
 	//todo: do we need to pass logFile here ?
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, "")
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
 	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile)
 }
 
