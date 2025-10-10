@@ -130,7 +130,7 @@ func sshFn(cmd *cobra.Command, args []string) error {
 	cmd.SetOut(cmd.OutOrStdout())
 
 	logOutput := "console"
-	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" {
+	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" && firstLogFile != defaultLogFile {
 		logOutput = firstLogFile
 	}
 	if err := util.InitLog(logLevel, logOutput); err != nil {
@@ -699,7 +699,7 @@ var sshProxyCmd = &cobra.Command{
 
 func sshProxyFn(cmd *cobra.Command, args []string) error {
 	logOutput := "console"
-	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" {
+	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" && firstLogFile != defaultLogFile {
 		logOutput = firstLogFile
 	}
 	if err := util.InitLog(logLevel, logOutput); err != nil {
