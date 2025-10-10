@@ -783,11 +783,23 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 	}()
 
 	var account types.Account
+	// Do not use Preload(clause.Associations) as it will load all associations including those which don't work (e.g. Policy.Rules), leading to a double query
+	// Also GroupPeers are not preloaded but loaded separately below
 	result := s.db.Model(&account).
-		Omit("GroupsG").
-		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
-		Preload(clause.Associations).
+		Preload("Policies").
+		Preload("SetupKeysG").
+		Preload("PeersG").
+		Preload("UsersG.PATsG").
+		Preload("GroupsG").
+		Preload("RoutesG").
+		Preload("NameServerGroupsG").
+		Preload("PostureChecks").
+		Preload("Networks").
+		Preload("NetworkRouters").
+		Preload("NetworkResources").
+		Preload("Onboarding").
 		Take(&account, idQueryCondition, accountID)
+
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -795,17 +807,29 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 		}
 		return nil, status.NewGetAccountFromStoreError(result.Error)
 	}
-
-	// we have to manually preload policy rules as it seems that gorm preloading doesn't do it for us
-	for i, policy := range account.Policies {
-		var rules []*types.PolicyRule
-		err := s.db.Model(&types.PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
-		if err != nil {
+	// we have to manually preload policy rules as it seems that gorm preloading does the query but does not use the results
+	// with a high number of rules it is faster to do one query for all rules than one query per policy
+	var policyIDs = make([]string, 0, len(account.Policies))
+	for _, p := range account.Policies {
+		policyIDs = append(policyIDs, p.ID)
+	}
+	if len(policyIDs) > 0 {
+		var allRules []*types.PolicyRule
+		if err := s.db.Model(&types.PolicyRule{}).Where("policy_id IN ?", policyIDs).Find(&allRules).Error; err != nil {
 			return nil, status.Errorf(status.NotFound, "rule not found")
 		}
-		account.Policies[i].Rules = rules
+		rulesByPolicyID := make(map[string][]*types.PolicyRule, len(account.Policies))
+		for _, r := range allRules {
+			rulesByPolicyID[r.PolicyID] = append(rulesByPolicyID[r.PolicyID], r)
+		}
+		for i := range account.Policies {
+			rules, ok := rulesByPolicyID[account.Policies[i].ID]
+			if !ok {
+				return nil, status.Errorf(status.NotFound, "rule not found")
+			}
+			account.Policies[i].Rules = rules
+		}
 	}
-
 	account.SetupKeys = make(map[string]*types.SetupKey, len(account.SetupKeysG))
 	for _, key := range account.SetupKeysG {
 		account.SetupKeys[key.Key] = key.Copy()
@@ -827,13 +851,11 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 		account.Users[user.Id] = user.Copy()
 	}
 	account.UsersG = nil
-
 	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
 	for _, group := range account.GroupsG {
 		account.Groups[group.ID] = group.Copy()
 	}
 	account.GroupsG = nil
-
 	var groupPeers []types.GroupPeer
 	s.db.Model(&types.GroupPeer{}).Where("account_id = ?", accountID).
 		Find(&groupPeers)
