@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -21,6 +22,11 @@ import (
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util/wsproxy"
+)
+
+var (
+	ErrPeerNotAvailable    = errors.New("peer not available")
+	ErrUnimplementedMethod = errors.New("the signal client does not support SendWithDeliveryCheck")
 )
 
 // ConnStateNotifier is a wrapper interface of the status recorder
@@ -394,6 +400,36 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 		}
 	}
 
+	return err
+}
+
+func (c *GrpcClient) SendWithDeliveryCheck(msg *proto.Message) error {
+	if !c.Ready() {
+		return fmt.Errorf("no connection to signal")
+	}
+
+	encryptedMessage, err := c.encryptMessage(msg)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(c.ctx, client.ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.SendWithDeliveryCheck(ctx, encryptedMessage)
+	if err != nil {
+		if st, ok := status.FromError(err); ok {
+			switch st.Code() {
+			case codes.NotFound:
+				return ErrPeerNotAvailable
+			case codes.Unimplemented:
+				return ErrUnimplementedMethod
+			default:
+				return fmt.Errorf("grpc error %s: %w", st.Code(), err)
+			}
+		}
+		return err // Not a gRPC status error
+	}
 	return err
 }
 

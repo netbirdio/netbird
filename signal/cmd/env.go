@@ -2,12 +2,26 @@ package cmd
 
 import (
 	"os"
+	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
+
+func EnvDisableSendWithDeliveryCheck() bool {
+	envVar := "NB_DISABLE_SEND_WITH_DELIVERY_CHECK"
+	value, present := os.LookupEnv(envVar)
+	if !present {
+		return false
+	}
+
+	if parsed, err := strconv.ParseBool(value); err == nil {
+		return parsed
+	}
+	return false
+}
 
 // setFlagsFromEnvVars reads and updates flag values from environment variables with prefix NB_
 func setFlagsFromEnvVars(cmd *cobra.Command) {

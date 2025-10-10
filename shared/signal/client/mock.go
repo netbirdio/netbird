@@ -16,6 +16,7 @@ type MockClient struct {
 	SendToStreamFunc             func(msg *proto.EncryptedMessage) error
 	SendFunc                     func(msg *proto.Message) error
 	SetOnReconnectedListenerFunc func(f func())
+	SendWithDeliveryCheckFn      func(msg *proto.Message) error
 }
 
 // SetOnReconnectedListener sets the function to be called when the client reconnects.
@@ -81,4 +82,11 @@ func (sm *MockClient) Send(msg *proto.Message) error {
 		return nil
 	}
 	return sm.SendFunc(msg)
+}
+
+func (sm *MockClient) SendWithDeliveryCheck(msg *proto.Message) error {
+	if sm.SendWithDeliveryCheckFn == nil {
+		return nil
+	}
+	return sm.SendWithDeliveryCheck(msg)
 }

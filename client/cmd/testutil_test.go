@@ -57,7 +57,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	srv, err := sig.NewServer(context.Background(), otel.Meter(""))
+	srv, err := sig.NewServer(context.Background(), otel.Meter(""), nil)
 	require.NoError(t, err)
 
 	sigProto.RegisterSignalExchangeServer(s, srv)

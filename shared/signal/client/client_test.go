@@ -199,7 +199,7 @@ func startSignal() (*grpc.Server, net.Listener) {
 		panic(err)
 	}
 	s := grpc.NewServer()
-	srv, err := server.NewServer(context.Background(), otel.Meter(""))
+	srv, err := server.NewServer(context.Background(), otel.Meter(""), nil)
 	if err != nil {
 		panic(err)
 	}

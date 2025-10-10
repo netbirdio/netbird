@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
 )
+
+var ErrPeerNotConnected = errors.New("peer not connected")
 
 const (
 	labelType              = "type"
@@ -49,20 +52,32 @@ var (
 	ErrPeerRegisteredAgain = errors.New("peer registered again")
 )
 
+type Options struct {
+	// Disable SendWithDeliveryCheck method
+	DisableSendWithDeliveryCheck bool
+}
+
 // Server an instance of a Signal server
 type Server struct {
+	metrics                      *metrics.AppMetrics
+	disableSendWithDeliveryCheck bool
+
 	registry *peer.Registry
 	proto.UnimplementedSignalExchangeServer
 	dispatcher *dispatcher.Dispatcher
-	metrics    *metrics.AppMetrics
 
 	successHeader metadata.MD
 
-	sendTimeout time.Duration
+	sendTimeout        time.Duration
+	directSendDisabled bool
 }
 
 // NewServer creates a new Signal server
-func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
+func NewServer(ctx context.Context, meter metric.Meter, opts *Options) (*Server, error) {
+	if opts == nil {
+		opts = &Options{}
+	}
+
 	appMetrics, err := metrics.NewAppMetrics(meter)
 	if err != nil {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
@@ -81,11 +96,21 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 	}
 
 	s := &Server{
-		dispatcher:    d,
-		registry:      peer.NewRegistry(appMetrics),
-		metrics:       appMetrics,
-		successHeader: metadata.Pairs(proto.HeaderRegistered, "1"),
-		sendTimeout:   sTimeout,
+		dispatcher:                   d,
+		registry:                     peer.NewRegistry(appMetrics),
+		metrics:                      appMetrics,
+		successHeader:                metadata.Pairs(proto.HeaderRegistered, "1"),
+		sendTimeout:                  sTimeout,
+		disableSendWithDeliveryCheck: opts.DisableSendWithDeliveryCheck,
+	}
+
+	if directSendDisabled := os.Getenv("NB_SIGNAL_DIRECT_SEND_DISABLED"); directSendDisabled == "true" {
+		s.directSendDisabled = true
+		log.Warn("direct send to connected peers is disabled")
+	}
+
+	if opts.DisableSendWithDeliveryCheck {
+		log.Warn("SendWithDeliveryCheck method is disabled")
 	}
 
 	return s, nil
@@ -95,12 +120,51 @@ func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 
-	if _, found := s.registry.Get(msg.RemoteKey); found {
-		s.forwardMessageToPeer(ctx, msg)
+	if _, found := s.registry.Get(msg.RemoteKey); found && !s.directSendDisabled {
+		_ = s.forwardMessageToPeer(ctx, msg)
 		return &proto.EncryptedMessage{}, nil
 	}
 
-	return s.dispatcher.SendMessage(ctx, msg)
+	if _, err := s.dispatcher.SendMessage(ctx, msg, false); err != nil {
+		log.Errorf("error sending message via dispatcher: %v", err)
+	}
+	return &proto.EncryptedMessage{}, nil
+}
+
+// SendWithDeliveryCheck forwards a message to the signal peer with error handling
+// When the remote peer is not connected it returns codes.NotFound error, otherwise it returns other types of errors
+// that can be retried. In case codes.NotFound is returned the caller should not retry sending the message. The remote
+// peer should send a new offer to re-establish the connection when it comes back online.
+// Todo: double check the thread safe registry management. When both peer come online at the same time then both peers
+// might not be registered yet when the first message is sent.
+func (s *Server) SendWithDeliveryCheck(ctx context.Context, msg *proto.EncryptedMessage) (*emptypb.Empty, error) {
+	if s.disableSendWithDeliveryCheck {
+		log.Tracef("SendWithDeliveryCheck is disabled")
+		return nil, status.Errorf(codes.Unimplemented, "SendWithDeliveryCheck method is disabled")
+	}
+
+	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+	if _, found := s.registry.Get(msg.RemoteKey); found && !s.directSendDisabled {
+		if err := s.forwardMessageToPeer(ctx, msg); err != nil {
+			if errors.Is(err, ErrPeerNotConnected) {
+				log.Tracef("remote peer [%s] not connected", msg.RemoteKey)
+				return nil, status.Errorf(codes.NotFound, "remote peer not connected")
+			}
+			log.Errorf("error sending message with delivery check to peer [%s]: %v", msg.RemoteKey, err)
+			return nil, status.Errorf(codes.Internal, "error forwarding message to peer: %v", err)
+		}
+		return &emptypb.Empty{}, nil
+	}
+
+	if _, err := s.dispatcher.SendMessage(ctx, msg, true); err != nil {
+		if errors.Is(err, dispatcher.ErrPeerNotConnected) {
+			log.Tracef("remote peer [%s] doesn't have a listener", msg.RemoteKey)
+			return nil, status.Errorf(codes.NotFound, "remote peer not connected")
+		}
+		return nil, err
+	}
+
+	return &emptypb.Empty{}, nil
 }
 
 // ConnectStream connects to the exchange stream
@@ -108,6 +172,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	ctx, cancel := context.WithCancel(context.Background())
 	p, err := s.RegisterPeer(stream, cancel)
 	if err != nil {
+		log.Errorf("error registering peer: %v", err)
 		return err
 	}
 
@@ -117,6 +182,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	err = stream.SendHeader(s.successHeader)
 	if err != nil {
 		s.metrics.RegistrationFailures.Add(stream.Context(), 1, metric.WithAttributes(attribute.String(labelError, labelErrorFailedHeader)))
+		log.Errorf("error sending registration header to peer [%s] [streamID %d] : %v", p.Id, p.StreamID, err)
 		return err
 	}
 
@@ -141,7 +207,7 @@ func (s *Server) RegisterPeer(stream proto.SignalExchange_ConnectStreamServer, c
 
 	p := peer.NewPeer(id[0], stream, cancel)
 	if err := s.registry.Register(p); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error adding peer to registry peer: %w", err)
 	}
 	err := s.dispatcher.ListenForMessages(stream.Context(), p.Id, s.forwardMessageToPeer)
 	if err != nil {
@@ -158,7 +224,7 @@ func (s *Server) DeregisterPeer(p *peer.Peer) {
 	s.registry.Deregister(p)
 }
 
-func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedMessage) {
+func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedMessage) error {
 	log.Tracef("forwarding a new message from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
 	getRegistrationStart := time.Now()
 
@@ -170,7 +236,7 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeNotConnected)))
 		log.Tracef("message from peer [%s] can't be forwarded to peer [%s] because destination peer is not connected", msg.Key, msg.RemoteKey)
 		// todo respond to the sender?
-		return
+		return ErrPeerNotConnected
 	}
 
 	s.metrics.GetRegistrationDelay.Record(ctx, float64(time.Since(getRegistrationStart).Nanoseconds())/1e6, metric.WithAttributes(attribute.String(labelType, labelTypeStream), attribute.String(labelRegistrationStatus, labelRegistrationFound)))
@@ -191,7 +257,7 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 		if err != nil {
 			log.Tracef("error while forwarding message from peer [%s] to peer [%s]: %v", msg.Key, msg.RemoteKey, err)
 			s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeError)))
-			return
+			return fmt.Errorf("error sending message to peer: %v", err)
 		}
 		s.metrics.MessageForwardLatency.Record(ctx, float64(time.Since(start).Nanoseconds())/1e6, metric.WithAttributes(attribute.String(labelType, labelTypeStream)))
 		s.metrics.MessagesForwarded.Add(ctx, 1)
@@ -200,10 +266,13 @@ func (s *Server) forwardMessageToPeer(ctx context.Context, msg *proto.EncryptedM
 	case <-dstPeer.Stream.Context().Done():
 		log.Tracef("failed to forward message from peer [%s] to peer [%s]: destination peer disconnected", msg.Key, msg.RemoteKey)
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeDisconnected)))
-
+		return fmt.Errorf("destination peer disconnected")
 	case <-time.After(s.sendTimeout):
 		dstPeer.Cancel() // cancel the peer context to trigger deregistration
 		log.Tracef("failed to forward message from peer [%s] to peer [%s]: send timeout", msg.Key, msg.RemoteKey)
 		s.metrics.MessageForwardFailures.Add(ctx, 1, metric.WithAttributes(attribute.String(labelType, labelTypeTimeout)))
+		return fmt.Errorf("sending message to peer timeout")
 	}
+
+	return nil
 }

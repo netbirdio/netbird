@@ -10,6 +10,7 @@ import (
 	"net/http"
 	// nolint:gosec
 	_ "net/http/pprof"
+	"os"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -92,7 +93,9 @@ var (
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
 
-			startPprof()
+			if os.Getenv("NB_PPROF_ENABLE") == "true" {
+				startPprof()
+			}
 
 			opts, certManager, err := getTLSConfigurations()
 			if err != nil {
@@ -114,7 +117,11 @@ var (
 				}
 			}()
 
-			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter)
+			optsSignal := &server.Options{
+				DisableSendWithDeliveryCheck: EnvDisableSendWithDeliveryCheck(),
+			}
+
+			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter, optsSignal)
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}
@@ -150,7 +157,7 @@ var (
 				serveHTTP(httpListener, grpcRootHandler)
 			}
 
-			if signalPort != legacyGRPCPort {
+			if signalPort != legacyGRPCPort && os.Getenv("NB_DISABLE_FALLBACK_GRPC") != "true" {
 				// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
 				// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
 				compatListener, err = serveGRPC(grpcServer, legacyGRPCPort)
