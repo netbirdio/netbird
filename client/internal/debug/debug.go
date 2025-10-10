@@ -259,11 +259,11 @@ func (g *BundleGenerator) Generate() (resp string, err error) {
 			err = fmt.Errorf("close zip file: %w", closeErr)
 		}
 
-		// if err != nil {
-		// 	if removeErr :=h.Name());  os.Remove(bundlePatremoveErr != nil {
-		// 		log.Errorf("Failed to remove zip file: %v", removeErr)
-		// 	}
-		// }
+		if err != nil {
+			if removeErr := os.Remove(bundlePath.Name()); removeErr != nil {
+				log.Errorf("Failed to remove zip file: %v", removeErr)
+			}
+		}
 	}()
 
 	g.archive = zip.NewWriter(bundlePath)
