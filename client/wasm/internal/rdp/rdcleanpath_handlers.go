@@ -56,15 +56,14 @@ func (p *RDCleanPathProxy) detectCredSSPFromX224(x224Response []byte) (bool, uin
 		return false, 0, false
 	}
 
+	// Per X.224 specification:
+	//   x224Response[0] == 0x03: Length of X.224 header (3 bytes)
+	//   x224Response[5] == 0xD0: X.224 Data TPDU code
 	if x224Response[0] != 0x03 || x224Response[5] != 0xD0 {
 		return false, 0, false
 	}
 
 	if x224Response[11] == 0x02 {
-		if len(x224Response) < 19 {
-			return false, 0, false
-		}
-
 		flags := uint32(x224Response[15]) | uint32(x224Response[16])<<8 |
 			uint32(x224Response[17])<<16 | uint32(x224Response[18])<<24
 
@@ -100,12 +99,12 @@ func (p *RDCleanPathProxy) setupTLSConnection(conn *proxyConnection, pdu RDClean
 	requiresCredSSP, selectedProtocol, detected := p.detectCredSSPFromX224(x224Response)
 	if detected {
 		if requiresCredSSP {
-			log.Warnf("Detected NLA/CredSSP (selectedProtocol: 0x%08X), will use TLS 1.2 for compatibility", selectedProtocol)
+			log.Warnf("Detected NLA/CredSSP (selectedProtocol: 0x%08X), forcing TLS 1.2 for compatibility", selectedProtocol)
 		} else {
-			log.Warnf("No NLA/CredSSP detected (selectedProtocol: 0x%08X), will use TLS 1.3", selectedProtocol)
+			log.Warnf("No NLA/CredSSP detected (selectedProtocol: 0x%08X), allowing up to TLS 1.3", selectedProtocol)
 		}
 	} else {
-		log.Warnf("Could not detect RDP security protocol, will attempt TLS 1.3")
+		log.Warnf("Could not detect RDP security protocol, allowing up to TLS 1.3")
 	}
 
 	tlsConfig := p.getTLSConfigWithValidation(conn, requiresCredSSP)
