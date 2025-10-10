@@ -11,6 +11,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	// MS-RDPBCGR: confusingly named, actually means PROTOCOL_HYBRID (CredSSP)
+	protocolSSL      = 0x00000001
+	protocolHybridEx = 0x00000008
+)
+
 func (p *RDCleanPathProxy) processRDCleanPathPDU(conn *proxyConnection, pdu RDCleanPathPDU) {
 	log.Infof("Processing RDCleanPath PDU: Version=%d, Destination=%s", pdu.Version, pdu.Destination)
 
@@ -40,6 +46,35 @@ func (p *RDCleanPathProxy) processRDCleanPathPDU(conn *proxyConnection, pdu RDCl
 	p.setupTLSConnection(conn, pdu)
 }
 
+// detectCredSSPFromX224 checks if the X.224 response indicates NLA/CredSSP is required.
+// Per MS-RDPBCGR spec: byte 11 = TYPE_RDP_NEG_RSP (0x02), bytes 15-18 = selectedProtocol flags.
+// Returns (requiresTLS12, selectedProtocol, detectionSuccessful).
+func (p *RDCleanPathProxy) detectCredSSPFromX224(x224Response []byte) (bool, uint32, bool) {
+	const minResponseLength = 19
+
+	if len(x224Response) < minResponseLength {
+		return false, 0, false
+	}
+
+	if x224Response[0] != 0x03 || x224Response[5] != 0xD0 {
+		return false, 0, false
+	}
+
+	if x224Response[11] == 0x02 {
+		if len(x224Response) < 19 {
+			return false, 0, false
+		}
+
+		flags := uint32(x224Response[15]) | uint32(x224Response[16])<<8 |
+			uint32(x224Response[17])<<16 | uint32(x224Response[18])<<24
+
+		hasNLA := (flags & (protocolSSL | protocolHybridEx)) != 0
+		return hasNLA, flags, true
+	}
+
+	return false, 0, false
+}
+
 func (p *RDCleanPathProxy) setupTLSConnection(conn *proxyConnection, pdu RDCleanPathPDU) {
 	var x224Response []byte
 	if len(pdu.X224ConnectionPDU) > 0 {
@@ -62,7 +97,18 @@ func (p *RDCleanPathProxy) setupTLSConnection(conn *proxyConnection, pdu RDClean
 		log.Debugf("Received X.224 Connection Confirm (%d bytes)", n)
 	}
 
-	tlsConfig := p.getTLSConfigWithValidation(conn)
+	requiresCredSSP, selectedProtocol, detected := p.detectCredSSPFromX224(x224Response)
+	if detected {
+		if requiresCredSSP {
+			log.Warnf("Detected NLA/CredSSP (selectedProtocol: 0x%08X), will use TLS 1.2 for compatibility", selectedProtocol)
+		} else {
+			log.Warnf("No NLA/CredSSP detected (selectedProtocol: 0x%08X), will use TLS 1.3", selectedProtocol)
+		}
+	} else {
+		log.Warnf("Could not detect RDP security protocol, will attempt TLS 1.3")
+	}
+
+	tlsConfig := p.getTLSConfigWithValidation(conn, requiresCredSSP)
 
 	tlsConn := tls.Client(conn.rdpConn, tlsConfig)
 	conn.tlsConn = tlsConn
@@ -103,47 +149,6 @@ func (p *RDCleanPathProxy) setupTLSConnection(conn *proxyConnection, pdu RDClean
 
 	<-conn.ctx.Done()
 	log.Debug("TLS connection context done, cleaning up")
-	p.cleanupConnection(conn)
-}
-
-func (p *RDCleanPathProxy) setupPlainConnection(conn *proxyConnection, pdu RDCleanPathPDU) {
-	if len(pdu.X224ConnectionPDU) > 0 {
-		log.Debugf("Forwarding X.224 Connection Request (%d bytes)", len(pdu.X224ConnectionPDU))
-		_, err := conn.rdpConn.Write(pdu.X224ConnectionPDU)
-		if err != nil {
-			log.Errorf("Failed to write X.224 PDU: %v", err)
-			p.sendRDCleanPathError(conn, "Failed to forward X.224")
-			return
-		}
-
-		response := make([]byte, 1024)
-		n, err := conn.rdpConn.Read(response)
-		if err != nil {
-			log.Errorf("Failed to read X.224 response: %v", err)
-			p.sendRDCleanPathError(conn, "Failed to read X.224 response")
-			return
-		}
-
-		responsePDU := RDCleanPathPDU{
-			Version:           RDCleanPathVersion,
-			X224ConnectionPDU: response[:n],
-			ServerAddr:        conn.destination,
-		}
-
-		p.sendRDCleanPathPDU(conn, responsePDU)
-	} else {
-		responsePDU := RDCleanPathPDU{
-			Version:    RDCleanPathVersion,
-			ServerAddr: conn.destination,
-		}
-		p.sendRDCleanPathPDU(conn, responsePDU)
-	}
-
-	go p.forwardConnToWS(conn, conn.rdpConn, "TCP")
-	go p.forwardWSToConn(conn, conn.rdpConn, "TCP")
-
-	<-conn.ctx.Done()
-	log.Debug("TCP connection context done, cleaning up")
 	p.cleanupConnection(conn)
 }
 
