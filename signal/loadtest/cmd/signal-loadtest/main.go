@@ -20,6 +20,8 @@ var (
 	exchangeDuration   time.Duration
 	messageInterval    time.Duration
 	insecureSkipVerify bool
+	workerPoolSize     int
+	channelBufferSize  int
 	logLevel           string
 )
 
@@ -32,6 +34,8 @@ func init() {
 	flag.DurationVar(&exchangeDuration, "exchange-duration", 0, "Duration for continuous message exchange per pair (0 = single message)")
 	flag.DurationVar(&messageInterval, "message-interval", 100*time.Millisecond, "Interval between messages in continuous mode")
 	flag.BoolVar(&insecureSkipVerify, "insecure-skip-verify", false, "Skip TLS certificate verification (use with self-signed certificates)")
+	flag.IntVar(&workerPoolSize, "worker-pool-size", 0, "Number of worker goroutines (0 = auto: pairs-per-sec * 2)")
+	flag.IntVar(&channelBufferSize, "channel-buffer-size", 0, "Channel buffer size (0 = auto: pairs-per-sec * 4)")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level (trace, debug, info, warn, error)")
 }
 
@@ -54,6 +58,8 @@ func main() {
 		ExchangeDuration:   exchangeDuration,
 		MessageInterval:    messageInterval,
 		InsecureSkipVerify: insecureSkipVerify,
+		WorkerPoolSize:     workerPoolSize,
+		ChannelBufferSize:  channelBufferSize,
 	}
 
 	if err := validateConfig(config); err != nil {

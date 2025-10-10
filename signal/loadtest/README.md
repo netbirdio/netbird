@@ -69,6 +69,16 @@ go build -o signal-loadtest
   -insecure-skip-verify \
   -log-level debug
 
+# High load test with custom worker pool
+./signal-loadtest \
+  -server http://localhost:10000 \
+  -pairs-per-sec 100 \
+  -total-pairs 1000 \
+  -worker-pool-size 500 \
+  -channel-buffer-size 1000 \
+  -exchange-duration 60s \
+  -log-level info
+
 # Show help
 ./signal-loadtest -h
 ```
@@ -81,6 +91,8 @@ go build -o signal-loadtest
 - `-test-duration`: Maximum test duration, 0 = unlimited (default: 0)
 - `-exchange-duration`: Continuous exchange duration per pair, 0 = single message (default: 0)
 - `-message-interval`: Interval between messages in continuous mode (default: 100ms)
+- `-worker-pool-size`: Number of concurrent workers, 0 = auto (pairs-per-sec × 2) (default: 0)
+- `-channel-buffer-size`: Work queue buffer size, 0 = auto (pairs-per-sec × 4) (default: 0)
 - `-insecure-skip-verify`: Skip TLS certificate verification for self-signed certificates (default: false)
 - `-log-level`: Log level: trace, debug, info, warn, error (default: info)
 
@@ -173,8 +185,30 @@ func main() {
 - **TestDuration**: Maximum test duration (optional, 0 = no limit)
 - **ExchangeDuration**: Duration for continuous message exchange per pair (0 = single message)
 - **MessageInterval**: Interval between messages in continuous mode (default: 100ms)
+- **WorkerPoolSize**: Number of concurrent worker goroutines (0 = auto: pairs-per-sec × 2)
+- **ChannelBufferSize**: Work queue buffer size (0 = auto: pairs-per-sec × 4)
 - **InsecureSkipVerify**: Skip TLS certificate verification (for self-signed certificates)
 - **RampUpDuration**: Gradual ramp-up period (not yet implemented)
+
+### Performance Tuning
+
+When running high-load tests, you may need to adjust the worker pool and buffer sizes:
+
+- **Default sizing**: Auto-configured based on `PairsPerSecond`
+  - Worker pool: `PairsPerSecond × 2`
+  - Channel buffer: `PairsPerSecond × 4`
+- **For continuous exchange**: Increase worker pool size (e.g., `PairsPerSecond × 5`)
+- **For high pair rates** (>50/sec): Increase both worker pool and buffer proportionally
+- **Signs you need more workers**: Log warnings about "Worker pool saturated"
+
+Example for 100 pairs/sec with continuous exchange:
+```go
+config := LoadTestConfig{
+    PairsPerSecond:    100,
+    WorkerPoolSize:    500,  // 5x pairs/sec
+    ChannelBufferSize: 1000, // 10x pairs/sec
+}
+```
 
 ## Metrics
 

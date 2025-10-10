@@ -21,6 +21,8 @@ type LoadTestConfig struct {
 	MessageInterval    time.Duration
 	RampUpDuration     time.Duration
 	InsecureSkipVerify bool
+	WorkerPoolSize     int
+	ChannelBufferSize  int
 }
 
 // LoadTestMetrics metrics collected during the load test
@@ -74,13 +76,25 @@ func (lt *LoadTest) Run() error {
 	if lt.config.ExchangeDuration > 0 {
 		exchangeInfo = fmt.Sprintf("continuous for %v", lt.config.ExchangeDuration)
 	}
+
+	workerPoolSize := lt.config.WorkerPoolSize
+	if workerPoolSize == 0 {
+		workerPoolSize = lt.config.PairsPerSecond * 2
+	}
+
+	channelBufferSize := lt.config.ChannelBufferSize
+	if channelBufferSize == 0 {
+		channelBufferSize = lt.config.PairsPerSecond * 4
+	}
+
 	log.Infof("Starting load test: %d pairs/sec, %d total pairs, message size: %d bytes, exchange: %s",
 		lt.config.PairsPerSecond, lt.config.TotalPairs, lt.config.MessageSize, exchangeInfo)
+	log.Infof("Worker pool size: %d, channel buffer: %d", workerPoolSize, channelBufferSize)
 
 	var wg sync.WaitGroup
-	pairChan := make(chan int, lt.config.PairsPerSecond)
+	pairChan := make(chan int, channelBufferSize)
 
-	for i := 0; i < lt.config.PairsPerSecond; i++ {
+	for i := 0; i < workerPoolSize; i++ {
 		wg.Add(1)
 		go lt.pairWorker(&wg, pairChan)
 	}
