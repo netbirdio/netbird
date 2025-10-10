@@ -201,6 +201,12 @@ func NewManager(ctx context.Context, config Config, appMetrics telemetry.AppMetr
 			APIToken: config.ExtraConfig["ApiToken"],
 		}
 		return NewJumpCloudManager(jumpcloudConfig, appMetrics)
+	case "pocketid":
+		pocketidConfig := PocketIdClientConfig{
+			APIToken:           config.ExtraConfig["ApiToken"],
+			ManagementEndpoint: config.ExtraConfig["ManagementEndpoint"],
+		}
+		return NewPocketIdManager(pocketidConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
