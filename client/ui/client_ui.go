@@ -330,7 +330,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
-		update:               version.NewUpdate("nb/client-ui"),
+		update:               version.NewUpdateAndStart("nb/client-ui"),
 	}
 
 	s.eventHandler = newEventHandler(s)

@@ -50,6 +50,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
@@ -75,6 +76,7 @@ const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
 	connInitLimit            = 200
+	disableAutoUpdate        = "disabled"
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -199,6 +201,9 @@ type Engine struct {
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
 
+	// auto-update
+	updateManager *updatemanager.UpdateManager
+
 	// WireGuard interface monitor
 	wgIfaceMonitor   *WGIfaceMonitor
 	wgIfaceMonitorWg sync.WaitGroup
@@ -312,6 +317,10 @@ func (e *Engine) Stop() error {
 
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
+	}
+
+	if e.updateManager != nil {
+		e.updateManager.Stop()
 	}
 
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
@@ -712,10 +721,26 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 	return nil
 }
 
+func (e *Engine) handleAutoUpdateVersion(autoUpdateVersion string) {
+	if e.updateManager == nil && autoUpdateVersion != disableAutoUpdate {
+		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder)
+		e.updateManager.Start(e.ctx)
+	} else if e.updateManager != nil && autoUpdateVersion == disableAutoUpdate {
+		e.updateManager.Stop()
+		e.updateManager = nil
+	}
+	if e.updateManager != nil {
+		e.updateManager.SetVersion(autoUpdateVersion)
+	}
+}
+
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
+	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
+		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdateVersion)
+	}
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()
 		err := e.updateTURNs(wCfg.GetTurns())
