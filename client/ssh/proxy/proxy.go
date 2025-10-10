@@ -128,22 +128,32 @@ func (p *SSHProxy) handleSSHSession(ctx context.Context, session ssh.Session, jw
 
 	ptyReq, winCh, isPty := session.Pty()
 	if isPty {
-		_ = serverSession.RequestPty(ptyReq.Term, ptyReq.Window.Width, ptyReq.Window.Height, nil)
+		if err := serverSession.RequestPty(ptyReq.Term, ptyReq.Window.Width, ptyReq.Window.Height, nil); err != nil {
+			log.Debugf("PTY request to backend: %v", err)
+		}
 
 		go func() {
 			for win := range winCh {
-				_ = serverSession.WindowChange(win.Height, win.Width)
+				if err := serverSession.WindowChange(win.Height, win.Width); err != nil {
+					log.Debugf("window change: %v", err)
+				}
 			}
 		}()
 	}
 
 	if len(session.Command()) > 0 {
-		_ = serverSession.Run(strings.Join(session.Command(), " "))
+		if err := serverSession.Run(strings.Join(session.Command(), " ")); err != nil {
+			log.Debugf("run command: %v", err)
+		}
 		return
 	}
 
-	if err = serverSession.Shell(); err == nil {
-		_ = serverSession.Wait()
+	if err = serverSession.Shell(); err != nil {
+		log.Debugf("start shell: %v", err)
+		return
+	}
+	if err := serverSession.Wait(); err != nil {
+		log.Debugf("session wait: %v", err)
 	}
 }
 

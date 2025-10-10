@@ -698,6 +698,14 @@ var sshProxyCmd = &cobra.Command{
 }
 
 func sshProxyFn(cmd *cobra.Command, args []string) error {
+	logOutput := "console"
+	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" && firstLogFile != "/var/log/netbird/client.log" {
+		logOutput = firstLogFile
+	}
+	if err := util.InitLog(logLevel, logOutput); err != nil {
+		return fmt.Errorf("init log: %w", err)
+	}
+
 	host := args[0]
 	portStr := args[1]
 
