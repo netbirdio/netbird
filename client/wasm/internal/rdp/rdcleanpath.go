@@ -6,11 +6,13 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/asn1"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
 	"syscall/js"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -19,18 +21,34 @@ const (
 	RDCleanPathVersion     = 3390
 	RDCleanPathProxyHost   = "rdcleanpath.proxy.local"
 	RDCleanPathProxyScheme = "ws"
+
+	rdpDialTimeout = 15 * time.Second
+
+	GeneralErrorCode = 1
+	WSAETimedOut     = 10060
+	WSAEConnRefused  = 10061
+	WSAEConnAborted  = 10053
+	WSAEConnReset    = 10054
+	WSAEGenericError = 10050
 )
 
 type RDCleanPathPDU struct {
-	Version           int64    `asn1:"tag:0,explicit"`
-	Error             []byte   `asn1:"tag:1,explicit,optional"`
-	Destination       string   `asn1:"utf8,tag:2,explicit,optional"`
-	ProxyAuth         string   `asn1:"utf8,tag:3,explicit,optional"`
-	ServerAuth        string   `asn1:"utf8,tag:4,explicit,optional"`
-	PreconnectionBlob string   `asn1:"utf8,tag:5,explicit,optional"`
-	X224ConnectionPDU []byte   `asn1:"tag:6,explicit,optional"`
-	ServerCertChain   [][]byte `asn1:"tag:7,explicit,optional"`
-	ServerAddr        string   `asn1:"utf8,tag:9,explicit,optional"`
+	Version           int64          `asn1:"tag:0,explicit"`
+	Error             RDCleanPathErr `asn1:"tag:1,explicit,optional"`
+	Destination       string         `asn1:"utf8,tag:2,explicit,optional"`
+	ProxyAuth         string         `asn1:"utf8,tag:3,explicit,optional"`
+	ServerAuth        string         `asn1:"utf8,tag:4,explicit,optional"`
+	PreconnectionBlob string         `asn1:"utf8,tag:5,explicit,optional"`
+	X224ConnectionPDU []byte         `asn1:"tag:6,explicit,optional"`
+	ServerCertChain   [][]byte       `asn1:"tag:7,explicit,optional"`
+	ServerAddr        string         `asn1:"utf8,tag:9,explicit,optional"`
+}
+
+type RDCleanPathErr struct {
+	ErrorCode      int16 `asn1:"tag:0,explicit"`
+	HTTPStatusCode int16 `asn1:"tag:1,explicit,optional"`
+	WSALastError   int16 `asn1:"tag:2,explicit,optional"`
+	TLSAlertCode   int8  `asn1:"tag:3,explicit,optional"`
 }
 
 type RDCleanPathProxy struct {
@@ -210,9 +228,13 @@ func (p *RDCleanPathProxy) handleDirectRDP(conn *proxyConnection, firstPacket []
 	destination := conn.destination
 	log.Infof("Direct RDP mode: Connecting to %s via NetBird", destination)
 
-	rdpConn, err := p.nbClient.Dial(conn.ctx, "tcp", destination)
+	ctx, cancel := context.WithTimeout(conn.ctx, rdpDialTimeout)
+	defer cancel()
+
+	rdpConn, err := p.nbClient.Dial(ctx, "tcp", destination)
 	if err != nil {
 		log.Errorf("Failed to connect to %s: %v", destination, err)
+		p.sendRDCleanPathError(conn, newWSAError(err))
 		return
 	}
 	conn.rdpConn = rdpConn
@@ -220,6 +242,7 @@ func (p *RDCleanPathProxy) handleDirectRDP(conn *proxyConnection, firstPacket []
 	_, err = rdpConn.Write(firstPacket)
 	if err != nil {
 		log.Errorf("Failed to write first packet: %v", err)
+		p.sendRDCleanPathError(conn, newWSAError(err))
 		return
 	}
 
@@ -227,6 +250,7 @@ func (p *RDCleanPathProxy) handleDirectRDP(conn *proxyConnection, firstPacket []
 	n, err := rdpConn.Read(response)
 	if err != nil {
 		log.Errorf("Failed to read X.224 response: %v", err)
+		p.sendRDCleanPathError(conn, newWSAError(err))
 		return
 	}
 
@@ -267,5 +291,54 @@ func (p *RDCleanPathProxy) sendToWebSocket(conn *proxyConnection, data []byte) {
 		uint8Array := js.Global().Get("Uint8Array").New(len(data))
 		js.CopyBytesToJS(uint8Array, data)
 		conn.wsHandlers.Call("send", uint8Array.Get("buffer"))
+	}
+}
+
+func (p *RDCleanPathProxy) sendRDCleanPathError(conn *proxyConnection, pdu RDCleanPathPDU) {
+	data, err := asn1.Marshal(pdu)
+	if err != nil {
+		log.Errorf("Failed to marshal error PDU: %v", err)
+		return
+	}
+	p.sendToWebSocket(conn, data)
+}
+
+func errorToWSACode(err error) int16 {
+	if err == nil {
+		return WSAEGenericError
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return WSAETimedOut
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return WSAETimedOut
+	}
+	if errors.Is(err, context.Canceled) {
+		return WSAEConnAborted
+	}
+	if errors.Is(err, io.EOF) {
+		return WSAEConnReset
+	}
+	return WSAEGenericError
+}
+
+func newWSAError(err error) RDCleanPathPDU {
+	return RDCleanPathPDU{
+		Version: RDCleanPathVersion,
+		Error: RDCleanPathErr{
+			ErrorCode:    GeneralErrorCode,
+			WSALastError: errorToWSACode(err),
+		},
+	}
+}
+
+func newHTTPError(statusCode int16) RDCleanPathPDU {
+	return RDCleanPathPDU{
+		Version: RDCleanPathVersion,
+		Error: RDCleanPathErr{
+			ErrorCode:      GeneralErrorCode,
+			HTTPStatusCode: statusCode,
+		},
 	}
 }

@@ -3,6 +3,7 @@
 package rdp
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/asn1"
 	"io"
@@ -21,7 +22,7 @@ func (p *RDCleanPathProxy) processRDCleanPathPDU(conn *proxyConnection, pdu RDCl
 	log.Infof("Processing RDCleanPath PDU: Version=%d, Destination=%s", pdu.Version, pdu.Destination)
 
 	if pdu.Version != RDCleanPathVersion {
-		p.sendRDCleanPathError(conn, "Unsupported version")
+		p.sendRDCleanPathError(conn, newHTTPError(400))
 		return
 	}
 
@@ -30,10 +31,13 @@ func (p *RDCleanPathProxy) processRDCleanPathPDU(conn *proxyConnection, pdu RDCl
 		destination = pdu.Destination
 	}
 
-	rdpConn, err := p.nbClient.Dial(conn.ctx, "tcp", destination)
+	ctx, cancel := context.WithTimeout(conn.ctx, rdpDialTimeout)
+	defer cancel()
+
+	rdpConn, err := p.nbClient.Dial(ctx, "tcp", destination)
 	if err != nil {
 		log.Errorf("Failed to connect to %s: %v", destination, err)
-		p.sendRDCleanPathError(conn, "Connection failed")
+		p.sendRDCleanPathError(conn, newWSAError(err))
 		p.cleanupConnection(conn)
 		return
 	}
@@ -81,7 +85,7 @@ func (p *RDCleanPathProxy) setupTLSConnection(conn *proxyConnection, pdu RDClean
 		_, err := conn.rdpConn.Write(pdu.X224ConnectionPDU)
 		if err != nil {
 			log.Errorf("Failed to write X.224 PDU: %v", err)
-			p.sendRDCleanPathError(conn, "Failed to forward X.224")
+			p.sendRDCleanPathError(conn, newWSAError(err))
 			return
 		}
 
@@ -89,7 +93,7 @@ func (p *RDCleanPathProxy) setupTLSConnection(conn *proxyConnection, pdu RDClean
 		n, err := conn.rdpConn.Read(response)
 		if err != nil {
 			log.Errorf("Failed to read X.224 response: %v", err)
-			p.sendRDCleanPathError(conn, "Failed to read X.224 response")
+			p.sendRDCleanPathError(conn, newWSAError(err))
 			return
 		}
 		x224Response = response[:n]
@@ -114,7 +118,7 @@ func (p *RDCleanPathProxy) setupTLSConnection(conn *proxyConnection, pdu RDClean
 
 	if err := tlsConn.Handshake(); err != nil {
 		log.Errorf("TLS handshake failed: %v", err)
-		p.sendRDCleanPathError(conn, "TLS handshake failed")
+		p.sendRDCleanPathError(conn, newWSAError(err))
 		return
 	}
 
@@ -159,21 +163,6 @@ func (p *RDCleanPathProxy) sendRDCleanPathPDU(conn *proxyConnection, pdu RDClean
 	}
 
 	log.Debugf("Sending RDCleanPath PDU response (%d bytes)", len(data))
-	p.sendToWebSocket(conn, data)
-}
-
-func (p *RDCleanPathProxy) sendRDCleanPathError(conn *proxyConnection, errorMsg string) {
-	pdu := RDCleanPathPDU{
-		Version: RDCleanPathVersion,
-		Error:   []byte(errorMsg),
-	}
-
-	data, err := asn1.Marshal(pdu)
-	if err != nil {
-		log.Errorf("Failed to marshal error PDU: %v", err)
-		return
-	}
-
 	p.sendToWebSocket(conn, data)
 }
 
