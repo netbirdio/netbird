@@ -2,11 +2,13 @@ package loadtest
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"strings"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
@@ -24,9 +26,23 @@ type Client struct {
 	msgChannel chan *proto.EncryptedMessage
 }
 
+// ClientConfig holds optional configuration for the client
+type ClientConfig struct {
+	InsecureSkipVerify bool
+}
+
 // NewClient creates a new signal client for load testing
 func NewClient(serverURL, peerID string) (*Client, error) {
-	addr, opts, err := parseServerURL(serverURL)
+	return NewClientWithConfig(serverURL, peerID, nil)
+}
+
+// NewClientWithConfig creates a new signal client with custom TLS configuration
+func NewClientWithConfig(serverURL, peerID string, config *ClientConfig) (*Client, error) {
+	if config == nil {
+		config = &ClientConfig{}
+	}
+
+	addr, opts, err := parseServerURL(serverURL, config.InsecureSkipVerify)
 	if err != nil {
 		return nil, fmt.Errorf("parse server URL: %w", err)
 	}
@@ -124,7 +140,7 @@ func (c *Client) receiveMessages() {
 	}
 }
 
-func parseServerURL(serverURL string) (string, []grpc.DialOption, error) {
+func parseServerURL(serverURL string, insecureSkipVerify bool) (string, []grpc.DialOption, error) {
 	serverURL = strings.TrimSpace(serverURL)
 	if serverURL == "" {
 		return "", nil, fmt.Errorf("server URL is empty")
@@ -135,7 +151,11 @@ func parseServerURL(serverURL string) (string, []grpc.DialOption, error) {
 
 	if strings.HasPrefix(serverURL, "https://") {
 		addr = strings.TrimPrefix(serverURL, "https://")
-		return "", nil, fmt.Errorf("TLS support not yet implemented")
+		tlsConfig := &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: insecureSkipVerify,
+		}
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
 	} else if strings.HasPrefix(serverURL, "http://") {
 		addr = strings.TrimPrefix(serverURL, "http://")
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))

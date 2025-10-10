@@ -12,24 +12,26 @@ import (
 )
 
 var (
-	serverURL        string
-	pairsPerSecond   int
-	totalPairs       int
-	messageSize      int
-	testDuration     time.Duration
-	exchangeDuration time.Duration
-	messageInterval  time.Duration
-	logLevel         string
+	serverURL          string
+	pairsPerSecond     int
+	totalPairs         int
+	messageSize        int
+	testDuration       time.Duration
+	exchangeDuration   time.Duration
+	messageInterval    time.Duration
+	insecureSkipVerify bool
+	logLevel           string
 )
 
 func init() {
-	flag.StringVar(&serverURL, "server", "http://localhost:10000", "Signal server URL")
+	flag.StringVar(&serverURL, "server", "http://localhost:10000", "Signal server URL (http:// or https://)")
 	flag.IntVar(&pairsPerSecond, "pairs-per-sec", 10, "Number of peer pairs to create per second")
 	flag.IntVar(&totalPairs, "total-pairs", 100, "Total number of peer pairs to create")
 	flag.IntVar(&messageSize, "message-size", 100, "Size of test message in bytes")
 	flag.DurationVar(&testDuration, "test-duration", 0, "Maximum test duration (0 = unlimited)")
 	flag.DurationVar(&exchangeDuration, "exchange-duration", 0, "Duration for continuous message exchange per pair (0 = single message)")
 	flag.DurationVar(&messageInterval, "message-interval", 100*time.Millisecond, "Interval between messages in continuous mode")
+	flag.BoolVar(&insecureSkipVerify, "insecure-skip-verify", false, "Skip TLS certificate verification (use with self-signed certificates)")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level (trace, debug, info, warn, error)")
 }
 
@@ -44,13 +46,14 @@ func main() {
 	log.SetLevel(level)
 
 	config := loadtest.LoadTestConfig{
-		ServerURL:        serverURL,
-		PairsPerSecond:   pairsPerSecond,
-		TotalPairs:       totalPairs,
-		MessageSize:      messageSize,
-		TestDuration:     testDuration,
-		ExchangeDuration: exchangeDuration,
-		MessageInterval:  messageInterval,
+		ServerURL:          serverURL,
+		PairsPerSecond:     pairsPerSecond,
+		TotalPairs:         totalPairs,
+		MessageSize:        messageSize,
+		TestDuration:       testDuration,
+		ExchangeDuration:   exchangeDuration,
+		MessageInterval:    messageInterval,
+		InsecureSkipVerify: insecureSkipVerify,
 	}
 
 	if err := validateConfig(config); err != nil {
@@ -64,6 +67,9 @@ func main() {
 	log.Infof("  Pairs per second: %d", config.PairsPerSecond)
 	log.Infof("  Total pairs: %d", config.TotalPairs)
 	log.Infof("  Message size: %d bytes", config.MessageSize)
+	if config.InsecureSkipVerify {
+		log.Warnf("  TLS certificate verification: DISABLED (insecure)")
+	}
 	if config.TestDuration > 0 {
 		log.Infof("  Test duration: %v", config.TestDuration)
 	}

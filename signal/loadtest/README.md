@@ -8,6 +8,7 @@ Load testing tool for the NetBird signal server.
 - **Two exchange modes**:
   - **Single message**: Each pair exchanges one message for validation
   - **Continuous exchange**: Pairs continuously exchange messages for a specified duration (e.g., 30 seconds, 10 minutes)
+- **TLS/HTTPS support**: Connect to TLS-enabled signal servers with optional certificate verification
 - **Configurable message interval**: Control message send rate in continuous mode
 - **Message exchange validation**: Validates encrypted body size > 0
 - **Comprehensive metrics**: Tracks throughput, success/failure rates, and latency statistics
@@ -53,18 +54,34 @@ go build -o signal-loadtest
   -test-duration 15m \
   -log-level debug
 
+# TLS server with valid certificate
+./signal-loadtest \
+  -server https://signal.example.com:443 \
+  -pairs-per-sec 10 \
+  -total-pairs 50 \
+  -message-size 100
+
+# TLS server with self-signed certificate
+./signal-loadtest \
+  -server https://localhost:443 \
+  -pairs-per-sec 5 \
+  -total-pairs 10 \
+  -insecure-skip-verify \
+  -log-level debug
+
 # Show help
 ./signal-loadtest -h
 ```
 
 **Available Flags:**
-- `-server`: Signal server URL (default: `http://localhost:10000`)
+- `-server`: Signal server URL (http:// or https://) (default: `http://localhost:10000`)
 - `-pairs-per-sec`: Peer pairs created per second (default: 10)
 - `-total-pairs`: Total number of peer pairs (default: 100)
 - `-message-size`: Message size in bytes (default: 100)
 - `-test-duration`: Maximum test duration, 0 = unlimited (default: 0)
 - `-exchange-duration`: Continuous exchange duration per pair, 0 = single message (default: 0)
 - `-message-interval`: Interval between messages in continuous mode (default: 100ms)
+- `-insecure-skip-verify`: Skip TLS certificate verification for self-signed certificates (default: false)
 - `-log-level`: Log level: trace, debug, info, warn, error (default: info)
 
 ### Running Tests
@@ -156,6 +173,7 @@ func main() {
 - **TestDuration**: Maximum test duration (optional, 0 = no limit)
 - **ExchangeDuration**: Duration for continuous message exchange per pair (0 = single message)
 - **MessageInterval**: Interval between messages in continuous mode (default: 100ms)
+- **InsecureSkipVerify**: Skip TLS certificate verification (for self-signed certificates)
 - **RampUpDuration**: Gradual ramp-up period (not yet implemented)
 
 ## Metrics

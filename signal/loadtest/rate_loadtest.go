@@ -12,14 +12,15 @@ import (
 
 // LoadTestConfig configuration for the load test
 type LoadTestConfig struct {
-	ServerURL        string
-	PairsPerSecond   int
-	TotalPairs       int
-	MessageSize      int
-	TestDuration     time.Duration
-	ExchangeDuration time.Duration
-	MessageInterval  time.Duration
-	RampUpDuration   time.Duration
+	ServerURL          string
+	PairsPerSecond     int
+	TotalPairs         int
+	MessageSize        int
+	TestDuration       time.Duration
+	ExchangeDuration   time.Duration
+	MessageInterval    time.Duration
+	RampUpDuration     time.Duration
+	InsecureSkipVerify bool
 }
 
 // LoadTestMetrics metrics collected during the load test
@@ -138,13 +139,17 @@ func (lt *LoadTest) executePairExchange(pairID int) error {
 	senderID := fmt.Sprintf("sender-%d", pairID)
 	receiverID := fmt.Sprintf("receiver-%d", pairID)
 
-	sender, err := NewClient(lt.config.ServerURL, senderID)
+	clientConfig := &ClientConfig{
+		InsecureSkipVerify: lt.config.InsecureSkipVerify,
+	}
+
+	sender, err := NewClientWithConfig(lt.config.ServerURL, senderID, clientConfig)
 	if err != nil {
 		return fmt.Errorf("create sender: %w", err)
 	}
 	defer sender.Close()
 
-	receiver, err := NewClient(lt.config.ServerURL, receiverID)
+	receiver, err := NewClientWithConfig(lt.config.ServerURL, receiverID, clientConfig)
 	if err != nil {
 		return fmt.Errorf("create receiver: %w", err)
 	}
