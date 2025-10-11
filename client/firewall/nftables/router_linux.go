@@ -1350,6 +1350,103 @@ func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	return nil
 }
 
+// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services
+func (r *router) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	ruleID := fmt.Sprintf("inbound-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if _, exists := r.rules[ruleID]; exists {
+		return nil
+	}
+
+	protoNum, err := protoToInt(protocol)
+	if err != nil {
+		return fmt.Errorf("convert protocol to number: %w", err)
+	}
+
+	exprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 2},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 2,
+			Data:     []byte{protoNum},
+		},
+		&expr.Payload{
+			DestRegister: 3,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       2,
+			Len:          2,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 3,
+			Data:     binaryutil.BigEndian.PutUint16(sourcePort),
+		},
+	}
+
+	exprs = append(exprs, applyPrefix(netip.PrefixFrom(localAddr, 32), false)...)
+
+	exprs = append(exprs,
+		&expr.Immediate{
+			Register: 1,
+			Data:     localAddr.AsSlice(),
+		},
+		&expr.Immediate{
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(targetPort),
+		},
+		&expr.NAT{
+			Type:        expr.NATTypeDestNAT,
+			Family:      uint32(nftables.TableFamilyIPv4),
+			RegAddrMin:  1,
+			RegProtoMin: 2,
+			RegProtoMax: 0,
+		},
+	)
+
+	dnatRule := &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingRdr],
+		Exprs:    exprs,
+		UserData: []byte(ruleID),
+	}
+	r.conn.AddRule(dnatRule)
+
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("add inbound DNAT rule: %w", err)
+	}
+
+	r.rules[ruleID] = dnatRule
+
+	return nil
+}
+
+// RemoveInboundDNAT removes inbound DNAT rule
+func (r *router) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	if err := r.refreshRulesMap(); err != nil {
+		return fmt.Errorf(refreshRulesMapError, err)
+	}
+
+	ruleID := fmt.Sprintf("inbound-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if rule, exists := r.rules[ruleID]; exists {
+		if err := r.conn.DelRule(rule); err != nil {
+			return fmt.Errorf("delete inbound DNAT rule %s: %w", ruleID, err)
+		}
+		if err := r.conn.Flush(); err != nil {
+			return fmt.Errorf("flush delete inbound DNAT rule: %w", err)
+		}
+		delete(r.rules, ruleID)
+	}
+
+	return nil
+}
+
 // applyNetwork generates nftables expressions for networks (CIDR) or sets
 func (r *router) applyNetwork(
 	network firewall.Network,

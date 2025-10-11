@@ -273,14 +273,19 @@ type LoginRequest struct {
 	// cleanDNSLabels clean map list of DNS labels.
 	// This is needed because the generated code
 	// omits initialized empty slices due to omitempty tags
-	CleanDNSLabels        bool    `protobuf:"varint,27,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
-	LazyConnectionEnabled *bool   `protobuf:"varint,28,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
-	BlockInbound          *bool   `protobuf:"varint,29,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
-	ProfileName           *string `protobuf:"bytes,30,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
-	Username              *string `protobuf:"bytes,31,opt,name=username,proto3,oneof" json:"username,omitempty"`
-	Mtu                   *int64  `protobuf:"varint,32,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	CleanDNSLabels                bool    `protobuf:"varint,27,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
+	LazyConnectionEnabled         *bool   `protobuf:"varint,28,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
+	BlockInbound                  *bool   `protobuf:"varint,29,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
+	ProfileName                   *string `protobuf:"bytes,30,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
+	Username                      *string `protobuf:"bytes,31,opt,name=username,proto3,oneof" json:"username,omitempty"`
+	Mtu                           *int64  `protobuf:"varint,32,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
+	EnableSSHRoot                 *bool   `protobuf:"varint,33,opt,name=enableSSHRoot,proto3,oneof" json:"enableSSHRoot,omitempty"`
+	EnableSSHSFTP                 *bool   `protobuf:"varint,34,opt,name=enableSSHSFTP,proto3,oneof" json:"enableSSHSFTP,omitempty"`
+	EnableSSHLocalPortForwarding  *bool   `protobuf:"varint,35,opt,name=enableSSHLocalPortForwarding,proto3,oneof" json:"enableSSHLocalPortForwarding,omitempty"`
+	EnableSSHRemotePortForwarding *bool   `protobuf:"varint,36,opt,name=enableSSHRemotePortForwarding,proto3,oneof" json:"enableSSHRemotePortForwarding,omitempty"`
+	DisableSSHAuth                *bool   `protobuf:"varint,37,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *LoginRequest) Reset() {
@@ -536,6 +541,41 @@ func (x *LoginRequest) GetMtu() int64 {
 		return *x.Mtu
 	}
 	return 0
+}
+
+func (x *LoginRequest) GetEnableSSHRoot() bool {
+	if x != nil && x.EnableSSHRoot != nil {
+		return *x.EnableSSHRoot
+	}
+	return false
+}
+
+func (x *LoginRequest) GetEnableSSHSFTP() bool {
+	if x != nil && x.EnableSSHSFTP != nil {
+		return *x.EnableSSHSFTP
+	}
+	return false
+}
+
+func (x *LoginRequest) GetEnableSSHLocalPortForwarding() bool {
+	if x != nil && x.EnableSSHLocalPortForwarding != nil {
+		return *x.EnableSSHLocalPortForwarding
+	}
+	return false
+}
+
+func (x *LoginRequest) GetEnableSSHRemotePortForwarding() bool {
+	if x != nil && x.EnableSSHRemotePortForwarding != nil {
+		return *x.EnableSSHRemotePortForwarding
+	}
+	return false
+}
+
+func (x *LoginRequest) GetDisableSSHAuth() bool {
+	if x != nil && x.DisableSSHAuth != nil {
+		return *x.DisableSSHAuth
+	}
+	return false
 }
 
 type LoginResponse struct {
@@ -1048,24 +1088,29 @@ type GetConfigResponse struct {
 	// preSharedKey settings value.
 	PreSharedKey string `protobuf:"bytes,4,opt,name=preSharedKey,proto3" json:"preSharedKey,omitempty"`
 	// adminURL settings value.
-	AdminURL              string `protobuf:"bytes,5,opt,name=adminURL,proto3" json:"adminURL,omitempty"`
-	InterfaceName         string `protobuf:"bytes,6,opt,name=interfaceName,proto3" json:"interfaceName,omitempty"`
-	WireguardPort         int64  `protobuf:"varint,7,opt,name=wireguardPort,proto3" json:"wireguardPort,omitempty"`
-	Mtu                   int64  `protobuf:"varint,8,opt,name=mtu,proto3" json:"mtu,omitempty"`
-	DisableAutoConnect    bool   `protobuf:"varint,9,opt,name=disableAutoConnect,proto3" json:"disableAutoConnect,omitempty"`
-	ServerSSHAllowed      bool   `protobuf:"varint,10,opt,name=serverSSHAllowed,proto3" json:"serverSSHAllowed,omitempty"`
-	RosenpassEnabled      bool   `protobuf:"varint,11,opt,name=rosenpassEnabled,proto3" json:"rosenpassEnabled,omitempty"`
-	RosenpassPermissive   bool   `protobuf:"varint,12,opt,name=rosenpassPermissive,proto3" json:"rosenpassPermissive,omitempty"`
-	DisableNotifications  bool   `protobuf:"varint,13,opt,name=disable_notifications,json=disableNotifications,proto3" json:"disable_notifications,omitempty"`
-	LazyConnectionEnabled bool   `protobuf:"varint,14,opt,name=lazyConnectionEnabled,proto3" json:"lazyConnectionEnabled,omitempty"`
-	BlockInbound          bool   `protobuf:"varint,15,opt,name=blockInbound,proto3" json:"blockInbound,omitempty"`
-	NetworkMonitor        bool   `protobuf:"varint,16,opt,name=networkMonitor,proto3" json:"networkMonitor,omitempty"`
-	DisableDns            bool   `protobuf:"varint,17,opt,name=disable_dns,json=disableDns,proto3" json:"disable_dns,omitempty"`
-	DisableClientRoutes   bool   `protobuf:"varint,18,opt,name=disable_client_routes,json=disableClientRoutes,proto3" json:"disable_client_routes,omitempty"`
-	DisableServerRoutes   bool   `protobuf:"varint,19,opt,name=disable_server_routes,json=disableServerRoutes,proto3" json:"disable_server_routes,omitempty"`
-	BlockLanAccess        bool   `protobuf:"varint,20,opt,name=block_lan_access,json=blockLanAccess,proto3" json:"block_lan_access,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	AdminURL                      string `protobuf:"bytes,5,opt,name=adminURL,proto3" json:"adminURL,omitempty"`
+	InterfaceName                 string `protobuf:"bytes,6,opt,name=interfaceName,proto3" json:"interfaceName,omitempty"`
+	WireguardPort                 int64  `protobuf:"varint,7,opt,name=wireguardPort,proto3" json:"wireguardPort,omitempty"`
+	Mtu                           int64  `protobuf:"varint,8,opt,name=mtu,proto3" json:"mtu,omitempty"`
+	DisableAutoConnect            bool   `protobuf:"varint,9,opt,name=disableAutoConnect,proto3" json:"disableAutoConnect,omitempty"`
+	ServerSSHAllowed              bool   `protobuf:"varint,10,opt,name=serverSSHAllowed,proto3" json:"serverSSHAllowed,omitempty"`
+	RosenpassEnabled              bool   `protobuf:"varint,11,opt,name=rosenpassEnabled,proto3" json:"rosenpassEnabled,omitempty"`
+	RosenpassPermissive           bool   `protobuf:"varint,12,opt,name=rosenpassPermissive,proto3" json:"rosenpassPermissive,omitempty"`
+	DisableNotifications          bool   `protobuf:"varint,13,opt,name=disable_notifications,json=disableNotifications,proto3" json:"disable_notifications,omitempty"`
+	LazyConnectionEnabled         bool   `protobuf:"varint,14,opt,name=lazyConnectionEnabled,proto3" json:"lazyConnectionEnabled,omitempty"`
+	BlockInbound                  bool   `protobuf:"varint,15,opt,name=blockInbound,proto3" json:"blockInbound,omitempty"`
+	NetworkMonitor                bool   `protobuf:"varint,16,opt,name=networkMonitor,proto3" json:"networkMonitor,omitempty"`
+	DisableDns                    bool   `protobuf:"varint,17,opt,name=disable_dns,json=disableDns,proto3" json:"disable_dns,omitempty"`
+	DisableClientRoutes           bool   `protobuf:"varint,18,opt,name=disable_client_routes,json=disableClientRoutes,proto3" json:"disable_client_routes,omitempty"`
+	DisableServerRoutes           bool   `protobuf:"varint,19,opt,name=disable_server_routes,json=disableServerRoutes,proto3" json:"disable_server_routes,omitempty"`
+	BlockLanAccess                bool   `protobuf:"varint,20,opt,name=block_lan_access,json=blockLanAccess,proto3" json:"block_lan_access,omitempty"`
+	EnableSSHRoot                 bool   `protobuf:"varint,21,opt,name=enableSSHRoot,proto3" json:"enableSSHRoot,omitempty"`
+	EnableSSHSFTP                 bool   `protobuf:"varint,24,opt,name=enableSSHSFTP,proto3" json:"enableSSHSFTP,omitempty"`
+	EnableSSHLocalPortForwarding  bool   `protobuf:"varint,22,opt,name=enableSSHLocalPortForwarding,proto3" json:"enableSSHLocalPortForwarding,omitempty"`
+	EnableSSHRemotePortForwarding bool   `protobuf:"varint,23,opt,name=enableSSHRemotePortForwarding,proto3" json:"enableSSHRemotePortForwarding,omitempty"`
+	DisableSSHAuth                bool   `protobuf:"varint,25,opt,name=disableSSHAuth,proto3" json:"disableSSHAuth,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *GetConfigResponse) Reset() {
@@ -1238,6 +1283,41 @@ func (x *GetConfigResponse) GetBlockLanAccess() bool {
 	return false
 }
 
+func (x *GetConfigResponse) GetEnableSSHRoot() bool {
+	if x != nil {
+		return x.EnableSSHRoot
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetEnableSSHSFTP() bool {
+	if x != nil {
+		return x.EnableSSHSFTP
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetEnableSSHLocalPortForwarding() bool {
+	if x != nil {
+		return x.EnableSSHLocalPortForwarding
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetEnableSSHRemotePortForwarding() bool {
+	if x != nil {
+		return x.EnableSSHRemotePortForwarding
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetDisableSSHAuth() bool {
+	if x != nil {
+		return x.DisableSSHAuth
+	}
+	return false
+}
+
 // PeerState contains the latest state of a peer
 type PeerState struct {
 	state                      protoimpl.MessageState `protogen:"open.v1"`
@@ -1258,6 +1338,7 @@ type PeerState struct {
 	Networks                   []string               `protobuf:"bytes,16,rep,name=networks,proto3" json:"networks,omitempty"`
 	Latency                    *durationpb.Duration   `protobuf:"bytes,17,opt,name=latency,proto3" json:"latency,omitempty"`
 	RelayAddress               string                 `protobuf:"bytes,18,opt,name=relayAddress,proto3" json:"relayAddress,omitempty"`
+	SshHostKey                 []byte                 `protobuf:"bytes,19,opt,name=sshHostKey,proto3" json:"sshHostKey,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -1409,6 +1490,13 @@ func (x *PeerState) GetRelayAddress() string {
 		return x.RelayAddress
 	}
 	return ""
+}
+
+func (x *PeerState) GetSshHostKey() []byte {
+	if x != nil {
+		return x.SshHostKey
+	}
+	return nil
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -3702,11 +3790,16 @@ type SetConfigRequest struct {
 	ExtraIFaceBlacklist   []string `protobuf:"bytes,24,rep,name=extraIFaceBlacklist,proto3" json:"extraIFaceBlacklist,omitempty"`
 	DnsLabels             []string `protobuf:"bytes,25,rep,name=dns_labels,json=dnsLabels,proto3" json:"dns_labels,omitempty"`
 	// cleanDNSLabels clean map list of DNS labels.
-	CleanDNSLabels   bool                 `protobuf:"varint,26,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
-	DnsRouteInterval *durationpb.Duration `protobuf:"bytes,27,opt,name=dnsRouteInterval,proto3,oneof" json:"dnsRouteInterval,omitempty"`
-	Mtu              *int64               `protobuf:"varint,28,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	CleanDNSLabels             bool                 `protobuf:"varint,26,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
+	DnsRouteInterval           *durationpb.Duration `protobuf:"bytes,27,opt,name=dnsRouteInterval,proto3,oneof" json:"dnsRouteInterval,omitempty"`
+	Mtu                        *int64               `protobuf:"varint,28,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
+	EnableSSHRoot              *bool                `protobuf:"varint,29,opt,name=enableSSHRoot,proto3,oneof" json:"enableSSHRoot,omitempty"`
+	EnableSSHSFTP              *bool                `protobuf:"varint,30,opt,name=enableSSHSFTP,proto3,oneof" json:"enableSSHSFTP,omitempty"`
+	EnableSSHLocalPortForward  *bool                `protobuf:"varint,31,opt,name=enableSSHLocalPortForward,proto3,oneof" json:"enableSSHLocalPortForward,omitempty"`
+	EnableSSHRemotePortForward *bool                `protobuf:"varint,32,opt,name=enableSSHRemotePortForward,proto3,oneof" json:"enableSSHRemotePortForward,omitempty"`
+	DisableSSHAuth             *bool                `protobuf:"varint,33,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *SetConfigRequest) Reset() {
@@ -3933,6 +4026,41 @@ func (x *SetConfigRequest) GetMtu() int64 {
 		return *x.Mtu
 	}
 	return 0
+}
+
+func (x *SetConfigRequest) GetEnableSSHRoot() bool {
+	if x != nil && x.EnableSSHRoot != nil {
+		return *x.EnableSSHRoot
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetEnableSSHSFTP() bool {
+	if x != nil && x.EnableSSHSFTP != nil {
+		return *x.EnableSSHSFTP
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetEnableSSHLocalPortForward() bool {
+	if x != nil && x.EnableSSHLocalPortForward != nil {
+		return *x.EnableSSHLocalPortForward
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetEnableSSHRemotePortForward() bool {
+	if x != nil && x.EnableSSHRemotePortForward != nil {
+		return *x.EnableSSHRemotePortForward
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetDisableSSHAuth() bool {
+	if x != nil && x.DisableSSHAuth != nil {
+		return *x.DisableSSHAuth
+	}
+	return false
 }
 
 type SetConfigResponse struct {
@@ -4551,6 +4679,381 @@ func (x *GetFeaturesResponse) GetDisableUpdateSettings() bool {
 	return false
 }
 
+// GetPeerSSHHostKeyRequest for retrieving SSH host key for a specific peer
+type GetPeerSSHHostKeyRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// peer IP address or FQDN to get SSH host key for
+	PeerAddress   string `protobuf:"bytes,1,opt,name=peerAddress,proto3" json:"peerAddress,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPeerSSHHostKeyRequest) Reset() {
+	*x = GetPeerSSHHostKeyRequest{}
+	mi := &file_daemon_proto_msgTypes[69]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPeerSSHHostKeyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPeerSSHHostKeyRequest) ProtoMessage() {}
+
+func (x *GetPeerSSHHostKeyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[69]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPeerSSHHostKeyRequest.ProtoReflect.Descriptor instead.
+func (*GetPeerSSHHostKeyRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{69}
+}
+
+func (x *GetPeerSSHHostKeyRequest) GetPeerAddress() string {
+	if x != nil {
+		return x.PeerAddress
+	}
+	return ""
+}
+
+// GetPeerSSHHostKeyResponse contains the SSH host key for the requested peer
+type GetPeerSSHHostKeyResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// SSH host key in SSH public key format (e.g., "ssh-ed25519 AAAAC3... hostname")
+	SshHostKey []byte `protobuf:"bytes,1,opt,name=sshHostKey,proto3" json:"sshHostKey,omitempty"`
+	// peer IP address
+	PeerIP string `protobuf:"bytes,2,opt,name=peerIP,proto3" json:"peerIP,omitempty"`
+	// peer FQDN
+	PeerFQDN string `protobuf:"bytes,3,opt,name=peerFQDN,proto3" json:"peerFQDN,omitempty"`
+	// indicates if the SSH host key was found
+	Found         bool `protobuf:"varint,4,opt,name=found,proto3" json:"found,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPeerSSHHostKeyResponse) Reset() {
+	*x = GetPeerSSHHostKeyResponse{}
+	mi := &file_daemon_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPeerSSHHostKeyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPeerSSHHostKeyResponse) ProtoMessage() {}
+
+func (x *GetPeerSSHHostKeyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPeerSSHHostKeyResponse.ProtoReflect.Descriptor instead.
+func (*GetPeerSSHHostKeyResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{70}
+}
+
+func (x *GetPeerSSHHostKeyResponse) GetSshHostKey() []byte {
+	if x != nil {
+		return x.SshHostKey
+	}
+	return nil
+}
+
+func (x *GetPeerSSHHostKeyResponse) GetPeerIP() string {
+	if x != nil {
+		return x.PeerIP
+	}
+	return ""
+}
+
+func (x *GetPeerSSHHostKeyResponse) GetPeerFQDN() string {
+	if x != nil {
+		return x.PeerFQDN
+	}
+	return ""
+}
+
+func (x *GetPeerSSHHostKeyResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+// RequestJWTAuthRequest for initiating JWT authentication flow
+type RequestJWTAuthRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestJWTAuthRequest) Reset() {
+	*x = RequestJWTAuthRequest{}
+	mi := &file_daemon_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestJWTAuthRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestJWTAuthRequest) ProtoMessage() {}
+
+func (x *RequestJWTAuthRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestJWTAuthRequest.ProtoReflect.Descriptor instead.
+func (*RequestJWTAuthRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{71}
+}
+
+// RequestJWTAuthResponse contains authentication flow information
+type RequestJWTAuthResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// verification URI for user authentication
+	VerificationURI string `protobuf:"bytes,1,opt,name=verificationURI,proto3" json:"verificationURI,omitempty"`
+	// complete verification URI (with embedded user code)
+	VerificationURIComplete string `protobuf:"bytes,2,opt,name=verificationURIComplete,proto3" json:"verificationURIComplete,omitempty"`
+	// user code to enter on verification URI
+	UserCode string `protobuf:"bytes,3,opt,name=userCode,proto3" json:"userCode,omitempty"`
+	// device code for polling
+	DeviceCode string `protobuf:"bytes,4,opt,name=deviceCode,proto3" json:"deviceCode,omitempty"`
+	// expiration time in seconds
+	ExpiresIn int64 `protobuf:"varint,5,opt,name=expiresIn,proto3" json:"expiresIn,omitempty"`
+	// if a cached token is available, it will be returned here
+	CachedToken string `protobuf:"bytes,6,opt,name=cachedToken,proto3" json:"cachedToken,omitempty"`
+	// maximum age of JWT tokens in seconds (from management server)
+	MaxTokenAge   int64 `protobuf:"varint,7,opt,name=maxTokenAge,proto3" json:"maxTokenAge,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestJWTAuthResponse) Reset() {
+	*x = RequestJWTAuthResponse{}
+	mi := &file_daemon_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestJWTAuthResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestJWTAuthResponse) ProtoMessage() {}
+
+func (x *RequestJWTAuthResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestJWTAuthResponse.ProtoReflect.Descriptor instead.
+func (*RequestJWTAuthResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{72}
+}
+
+func (x *RequestJWTAuthResponse) GetVerificationURI() string {
+	if x != nil {
+		return x.VerificationURI
+	}
+	return ""
+}
+
+func (x *RequestJWTAuthResponse) GetVerificationURIComplete() string {
+	if x != nil {
+		return x.VerificationURIComplete
+	}
+	return ""
+}
+
+func (x *RequestJWTAuthResponse) GetUserCode() string {
+	if x != nil {
+		return x.UserCode
+	}
+	return ""
+}
+
+func (x *RequestJWTAuthResponse) GetDeviceCode() string {
+	if x != nil {
+		return x.DeviceCode
+	}
+	return ""
+}
+
+func (x *RequestJWTAuthResponse) GetExpiresIn() int64 {
+	if x != nil {
+		return x.ExpiresIn
+	}
+	return 0
+}
+
+func (x *RequestJWTAuthResponse) GetCachedToken() string {
+	if x != nil {
+		return x.CachedToken
+	}
+	return ""
+}
+
+func (x *RequestJWTAuthResponse) GetMaxTokenAge() int64 {
+	if x != nil {
+		return x.MaxTokenAge
+	}
+	return 0
+}
+
+// WaitJWTTokenRequest for waiting for authentication completion
+type WaitJWTTokenRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// device code from RequestJWTAuthResponse
+	DeviceCode string `protobuf:"bytes,1,opt,name=deviceCode,proto3" json:"deviceCode,omitempty"`
+	// user code for verification
+	UserCode      string `protobuf:"bytes,2,opt,name=userCode,proto3" json:"userCode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitJWTTokenRequest) Reset() {
+	*x = WaitJWTTokenRequest{}
+	mi := &file_daemon_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitJWTTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitJWTTokenRequest) ProtoMessage() {}
+
+func (x *WaitJWTTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitJWTTokenRequest.ProtoReflect.Descriptor instead.
+func (*WaitJWTTokenRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{73}
+}
+
+func (x *WaitJWTTokenRequest) GetDeviceCode() string {
+	if x != nil {
+		return x.DeviceCode
+	}
+	return ""
+}
+
+func (x *WaitJWTTokenRequest) GetUserCode() string {
+	if x != nil {
+		return x.UserCode
+	}
+	return ""
+}
+
+// WaitJWTTokenResponse contains the JWT token after authentication
+type WaitJWTTokenResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// JWT token (access token or ID token)
+	Token string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	// token type (e.g., "Bearer")
+	TokenType string `protobuf:"bytes,2,opt,name=tokenType,proto3" json:"tokenType,omitempty"`
+	// expiration time in seconds
+	ExpiresIn     int64 `protobuf:"varint,3,opt,name=expiresIn,proto3" json:"expiresIn,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitJWTTokenResponse) Reset() {
+	*x = WaitJWTTokenResponse{}
+	mi := &file_daemon_proto_msgTypes[74]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitJWTTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitJWTTokenResponse) ProtoMessage() {}
+
+func (x *WaitJWTTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[74]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitJWTTokenResponse.ProtoReflect.Descriptor instead.
+func (*WaitJWTTokenResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{74}
+}
+
+func (x *WaitJWTTokenResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *WaitJWTTokenResponse) GetTokenType() string {
+	if x != nil {
+		return x.TokenType
+	}
+	return ""
+}
+
+func (x *WaitJWTTokenResponse) GetExpiresIn() int64 {
+	if x != nil {
+		return x.ExpiresIn
+	}
+	return 0
+}
+
 type PortInfo_Range struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Start         uint32                 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
@@ -4561,7 +5064,7 @@ type PortInfo_Range struct {
 
 func (x *PortInfo_Range) Reset() {
 	*x = PortInfo_Range{}
-	mi := &file_daemon_proto_msgTypes[70]
+	mi := &file_daemon_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4573,7 +5076,7 @@ func (x *PortInfo_Range) String() string {
 func (*PortInfo_Range) ProtoMessage() {}
 
 func (x *PortInfo_Range) ProtoReflect() protoreflect.Message {
-	mi := &file_daemon_proto_msgTypes[70]
+	mi := &file_daemon_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4608,7 +5111,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\xc3\x0e\n" +
+	"\fEmptyRequest\"\xd4\x11\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -4645,7 +5148,12 @@ const file_daemon_proto_rawDesc = "" +
 	"\rblock_inbound\x18\x1d \x01(\bH\x10R\fblockInbound\x88\x01\x01\x12%\n" +
 	"\vprofileName\x18\x1e \x01(\tH\x11R\vprofileName\x88\x01\x01\x12\x1f\n" +
 	"\busername\x18\x1f \x01(\tH\x12R\busername\x88\x01\x01\x12\x15\n" +
-	"\x03mtu\x18  \x01(\x03H\x13R\x03mtu\x88\x01\x01B\x13\n" +
+	"\x03mtu\x18  \x01(\x03H\x13R\x03mtu\x88\x01\x01\x12)\n" +
+	"\renableSSHRoot\x18! \x01(\bH\x14R\renableSSHRoot\x88\x01\x01\x12)\n" +
+	"\renableSSHSFTP\x18\" \x01(\bH\x15R\renableSSHSFTP\x88\x01\x01\x12G\n" +
+	"\x1cenableSSHLocalPortForwarding\x18# \x01(\bH\x16R\x1cenableSSHLocalPortForwarding\x88\x01\x01\x12I\n" +
+	"\x1denableSSHRemotePortForwarding\x18$ \x01(\bH\x17R\x1denableSSHRemotePortForwarding\x88\x01\x01\x12+\n" +
+	"\x0edisableSSHAuth\x18% \x01(\bH\x18R\x0edisableSSHAuth\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -4665,7 +5173,12 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0e_block_inboundB\x0e\n" +
 	"\f_profileNameB\v\n" +
 	"\t_usernameB\x06\n" +
-	"\x04_mtu\"\xb5\x01\n" +
+	"\x04_mtuB\x10\n" +
+	"\x0e_enableSSHRootB\x10\n" +
+	"\x0e_enableSSHSFTPB\x1f\n" +
+	"\x1d_enableSSHLocalPortForwardingB \n" +
+	"\x1e_enableSSHRemotePortForwardingB\x11\n" +
+	"\x0f_disableSSHAuth\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -4698,7 +5211,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\xb5\x06\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xb3\b\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -4723,7 +5236,12 @@ const file_daemon_proto_rawDesc = "" +
 	"disableDns\x122\n" +
 	"\x15disable_client_routes\x18\x12 \x01(\bR\x13disableClientRoutes\x122\n" +
 	"\x15disable_server_routes\x18\x13 \x01(\bR\x13disableServerRoutes\x12(\n" +
-	"\x10block_lan_access\x18\x14 \x01(\bR\x0eblockLanAccess\"\xde\x05\n" +
+	"\x10block_lan_access\x18\x14 \x01(\bR\x0eblockLanAccess\x12$\n" +
+	"\renableSSHRoot\x18\x15 \x01(\bR\renableSSHRoot\x12$\n" +
+	"\renableSSHSFTP\x18\x18 \x01(\bR\renableSSHSFTP\x12B\n" +
+	"\x1cenableSSHLocalPortForwarding\x18\x16 \x01(\bR\x1cenableSSHLocalPortForwarding\x12D\n" +
+	"\x1denableSSHRemotePortForwarding\x18\x17 \x01(\bR\x1denableSSHRemotePortForwarding\x12&\n" +
+	"\x0edisableSSHAuth\x18\x19 \x01(\bR\x0edisableSSHAuth\"\xfe\x05\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -4744,7 +5262,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\x10rosenpassEnabled\x18\x0f \x01(\bR\x10rosenpassEnabled\x12\x1a\n" +
 	"\bnetworks\x18\x10 \x03(\tR\bnetworks\x123\n" +
 	"\alatency\x18\x11 \x01(\v2\x19.google.protobuf.DurationR\alatency\x12\"\n" +
-	"\frelayAddress\x18\x12 \x01(\tR\frelayAddress\"\xf0\x01\n" +
+	"\frelayAddress\x18\x12 \x01(\tR\frelayAddress\x12\x1e\n" +
+	"\n" +
+	"sshHostKey\x18\x13 \x01(\fR\n" +
+	"sshHostKey\"\xf0\x01\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +
@@ -4923,7 +5444,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"\x17\n" +
-	"\x15SwitchProfileResponse\"\x8e\r\n" +
+	"\x15SwitchProfileResponse\"\x8d\x10\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -4956,7 +5477,12 @@ const file_daemon_proto_rawDesc = "" +
 	"dns_labels\x18\x19 \x03(\tR\tdnsLabels\x12&\n" +
 	"\x0ecleanDNSLabels\x18\x1a \x01(\bR\x0ecleanDNSLabels\x12J\n" +
 	"\x10dnsRouteInterval\x18\x1b \x01(\v2\x19.google.protobuf.DurationH\x10R\x10dnsRouteInterval\x88\x01\x01\x12\x15\n" +
-	"\x03mtu\x18\x1c \x01(\x03H\x11R\x03mtu\x88\x01\x01B\x13\n" +
+	"\x03mtu\x18\x1c \x01(\x03H\x11R\x03mtu\x88\x01\x01\x12)\n" +
+	"\renableSSHRoot\x18\x1d \x01(\bH\x12R\renableSSHRoot\x88\x01\x01\x12)\n" +
+	"\renableSSHSFTP\x18\x1e \x01(\bH\x13R\renableSSHSFTP\x88\x01\x01\x12A\n" +
+	"\x19enableSSHLocalPortForward\x18\x1f \x01(\bH\x14R\x19enableSSHLocalPortForward\x88\x01\x01\x12C\n" +
+	"\x1aenableSSHRemotePortForward\x18  \x01(\bH\x15R\x1aenableSSHRemotePortForward\x88\x01\x01\x12+\n" +
+	"\x0edisableSSHAuth\x18! \x01(\bH\x16R\x0edisableSSHAuth\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -4974,7 +5500,12 @@ const file_daemon_proto_rawDesc = "" +
 	"\x16_lazyConnectionEnabledB\x10\n" +
 	"\x0e_block_inboundB\x13\n" +
 	"\x11_dnsRouteIntervalB\x06\n" +
-	"\x04_mtu\"\x13\n" +
+	"\x04_mtuB\x10\n" +
+	"\x0e_enableSSHRootB\x10\n" +
+	"\x0e_enableSSHSFTPB\x1c\n" +
+	"\x1a_enableSSHLocalPortForwardB\x1d\n" +
+	"\x1b_enableSSHRemotePortForwardB\x11\n" +
+	"\x0f_disableSSHAuth\"\x13\n" +
 	"\x11SetConfigResponse\"Q\n" +
 	"\x11AddProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
@@ -5004,7 +5535,36 @@ const file_daemon_proto_rawDesc = "" +
 	"\x12GetFeaturesRequest\"x\n" +
 	"\x13GetFeaturesResponse\x12)\n" +
 	"\x10disable_profiles\x18\x01 \x01(\bR\x0fdisableProfiles\x126\n" +
-	"\x17disable_update_settings\x18\x02 \x01(\bR\x15disableUpdateSettings*b\n" +
+	"\x17disable_update_settings\x18\x02 \x01(\bR\x15disableUpdateSettings\"<\n" +
+	"\x18GetPeerSSHHostKeyRequest\x12 \n" +
+	"\vpeerAddress\x18\x01 \x01(\tR\vpeerAddress\"\x85\x01\n" +
+	"\x19GetPeerSSHHostKeyResponse\x12\x1e\n" +
+	"\n" +
+	"sshHostKey\x18\x01 \x01(\fR\n" +
+	"sshHostKey\x12\x16\n" +
+	"\x06peerIP\x18\x02 \x01(\tR\x06peerIP\x12\x1a\n" +
+	"\bpeerFQDN\x18\x03 \x01(\tR\bpeerFQDN\x12\x14\n" +
+	"\x05found\x18\x04 \x01(\bR\x05found\"\x17\n" +
+	"\x15RequestJWTAuthRequest\"\x9a\x02\n" +
+	"\x16RequestJWTAuthResponse\x12(\n" +
+	"\x0fverificationURI\x18\x01 \x01(\tR\x0fverificationURI\x128\n" +
+	"\x17verificationURIComplete\x18\x02 \x01(\tR\x17verificationURIComplete\x12\x1a\n" +
+	"\buserCode\x18\x03 \x01(\tR\buserCode\x12\x1e\n" +
+	"\n" +
+	"deviceCode\x18\x04 \x01(\tR\n" +
+	"deviceCode\x12\x1c\n" +
+	"\texpiresIn\x18\x05 \x01(\x03R\texpiresIn\x12 \n" +
+	"\vcachedToken\x18\x06 \x01(\tR\vcachedToken\x12 \n" +
+	"\vmaxTokenAge\x18\a \x01(\x03R\vmaxTokenAge\"Q\n" +
+	"\x13WaitJWTTokenRequest\x12\x1e\n" +
+	"\n" +
+	"deviceCode\x18\x01 \x01(\tR\n" +
+	"deviceCode\x12\x1a\n" +
+	"\buserCode\x18\x02 \x01(\tR\buserCode\"h\n" +
+	"\x14WaitJWTTokenResponse\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1c\n" +
+	"\ttokenType\x18\x02 \x01(\tR\ttokenType\x12\x1c\n" +
+	"\texpiresIn\x18\x03 \x01(\x03R\texpiresIn*b\n" +
 	"\bLogLevel\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05PANIC\x10\x01\x12\t\n" +
@@ -5013,7 +5573,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x04WARN\x10\x04\x12\b\n" +
 	"\x04INFO\x10\x05\x12\t\n" +
 	"\x05DEBUG\x10\x06\x12\t\n" +
-	"\x05TRACE\x10\a2\x8f\x10\n" +
+	"\x05TRACE\x10\a2\x8b\x12\n" +
 	"\rDaemonService\x126\n" +
 	"\x05Login\x12\x14.daemon.LoginRequest\x1a\x15.daemon.LoginResponse\"\x00\x12K\n" +
 	"\fWaitSSOLogin\x12\x1b.daemon.WaitSSOLoginRequest\x1a\x1c.daemon.WaitSSOLoginResponse\"\x00\x12-\n" +
@@ -5045,7 +5605,10 @@ const file_daemon_proto_rawDesc = "" +
 	"\fListProfiles\x12\x1b.daemon.ListProfilesRequest\x1a\x1c.daemon.ListProfilesResponse\"\x00\x12W\n" +
 	"\x10GetActiveProfile\x12\x1f.daemon.GetActiveProfileRequest\x1a .daemon.GetActiveProfileResponse\"\x00\x129\n" +
 	"\x06Logout\x12\x15.daemon.LogoutRequest\x1a\x16.daemon.LogoutResponse\"\x00\x12H\n" +
-	"\vGetFeatures\x12\x1a.daemon.GetFeaturesRequest\x1a\x1b.daemon.GetFeaturesResponse\"\x00B\bZ\x06/protob\x06proto3"
+	"\vGetFeatures\x12\x1a.daemon.GetFeaturesRequest\x1a\x1b.daemon.GetFeaturesResponse\"\x00\x12Z\n" +
+	"\x11GetPeerSSHHostKey\x12 .daemon.GetPeerSSHHostKeyRequest\x1a!.daemon.GetPeerSSHHostKeyResponse\"\x00\x12Q\n" +
+	"\x0eRequestJWTAuth\x12\x1d.daemon.RequestJWTAuthRequest\x1a\x1e.daemon.RequestJWTAuthResponse\"\x00\x12K\n" +
+	"\fWaitJWTToken\x12\x1b.daemon.WaitJWTTokenRequest\x1a\x1c.daemon.WaitJWTTokenResponse\"\x00B\bZ\x06/protob\x06proto3"
 
 var (
 	file_daemon_proto_rawDescOnce sync.Once
@@ -5060,7 +5623,7 @@ func file_daemon_proto_rawDescGZIP() []byte {
 }
 
 var file_daemon_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
+var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 78)
 var file_daemon_proto_goTypes = []any{
 	(LogLevel)(0),                              // 0: daemon.LogLevel
 	(SystemEvent_Severity)(0),                  // 1: daemon.SystemEvent.Severity
@@ -5134,18 +5697,24 @@ var file_daemon_proto_goTypes = []any{
 	(*LogoutResponse)(nil),                     // 69: daemon.LogoutResponse
 	(*GetFeaturesRequest)(nil),                 // 70: daemon.GetFeaturesRequest
 	(*GetFeaturesResponse)(nil),                // 71: daemon.GetFeaturesResponse
-	nil,                                        // 72: daemon.Network.ResolvedIPsEntry
-	(*PortInfo_Range)(nil),                     // 73: daemon.PortInfo.Range
-	nil,                                        // 74: daemon.SystemEvent.MetadataEntry
-	(*durationpb.Duration)(nil),                // 75: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),              // 76: google.protobuf.Timestamp
+	(*GetPeerSSHHostKeyRequest)(nil),           // 72: daemon.GetPeerSSHHostKeyRequest
+	(*GetPeerSSHHostKeyResponse)(nil),          // 73: daemon.GetPeerSSHHostKeyResponse
+	(*RequestJWTAuthRequest)(nil),              // 74: daemon.RequestJWTAuthRequest
+	(*RequestJWTAuthResponse)(nil),             // 75: daemon.RequestJWTAuthResponse
+	(*WaitJWTTokenRequest)(nil),                // 76: daemon.WaitJWTTokenRequest
+	(*WaitJWTTokenResponse)(nil),               // 77: daemon.WaitJWTTokenResponse
+	nil,                                        // 78: daemon.Network.ResolvedIPsEntry
+	(*PortInfo_Range)(nil),                     // 79: daemon.PortInfo.Range
+	nil,                                        // 80: daemon.SystemEvent.MetadataEntry
+	(*durationpb.Duration)(nil),                // 81: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),              // 82: google.protobuf.Timestamp
 }
 var file_daemon_proto_depIdxs = []int32{
-	75, // 0: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	81, // 0: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
 	22, // 1: daemon.StatusResponse.fullStatus:type_name -> daemon.FullStatus
-	76, // 2: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
-	76, // 3: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
-	75, // 4: daemon.PeerState.latency:type_name -> google.protobuf.Duration
+	82, // 2: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
+	82, // 3: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
+	81, // 4: daemon.PeerState.latency:type_name -> google.protobuf.Duration
 	19, // 5: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
 	18, // 6: daemon.FullStatus.signalState:type_name -> daemon.SignalState
 	17, // 7: daemon.FullStatus.localPeerState:type_name -> daemon.LocalPeerState
@@ -5154,8 +5723,8 @@ var file_daemon_proto_depIdxs = []int32{
 	21, // 10: daemon.FullStatus.dns_servers:type_name -> daemon.NSGroupState
 	52, // 11: daemon.FullStatus.events:type_name -> daemon.SystemEvent
 	28, // 12: daemon.ListNetworksResponse.routes:type_name -> daemon.Network
-	72, // 13: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
-	73, // 14: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
+	78, // 13: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
+	79, // 14: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
 	29, // 15: daemon.ForwardingRule.destinationPort:type_name -> daemon.PortInfo
 	29, // 16: daemon.ForwardingRule.translatedPort:type_name -> daemon.PortInfo
 	30, // 17: daemon.ForwardingRulesResponse.rules:type_name -> daemon.ForwardingRule
@@ -5166,10 +5735,10 @@ var file_daemon_proto_depIdxs = []int32{
 	49, // 22: daemon.TracePacketResponse.stages:type_name -> daemon.TraceStage
 	1,  // 23: daemon.SystemEvent.severity:type_name -> daemon.SystemEvent.Severity
 	2,  // 24: daemon.SystemEvent.category:type_name -> daemon.SystemEvent.Category
-	76, // 25: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
-	74, // 26: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
+	82, // 25: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
+	80, // 26: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
 	52, // 27: daemon.GetEventsResponse.events:type_name -> daemon.SystemEvent
-	75, // 28: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	81, // 28: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
 	65, // 29: daemon.ListProfilesResponse.profiles:type_name -> daemon.Profile
 	27, // 30: daemon.Network.ResolvedIPsEntry.value:type_name -> daemon.IPList
 	4,  // 31: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
@@ -5200,36 +5769,42 @@ var file_daemon_proto_depIdxs = []int32{
 	66, // 56: daemon.DaemonService.GetActiveProfile:input_type -> daemon.GetActiveProfileRequest
 	68, // 57: daemon.DaemonService.Logout:input_type -> daemon.LogoutRequest
 	70, // 58: daemon.DaemonService.GetFeatures:input_type -> daemon.GetFeaturesRequest
-	5,  // 59: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
-	7,  // 60: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
-	9,  // 61: daemon.DaemonService.Up:output_type -> daemon.UpResponse
-	11, // 62: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
-	13, // 63: daemon.DaemonService.Down:output_type -> daemon.DownResponse
-	15, // 64: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
-	24, // 65: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
-	26, // 66: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
-	26, // 67: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
-	31, // 68: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
-	33, // 69: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
-	35, // 70: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
-	37, // 71: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
-	40, // 72: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
-	42, // 73: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
-	44, // 74: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
-	46, // 75: daemon.DaemonService.SetSyncResponsePersistence:output_type -> daemon.SetSyncResponsePersistenceResponse
-	50, // 76: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
-	52, // 77: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
-	54, // 78: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
-	56, // 79: daemon.DaemonService.SwitchProfile:output_type -> daemon.SwitchProfileResponse
-	58, // 80: daemon.DaemonService.SetConfig:output_type -> daemon.SetConfigResponse
-	60, // 81: daemon.DaemonService.AddProfile:output_type -> daemon.AddProfileResponse
-	62, // 82: daemon.DaemonService.RemoveProfile:output_type -> daemon.RemoveProfileResponse
-	64, // 83: daemon.DaemonService.ListProfiles:output_type -> daemon.ListProfilesResponse
-	67, // 84: daemon.DaemonService.GetActiveProfile:output_type -> daemon.GetActiveProfileResponse
-	69, // 85: daemon.DaemonService.Logout:output_type -> daemon.LogoutResponse
-	71, // 86: daemon.DaemonService.GetFeatures:output_type -> daemon.GetFeaturesResponse
-	59, // [59:87] is the sub-list for method output_type
-	31, // [31:59] is the sub-list for method input_type
+	72, // 59: daemon.DaemonService.GetPeerSSHHostKey:input_type -> daemon.GetPeerSSHHostKeyRequest
+	74, // 60: daemon.DaemonService.RequestJWTAuth:input_type -> daemon.RequestJWTAuthRequest
+	76, // 61: daemon.DaemonService.WaitJWTToken:input_type -> daemon.WaitJWTTokenRequest
+	5,  // 62: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
+	7,  // 63: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
+	9,  // 64: daemon.DaemonService.Up:output_type -> daemon.UpResponse
+	11, // 65: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
+	13, // 66: daemon.DaemonService.Down:output_type -> daemon.DownResponse
+	15, // 67: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
+	24, // 68: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
+	26, // 69: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
+	26, // 70: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
+	31, // 71: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
+	33, // 72: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
+	35, // 73: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
+	37, // 74: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
+	40, // 75: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
+	42, // 76: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
+	44, // 77: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
+	46, // 78: daemon.DaemonService.SetSyncResponsePersistence:output_type -> daemon.SetSyncResponsePersistenceResponse
+	50, // 79: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
+	52, // 80: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
+	54, // 81: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
+	56, // 82: daemon.DaemonService.SwitchProfile:output_type -> daemon.SwitchProfileResponse
+	58, // 83: daemon.DaemonService.SetConfig:output_type -> daemon.SetConfigResponse
+	60, // 84: daemon.DaemonService.AddProfile:output_type -> daemon.AddProfileResponse
+	62, // 85: daemon.DaemonService.RemoveProfile:output_type -> daemon.RemoveProfileResponse
+	64, // 86: daemon.DaemonService.ListProfiles:output_type -> daemon.ListProfilesResponse
+	67, // 87: daemon.DaemonService.GetActiveProfile:output_type -> daemon.GetActiveProfileResponse
+	69, // 88: daemon.DaemonService.Logout:output_type -> daemon.LogoutResponse
+	71, // 89: daemon.DaemonService.GetFeatures:output_type -> daemon.GetFeaturesResponse
+	73, // 90: daemon.DaemonService.GetPeerSSHHostKey:output_type -> daemon.GetPeerSSHHostKeyResponse
+	75, // 91: daemon.DaemonService.RequestJWTAuth:output_type -> daemon.RequestJWTAuthResponse
+	77, // 92: daemon.DaemonService.WaitJWTToken:output_type -> daemon.WaitJWTTokenResponse
+	62, // [62:93] is the sub-list for method output_type
+	31, // [31:62] is the sub-list for method input_type
 	31, // [31:31] is the sub-list for extension type_name
 	31, // [31:31] is the sub-list for extension extendee
 	0,  // [0:31] is the sub-list for field type_name
@@ -5258,7 +5833,7 @@ func file_daemon_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_daemon_proto_rawDesc), len(file_daemon_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   72,
+			NumMessages:   78,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
