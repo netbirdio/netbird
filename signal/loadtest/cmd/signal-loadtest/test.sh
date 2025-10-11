@@ -25,4 +25,16 @@ echo "=== Test 2: Continuous exchange (3 pairs, 5 seconds) ==="
   -log-level info
 
 echo ""
+echo "=== Test 3: Progress reporting (10 pairs, 10s, report every 100 messages) ==="
+./signal-loadtest \
+  -server http://localhost:10000 \
+  -pairs-per-sec 10 \
+  -total-pairs 10 \
+  -message-size 100 \
+  -exchange-duration 10s \
+  -message-interval 100ms \
+  -report-interval 100 \
+  -log-level info
+
+echo ""
 echo "All tests completed!"

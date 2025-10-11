@@ -23,6 +23,7 @@ type LoadTestConfig struct {
 	InsecureSkipVerify bool
 	WorkerPoolSize     int
 	ChannelBufferSize  int
+	ReportInterval     int // Report progress every N messages (0 = no periodic reports)
 }
 
 // LoadTestMetrics metrics collected during the load test
@@ -48,20 +49,25 @@ type PeerPair struct {
 
 // LoadTest manages the load test execution
 type LoadTest struct {
-	config  LoadTestConfig
-	metrics *LoadTestMetrics
-	ctx     context.Context
-	cancel  context.CancelFunc
+	config         LoadTestConfig
+	metrics        *LoadTestMetrics
+	ctx            context.Context
+	cancel         context.CancelFunc
+	reporterCtx    context.Context
+	reporterCancel context.CancelFunc
 }
 
 // NewLoadTest creates a new load test instance
 func NewLoadTest(config LoadTestConfig) *LoadTest {
 	ctx, cancel := context.WithCancel(context.Background())
+	reporterCtx, reporterCancel := context.WithCancel(context.Background())
 	return &LoadTest{
-		config:  config,
-		metrics: &LoadTestMetrics{},
-		ctx:     ctx,
-		cancel:  cancel,
+		config:         config,
+		metrics:        &LoadTestMetrics{},
+		ctx:            ctx,
+		cancel:         cancel,
+		reporterCtx:    reporterCtx,
+		reporterCancel: reporterCancel,
 	}
 }
 
@@ -93,6 +99,12 @@ func (lt *LoadTest) Run() error {
 
 	var wg sync.WaitGroup
 	pairChan := make(chan int, channelBufferSize)
+
+	// Start progress reporter if configured
+	if lt.config.ReportInterval > 0 {
+		wg.Add(1)
+		go lt.progressReporter(&wg, lt.config.ReportInterval)
+	}
 
 	for i := 0; i < workerPoolSize; i++ {
 		wg.Add(1)
@@ -129,6 +141,10 @@ func (lt *LoadTest) Run() error {
 
 	log.Infof("All %d pairs queued, waiting for completion...", pairsCreated)
 	close(pairChan)
+
+	// Cancel progress reporter context to stop it before waiting
+	lt.reporterCancel()
+
 	wg.Wait()
 
 	return nil
@@ -320,9 +336,43 @@ func (lt *LoadTest) recordLatency(latency time.Duration) {
 	lt.metrics.latencies = append(lt.metrics.latencies, latency)
 }
 
+// progressReporter prints periodic progress reports
+func (lt *LoadTest) progressReporter(wg *sync.WaitGroup, interval int) {
+	defer wg.Done()
+
+	lastReported := int64(0)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-lt.reporterCtx.Done():
+			return
+		case <-ticker.C:
+			currentMessages := lt.metrics.TotalMessagesExchanged.Load()
+			if currentMessages-lastReported >= int64(interval) {
+				elapsed := time.Since(lt.metrics.startTime)
+				pairs := lt.metrics.SuccessfulExchanges.Load()
+				errors := lt.metrics.TotalErrors.Load()
+
+				var msgRate float64
+				if elapsed.Seconds() > 0 {
+					msgRate = float64(currentMessages) / elapsed.Seconds()
+				}
+
+				log.Infof("Progress: %d messages exchanged, %d pairs completed, %d errors, %.2f msg/sec, elapsed: %v",
+					currentMessages, pairs, errors, msgRate, elapsed.Round(time.Second))
+
+				lastReported = (currentMessages / int64(interval)) * int64(interval)
+			}
+		}
+	}
+}
+
 // Stop stops the load test
 func (lt *LoadTest) Stop() {
 	lt.cancel()
+	lt.reporterCancel()
 }
 
 // GetMetrics returns the collected metrics

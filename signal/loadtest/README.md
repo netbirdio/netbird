@@ -79,6 +79,15 @@ go build -o signal-loadtest
   -exchange-duration 60s \
   -log-level info
 
+# Progress reporting - report every 5000 messages
+./signal-loadtest \
+  -server http://localhost:10000 \
+  -pairs-per-sec 50 \
+  -total-pairs 100 \
+  -exchange-duration 5m \
+  -report-interval 5000 \
+  -log-level info
+
 # Show help
 ./signal-loadtest -h
 ```
@@ -93,6 +102,7 @@ go build -o signal-loadtest
 - `-message-interval`: Interval between messages in continuous mode (default: 100ms)
 - `-worker-pool-size`: Number of concurrent workers, 0 = auto (pairs-per-sec × 2) (default: 0)
 - `-channel-buffer-size`: Work queue buffer size, 0 = auto (pairs-per-sec × 4) (default: 0)
+- `-report-interval`: Report progress every N messages, 0 = no periodic reports (default: 10000)
 - `-insecure-skip-verify`: Skip TLS certificate verification for self-signed certificates (default: false)
 - `-log-level`: Log level: trace, debug, info, warn, error (default: info)
 
@@ -187,6 +197,7 @@ func main() {
 - **MessageInterval**: Interval between messages in continuous mode (default: 100ms)
 - **WorkerPoolSize**: Number of concurrent worker goroutines (0 = auto: pairs-per-sec × 2)
 - **ChannelBufferSize**: Work queue buffer size (0 = auto: pairs-per-sec × 4)
+- **ReportInterval**: Report progress every N messages (0 = no periodic reports, default: 10000)
 - **InsecureSkipVerify**: Skip TLS certificate verification (for self-signed certificates)
 - **RampUpDuration**: Gradual ramp-up period (not yet implemented)
 

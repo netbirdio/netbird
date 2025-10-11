@@ -22,6 +22,7 @@ var (
 	insecureSkipVerify bool
 	workerPoolSize     int
 	channelBufferSize  int
+	reportInterval     int
 	logLevel           string
 )
 
@@ -36,6 +37,7 @@ func init() {
 	flag.BoolVar(&insecureSkipVerify, "insecure-skip-verify", false, "Skip TLS certificate verification (use with self-signed certificates)")
 	flag.IntVar(&workerPoolSize, "worker-pool-size", 0, "Number of worker goroutines (0 = auto: pairs-per-sec * 2)")
 	flag.IntVar(&channelBufferSize, "channel-buffer-size", 0, "Channel buffer size (0 = auto: pairs-per-sec * 4)")
+	flag.IntVar(&reportInterval, "report-interval", 10000, "Report progress every N messages (0 = no periodic reports)")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level (trace, debug, info, warn, error)")
 }
 
@@ -60,6 +62,7 @@ func main() {
 		InsecureSkipVerify: insecureSkipVerify,
 		WorkerPoolSize:     workerPoolSize,
 		ChannelBufferSize:  channelBufferSize,
+		ReportInterval:     reportInterval,
 	}
 
 	if err := validateConfig(config); err != nil {

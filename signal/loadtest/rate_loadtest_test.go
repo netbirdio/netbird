@@ -182,6 +182,7 @@ func TestLoadTest_ContinuousExchange_ShortBurst(t *testing.T) {
 		ExchangeDuration: 3 * time.Second,
 		MessageInterval:  100 * time.Millisecond,
 		TestDuration:     10 * time.Second,
+		ReportInterval:   50, // Report every 50 messages for testing
 	}
 
 	loadTest := NewLoadTest(config)
