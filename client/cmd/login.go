@@ -109,6 +109,24 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		loginRequest.OptionalPreSharedKey = &preSharedKey
 	}
 
+	// set the new config
+	cfg, err := client.GetConfig(ctx, &proto.GetConfigRequest{
+		ProfileName: activeProf.Name,
+		Username:    username,
+	})
+	if err != nil {
+		return fmt.Errorf("get config from daemon: %v", err)
+	}
+
+	req := setupSetConfigReqForLogin(cfg, activeProf.Name, username)
+	if _, err := client.SetConfig(ctx, req); err != nil {
+		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
+			log.Warnf("setConfig method is not available in the daemon")
+		} else {
+			return fmt.Errorf("call service setConfig method: %v", err)
+		}
+	}
+
 	var loginErr error
 
 	var loginResp *proto.LoginResponse
@@ -382,4 +400,29 @@ func setEnvAndFlags(cmd *cobra.Command) error {
 	}
 
 	return nil
+}
+
+func setupSetConfigReqForLogin(cfg *proto.GetConfigResponse, profileName, username string) *proto.SetConfigRequest {
+	var req proto.SetConfigRequest
+	req.ProfileName = profileName
+	req.Username = username
+
+	req.ManagementUrl = managementURL
+	req.AdminURL = adminURL
+
+	req.RosenpassEnabled = &cfg.RosenpassEnabled
+	req.RosenpassPermissive = &cfg.RosenpassPermissive
+	req.DisableAutoConnect = &cfg.DisableAutoConnect
+	req.ServerSSHAllowed = &cfg.ServerSSHAllowed
+	req.NetworkMonitor = &cfg.NetworkMonitor
+	req.DisableClientRoutes = &cfg.DisableClientRoutes
+	req.DisableServerRoutes = &cfg.DisableServerRoutes
+	req.DisableDns = &cfg.DisableDns
+	req.DisableFirewall = &cfg.DisableFirewall
+	req.BlockLanAccess = &cfg.BlockLanAccess
+	req.DisableNotifications = &cfg.DisableNotifications
+	req.LazyConnectionEnabled = &cfg.LazyConnectionEnabled
+	req.BlockInbound = &cfg.BlockInbound
+
+	return &req
 }
