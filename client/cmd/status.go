@@ -68,7 +68,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 
 	ctx := internal.CtxInitState(cmd.Context())
 
-	resp, err := getStatus(ctx)
+	resp, err := getStatus(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getStatus(ctx context.Context) (*proto.StatusResponse, error) {
+func getStatus(ctx context.Context, shouldRunProbes bool) (*proto.StatusResponse, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
@@ -130,7 +130,7 @@ func getStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	}
 	defer conn.Close()
 
-	resp, err := proto.NewDaemonServiceClient(conn).Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true, ShouldRunProbes: true})
+	resp, err := proto.NewDaemonServiceClient(conn).Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true, ShouldRunProbes: shouldRunProbes})
 	if err != nil {
 		return nil, fmt.Errorf("status failed: %v", status.Convert(err).Message())
 	}
