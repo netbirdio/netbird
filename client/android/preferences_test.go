@@ -39,7 +39,7 @@ func TestPreferences_DefaultValues(t *testing.T) {
 	}
 }
 
-func TestPreferences_ReadUncommitedValues(t *testing.T) {
+func TestPreferences_ReadUncommittedValues(t *testing.T) {
 	exampleString := "exampleString"
 	cfgFile := filepath.Join(t.TempDir(), "netbird.json")
 	p := NewPreferences(cfgFile)

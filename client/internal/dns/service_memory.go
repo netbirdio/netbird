@@ -49,7 +49,7 @@ func (s *ServiceViaMemory) Listen() error {
 	var err error
 	s.udpFilterHookID, err = s.filterDNSTraffic()
 	if err != nil {
-		return fmt.Errorf("filter dns traffice: %w", err)
+		return fmt.Errorf("filter dns traffic: %w", err)
 	}
 	s.listenerIsRunning = true
 

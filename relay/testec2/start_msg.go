@@ -15,7 +15,7 @@ type StartIndication struct {
 	TransferSize int
 }
 
-func NewStartInidication(started time.Time, transferSize int) []byte {
+func NewStartIndication(started time.Time, transferSize int) []byte {
 	si := StartIndication{
 		Started:      started,
 		TransferSize: transferSize,

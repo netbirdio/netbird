@@ -121,7 +121,7 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
-	assert.Errorf(t, err, "Creating PAT for different user should thorw error")
+	assert.Errorf(t, err, "Creating PAT for different user should throw error")
 }
 
 func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
@@ -178,7 +178,7 @@ func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockTokenName, mockWrongExpiresIn)
-	assert.Errorf(t, err, "Wrong expiration should thorw error")
+	assert.Errorf(t, err, "Wrong expiration should throw error")
 }
 
 func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
@@ -203,7 +203,7 @@ func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 	}
 
 	_, err = am.CreatePAT(context.Background(), mockAccountID, mockUserID, mockUserID, mockEmptyTokenName, mockExpiresIn)
-	assert.Errorf(t, err, "Wrong expiration should thorw error")
+	assert.Errorf(t, err, "Wrong expiration should throw error")
 }
 
 func TestUser_DeletePAT(t *testing.T) {

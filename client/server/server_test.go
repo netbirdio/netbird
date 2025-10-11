@@ -191,7 +191,7 @@ func (m *mockSubscribeEventsServer) Context() context.Context {
 	return m.ctx
 }
 
-func TestServer_SubcribeEvents(t *testing.T) {
+func TestServer_SubscribeEvents(t *testing.T) {
 	tempDir := t.TempDir()
 	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
 	origDefaultConfigPath := profilemanager.DefaultConfigPath

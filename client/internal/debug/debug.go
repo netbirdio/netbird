@@ -65,13 +65,13 @@ IPv4 addresses are replaced with addresses starting from 198.51.100.0
 IPv6 addresses are replaced with addresses starting from 100::
 
 IP addresses from non public ranges and well known addresses are not anonymized (e.g. 8.8.8.8, 100.64.0.0/10, addresses starting with 192.168., 172.16., 10., etc.).
-Reoccuring IP addresses are replaced with the same anonymized address.
+Reoccurring IP addresses are replaced with the same anonymized address.
 
 Note: The anonymized IP addresses in the status file do not match those in the log and routes files. However, the anonymized IP addresses are consistent within the status file and across the routes and log files.
 
 Domains
 All domain names (except for the netbird domains) are replaced with randomly generated strings ending in ".domain". Anonymized domains are consistent across all files in the bundle.
-Reoccuring domain names are replaced with the same anonymized domain.
+Reoccurring domain names are replaced with the same anonymized domain.
 
 Sync Response
 The network_map.json file contains the following anonymized information:

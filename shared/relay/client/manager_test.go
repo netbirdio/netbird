@@ -140,7 +140,7 @@ func TestForeignConn(t *testing.T) {
 	}
 }
 
-func TestForeginConnClose(t *testing.T) {
+func TestForeignConnClose(t *testing.T) {
 	ctx := context.Background()
 
 	srvCfg1 := server.ListenerConfig{
