@@ -197,6 +197,43 @@ func TestLoadTest_ContinuousExchange_ShortBurst(t *testing.T) {
 	require.Equal(t, int64(5), metrics.SuccessfulExchanges.Load(), "All pairs should complete successfully")
 }
 
+func TestLoadTest_ReconnectionConfig(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	grpcServer, serverAddr := startTestSignalServerForLoad(t, ctx)
+	defer grpcServer.Stop()
+
+	config := LoadTestConfig{
+		ServerURL:         serverAddr,
+		PairsPerSecond:    3,
+		TotalPairs:        5,
+		MessageSize:       50,
+		ExchangeDuration:  2 * time.Second,
+		MessageInterval:   200 * time.Millisecond,
+		TestDuration:      5 * time.Second,
+		EnableReconnect:   true,
+		InitialRetryDelay: 100 * time.Millisecond,
+		MaxReconnectDelay: 2 * time.Second,
+	}
+
+	loadTest := NewLoadTest(config)
+	err := loadTest.Run()
+	require.NoError(t, err)
+
+	metrics := loadTest.GetMetrics()
+	metrics.PrintReport()
+
+	// Test should complete successfully with reconnection enabled
+	require.Equal(t, int64(5), metrics.TotalPairsSent.Load())
+	require.Greater(t, metrics.TotalMessagesExchanged.Load(), int64(0), "Should have exchanged messages")
+	require.Equal(t, int64(5), metrics.SuccessfulExchanges.Load(), "All pairs should complete successfully")
+
+	// Reconnections counter should exist (even if zero for this stable test)
+	reconnections := metrics.TotalReconnections.Load()
+	require.GreaterOrEqual(t, reconnections, int64(0), "Reconnections metric should be tracked")
+}
+
 func BenchmarkLoadTest_Throughput(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

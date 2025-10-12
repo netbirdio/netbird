@@ -27,6 +27,9 @@ var (
 	channelBufferSize  int
 	reportInterval     int
 	logLevel           string
+	enableReconnect    bool
+	maxReconnectDelay  time.Duration
+	initialRetryDelay  time.Duration
 )
 
 func init() {
@@ -42,6 +45,9 @@ func init() {
 	flag.IntVar(&channelBufferSize, "channel-buffer-size", 0, "Channel buffer size (0 = auto: pairs-per-sec * 4)")
 	flag.IntVar(&reportInterval, "report-interval", 10000, "Report progress every N messages (0 = no periodic reports)")
 	flag.StringVar(&logLevel, "log-level", "info", "Log level (trace, debug, info, warn, error)")
+	flag.BoolVar(&enableReconnect, "enable-reconnect", true, "Enable automatic reconnection on connection loss")
+	flag.DurationVar(&maxReconnectDelay, "max-reconnect-delay", 30*time.Second, "Maximum delay between reconnection attempts")
+	flag.DurationVar(&initialRetryDelay, "initial-retry-delay", 100*time.Millisecond, "Initial delay before first reconnection attempt")
 }
 
 func main() {
@@ -66,6 +72,9 @@ func main() {
 		WorkerPoolSize:     workerPoolSize,
 		ChannelBufferSize:  channelBufferSize,
 		ReportInterval:     reportInterval,
+		EnableReconnect:    enableReconnect,
+		MaxReconnectDelay:  maxReconnectDelay,
+		InitialRetryDelay:  initialRetryDelay,
 	}
 
 	if err := validateConfig(config); err != nil {
@@ -90,6 +99,11 @@ func main() {
 		log.Infof("  Message interval: %v", config.MessageInterval)
 	} else {
 		log.Infof("  Mode: Single message exchange")
+	}
+	if config.EnableReconnect {
+		log.Infof("  Reconnection: ENABLED")
+		log.Infof("  Initial retry delay: %v", config.InitialRetryDelay)
+		log.Infof("  Max reconnect delay: %v", config.MaxReconnectDelay)
 	}
 	fmt.Println()
 

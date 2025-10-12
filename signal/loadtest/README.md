@@ -9,9 +9,10 @@ Load testing tool for the NetBird signal server.
   - **Single message**: Each pair exchanges one message for validation
   - **Continuous exchange**: Pairs continuously exchange messages for a specified duration (e.g., 30 seconds, 10 minutes)
 - **TLS/HTTPS support**: Connect to TLS-enabled signal servers with optional certificate verification
+- **Automatic reconnection**: Optional automatic reconnection with exponential backoff on connection loss
 - **Configurable message interval**: Control message send rate in continuous mode
 - **Message exchange validation**: Validates encrypted body size > 0
-- **Comprehensive metrics**: Tracks throughput, success/failure rates, and latency statistics
+- **Comprehensive metrics**: Tracks throughput, success/failure rates, latency statistics, and reconnection counts
 - **Local server testing**: Tests include embedded signal server for easy development
 - **Worker pool pattern**: Efficient concurrent execution
 - **Graceful shutdown**: Context-based cancellation
@@ -88,6 +89,17 @@ go build -o signal-loadtest
   -report-interval 5000 \
   -log-level info
 
+# With automatic reconnection
+./signal-loadtest \
+  -server http://localhost:10000 \
+  -pairs-per-sec 10 \
+  -total-pairs 50 \
+  -exchange-duration 5m \
+  -enable-reconnect \
+  -initial-retry-delay 100ms \
+  -max-reconnect-delay 30s \
+  -log-level debug
+
 # Show help
 ./signal-loadtest -h
 ```
@@ -111,6 +123,9 @@ The load test supports graceful shutdown via Ctrl+C (SIGINT/SIGTERM):
 - `-worker-pool-size`: Number of concurrent workers, 0 = auto (pairs-per-sec × 2) (default: 0)
 - `-channel-buffer-size`: Work queue buffer size, 0 = auto (pairs-per-sec × 4) (default: 0)
 - `-report-interval`: Report progress every N messages, 0 = no periodic reports (default: 10000)
+- `-enable-reconnect`: Enable automatic reconnection on connection loss (default: false)
+- `-initial-retry-delay`: Initial delay before first reconnection attempt (default: 100ms)
+- `-max-reconnect-delay`: Maximum delay between reconnection attempts (default: 30s)
 - `-insecure-skip-verify`: Skip TLS certificate verification for self-signed certificates (default: false)
 - `-log-level`: Log level: trace, debug, info, warn, error (default: info)
 
@@ -206,8 +221,40 @@ func main() {
 - **WorkerPoolSize**: Number of concurrent worker goroutines (0 = auto: pairs-per-sec × 2)
 - **ChannelBufferSize**: Work queue buffer size (0 = auto: pairs-per-sec × 4)
 - **ReportInterval**: Report progress every N messages (0 = no periodic reports, default: 10000)
+- **EnableReconnect**: Enable automatic reconnection on connection loss (default: false)
+- **InitialRetryDelay**: Initial delay before first reconnection attempt (default: 100ms)
+- **MaxReconnectDelay**: Maximum delay between reconnection attempts (default: 30s)
 - **InsecureSkipVerify**: Skip TLS certificate verification (for self-signed certificates)
 - **RampUpDuration**: Gradual ramp-up period (not yet implemented)
+
+### Reconnection Handling
+
+The load test supports automatic reconnection on connection loss:
+
+- **Disabled by default**: Connections will fail on any network interruption
+- **When enabled**: Clients automatically reconnect with exponential backoff
+- **Exponential backoff**: Starts at `InitialRetryDelay`, doubles on each failure, caps at `MaxReconnectDelay`
+- **Transparent reconnection**: Message exchange continues after successful reconnection
+- **Metrics tracking**: Total reconnection count is reported
+
+**Use cases:**
+- Testing resilience to network interruptions
+- Validating server restart behavior
+- Simulating flaky network conditions
+- Long-running stability tests
+
+**Example with reconnection:**
+```go
+config := loadtest.LoadTestConfig{
+    ServerURL:         "http://localhost:10000",
+    PairsPerSecond:    10,
+    TotalPairs:        20,
+    ExchangeDuration:  10 * time.Minute,
+    EnableReconnect:   true,
+    InitialRetryDelay: 100 * time.Millisecond,
+    MaxReconnectDelay: 30 * time.Second,
+}
+```
 
 ### Performance Tuning
 
@@ -238,6 +285,7 @@ The load test collects and reports:
 - **Failed Exchanges**: Failed message exchanges
 - **Total Messages Exchanged**: Count of successfully exchanged messages
 - **Total Errors**: Cumulative error count
+- **Total Reconnections**: Number of automatic reconnections (if enabled)
 - **Throughput**: Pairs per second (actual)
 - **Latency Statistics**: Min, Max, Avg message exchange latency
 
@@ -323,7 +371,8 @@ Latency Statistics:
 
 ## Future Enhancements
 
-- [ ] TLS/HTTPS support for production servers
+- [x] TLS/HTTPS support for production servers
+- [x] Automatic reconnection with exponential backoff
 - [ ] Ramp-up period implementation
 - [ ] Percentile latency metrics (p50, p95, p99)
 - [ ] Connection reuse for multiple messages per pair

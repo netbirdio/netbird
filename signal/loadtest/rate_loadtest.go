@@ -25,6 +25,9 @@ type LoadTestConfig struct {
 	WorkerPoolSize     int
 	ChannelBufferSize  int
 	ReportInterval     int // Report progress every N messages (0 = no periodic reports)
+	EnableReconnect    bool
+	MaxReconnectDelay  time.Duration
+	InitialRetryDelay  time.Duration
 }
 
 // LoadTestMetrics metrics collected during the load test
@@ -35,6 +38,7 @@ type LoadTestMetrics struct {
 	SuccessfulExchanges    atomic.Int64
 	FailedExchanges        atomic.Int64
 	ActivePairs            atomic.Int64
+	TotalReconnections     atomic.Int64
 
 	mu        sync.Mutex
 	latencies []time.Duration
@@ -182,24 +186,33 @@ func (lt *LoadTest) pairWorker(wg *sync.WaitGroup, pairChan <-chan int) {
 }
 
 func (lt *LoadTest) executePairExchange(pairID int) error {
-	senderID := fmt.Sprintf("%s-%d", lt.config.IDPrefix, pairID)
-	receiverID := fmt.Sprintf("%s-%d", lt.config.IDPrefix, pairID)
+	senderID := fmt.Sprintf("%ssender-%d", lt.config.IDPrefix, pairID)
+	receiverID := fmt.Sprintf("%sreceiver-%d", lt.config.IDPrefix, pairID)
 
 	clientConfig := &ClientConfig{
 		InsecureSkipVerify: lt.config.InsecureSkipVerify,
+		EnableReconnect:    lt.config.EnableReconnect,
+		MaxReconnectDelay:  lt.config.MaxReconnectDelay,
+		InitialRetryDelay:  lt.config.InitialRetryDelay,
 	}
 
 	sender, err := NewClientWithConfig(lt.config.ServerURL, senderID, clientConfig)
 	if err != nil {
 		return fmt.Errorf("create sender: %w", err)
 	}
-	defer sender.Close()
+	defer func() {
+		sender.Close()
+		lt.metrics.TotalReconnections.Add(sender.GetReconnectCount())
+	}()
 
 	receiver, err := NewClientWithConfig(lt.config.ServerURL, receiverID, clientConfig)
 	if err != nil {
 		return fmt.Errorf("create receiver: %w", err)
 	}
-	defer receiver.Close()
+	defer func() {
+		receiver.Close()
+		lt.metrics.TotalReconnections.Add(receiver.GetReconnectCount())
+	}()
 
 	if err := sender.Connect(); err != nil {
 		return fmt.Errorf("sender connect: %w", err)
@@ -370,14 +383,15 @@ func (lt *LoadTest) progressReporter(wg *sync.WaitGroup, interval int) {
 				elapsed := time.Since(lt.metrics.startTime)
 				activePairs := lt.metrics.ActivePairs.Load()
 				errors := lt.metrics.TotalErrors.Load()
+				reconnections := lt.metrics.TotalReconnections.Load()
 
 				var msgRate float64
 				if elapsed.Seconds() > 0 {
 					msgRate = float64(currentMessages) / elapsed.Seconds()
 				}
 
-				log.Infof("Progress: %d messages exchanged, %d active pairs, %d errors, %.2f msg/sec, elapsed: %v",
-					currentMessages, activePairs, errors, msgRate, elapsed.Round(time.Second))
+				log.Infof("Progress: %d messages exchanged, %d active pairs, %d errors, %d reconnections, %.2f msg/sec, elapsed: %v",
+					currentMessages, activePairs, errors, reconnections, msgRate, elapsed.Round(time.Second))
 
 				lastReported = (currentMessages / int64(interval)) * int64(interval)
 			}
@@ -407,6 +421,11 @@ func (m *LoadTestMetrics) PrintReport() {
 	fmt.Printf("Failed Exchanges: %d\n", m.FailedExchanges.Load())
 	fmt.Printf("Total Messages Exchanged: %d\n", m.TotalMessagesExchanged.Load())
 	fmt.Printf("Total Errors: %d\n", m.TotalErrors.Load())
+
+	reconnections := m.TotalReconnections.Load()
+	if reconnections > 0 {
+		fmt.Printf("Total Reconnections: %d\n", reconnections)
+	}
 
 	if duration.Seconds() > 0 {
 		throughput := float64(m.SuccessfulExchanges.Load()) / duration.Seconds()

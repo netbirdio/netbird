@@ -5,8 +5,10 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -18,17 +20,27 @@ import (
 // Client represents a signal client for load testing
 type Client struct {
 	id         string
+	serverURL  string
+	config     *ClientConfig
 	conn       *grpc.ClientConn
 	client     proto.SignalExchangeClient
 	stream     proto.SignalExchange_ConnectStreamClient
 	ctx        context.Context
 	cancel     context.CancelFunc
 	msgChannel chan *proto.EncryptedMessage
+
+	mu              sync.RWMutex
+	reconnectCount  int64
+	connected       bool
+	receiverStarted bool
 }
 
 // ClientConfig holds optional configuration for the client
 type ClientConfig struct {
 	InsecureSkipVerify bool
+	EnableReconnect    bool
+	MaxReconnectDelay  time.Duration
+	InitialRetryDelay  time.Duration
 }
 
 // NewClient creates a new signal client for load testing
@@ -40,6 +52,16 @@ func NewClient(serverURL, peerID string) (*Client, error) {
 func NewClientWithConfig(serverURL, peerID string, config *ClientConfig) (*Client, error) {
 	if config == nil {
 		config = &ClientConfig{}
+	}
+
+	// Set default reconnect delays if not specified
+	if config.EnableReconnect {
+		if config.InitialRetryDelay == 0 {
+			config.InitialRetryDelay = 100 * time.Millisecond
+		}
+		if config.MaxReconnectDelay == 0 {
+			config.MaxReconnectDelay = 30 * time.Second
+		}
 	}
 
 	addr, opts, err := parseServerURL(serverURL, config.InsecureSkipVerify)
@@ -57,11 +79,14 @@ func NewClientWithConfig(serverURL, peerID string, config *ClientConfig) (*Clien
 
 	return &Client{
 		id:         peerID,
+		serverURL:  serverURL,
+		config:     config,
 		conn:       conn,
 		client:     client,
 		ctx:        ctx,
 		cancel:     cancel,
 		msgChannel: make(chan *proto.EncryptedMessage, 10),
+		connected:  false,
 	}, nil
 }
 
@@ -79,11 +104,70 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("receive header: %w", err)
 	}
 
+	c.mu.Lock()
 	c.stream = stream
-
-	go c.receiveMessages()
+	c.connected = true
+	if !c.receiverStarted {
+		c.receiverStarted = true
+		c.mu.Unlock()
+		go c.receiveMessages()
+	} else {
+		c.mu.Unlock()
+	}
 
 	return nil
+}
+
+// reconnectStream reconnects the stream without starting a new receiver goroutine
+func (c *Client) reconnectStream() error {
+	if !c.config.EnableReconnect {
+		return fmt.Errorf("reconnect disabled")
+	}
+
+	delay := c.config.InitialRetryDelay
+	attempt := 0
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return c.ctx.Err()
+		case <-time.After(delay):
+			attempt++
+			log.Debugf("Client %s reconnect attempt %d (delay: %v)", c.id, attempt, delay)
+
+			md := metadata.New(map[string]string{proto.HeaderId: c.id})
+			ctx := metadata.NewOutgoingContext(c.ctx, md)
+
+			stream, err := c.client.ConnectStream(ctx)
+			if err != nil {
+				log.Debugf("Client %s reconnect attempt %d failed: %v", c.id, attempt, err)
+				delay *= 2
+				if delay > c.config.MaxReconnectDelay {
+					delay = c.config.MaxReconnectDelay
+				}
+				continue
+			}
+
+			if _, err := stream.Header(); err != nil {
+				log.Debugf("Client %s reconnect header failed: %v", c.id, err)
+				delay *= 2
+				if delay > c.config.MaxReconnectDelay {
+					delay = c.config.MaxReconnectDelay
+				}
+				continue
+			}
+
+			c.mu.Lock()
+			c.stream = stream
+			c.connected = true
+			c.reconnectCount++
+			c.mu.Unlock()
+
+			log.Debugf("Client %s reconnected successfully (attempt %d, total reconnects: %d)",
+				c.id, attempt, c.reconnectCount)
+			return nil
+		}
+	}
 }
 
 // SendMessage sends an encrypted message to a remote peer using the Send RPC
@@ -94,7 +178,7 @@ func (c *Client) SendMessage(remotePeerID string, body []byte) error {
 		Body:      body,
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancel()
 
 	_, err := c.client.Send(ctx, msg)
@@ -125,10 +209,41 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) receiveMessages() {
-	defer close(c.msgChannel)
 	for {
-		msg, err := c.stream.Recv()
+		c.mu.RLock()
+		stream := c.stream
+		c.mu.RUnlock()
+
+		if stream == nil {
+			return
+		}
+
+		msg, err := stream.Recv()
 		if err != nil {
+			// Check if context is cancelled before attempting reconnection
+			select {
+			case <-c.ctx.Done():
+				return
+			default:
+			}
+
+			c.mu.Lock()
+			c.connected = false
+			c.mu.Unlock()
+
+			log.Debugf("Client %s receive error: %v", c.id, err)
+
+			// Attempt reconnection if enabled
+			if c.config.EnableReconnect {
+				if reconnectErr := c.reconnectStream(); reconnectErr != nil {
+					log.Debugf("Client %s reconnection failed: %v", c.id, reconnectErr)
+					return
+				}
+				// Successfully reconnected, continue receiving
+				continue
+			}
+
+			// Reconnect disabled, exit
 			return
 		}
 
@@ -138,6 +253,20 @@ func (c *Client) receiveMessages() {
 			return
 		}
 	}
+}
+
+// IsConnected returns whether the client is currently connected
+func (c *Client) IsConnected() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.connected
+}
+
+// GetReconnectCount returns the number of reconnections
+func (c *Client) GetReconnectCount() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.reconnectCount
 }
 
 func parseServerURL(serverURL string, insecureSkipVerify bool) (string, []grpc.DialOption, error) {
