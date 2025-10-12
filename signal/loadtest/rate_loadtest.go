@@ -62,7 +62,17 @@ type LoadTest struct {
 // NewLoadTest creates a new load test instance
 func NewLoadTest(config LoadTestConfig) *LoadTest {
 	ctx, cancel := context.WithCancel(context.Background())
-	reporterCtx, reporterCancel := context.WithCancel(context.Background())
+	return newLoadTestWithContext(ctx, cancel, config)
+}
+
+// NewLoadTestWithContext creates a new load test instance with a custom context
+func NewLoadTestWithContext(ctx context.Context, config LoadTestConfig) *LoadTest {
+	ctx, cancel := context.WithCancel(ctx)
+	return newLoadTestWithContext(ctx, cancel, config)
+}
+
+func newLoadTestWithContext(ctx context.Context, cancel context.CancelFunc, config LoadTestConfig) *LoadTest {
+	reporterCtx, reporterCancel := context.WithCancel(ctx)
 	config.IDPrefix = fmt.Sprintf("%d-", time.Now().UnixNano())
 	return &LoadTest{
 		config:         config,

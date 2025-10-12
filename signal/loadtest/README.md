@@ -92,6 +92,14 @@ go build -o signal-loadtest
 ./signal-loadtest -h
 ```
 
+**Graceful Shutdown:**
+
+The load test supports graceful shutdown via Ctrl+C (SIGINT/SIGTERM):
+- Press Ctrl+C to interrupt the test at any time
+- All active clients will be closed gracefully
+- A final aggregated report will be printed showing metrics up to the point of interruption
+- Shutdown timeout: 5 seconds (after which the process will force exit)
+
 **Available Flags:**
 - `-server`: Signal server URL (http:// or https://) (default: `http://localhost:10000`)
 - `-pairs-per-sec`: Peer pairs created per second (default: 10)
@@ -232,6 +240,30 @@ The load test collects and reports:
 - **Total Errors**: Cumulative error count
 - **Throughput**: Pairs per second (actual)
 - **Latency Statistics**: Min, Max, Avg message exchange latency
+
+## Graceful Shutdown Example
+
+You can interrupt a long-running test at any time with Ctrl+C:
+
+```
+./signal-loadtest -server http://localhost:10000 -pairs-per-sec 10 -total-pairs 100 -exchange-duration 10m
+
+# Press Ctrl+C after some time...
+^C
+WARN[0045]
+Received interrupt signal, shutting down gracefully...
+
+=== Load Test Report ===
+Test Duration: 45.234s
+Total Pairs Sent: 75
+Successful Exchanges: 75
+Failed Exchanges: 0
+Total Messages Exchanged: 22500
+Total Errors: 0
+Throughput: 1.66 pairs/sec
+...
+========================
+```
 
 ## Test Results
 

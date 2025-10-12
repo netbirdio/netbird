@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -90,13 +93,41 @@ func main() {
 	}
 	fmt.Println()
 
-	lt := loadtest.NewLoadTest(config)
-	if err := lt.Run(); err != nil {
-		log.Errorf("Load test failed: %v", err)
-		os.Exit(1)
+	// Set up signal handler for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	lt := loadtest.NewLoadTestWithContext(ctx, config)
+
+	// Run load test in a goroutine
+	done := make(chan error, 1)
+	go func() {
+		done <- lt.Run()
+	}()
+
+	// Wait for completion or signal
+	select {
+	case <-sigChan:
+		log.Warnf("\nReceived interrupt signal, shutting down gracefully...")
+		cancel()
+		// Wait a bit for graceful shutdown
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			log.Warnf("Shutdown timeout, forcing exit")
+		}
+	case err := <-done:
+		if err != nil && err != context.Canceled {
+			log.Errorf("Load test failed: %v", err)
+			os.Exit(1)
+		}
 	}
 
 	metrics := lt.GetMetrics()
+	fmt.Println() // Add blank line before report
 	metrics.PrintReport()
 }
 
