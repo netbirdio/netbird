@@ -54,7 +54,7 @@ type Settings struct {
 	LazyConnectionEnabled bool `gorm:"default:false"`
 
 	// AutoUpdateVersion client auto-update version
-	AutoUpdateVersion string
+	AutoUpdateVersion string `gorm:"default:'latest'"`
 }
 
 // Copy copies the Settings struct

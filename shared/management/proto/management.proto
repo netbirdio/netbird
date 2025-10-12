@@ -268,7 +268,13 @@ message PeerConfig {
   int32 mtu = 7;
 
   // Auto-update config
-  string autoUpdateVersion = 8;
+  AutoUpdateSettings autoUpdate = 8;
+}
+
+message AutoUpdateSettings {
+  string version = 1;
+  // When false, only update if the connection started < 1 minute ago
+  bool alwaysUpdate = 2;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
