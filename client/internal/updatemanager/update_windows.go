@@ -19,7 +19,19 @@ const (
 	uninstallKeyPath32 = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Netbird`
 )
 
-func (u *UpdateManager) installationMethod() string {
+func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string) error {
+	method := installation()
+	switch method {
+	case "EXE":
+		return updateEXE(ctx, targetVersion)
+	case "MSI":
+		return updateMSI(ctx, targetVersion)
+	default:
+		return fmt.Errorf("unsupported installation method: %s", method)
+	}
+}
+
+func installation() string {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, uninstallKeyPath64, registry.QUERY_VALUE)
 	if err != nil {
 		k, err = registry.OpenKey(registry.LOCAL_MACHINE, uninstallKeyPath32, registry.QUERY_VALUE)
@@ -63,15 +75,4 @@ func updateEXE(ctx context.Context, targetVersion string) error {
 	err = cmd.Process.Release()
 
 	return err
-}
-
-func triggerUpdate(ctx context.Context, targetVersion string) error {
-	switch installationMethod() {
-	case "EXE":
-		return updateEXE(ctx, targetVersion)
-	case "MSI":
-		return updateMSI(ctx, targetVersion)
-	default:
-		return fmt.Errorf("unsupported installation method: %s", installationMethod())
-	}
 }
