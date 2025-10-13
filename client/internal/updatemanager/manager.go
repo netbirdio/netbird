@@ -262,15 +262,18 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 }
 
 func (u *UpdateManager) updateStateManager(ctx context.Context) {
-	u.stateManager.RegisterState(&UpdateState{})
-	if err := u.stateManager.LoadState(&UpdateState{}); err != nil {
+	var stateType *UpdateState
+
+	u.stateManager.RegisterState(stateType)
+	if err := u.stateManager.LoadState(stateType); err != nil {
 		log.Errorf("failed to load state: %v", err)
 		return
 	}
-	state := u.stateManager.GetState(&UpdateState{})
+	state := u.stateManager.GetState(stateType)
 	if state == nil {
 		return
 	}
+
 	updateState, ok := state.(*UpdateState)
 	if !ok {
 		log.Errorf("failed to cast state to UpdateState")
