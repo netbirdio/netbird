@@ -30,6 +30,7 @@ func TestChecks_MarshalJSON(t *testing.T) {
 			},
 			want: []byte(`
 				{
+					"AccountID":"acc1",
 					"ID": "id1",
                     "Name": "name1",
                     "Description": "desc1",
@@ -55,6 +56,7 @@ func TestChecks_MarshalJSON(t *testing.T) {
 			},
 			want: []byte(`
 				{
+					"AccountID":"",
 					"ID": "",
                     "Name": "",
                     "Description": "",
@@ -94,6 +96,7 @@ func TestChecks_UnmarshalJSON(t *testing.T) {
 			name: "Valid JSON Posture Checks Unmarshal",
 			in: []byte(`
 				{
+					"AccountID":"acc1",
 					"ID": "id1",
                     "Name": "name1",
                     "Description": "desc1",
@@ -106,6 +109,7 @@ func TestChecks_UnmarshalJSON(t *testing.T) {
 			`),
 			expected: &Checks{
 				ID:          "id1",
+				AccountID:   "acc1",
 				Name:        "name1",
 				Description: "desc1",
 				Checks: ChecksDefinition{
