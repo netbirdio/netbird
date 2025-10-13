@@ -177,6 +177,7 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 
 	u.expectedVersionMutex.Lock()
 	if u.update == nil {
+		u.expectedVersionMutex.Unlock()
 		return
 	}
 	expectedVersion := u.expectedVersion
@@ -319,7 +320,7 @@ func downloadFileToTemporaryDir(ctx context.Context, fileURL string) (string, er
 	}
 	defer func() {
 		if err := out.Close(); err != nil {
-			log.Errorf("Error closing temporary file: %v", err)
+			log.Errorf("error closing temporary file: %v", err)
 		}
 	}()
 
@@ -337,12 +338,17 @@ func downloadFileToTemporaryDir(ctx context.Context, fileURL string) (string, er
 		}
 	}()
 
+	if resp.StatusCode != http.StatusOK {
+		log.Errorf("error downloading update file, received status code: %d", resp.StatusCode)
+		return "", fmt.Errorf("error downloading file, received status code: %d", resp.StatusCode)
+	}
+
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("error downloading file: %w", err)
 	}
 
-	log.Tracef("Downloaded update file to %s", out.Name())
+	log.Debugf("downloaded update file to %s", out.Name())
 
 	return out.Name(), nil
 }
