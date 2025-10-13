@@ -273,7 +273,10 @@ message PeerConfig {
 
 message AutoUpdateSettings {
   string version = 1;
-  // When false, only update if the connection started < 1 minute ago
+  /*
+    alwaysUpdate = true → Updates happen automatically in the background
+    alwaysUpdate = false → Updates only happen when triggered by a peer connection
+   */
   bool alwaysUpdate = 2;
 }
 

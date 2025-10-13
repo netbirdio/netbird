@@ -509,6 +509,12 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	return nil
 }
 
+func (e *Engine) InitialUpdateHandling(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	e.handleAutoUpdateVersion(autoUpdateSettings, true)
+}
+
 func (e *Engine) createFirewall() error {
 	if e.config.DisableFirewall {
 		log.Infof("firewall is disabled")
@@ -721,20 +727,36 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 	return nil
 }
 
-func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
+func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdateSettings, initialCheck bool) {
 	if autoUpdateSettings == nil {
 		return
 	}
-	if e.updateManager == nil && autoUpdateSettings.Version != disableAutoUpdate && autoUpdateSettings.AlwaysUpdate {
-		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
-		e.updateManager.Start(e.ctx)
-	} else if e.updateManager != nil && autoUpdateSettings.Version == disableAutoUpdate {
+
+	disabled := autoUpdateSettings.Version == disableAutoUpdate
+
+	// Stop and cleanup if disabled
+	if e.updateManager != nil && disabled {
+		log.Infof("auto-update is disabled, stopping update manager")
 		e.updateManager.Stop()
 		e.updateManager = nil
+		return
 	}
-	if e.updateManager != nil && autoUpdateSettings.AlwaysUpdate {
-		e.updateManager.SetVersion(autoUpdateSettings.Version)
+
+	// Skip check unless AlwaysUpdate is enabled or this is the initial check at startup
+	if !autoUpdateSettings.AlwaysUpdate && !initialCheck {
+		log.Debugf("skipping auto-update check, AlwaysUpdate is false and this is not the initial check")
+		return
 	}
+
+	// Start manager if needed
+	if e.updateManager == nil {
+		log.Infof("starting auto-update manager")
+		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
+		e.updateManager.Start(e.ctx)
+	}
+
+	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)
+	e.updateManager.SetVersion(autoUpdateSettings.Version)
 }
 
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
@@ -742,7 +764,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	defer e.syncMsgMux.Unlock()
 
 	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
-		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
+		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate, false)
 	}
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()
