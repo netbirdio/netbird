@@ -230,19 +230,16 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 		PreUpdateVersion: u.currentVersion,
 		TargetVersion:    updateVersion.String(),
 	}
-	err := u.stateManager.UpdateState(updateState)
-	if err != nil {
+
+	if err := u.stateManager.UpdateState(updateState); err != nil {
 		log.Warnf("failed to update state: %v", err)
 	} else {
-		err = u.stateManager.PersistState(ctx)
-		if err != nil {
+		if err = u.stateManager.PersistState(ctx); err != nil {
 			log.Warnf("failed to persist state: %v", err)
 		}
 	}
 
-	err = u.triggerUpdate(ctx, updateVersion.String())
-
-	if err != nil {
+	if err := u.triggerUpdate(ctx, updateVersion.String()); err != nil {
 		log.Errorf("Error triggering auto-update: %v", err)
 		u.statusRecorder.PublishEvent(
 			cProto.SystemEvent_ERROR,
@@ -267,10 +264,15 @@ func (u *UpdateManager) updateStateManager(ctx context.Context) {
 		log.Errorf("failed to load state: %v", err)
 		return
 	}
-	if u.stateManager.GetState(&UpdateState{}) == nil {
+	state := u.stateManager.GetState(&UpdateState{})
+	if state == nil {
 		return
 	}
-	updateState := u.stateManager.GetState(&UpdateState{}).(*UpdateState)
+	updateState, ok := state.(*UpdateState)
+	if !ok {
+		log.Errorf("failed to cast state to UpdateState")
+		return
+	}
 	log.Debugf("autoUpdate state loaded, %v", *updateState)
 	if updateState.TargetVersion == u.currentVersion {
 		log.Infof("published notification event")
