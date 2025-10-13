@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
@@ -79,6 +80,10 @@ func (w *mocWGIface) SetFilter(filter device.PacketFilter) error {
 
 func (w *mocWGIface) GetStats(_ string) (configurer.WGStats, error) {
 	return configurer.WGStats{}, nil
+}
+
+func (w *mocWGIface) GetNet() *netstack.Net {
+	return nil
 }
 
 var zoneRecords = []nbdns.SimpleRecord{

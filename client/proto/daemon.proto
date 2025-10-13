@@ -66,8 +66,6 @@ service DaemonService {
 
   rpc SubscribeEvents(SubscribeRequest) returns (stream SystemEvent) {}
 
-  rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
-
   rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
 
   rpc SetConfig(SetConfigRequest) returns (SetConfigResponse) {}
@@ -524,12 +522,6 @@ message SystemEvent {
   string userMessage = 5;
   google.protobuf.Timestamp timestamp = 6;
   map<string, string> metadata = 7;
-}
-
-message GetEventsRequest {}
-
-message GetEventsResponse {
-  repeated SystemEvent events = 1;
 }
 
 message SwitchProfileRequest {

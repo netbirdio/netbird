@@ -1,8 +1,6 @@
 package server
 
 import (
-	"context"
-
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -28,9 +26,4 @@ func (s *Server) SubscribeEvents(req *proto.SubscribeRequest, stream proto.Daemo
 			return nil
 		}
 	}
-}
-
-func (s *Server) GetEvents(context.Context, *proto.GetEventsRequest) (*proto.GetEventsResponse, error) {
-	events := s.statusRecorder.GetEventHistory()
-	return &proto.GetEventsResponse{Events: events}, nil
 }

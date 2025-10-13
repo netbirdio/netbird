@@ -8,19 +8,19 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 )
 
 type upstreamResolver struct {
 	*upstreamResolverBase
+	nsNet *netstack.Net
 }
 
 func newUpstreamResolver(
 	ctx context.Context,
-	_ string,
-	_ netip.Addr,
-	_ netip.Prefix,
+	wgIface WGIface,
 	statusRecorder *peer.Status,
 	_ *hostsDNSHolder,
 	domain string,
@@ -28,12 +28,18 @@ func newUpstreamResolver(
 	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, domain)
 	nonIOS := &upstreamResolver{
 		upstreamResolverBase: upstreamResolverBase,
+		nsNet:                wgIface.GetNet(),
 	}
 	upstreamResolverBase.upstreamClient = nonIOS
 	return nonIOS, nil
 }
 
 func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
+	if u.nsNet != nil {
+		reply, err := ExchangeWithNetstack(ctx, u.nsNet, r, upstream)
+		return reply, 0, err
+	}
+
 	client := &dns.Client{
 		Timeout: ClientTimeout,
 	}

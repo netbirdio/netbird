@@ -173,20 +173,9 @@ func (s *Server) SetLogLevel(_ context.Context, req *proto.SetLogLevelRequest) (
 
 	log.SetLevel(level)
 
-	if s.connectClient == nil {
-		return nil, fmt.Errorf("connect client not initialized")
+	if s.connectClient != nil {
+		s.connectClient.SetLogLevel(level)
 	}
-	engine := s.connectClient.Engine()
-	if engine == nil {
-		return nil, fmt.Errorf("engine not initialized")
-	}
-
-	fwManager := engine.GetFirewallManager()
-	if fwManager == nil {
-		return nil, fmt.Errorf("firewall manager not initialized")
-	}
-
-	fwManager.SetLogLevel(level)
 
 	log.Infof("Log level set to %s", level.String())
 

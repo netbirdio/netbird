@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -34,7 +35,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -366,6 +366,19 @@ func (c *ConnectClient) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) 
 	}
 
 	return syncResponse, nil
+}
+
+// SetLogLevel sets the log level for the firewall manager if the engine is running.
+func (c *ConnectClient) SetLogLevel(level log.Level) {
+	engine := c.Engine()
+	if engine == nil {
+		return
+	}
+
+	fwManager := engine.GetFirewallManager()
+	if fwManager != nil {
+		fwManager.SetLogLevel(level)
+	}
 }
 
 // Status returns the current client status
