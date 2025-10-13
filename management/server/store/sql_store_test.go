@@ -3725,6 +3725,10 @@ func TestSqlStore_CacheHit(t *testing.T) {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
 
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "sqlite" {
+		t.Skip("Skipping test because NewTestStoreFromSQL doesn't share db")
+	}
+
 	t.Setenv(storeCacheEnabledEnv, "true")
 
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
@@ -3769,6 +3773,10 @@ func TestSqlStore_CacheHit(t *testing.T) {
 func TestSqlStore_CacheInvalidationAcrossInstances(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "sqlite" {
+		t.Skip("Skipping test because NewTestStoreFromSQL doesn't share db")
 	}
 
 	t.Setenv(storeCacheEnabledEnv, "true")
@@ -3837,6 +3845,10 @@ func TestSqlStore_CacheInvalidationAcrossInstances(t *testing.T) {
 func TestSqlStore_CacheGetAccountWithAssociations(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "sqlite" {
+		t.Skip("Skipping test because NewTestStoreFromSQL doesn't share db")
 	}
 
 	t.Setenv(storeCacheEnabledEnv, "true")
@@ -3911,6 +3923,10 @@ func TestSqlStore_CacheGetAccountWithAssociations(t *testing.T) {
 func TestSqlStore_CacheGetGroupWithAssociations(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	if os.Getenv("NETBIRD_STORE_ENGINE") != "sqlite" {
+		t.Skip("Skipping test because NewTestStoreFromSQL doesn't share db")
 	}
 
 	t.Setenv(storeCacheEnabledEnv, "true")
