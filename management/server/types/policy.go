@@ -55,7 +55,7 @@ type Policy struct {
 	ID string `gorm:"primaryKey"`
 
 	// AccountID is a reference to Account that this object belongs
-	AccountID string `json:"-" gorm:"index"`
+	AccountID string `gorm:"index"`
 
 	// Name of the Policy
 	Name string

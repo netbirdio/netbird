@@ -66,19 +66,19 @@ type Account struct {
 	DomainCategory         string
 	IsDomainPrimaryAccount bool
 	SetupKeys              map[string]*SetupKey              `gorm:"-"`
-	SetupKeysG             []SetupKey                        `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	SetupKeysG             []SetupKey                        `gorm:"foreignKey:AccountID;references:id"`
 	Network                *Network                          `gorm:"embedded;embeddedPrefix:network_"`
 	Peers                  map[string]*nbpeer.Peer           `gorm:"-"`
-	PeersG                 []nbpeer.Peer                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	PeersG                 []nbpeer.Peer                     `gorm:"foreignKey:AccountID;references:id"`
 	Users                  map[string]*User                  `gorm:"-"`
-	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	UsersG                 []User                            `gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
-	GroupsG                []*Group                          `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	GroupsG                []*Group                          `gorm:"foreignKey:AccountID;references:id"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[route.ID]*route.Route         `gorm:"-"`
-	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	RoutesG                []route.Route                     `gorm:"foreignKey:AccountID;references:id"`
 	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
-	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	NameServerGroupsG      []nbdns.NameServerGroup           `gorm:"foreignKey:AccountID;references:id"`
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings

@@ -7,8 +7,9 @@ import (
 	"regexp"
 
 	"github.com/hashicorp/go-version"
-	"github.com/netbirdio/netbird/shared/management/http/api"
+
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -45,7 +46,7 @@ type Checks struct {
 	Description string
 
 	// AccountID is a reference to the Account that this object belongs
-	AccountID string `json:"-" gorm:"index"`
+	AccountID string `gorm:"index"`
 
 	// Checks is a set of objects that perform the actual checks
 	Checks ChecksDefinition `gorm:"serializer:json"`

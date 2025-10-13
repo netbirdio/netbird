@@ -33,7 +33,7 @@ type SetupKeyType string
 type SetupKey struct {
 	Id string
 	// AccountID is a reference to Account that this object belongs
-	AccountID string `json:"-" gorm:"index"`
+	AccountID string `gorm:"index"`
 	Key       string
 	KeySecret string `gorm:"index"`
 	Name      string

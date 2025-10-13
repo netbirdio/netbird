@@ -17,7 +17,7 @@ type Peer struct {
 	// ID is an internal ID of the peer
 	ID string `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
-	AccountID string `json:"-" gorm:"index"`
+	AccountID string `gorm:"index"`
 	// WireGuard public key
 	Key string `gorm:"index"`
 	// IP address of the Peer

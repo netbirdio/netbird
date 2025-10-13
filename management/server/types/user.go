@@ -72,7 +72,7 @@ type UserInfo struct {
 type User struct {
 	Id string `gorm:"primaryKey"`
 	// AccountID is a reference to Account that this object belongs
-	AccountID     string `json:"-" gorm:"index"`
+	AccountID     string `gorm:"index"`
 	Role          UserRole
 	IsServiceUser bool
 	// NonDeletable indicates whether the service user can be deleted
@@ -82,7 +82,7 @@ type User struct {
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string                        `gorm:"serializer:json"`
 	PATs       map[string]*PersonalAccessToken `gorm:"-"`
-	PATsG      []PersonalAccessToken           `json:"-" gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
+	PATsG      []PersonalAccessToken           `gorm:"foreignKey:UserID;references:id;constraint:OnDelete:CASCADE;"`
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
 	// PendingApproval indicates whether the user requires approval before being activated
