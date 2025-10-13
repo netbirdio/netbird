@@ -5,8 +5,9 @@ package updatemanager
 import (
 	"context"
 	"fmt"
-	"golang.org/x/sys/windows/registry"
 	"os/exec"
+
+	"golang.org/x/sys/windows/registry"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -18,7 +19,7 @@ const (
 	uninstallKeyPath32 = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Netbird`
 )
 
-func installationMethod() string {
+func (u *UpdateManager) installationMethod() string {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, uninstallKeyPath64, registry.QUERY_VALUE)
 	if err != nil {
 		k, err = registry.OpenKey(registry.LOCAL_MACHINE, uninstallKeyPath32, registry.QUERY_VALUE)

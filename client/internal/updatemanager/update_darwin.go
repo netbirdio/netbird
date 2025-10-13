@@ -16,7 +16,7 @@ const (
 	pkgDownloadURL = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_%version_darwin_%arch.pkg"
 )
 
-func triggerUpdate(ctx context.Context, targetVersion string) error {
+func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string) error {
 	cmd := exec.CommandContext(ctx, "pkgutil", "--pkg-info", "io.netbird.client")
 	outBytes, err := cmd.Output()
 	if err != nil && cmd.ProcessState.ExitCode() == 1 {
