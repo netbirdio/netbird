@@ -57,7 +57,9 @@ type UpdateManager struct {
 
 	expectedVersion       *v.Version
 	updateToLatestVersion bool
-	expectedVersionMutex  sync.Mutex
+
+	// updateMutex protect update and expectedVersion fields
+	updateMutex sync.Mutex
 }
 
 func NewUpdateManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *UpdateManager {
@@ -103,8 +105,8 @@ func (u *UpdateManager) SetVersion(expectedVersion string) {
 		return
 	}
 
-	u.expectedVersionMutex.Lock()
-	defer u.expectedVersionMutex.Unlock()
+	u.updateMutex.Lock()
+	defer u.updateMutex.Unlock()
 	if expectedVersion == latestVersion {
 		u.updateToLatestVersion = true
 		u.expectedVersion = nil
@@ -114,7 +116,7 @@ func (u *UpdateManager) SetVersion(expectedVersion string) {
 			log.Errorf("Error parsing version: %v", err)
 			return
 		}
-		if u.expectedVersion.Equal(expectedSemVer) {
+		if u.expectedVersion != nil && u.expectedVersion.Equal(expectedSemVer) {
 			return
 		}
 		u.expectedVersion = expectedSemVer
@@ -133,12 +135,12 @@ func (u *UpdateManager) Stop() {
 	}
 
 	u.cancel()
-	u.expectedVersionMutex.Lock()
+	u.updateMutex.Lock()
 	if u.update != nil {
 		u.update.StopWatch()
 		u.update = nil
 	}
-	u.expectedVersionMutex.Unlock()
+	u.updateMutex.Unlock()
 
 	u.wg.Wait()
 }
@@ -148,8 +150,8 @@ func (u *UpdateManager) onContextCancel() {
 		return
 	}
 
-	u.expectedVersionMutex.Lock()
-	defer u.expectedVersionMutex.Unlock()
+	u.updateMutex.Lock()
+	defer u.updateMutex.Unlock()
 	if u.update != nil {
 		u.update.StopWatch()
 		u.update = nil
@@ -175,15 +177,16 @@ func (u *UpdateManager) updateLoop(ctx context.Context) {
 func (u *UpdateManager) handleUpdate(ctx context.Context) {
 	var updateVersion *v.Version
 
-	u.expectedVersionMutex.Lock()
+	u.updateMutex.Lock()
 	if u.update == nil {
-		u.expectedVersionMutex.Unlock()
+		u.updateMutex.Unlock()
 		return
 	}
+
 	expectedVersion := u.expectedVersion
 	useLatest := u.updateToLatestVersion
 	curLatestVersion := u.update.LatestVersion()
-	u.expectedVersionMutex.Unlock()
+	u.updateMutex.Unlock()
 
 	switch {
 	// Resolve "latest" to actual version
@@ -194,7 +197,7 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 		}
 		updateVersion = curLatestVersion
 	// Update to specific version
-	case u.expectedVersion != nil:
+	case expectedVersion != nil:
 		updateVersion = expectedVersion
 	default:
 		log.Debugf("No expected version information set")
