@@ -318,6 +318,17 @@ func downloadFileToTemporaryDir(ctx context.Context, fileURL string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("error creating temporary directory: %w", err)
 	}
+
+	// Clean up temp directory on error
+	var success bool
+	defer func() {
+		if !success {
+			if err := os.RemoveAll(tempDir); err != nil {
+				log.Errorf("error cleaning up temporary directory: %v", err)
+			}
+		}
+	}()
+
 	fileNameParts := strings.Split(fileURL, "/")
 	out, err := os.Create(filepath.Join(tempDir, fileNameParts[len(fileNameParts)-1]))
 	if err != nil {
@@ -355,6 +366,7 @@ func downloadFileToTemporaryDir(ctx context.Context, fileURL string) (string, er
 
 	log.Debugf("downloaded update file to %s", out.Name())
 
+	success = true // Mark success to prevent cleanup
 	return out.Name(), nil
 }
 
