@@ -23,6 +23,8 @@ import (
 
 const (
 	latestVersion = "latest"
+	// this version will be ignored
+	developmentVersion = "development"
 )
 
 type UpdateInterface interface {
@@ -100,6 +102,7 @@ func (u *UpdateManager) Start(ctx context.Context) {
 }
 
 func (u *UpdateManager) SetVersion(expectedVersion string) {
+	log.Infof("set expected agent version for upgrade: %s", expectedVersion)
 	if u.cancel == nil {
 		log.Errorf("UpdateManager not started")
 		return
@@ -168,6 +171,7 @@ func (u *UpdateManager) updateLoop(ctx context.Context) {
 			return
 		case <-u.mgmUpdateChan:
 		case <-u.updateChannel:
+			log.Infof("fetched new version info")
 		}
 
 		u.handleUpdate(ctx)
@@ -192,7 +196,7 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 	// Resolve "latest" to actual version
 	case useLatest:
 		if curLatestVersion == nil {
-			log.Tracef("Latest version not fetched yet")
+			log.Tracef("latest version not fetched yet")
 			return
 		}
 		updateVersion = curLatestVersion
@@ -200,10 +204,11 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 	case expectedVersion != nil:
 		updateVersion = expectedVersion
 	default:
-		log.Debugf("No expected version information set")
+		log.Debugf("no expected version information set")
 		return
 	}
 
+	log.Debugf("checking update option, current version: %s, target version: %s", u.currentVersion, updateVersion)
 	if !u.shouldUpdate(updateVersion) {
 		return
 	}
@@ -262,7 +267,7 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 }
 
 func (u *UpdateManager) updateStateManager(ctx context.Context) {
-	var stateType *UpdateState
+	stateType := &UpdateState{}
 
 	u.stateManager.RegisterState(stateType)
 	if err := u.stateManager.LoadState(stateType); err != nil {
@@ -298,18 +303,22 @@ func (u *UpdateManager) updateStateManager(ctx context.Context) {
 }
 
 func (u *UpdateManager) shouldUpdate(updateVersion *v.Version) bool {
+	if u.currentVersion == developmentVersion {
+		log.Debugf("skipping auto-update, running development version")
+		return false
+	}
 	currentVersion, err := v.NewVersion(u.currentVersion)
 	if err != nil {
-		log.Errorf("Error checking for update, error parsing version `%s`: %v", u.currentVersion, err)
+		log.Errorf("error checking for update, error parsing version `%s`: %v", u.currentVersion, err)
 		return false
 	}
 	if currentVersion.GreaterThanOrEqual(updateVersion) {
-		log.Debugf("Current version (%s) is equal to or higher than auto-update version (%s)", u.currentVersion, updateVersion)
+		log.Infof("current version (%s) is equal to or higher than auto-update version (%s)", u.currentVersion, updateVersion)
 		return false
 	}
 
 	if time.Since(u.lastTrigger) < 5*time.Minute {
-		log.Tracef("No need to update")
+		log.Debugf("skipping auto-update, last update was %s ago", time.Since(u.lastTrigger))
 		return false
 	}
 
@@ -367,7 +376,7 @@ func downloadFileToTemporaryDir(ctx context.Context, fileURL string) (string, er
 		return "", fmt.Errorf("error downloading file: %w", err)
 	}
 
-	log.Debugf("downloaded update file to %s", out.Name())
+	log.Infof("downloaded update file to %s", out.Name())
 
 	success = true // Mark success to prevent cleanup
 	return out.Name(), nil

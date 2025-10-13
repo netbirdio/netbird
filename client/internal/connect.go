@@ -272,15 +272,16 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 
 		c.engineMutex.Lock()
 		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
-		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
-			c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
-		}
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
 		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
+		}
+
+		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
+			c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
 		}
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
