@@ -1,3 +1,7 @@
+/*
+	Example code copied from https://github.com/go-gorm/caches
+*/
+
 package cache
 
 import (
@@ -21,6 +25,7 @@ func (c *MemoryCacher) Get(ctx context.Context, key string, q *caches.Query[any]
 	c.init()
 	val, ok := c.store.Load(key)
 	if !ok {
+		//nolint
 		return nil, nil
 	}
 

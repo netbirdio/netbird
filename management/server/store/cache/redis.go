@@ -1,3 +1,7 @@
+/*
+	Example code copied from https://github.com/go-gorm/caches
+*/
+
 package cache
 
 import (
@@ -20,6 +24,7 @@ func NewRedisCacher(rdb *redis.Client) *RedisCacher {
 func (c *RedisCacher) Get(ctx context.Context, key string, q *caches.Query[any]) (*caches.Query[any], error) {
 	res, err := c.rdb.Get(ctx, key).Result()
 	if err == redis.Nil {
+		//nolint
 		return nil, nil
 	}
 
