@@ -48,7 +48,7 @@ const (
 )
 
 // NewGoogleWorkspaceManager creates a new instance of the GoogleWorkspaceManager.
-func NewGoogleWorkspaceManager(ctx context.Context, config GoogleWorkspaceClientConfig) (*GoogleWorkspaceManager, error) {
+func NewGoogleWorkspaceManager(ctx context.Context, config GoogleWorkspaceClientConfig, appMetrics telemetry.AppMetrics) (*GoogleWorkspaceManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
