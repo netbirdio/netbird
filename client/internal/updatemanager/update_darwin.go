@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"runtime"
 	"strings"
 	"syscall"
 )
@@ -25,7 +26,7 @@ func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string)
 		return updateHomeBrew(ctx)
 	}
 	// Installed using pkg file
-	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(pkgDownloadURL, targetVersion))
+	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(targetVersion))
 	if err != nil {
 		return fmt.Errorf("error downloading update file: %w", err)
 	}
@@ -109,4 +110,9 @@ func updateHomeBrew(ctx context.Context) error {
 	// We're dying now, which should restart us
 
 	return nil
+}
+
+func urlWithVersionArch(version string) string {
+	url := strings.ReplaceAll(pkgDownloadURL, "%version", version)
+	return strings.ReplaceAll(url, "%arch", runtime.GOARCH)
 }

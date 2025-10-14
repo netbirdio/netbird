@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -380,10 +379,4 @@ func downloadFileToTemporaryDir(ctx context.Context, fileURL string) (string, er
 
 	success = true // Mark success to prevent cleanup
 	return out.Name(), nil
-}
-
-func urlWithVersionArch(url, version string) string { //nolint:unused
-	url = strings.ReplaceAll(url, "%version", version)
-	url = strings.ReplaceAll(url, "%arch", runtime.GOARCH)
-	return url
 }

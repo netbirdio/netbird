@@ -4,12 +4,13 @@ package updatemanager
 
 import (
 	"context"
-	"fmt"
 	"os/exec"
-
-	"golang.org/x/sys/windows/registry"
+	"runtime"
+	"strings"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
@@ -17,26 +18,24 @@ const (
 	exeDownloadURL     = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_installer_%version_windows_%arch.exe"
 	uninstallKeyPath64 = `SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Netbird`
 	uninstallKeyPath32 = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Netbird`
+
+	installerEXE installerType = "EXE"
+	installerMSI installerType = "MSI"
 )
+
+type installerType string
 
 func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string) error {
 	method := installation()
-	switch method {
-	case "EXE":
-		return updateEXE(ctx, targetVersion)
-	case "MSI":
-		return updateMSI(ctx, targetVersion)
-	default:
-		return fmt.Errorf("unsupported installation method: %s", method)
-	}
+	return install(ctx, method, targetVersion)
 }
 
-func installation() string {
+func installation() installerType {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, uninstallKeyPath64, registry.QUERY_VALUE)
 	if err != nil {
 		k, err = registry.OpenKey(registry.LOCAL_MACHINE, uninstallKeyPath32, registry.QUERY_VALUE)
 		if err != nil {
-			return "MSI"
+			return installerMSI
 		} else {
 			err = k.Close()
 			if err != nil {
@@ -49,30 +48,49 @@ func installation() string {
 			log.Warnf("Error closing registry key: %v", err)
 		}
 	}
-	return "EXE"
+	return installerEXE
 }
 
-func updateMSI(ctx context.Context, targetVersion string) error {
-	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(msiDownloadURL, targetVersion))
+func install(ctx context.Context, installerType installerType, targetVersion string) error {
+	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(installerType, targetVersion))
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "msiexec", "/quiet", "/i", path)
-	err = cmd.Run()
-	return err
+	log.Infof("start installation %s", path)
+
+	var cmd *exec.Cmd
+	if installerType == installerEXE {
+		cmd = exec.CommandContext(ctx, path, "/S")
+	} else {
+		cmd = exec.CommandContext(ctx, "msiexec", "/quiet", "/i", path)
+	}
+
+	// Detach the process from the parent
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Errorf("error starting installer: %v", err)
+		return err
+	}
+
+	if err := cmd.Process.Release(); err != nil {
+		log.Errorf("error releasing installer process: %v", err)
+		return err
+	}
+
+	log.Infof("installer started successfully: %s", path)
+	return nil
 }
 
-func updateEXE(ctx context.Context, targetVersion string) error {
-	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(exeDownloadURL, targetVersion))
-	if err != nil {
-		return err
+func urlWithVersionArch(it installerType, version string) string {
+	var url string
+	if it == installerEXE {
+		url = exeDownloadURL
+	} else {
+		url = msiDownloadURL
 	}
-	cmd := exec.CommandContext(ctx, path, "/S")
-	err = cmd.Start()
-	if err != nil {
-		return err
-	}
-	err = cmd.Process.Release()
-
-	return err
+	url = strings.ReplaceAll(url, "%version", version)
+	return strings.ReplaceAll(url, "%arch", runtime.GOARCH)
 }
