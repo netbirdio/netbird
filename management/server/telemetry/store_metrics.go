@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -14,6 +15,8 @@ type StoreMetrics struct {
 	persistenceDurationMicro           metric.Int64Histogram
 	persistenceDurationMs              metric.Int64Histogram
 	transactionDurationMs              metric.Int64Histogram
+	queryDurationMs                    metric.Int64Histogram
+	queryCounter                       metric.Int64Counter
 	ctx                                context.Context
 }
 
@@ -59,12 +62,29 @@ func NewStoreMetrics(ctx context.Context, meter metric.Meter) (*StoreMetrics, er
 		return nil, err
 	}
 
+	queryDurationMs, err := meter.Int64Histogram("management.store.query.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration of database query operations with operation type and table name"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	queryCounter, err := meter.Int64Counter("management.store.query.count",
+		metric.WithDescription("Count of database query operations with operation type, table name, and status"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &StoreMetrics{
 		globalLockAcquisitionDurationMicro: globalLockAcquisitionDurationMicro,
 		globalLockAcquisitionDurationMs:    globalLockAcquisitionDurationMs,
 		persistenceDurationMicro:           persistenceDurationMicro,
 		persistenceDurationMs:              persistenceDurationMs,
 		transactionDurationMs:              transactionDurationMs,
+		queryDurationMs:                    queryDurationMs,
+		queryCounter:                       queryCounter,
 		ctx:                                ctx,
 	}, nil
 }
@@ -84,4 +104,27 @@ func (metrics *StoreMetrics) CountPersistenceDuration(duration time.Duration) {
 // CountTransactionDuration counts the duration of a store persistence operation
 func (metrics *StoreMetrics) CountTransactionDuration(duration time.Duration) {
 	metrics.transactionDurationMs.Record(metrics.ctx, duration.Milliseconds())
+}
+
+// CountQuery records a database query operation with its duration, operation type, table, and status
+func (metrics *StoreMetrics) CountQuery(operation, table, status string, duration time.Duration) {
+	attrs := []attribute.KeyValue{
+		attribute.String("operation", operation),
+		attribute.String("table", table),
+		attribute.String("status", status),
+	}
+
+	metrics.queryDurationMs.Record(metrics.ctx, duration.Milliseconds(), metric.WithAttributes(attrs...))
+	metrics.queryCounter.Add(metrics.ctx, 1, metric.WithAttributes(attrs...))
+}
+
+// CountStoreOperation records a store operation with its method name, status, and duration
+func (metrics *StoreMetrics) CountStoreOperation(method, status string, duration time.Duration) {
+	attrs := []attribute.KeyValue{
+		attribute.String("method", method),
+		attribute.String("status", status),
+	}
+
+	metrics.queryDurationMs.Record(metrics.ctx, duration.Milliseconds(), metric.WithAttributes(attrs...))
+	metrics.queryCounter.Add(metrics.ctx, 1, metric.WithAttributes(attrs...))
 }
