@@ -45,18 +45,19 @@ const (
 )
 
 // NewJumpCloudManager creates a new instance of the JumpCloudManager.
-func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppMetrics, idpTimeoutEnv int) (*JumpCloudManager, error) {
+func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppMetrics) (*JumpCloudManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
 	// Check if idpTimeoutEnv is set/valid and set timeout
+	var timeout time.Duration
 	timeoutStr, ok := os.LookupEnv(idpTimeoutEnv)
 	if !ok || timeoutStr == "" {
 			timeout = 10 * time.Second
 		} else {
 		timeoutInt, err := strconv.Atoi(timeoutStr)
 		if err != nil {
-			log.Printf("Invalid value for NETBIRD_IDP_TIMEOUT: %q. Error: %v, using default 10s", timoutStr, err)
+			log.Printf("Invalid value for NETBIRD_IDP_TIMEOUT: %q. Error: %v, using default 10s", timeoutStr, err)
 			timeout = 10 * time.Second
 		} else {
 			timeout = time.Duration(timeoutInt) * time.Second
@@ -67,7 +68,7 @@ func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppM
 		Timeout:   timeout,
 		Transport: httpTransport,
 	}
-	
+
 	helper := JsonParser{}
 
 	if config.APIToken == "" {
