@@ -19,7 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
-// todo: refactor to do not use static functions
+// todo: refactor to not use static functions
 
 func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) error {
 	fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
