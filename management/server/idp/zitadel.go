@@ -158,15 +158,34 @@ func verifyJWTConfig(config ZitadelClientConfig) error {
 	return nil
 }
 
+const (
+	idpTimeoutEnv = "NETBIRD_IDP_TIMEOUT"
+)
+
 // NewZitadelManager creates a new instance of the ZitadelManager.
-func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetrics) (*ZitadelManager, error) {
+func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetrics, idpTimeoutEnv int) (*ZitadelManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
+	// Check if idpTimeoutEnv is set/valid and set timeout
+	timeoutStr, ok := os.LookupEnv(idpTimeoutEnv)
+	if !ok || timeoutStr == "" {
+			timeout = 10 * time.Second
+		} else {
+		timeoutInt, err := strconv.Atoi(timeoutStr)
+		if err != nil {
+			log.Printf("Invalid value for NETBIRD_IDP_TIMEOUT: %q. Error: %v, using default 10s", timoutStr, err)
+			timeout = 10 * time.Second
+		} else {
+			timeout = time.Duration(timeoutInt) * time.Second
+		}
+	}
+
 	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		Timeout:   timeout,
 		Transport: httpTransport,
 	}
+
 	helper := JsonParser{}
 
 	hasPAT := config.PAT != ""

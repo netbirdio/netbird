@@ -57,15 +57,34 @@ type keycloakProfile struct {
 	Attributes       keycloakUserAttributes `json:"attributes"`
 }
 
+const (
+	idpTimeoutEnv = "NETBIRD_IDP_TIMEOUT"
+)
+
 // NewKeycloakManager creates a new instance of the KeycloakManager.
-func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMetrics) (*KeycloakManager, error) {
+func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMetrics, idpTimeoutEnv int) (*KeycloakManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
+	// Check if idpTimeoutEnv is set/valid and set timeout
+	timeoutStr, ok := os.LookupEnv(idpTimeoutEnv)
+	if !ok || timeoutStr == "" {
+			timeout = 10 * time.Second
+		} else {
+		timeoutInt, err := strconv.Atoi(timeoutStr)
+		if err != nil {
+			log.Printf("Invalid value for NETBIRD_IDP_TIMEOUT: %q. Error: %v, using default 10s", timoutStr, err)
+			timeout = 10 * time.Second
+		} else {
+			timeout = time.Duration(timeoutInt) * time.Second
+		}
+	}
+
 	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		Timeout:   timeout,
 		Transport: httpTransport,
 	}
+	
 	helper := JsonParser{}
 
 	if config.ClientID == "" {

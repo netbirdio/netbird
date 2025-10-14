@@ -47,17 +47,35 @@ type AuthentikCredentials struct {
 	appMetrics   telemetry.AppMetrics
 }
 
+const (
+	idpTimeoutEnv = "NETBIRD_IDP_TIMEOUT"
+)
+
 // NewAuthentikManager creates a new instance of the AuthentikManager.
 func NewAuthentikManager(config AuthentikClientConfig,
-	appMetrics telemetry.AppMetrics) (*AuthentikManager, error) {
+	appMetrics telemetry.AppMetrics, idpTimeoutEnv int) (*AuthentikManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
-	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: httpTransport,
+	// Check if idpTimeoutEnv is set/valid
+	timeoutStr, ok := os.LookupEnv(idpTimeoutEnv)
+	if !ok || timeoutStr == "" {
+			timeout = 10 * time.Second
+		} else {
+		timeoutInt, err := strconv.Atoi(timeoutStr)
+		if err != nil {
+			log.Printf("Invalid value for NETBIRD_IDP_TIMEOUT: %q. Error: %v, using default 10s", timoutStr, err)
+			timeout = 10 * time.Second
+		} else {
+			timeout = time.Duration(timeoutInt) * time.Second
+		}
 	}
 
+	httpClient := &http.Client{
+		Timeout:   timeout,
+		Transport: httpTransport,
+	}
+	
 	helper := JsonParser{}
 
 	if config.ClientID == "" {
