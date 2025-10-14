@@ -106,23 +106,10 @@ func (metrics *StoreMetrics) CountTransactionDuration(duration time.Duration) {
 	metrics.transactionDurationMs.Record(metrics.ctx, duration.Milliseconds())
 }
 
-// CountQuery records a database query operation with its duration, operation type, table, and status
-func (metrics *StoreMetrics) CountQuery(operation, table, status string, duration time.Duration) {
-	attrs := []attribute.KeyValue{
-		attribute.String("operation", operation),
-		attribute.String("table", table),
-		attribute.String("status", status),
-	}
-
-	metrics.queryDurationMs.Record(metrics.ctx, duration.Milliseconds(), metric.WithAttributes(attrs...))
-	metrics.queryCounter.Add(metrics.ctx, 1, metric.WithAttributes(attrs...))
-}
-
 // CountStoreOperation records a store operation with its method name, status, and duration
-func (metrics *StoreMetrics) CountStoreOperation(method, status string, duration time.Duration) {
+func (metrics *StoreMetrics) CountStoreOperation(method string, duration time.Duration) {
 	attrs := []attribute.KeyValue{
 		attribute.String("method", method),
-		attribute.String("status", status),
 	}
 
 	metrics.queryDurationMs.Record(metrics.ctx, duration.Milliseconds(), metric.WithAttributes(attrs...))

@@ -1833,12 +1833,11 @@ func (s *SqlStore) trackStoreOperation(start time.Time, method string, err *erro
 		if s.metrics == nil {
 			return
 		}
-		duration := time.Since(start)
-		status := "success"
 		if err != nil && *err != nil {
-			status = "error"
+			return
 		}
-		s.metrics.StoreMetrics().CountStoreOperation(method, status, duration)
+		duration := time.Since(start)
+		s.metrics.StoreMetrics().CountStoreOperation(method, duration)
 	}
 }
 
