@@ -1,4 +1,4 @@
-//go:build (darwin && !ios) || dragonfly || freebsd || netbsd || openbsd
+//go:build dragonfly || freebsd || netbsd || openbsd
 
 package networkmonitor
 
