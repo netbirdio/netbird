@@ -50,8 +50,10 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-routeChanged:
+		log.Infof("route change detected")
 		return nil
 	case <-wakeUp:
+		log.Infof("wakeup detected")
 		return nil
 	}
 }
@@ -127,7 +129,7 @@ func parseRouteMessage(buf []byte) (*systemops.Route, error) {
 }
 
 func wakeUpListen(ctx context.Context) {
-	log.Debugf("start to watch for system wakeups")
+	log.Infof("start to watch for system wakeups")
 	var (
 		initialHash uint32
 		err         error
@@ -151,7 +153,7 @@ func wakeUpListen(ctx context.Context) {
 					continue
 				}
 			}
-			log.Debugf("initial wakeup hash: %d", initialHash)
+			log.Infof("initial wakeup hash: %d", initialHash)
 			break
 		}
 		break
@@ -174,7 +176,7 @@ func wakeUpListen(ctx context.Context) {
 			}
 
 			if newHash == initialHash {
-				log.Tracef("no wakeup detected")
+				log.Infof("no wakeup detected")
 				continue
 			}
 
