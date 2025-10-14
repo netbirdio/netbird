@@ -143,8 +143,13 @@ func wakeUpListen(ctx context.Context) {
 			initialHash, err = readSleepTimeHash()
 			if err != nil {
 				log.Errorf("failed to detect initial sleep time: %v", err)
-				time.Sleep(3 * time.Second)
-				continue
+				select {
+				case <-ctx.Done():
+					log.Info("exit from wakeUpListen initial hash detection due to context cancellation")
+					return
+				case <-time.After(3 * time.Second):
+					continue
+				}
 			}
 			log.Debugf("initial wakeup hash: %d", initialHash)
 			break
