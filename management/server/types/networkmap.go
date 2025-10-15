@@ -31,6 +31,33 @@ type NetworkMap struct {
 	ForwardingRules     []*ForwardingRule
 }
 
+// var nmapPool = sync.Pool{
+// 	New: func() any {
+// 		return &NetworkMap{}
+// 	},
+// }
+
+// func GetNetworkMap() *NetworkMap {
+// 	n := nmapPool.Get().(*NetworkMap)
+// 	n.reset()
+// 	return n
+// }
+
+// func PutNetworkMap(n *NetworkMap) {
+// 	nmapPool.Put(n)
+// }
+
+// func (n *NetworkMap) reset() {
+// 	n.Peers = n.Peers[:0]
+// 	n.Network = nil
+// 	n.Routes = n.Routes[:0]
+// 	n.DNSConfig = nbdns.Config{}
+// 	n.OfflinePeers = n.OfflinePeers[:0]
+// 	n.FirewallRules = n.FirewallRules[:0]
+// 	n.RoutesFirewallRules = n.RoutesFirewallRules[:0]
+// 	n.ForwardingRules = n.ForwardingRules[:0]
+// }
+
 func (nm *NetworkMap) Merge(other *NetworkMap) {
 	nm.Peers = mergeUniquePeersByID(nm.Peers, other.Peers)
 	nm.Routes = util.MergeUnique(nm.Routes, other.Routes)
@@ -121,6 +148,14 @@ func (a *Account) GetPeerNetworkMap(
 		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
 	}
 
+	// nm := GetNetworkMap()
+	// nm.Peers = peersToConnectIncludingRouters
+	// nm.Network = a.Network.Copy()
+	// nm.Routes = slices.Concat(networkResourcesRoutes, routesUpdate)
+	// nm.DNSConfig = dnsUpdate
+	// nm.OfflinePeers = expiredPeers
+	// nm.FirewallRules = firewallRules
+	// nm.RoutesFirewallRules = slices.Concat(networkResourcesFirewallRules, routesFirewallRules)
 	nm := &NetworkMap{
 		Peers:               peersToConnectIncludingRouters,
 		Network:             a.Network.Copy(),

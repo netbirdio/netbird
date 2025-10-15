@@ -6,6 +6,7 @@ import (
 	b64 "encoding/base64"
 	"fmt"
 	"net"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -1289,53 +1290,64 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), dnsForwarderPortMinVersion)
 
+	processNetworkMap := func(p *nbpeer.Peer) {
+		start := time.Now()
+
+		postureChecks, err := am.getPeerPostureChecks(account, p.ID)
+		if err != nil {
+			log.WithContext(ctx).Debugf("failed to get posture checks for peer %s: %v", p.ID, err)
+			return
+		}
+
+		am.metrics.UpdateChannelMetrics().CountCalcPostureChecksDuration(time.Since(start))
+		start = time.Now()
+
+		var remotePeerNetworkMap *types.NetworkMap
+
+		if am.experimentalNetworkMap(accountID) {
+			remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, p.AccountID, p.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+		} else {
+			remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+		}
+
+		am.metrics.UpdateChannelMetrics().CountCalcPeerNetworkMapDuration(time.Since(start))
+		start = time.Now()
+
+		proxyNetworkMap, ok := proxyNetworkMaps[p.ID]
+		if ok {
+			remotePeerNetworkMap.Merge(proxyNetworkMap)
+		}
+		am.metrics.UpdateChannelMetrics().CountMergeNetworkMapDuration(time.Since(start))
+
+		peerGroups := account.GetPeerGroups(p.ID)
+		start = time.Now()
+		update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+		am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
+
+		am.peersUpdateManager.SendNetworkMapUpdate(ctx, p.ID, &UpdateMessage{Update: update})
+	}
+
+	numWorkers := runtime.NumCPU()
+	wch := make(chan *nbpeer.Peer, numWorkers)
+	wg.Add(numWorkers)
+	for range numWorkers {
+		go func() {
+			for peer := range wch {
+				processNetworkMap(peer)
+			}
+			wg.Done()
+		}()
+	}
+
 	for _, peer := range account.Peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue
 		}
-
-		wg.Add(1)
-		go func(p *nbpeer.Peer) {
-			defer wg.Done()
-
-			start := time.Now()
-
-			postureChecks, err := am.getPeerPostureChecks(account, p.ID)
-			if err != nil {
-				log.WithContext(ctx).Debugf("failed to get posture checks for peer %s: %v", peer.ID, err)
-				return
-			}
-
-			am.metrics.UpdateChannelMetrics().CountCalcPostureChecksDuration(time.Since(start))
-			start = time.Now()
-
-			var remotePeerNetworkMap *types.NetworkMap
-
-			if am.experimentalNetworkMap(accountID) {
-				remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, p.AccountID, p.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
-			} else {
-				remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
-			}
-
-			am.metrics.UpdateChannelMetrics().CountCalcPeerNetworkMapDuration(time.Since(start))
-			start = time.Now()
-
-			proxyNetworkMap, ok := proxyNetworkMaps[p.ID]
-			if ok {
-				remotePeerNetworkMap.Merge(proxyNetworkMap)
-			}
-			am.metrics.UpdateChannelMetrics().CountMergeNetworkMapDuration(time.Since(start))
-
-			peerGroups := account.GetPeerGroups(p.ID)
-			start = time.Now()
-			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
-			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
-
-			am.peersUpdateManager.SendNetworkMapUpdate(ctx, p.ID, &UpdateMessage{Update: update})
-		}(peer)
+		wch <- peer
 	}
 
+	close(wch)
 	wg.Wait()
 	if am.metrics != nil {
 		am.metrics.AccountManagerMetrics().CountUpdateAccountPeersDuration(time.Since(globalStart))
