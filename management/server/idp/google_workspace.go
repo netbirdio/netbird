@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
@@ -43,32 +42,13 @@ func (gc *GoogleWorkspaceCredentials) Authenticate(_ context.Context) (JWTToken,
 	return JWTToken{}, nil
 }
 
-const (
-	idpTimeoutEnv = "NETBIRD_IDP_TIMEOUT"
-)
-
 // NewGoogleWorkspaceManager creates a new instance of the GoogleWorkspaceManager.
 func NewGoogleWorkspaceManager(ctx context.Context, config GoogleWorkspaceClientConfig, appMetrics telemetry.AppMetrics) (*GoogleWorkspaceManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
-		// Check if idpTimeoutEnv is set/valid and set timeout
-	var timeout time.Duration
-	timeoutStr, ok := os.LookupEnv(idpTimeoutEnv)
-	if !ok || timeoutStr == "" {
-			timeout = 10 * time.Second
-		} else {
-		timeoutInt, err := strconv.Atoi(timeoutStr)
-		if err != nil {
-			log.Printf("Invalid value for NETBIRD_IDP_TIMEOUT: %q. Error: %v, using default 10s", timeoutStr, err)
-			timeout = 10 * time.Second
-		} else {
-			timeout = time.Duration(timeoutInt) * time.Second
-		}
-	}
-
 	httpClient := &http.Client{
-		Timeout:   timeout,
+		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
 	

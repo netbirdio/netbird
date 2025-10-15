@@ -52,32 +52,13 @@ type AzureCredentials struct {
 // azureProfile represents an azure user profile.
 type azureProfile map[string]any
 
-const (
-	idpTimeoutEnv = "NETBIRD_IDP_TIMEOUT"
-)
-
 // NewAzureManager creates a new instance of the AzureManager.
 func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) (*AzureManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
-	// Check if idpTimeoutEnv is set/valid and set timeout
-	var timeout time.Duration
-	timeoutStr, ok := os.LookupEnv(idpTimeoutEnv)
-	if !ok || timeoutStr == "" {
-			timeout = 10 * time.Second
-		} else {
-		timeoutInt, err := strconv.Atoi(timeoutStr)
-		if err != nil {
-			log.Printf("Invalid value for NETBIRD_IDP_TIMEOUT: %q. Error: %v, using default 10s", timeoutStr, err)
-			timeout = 10 * time.Second
-		} else {
-			timeout = time.Duration(timeoutInt) * time.Second
-		}
-	}
-
-	httpClient := &http.Client{
-		Timeout:   timeout,
+		httpClient := &http.Client{
+		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
 	
