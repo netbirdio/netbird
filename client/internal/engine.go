@@ -512,6 +512,13 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 func (e *Engine) InitialUpdateHandling(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
+
+	if e.updateManager == nil {
+		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
+	}
+
+	e.updateManager.CheckUpdateSuccess(e.ctx)
+
 	e.handleAutoUpdateVersion(autoUpdateSettings, true)
 }
 
@@ -752,9 +759,8 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	if e.updateManager == nil {
 		log.Infof("starting auto-update manager")
 		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
-		e.updateManager.Start(e.ctx)
 	}
-
+	e.updateManager.Start(e.ctx)
 	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)
 	e.updateManager.SetVersion(autoUpdateSettings.Version)
 }

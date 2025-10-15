@@ -76,13 +76,17 @@ func NewUpdateManager(statusRecorder *peer.Status, stateManager *statemanager.Ma
 	return manager
 }
 
+// CheckUpdateSuccess checks if the update was successful. It works without to start the update manager.
+func (u *UpdateManager) CheckUpdateSuccess(ctx context.Context) {
+	u.updateStateManager(ctx)
+	return
+}
+
 func (u *UpdateManager) Start(ctx context.Context) {
 	if u.cancel != nil {
 		log.Errorf("UpdateManager already started")
 		return
 	}
-
-	u.updateStateManager(ctx)
 
 	u.update.SetDaemonVersion(u.currentVersion)
 	u.update.SetOnUpdateListener(func() {
