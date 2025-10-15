@@ -20,7 +20,7 @@ func TestNewListener(t *testing.T) {
 		Log:        log.WithField("peer", "examplePublicKey1"),
 	}
 
-	l, err := NewListener(MocWGIface{}, cfg)
+	l, err := newListener(MocWGIface{}, cfg)
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
 	}

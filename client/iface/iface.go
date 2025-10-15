@@ -80,6 +80,17 @@ func (w *WGIface) GetProxy() wgproxy.Proxy {
 	return w.wgProxyFactory.GetProxy()
 }
 
+// GetBind returns the EndpointManager userspace bind mode.
+func (w *WGIface) GetBind() device.EndpointManager {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.tun == nil {
+		return nil
+	}
+	return w.tun.GetICEBind()
+}
+
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
 func (w *WGIface) IsUserspaceBind() bool {
 	return w.userspaceBind
