@@ -26,6 +26,10 @@ const (
 	clientStopTimeout  = 10 * time.Second
 	pingTimeout        = 10 * time.Second
 	defaultLogLevel    = "warn"
+
+	icmpEchoRequest = 8
+	icmpCodeEcho    = 0
+	pingBufferSize  = 1500
 )
 
 func main() {
@@ -138,13 +142,14 @@ func createSSHMethod(client *netbird.Client) js.Func {
 		port := args[1].Int()
 		username := "root"
 		if len(args) > 2 {
-			if args[2].Type() != js.TypeString {
+			if args[2].Type() == js.TypeString {
+				if args[2].String() != "" {
+					username = args[2].String()
+				}
+			} else {
 				return createPromise(func(resolve, reject js.Value) {
 					reject.Invoke(js.ValueOf("username parameter must be a string"))
 				})
-			}
-			if args[2].String() != "" {
-				username = args[2].String()
 			}
 		}
 
@@ -187,16 +192,15 @@ func performPing(client *netbird.Client, hostname string) {
 	}()
 
 	icmpData := make([]byte, 8)
-	// echo request
-	icmpData[0] = 8
-	icmpData[1] = 0
+	icmpData[0] = icmpEchoRequest
+	icmpData[1] = icmpCodeEcho
 
 	if _, err := conn.Write(icmpData); err != nil {
 		js.Global().Get("console").Call("log", fmt.Sprintf("Ping to %s write failed: %v", hostname, err))
 		return
 	}
 
-	buf := make([]byte, 1500)
+	buf := make([]byte, pingBufferSize)
 	if _, err := conn.Read(buf); err != nil {
 		js.Global().Get("console").Call("log", fmt.Sprintf("Ping to %s read failed: %v", hostname, err))
 		return
