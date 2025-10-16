@@ -31,7 +31,6 @@ import (
 	"fyne.io/systray"
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-	"github.com/skratchdot/open-golang/open"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -633,7 +632,7 @@ func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
 }
 
 func (s *serviceClient) handleSSOLogin(loginResp *proto.LoginResponse, conn proto.DaemonServiceClient) error {
-	err := open.Run(loginResp.VerificationURIComplete)
+	err := openURL(loginResp.VerificationURIComplete)
 	if err != nil {
 		log.Errorf("opening the verification uri in the browser failed: %v", err)
 		return err
@@ -1487,6 +1486,10 @@ func (s *serviceClient) showLoginURL() context.CancelFunc {
 }
 
 func openURL(url string) error {
+	if browser := os.Getenv("BROWSER"); browser != "" {
+		return exec.Command(browser, url).Start()
+	}
+
 	var err error
 	switch runtime.GOOS {
 	case "windows":
