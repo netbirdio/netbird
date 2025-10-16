@@ -88,7 +88,7 @@ func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
 		networkMap.PeerConfig.SshConfig.SshEnabled
 
 	// If SSH enabled, add default firewall rule which accepts connection to any peer
-	// in the network by SSH (TCP 44338 port).
+	// in the network by SSH (TCP port defined by ssh.DefaultSSHPort).
 	if enableSSH {
 		rules = append(rules, &mgmProto.FirewallRule{
 			PeerIP:    "0.0.0.0",
