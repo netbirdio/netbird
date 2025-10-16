@@ -144,3 +144,8 @@ func (t *TunDevice) FilteredDevice() *FilteredDevice {
 func (t *TunDevice) GetNet() *netstack.Net {
 	return nil
 }
+
+// GetICEBind returns the ICEBind instance
+func (t *TunDevice) GetICEBind() EndpointManager {
+	return t.iceBind
+}
