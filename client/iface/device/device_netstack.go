@@ -21,6 +21,7 @@ type Bind interface {
 	conn.Bind
 	GetICEMux() (*udpmux.UniversalUDPMuxDefault, error)
 	ActivityRecorder() *bind.ActivityRecorder
+	EndpointManager
 }
 
 type TunNetstackDevice struct {
@@ -154,4 +155,9 @@ func (t *TunNetstackDevice) Device() *device.Device {
 
 func (t *TunNetstackDevice) GetNet() *netstack.Net {
 	return t.net
+}
+
+// GetICEBind returns the bind instance
+func (t *TunNetstackDevice) GetICEBind() EndpointManager {
+	return t.bind
 }

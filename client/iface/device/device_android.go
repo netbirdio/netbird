@@ -150,6 +150,11 @@ func (t *WGTunDevice) GetNet() *netstack.Net {
 	return nil
 }
 
+// GetICEBind returns the ICEBind instance
+func (t *WGTunDevice) GetICEBind() EndpointManager {
+	return t.iceBind
+}
+
 func routesToString(routes []string) string {
 	return strings.Join(routes, ";")
 }
