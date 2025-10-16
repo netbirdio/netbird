@@ -255,12 +255,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	var answer []dns.RR
-	if reply != nil {
-		answer = reply.Answer
-	}
-
-	logger.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, answer)
+	logger.Tracef("upstream %s (%s) DNS response for domain=%s answers=%v", upstreamIP.String(), peerKey, r.Question[0].Name, reply.Answer)
 
 	reply.Id = r.Id
 	if err := d.writeMsg(w, reply); err != nil {
