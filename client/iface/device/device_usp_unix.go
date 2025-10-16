@@ -28,18 +28,20 @@ type USPDevice struct {
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
+	amneziaConfig  configurer.AmneziaConfig
 }
 
-func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *USPDevice {
+func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, amneziaConfig configurer.AmneziaConfig) *USPDevice {
 	log.Infof("using userspace bind mode")
 
 	return &USPDevice{
-		name:    name,
-		address: address,
-		port:    port,
-		key:     key,
-		mtu:     mtu,
-		iceBind: iceBind,
+		name:          name,
+		address:       address,
+		port:          port,
+		key:           key,
+		mtu:           mtu,
+		iceBind:       iceBind,
+		amneziaConfig: amneziaConfig,
 	}
 }
 
@@ -65,7 +67,7 @@ func (t *USPDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder(), t.amneziaConfig)
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()

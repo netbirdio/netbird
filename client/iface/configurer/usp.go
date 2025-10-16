@@ -41,15 +41,17 @@ type WGUSPConfigurer struct {
 	device           *device.Device
 	deviceName       string
 	activityRecorder *bind.ActivityRecorder
+	amneziaConfig    AmneziaConfig
 
 	uapiListener net.Listener
 }
 
-func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder) *WGUSPConfigurer {
+func NewUSPConfigurer(device *device.Device, deviceName string, activityRecorder *bind.ActivityRecorder, amneziaConfig AmneziaConfig) *WGUSPConfigurer {
 	wgCfg := &WGUSPConfigurer{
 		device:           device,
 		deviceName:       deviceName,
 		activityRecorder: activityRecorder,
+		amneziaConfig:    amneziaConfig,
 	}
 	wgCfg.startUAPI()
 	return wgCfg
@@ -69,7 +71,7 @@ func (c *WGUSPConfigurer) ConfigureInterface(privateKey string, port int) error 
 		ListenPort:   &port,
 	}
 
-	return c.device.IpcSet(toWgUserspaceString(config))
+	return c.device.IpcSet(c.toWgUserspaceString(config))
 }
 
 func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
@@ -91,7 +93,7 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 		Peers: []wgtypes.PeerConfig{peer},
 	}
 
-	if ipcErr := c.device.IpcSet(toWgUserspaceString(config)); ipcErr != nil {
+	if ipcErr := c.device.IpcSet(c.toWgUserspaceString(config)); ipcErr != nil {
 		return ipcErr
 	}
 
@@ -145,7 +147,7 @@ func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-	if ipcErr := c.device.IpcSet(toWgUserspaceString(config)); ipcErr != nil {
+	if ipcErr := c.device.IpcSet(c.toWgUserspaceString(config)); ipcErr != nil {
 		return fmt.Errorf("failed to remove peer: %s", ipcErr)
 	}
 
@@ -160,7 +162,7 @@ func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
 		Peers: []wgtypes.PeerConfig{peer},
 	}
 
-	if err := c.device.IpcSet(toWgUserspaceString(config)); err != nil {
+	if err := c.device.IpcSet(c.toWgUserspaceString(config)); err != nil {
 		return fmt.Errorf("remove endpoint address: %w", err)
 	}
 
@@ -181,7 +183,7 @@ func (c *WGUSPConfigurer) RemovePeer(peerKey string) error {
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-	ipcErr := c.device.IpcSet(toWgUserspaceString(config))
+	ipcErr := c.device.IpcSet(c.toWgUserspaceString(config))
 
 	c.activityRecorder.Remove(peerKey)
 	return ipcErr
@@ -208,7 +210,7 @@ func (c *WGUSPConfigurer) AddAllowedIP(peerKey string, allowedIP netip.Prefix) e
 		Peers: []wgtypes.PeerConfig{peer},
 	}
 
-	return c.device.IpcSet(toWgUserspaceString(config))
+	return c.device.IpcSet(c.toWgUserspaceString(config))
 }
 
 func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error {
@@ -273,7 +275,7 @@ func (c *WGUSPConfigurer) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-	return c.device.IpcSet(toWgUserspaceString(config))
+	return c.device.IpcSet(c.toWgUserspaceString(config))
 }
 
 func (c *WGUSPConfigurer) FullStats() (*Stats, error) {
@@ -399,23 +401,59 @@ func parseTransfers(ipc string) (map[string]WGStats, error) {
 	return stats, nil
 }
 
-func toWgUserspaceString(wgCfg wgtypes.Config) string {
+func (c *WGUSPConfigurer) toWgUserspaceString(wgCfg wgtypes.Config) string {
 	var sb strings.Builder
 	if wgCfg.PrivateKey != nil {
 		hexKey := hex.EncodeToString(wgCfg.PrivateKey[:])
 		sb.WriteString(fmt.Sprintf("private_key=%s\n", hexKey))
 
-		// write amneziawg settings here
-		// sorry for hardcode
-		sb.WriteString("jc=8\n")
-		sb.WriteString("jmin=50\n")
-		sb.WriteString("jmax=1000\n")
-		sb.WriteString("s1=30\n")
-		sb.WriteString("s2=32\n")
-		sb.WriteString("h1=567134433\n")
-		sb.WriteString("h2=1497534042\n")
-		sb.WriteString("h3=862417541\n")
-		sb.WriteString("h4=1695024432\n")
+		// Write AmneziaWG settings only if config is not empty
+		// If nil or empty, acts as standard WireGuard
+		if !c.amneziaConfig.IsEmpty() {
+
+			if val := c.amneziaConfig.GetJc(); val > 0 {
+				sb.WriteString(fmt.Sprintf("jc=%d\n", val))
+			}
+			if val := c.amneziaConfig.GetJmin(); val > 0 {
+				sb.WriteString(fmt.Sprintf("jmin=%d\n", val))
+			}
+			if val := c.amneziaConfig.GetJmax(); val > 0 {
+				sb.WriteString(fmt.Sprintf("jmax=%d\n", val))
+			}
+			if val := c.amneziaConfig.GetS1(); val > 0 {
+				sb.WriteString(fmt.Sprintf("s1=%d\n", val))
+			}
+			if val := c.amneziaConfig.GetS2(); val > 0 {
+				sb.WriteString(fmt.Sprintf("s2=%d\n", val))
+			}
+			if val := c.amneziaConfig.GetH1(); val > 0 {
+				sb.WriteString(fmt.Sprintf("h1=%d\n", val))
+			}
+			if val := c.amneziaConfig.GetH2(); val > 0 {
+				sb.WriteString(fmt.Sprintf("h2=%d\n", val))
+			}
+			if val := c.amneziaConfig.GetH3(); val > 0 {
+				sb.WriteString(fmt.Sprintf("h3=%d\n", val))
+			}
+			if val := c.amneziaConfig.GetH4(); val > 0 {
+				sb.WriteString(fmt.Sprintf("h4=%d\n", val))
+			}
+			if val := c.amneziaConfig.GetI1(); val != "" {
+				sb.WriteString(fmt.Sprintf("i1=%s\n", val))
+			}
+			if val := c.amneziaConfig.GetI2(); val != "" {
+				sb.WriteString(fmt.Sprintf("i2=%s\n", val))
+			}
+			if val := c.amneziaConfig.GetI3(); val != "" {
+				sb.WriteString(fmt.Sprintf("i3=%s\n", val))
+			}
+			if val := c.amneziaConfig.GetI4(); val != "" {
+				sb.WriteString(fmt.Sprintf("i4=%s\n", val))
+			}
+			if val := c.amneziaConfig.GetI5(); val != "" {
+				sb.WriteString(fmt.Sprintf("i5=%s\n", val))
+			}
+		}
 	}
 
 	if wgCfg.ListenPort != nil {

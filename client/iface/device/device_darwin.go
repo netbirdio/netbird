@@ -29,16 +29,18 @@ type TunDevice struct {
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
+	amneziaConfig  AmneziaConfig
 }
 
-func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, amneziaConfig AmneziaConfig) *TunDevice {
 	return &TunDevice{
-		name:    name,
-		address: address,
-		port:    port,
-		key:     key,
-		mtu:     mtu,
-		iceBind: iceBind,
+		name:          name,
+		address:       address,
+		port:          port,
+		key:           key,
+		mtu:           mtu,
+		iceBind:       iceBind,
+		amneziaConfig: amneziaConfig,
 	}
 }
 
@@ -62,7 +64,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		return nil, fmt.Errorf("error assigning ip: %s", err)
 	}
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder(), t.amneziaConfig)
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()

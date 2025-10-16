@@ -27,14 +27,15 @@ import (
 type status int
 
 const (
-	unknown                   status = 1
-	unloaded                  status = 2
-	unloading                 status = 3
-	loading                   status = 4
-	live                      status = 5
-	inuse                     status = 6
-	defaultModuleDir                 = "/lib/modules"
-	envDisableWireGuardKernel        = "NB_WG_KERNEL_DISABLED"
+	unknown                      status = 1
+	unloaded                     status = 2
+	unloading                    status = 3
+	loading                      status = 4
+	live                         status = 5
+	inuse                        status = 6
+	defaultModuleDir                    = "/lib/modules"
+	envDisableWireGuardKernel           = "NB_WG_KERNEL_DISABLED"
+	envUseAmneziaWireGuardKernel        = "NB_WG_KERNEL_USE_AMNEZIAWG"
 )
 
 type module struct {
@@ -91,11 +92,16 @@ func WireGuardModuleIsLoaded() bool {
 		return false
 	}
 
-	//if canCreateFakeWireGuardInterface() {
-	//	return true
-	//}
+	useAmnezia := os.Getenv(envUseAmneziaWireGuardKernel) == "true"
+	if !useAmnezia && canCreateFakeWireGuardInterface() {
+		return true
+	}
 
-	loaded, err := tryToLoadModule("amneziawg")
+	moduleName := "wireguard"
+	if useAmnezia {
+		moduleName = "amneziawg"
+	}
+	loaded, err := tryToLoadModule(moduleName)
 	if err != nil {
 		log.Info(err)
 		return false
