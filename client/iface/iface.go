@@ -9,6 +9,7 @@ import (
 
 	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
 	"github.com/hashicorp/go-multierror"
+	"github.com/netbirdio/netbird/client/internal/amneziawg"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -54,15 +55,16 @@ type wgProxyFactory interface {
 }
 
 type WGIFaceOpts struct {
-	IFaceName    string
-	Address      string
-	WGPort       int
-	WGPrivKey    string
-	MTU          uint16
-	MobileArgs   *device.MobileIFaceArguments
-	TransportNet transport.Net
-	FilterFn     udpmux.FilterFn
-	DisableDNS   bool
+	IFaceName     string
+	Address       string
+	WGPort        int
+	WGPrivKey     string
+	MTU           uint16
+	MobileArgs    *device.MobileIFaceArguments
+	TransportNet  transport.Net
+	FilterFn      udpmux.FilterFn
+	DisableDNS    bool
+	AmneziaConfig amneziawg.AmneziaConfig
 }
 
 // WGIface represents an interface instance

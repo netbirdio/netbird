@@ -23,7 +23,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 
 	if netstack.IsEnabled() {
 		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, opts.MTU)
-		wgIFace.tun = device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr())
+		wgIFace.tun = device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr(), opts.AmneziaConfig)
 		wgIFace.userspaceBind = true
 		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind, opts.MTU)
 		return wgIFace, nil
@@ -36,7 +36,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 	}
 	if device.ModuleTunIsLoaded() {
 		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, opts.MTU)
-		wgIFace.tun = device.NewUSPDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind)
+		wgIFace.tun = device.NewUSPDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, opts.AmneziaConfig)
 		wgIFace.userspaceBind = true
 		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind, opts.MTU)
 		return wgIFace, nil

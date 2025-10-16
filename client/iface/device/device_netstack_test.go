@@ -3,6 +3,7 @@ package device
 import (
 	"testing"
 
+	"github.com/netbirdio/netbird/client/internal/amneziawg"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -15,7 +16,7 @@ func TestNewNetstackDevice(t *testing.T) {
 	wgAddress, _ := wgaddr.ParseWGAddress("1.2.3.4/24")
 
 	relayBind := bind.NewRelayBindJS()
-	nsTun := NewNetstackDevice("wtx", wgAddress, 1234, privateKey.String(), 1500, relayBind, netstack.ListenAddr())
+	nsTun := NewNetstackDevice("wtx", wgAddress, 1234, privateKey.String(), 1500, relayBind, netstack.ListenAddr(), amneziawg.AmneziaConfig{})
 
 	cfgr, err := nsTun.Create()
 	if err != nil {
