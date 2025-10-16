@@ -138,12 +138,12 @@ func (a MockIntegratedValidator) ValidatePeer(_ context.Context, update *nbpeer.
 	return update, false, nil
 }
 
-func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, map[string]string, error) {
+func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID string, groups []*types.Group, peers []*nbpeer.Peer, extraSettings *types.ExtraSettings) (map[string]struct{}, error) {
 	validatedPeers := make(map[string]struct{})
 	for _, peer := range peers {
 		validatedPeers[peer.ID] = struct{}{}
 	}
-	return validatedPeers, nil, nil
+	return validatedPeers, nil
 }
 
 func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings, temporary bool) *nbpeer.Peer {
