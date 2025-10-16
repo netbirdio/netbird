@@ -125,6 +125,9 @@ func (m *mockNetstackProvider) IsUserspaceBind() bool             { return false
 func (m *mockNetstackProvider) GetFilter() device.PacketFilter    { return nil }
 func (m *mockNetstackProvider) GetDevice() *device.FilteredDevice { return nil }
 func (m *mockNetstackProvider) GetNet() *netstack.Net             { return nil }
+func (m *mockNetstackProvider) GetInterfaceGUIDString() (string, error) {
+	return "", nil
+}
 
 type mockUpstreamResolver struct {
 	r   *dns.Msg
