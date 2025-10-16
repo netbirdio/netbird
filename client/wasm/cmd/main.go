@@ -120,37 +120,45 @@ func createStopMethod(client *netbird.Client) js.Func {
 	})
 }
 
+// validateSSHArgs validates SSH connection arguments
+func validateSSHArgs(args []js.Value) (host string, port int, username string, err js.Value) {
+	if len(args) < 2 {
+		return "", 0, "", js.ValueOf("error: requires host and port")
+	}
+
+	if args[0].Type() != js.TypeString {
+		return "", 0, "", js.ValueOf("host parameter must be a string")
+	}
+	if args[1].Type() != js.TypeNumber {
+		return "", 0, "", js.ValueOf("port parameter must be a number")
+	}
+
+	host = args[0].String()
+	port = args[1].Int()
+	username = "root"
+
+	if len(args) > 2 {
+		if args[2].Type() == js.TypeString && args[2].String() != "" {
+			username = args[2].String()
+		} else if args[2].Type() != js.TypeString {
+			return "", 0, "", js.ValueOf("username parameter must be a string")
+		}
+	}
+
+	return host, port, username, js.Undefined()
+}
+
 // createSSHMethod creates the SSH connection method
 func createSSHMethod(client *netbird.Client) js.Func {
 	return js.FuncOf(func(this js.Value, args []js.Value) any {
-		if len(args) < 2 {
-			return js.ValueOf("error: requires host and port")
-		}
-
-		if args[0].Type() != js.TypeString {
-			return createPromise(func(resolve, reject js.Value) {
-				reject.Invoke(js.ValueOf("host parameter must be a string"))
-			})
-		}
-		if args[1].Type() != js.TypeNumber {
-			return createPromise(func(resolve, reject js.Value) {
-				reject.Invoke(js.ValueOf("port parameter must be a number"))
-			})
-		}
-
-		host := args[0].String()
-		port := args[1].Int()
-		username := "root"
-		if len(args) > 2 {
-			if args[2].Type() == js.TypeString {
-				if args[2].String() != "" {
-					username = args[2].String()
-				}
-			} else {
-				return createPromise(func(resolve, reject js.Value) {
-					reject.Invoke(js.ValueOf("username parameter must be a string"))
-				})
+		host, port, username, validationErr := validateSSHArgs(args)
+		if !validationErr.IsUndefined() {
+			if validationErr.Type() == js.TypeString && validationErr.String() == "error: requires host and port" {
+				return validationErr
 			}
+			return createPromise(func(resolve, reject js.Value) {
+				reject.Invoke(validationErr)
+			})
 		}
 
 		return createPromise(func(resolve, reject js.Value) {
