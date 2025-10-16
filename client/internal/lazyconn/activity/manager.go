@@ -16,6 +16,12 @@ import (
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
 
+// listener defines the contract for activity detection listeners.
+type listener interface {
+	ReadPackets()
+	Close()
+}
+
 type WgInterface interface {
 	RemovePeer(peerKey string) error
 	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
