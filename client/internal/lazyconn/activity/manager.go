@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"runtime"
 	"sync"
 	"time"
 
@@ -64,6 +65,10 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 
 func (m *Manager) createListener(peerCfg lazyconn.PeerConfig) (listener, error) {
 	if !m.wgIface.IsUserspaceBind() {
+		return NewUDPListener(m.wgIface, peerCfg)
+	}
+
+	if runtime.GOOS != "windows" && runtime.GOOS != "js" {
 		return NewUDPListener(m.wgIface, peerCfg)
 	}
 
