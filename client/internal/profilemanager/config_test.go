@@ -5,11 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -137,6 +140,95 @@ func TestHiddenPreSharedKey(t *testing.T) {
 			if cfg.PreSharedKey != tt.want {
 				t.Fatalf("invalid preshared key: '%s', expected: '%s' ", cfg.PreSharedKey, tt.want)
 			}
+		})
+	}
+}
+
+func TestNewProfileDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	config, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath: configPath,
+	})
+	require.NoError(t, err, "should create new config")
+
+	assert.Equal(t, DefaultManagementURL, config.ManagementURL.String(), "ManagementURL should have default")
+	assert.Equal(t, DefaultAdminURL, config.AdminURL.String(), "AdminURL should have default")
+	assert.NotEmpty(t, config.PrivateKey, "PrivateKey should be generated")
+	assert.NotEmpty(t, config.SSHKey, "SSHKey should be generated")
+	assert.Equal(t, iface.WgInterfaceDefault, config.WgIface, "WgIface should have default")
+	assert.Equal(t, iface.DefaultWgPort, config.WgPort, "WgPort should default to 51820")
+	assert.Equal(t, uint16(iface.DefaultMTU), config.MTU, "MTU should have default")
+	assert.Equal(t, dynamic.DefaultInterval, config.DNSRouteInterval, "DNSRouteInterval should have default")
+	assert.NotNil(t, config.ServerSSHAllowed, "ServerSSHAllowed should be set")
+	assert.NotNil(t, config.DisableNotifications, "DisableNotifications should be set")
+	assert.NotEmpty(t, config.IFaceBlackList, "IFaceBlackList should have defaults")
+
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		assert.NotNil(t, config.NetworkMonitor, "NetworkMonitor should be set on Windows/macOS")
+		assert.True(t, *config.NetworkMonitor, "NetworkMonitor should be enabled by default on Windows/macOS")
+	}
+}
+
+func TestWireguardPortZeroExplicit(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	// Create a new profile with explicit port 0 (random port)
+	explicitZero := 0
+	config, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath:    configPath,
+		WireguardPort: &explicitZero,
+	})
+	require.NoError(t, err, "should create config with explicit port 0")
+
+	assert.Equal(t, 0, config.WgPort, "WgPort should be 0 when explicitly set by user")
+
+	// Verify it persists
+	readConfig, err := GetConfig(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, 0, readConfig.WgPort, "WgPort should remain 0 after reading from file")
+}
+
+func TestWireguardPortDefaultVsExplicit(t *testing.T) {
+	tests := []struct {
+		name           string
+		wireguardPort  *int
+		expectedPort   int
+		description    string
+	}{
+		{
+			name:          "no port specified uses default",
+			wireguardPort: nil,
+			expectedPort:  iface.DefaultWgPort,
+			description:   "When user doesn't specify port, default to 51820",
+		},
+		{
+			name:          "explicit zero for random port",
+			wireguardPort: func() *int { v := 0; return &v }(),
+			expectedPort:  0,
+			description:   "When user explicitly sets 0, use 0 for random port",
+		},
+		{
+			name:          "explicit custom port",
+			wireguardPort: func() *int { v := 52000; return &v }(),
+			expectedPort:  52000,
+			description:   "When user sets custom port, use that port",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, "config.json")
+
+			config, err := UpdateOrCreateConfig(ConfigInput{
+				ConfigPath:    configPath,
+				WireguardPort: tt.wireguardPort,
+			})
+			require.NoError(t, err, tt.description)
+			assert.Equal(t, tt.expectedPort, config.WgPort, tt.description)
 		})
 	}
 }
