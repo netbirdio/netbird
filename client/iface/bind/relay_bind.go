@@ -6,8 +6,8 @@ import (
 	"net/netip"
 	"sync"
 
+	"github.com/amnezia-vpn/amneziawg-go/conn"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 )

@@ -3,7 +3,7 @@ package device
 import (
 	"os"
 
-	"golang.zx2c4.com/wireguard/device"
+	"github.com/amnezia-vpn/amneziawg-go/device"
 )
 
 func wgLogLevel() int {

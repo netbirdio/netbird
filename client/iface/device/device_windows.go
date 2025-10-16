@@ -2,14 +2,15 @@ package device
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 
+	"github.com/amnezia-vpn/amneziawg-go/device"
+	"github.com/amnezia-vpn/amneziawg-go/tun"
+	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
+	"github.com/amnezia-vpn/amneziawg-windows/tunnel/winipcfg"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
-	"golang.zx2c4.com/wireguard/tun/netstack"
-	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -179,7 +180,13 @@ func (t *TunDevice) GetInterfaceGUIDString() (string, error) {
 func (t *TunDevice) assignAddr() error {
 	luid := winipcfg.LUID(t.nativeTunDevice.LUID())
 	log.Debugf("adding address %s to interface: %s", t.address.IP, t.name)
-	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(t.address.String())})
+
+	prefix := netip.MustParsePrefix(t.address.String())
+	ip := net.IP(prefix.Addr().AsSlice())
+	mask := net.CIDRMask(prefix.Bits(), prefix.Addr().BitLen())
+	return luid.SetIPAddresses([]net.IPNet{
+		{IP: ip, Mask: mask},
+	})
 }
 
 func (t *TunDevice) GetNet() *netstack.Net {

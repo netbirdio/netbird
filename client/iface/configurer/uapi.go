@@ -5,8 +5,8 @@ package configurer
 import (
 	"net"
 
+	"github.com/amnezia-vpn/amneziawg-go/ipc"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/ipc"
 )
 
 func openUAPI(deviceName string) (net.Listener, error) {

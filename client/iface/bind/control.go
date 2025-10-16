@@ -1,7 +1,7 @@
 package bind
 
 import (
-	wireguard "golang.zx2c4.com/wireguard/conn"
+	wireguard "github.com/amnezia-vpn/amneziawg-go/conn"
 
 	nbnet "github.com/netbirdio/netbird/client/net"
 )

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/amnezia-vpn/amneziawg-go/device"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
@@ -404,6 +404,18 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 	if wgCfg.PrivateKey != nil {
 		hexKey := hex.EncodeToString(wgCfg.PrivateKey[:])
 		sb.WriteString(fmt.Sprintf("private_key=%s\n", hexKey))
+
+		// write amneziawg settings here
+		// sorry for hardcode
+		sb.WriteString("jc=8\n")
+		sb.WriteString("jmin=50\n")
+		sb.WriteString("jmax=1000\n")
+		sb.WriteString("s1=30\n")
+		sb.WriteString("s2=32\n")
+		sb.WriteString("h1=567134433\n")
+		sb.WriteString("h2=1497534042\n")
+		sb.WriteString("h3=862417541\n")
+		sb.WriteString("h4=1695024432\n")
 	}
 
 	if wgCfg.ListenPort != nil {
