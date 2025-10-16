@@ -14,6 +14,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -28,7 +29,7 @@ type TunDevice struct {
 
 	device         *device.Device
 	filteredDevice *FilteredDevice
-	udpMux         *bind.UniversalUDPMuxDefault
+	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 }
 
@@ -83,7 +84,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -142,4 +143,9 @@ func (t *TunDevice) FilteredDevice() *FilteredDevice {
 
 func (t *TunDevice) GetNet() *netstack.Net {
 	return nil
+}
+
+// GetICEBind returns the ICEBind instance
+func (t *TunDevice) GetICEBind() EndpointManager {
+	return t.iceBind
 }

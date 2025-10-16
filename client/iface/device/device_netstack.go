@@ -1,18 +1,28 @@
 package device
 
 import (
+	"errors"
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
+
+type Bind interface {
+	conn.Bind
+	GetICEMux() (*udpmux.UniversalUDPMuxDefault, error)
+	ActivityRecorder() *bind.ActivityRecorder
+	EndpointManager
+}
 
 type TunNetstackDevice struct {
 	name          string
@@ -21,18 +31,18 @@ type TunNetstackDevice struct {
 	key           string
 	mtu           uint16
 	listenAddress string
-	iceBind       *bind.ICEBind
+	bind          Bind
 
 	device         *device.Device
 	filteredDevice *FilteredDevice
 	nsTun          *nbnetstack.NetStackTun
-	udpMux         *bind.UniversalUDPMuxDefault
+	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 
 	net *netstack.Net
 }
 
-func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, iceBind *bind.ICEBind, listenAddress string) *TunNetstackDevice {
+func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, bind Bind, listenAddress string) *TunNetstackDevice {
 	return &TunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -40,7 +50,7 @@ func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key stri
 		key:           key,
 		mtu:           mtu,
 		listenAddress: listenAddress,
-		iceBind:       iceBind,
+		bind:          bind,
 	}
 }
 
@@ -65,11 +75,11 @@ func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 
 	t.device = device.NewDevice(
 		t.filteredDevice,
-		t.iceBind,
+		t.bind,
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.bind.ActivityRecorder())
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		_ = tunIface.Close()
@@ -80,7 +90,7 @@ func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *TunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunNetstackDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	if t.device == nil {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
@@ -90,11 +100,15 @@ func (t *TunNetstackDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
 		return nil, err
 	}
 
-	udpMux, err := t.iceBind.GetICEMux()
-	if err != nil {
+	udpMux, err := t.bind.GetICEMux()
+	if err != nil && !errors.Is(err, bind.ErrUDPMUXNotSupported) {
 		return nil, err
 	}
-	t.udpMux = udpMux
+
+	if udpMux != nil {
+		t.udpMux = udpMux
+	}
+
 	log.Debugf("netstack device is ready to use")
 	return udpMux, nil
 }
@@ -141,4 +155,9 @@ func (t *TunNetstackDevice) Device() *device.Device {
 
 func (t *TunNetstackDevice) GetNet() *netstack.Net {
 	return t.net
+}
+
+// GetICEBind returns the bind instance
+func (t *TunNetstackDevice) GetICEBind() EndpointManager {
+	return t.bind
 }

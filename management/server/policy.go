@@ -151,6 +151,12 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 			return false, nil
 		}
 
+		for _, rule := range existingPolicy.Rules {
+			if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
+				return true, nil
+			}
+		}
+
 		hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
 		if err != nil {
 			return false, err
@@ -161,15 +167,33 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 		}
 	}
 
+	for _, rule := range policy.Rules {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
+			return true, nil
+		}
+	}
+
 	return anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, policy.RuleGroups())
 }
 
 // validatePolicy validates the policy and its rules.
 func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) error {
 	if policy.ID != "" {
-		_, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
+		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
 		if err != nil {
 			return err
+		}
+
+		// TODO: Refactor to support multiple rules per policy
+		existingRuleIDs := make(map[string]bool)
+		for _, rule := range existingPolicy.Rules {
+			existingRuleIDs[rule.ID] = true
+		}
+
+		for _, rule := range policy.Rules {
+			if rule.ID != "" && !existingRuleIDs[rule.ID] {
+				return status.Errorf(status.InvalidArgument, "invalid rule ID: %s", rule.ID)
+			}
 		}
 	} else {
 		policy.ID = xid.New().String()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -11,14 +12,18 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
+)
+
+var (
+	// ListenPort is the port that the DNS forwarder listens on. It has been used by the client peers also
+	listenPort   uint16 = 5353
+	listenPortMu sync.RWMutex
 )
 
 const (
-	// ListenPort is the port that the DNS forwarder listens on. It has been used by the client peers also
-	ListenPort = 5353
-	dnsTTL     = 60 //seconds
+	dnsTTL = 60 //seconds
 )
 
 // ForwarderEntry is a mapping from a domain to a resource ID and a hash of the parent domain list.
@@ -35,6 +40,18 @@ type Manager struct {
 	fwRules      []firewall.Rule
 	tcpRules     []firewall.Rule
 	dnsForwarder *DNSForwarder
+}
+
+func ListenPort() uint16 {
+	listenPortMu.RLock()
+	defer listenPortMu.RUnlock()
+	return listenPort
+}
+
+func SetListenPort(port uint16) {
+	listenPortMu.Lock()
+	listenPort = port
+	listenPortMu.Unlock()
 }
 
 func NewManager(fw firewall.Manager, statusRecorder *peer.Status) *Manager {
@@ -54,7 +71,7 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 		return err
 	}
 
-	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort), dnsTTL, m.firewall, m.statusRecorder)
+	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", ListenPort()), dnsTTL, m.firewall, m.statusRecorder)
 	go func() {
 		if err := m.dnsForwarder.Listen(fwdEntries); err != nil {
 			// todo handle close error if it is exists
@@ -94,7 +111,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 func (m *Manager) allowDNSFirewall() error {
 	dport := &firewall.Port{
 		IsRange: false,
-		Values:  []uint16{ListenPort},
+		Values:  []uint16{ListenPort()},
 	}
 
 	if m.firewall == nil {

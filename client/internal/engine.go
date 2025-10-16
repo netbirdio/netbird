@@ -29,9 +29,9 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -166,7 +166,7 @@ type Engine struct {
 
 	wgInterface WGIface
 
-	udpMux *bind.UniversalUDPMuxDefault
+	udpMux *udpmux.UniversalUDPMuxDefault
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -198,6 +198,13 @@ type Engine struct {
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
+
+	// WireGuard interface monitor
+	wgIfaceMonitor   *WGIfaceMonitor
+	wgIfaceMonitorWg sync.WaitGroup
+
+	// dns forwarder port
+	dnsFwdPort uint16
 }
 
 // Peer is an instance of the Connection Peer
@@ -240,6 +247,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
+		dnsFwdPort:     dnsfwd.ListenPort(),
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -340,6 +348,9 @@ func (e *Engine) Stop() error {
 	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
 	}
+
+	// Stop WireGuard interface monitor and wait for it to exit
+	e.wgIfaceMonitorWg.Wait()
 
 	return nil
 }
@@ -457,14 +468,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return fmt.Errorf("initialize dns server: %w", err)
 	}
 
-	iceCfg := icemaker.Config{
-		StunTurn:             &e.stunTurn,
-		InterfaceBlackList:   e.config.IFaceBlackList,
-		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-		UDPMux:               e.udpMux.UDPMuxDefault,
-		UDPMuxSrflx:          e.udpMux,
-		NATExternalIPs:       e.parseNATExternalIPMappings(),
-	}
+	iceCfg := e.createICEConfig()
 
 	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
 	e.connMgr.Start(e.ctx)
@@ -477,6 +481,22 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
+
+	// monitor WireGuard interface lifecycle and restart engine on changes
+	e.wgIfaceMonitor = NewWGIfaceMonitor()
+	e.wgIfaceMonitorWg.Add(1)
+
+	go func() {
+		defer e.wgIfaceMonitorWg.Done()
+
+		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); shouldRestart {
+			log.Infof("WireGuard interface monitor: %s, restarting engine", err)
+			e.restartEngine()
+		} else if err != nil {
+			log.Warnf("WireGuard interface monitor: %s", err)
+		}
+	}()
+
 	return nil
 }
 
@@ -1064,7 +1084,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
-	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
+	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries, uint16(protoDNSConfig.ForwarderPort))
 
 	// Ingress forward rules
 	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
@@ -1322,14 +1342,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
-		ICEConfig: icemaker.Config{
-			StunTurn:             &e.stunTurn,
-			InterfaceBlackList:   e.config.IFaceBlackList,
-			DisableIPv6Discovery: e.config.DisableIPv6Discovery,
-			UDPMux:               e.udpMux.UDPMuxDefault,
-			UDPMuxSrflx:          e.udpMux,
-			NATExternalIPs:       e.parseNATExternalIPMappings(),
-		},
+		ICEConfig: e.createICEConfig(),
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
@@ -1830,9 +1843,14 @@ func (e *Engine) GetWgAddr() netip.Addr {
 func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
+	forwarderPort uint16,
 ) {
 	if e.config.DisableServerRoutes {
 		return
+	}
+
+	if forwarderPort > 0 {
+		dnsfwd.SetListenPort(forwarderPort)
 	}
 
 	if !enabled {
@@ -1846,16 +1864,20 @@ func (e *Engine) updateDNSForwarder(
 	}
 
 	if len(fwdEntries) > 0 {
-		if e.dnsForwardMgr == nil {
+		switch {
+		case e.dnsForwardMgr == nil:
 			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder)
-
 			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
 				log.Errorf("failed to start DNS forward: %v", err)
 				e.dnsForwardMgr = nil
 			}
-
 			log.Infof("started domain router service with %d entries", len(fwdEntries))
-		} else {
+		case e.dnsFwdPort != forwarderPort:
+			log.Infof("updating domain router service port from %d to %d", e.dnsFwdPort, forwarderPort)
+			e.restartDnsFwd(fwdEntries, forwarderPort)
+			e.dnsFwdPort = forwarderPort
+
+		default:
 			e.dnsForwardMgr.UpdateDomains(fwdEntries)
 		}
 	} else if e.dnsForwardMgr != nil {
@@ -1863,6 +1885,20 @@ func (e *Engine) updateDNSForwarder(
 		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
 			log.Errorf("failed to stop DNS forward: %v", err)
 		}
+		e.dnsForwardMgr = nil
+	}
+
+}
+
+func (e *Engine) restartDnsFwd(fwdEntries []*dnsfwd.ForwarderEntry, forwarderPort uint16) {
+	log.Infof("updating domain router service port from %d to %d", e.dnsFwdPort, forwarderPort)
+	// stop and start the forwarder to apply the new port
+	if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+		log.Errorf("failed to stop DNS forward: %v", err)
+	}
+	e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder)
+	if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
+		log.Errorf("failed to start DNS forward: %v", err)
 		e.dnsForwardMgr = nil
 	}
 }

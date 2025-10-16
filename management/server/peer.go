@@ -350,7 +350,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	}
 
 	var peer *nbpeer.Peer
-	var updateAccountPeers bool
 	var eventsToStore []func()
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -360,11 +359,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		}
 
 		if err = am.validatePeerDelete(ctx, transaction, accountID, peerID); err != nil {
-			return err
-		}
-
-		updateAccountPeers, err = isPeerInActiveGroup(ctx, transaction, accountID, peerID)
-		if err != nil {
 			return err
 		}
 
@@ -387,7 +381,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		storeEvent()
 	}
 
-	if updateAccountPeers && userID != activity.SystemInitiator {
+	if userID != activity.SystemInitiator {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -450,7 +444,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 // to it. We also add the User ID to the peer metadata to identify registrant. If no userID provided, then fail with status.PermissionDenied
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKey, userID string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if setupKey == "" && userID == "" {
 		// no auth method provided => reject access
 		return nil, nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
@@ -482,8 +476,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 	var ephemeral bool
 	var groupsToAdd []string
 	var allowExtraDNSLabels bool
-	var accountID string
-	var isEphemeral bool
 	if addedByUser {
 		user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 		if err != nil {
@@ -492,10 +484,21 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		if user.PendingApproval {
 			return nil, nil, nil, status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
 		}
-		groupsToAdd = user.AutoGroups
+		if temporary {
+			allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
+			if err != nil {
+				return nil, nil, nil, status.NewPermissionValidationError(err)
+			}
+
+			if !allowed {
+				return nil, nil, nil, status.NewPermissionDeniedError()
+			}
+		} else {
+			accountID = user.AccountID
+			groupsToAdd = user.AutoGroups
+		}
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
-		accountID = user.AccountID
 	} else {
 		// Validate the setup key
 		sk, err := am.Store.GetSetupKeyBySecret(ctx, store.LockingStrengthNone, encodedHashedKey)
@@ -516,12 +519,15 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		setupKeyName = sk.Name
 		allowExtraDNSLabels = sk.AllowExtraDNSLabels
 		accountID = sk.AccountID
-		isEphemeral = sk.Ephemeral
 		if !sk.AllowExtraDNSLabels && len(peer.ExtraDNSLabels) > 0 {
 			return nil, nil, nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key doesn't allow extra DNS labels")
 		}
 	}
 	opEvent.AccountID = accountID
+
+	if temporary {
+		ephemeral = true
+	}
 
 	if (strings.ToLower(peer.Meta.Hostname) == "iphone" || strings.ToLower(peer.Meta.Hostname) == "ipad") && userID != "" {
 		if am.idpManager != nil {
@@ -549,10 +555,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		SSHKey:                      peer.SSHKey,
 		LastLogin:                   &registrationTime,
 		CreatedAt:                   registrationTime,
-		LoginExpirationEnabled:      addedByUser,
+		LoginExpirationEnabled:      addedByUser && !temporary,
 		Ephemeral:                   ephemeral,
 		Location:                    peer.Location,
-		InactivityExpirationEnabled: addedByUser,
+		InactivityExpirationEnabled: addedByUser && !temporary,
 		ExtraDNSLabels:              peer.ExtraDNSLabels,
 		AllowExtraDNSLabels:         allowExtraDNSLabels,
 	}
@@ -572,7 +578,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 	}
 
-	newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra)
+	newPeer = am.integratedPeerValidator.PreparePeer(ctx, accountID, newPeer, groupsToAdd, settings.Extra, temporary)
 
 	network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -588,7 +594,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		}
 
 		var freeLabel string
-		if isEphemeral || attempt > 1 {
+		if ephemeral || attempt > 1 {
 			freeLabel, err = getPeerIPDNSLabel(freeIP, peer.Meta.Hostname)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to get free DNS label: %w", err)
@@ -620,6 +626,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 			err = transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID)
 			if err != nil {
 				return fmt.Errorf("failed adding peer to All group: %w", err)
+			}
+
+			if temporary {
+				// we are running the on disconnect handler so that it is considered not connected as we are adding the peer manually
+				am.ephemeralManager.OnPeerDisconnected(ctx, newPeer)
 			}
 
 			if addedByUser {
@@ -667,11 +678,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database after %d attempts: %w", maxAttempts, err)
 	}
 
-	updateAccountPeers, err := isPeerInActiveGroup(ctx, am.Store, accountID, newPeer.ID)
-	if err != nil {
-		updateAccountPeers = true
-	}
-
 	if newPeer == nil {
 		return nil, nil, nil, fmt.Errorf("new peer is nil")
 	}
@@ -684,9 +690,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, setupKey, userID s
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	if updateAccountPeers {
-		am.BufferUpdateAccountPeers(ctx, accountID)
-	}
+	am.BufferUpdateAccountPeers(ctx, accountID)
 
 	return am.getValidatedPeerWithMap(ctx, false, accountID, newPeer)
 }
@@ -712,7 +716,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	var peer *nbpeer.Peer
 	var peerNotValid bool
 	var isStatusChanged bool
-	var updated bool
+	var updated, versionChanged bool
 	var err error
 	var postureChecks []*posture.Checks
 
@@ -752,7 +756,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			return err
 		}
 
-		updated = peer.UpdateMetaIfNew(sync.Meta)
+		updated, versionChanged = peer.UpdateMetaIfNew(sync.Meta)
 		if updated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
@@ -771,7 +775,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, err
 	}
 
-	if isStatusChanged || sync.UpdateAccountPeers || (updated && len(postureChecks) > 0) {
+	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -790,7 +794,7 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 			ExtraDNSLabels: login.ExtraDNSLabels,
 		}
 
-		return am.AddPeer(ctx, login.SetupKey, login.UserID, newPeer)
+		return am.AddPeer(ctx, "", login.SetupKey, login.UserID, newPeer, false)
 	}
 
 	log.WithContext(ctx).Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
@@ -863,7 +867,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return err
 		}
 
-		isPeerUpdated = peer.UpdateMetaIfNew(login.Meta)
+		isPeerUpdated, _ = peer.UpdateMetaIfNew(login.Meta)
 		if isPeerUpdated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			shouldStorePeer = true
@@ -877,6 +881,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		if peer.SSHKey != login.SSHKey {
 			peer.SSHKey = login.SSHKey
 			shouldStorePeer = true
+			updateRemotePeers = true
 		}
 
 		if !peer.AllowExtraDNSLabels && len(login.ExtraDNSLabels) > 0 {
@@ -1211,6 +1216,8 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		return
 	}
 
+	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), dnsForwarderPortMinVersion)
+
 	for _, peer := range account.Peers {
 		if !am.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -1247,7 +1254,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups))
+			update := toSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
 			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
 
 			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
@@ -1358,7 +1365,9 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 	}
 
 	peerGroups := account.GetPeerGroups(peerId)
-	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups))
+	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), dnsForwarderPortMinVersion)
+
+	update := toSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
 	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
 }
 
@@ -1505,16 +1514,6 @@ func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID str
 	return transaction.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
-// IsPeerInActiveGroup checks if the given peer is part of a group that is used
-// in an active DNS, route, or ACL configuration.
-func isPeerInActiveGroup(ctx context.Context, transaction store.Store, accountID, peerID string) (bool, error) {
-	peerGroupIDs, err := getPeerGroupIDs(ctx, transaction, accountID, peerID)
-	if err != nil {
-		return false, err
-	}
-	return areGroupChangesAffectPeers(ctx, transaction, accountID, peerGroupIDs) // TODO: use transaction
-}
-
 // deletePeers deletes all specified peers and sends updates to the remote peers.
 // Returns a slice of functions to save events after successful peer deletion.
 func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction store.Store, accountID, userID string, peers []*nbpeer.Peer) ([]func(), error) {
@@ -1531,6 +1530,8 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 		return nil, err
 	}
 
+	dnsFwdPort := computeForwarderPort(peers, dnsForwarderPortMinVersion)
+
 	for _, peer := range peers {
 		if err := transaction.RemovePeerFromAllGroups(ctx, peer.ID); err != nil {
 			return nil, fmt.Errorf("failed to remove peer %s from groups", peer.ID)
@@ -1538,6 +1539,26 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 
 		if err := am.integratedPeerValidator.PeerDeleted(ctx, accountID, peer.ID, settings.Extra); err != nil {
 			return nil, err
+		}
+
+		peerPolicyRules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthNone, accountID, peer.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range peerPolicyRules {
+			policy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, rule.PolicyID)
+			if err != nil {
+				return nil, err
+			}
+
+			err = transaction.DeletePolicy(ctx, accountID, rule.PolicyID)
+			if err != nil {
+				return nil, err
+			}
+
+			peerDeletedEvents = append(peerDeletedEvents, func() {
+				am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
+			})
 		}
 
 		if err = transaction.DeletePeer(ctx, accountID, peer.ID); err != nil {
@@ -1554,6 +1575,9 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 					RemotePeersIsEmpty:   true,
 					FirewallRules:        []*proto.FirewallRule{},
 					FirewallRulesIsEmpty: true,
+					DNSConfig: &proto.DNSConfig{
+						ForwarderPort: dnsFwdPort,
+					},
 				},
 			},
 			NetworkMap: &types.NetworkMap{},

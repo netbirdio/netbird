@@ -529,7 +529,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				var req proto.SetConfigRequest
 				req.ProfileName = activeProf.Name
 				req.Username = currUser.Username
-				
+
 				if iMngURL != "" {
 					req.ManagementUrl = iMngURL
 				}
@@ -563,27 +563,28 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					return
 				}
 
-				status, err := conn.Status(s.ctx, &proto.StatusRequest{})
-				if err != nil {
-					log.Errorf("get service status: %v", err)
-					dialog.ShowError(fmt.Errorf("Failed to get service status: %v", err), s.wSettings)
-					return
-				}
-				if status.Status == string(internal.StatusConnected) {
-					// run down & up
-					_, err = conn.Down(s.ctx, &proto.DownRequest{})
+				go func() {
+					status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 					if err != nil {
-						log.Errorf("down service: %v", err)
-					}
-
-					_, err = conn.Up(s.ctx, &proto.UpRequest{})
-					if err != nil {
-						log.Errorf("up service: %v", err)
-						dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
+						log.Errorf("get service status: %v", err)
+						dialog.ShowError(fmt.Errorf("Failed to get service status: %v", err), s.wSettings)
 						return
 					}
-				}
+					if status.Status == string(internal.StatusConnected) {
+						// run down & up
+						_, err = conn.Down(s.ctx, &proto.DownRequest{})
+						if err != nil {
+							log.Errorf("down service: %v", err)
+						}
 
+						_, err = conn.Up(s.ctx, &proto.UpRequest{})
+						if err != nil {
+							log.Errorf("up service: %v", err)
+							dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
+							return
+						}
+					}
+				}()
 			}
 		},
 		OnCancel: func() {
@@ -1353,7 +1354,13 @@ func (s *serviceClient) updateConfig() error {
 }
 
 // showLoginURL creates a borderless window styled like a pop-up in the top-right corner using s.wLoginURL.
-func (s *serviceClient) showLoginURL() {
+// It also starts a background goroutine that periodically checks if the client is already connected
+// and closes the window if so. The goroutine can be cancelled by the returned CancelFunc, and it is
+// also cancelled when the window is closed.
+func (s *serviceClient) showLoginURL() context.CancelFunc {
+
+	// create a cancellable context for the background check goroutine
+	ctx, cancel := context.WithCancel(s.ctx)
 
 	resIcon := fyne.NewStaticResource("netbird.png", iconAbout)
 
@@ -1362,6 +1369,8 @@ func (s *serviceClient) showLoginURL() {
 		s.wLoginURL.Resize(fyne.NewSize(400, 200))
 		s.wLoginURL.SetIcon(resIcon)
 	}
+	// ensure goroutine is cancelled when the window is closed
+	s.wLoginURL.SetOnClosed(func() { cancel() })
 	// add a description label
 	label := widget.NewLabel("Your NetBird session has expired.\nPlease re-authenticate to continue using NetBird.")
 
@@ -1442,7 +1451,39 @@ func (s *serviceClient) showLoginURL() {
 	)
 	s.wLoginURL.SetContent(container.NewCenter(content))
 
+	// start a goroutine to check connection status and close the window if connected
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		conn, err := s.getSrvClient(failFastTimeout)
+		if err != nil {
+			return
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+				if err != nil {
+					continue
+				}
+				if status.Status == string(internal.StatusConnected) {
+					if s.wLoginURL != nil {
+						s.wLoginURL.Close()
+					}
+					return
+				}
+			}
+		}
+	}()
+
 	s.wLoginURL.Show()
+
+	// return cancel func so callers can stop the background goroutine if desired
+	return cancel
 }
 
 func openURL(url string) error {

@@ -16,9 +16,9 @@ import (
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/monotime"
@@ -61,7 +61,7 @@ type WGIFaceOpts struct {
 	MTU          uint16
 	MobileArgs   *device.MobileIFaceArguments
 	TransportNet transport.Net
-	FilterFn     bind.FilterFn
+	FilterFn     udpmux.FilterFn
 	DisableDNS   bool
 }
 
@@ -78,6 +78,17 @@ type WGIface struct {
 
 func (w *WGIface) GetProxy() wgproxy.Proxy {
 	return w.wgProxyFactory.GetProxy()
+}
+
+// GetBind returns the EndpointManager userspace bind mode.
+func (w *WGIface) GetBind() device.EndpointManager {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.tun == nil {
+		return nil
+	}
+	return w.tun.GetICEBind()
 }
 
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
@@ -114,7 +125,7 @@ func (r *WGIface) ToInterface() *net.Interface {
 
 // Up configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
-func (w *WGIface) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (w *WGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -146,6 +157,17 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 
 	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
 	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
+}
+
+func (w *WGIface) RemoveEndpointAddress(peerKey string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
+
+	log.Debugf("Removing endpoint address: %s", peerKey)
+	return w.configurer.RemoveEndpointAddress(peerKey)
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface

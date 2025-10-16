@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -22,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/wsproxy"
+	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -92,12 +95,6 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	s.PeersManager()
 	s.GeoLocationManager()
 
-	for _, fn := range s.afterInit {
-		if fn != nil {
-			fn(s)
-		}
-	}
-
 	err := s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
 	if err != nil {
 		return fmt.Errorf("failed to expose metrics: %v", err)
@@ -147,7 +144,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
-	rootHandler := handlerFunc(s.GRPCServer(), s.APIHandler())
+	rootHandler := s.handlerFunc(s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter())
 	switch {
 	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
@@ -173,6 +170,12 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		s.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort))
 		if err != nil {
 			return fmt.Errorf("failed creating TCP listener on port %d: %v", s.mgmtPort, err)
+		}
+	}
+
+	for _, fn := range s.afterInit {
+		if fn != nil {
+			fn(s)
 		}
 	}
 
@@ -247,13 +250,17 @@ func updateMgmtConfig(ctx context.Context, path string, config *nbconfig.Config)
 	return util.DirectWriteJson(ctx, path, config)
 }
 
-func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handler {
+func (s *BaseServer) handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
+	wsProxy := wsproxyserver.New(gRPCHandler, wsproxyserver.WithOTelMeter(meter))
+
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		grpcHeader := strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
-			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")
-		if request.ProtoMajor == 2 && grpcHeader {
+		switch {
+		case request.ProtoMajor == 2 && (strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
+			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")):
 			gRPCHandler.ServeHTTP(writer, request)
-		} else {
+		case request.URL.Path == wsproxy.ProxyPath+wsproxy.ManagementComponent:
+			wsProxy.Handler().ServeHTTP(writer, request)
+		default:
 			httpHandler.ServeHTTP(writer, request)
 		}
 	})

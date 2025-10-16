@@ -10,22 +10,26 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+
+	"github.com/netbirdio/management-integrations/integrations"
+
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	daemonProto "github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -104,7 +108,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(maxRetryTimeVar, "5s")
 	t.Setenv(retryMultiplierVar, "1")
 
-	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
+	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil, nil)
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)
 	}
@@ -133,8 +137,12 @@ func TestServer_Up(t *testing.T) {
 
 	profName := "default"
 
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+
 	ic := profilemanager.ConfigInput{
-		ConfigPath: filepath.Join(tempDir, profName+".json"),
+		ConfigPath:    filepath.Join(tempDir, profName+".json"),
+		ManagementURL: u.String(),
 	}
 
 	_, err = profilemanager.UpdateOrCreateConfig(ic)
@@ -152,15 +160,8 @@ func TestServer_Up(t *testing.T) {
 	}
 
 	s := New(ctx, "console", "", false, false)
-
 	err = s.Start()
 	require.NoError(t, err)
-
-	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
-	require.NoError(t, err)
-	s.config = &profilemanager.Config{
-		ManagementURL: u,
-	}
 
 	upCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
@@ -170,6 +171,7 @@ func TestServer_Up(t *testing.T) {
 		Username:    &currUser.Username,
 	}
 	_, err = s.Up(upCtx, upReq)
+	log.Errorf("error from Up: %v", err)
 
 	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
@@ -315,7 +317,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	}
 
 	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &server.MockIntegratedValidator{})
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, &manager.EphemeralManager{}, nil, &server.MockIntegratedValidator{})
 	if err != nil {
 		return nil, "", err
 	}
