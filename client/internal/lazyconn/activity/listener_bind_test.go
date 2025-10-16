@@ -3,10 +3,13 @@ package activity
 import (
 	"net"
 	"net/netip"
+	"runtime"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -14,6 +17,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
+
+func isBindListenerPlatform() bool {
+	return runtime.GOOS == "windows" || runtime.GOOS == "js"
+}
 
 // mockEndpointManager implements device.EndpointManager for testing
 type mockEndpointManager struct {
@@ -79,23 +86,15 @@ func TestBindListener_Creation(t *testing.T) {
 	}
 
 	listener, err := NewBindListener(mockIface, mockEndpointMgr, cfg)
-	if err != nil {
-		t.Fatalf("failed to create bind listener: %v", err)
-	}
+	require.NoError(t, err)
 
-	// Verify endpoint was registered with the expected derived fake IP
 	expectedFakeIP := netip.MustParseAddr("127.2.0.2")
 	conn := mockEndpointMgr.GetEndpoint(expectedFakeIP)
-	if conn == nil {
-		t.Fatal("endpoint not registered in mock endpoint manager")
-	}
+	require.NotNil(t, conn, "Endpoint should be registered in mock endpoint manager")
 
-	// Verify it's a lazyConn
-	if _, ok := conn.(*lazyConn); !ok {
-		t.Fatal("registered endpoint is not a lazyConn")
-	}
+	_, ok := conn.(*lazyConn)
+	assert.True(t, ok, "Registered endpoint should be a lazyConn")
 
-	// Close properly
 	readPacketsDone := make(chan struct{})
 	go func() {
 		listener.ReadPackets()
@@ -106,7 +105,6 @@ func TestBindListener_Creation(t *testing.T) {
 
 	select {
 	case <-readPacketsDone:
-		// Success
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for ReadPackets to exit after Close")
 	}
@@ -125,9 +123,7 @@ func TestBindListener_ActivityDetection(t *testing.T) {
 	}
 
 	listener, err := NewBindListener(mockIface, mockEndpointMgr, cfg)
-	if err != nil {
-		t.Fatalf("failed to create bind listener: %v", err)
-	}
+	require.NoError(t, err)
 
 	activityDetected := make(chan struct{})
 	go func() {
@@ -135,31 +131,20 @@ func TestBindListener_ActivityDetection(t *testing.T) {
 		close(activityDetected)
 	}()
 
-	// Get the lazyConn and simulate WireGuard sending data
 	fakeIP := listener.fakeIP
 	conn := mockEndpointMgr.GetEndpoint(fakeIP)
-	if conn == nil {
-		t.Fatal("endpoint not found")
-	}
+	require.NotNil(t, conn, "Endpoint should be registered")
 
-	// Simulate activity by writing to the lazyConn
 	_, err = conn.Write([]byte{0x01, 0x02, 0x03})
-	if err != nil {
-		t.Fatalf("failed to write to lazyConn: %v", err)
-	}
+	require.NoError(t, err)
 
-	// Wait for activity detection
 	select {
 	case <-activityDetected:
-		// Success - activity was detected
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for activity detection")
 	}
 
-	// Verify endpoint was removed after activity
-	if mockEndpointMgr.GetEndpoint(fakeIP) != nil {
-		t.Fatal("endpoint should be removed after activity detection")
-	}
+	assert.Nil(t, mockEndpointMgr.GetEndpoint(fakeIP), "Endpoint should be removed after activity detection")
 }
 
 func TestBindListener_Close(t *testing.T) {
@@ -175,9 +160,7 @@ func TestBindListener_Close(t *testing.T) {
 	}
 
 	listener, err := NewBindListener(mockIface, mockEndpointMgr, cfg)
-	if err != nil {
-		t.Fatalf("failed to create bind listener: %v", err)
-	}
+	require.NoError(t, err)
 
 	readPacketsDone := make(chan struct{})
 	go func() {
@@ -185,25 +168,23 @@ func TestBindListener_Close(t *testing.T) {
 		close(readPacketsDone)
 	}()
 
-	// Close the listener
 	fakeIP := listener.fakeIP
 	listener.Close()
 
-	// Wait for ReadPackets to exit
 	select {
 	case <-readPacketsDone:
-		// Success
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for ReadPackets to exit after Close")
 	}
 
-	// Verify endpoint was removed
-	if mockEndpointMgr.GetEndpoint(fakeIP) != nil {
-		t.Fatal("endpoint should be removed after Close")
-	}
+	assert.Nil(t, mockEndpointMgr.GetEndpoint(fakeIP), "Endpoint should be removed after Close")
 }
 
 func TestManager_BindMode(t *testing.T) {
+	if !isBindListenerPlatform() {
+		t.Skip("BindListener only used on Windows/JS platforms")
+	}
+
 	mockEndpointMgr := newMockEndpointManager()
 	mockIface := &MockWGIfaceBind{endpointMgr: mockEndpointMgr}
 
@@ -218,51 +199,37 @@ func TestManager_BindMode(t *testing.T) {
 		Log:        log.WithField("peer", "testPeer1"),
 	}
 
-	if err := mgr.MonitorPeerActivity(cfg); err != nil {
-		t.Fatalf("failed to monitor peer activity: %v", err)
-	}
+	err := mgr.MonitorPeerActivity(cfg)
+	require.NoError(t, err)
 
 	listener, exists := mgr.GetPeerListener(cfg.PeerConnID)
-	if !exists {
-		t.Fatal("peer listener not found")
-	}
+	require.True(t, exists, "Peer listener should be found")
 
-	// Verify it's a BindListener
 	bindListener, ok := listener.(*BindListener)
-	if !ok {
-		t.Fatalf("expected BindListener, got %T", listener)
-	}
+	require.True(t, ok, "Listener should be BindListener, got %T", listener)
 
-	// Get the lazyConn and simulate activity
 	fakeIP := bindListener.fakeIP
 	conn := mockEndpointMgr.GetEndpoint(fakeIP)
-	if conn == nil {
-		t.Fatal("endpoint not registered")
-	}
+	require.NotNil(t, conn, "Endpoint should be registered")
 
-	// Simulate WireGuard sending packet
-	_, err := conn.Write([]byte{0x01, 0x02, 0x03})
-	if err != nil {
-		t.Fatalf("failed to write to lazyConn: %v", err)
-	}
+	_, err = conn.Write([]byte{0x01, 0x02, 0x03})
+	require.NoError(t, err)
 
-	// Wait for activity notification
 	select {
 	case peerConnID := <-mgr.OnActivityChan:
-		if peerConnID != cfg.PeerConnID {
-			t.Fatalf("unexpected peerConnID: %v", peerConnID)
-		}
+		assert.Equal(t, cfg.PeerConnID, peerConnID, "Received peer connection ID should match")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for activity notification")
 	}
 
-	// Verify endpoint was removed after activity
-	if mockEndpointMgr.GetEndpoint(fakeIP) != nil {
-		t.Fatal("endpoint should be removed after activity")
-	}
+	assert.Nil(t, mockEndpointMgr.GetEndpoint(fakeIP), "Endpoint should be removed after activity")
 }
 
 func TestManager_BindMode_MultiplePeers(t *testing.T) {
+	if !isBindListenerPlatform() {
+		t.Skip("BindListener only used on Windows/JS platforms")
+	}
+
 	mockEndpointMgr := newMockEndpointManager()
 	mockIface := &MockWGIfaceBind{endpointMgr: mockEndpointMgr}
 
@@ -285,48 +252,30 @@ func TestManager_BindMode_MultiplePeers(t *testing.T) {
 		Log:        log.WithField("peer", "testPeer2"),
 	}
 
-	if err := mgr.MonitorPeerActivity(cfg1); err != nil {
-		t.Fatalf("failed to monitor peer1: %v", err)
-	}
+	err := mgr.MonitorPeerActivity(cfg1)
+	require.NoError(t, err)
 
-	if err := mgr.MonitorPeerActivity(cfg2); err != nil {
-		t.Fatalf("failed to monitor peer2: %v", err)
-	}
+	err = mgr.MonitorPeerActivity(cfg2)
+	require.NoError(t, err)
 
-	// Get both listeners
 	listener1, exists := mgr.GetPeerListener(cfg1.PeerConnID)
-	if !exists {
-		t.Fatal("peer1 listener not found")
-	}
+	require.True(t, exists, "Peer1 listener should be found")
 	bindListener1 := listener1.(*BindListener)
 
 	listener2, exists := mgr.GetPeerListener(cfg2.PeerConnID)
-	if !exists {
-		t.Fatal("peer2 listener not found")
-	}
+	require.True(t, exists, "Peer2 listener should be found")
 	bindListener2 := listener2.(*BindListener)
 
-	// Trigger activity on peer1
 	conn1 := mockEndpointMgr.GetEndpoint(bindListener1.fakeIP)
-	if conn1 == nil {
-		t.Fatal("peer1 endpoint not registered")
-	}
-	_, err := conn1.Write([]byte{0x01})
-	if err != nil {
-		t.Fatalf("failed to write to peer1 lazyConn: %v", err)
-	}
+	require.NotNil(t, conn1, "Peer1 endpoint should be registered")
+	_, err = conn1.Write([]byte{0x01})
+	require.NoError(t, err)
 
-	// Trigger activity on peer2
 	conn2 := mockEndpointMgr.GetEndpoint(bindListener2.fakeIP)
-	if conn2 == nil {
-		t.Fatal("peer2 endpoint not registered")
-	}
+	require.NotNil(t, conn2, "Peer2 endpoint should be registered")
 	_, err = conn2.Write([]byte{0x02})
-	if err != nil {
-		t.Fatalf("failed to write to peer2 lazyConn: %v", err)
-	}
+	require.NoError(t, err)
 
-	// Wait for both activities
 	receivedPeers := make(map[peerid.ConnID]bool)
 	for i := 0; i < 2; i++ {
 		select {
@@ -337,10 +286,6 @@ func TestManager_BindMode_MultiplePeers(t *testing.T) {
 		}
 	}
 
-	if !receivedPeers[cfg1.PeerConnID] {
-		t.Fatal("peer1 activity not received")
-	}
-	if !receivedPeers[cfg2.PeerConnID] {
-		t.Fatal("peer2 activity not received")
-	}
+	assert.True(t, receivedPeers[cfg1.PeerConnID], "Peer1 activity should be received")
+	assert.True(t, receivedPeers[cfg2.PeerConnID], "Peer2 activity should be received")
 }
