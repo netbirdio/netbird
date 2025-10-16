@@ -109,7 +109,17 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 		return nil, nil, err
 	}
 
-	return am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, groups, peers, settings.Extra)
+	validPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, groups, peers, settings.Extra)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	invalidPeers, err := am.integratedPeerValidator.GetInvalidPeers(ctx, accountID, settings.Extra)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return validPeers, invalidPeers, nil
 }
 
 type MockIntegratedValidator struct {
@@ -134,6 +144,10 @@ func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID 
 		validatedPeers[peer.ID] = struct{}{}
 	}
 	return validatedPeers, nil, nil
+}
+
+func (MockIntegratedValidator) GetInvalidPeers(_ context.Context, accountID string) (map[string]string, error) {
+	return make(map[string]string), nil
 }
 
 func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings) *nbpeer.Peer {
