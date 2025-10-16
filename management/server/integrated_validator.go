@@ -146,10 +146,6 @@ func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID 
 	return validatedPeers, nil, nil
 }
 
-func (MockIntegratedValidator) GetInvalidPeers(_ context.Context, accountID string) (map[string]string, error) {
-	return make(map[string]string), nil
-}
-
 func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings, temporary bool) *nbpeer.Peer {
 	return peer
 }
