@@ -160,8 +160,7 @@ func (p *PocketIdManager) request(ctx context.Context, method, resource string, 
 			p.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
 
-		// TODO: read and intepret PocketID Error
-		return nil, fmt.Errorf("Unexpected status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("received unexpected status code from PocketID API: %d", resp.StatusCode)
 	}
 
 	return io.ReadAll(resp.Body)
