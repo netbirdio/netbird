@@ -400,7 +400,6 @@ func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port, action fi
 		return ""
 	}
 
-	// Include action in the ipset name to prevent squashing rules with different actions
 	actionSuffix := ""
 	if action == firewall.ActionDrop {
 		actionSuffix = "-drop"
