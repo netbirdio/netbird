@@ -14,6 +14,9 @@ type WGIface interface {
 }
 
 func (g *BundleGenerator) addWgShow() error {
+	if g.statusRecorder == nil {
+		return fmt.Errorf("no status recorder available for wg show")
+	}
 	result, err := g.statusRecorder.PeersStatus()
 	if err != nil {
 		return err
