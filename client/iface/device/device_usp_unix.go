@@ -146,3 +146,8 @@ func (t *USPDevice) assignAddr() error {
 func (t *USPDevice) GetNet() *netstack.Net {
 	return nil
 }
+
+// GetICEBind returns the ICEBind instance
+func (t *USPDevice) GetICEBind() EndpointManager {
+	return t.iceBind
+}
