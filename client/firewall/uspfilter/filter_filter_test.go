@@ -5,11 +5,11 @@ import (
 	"net/netip"
 	"testing"
 
+	wgdevice "github.com/amnezia-vpn/amneziawg-go/device"
 	"github.com/golang/mock/gomock"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
-	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/device"

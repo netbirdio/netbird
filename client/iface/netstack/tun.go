@@ -5,9 +5,9 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/amnezia-vpn/amneziawg-go/tun"
+	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
 const EnvSkipProxy = "NB_NETSTACK_SKIP_PROXY"

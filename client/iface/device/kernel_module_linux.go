@@ -91,11 +91,11 @@ func WireGuardModuleIsLoaded() bool {
 		return false
 	}
 
-	if canCreateFakeWireGuardInterface() {
-		return true
-	}
+	//if canCreateFakeWireGuardInterface() {
+	//	return true
+	//}
 
-	loaded, err := tryToLoadModule("wireguard")
+	loaded, err := tryToLoadModule("amneziawg")
 	if err != nil {
 		log.Info(err)
 		return false

@@ -8,7 +8,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	wgdevice "golang.zx2c4.com/wireguard/device"
+	wgdevice "github.com/amnezia-vpn/amneziawg-go/device"
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
