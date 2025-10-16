@@ -248,6 +248,39 @@ message ProtectedHostConfig {
   string password = 3;
 }
 
+// AmneziaConfig contains AmneziaWG obfuscation parameters.
+// If not set or all fields are default/zero, standard WireGuard will be used.
+message AmneziaConfig {
+  // Junk packet count
+  optional int32 jc = 1;
+  // Junk packet minimum size
+  optional int32 jmin = 2;
+  // Junk packet maximum size
+  optional int32 jmax = 3;
+  // Init packet junk size
+  optional int32 s1 = 4;
+  // Response packet junk size
+  optional int32 s2 = 5;
+  // Init packet magic header 1
+  optional uint32 h1 = 6;
+  // Init packet magic header 2
+  optional uint32 h2 = 7;
+  // Init packet magic header 3
+  optional uint32 h3 = 8;
+  // Init packet magic header 4
+  optional uint32 h4 = 9;
+  // Init packet magic string 1
+  optional string i1 = 10;
+  // Init packet magic string 2
+  optional string i2 = 11;
+  // Init packet magic string 3
+  optional string i3 = 12;
+  // Init packet magic string 4
+  optional string i4 = 13;
+  // Init packet magic string 5
+  optional string i5 = 14;
+}
+
 // PeerConfig represents a configuration of a "our" peer.
 // The properties are used to configure local Wireguard
 message PeerConfig {
@@ -266,6 +299,9 @@ message PeerConfig {
   bool LazyConnectionEnabled = 6;
 
   int32 mtu = 7;
+
+  // AmneziaWG obfuscation configuration. If not set, standard WireGuard is used.
+  optional AmneziaConfig amneziaConfig = 8;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
