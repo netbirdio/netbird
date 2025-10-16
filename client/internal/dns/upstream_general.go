@@ -5,6 +5,7 @@ package dns
 import (
 	"context"
 	"net/netip"
+	"runtime"
 	"time"
 
 	"github.com/miekg/dns"
@@ -35,7 +36,11 @@ func newUpstreamResolver(
 }
 
 func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	if u.nsNet != nil {
+	// TODO: Check if upstream DNS server is routed through a peer before using netstack.
+	// Similar to iOS logic, we should determine if the DNS server is reachable directly
+	// or needs to go through the tunnel, and only use netstack when necessary.
+	// For now, only use netstack on JS platform where direct access is not possible.
+	if u.nsNet != nil && runtime.GOOS == "js" {
 		reply, err := ExchangeWithNetstack(ctx, u.nsNet, r, upstream)
 		return reply, 0, err
 	}
