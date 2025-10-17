@@ -22,4 +22,5 @@ type WGTunDevice interface {
 	Device() *wgdevice.Device
 	GetNet() *netstack.Net
 	RenewTun(fd int) error
+	GetICEBind() device.EndpointManager
 }
