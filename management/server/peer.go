@@ -1575,6 +1575,7 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 					RemotePeersIsEmpty:   true,
 					FirewallRules:        []*proto.FirewallRule{},
 					FirewallRulesIsEmpty: true,
+					PeerConfig:           toPeerConfig(peer, network, dnsDomain, settings),
 					DNSConfig: &proto.DNSConfig{
 						ForwarderPort: dnsFwdPort,
 					},
