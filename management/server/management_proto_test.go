@@ -451,7 +451,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	permissionsManager := permissions.NewManager(store)
 	groupsManager := groups.NewManagerMock()
 
-	accountManager, err := BuildManager(ctx, store, peersUpdateManager, nil, "", "netbird.selfhosted",
+	accountManager, err := BuildManager(ctx, nil, store, peersUpdateManager, nil, "", "netbird.selfhosted",
 		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 
 	if err != nil {
