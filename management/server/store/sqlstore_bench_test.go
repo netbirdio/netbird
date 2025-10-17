@@ -867,6 +867,8 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 				}
 				if autoGroups != nil {
 					_ = json.Unmarshal(autoGroups, &sk.AutoGroups)
+				} else {
+					sk.AutoGroups = []string{}
 				}
 			}
 			return sk, err
@@ -995,6 +997,8 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 				}
 				if autoGroups != nil {
 					_ = json.Unmarshal(autoGroups, &u.AutoGroups)
+				} else {
+					u.AutoGroups = []string{}
 				}
 			}
 			return u, err
@@ -1030,7 +1034,11 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 				}
 				if resources != nil {
 					_ = json.Unmarshal(resources, &g.Resources)
+				} else {
+					g.Resources = []types.Resource{}
 				}
+				g.GroupPeers = []types.GroupPeer{}
+				g.Peers = []string{}
 			}
 			return &g, err
 		})
