@@ -7,14 +7,15 @@
 package proto
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	_ "google.golang.org/protobuf/types/descriptorpb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -1064,6 +1065,7 @@ type GetConfigResponse struct {
 	DisableClientRoutes   bool   `protobuf:"varint,18,opt,name=disable_client_routes,json=disableClientRoutes,proto3" json:"disable_client_routes,omitempty"`
 	DisableServerRoutes   bool   `protobuf:"varint,19,opt,name=disable_server_routes,json=disableServerRoutes,proto3" json:"disable_server_routes,omitempty"`
 	BlockLanAccess        bool   `protobuf:"varint,20,opt,name=block_lan_access,json=blockLanAccess,proto3" json:"block_lan_access,omitempty"`
+	DisableFirewall       bool   `protobuf:"varint,21,opt,name=disable_firewall,json=disableFirewall,proto3" json:"disable_firewall,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1234,6 +1236,13 @@ func (x *GetConfigResponse) GetDisableServerRoutes() bool {
 func (x *GetConfigResponse) GetBlockLanAccess() bool {
 	if x != nil {
 		return x.BlockLanAccess
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetDisableFirewall() bool {
+	if x != nil {
+		return x.DisableFirewall
 	}
 	return false
 }
@@ -4698,7 +4707,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\xb5\x06\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xe0\x06\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -4723,7 +4732,8 @@ const file_daemon_proto_rawDesc = "" +
 	"disableDns\x122\n" +
 	"\x15disable_client_routes\x18\x12 \x01(\bR\x13disableClientRoutes\x122\n" +
 	"\x15disable_server_routes\x18\x13 \x01(\bR\x13disableServerRoutes\x12(\n" +
-	"\x10block_lan_access\x18\x14 \x01(\bR\x0eblockLanAccess\"\xde\x05\n" +
+	"\x10block_lan_access\x18\x14 \x01(\bR\x0eblockLanAccess\x12)\n" +
+	"\x10disable_firewall\x18\x15 \x01(\bR\x0fdisableFirewall\"\xde\x05\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
