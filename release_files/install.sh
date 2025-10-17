@@ -42,6 +42,7 @@ get_release() {
           curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "${URL}" \
               | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     else
+          curl -v "${URL}" > out.log
           curl -s "${URL}" \
               | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     fi
