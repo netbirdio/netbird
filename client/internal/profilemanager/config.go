@@ -205,6 +205,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	config := &Config{
 		// defaults to false only for new (post 0.26) configurations
 		ServerSSHAllowed: util.False(),
+		WgPort:           iface.DefaultWgPort,
 	}
 
 	if _, err := config.apply(input); err != nil {

@@ -73,8 +73,8 @@ func (p *RDCleanPathProxy) validateCertificateWithJS(conn *proxyConnection, cert
 	}
 }
 
-func (p *RDCleanPathProxy) getTLSConfigWithValidation(conn *proxyConnection) *tls.Config {
-	return &tls.Config{
+func (p *RDCleanPathProxy) getTLSConfigWithValidation(conn *proxyConnection, requiresCredSSP bool) *tls.Config {
+	config := &tls.Config{
 		InsecureSkipVerify: true, // We'll validate manually after handshake
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			var certChain [][]byte
@@ -93,4 +93,15 @@ func (p *RDCleanPathProxy) getTLSConfigWithValidation(conn *proxyConnection) *tl
 			return nil
 		},
 	}
+
+	// CredSSP (NLA) requires TLS 1.2 - it's incompatible with TLS 1.3
+	if requiresCredSSP {
+		config.MinVersion = tls.VersionTLS12
+		config.MaxVersion = tls.VersionTLS12
+	} else {
+		config.MinVersion = tls.VersionTLS12
+		config.MaxVersion = tls.VersionTLS13
+	}
+
+	return config
 }

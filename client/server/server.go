@@ -359,6 +359,13 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		config.CustomDNSAddress = []byte{}
 	}
 
+	config.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
+
+	if msg.DnsRouteInterval != nil {
+		interval := msg.DnsRouteInterval.AsDuration()
+		config.DNSRouteInterval = &interval
+	}
+
 	config.RosenpassEnabled = msg.RosenpassEnabled
 	config.RosenpassPermissive = msg.RosenpassPermissive
 	config.DisableAutoConnect = msg.DisableAutoConnect
