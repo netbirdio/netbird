@@ -4,6 +4,8 @@ package android
 
 import (
 	"context"
+	"os"
+	"slices"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -17,7 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/util/net"
+	"github.com/netbirdio/netbird/client/net"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -82,7 +84,8 @@ func NewClient(cfgFile string, androidSDKVersion int, deviceName string, uiVersi
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsReadyListener) error {
+func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
+	exportEnvList(envList)
 	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -112,12 +115,13 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, dns.items, dnsReadyListener)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener)
 }
 
 // RunWithoutLogin we apply this type of run function when the backed has been started without UI (i.e. after reboot).
 // In this case make no sense handle registration steps.
-func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener) error {
+func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
+	exportEnvList(envList)
 	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -138,7 +142,7 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, dns.items, dnsReadyListener)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener)
 }
 
 // Stop the internal client and free the resources
@@ -235,7 +239,7 @@ func (c *Client) OnUpdatedHostDNS(list *DNSList) error {
 		return err
 	}
 
-	dnsServer.OnUpdatedHostDNSServer(list.items)
+	dnsServer.OnUpdatedHostDNSServer(slices.Clone(list.items))
 	return nil
 }
 
@@ -247,4 +251,15 @@ func (c *Client) SetConnectionListener(listener ConnectionListener) {
 // RemoveConnectionListener remove connection listener
 func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
+}
+
+func exportEnvList(list *EnvList) {
+	if list == nil {
+		return
+	}
+	for k, v := range list.AllItems() {
+		if err := os.Setenv(k, v); err != nil {
+			log.Errorf("could not set env variable %s: %v", k, err)
+		}
+	}
 }

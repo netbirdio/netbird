@@ -17,8 +17,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
+	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools/channel"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 // Map to store peers, groups, users, and setupKeys by name
@@ -47,7 +48,7 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -69,7 +70,7 @@ func BenchmarkCreateSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationCreate)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationCreate)
 		})
 	}
 }
@@ -86,7 +87,7 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -109,7 +110,7 @@ func BenchmarkUpdateSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationUpdate)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationUpdate)
 		})
 	}
 }
@@ -126,7 +127,7 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -136,7 +137,7 @@ func BenchmarkGetOneSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationGetOne)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationGetOne)
 		})
 	}
 }
@@ -153,7 +154,7 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, bc.SetupKeys)
 
 			b.ResetTimer()
@@ -163,7 +164,7 @@ func BenchmarkGetAllSetupKeys(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationGetAll)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationGetAll)
 		})
 	}
 }
@@ -180,7 +181,7 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 
 	for name, bc := range benchCasesSetupKeys {
 		b.Run(name, func(b *testing.B) {
-			apiHandler, am, _ := testing_tools.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
+			apiHandler, am, _ := channel.BuildApiBlackBoxWithDBState(b, "../testdata/setup_keys.sql", nil, false)
 			testing_tools.PopulateTestData(b, am.(*server.DefaultAccountManager), bc.Peers, bc.Groups, bc.Users, 1000)
 
 			b.ResetTimer()
@@ -190,7 +191,7 @@ func BenchmarkDeleteSetupKey(b *testing.B) {
 				apiHandler.ServeHTTP(recorder, req)
 			}
 
-			testing_tools.EvaluateBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationDelete)
+			testing_tools.EvaluateAPIBenchmarkResults(b, name, time.Since(start), recorder, moduleSetupKeys, testing_tools.OperationDelete)
 		})
 	}
 }

@@ -21,10 +21,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -281,11 +280,11 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 		return nil, err
 	}
 
-	savedPeer1, _, _, err := am.AddPeer(context.Background(), "", dnsAdminUserID, peer1)
+	savedPeer1, _, _, err := am.AddPeer(context.Background(), "", "", dnsAdminUserID, peer1, false)
 	if err != nil {
 		return nil, err
 	}
-	_, _, _, err = am.AddPeer(context.Background(), "", dnsAdminUserID, peer2)
+	_, _, _, err = am.AddPeer(context.Background(), "", "", dnsAdminUserID, peer2, false)
 	if err != nil {
 		return nil, err
 	}
@@ -324,13 +323,13 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account
 		return nil, err
 	}
 
-	account.NameServerGroups[dnsNSGroup1] = &dns.NameServerGroup{
+	account.NameServerGroups[dnsNSGroup1] = &nbdns.NameServerGroup{
 		ID:   dnsNSGroup1,
 		Name: "ns-group-1",
-		NameServers: []dns.NameServer{{
+		NameServers: []nbdns.NameServer{{
 			IP:     netip.MustParseAddr(savedPeer1.IP.String()),
-			NSType: dns.UDPNameServerType,
-			Port:   dns.DefaultDNSPort,
+			NSType: nbdns.UDPNameServerType,
+			Port:   nbdns.DefaultDNSPort,
 		}},
 		Primary: true,
 		Enabled: true,
@@ -395,7 +394,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				toProtocolDNSConfig(testData, cache)
+				toProtocolDNSConfig(testData, cache, dnsForwarderPort)
 			}
 		})
 
@@ -403,7 +402,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				cache := &DNSConfigCache{}
-				toProtocolDNSConfig(testData, cache)
+				toProtocolDNSConfig(testData, cache, dnsForwarderPort)
 			}
 		})
 	}
@@ -456,13 +455,13 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	}
 
 	// First run with config1
-	result1 := toProtocolDNSConfig(config1, &cache)
+	result1 := toProtocolDNSConfig(config1, &cache, dnsForwarderPort)
 
 	// Second run with config2
-	result2 := toProtocolDNSConfig(config2, &cache)
+	result2 := toProtocolDNSConfig(config2, &cache, dnsForwarderPort)
 
 	// Third run with config1 again
-	result3 := toProtocolDNSConfig(config1, &cache)
+	result3 := toProtocolDNSConfig(config1, &cache, dnsForwarderPort)
 
 	// Verify that result1 and result3 are identical
 	if !reflect.DeepEqual(result1, result3) {
@@ -474,15 +473,6 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 		t.Errorf("Results should be different for different inputs")
 	}
 
-	// Verify that the cache contains elements from both configs
-	if _, exists := cache.GetCustomZone("example.com"); !exists {
-		t.Errorf("Cache should contain custom zone for example.com")
-	}
-
-	if _, exists := cache.GetCustomZone("example.org"); !exists {
-		t.Errorf("Cache should contain custom zone for example.org")
-	}
-
 	if _, exists := cache.GetNameServerGroup("group1"); !exists {
 		t.Errorf("Cache should contain name server group 'group1'")
 	}
@@ -492,10 +482,111 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	}
 }
 
+func TestComputeForwarderPort(t *testing.T) {
+	// Test with empty peers list
+	peers := []*nbpeer.Peer{}
+	result := computeForwarderPort(peers, "v0.59.0")
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for empty peers list, got %d", oldForwarderPort, result)
+	}
+
+	// Test with peers that have old versions
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.57.0",
+			},
+		},
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.26.0",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "v0.59.0")
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for peers with old versions, got %d", oldForwarderPort, result)
+	}
+
+	// Test with peers that have new versions
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.59.0",
+			},
+		},
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.59.0",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "v0.59.0")
+	if result != dnsForwarderPort {
+		t.Errorf("Expected %d for peers with new versions, got %d", dnsForwarderPort, result)
+	}
+
+	// Test with peers that have mixed versions
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.59.0",
+			},
+		},
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "0.57.0",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "v0.59.0")
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for peers with mixed versions, got %d", oldForwarderPort, result)
+	}
+
+	// Test with peers that have empty version
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "v0.59.0")
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for peers with empty version, got %d", oldForwarderPort, result)
+	}
+
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "development",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "v0.59.0")
+	if result == oldForwarderPort {
+		t.Errorf("Expected %d for peers with dev version, got %d", dnsForwarderPort, result)
+	}
+
+	// Test with peers that have unknown version string
+	peers = []*nbpeer.Peer{
+		{
+			Meta: nbpeer.PeerSystemMeta{
+				WtVersion: "unknown",
+			},
+		},
+	}
+	result = computeForwarderPort(peers, "v0.59.0")
+	if result != oldForwarderPort {
+		t.Errorf("Expected %d for peers with unknown version, got %d", oldForwarderPort, result)
+	}
+}
+
 func TestDNSAccountPeersUpdate(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
+	err := manager.CreateGroups(context.Background(), account.Id, userID, []*types.Group{
 		{
 			ID:    "groupA",
 			Name:  "GroupA",
@@ -506,7 +597,7 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 			Name:  "GroupB",
 			Peers: []string{},
 		},
-	}, true)
+	})
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -543,10 +634,10 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 		}()
 
 		_, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "ns-group", "ns-group", []dns.NameServer{{
+			context.Background(), account.Id, "ns-group", "ns-group", []nbdns.NameServer{{
 				IP:     netip.MustParseAddr(peer1.IP.String()),
-				NSType: dns.UDPNameServerType,
-				Port:   dns.DefaultDNSPort,
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
 			}},
 			[]string{"groupB"},
 			true, []string{}, true, userID, false,
@@ -562,11 +653,11 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 
 	// Creating DNS settings with groups that have peers should update account peers and send peer update
 	t.Run("creating dns setting with used groups", func(t *testing.T) {
-		err = manager.SaveGroup(context.Background(), account.Id, userID, &types.Group{
+		err = manager.UpdateGroup(context.Background(), account.Id, userID, &types.Group{
 			ID:    "groupA",
 			Name:  "GroupA",
 			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		}, true)
+		})
 		assert.NoError(t, err)
 
 		done := make(chan struct{})
@@ -576,10 +667,10 @@ func TestDNSAccountPeersUpdate(t *testing.T) {
 		}()
 
 		_, err = manager.CreateNameServerGroup(
-			context.Background(), account.Id, "ns-group-1", "ns-group-1", []dns.NameServer{{
+			context.Background(), account.Id, "ns-group-1", "ns-group-1", []nbdns.NameServer{{
 				IP:     netip.MustParseAddr(peer1.IP.String()),
-				NSType: dns.UDPNameServerType,
-				Port:   dns.DefaultDNSPort,
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
 			}},
 			[]string{"groupA"},
 			true, []string{}, true, userID, false,

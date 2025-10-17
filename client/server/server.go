@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"golang.org/x/exp/maps"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	log "github.com/sirupsen/logrus"
@@ -24,7 +26,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/management/domain"
+	mgm "github.com/netbirdio/netbird/shared/management/client"
+	"github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -43,8 +46,12 @@ const (
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
 	defaultRetryMultiplier  = 1.7
 
-	errRestoreResidualState = "failed to restore residual state: %v"
+	errRestoreResidualState   = "failed to restore residual state: %v"
+	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
+	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
 )
+
+var ErrServiceNotUp = errors.New("service is not up")
 
 // Server for service control.
 type Server struct {
@@ -58,17 +65,22 @@ type Server struct {
 	mutex  sync.Mutex
 	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
+	clientRunning     bool // protected by mutex
+	clientRunningChan chan struct{}
+	clientGiveUpChan  chan struct{}
 
 	connectClient *internal.ConnectClient
 
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
-	lastProbe         time.Time
-	persistNetworkMap bool
-	isSessionActive   atomic.Bool
+	lastProbe           time.Time
+	persistSyncResponse bool
+	isSessionActive     atomic.Bool
 
-	profileManager profilemanager.ServiceManager
+	profileManager         *profilemanager.ServiceManager
+	profilesDisabled       bool
+	updateSettingsDisabled bool
 }
 
 type oauthAuthFlow struct {
@@ -79,19 +91,26 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
 	return &Server{
-		rootCtx:           ctx,
-		logFile:           logFile,
-		persistNetworkMap: true,
-		statusRecorder:    peer.NewRecorder(""),
-		profileManager:    profilemanager.ServiceManager{},
+		rootCtx:                ctx,
+		logFile:                logFile,
+		persistSyncResponse:    true,
+		statusRecorder:         peer.NewRecorder(""),
+		profileManager:         profilemanager.NewServiceManager(configFile),
+		profilesDisabled:       profilesDisabled,
+		updateSettingsDisabled: updateSettingsDisabled,
 	}
 }
 
 func (s *Server) Start() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.clientRunning {
+		return nil
+	}
+
 	state := internal.CtxGetState(s.rootCtx)
 
 	if err := handlePanicLog(); err != nil {
@@ -128,13 +147,7 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	cfgPath, err := activeProf.FilePath()
-	if err != nil {
-		log.Errorf("failed to get active profile file path: %v", err)
-		return fmt.Errorf("failed to get active profile file path: %w", err)
-	}
-
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 
@@ -167,8 +180,10 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
-
+	s.clientRunning = true
+	s.clientRunningChan = make(chan struct{})
+	s.clientGiveUpChan = make(chan struct{})
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 	return nil
 }
 
@@ -199,12 +214,22 @@ func (s *Server) setDefaultConfigIfNotExists(ctx context.Context) error {
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
-func (s *Server) connectWithRetryRuns(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status,
-	runningChan chan struct{},
-) {
-	backOff := getConnectWithBackoff(ctx)
-	retryStarted := false
+func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
+	defer func() {
+		s.mutex.Lock()
+		s.clientRunning = false
+		s.mutex.Unlock()
+	}()
 
+	if s.config.DisableAutoConnect {
+		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan); err != nil {
+			log.Debugf("run client connection exited with error: %v", err)
+		}
+		log.Tracef("client connection exited")
+		return
+	}
+
+	backOff := getConnectWithBackoff(ctx)
 	go func() {
 		t := time.NewTicker(24 * time.Hour)
 		for {
@@ -213,89 +238,36 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, config *profilemanage
 				t.Stop()
 				return
 			case <-t.C:
-				if retryStarted {
-
-					mgmtState := statusRecorder.GetManagementState()
-					signalState := statusRecorder.GetSignalState()
-					if mgmtState.Connected && signalState.Connected {
-						log.Tracef("resetting status")
-						retryStarted = false
-					} else {
-						log.Tracef("not resetting status: mgmt: %v, signal: %v", mgmtState.Connected, signalState.Connected)
-					}
+				mgmtState := statusRecorder.GetManagementState()
+				signalState := statusRecorder.GetSignalState()
+				if mgmtState.Connected && signalState.Connected {
+					log.Tracef("resetting status")
+					backOff.Reset()
+				} else {
+					log.Tracef("not resetting status: mgmt: %v, signal: %v", mgmtState.Connected, signalState.Connected)
 				}
 			}
 		}
 	}()
 
 	runOperation := func() error {
-		log.Tracef("running client connection")
-		s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
-		s.connectClient.SetNetworkMapPersistence(s.persistNetworkMap)
-
-		err := s.connectClient.Run(runningChan)
+		err := s.connect(ctx, profileConfig, statusRecorder, runningChan)
 		if err != nil {
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
+			return err
 		}
 
-		if config.DisableAutoConnect {
-			return backoff.Permanent(err)
-		}
-
-		if !retryStarted {
-			retryStarted = true
-			backOff.Reset()
-		}
-
-		log.Tracef("client connection exited")
-		return fmt.Errorf("client connection exited")
+		log.Tracef("client connection exited gracefully, do not need to retry")
+		return nil
 	}
 
-	err := backoff.Retry(runOperation, backOff)
-	if s, ok := gstatus.FromError(err); ok && s.Code() != codes.Canceled {
-		log.Errorf("received an error when trying to connect: %v", err)
-	} else {
-		log.Tracef("retry canceled")
-	}
-}
-
-// getConnectWithBackoff returns a backoff with exponential backoff strategy for connection retries
-func getConnectWithBackoff(ctx context.Context) backoff.BackOff {
-	initialInterval := parseEnvDuration(retryInitialIntervalVar, defaultInitialRetryTime)
-	maxInterval := parseEnvDuration(maxRetryIntervalVar, defaultMaxRetryInterval)
-	maxElapsedTime := parseEnvDuration(maxRetryTimeVar, defaultMaxRetryTime)
-	multiplier := defaultRetryMultiplier
-
-	if envValue := os.Getenv(retryMultiplierVar); envValue != "" {
-		// parse the multiplier from the environment variable string value to float64
-		value, err := strconv.ParseFloat(envValue, 64)
-		if err != nil {
-			log.Warnf("unable to parse environment variable %s: %s. using default: %f", retryMultiplierVar, envValue, multiplier)
-		} else {
-			multiplier = value
-		}
+	if err := backoff.Retry(runOperation, backOff); err != nil {
+		log.Errorf("operation failed: %v", err)
 	}
 
-	return backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     initialInterval,
-		RandomizationFactor: 1,
-		Multiplier:          multiplier,
-		MaxInterval:         maxInterval,
-		MaxElapsedTime:      maxElapsedTime, // 14 days
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, ctx)
-}
-
-// parseEnvDuration parses the environment variable and returns the duration
-func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duration {
-	if envValue := os.Getenv(envVar); envValue != "" {
-		if duration, err := time.ParseDuration(envValue); err == nil {
-			return duration
-		}
-		log.Warnf("unable to parse environment variable %s: %s. using default: %s", envVar, envValue, defaultDuration)
+	if giveUpChan != nil {
+		close(giveUpChan)
 	}
-	return defaultDuration
 }
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
@@ -319,6 +291,10 @@ func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (i
 func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigRequest) (*proto.SetConfigResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.checkUpdateSettingsDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+	}
 
 	profState := profilemanager.ActiveProfileState{
 		Name:     msg.ProfileName,
@@ -377,6 +353,13 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		config.CustomDNSAddress = []byte{}
 	}
 
+	config.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
+
+	if msg.DnsRouteInterval != nil {
+		interval := msg.DnsRouteInterval.AsDuration()
+		config.DNSRouteInterval = &interval
+	}
+
 	config.RosenpassEnabled = msg.RosenpassEnabled
 	config.RosenpassPermissive = msg.RosenpassPermissive
 	config.DisableAutoConnect = msg.DisableAutoConnect
@@ -390,6 +373,11 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.DisableNotifications = msg.DisableNotifications
 	config.LazyConnectionEnabled = msg.LazyConnectionEnabled
 	config.BlockInbound = msg.BlockInbound
+
+	if msg.Mtu != nil {
+		mtu := uint16(*msg.Mtu)
+		config.MTU = &mtu
+	}
 
 	if _, err := profilemanager.UpdateConfig(config); err != nil {
 		log.Errorf("failed to update profile config: %v", err)
@@ -405,7 +393,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	if s.actCancel != nil {
 		s.actCancel()
 	}
-	ctx, cancel := context.WithCancel(s.rootCtx)
+	ctx, cancel := context.WithCancel(callerCtx)
 
 	md, ok := metadata.FromIncomingContext(callerCtx)
 	if ok {
@@ -415,11 +403,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
-	if err := restoreResidualState(ctx, s.profileManager.GetStatePath()); err != nil {
+	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
-	state := internal.CtxGetState(ctx)
+	state := internal.CtxGetState(s.rootCtx)
 	defer func() {
 		status, err := state.Status()
 		if err != nil || (status != internal.StatusNeedsLogin && status != internal.StatusLoginFailed) {
@@ -445,6 +433,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 
 		if *msg.ProfileName != activeProf.Name && username != activeProf.Username {
+			if s.checkProfilesDisabled() {
+				log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
+				return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+			}
+
 			log.Infof("switching to profile %s for user '%s'", *msg.ProfileName, username)
 			if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
 				Name:     *msg.ProfileName,
@@ -470,15 +463,10 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		// nolint
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, msg.Hostname)
 	}
+
 	s.mutex.Unlock()
 
-	cfgPath, err := activeProf.FilePath()
-	if err != nil {
-		log.Errorf("failed to get active profile file path: %v", err)
-		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
-	}
-
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
@@ -632,6 +620,20 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
+	if s.clientRunning {
+		state := internal.CtxGetState(s.rootCtx)
+		status, err := state.Status()
+		if err != nil {
+			s.mutex.Unlock()
+			return nil, err
+		}
+		if status == internal.StatusNeedsLogin {
+			s.actCancel()
+		}
+		s.mutex.Unlock()
+
+		return s.waitForUp(callerCtx)
+	}
 	defer s.mutex.Unlock()
 
 	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
@@ -647,16 +649,16 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	if err != nil {
 		return nil, err
 	}
+
 	if status != internal.StatusIdle {
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
 
-	// it should be nil here, but .
+	// it should be nil here, but in case it isn't we cancel it.
 	if s.actCancel != nil {
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
-
 	md, ok := metadata.FromIncomingContext(callerCtx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -689,13 +691,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	log.Infof("active profile: %s for %s", activeProf.Name, activeProf.Username)
 
-	cfgPath, err := activeProf.FilePath()
-	if err != nil {
-		log.Errorf("failed to get active profile file path: %v", err)
-		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
-	}
-
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
 		return nil, fmt.Errorf("failed to get active profile config: %w", err)
@@ -705,23 +701,31 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
+	s.clientRunning = true
+	s.clientRunningChan = make(chan struct{})
+	s.clientGiveUpChan = make(chan struct{})
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+
+	return s.waitForUp(callerCtx)
+}
+
+// todo: handle potential race conditions
+func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error) {
 	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
 
-	runningChan := make(chan struct{}, 1) // buffered channel to do not lose the signal
-	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, runningChan)
-	for {
-		select {
-		case <-runningChan:
-			s.isSessionActive.Store(true)
-			return &proto.UpResponse{}, nil
-		case <-callerCtx.Done():
-			log.Debug("context done, stopping the wait for engine to become ready")
-			return nil, callerCtx.Err()
-		case <-timeoutCtx.Done():
-			log.Debug("up is timed out, stopping the wait for engine to become ready")
-			return nil, timeoutCtx.Err()
-		}
+	select {
+	case <-s.clientGiveUpChan:
+		return nil, fmt.Errorf("client gave up to connect")
+	case <-s.clientRunningChan:
+		s.isSessionActive.Store(true)
+		return &proto.UpResponse{}, nil
+	case <-callerCtx.Done():
+		log.Debug("context done, stopping the wait for engine to become ready")
+		return nil, callerCtx.Err()
+	case <-timeoutCtx.Done():
+		log.Debug("up is timed out, stopping the wait for engine to become ready")
+		return nil, timeoutCtx.Err()
 	}
 }
 
@@ -737,6 +741,11 @@ func (s *Server) switchProfileIfNeeded(profileName string, userName *string, act
 	}
 
 	if profileName != activeProf.Name || username != activeProf.Username {
+		if s.checkProfilesDisabled() {
+			log.Errorf("profiles are disabled, you cannot use this feature without profiles enabled")
+			return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+		}
+
 		log.Infof("switching to profile %s for user %s", profileName, username)
 		if err := s.profileManager.SetActiveProfileState(&profilemanager.ActiveProfileState{
 			Name:     profileName,
@@ -772,13 +781,7 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 		log.Errorf("failed to get active profile state: %v", err)
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
-	cfgPath, err := activeProf.FilePath()
-	if err != nil {
-		log.Errorf("failed to get active profile file path: %v", err)
-		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
-	}
-
-	config, err := profilemanager.GetConfig(cfgPath)
+	config, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get default profile config: %v", err)
 		return nil, fmt.Errorf("failed to get default profile config: %w", err)
@@ -794,26 +797,201 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	s.oauthAuthFlow = oauthAuthFlow{}
-
-	if s.actCancel == nil {
-		return nil, fmt.Errorf("service is not up")
-	}
-	s.actCancel()
-
-	err := s.connectClient.Stop()
-	if err != nil {
+	if err := s.cleanupConnection(); err != nil {
 		log.Errorf("failed to shut down properly: %v", err)
 		return nil, err
 	}
-	s.isSessionActive.Store(false)
 
 	state := internal.CtxGetState(s.rootCtx)
 	state.Set(internal.StatusIdle)
 
+	return &proto.DownResponse{}, nil
+}
+
+func (s *Server) cleanupConnection() error {
+	s.oauthAuthFlow = oauthAuthFlow{}
+
+	if s.actCancel == nil {
+		return ErrServiceNotUp
+	}
+	s.actCancel()
+
+	if s.connectClient == nil {
+		return nil
+	}
+
+	if err := s.connectClient.Stop(); err != nil {
+		return err
+	}
+
+	s.connectClient = nil
+	s.isSessionActive.Store(false)
+
 	log.Infof("service is down")
 
-	return &proto.DownResponse{}, nil
+	return nil
+}
+
+func (s *Server) Logout(ctx context.Context, msg *proto.LogoutRequest) (*proto.LogoutResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if msg.ProfileName != nil && *msg.ProfileName != "" {
+		return s.handleProfileLogout(ctx, msg)
+	}
+
+	return s.handleActiveProfileLogout(ctx)
+}
+
+func (s *Server) handleProfileLogout(ctx context.Context, msg *proto.LogoutRequest) (*proto.LogoutResponse, error) {
+	if err := s.validateProfileOperation(*msg.ProfileName, true); err != nil {
+		return nil, err
+	}
+
+	if msg.Username == nil || *msg.Username == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "username must be provided when profile name is specified")
+	}
+	username := *msg.Username
+
+	if err := s.logoutFromProfile(ctx, *msg.ProfileName, username); err != nil {
+		log.Errorf("failed to logout from profile %s: %v", *msg.ProfileName, err)
+		return nil, gstatus.Errorf(codes.Internal, "logout: %v", err)
+	}
+
+	activeProf, _ := s.profileManager.GetActiveProfileState()
+	if activeProf != nil && activeProf.Name == *msg.ProfileName {
+		if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+			log.Errorf("failed to cleanup connection: %v", err)
+		}
+		state := internal.CtxGetState(s.rootCtx)
+		state.Set(internal.StatusNeedsLogin)
+	}
+
+	return &proto.LogoutResponse{}, nil
+}
+
+func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutResponse, error) {
+	if s.config == nil {
+		activeProf, err := s.profileManager.GetActiveProfileState()
+		if err != nil {
+			return nil, gstatus.Errorf(codes.FailedPrecondition, "failed to get active profile state: %v", err)
+		}
+
+		config, err := s.getConfig(activeProf)
+		if err != nil {
+			return nil, gstatus.Errorf(codes.FailedPrecondition, "not logged in")
+		}
+		s.config = config
+	}
+
+	if err := s.sendLogoutRequest(ctx); err != nil {
+		log.Errorf("failed to send logout request: %v", err)
+		return nil, err
+	}
+
+	if err := s.cleanupConnection(); err != nil && !errors.Is(err, ErrServiceNotUp) {
+		log.Errorf("failed to cleanup connection: %v", err)
+		return nil, err
+	}
+
+	state := internal.CtxGetState(s.rootCtx)
+	state.Set(internal.StatusNeedsLogin)
+
+	return &proto.LogoutResponse{}, nil
+}
+
+// getConfig loads the config from the active profile
+func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, error) {
+	cfgPath, err := activeProf.FilePath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
+	}
+
+	config, err := profilemanager.GetConfig(cfgPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config: %w", err)
+	}
+
+	return config, nil
+}
+
+func (s *Server) canRemoveProfile(profileName string) error {
+	if profileName == profilemanager.DefaultProfileName {
+		return fmt.Errorf("remove profile with reserved name: %s", profilemanager.DefaultProfileName)
+	}
+
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err == nil && activeProf.Name == profileName {
+		return fmt.Errorf("remove active profile: %s", profileName)
+	}
+
+	return nil
+}
+
+func (s *Server) validateProfileOperation(profileName string, allowActiveProfile bool) error {
+	if s.checkProfilesDisabled() {
+		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
+
+	if profileName == "" {
+		return gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
+	}
+
+	if !allowActiveProfile {
+		if err := s.canRemoveProfile(profileName); err != nil {
+			return gstatus.Errorf(codes.InvalidArgument, "%v", err)
+		}
+	}
+
+	return nil
+}
+
+// logoutFromProfile logs out from a specific profile by loading its config and sending logout request
+func (s *Server) logoutFromProfile(ctx context.Context, profileName, username string) error {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err == nil && activeProf.Name == profileName && s.connectClient != nil {
+		return s.sendLogoutRequest(ctx)
+	}
+
+	profileState := &profilemanager.ActiveProfileState{
+		Name:     profileName,
+		Username: username,
+	}
+	profilePath, err := profileState.FilePath()
+	if err != nil {
+		return fmt.Errorf("get profile path: %w", err)
+	}
+
+	config, err := profilemanager.GetConfig(profilePath)
+	if err != nil {
+		return fmt.Errorf("profile '%s' not found", profileName)
+	}
+
+	return s.sendLogoutRequestWithConfig(ctx, config)
+}
+
+func (s *Server) sendLogoutRequest(ctx context.Context) error {
+	return s.sendLogoutRequestWithConfig(ctx, s.config)
+}
+
+func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profilemanager.Config) error {
+	key, err := wgtypes.ParseKey(config.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("parse private key: %w", err)
+	}
+
+	mgmTlsEnabled := config.ManagementURL.Scheme == "https"
+	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, key, mgmTlsEnabled)
+	if err != nil {
+		return fmt.Errorf("connect to management server: %w", err)
+	}
+	defer func() {
+		if err := mgmClient.Close(); err != nil {
+			log.Errorf("close management client: %v", err)
+		}
+	}()
+
+	return mgmClient.Logout()
 }
 
 // Status returns the daemon status
@@ -821,12 +999,46 @@ func (s *Server) Status(
 	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	clientRunning := s.clientRunning
+	s.mutex.Unlock()
+
+	if msg.WaitForReady != nil && *msg.WaitForReady && clientRunning {
+		state := internal.CtxGetState(s.rootCtx)
+		status, err := state.Status()
+		if err != nil {
+			return nil, err
+		}
+
+		if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
+			s.actCancel()
+		}
+
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+	loop:
+		for {
+			select {
+			case <-s.clientGiveUpChan:
+				ticker.Stop()
+				break loop
+			case <-s.clientRunningChan:
+				ticker.Stop()
+				break loop
+			case <-ticker.C:
+				status, err := state.Status()
+				if err != nil {
+					continue
+				}
+				if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
+					s.actCancel()
+				}
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
 
 	status, err := internal.CtxGetState(s.rootCtx).Status()
 	if err != nil {
@@ -929,6 +1141,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		AdminURL:              adminURL.String(),
 		InterfaceName:         cfg.WgIface,
 		WireguardPort:         int64(cfg.WgPort),
+		Mtu:                   int64(cfg.MTU),
 		DisableAutoConnect:    cfg.DisableAutoConnect,
 		ServerSSHAllowed:      *cfg.ServerSSHAllowed,
 		RosenpassEnabled:      cfg.RosenpassEnabled,
@@ -944,6 +1157,134 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	}, nil
 }
 
+// AddProfile adds a new profile to the daemon.
+func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (*proto.AddProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.checkProfilesDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
+
+	if msg.ProfileName == "" || msg.Username == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
+	}
+
+	if err := s.profileManager.AddProfile(msg.ProfileName, msg.Username); err != nil {
+		log.Errorf("failed to create profile: %v", err)
+		return nil, fmt.Errorf("failed to create profile: %w", err)
+	}
+
+	return &proto.AddProfileResponse{}, nil
+}
+
+// RemoveProfile removes a profile from the daemon.
+func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequest) (*proto.RemoveProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if err := s.validateProfileOperation(msg.ProfileName, false); err != nil {
+		return nil, err
+	}
+
+	if err := s.logoutFromProfile(ctx, msg.ProfileName, msg.Username); err != nil {
+		log.Warnf("failed to logout from profile %s before removal: %v", msg.ProfileName, err)
+	}
+
+	if err := s.profileManager.RemoveProfile(msg.ProfileName, msg.Username); err != nil {
+		log.Errorf("failed to remove profile: %v", err)
+		return nil, fmt.Errorf("failed to remove profile: %w", err)
+	}
+
+	return &proto.RemoveProfileResponse{}, nil
+}
+
+// ListProfiles lists all profiles in the daemon.
+func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesRequest) (*proto.ListProfilesResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if msg.Username == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "username must be provided")
+	}
+
+	profiles, err := s.profileManager.ListProfiles(msg.Username)
+	if err != nil {
+		log.Errorf("failed to list profiles: %v", err)
+		return nil, fmt.Errorf("failed to list profiles: %w", err)
+	}
+
+	response := &proto.ListProfilesResponse{
+		Profiles: make([]*proto.Profile, len(profiles)),
+	}
+	for i, profile := range profiles {
+		response.Profiles[i] = &proto.Profile{
+			Name:     profile.Name,
+			IsActive: profile.IsActive,
+		}
+	}
+
+	return response, nil
+}
+
+// GetActiveProfile returns the active profile in the daemon.
+func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfileRequest) (*proto.GetActiveProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	activeProfile, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		log.Errorf("failed to get active profile state: %v", err)
+		return nil, fmt.Errorf("failed to get active profile state: %w", err)
+	}
+
+	return &proto.GetActiveProfileResponse{
+		ProfileName: activeProfile.Name,
+		Username:    activeProfile.Username,
+	}, nil
+}
+
+// GetFeatures returns the features supported by the daemon.
+func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest) (*proto.GetFeaturesResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	features := &proto.GetFeaturesResponse{
+		DisableProfiles:       s.checkProfilesDisabled(),
+		DisableUpdateSettings: s.checkUpdateSettingsDisabled(),
+	}
+
+	return features, nil
+}
+
+func (s *Server) connect(ctx context.Context, config *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) error {
+	log.Tracef("running client connection")
+	s.connectClient = internal.NewConnectClient(ctx, config, statusRecorder)
+	s.connectClient.SetSyncResponsePersistence(s.persistSyncResponse)
+	if err := s.connectClient.Run(runningChan); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Server) checkProfilesDisabled() bool {
+	// Check if the environment variable is set to disable profiles
+	if s.profilesDisabled {
+		return true
+	}
+
+	return false
+}
+
+func (s *Server) checkUpdateSettingsDisabled() bool {
+	// Check if the environment variable is set to disable profiles
+	if s.updateSettingsDisabled {
+		return true
+	}
+
+	return false
+}
+
 func (s *Server) onSessionExpire() {
 	if runtime.GOOS != "windows" {
 		isUIActive := internal.CheckUIApp()
@@ -953,6 +1294,45 @@ func (s *Server) onSessionExpire() {
 			}
 		}
 	}
+}
+
+// getConnectWithBackoff returns a backoff with exponential backoff strategy for connection retries
+func getConnectWithBackoff(ctx context.Context) backoff.BackOff {
+	initialInterval := parseEnvDuration(retryInitialIntervalVar, defaultInitialRetryTime)
+	maxInterval := parseEnvDuration(maxRetryIntervalVar, defaultMaxRetryInterval)
+	maxElapsedTime := parseEnvDuration(maxRetryTimeVar, defaultMaxRetryTime)
+	multiplier := defaultRetryMultiplier
+
+	if envValue := os.Getenv(retryMultiplierVar); envValue != "" {
+		// parse the multiplier from the environment variable string value to float64
+		value, err := strconv.ParseFloat(envValue, 64)
+		if err != nil {
+			log.Warnf("unable to parse environment variable %s: %s. using default: %f", retryMultiplierVar, envValue, multiplier)
+		} else {
+			multiplier = value
+		}
+	}
+
+	return backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     initialInterval,
+		RandomizationFactor: 1,
+		Multiplier:          multiplier,
+		MaxInterval:         maxInterval,
+		MaxElapsedTime:      maxElapsedTime, // 14 days
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
+}
+
+// parseEnvDuration parses the environment variable and returns the duration
+func parseEnvDuration(envVar string, defaultDuration time.Duration) time.Duration {
+	if envValue := os.Getenv(envVar); envValue != "" {
+		if duration, err := time.ParseDuration(envValue); err == nil {
+			return duration
+		}
+		log.Warnf("unable to parse environment variable %s: %s. using default: %s", envVar, envValue, defaultDuration)
+	}
+	return defaultDuration
 }
 
 func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
@@ -1024,8 +1404,14 @@ func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 		if dnsState.Error != nil {
 			err = dnsState.Error.Error()
 		}
+
+		var servers []string
+		for _, server := range dnsState.Servers {
+			servers = append(servers, server.String())
+		}
+
 		pbDnsState := &proto.NSGroupState{
-			Servers: dnsState.Servers,
+			Servers: servers,
 			Domains: dnsState.Domains,
 			Enabled: dnsState.Enabled,
 			Error:   err,
@@ -1062,83 +1448,4 @@ func sendTerminalNotification() error {
 	}
 
 	return wallCmd.Wait()
-}
-
-// AddProfile adds a new profile to the daemon.
-func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (*proto.AddProfileResponse, error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	if msg.ProfileName == "" || msg.Username == "" {
-		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
-	}
-
-	if err := s.profileManager.AddProfile(msg.ProfileName, msg.Username); err != nil {
-		log.Errorf("failed to create profile: %v", err)
-		return nil, fmt.Errorf("failed to create profile: %w", err)
-	}
-
-	return &proto.AddProfileResponse{}, nil
-}
-
-// RemoveProfile removes a profile from the daemon.
-func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequest) (*proto.RemoveProfileResponse, error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	if msg.ProfileName == "" {
-		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
-	}
-
-	if err := s.profileManager.RemoveProfile(msg.ProfileName, msg.Username); err != nil {
-		log.Errorf("failed to remove profile: %v", err)
-		return nil, fmt.Errorf("failed to remove profile: %w", err)
-	}
-
-	return &proto.RemoveProfileResponse{}, nil
-}
-
-// ListProfiles lists all profiles in the daemon.
-func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesRequest) (*proto.ListProfilesResponse, error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	if msg.Username == "" {
-		return nil, gstatus.Errorf(codes.InvalidArgument, "username must be provided")
-	}
-
-	profiles, err := s.profileManager.ListProfiles(msg.Username)
-	if err != nil {
-		log.Errorf("failed to list profiles: %v", err)
-		return nil, fmt.Errorf("failed to list profiles: %w", err)
-	}
-
-	response := &proto.ListProfilesResponse{
-		Profiles: make([]*proto.Profile, len(profiles)),
-	}
-	for i, profile := range profiles {
-		response.Profiles[i] = &proto.Profile{
-			Name:     profile.Name,
-			IsActive: profile.IsActive,
-		}
-	}
-
-	return response, nil
-}
-
-// GetActiveProfile returns the active profile in the daemon.
-func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfileRequest) (*proto.GetActiveProfileResponse, error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	activeProfile, err := s.profileManager.GetActiveProfileState()
-	if err != nil {
-		log.Errorf("failed to get active profile state: %v", err)
-		return nil, fmt.Errorf("failed to get active profile state: %w", err)
-	}
-
-	return &proto.GetActiveProfileResponse{
-		ProfileName: activeProfile.Name,
-		Username:    activeProfile.Username,
-	}, nil
 }

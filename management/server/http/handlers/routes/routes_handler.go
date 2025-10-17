@@ -8,16 +8,18 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const failedToConvertRoute = "failed to convert route to response: %v"
+
+const exitNodeCIDR = "0.0.0.0/0"
 
 // handler is the routes handler of the account
 type handler struct {
@@ -124,8 +126,16 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 		accessControlGroupIds = *req.AccessControlGroups
 	}
 
+	// Set default skipAutoApply value for exit nodes (0.0.0.0/0 routes)
+	skipAutoApply := false
+	if req.SkipAutoApply != nil {
+		skipAutoApply = *req.SkipAutoApply
+	} else if newPrefix.String() == exitNodeCIDR {
+		skipAutoApply = false
+	}
+
 	newRoute, err := h.accountManager.CreateRoute(r.Context(), accountID, newPrefix, networkType, domains, peerId, peerGroupIds,
-		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute)
+		req.Description, route.NetID(req.NetworkId), req.Masquerade, req.Metric, req.Groups, accessControlGroupIds, req.Enabled, userID, req.KeepRoute, skipAutoApply)
 
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -142,23 +152,31 @@ func (h *handler) createRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) validateRoute(req api.PostApiRoutesJSONRequestBody) error {
-	if req.Network != nil && req.Domains != nil {
+	return h.validateRouteCommon(req.Network, req.Domains, req.Peer, req.PeerGroups, req.NetworkId)
+}
+
+func (h *handler) validateRouteUpdate(req api.PutApiRoutesRouteIdJSONRequestBody) error {
+	return h.validateRouteCommon(req.Network, req.Domains, req.Peer, req.PeerGroups, req.NetworkId)
+}
+
+func (h *handler) validateRouteCommon(network *string, domains *[]string, peer *string, peerGroups *[]string, networkId string) error {
+	if network != nil && domains != nil {
 		return status.Errorf(status.InvalidArgument, "only one of 'network' or 'domains' should be provided")
 	}
 
-	if req.Network == nil && req.Domains == nil {
+	if network == nil && domains == nil {
 		return status.Errorf(status.InvalidArgument, "either 'network' or 'domains' should be provided")
 	}
 
-	if req.Peer == nil && req.PeerGroups == nil {
+	if peer == nil && peerGroups == nil {
 		return status.Errorf(status.InvalidArgument, "either 'peer' or 'peer_groups' should be provided")
 	}
 
-	if req.Peer != nil && req.PeerGroups != nil {
+	if peer != nil && peerGroups != nil {
 		return status.Errorf(status.InvalidArgument, "only one of 'peer' or 'peer_groups' should be provided")
 	}
 
-	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
+	if utf8.RuneCountInString(networkId) > route.MaxNetIDChar || networkId == "" {
 		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d characters",
 			route.MaxNetIDChar)
 	}
@@ -195,7 +213,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.validateRoute(req); err != nil {
+	if err := h.validateRouteUpdate(req); err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
@@ -205,15 +223,24 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		peerID = *req.Peer
 	}
 
+	// Set default skipAutoApply value for exit nodes (0.0.0.0/0 routes)
+	skipAutoApply := false
+	if req.SkipAutoApply != nil {
+		skipAutoApply = *req.SkipAutoApply
+	} else if req.Network != nil && *req.Network == exitNodeCIDR {
+		skipAutoApply = false
+	}
+
 	newRoute := &route.Route{
-		ID:          route.ID(routeID),
-		NetID:       route.NetID(req.NetworkId),
-		Masquerade:  req.Masquerade,
-		Metric:      req.Metric,
-		Description: req.Description,
-		Enabled:     req.Enabled,
-		Groups:      req.Groups,
-		KeepRoute:   req.KeepRoute,
+		ID:            route.ID(routeID),
+		NetID:         route.NetID(req.NetworkId),
+		Masquerade:    req.Masquerade,
+		Metric:        req.Metric,
+		Description:   req.Description,
+		Enabled:       req.Enabled,
+		Groups:        req.Groups,
+		KeepRoute:     req.KeepRoute,
+		SkipAutoApply: skipAutoApply,
 	}
 
 	if req.Domains != nil {
@@ -321,18 +348,19 @@ func toRouteResponse(serverRoute *route.Route) (*api.Route, error) {
 	}
 	network := serverRoute.Network.String()
 	route := &api.Route{
-		Id:          string(serverRoute.ID),
-		Description: serverRoute.Description,
-		NetworkId:   string(serverRoute.NetID),
-		Enabled:     serverRoute.Enabled,
-		Peer:        &serverRoute.Peer,
-		Network:     &network,
-		Domains:     &domains,
-		NetworkType: serverRoute.NetworkType.String(),
-		Masquerade:  serverRoute.Masquerade,
-		Metric:      serverRoute.Metric,
-		Groups:      serverRoute.Groups,
-		KeepRoute:   serverRoute.KeepRoute,
+		Id:            string(serverRoute.ID),
+		Description:   serverRoute.Description,
+		NetworkId:     string(serverRoute.NetID),
+		Enabled:       serverRoute.Enabled,
+		Peer:          &serverRoute.Peer,
+		Network:       &network,
+		Domains:       &domains,
+		NetworkType:   serverRoute.NetworkType.String(),
+		Masquerade:    serverRoute.Masquerade,
+		Metric:        serverRoute.Metric,
+		Groups:        serverRoute.Groups,
+		KeepRoute:     serverRoute.KeepRoute,
+		SkipAutoApply: &serverRoute.SkipAutoApply,
 	}
 
 	if len(serverRoute.PeerGroups) > 0 {

@@ -245,7 +245,7 @@ func (n *networkManagerDbusConfigurator) deleteConnectionSettings() error {
 	return nil
 }
 
-func (n *networkManagerDbusConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
+func (n *networkManagerDbusConfigurator) restoreUncleanShutdownDNS(netip.Addr) error {
 	if err := n.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via network-manager: %w", err)
 	}

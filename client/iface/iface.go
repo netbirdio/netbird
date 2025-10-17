@@ -16,9 +16,9 @@ import (
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/monotime"
@@ -26,6 +26,8 @@ import (
 
 const (
 	DefaultMTU         = 1280
+	MinMTU             = 576
+	MaxMTU             = 8192
 	DefaultWgPort      = 51820
 	WgInterfaceDefault = configurer.WgInterfaceDefault
 )
@@ -34,6 +36,17 @@ var (
 	// ErrIfaceNotFound is returned when the WireGuard interface is not found
 	ErrIfaceNotFound = fmt.Errorf("wireguard interface not found")
 )
+
+// ValidateMTU validates that MTU is within acceptable range
+func ValidateMTU(mtu uint16) error {
+	if mtu < MinMTU {
+		return fmt.Errorf("MTU %d below minimum (%d bytes)", mtu, MinMTU)
+	}
+	if mtu > MaxMTU {
+		return fmt.Errorf("MTU %d exceeds maximum supported size (%d bytes)", mtu, MaxMTU)
+	}
+	return nil
+}
 
 type wgProxyFactory interface {
 	GetProxy() wgproxy.Proxy
@@ -45,10 +58,10 @@ type WGIFaceOpts struct {
 	Address      string
 	WGPort       int
 	WGPrivKey    string
-	MTU          int
+	MTU          uint16
 	MobileArgs   *device.MobileIFaceArguments
 	TransportNet transport.Net
-	FilterFn     bind.FilterFn
+	FilterFn     udpmux.FilterFn
 	DisableDNS   bool
 }
 
@@ -67,6 +80,17 @@ func (w *WGIface) GetProxy() wgproxy.Proxy {
 	return w.wgProxyFactory.GetProxy()
 }
 
+// GetBind returns the EndpointManager userspace bind mode.
+func (w *WGIface) GetBind() device.EndpointManager {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.tun == nil {
+		return nil
+	}
+	return w.tun.GetICEBind()
+}
+
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
 func (w *WGIface) IsUserspaceBind() bool {
 	return w.userspaceBind
@@ -80,6 +104,10 @@ func (w *WGIface) Name() string {
 // Address returns the interface address
 func (w *WGIface) Address() wgaddr.Address {
 	return w.tun.WgAddress()
+}
+
+func (w *WGIface) MTU() uint16 {
+	return w.tun.MTU()
 }
 
 // ToInterface returns the net.Interface for the Wireguard interface
@@ -97,7 +125,7 @@ func (r *WGIface) ToInterface() *net.Interface {
 
 // Up configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
-func (w *WGIface) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (w *WGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -129,6 +157,17 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAliv
 
 	log.Debugf("updating interface %s peer %s, endpoint %s, allowedIPs %v", w.tun.DeviceName(), peerKey, endpoint, allowedIps)
 	return w.configurer.UpdatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
+}
+
+func (w *WGIface) RemoveEndpointAddress(peerKey string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.configurer == nil {
+		return ErrIfaceNotFound
+	}
+
+	log.Debugf("Removing endpoint address: %s", peerKey)
+	return w.configurer.RemoveEndpointAddress(peerKey)
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface

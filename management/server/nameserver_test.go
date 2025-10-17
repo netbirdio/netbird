@@ -876,11 +876,11 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*types.Account,
 		return nil, err
 	}
 
-	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer1)
+	_, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer1, false)
 	if err != nil {
 		return nil, err
 	}
-	_, _, _, err = am.AddPeer(context.Background(), "", userID, peer2)
+	_, _, _, err = am.AddPeer(context.Background(), "", "", userID, peer2, false)
 	if err != nil {
 		return nil, err
 	}
@@ -980,18 +980,18 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	var newNameServerGroupA *nbdns.NameServerGroup
 	var newNameServerGroupB *nbdns.NameServerGroup
 
-	err := manager.SaveGroups(context.Background(), account.Id, userID, []*types.Group{
-		{
-			ID:    "groupA",
-			Name:  "GroupA",
-			Peers: []string{},
-		},
-		{
-			ID:    "groupB",
-			Name:  "GroupB",
-			Peers: []string{peer1.ID, peer2.ID, peer3.ID},
-		},
-	}, true)
+	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+		ID:    "groupA",
+		Name:  "GroupA",
+		Peers: []string{},
+	})
+	assert.NoError(t, err)
+
+	err = manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
+		ID:    "groupB",
+		Name:  "GroupB",
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
+	})
 	assert.NoError(t, err)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)

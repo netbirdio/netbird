@@ -19,7 +19,6 @@ type isConnectedFunc func() bool
 // - Relayed connection disconnected
 // - ICE candidate changes
 type Guard struct {
-	Reconnect               chan struct{}
 	log                     *log.Entry
 	isConnectedOnAllWay     isConnectedFunc
 	timeout                 time.Duration
@@ -30,7 +29,6 @@ type Guard struct {
 
 func NewGuard(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
 	return &Guard{
-		Reconnect:               make(chan struct{}, 1),
 		log:                     log,
 		isConnectedOnAllWay:     isConnectedFn,
 		timeout:                 timeout,
@@ -41,6 +39,7 @@ func NewGuard(log *log.Entry, isConnectedFn isConnectedFunc, timeout time.Durati
 }
 
 func (g *Guard) Start(ctx context.Context, eventCallback func()) {
+	g.log.Infof("starting guard for reconnection with MaxInterval: %s", g.timeout)
 	g.reconnectLoopWithRetry(ctx, eventCallback)
 }
 
@@ -61,17 +60,14 @@ func (g *Guard) SetICEConnDisconnected() {
 // reconnectLoopWithRetry periodically check the connection status.
 // Try to send offer while the P2P is not established or while the Relay is not connected if is it supported
 func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
-	waitForInitialConnectionTry(ctx)
-
 	srReconnectedChan := g.srWatcher.NewListener()
 	defer g.srWatcher.RemoveListener(srReconnectedChan)
 
-	ticker := g.prepareExponentTicker(ctx)
+	ticker := g.initialTicker(ctx)
 	defer ticker.Stop()
 
 	tickerChannel := ticker.C
 
-	g.log.Infof("start reconnect loop...")
 	for {
 		select {
 		case t := <-tickerChannel:
@@ -85,7 +81,6 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 			if !g.isConnectedOnAllWay() {
 				callback()
 			}
-
 		case <-g.relayedConnDisconnected:
 			g.log.Debugf("Relay connection changed, reset reconnection ticker")
 			ticker.Stop()
@@ -111,6 +106,20 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 	}
 }
 
+// initialTicker give chance to the peer to establish the initial connection.
+func (g *Guard) initialTicker(ctx context.Context) *backoff.Ticker {
+	bo := backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     3 * time.Second,
+		RandomizationFactor: 0.1,
+		Multiplier:          2,
+		MaxInterval:         g.timeout,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
+
+	return backoff.NewTicker(bo)
+}
+
 func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
@@ -125,14 +134,4 @@ func (g *Guard) prepareExponentTicker(ctx context.Context) *backoff.Ticker {
 	<-ticker.C // consume the initial tick what is happening right after the ticker has been created
 
 	return ticker
-}
-
-// Give chance to the peer to establish the initial connection.
-// With it, we can decrease to send necessary offer
-func waitForInitialConnectionTry(ctx context.Context) {
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(3 * time.Second):
-	}
 }

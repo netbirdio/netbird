@@ -1,9 +1,9 @@
 package peer
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -79,31 +79,30 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 		return
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		<-conn.handshaker.remoteOffersCh
-		wg.Done()
-	}()
+	onNewOfferChan := make(chan struct{})
 
-	go func() {
-		for {
-			accepted := conn.OnRemoteOffer(OfferAnswer{
-				IceCredentials: IceCredentials{
-					UFrag: "test",
-					Pwd:   "test",
-				},
-				WgListenPort: 0,
-				Version:      "",
-			})
-			if accepted {
-				wg.Done()
-				return
-			}
-		}
-	}()
+	conn.handshaker.AddRelayListener(func(remoteOfferAnswer *OfferAnswer) {
+		onNewOfferChan <- struct{}{}
+	})
 
-	wg.Wait()
+	conn.OnRemoteOffer(OfferAnswer{
+		IceCredentials: IceCredentials{
+			UFrag: "test",
+			Pwd:   "test",
+		},
+		WgListenPort: 0,
+		Version:      "",
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	select {
+	case <-onNewOfferChan:
+		// success
+	case <-ctx.Done():
+		t.Error("expected to receive a new offer notification, but timed out")
+	}
 }
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
@@ -119,31 +118,29 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 		return
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		<-conn.handshaker.remoteAnswerCh
-		wg.Done()
-	}()
+	onNewOfferChan := make(chan struct{})
 
-	go func() {
-		for {
-			accepted := conn.OnRemoteAnswer(OfferAnswer{
-				IceCredentials: IceCredentials{
-					UFrag: "test",
-					Pwd:   "test",
-				},
-				WgListenPort: 0,
-				Version:      "",
-			})
-			if accepted {
-				wg.Done()
-				return
-			}
-		}
-	}()
+	conn.handshaker.AddRelayListener(func(remoteOfferAnswer *OfferAnswer) {
+		onNewOfferChan <- struct{}{}
+	})
 
-	wg.Wait()
+	conn.OnRemoteAnswer(OfferAnswer{
+		IceCredentials: IceCredentials{
+			UFrag: "test",
+			Pwd:   "test",
+		},
+		WgListenPort: 0,
+		Version:      "",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	select {
+	case <-onNewOfferChan:
+		// success
+	case <-ctx.Done():
+		t.Error("expected to receive a new offer notification, but timed out")
+	}
 }
 
 func TestConn_presharedKey(t *testing.T) {

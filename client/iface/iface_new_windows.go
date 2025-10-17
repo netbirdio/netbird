@@ -14,7 +14,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 	if err != nil {
 		return nil, err
 	}
-	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress)
+	iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, opts.MTU)
 
 	var tun WGTunDevice
 	if netstack.IsEnabled() {
@@ -26,7 +26,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 	wgIFace := &WGIface{
 		userspaceBind:  true,
 		tun:            tun,
-		wgProxyFactory: wgproxy.NewUSPFactory(iceBind),
+		wgProxyFactory: wgproxy.NewUSPFactory(iceBind, opts.MTU),
 	}
 	return wgIFace, nil
 

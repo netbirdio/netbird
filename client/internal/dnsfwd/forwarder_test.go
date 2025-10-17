@@ -3,6 +3,7 @@ package dnsfwd
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
@@ -16,8 +17,8 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/management/domain"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 func Test_getMatchingEntries(t *testing.T) {
@@ -647,6 +648,95 @@ func TestDNSForwarder_TCPTruncation(t *testing.T) {
 	assert.LessOrEqual(t, writtenResp.Len(), dns.MinMsgSize, "Response should fit in minimum UDP size")
 }
 
+// Ensures that when the first query succeeds and populates the cache,
+// a subsequent upstream failure still returns a successful response from cache.
+func TestDNSForwarder_ServeFromCacheOnUpstreamFailure(t *testing.T) {
+	mockResolver := &MockResolver{}
+	forwarder := NewDNSForwarder("127.0.0.1:0", 300, nil, &peer.Status{})
+	forwarder.resolver = mockResolver
+
+	d, err := domain.FromString("example.com")
+	require.NoError(t, err)
+	entries := []*ForwarderEntry{{Domain: d, ResID: "res-cache"}}
+	forwarder.UpdateDomains(entries)
+
+	ip := netip.MustParseAddr("1.2.3.4")
+
+	// First call resolves successfully and populates cache
+	mockResolver.On("LookupNetIP", mock.Anything, "ip4", dns.Fqdn("example.com")).
+		Return([]netip.Addr{ip}, nil).Once()
+
+	// Second call fails upstream; forwarder should serve from cache
+	mockResolver.On("LookupNetIP", mock.Anything, "ip4", dns.Fqdn("example.com")).
+		Return([]netip.Addr{}, &net.DNSError{Err: "temporary failure"}).Once()
+
+	// First query: populate cache
+	q1 := &dns.Msg{}
+	q1.SetQuestion(dns.Fqdn("example.com"), dns.TypeA)
+	w1 := &test.MockResponseWriter{}
+	resp1 := forwarder.handleDNSQuery(w1, q1)
+	require.NotNil(t, resp1)
+	require.Equal(t, dns.RcodeSuccess, resp1.Rcode)
+	require.Len(t, resp1.Answer, 1)
+
+	// Second query: serve from cache after upstream failure
+	q2 := &dns.Msg{}
+	q2.SetQuestion(dns.Fqdn("example.com"), dns.TypeA)
+	var writtenResp *dns.Msg
+	w2 := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { writtenResp = m; return nil }}
+	_ = forwarder.handleDNSQuery(w2, q2)
+
+	require.NotNil(t, writtenResp, "expected response to be written")
+	require.Equal(t, dns.RcodeSuccess, writtenResp.Rcode)
+	require.Len(t, writtenResp.Answer, 1)
+
+	mockResolver.AssertExpectations(t)
+}
+
+// Verifies that cache normalization works across casing and trailing dot variations.
+func TestDNSForwarder_CacheNormalizationCasingAndDot(t *testing.T) {
+	mockResolver := &MockResolver{}
+	forwarder := NewDNSForwarder("127.0.0.1:0", 300, nil, &peer.Status{})
+	forwarder.resolver = mockResolver
+
+	d, err := domain.FromString("ExAmPlE.CoM")
+	require.NoError(t, err)
+	entries := []*ForwarderEntry{{Domain: d, ResID: "res-norm"}}
+	forwarder.UpdateDomains(entries)
+
+	ip := netip.MustParseAddr("9.8.7.6")
+
+	// Initial resolution with mixed case to populate cache
+	mixedQuery := "ExAmPlE.CoM"
+	mockResolver.On("LookupNetIP", mock.Anything, "ip4", dns.Fqdn(strings.ToLower(mixedQuery))).
+		Return([]netip.Addr{ip}, nil).Once()
+
+	q1 := &dns.Msg{}
+	q1.SetQuestion(mixedQuery+".", dns.TypeA)
+	w1 := &test.MockResponseWriter{}
+	resp1 := forwarder.handleDNSQuery(w1, q1)
+	require.NotNil(t, resp1)
+	require.Equal(t, dns.RcodeSuccess, resp1.Rcode)
+	require.Len(t, resp1.Answer, 1)
+
+	// Subsequent query without dot and upper case should hit cache even if upstream fails
+	// Forwarder lowercases and uses the question name as-is (no trailing dot here)
+	mockResolver.On("LookupNetIP", mock.Anything, "ip4", strings.ToLower("EXAMPLE.COM")).
+		Return([]netip.Addr{}, &net.DNSError{Err: "temporary failure"}).Once()
+
+	q2 := &dns.Msg{}
+	q2.SetQuestion("EXAMPLE.COM", dns.TypeA)
+	var writtenResp *dns.Msg
+	w2 := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { writtenResp = m; return nil }}
+	_ = forwarder.handleDNSQuery(w2, q2)
+
+	require.NotNil(t, writtenResp)
+	require.Equal(t, dns.RcodeSuccess, writtenResp.Rcode)
+	require.Len(t, writtenResp.Answer, 1)
+
+	mockResolver.AssertExpectations(t)
+}
+
 func TestDNSForwarder_MultipleOverlappingPatterns(t *testing.T) {
 	// Test complex overlapping pattern scenarios
 	mockFirewall := &MockFirewall{}
@@ -706,6 +796,131 @@ func TestDNSForwarder_MultipleOverlappingPatterns(t *testing.T) {
 	resID, matches := forwarder.getMatchingEntries("smtp.mail.example.com")
 	assert.Equal(t, route.ResID("res-smtp.mail.example.com"), resID)
 	assert.Len(t, matches, 3, "Should match 3 patterns")
+}
+
+// TestDNSForwarder_NodataVsNxdomain tests that the forwarder correctly distinguishes
+// between NXDOMAIN (domain doesn't exist) and NODATA (domain exists but no records of that type)
+func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
+	mockFirewall := &MockFirewall{}
+	mockResolver := &MockResolver{}
+
+	forwarder := NewDNSForwarder("127.0.0.1:0", 300, mockFirewall, &peer.Status{})
+	forwarder.resolver = mockResolver
+
+	d, err := domain.FromString("example.com")
+	require.NoError(t, err)
+
+	set := firewall.NewDomainSet([]domain.Domain{d})
+	entries := []*ForwarderEntry{{Domain: d, ResID: "test-res", Set: set}}
+	forwarder.UpdateDomains(entries)
+
+	tests := []struct {
+		name           string
+		queryType      uint16
+		setupMocks     func()
+		expectedCode   int
+		expectNoAnswer bool // true if we expect NOERROR with empty answer (NODATA case)
+		description    string
+	}{
+		{
+			name:      "domain exists but no AAAA records (NODATA)",
+			queryType: dns.TypeAAAA,
+			setupMocks: func() {
+				// First query for AAAA returns not found
+				mockResolver.On("LookupNetIP", mock.Anything, "ip6", "example.com.").
+					Return([]netip.Addr{}, &net.DNSError{IsNotFound: true, Name: "example.com"}).Once()
+				// Check query for A records succeeds (domain exists)
+				mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
+					Return([]netip.Addr{netip.MustParseAddr("1.2.3.4")}, nil).Once()
+			},
+			expectedCode:   dns.RcodeSuccess,
+			expectNoAnswer: true,
+			description:    "Should return NOERROR when domain exists but has no records of requested type",
+		},
+		{
+			name:      "domain exists but no A records (NODATA)",
+			queryType: dns.TypeA,
+			setupMocks: func() {
+				// First query for A returns not found
+				mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
+					Return([]netip.Addr{}, &net.DNSError{IsNotFound: true, Name: "example.com"}).Once()
+				// Check query for AAAA records succeeds (domain exists)
+				mockResolver.On("LookupNetIP", mock.Anything, "ip6", "example.com.").
+					Return([]netip.Addr{netip.MustParseAddr("2001:db8::1")}, nil).Once()
+			},
+			expectedCode:   dns.RcodeSuccess,
+			expectNoAnswer: true,
+			description:    "Should return NOERROR when domain exists but has no A records",
+		},
+		{
+			name:      "domain doesn't exist (NXDOMAIN)",
+			queryType: dns.TypeA,
+			setupMocks: func() {
+				// First query for A returns not found
+				mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
+					Return([]netip.Addr{}, &net.DNSError{IsNotFound: true, Name: "example.com"}).Once()
+				// Check query for AAAA also returns not found (domain doesn't exist)
+				mockResolver.On("LookupNetIP", mock.Anything, "ip6", "example.com.").
+					Return([]netip.Addr{}, &net.DNSError{IsNotFound: true, Name: "example.com"}).Once()
+			},
+			expectedCode:   dns.RcodeNameError,
+			expectNoAnswer: true,
+			description:    "Should return NXDOMAIN when domain doesn't exist at all",
+		},
+		{
+			name:      "domain exists with records (normal success)",
+			queryType: dns.TypeA,
+			setupMocks: func() {
+				mockResolver.On("LookupNetIP", mock.Anything, "ip4", "example.com.").
+					Return([]netip.Addr{netip.MustParseAddr("1.2.3.4")}, nil).Once()
+				// Expect firewall update for successful resolution
+				expectedPrefix := netip.PrefixFrom(netip.MustParseAddr("1.2.3.4"), 32)
+				mockFirewall.On("UpdateSet", set, []netip.Prefix{expectedPrefix}).Return(nil).Once()
+			},
+			expectedCode:   dns.RcodeSuccess,
+			expectNoAnswer: false,
+			description:    "Should return NOERROR with answer when records exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset mock expectations
+			mockResolver.ExpectedCalls = nil
+			mockResolver.Calls = nil
+			mockFirewall.ExpectedCalls = nil
+			mockFirewall.Calls = nil
+
+			tt.setupMocks()
+
+			query := &dns.Msg{}
+			query.SetQuestion(dns.Fqdn("example.com"), tt.queryType)
+
+			var writtenResp *dns.Msg
+			mockWriter := &test.MockResponseWriter{
+				WriteMsgFunc: func(m *dns.Msg) error {
+					writtenResp = m
+					return nil
+				},
+			}
+
+			resp := forwarder.handleDNSQuery(mockWriter, query)
+
+			// If a response was returned, it means it should be written (happens in wrapper functions)
+			if resp != nil && writtenResp == nil {
+				writtenResp = resp
+			}
+
+			require.NotNil(t, writtenResp, "Expected response to be written")
+			assert.Equal(t, tt.expectedCode, writtenResp.Rcode, tt.description)
+
+			if tt.expectNoAnswer {
+				assert.Empty(t, writtenResp.Answer, "Response should have no answer records")
+			}
+
+			mockResolver.AssertExpectations(t)
+		})
+	}
 }
 
 func TestDNSForwarder_EmptyQuery(t *testing.T) {

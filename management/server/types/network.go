@@ -12,11 +12,11 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/proto"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -163,7 +163,10 @@ func (n *Network) Copy() *Network {
 // E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3
 func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	baseIP := ipToUint32(ipNet.IP.Mask(ipNet.Mask))
-	totalIPs := uint32(1 << SubnetSize)
+
+	ones, bits := ipNet.Mask.Size()
+	hostBits := bits - ones
+	totalIPs := uint32(1 << hostBits)
 
 	taken := make(map[uint32]struct{}, len(takenIps)+1)
 	taken[baseIP] = struct{}{}            // reserve network IP

@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -158,7 +158,7 @@ func (kc *KeycloakCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (J
 		return jwtToken, fmt.Errorf("error while reading response body, expires_in: %d and access_token: %s", jwtToken.ExpiresIn, jwtToken.AccessToken)
 	}
 
-	data, err := jwt.DecodeSegment(strings.Split(jwtToken.AccessToken, ".")[1])
+	data, err := base64.RawURLEncoding.DecodeString(strings.Split(jwtToken.AccessToken, ".")[1])
 	if err != nil {
 		return jwtToken, err
 	}

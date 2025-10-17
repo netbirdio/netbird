@@ -34,7 +34,10 @@ func newUpstreamResolver(
 }
 
 func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns.Msg) (rm *dns.Msg, t time.Duration, err error) {
-	return ExchangeWithFallback(ctx, &dns.Client{}, r, upstream)
+	client := &dns.Client{
+		Timeout: ClientTimeout,
+	}
+	return ExchangeWithFallback(ctx, client, r, upstream)
 }
 
 func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {

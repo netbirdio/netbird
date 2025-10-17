@@ -5,8 +5,9 @@ import (
 )
 
 type ShutdownState struct {
-	Guid string
-	GPO  bool
+	Guid           string
+	GPO            bool
+	NRPTEntryCount int
 }
 
 func (s *ShutdownState) Name() string {
@@ -15,8 +16,9 @@ func (s *ShutdownState) Name() string {
 
 func (s *ShutdownState) Cleanup() error {
 	manager := &registryConfigurator{
-		guid: s.Guid,
-		gpo:  s.GPO,
+		guid:           s.Guid,
+		gpo:            s.GPO,
+		nrptEntryCount: s.NRPTEntryCount,
 	}
 
 	if err := manager.restoreUncleanShutdownDNS(); err != nil {

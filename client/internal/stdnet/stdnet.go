@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/pion/transport/v3"
 	"github.com/pion/transport/v3/stdnet"
 )
@@ -32,8 +33,14 @@ type Net struct {
 // NewNetWithDiscover creates a new StdNet instance.
 func NewNetWithDiscover(iFaceDiscover ExternalIFaceDiscover, disallowList []string) (*Net, error) {
 	n := &Net{
-		iFaceDiscover:   newMobileIFaceDiscover(iFaceDiscover),
 		interfaceFilter: InterfaceFilter(disallowList),
+	}
+	// current ExternalIFaceDiscover implement in android-client https://github.dev/netbirdio/android-client
+	// so in android cli use pionDiscover
+	if netstack.IsEnabled() {
+		n.iFaceDiscover = pionDiscover{}
+	} else {
+		n.iFaceDiscover = newMobileIFaceDiscover(iFaceDiscover)
 	}
 	return n, n.UpdateInterfaces()
 }

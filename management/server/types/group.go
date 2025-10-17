@@ -26,12 +26,39 @@ type Group struct {
 	Issued string
 
 	// Peers list of the group
-	Peers []string `gorm:"serializer:json"`
+	Peers      []string    `gorm:"-"` // Peers and GroupPeers list will be ignored when writing to the DB. Use AddPeerToGroup and RemovePeerFromGroup methods to modify group membership
+	GroupPeers []GroupPeer `gorm:"foreignKey:GroupID;references:id;constraint:OnDelete:CASCADE;"`
 
 	// Resources contains a list of resources in that group
 	Resources []Resource `gorm:"serializer:json"`
 
 	IntegrationReference integration_reference.IntegrationReference `gorm:"embedded;embeddedPrefix:integration_ref_"`
+}
+
+type GroupPeer struct {
+	AccountID string `gorm:"index"`
+	GroupID   string `gorm:"primaryKey"`
+	PeerID    string `gorm:"primaryKey"`
+}
+
+func (g *Group) LoadGroupPeers() {
+	g.Peers = make([]string, len(g.GroupPeers))
+	for i, peer := range g.GroupPeers {
+		g.Peers[i] = peer.PeerID
+	}
+	g.GroupPeers = []GroupPeer{}
+}
+
+func (g *Group) StoreGroupPeers() {
+	g.GroupPeers = make([]GroupPeer, len(g.Peers))
+	for i, peer := range g.Peers {
+		g.GroupPeers[i] = GroupPeer{
+			AccountID: g.AccountID,
+			GroupID:   g.ID,
+			PeerID:    peer,
+		}
+	}
+	g.Peers = []string{}
 }
 
 // EventMeta returns activity event meta related to the group
@@ -46,13 +73,16 @@ func (g *Group) EventMetaResource(resource *types.NetworkResource) map[string]an
 func (g *Group) Copy() *Group {
 	group := &Group{
 		ID:                   g.ID,
+		AccountID:            g.AccountID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
 		Peers:                make([]string, len(g.Peers)),
+		GroupPeers:           make([]GroupPeer, len(g.GroupPeers)),
 		Resources:            make([]Resource, len(g.Resources)),
 		IntegrationReference: g.IntegrationReference,
 	}
 	copy(group.Peers, g.Peers)
+	copy(group.GroupPeers, g.GroupPeers)
 	copy(group.Resources, g.Resources)
 	return group
 }

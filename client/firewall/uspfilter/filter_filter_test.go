@@ -15,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/mocks"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 func TestPeerACLFiltering(t *testing.T) {
@@ -458,6 +458,31 @@ func TestPeerACLFiltering(t *testing.T) {
 			ruleAction:      fw.ActionDrop,
 			shouldBeBlocked: true,
 		},
+		{
+			name:            "Peer ACL - Drop rule should override accept all rule",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         22,
+			ruleIP:          "100.10.0.1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{Values: []uint16{22}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "Peer ACL - Drop all traffic from specific IP",
+			srcIP:           "100.10.0.99",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         80,
+			ruleIP:          "100.10.0.99",
+			ruleProto:       fw.ProtocolALL,
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
 	}
 
 	t.Run("Implicit DROP (no rules)", func(t *testing.T) {
@@ -468,13 +493,11 @@ func TestPeerACLFiltering(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-
 			if tc.ruleAction == fw.ActionDrop {
-				// add general accept rule to test drop rule
-				// TODO: this only works because 0.0.0.0 is tested last, we need to implement order
+				// add general accept rule for the same IP to test drop rule precedence
 				rules, err := manager.AddPeerFiltering(
 					nil,
-					net.ParseIP("0.0.0.0"),
+					net.ParseIP(tc.ruleIP),
 					fw.ProtocolALL,
 					nil,
 					nil,

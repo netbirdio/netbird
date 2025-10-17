@@ -11,7 +11,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 
-	"github.com/netbirdio/netbird/management/domain"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 const dialTimeout = 10 * time.Second

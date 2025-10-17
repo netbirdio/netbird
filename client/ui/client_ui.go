@@ -257,6 +257,7 @@ type serviceClient struct {
 	iPreSharedKey  *widget.Entry
 	iInterfaceName *widget.Entry
 	iInterfacePort *widget.Entry
+	iMTU           *widget.Entry
 
 	// switch elements for settings form
 	sRosenpassPermissive *widget.Check
@@ -272,6 +273,7 @@ type serviceClient struct {
 	RosenpassPermissive bool
 	interfaceName       string
 	interfacePort       int
+	mtu                 uint16
 	networkMonitor      bool
 	disableDNS          bool
 	disableClientRoutes bool
@@ -392,6 +394,16 @@ func (s *serviceClient) updateIcon() {
 }
 
 func (s *serviceClient) showSettingsUI() {
+	// Check if update settings are disabled by daemon
+	features, err := s.getFeatures()
+	if err != nil {
+		log.Errorf("failed to get features from daemon: %v", err)
+		// Continue with default behavior if features can't be retrieved
+	} else if features != nil && features.DisableUpdateSettings {
+		log.Warn("Update settings are disabled by daemon")
+		return
+	}
+
 	// add settings window UI elements.
 	s.wSettings = s.app.NewWindow("NetBird Settings")
 	s.wSettings.SetOnClosed(s.cancel)
@@ -403,6 +415,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.iPreSharedKey = widget.NewPasswordEntry()
 	s.iInterfaceName = widget.NewEntry()
 	s.iInterfacePort = widget.NewEntry()
+	s.iMTU = widget.NewEntry()
 
 	s.sRosenpassPermissive = widget.NewCheck("Enable Rosenpass permissive mode", nil)
 
@@ -436,6 +449,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
+			{Text: "MTU", Widget: s.iMTU},
 			{Text: "Management URL", Widget: s.iMngURL},
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Log File", Widget: s.iLogFile},
@@ -447,6 +461,17 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 		},
 		SubmitText: "Save",
 		OnSubmit: func() {
+			// Check if update settings are disabled by daemon
+			features, err := s.getFeatures()
+			if err != nil {
+				log.Errorf("failed to get features from daemon: %v", err)
+				// Continue with default behavior if features can't be retrieved
+			} else if features != nil && features.DisableUpdateSettings {
+				log.Warn("Configuration updates are disabled by daemon")
+				dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
+				return
+			}
+
 			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 				// validate preSharedKey if it added
 				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
@@ -461,6 +486,21 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				return
 			}
 
+			var mtu int64
+			mtuText := strings.TrimSpace(s.iMTU.Text)
+			if mtuText != "" {
+				var err error
+				mtu, err = strconv.ParseInt(mtuText, 10, 64)
+				if err != nil {
+					dialog.ShowError(errors.New("Invalid MTU value"), s.wSettings)
+					return
+				}
+				if mtu < iface.MinMTU || mtu > iface.MaxMTU {
+					dialog.ShowError(fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU), s.wSettings)
+					return
+				}
+			}
+
 			iMngURL := strings.TrimSpace(s.iMngURL.Text)
 
 			defer s.wSettings.Close()
@@ -469,6 +509,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
 				s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
 				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
+				s.mtu != uint16(mtu) ||
 				s.networkMonitor != s.sNetworkMonitor.Checked ||
 				s.disableDNS != s.sDisableDNS.Checked ||
 				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
@@ -477,6 +518,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 
 				s.managementURL = iMngURL
 				s.preSharedKey = s.iPreSharedKey.Text
+				s.mtu = uint16(mtu)
 
 				currUser, err := user.Current()
 				if err != nil {
@@ -495,6 +537,9 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
 				req.InterfaceName = &s.iInterfaceName.Text
 				req.WireguardPort = &port
+				if mtu > 0 {
+					req.Mtu = &mtu
+				}
 				req.NetworkMonitor = &s.sNetworkMonitor.Checked
 				req.DisableDns = &s.sDisableDNS.Checked
 				req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
@@ -518,27 +563,28 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					return
 				}
 
-				status, err := conn.Status(s.ctx, &proto.StatusRequest{})
-				if err != nil {
-					log.Errorf("get service status: %v", err)
-					dialog.ShowError(fmt.Errorf("Failed to get service status: %v", err), s.wSettings)
-					return
-				}
-				if status.Status == string(internal.StatusConnected) {
-					// run down & up
-					_, err = conn.Down(s.ctx, &proto.DownRequest{})
+				go func() {
+					status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 					if err != nil {
-						log.Errorf("down service: %v", err)
-					}
-
-					_, err = conn.Up(s.ctx, &proto.UpRequest{})
-					if err != nil {
-						log.Errorf("up service: %v", err)
-						dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
+						log.Errorf("get service status: %v", err)
+						dialog.ShowError(fmt.Errorf("Failed to get service status: %v", err), s.wSettings)
 						return
 					}
-				}
+					if status.Status == string(internal.StatusConnected) {
+						// run down & up
+						_, err = conn.Down(s.ctx, &proto.DownRequest{})
+						if err != nil {
+							log.Errorf("down service: %v", err)
+						}
 
+						_, err = conn.Up(s.ctx, &proto.UpRequest{})
+						if err != nil {
+							log.Errorf("up service: %v", err)
+							dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
+							return
+						}
+					}
+				}()
 			}
 		},
 		OnCancel: func() {
@@ -802,7 +848,21 @@ func (s *serviceClient) onTrayReady() {
 
 	profileMenuItem := systray.AddMenuItem("", "")
 	emailMenuItem := systray.AddMenuItem("", "")
-	s.mProfile = newProfileMenu(s.ctx, s.profileManager, *s.eventHandler, profileMenuItem, emailMenuItem, s.menuDownClick, s.menuUpClick, s.getSrvClient, s.loadSettings)
+
+	newProfileMenuArgs := &newProfileMenuArgs{
+		ctx:                  s.ctx,
+		profileManager:       s.profileManager,
+		eventHandler:         s.eventHandler,
+		profileMenuItem:      profileMenuItem,
+		emailMenuItem:        emailMenuItem,
+		downClickCallback:    s.menuDownClick,
+		upClickCallback:      s.menuUpClick,
+		getSrvClientCallback: s.getSrvClient,
+		loadSettingsCallback: s.loadSettings,
+		app:                  s.app,
+	}
+
+	s.mProfile = newProfileMenu(*newProfileMenuArgs)
 
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
@@ -817,9 +877,24 @@ func (s *serviceClient) onTrayReady() {
 	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
 	s.mBlockInbound = s.mSettings.AddSubMenuItemCheckbox("Block Inbound Connections", blockInboundMenuDescr, false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
+	s.mSettings.AddSeparator()
 	s.mAdvancedSettings = s.mSettings.AddSubMenuItem("Advanced Settings", advancedSettingsMenuDescr)
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()
+
+	// Disable settings menu if update settings are disabled by daemon
+	features, err := s.getFeatures()
+	if err != nil {
+		log.Errorf("failed to get features from daemon: %v", err)
+		// Continue with default behavior if features can't be retrieved
+	} else {
+		if features != nil && features.DisableUpdateSettings {
+			s.setSettingsEnabled(false)
+		}
+		if features != nil && features.DisableProfiles {
+			s.mProfile.setEnabled(false)
+		}
+	}
 
 	s.exitNodeMu.Lock()
 	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
@@ -861,6 +936,10 @@ func (s *serviceClient) onTrayReady() {
 			if err != nil {
 				log.Errorf("error while updating status: %v", err)
 			}
+
+			// Check features periodically to handle daemon restarts
+			s.checkAndUpdateFeatures()
+
 			time.Sleep(2 * time.Second)
 		}
 	}()
@@ -933,6 +1012,59 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 	return s.conn, nil
 }
 
+// setSettingsEnabled enables or disables the settings menu based on the provided state
+func (s *serviceClient) setSettingsEnabled(enabled bool) {
+	if s.mSettings != nil {
+		if enabled {
+			s.mSettings.Enable()
+			s.mSettings.SetTooltip(settingsMenuDescr)
+		} else {
+			s.mSettings.Hide()
+			s.mSettings.SetTooltip("Settings are disabled by daemon")
+		}
+	}
+}
+
+// checkAndUpdateFeatures checks the current features and updates the UI accordingly
+func (s *serviceClient) checkAndUpdateFeatures() {
+	features, err := s.getFeatures()
+	if err != nil {
+		log.Errorf("failed to get features from daemon: %v", err)
+		return
+	}
+
+	// Update settings menu based on current features
+	if features != nil && features.DisableUpdateSettings {
+		s.setSettingsEnabled(false)
+	} else {
+		s.setSettingsEnabled(true)
+	}
+
+	// Update profile menu based on current features
+	if s.mProfile != nil {
+		if features != nil && features.DisableProfiles {
+			s.mProfile.setEnabled(false)
+		} else {
+			s.mProfile.setEnabled(true)
+		}
+	}
+}
+
+// getFeatures from the daemon to determine which features are enabled/disabled.
+func (s *serviceClient) getFeatures() (*proto.GetFeaturesResponse, error) {
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("get client for features: %w", err)
+	}
+
+	features, err := conn.GetFeatures(s.ctx, &proto.GetFeaturesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("get features from daemon: %w", err)
+	}
+
+	return features, nil
+}
+
 // getSrvConfig from the service to show it in the settings window.
 func (s *serviceClient) getSrvConfig() {
 	s.managementURL = profilemanager.DefaultManagementURL
@@ -981,6 +1113,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.RosenpassPermissive = cfg.RosenpassPermissive
 	s.interfaceName = cfg.WgIface
 	s.interfacePort = cfg.WgPort
+	s.mtu = cfg.MTU
 
 	s.networkMonitor = *cfg.NetworkMonitor
 	s.disableDNS = cfg.DisableDNS
@@ -993,6 +1126,12 @@ func (s *serviceClient) getSrvConfig() {
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
 		s.iInterfaceName.SetText(cfg.WgIface)
 		s.iInterfacePort.SetText(strconv.Itoa(cfg.WgPort))
+		if cfg.MTU != 0 {
+			s.iMTU.SetText(strconv.Itoa(int(cfg.MTU)))
+		} else {
+			s.iMTU.SetText("")
+			s.iMTU.SetPlaceHolder(strconv.Itoa(int(iface.DefaultMTU)))
+		}
 		s.sRosenpassPermissive.SetChecked(cfg.RosenpassPermissive)
 		if !cfg.RosenpassEnabled {
 			s.sRosenpassPermissive.Disable()
@@ -1051,6 +1190,12 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 		config.WgPort = int(cfg.WireguardPort)
 	} else {
 		config.WgPort = iface.DefaultWgPort
+	}
+
+	if cfg.Mtu != 0 {
+		config.MTU = uint16(cfg.Mtu)
+	} else {
+		config.MTU = iface.DefaultMTU
 	}
 
 	config.DisableAutoConnect = cfg.DisableAutoConnect
@@ -1209,7 +1354,13 @@ func (s *serviceClient) updateConfig() error {
 }
 
 // showLoginURL creates a borderless window styled like a pop-up in the top-right corner using s.wLoginURL.
-func (s *serviceClient) showLoginURL() {
+// It also starts a background goroutine that periodically checks if the client is already connected
+// and closes the window if so. The goroutine can be cancelled by the returned CancelFunc, and it is
+// also cancelled when the window is closed.
+func (s *serviceClient) showLoginURL() context.CancelFunc {
+
+	// create a cancellable context for the background check goroutine
+	ctx, cancel := context.WithCancel(s.ctx)
 
 	resIcon := fyne.NewStaticResource("netbird.png", iconAbout)
 
@@ -1218,6 +1369,8 @@ func (s *serviceClient) showLoginURL() {
 		s.wLoginURL.Resize(fyne.NewSize(400, 200))
 		s.wLoginURL.SetIcon(resIcon)
 	}
+	// ensure goroutine is cancelled when the window is closed
+	s.wLoginURL.SetOnClosed(func() { cancel() })
 	// add a description label
 	label := widget.NewLabel("Your NetBird session has expired.\nPlease re-authenticate to continue using NetBird.")
 
@@ -1298,7 +1451,39 @@ func (s *serviceClient) showLoginURL() {
 	)
 	s.wLoginURL.SetContent(container.NewCenter(content))
 
+	// start a goroutine to check connection status and close the window if connected
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		conn, err := s.getSrvClient(failFastTimeout)
+		if err != nil {
+			return
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+				if err != nil {
+					continue
+				}
+				if status.Status == string(internal.StatusConnected) {
+					if s.wLoginURL != nil {
+						s.wLoginURL.Close()
+					}
+					return
+				}
+			}
+		}
+	}()
+
 	s.wLoginURL.Show()
+
+	// return cancel func so callers can stop the background goroutine if desired
+	return cancel
 }
 
 func openURL(url string) error {

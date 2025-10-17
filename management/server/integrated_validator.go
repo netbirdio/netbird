@@ -46,27 +46,24 @@ func (am *DefaultAccountManager) UpdateIntegratedValidator(ctx context.Context, 
 		groups = []string{}
 	}
 
-	unlock := am.Store.AcquireWriteLockByUID(ctx, accountID)
-	defer unlock()
-
 	return am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		a, err := transaction.GetAccount(ctx, accountID)
+		settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthUpdate, accountID)
 		if err != nil {
 			return err
 		}
 
 		var extra *types.ExtraSettings
 
-		if a.Settings.Extra != nil {
-			extra = a.Settings.Extra
+		if settings.Extra != nil {
+			extra = settings.Extra
 		} else {
 			extra = &types.ExtraSettings{}
-			a.Settings.Extra = extra
+			settings.Extra = extra
 		}
 
 		extra.IntegratedValidator = validator
 		extra.IntegratedValidatorGroups = groups
-		return transaction.SaveAccount(ctx, a)
+		return transaction.SaveAccountSettings(ctx, accountID, settings)
 	})
 }
 
@@ -77,7 +74,7 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		for _, groupID := range groupIDs {
-			_, err := transaction.GetGroupByID(context.Background(), store.LockingStrengthShare, accountID, groupID)
+			_, err := transaction.GetGroupByID(context.Background(), store.LockingStrengthNone, accountID, groupID)
 			if err != nil {
 				return err
 			}
@@ -97,17 +94,17 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 	var peers []*nbpeer.Peer
 	var settings *types.Settings
 
-	groups, err = am.Store.GetAccountGroups(ctx, store.LockingStrengthShare, accountID)
+	groups, err = am.Store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthShare, accountID, "", "")
+	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
 	if err != nil {
 		return nil, err
 	}
 
-	settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthShare, accountID)
+	settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +136,7 @@ func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID 
 	return validatedPeers, nil
 }
 
-func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings) *nbpeer.Peer {
+func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings, temporary bool) *nbpeer.Peer {
 	return peer
 }
 
@@ -151,7 +148,7 @@ func (MockIntegratedValidator) PeerDeleted(_ context.Context, _, _ string, extra
 	return nil
 }
 
-func (MockIntegratedValidator) SetPeerInvalidationListener(func(accountID string)) {
+func (MockIntegratedValidator) SetPeerInvalidationListener(func(accountID string, peerIDs []string)) {
 	// just a dummy
 }
 

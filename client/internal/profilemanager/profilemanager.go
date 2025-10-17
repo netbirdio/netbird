@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	defaultProfileName         = "default"
+	DefaultProfileName         = "default"
+	defaultProfileName         = DefaultProfileName // Keep for backward compatibility
 	activeProfileStateFilename = "active_profile.txt"
 )
 

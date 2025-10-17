@@ -9,9 +9,9 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/monotime"
@@ -24,10 +24,11 @@ type wgIfaceBase interface {
 	Name() string
 	Address() wgaddr.Address
 	ToInterface() *net.Interface
-	Up() (*bind.UniversalUDPMuxDefault, error)
+	Up() (*udpmux.UniversalUDPMuxDefault, error)
 	UpdateAddr(newAddr string) error
 	GetProxy() wgproxy.Proxy
 	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
+	RemoveEndpointAddress(key string) error
 	RemovePeer(peerKey string) error
 	AddAllowedIP(peerKey string, allowedIP netip.Prefix) error
 	RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error

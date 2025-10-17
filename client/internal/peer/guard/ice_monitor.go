@@ -3,10 +3,12 @@ package guard
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v3"
+	"github.com/pion/ice/v4"
 	log "github.com/sirupsen/logrus"
 
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
@@ -14,8 +16,8 @@ import (
 )
 
 const (
-	candidatesMonitorPeriod   = 5 * time.Minute
-	candidateGatheringTimeout = 5 * time.Second
+	defaultCandidatesMonitorPeriod = 5 * time.Minute
+	candidateGatheringTimeout      = 5 * time.Second
 )
 
 type ICEMonitor struct {
@@ -23,16 +25,19 @@ type ICEMonitor struct {
 
 	iFaceDiscover stdnet.ExternalIFaceDiscover
 	iceConfig     icemaker.Config
+	tickerPeriod  time.Duration
 
-	currentCandidates []ice.Candidate
-	candidatesMu      sync.Mutex
+	currentCandidatesAddress []string
+	candidatesMu             sync.Mutex
 }
 
-func NewICEMonitor(iFaceDiscover stdnet.ExternalIFaceDiscover, config icemaker.Config) *ICEMonitor {
+func NewICEMonitor(iFaceDiscover stdnet.ExternalIFaceDiscover, config icemaker.Config, period time.Duration) *ICEMonitor {
+	log.Debugf("prepare ICE monitor with period: %s", period)
 	cm := &ICEMonitor{
 		ReconnectCh:   make(chan struct{}, 1),
 		iFaceDiscover: iFaceDiscover,
 		iceConfig:     config,
+		tickerPeriod:  period,
 	}
 	return cm
 }
@@ -44,7 +49,12 @@ func (cm *ICEMonitor) Start(ctx context.Context, onChanged func()) {
 		return
 	}
 
-	ticker := time.NewTicker(candidatesMonitorPeriod)
+	// Initial check to populate the candidates for later comparison
+	if _, err := cm.handleCandidateTick(ctx, ufrag, pwd); err != nil {
+		log.Warnf("Failed to check initial ICE candidates: %v", err)
+	}
+
+	ticker := time.NewTicker(cm.tickerPeriod)
 	defer ticker.Stop()
 
 	for {
@@ -115,16 +125,21 @@ func (cm *ICEMonitor) updateCandidates(newCandidates []ice.Candidate) bool {
 	cm.candidatesMu.Lock()
 	defer cm.candidatesMu.Unlock()
 
-	if len(cm.currentCandidates) != len(newCandidates) {
-		cm.currentCandidates = newCandidates
+	newAddresses := make([]string, len(newCandidates))
+	for i, c := range newCandidates {
+		newAddresses[i] = c.Address()
+	}
+	sort.Strings(newAddresses)
+
+	if len(cm.currentCandidatesAddress) != len(newAddresses) {
+		cm.currentCandidatesAddress = newAddresses
 		return true
 	}
 
-	for i, candidate := range cm.currentCandidates {
-		if candidate.Address() != newCandidates[i].Address() {
-			cm.currentCandidates = newCandidates
-			return true
-		}
+	// Compare elements
+	if !slices.Equal(cm.currentCandidatesAddress, newAddresses) {
+		cm.currentCandidatesAddress = newAddresses
+		return true
 	}
 
 	return false

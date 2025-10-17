@@ -24,10 +24,10 @@ import (
 
 func (p *program) Start(svc service.Service) error {
 	// Start should not block. Do the actual work async.
-	log.Info("starting Netbird service") //nolint
+	log.Info("starting NetBird service") //nolint
 
 	// Collect static system and platform information
-	system.UpdateStaticInfo()
+	system.UpdateStaticInfoAsync()
 
 	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
 	p.serv = grpc.NewServer()
@@ -61,7 +61,7 @@ func (p *program) Start(svc service.Service) error {
 			}
 		}
 
-		serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles))
+		serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled)
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed to start daemon: %v", err)
 		}
@@ -97,7 +97,7 @@ func (p *program) Stop(srv service.Service) error {
 	}
 
 	time.Sleep(time.Second * 2)
-	log.Info("stopped Netbird service") //nolint
+	log.Info("stopped NetBird service") //nolint
 	return nil
 }
 
@@ -131,7 +131,7 @@ func setupServiceControlCommand(cmd *cobra.Command, ctx context.Context, cancel 
 
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "runs Netbird as service",
+	Short: "runs NetBird as service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(cmd.Context())
 
@@ -149,7 +149,7 @@ var runCmd = &cobra.Command{
 
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "starts Netbird service",
+	Short: "starts NetBird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(cmd.Context())
 		s, err := setupServiceControlCommand(cmd, ctx, cancel)
@@ -160,14 +160,14 @@ var startCmd = &cobra.Command{
 		if err := s.Start(); err != nil {
 			return fmt.Errorf("start service: %w", err)
 		}
-		cmd.Println("Netbird service has been started")
+		cmd.Println("NetBird service has been started")
 		return nil
 	},
 }
 
 var stopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "stops Netbird service",
+	Short: "stops NetBird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(cmd.Context())
 		s, err := setupServiceControlCommand(cmd, ctx, cancel)
@@ -178,14 +178,14 @@ var stopCmd = &cobra.Command{
 		if err := s.Stop(); err != nil {
 			return fmt.Errorf("stop service: %w", err)
 		}
-		cmd.Println("Netbird service has been stopped")
+		cmd.Println("NetBird service has been stopped")
 		return nil
 	},
 }
 
 var restartCmd = &cobra.Command{
 	Use:   "restart",
-	Short: "restarts Netbird service",
+	Short: "restarts NetBird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(cmd.Context())
 		s, err := setupServiceControlCommand(cmd, ctx, cancel)
@@ -196,14 +196,14 @@ var restartCmd = &cobra.Command{
 		if err := s.Restart(); err != nil {
 			return fmt.Errorf("restart service: %w", err)
 		}
-		cmd.Println("Netbird service has been restarted")
+		cmd.Println("NetBird service has been restarted")
 		return nil
 	},
 }
 
 var svcStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "shows Netbird service status",
+	Short: "shows NetBird service status",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(cmd.Context())
 		s, err := setupServiceControlCommand(cmd, ctx, cancel)
@@ -228,7 +228,7 @@ var svcStatusCmd = &cobra.Command{
 			statusText = fmt.Sprintf("Unknown (%d)", status)
 		}
 
-		cmd.Printf("Netbird service status: %s\n", statusText)
+		cmd.Printf("NetBird service status: %s\n", statusText)
 		return nil
 	},
 }

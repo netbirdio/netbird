@@ -31,6 +31,7 @@ const (
 	systemdDbusSetDefaultRouteMethodSuffix = systemdDbusLinkInterface + ".SetDefaultRoute"
 	systemdDbusSetDomainsMethodSuffix      = systemdDbusLinkInterface + ".SetDomains"
 	systemdDbusSetDNSSECMethodSuffix       = systemdDbusLinkInterface + ".SetDNSSEC"
+	systemdDbusSetDNSOverTLSMethodSuffix   = systemdDbusLinkInterface + ".SetDNSOverTLS"
 	systemdDbusResolvConfModeForeign       = "foreign"
 
 	dbusErrorUnknownObject = "org.freedesktop.DBus.Error.UnknownObject"
@@ -100,6 +101,11 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateMana
 	// We don't support dnssec. On some machines this is default on so we explicitly set it to off
 	if err := s.callLinkMethod(systemdDbusSetDNSSECMethodSuffix, dnsSecDisabled); err != nil {
 		log.Warnf("failed to set DNSSEC to 'no': %v", err)
+	}
+
+	// We don't support DNSOverTLS. On some machines this is default on so we explicitly set it to off
+	if err := s.callLinkMethod(systemdDbusSetDNSOverTLSMethodSuffix, dnsSecDisabled); err != nil {
+		log.Warnf("failed to set DNSOverTLS to 'no': %v", err)
 	}
 
 	var (
@@ -235,7 +241,7 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	return nil
 }
 
-func (s *systemdDbusConfigurator) restoreUncleanShutdownDNS(*netip.Addr) error {
+func (s *systemdDbusConfigurator) restoreUncleanShutdownDNS(netip.Addr) error {
 	if err := s.restoreHostDNS(); err != nil {
 		return fmt.Errorf("restoring dns via systemd: %w", err)
 	}

@@ -15,6 +15,10 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
@@ -24,16 +28,16 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	daemonProto "github.com/netbirdio/netbird/client/proto"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/signal/proto"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 )
 
@@ -94,7 +98,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 		t.Fatalf("failed to set active profile state: %v", err)
 	}
 
-	s := New(ctx, "debug")
+	s := New(ctx, "debug", "", false, false)
 
 	s.config = config
 
@@ -104,7 +108,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 	t.Setenv(maxRetryTimeVar, "5s")
 	t.Setenv(retryMultiplierVar, "1")
 
-	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil)
+	s.connectWithRetryRuns(ctx, config, s.statusRecorder, nil, nil)
 	if counter < 3 {
 		t.Fatalf("expected counter > 2, got %d", counter)
 	}
@@ -133,8 +137,12 @@ func TestServer_Up(t *testing.T) {
 
 	profName := "default"
 
+	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
+	require.NoError(t, err)
+
 	ic := profilemanager.ConfigInput{
-		ConfigPath: filepath.Join(tempDir, profName+".json"),
+		ConfigPath:    filepath.Join(tempDir, profName+".json"),
+		ManagementURL: u.String(),
 	}
 
 	_, err = profilemanager.UpdateOrCreateConfig(ic)
@@ -151,16 +159,9 @@ func TestServer_Up(t *testing.T) {
 		t.Fatalf("failed to set active profile state: %v", err)
 	}
 
-	s := New(ctx, "console")
-
+	s := New(ctx, "console", "", false, false)
 	err = s.Start()
 	require.NoError(t, err)
-
-	u, err := url.Parse("http://non-existent-url-for-testing.invalid:12345")
-	require.NoError(t, err)
-	s.config = &profilemanager.Config{
-		ManagementURL: u,
-	}
 
 	upCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
@@ -170,6 +171,7 @@ func TestServer_Up(t *testing.T) {
 		Username:    &currUser.Username,
 	}
 	_, err = s.Up(upCtx, upReq)
+	log.Errorf("error from Up: %v", err)
 
 	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
@@ -227,7 +229,7 @@ func TestServer_SubcribeEvents(t *testing.T) {
 		t.Fatalf("failed to set active profile state: %v", err)
 	}
 
-	s := New(ctx, "console")
+	s := New(ctx, "console", "", false, false)
 
 	err = s.Start()
 	require.NoError(t, err)
@@ -266,10 +268,10 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	t.Helper()
 	dataDir := t.TempDir()
 
-	config := &types.Config{
-		Stuns:      []*types.Host{},
-		TURNConfig: &types.TURNConfig{},
-		Signal: &types.Host{
+	config := &config.Config{
+		Stuns:      []*config.Host{},
+		TURNConfig: &config.TURNConfig{},
+		Signal: &config.Host{
 			Proto: "http",
 			URI:   signalAddr,
 		},
@@ -293,23 +295,29 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	if err != nil {
 		return nil, "", err
 	}
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), eventStore)
+
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	peersManager := peers.NewManager(store, permissionsManagerMock)
+	settingsManagerMock := settings.NewMockManager(ctrl)
+
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, settingsManagerMock, eventStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
-	ctrl := gomock.NewController(t)
-	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
-	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	groupsManager := groups.NewManagerMock()
 
 	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
 	if err != nil {
 		return nil, "", err
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &server.MockIntegratedValidator{})
+	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, &manager.EphemeralManager{}, nil, &server.MockIntegratedValidator{})
 	if err != nil {
 		return nil, "", err
 	}
