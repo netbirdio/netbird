@@ -4,7 +4,7 @@ import (
 	"net/netip"
 	"sync"
 
-	"golang.zx2c4.com/wireguard/tun"
+	"github.com/amnezia-vpn/amneziawg-go/tun"
 )
 
 // PacketFilter interface for firewall abilities

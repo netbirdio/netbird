@@ -3,7 +3,7 @@ package configurer
 import (
 	"net"
 
-	"golang.zx2c4.com/wireguard/ipc"
+	"github.com/amnezia-vpn/amneziawg-go/ipc"
 )
 
 func openUAPI(deviceName string) (net.Listener, error) {

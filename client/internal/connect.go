@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/netbirdio/netbird/client/internal/amneziawg"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -25,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -34,7 +36,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -445,6 +446,22 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 
 		MTU: selectMTU(config.MTU, peerConfig.Mtu),
+		AmneziaConfig: amneziawg.AmneziaConfig{
+			Jc:   *peerConfig.AmneziaConfig.Jc,
+			Jmin: *peerConfig.AmneziaConfig.Jmin,
+			Jmax: *peerConfig.AmneziaConfig.Jmax,
+			S1:   *peerConfig.AmneziaConfig.S1,
+			S2:   *peerConfig.AmneziaConfig.S2,
+			H1:   *peerConfig.AmneziaConfig.H1,
+			H2:   *peerConfig.AmneziaConfig.H2,
+			H3:   *peerConfig.AmneziaConfig.H3,
+			H4:   *peerConfig.AmneziaConfig.H4,
+			I1:   *peerConfig.AmneziaConfig.I1,
+			I2:   *peerConfig.AmneziaConfig.I2,
+			I3:   *peerConfig.AmneziaConfig.I3,
+			I4:   *peerConfig.AmneziaConfig.I4,
+			I5:   *peerConfig.AmneziaConfig.I5,
+		},
 	}
 
 	if config.PreSharedKey != "" {

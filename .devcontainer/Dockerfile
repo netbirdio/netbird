@@ -1,8 +1,8 @@
-FROM golang:1.23-bullseye
+FROM golang:1.24-bullseye
 
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends\
-        gettext-base=0.21-4 \ 
+        gettext-base=0.21-4 \
         iptables=1.8.7-1 \
         libgl1-mesa-dev=20.3.5-1 \
         xorg-dev=1:7.7+22 \
