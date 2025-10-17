@@ -1030,11 +1030,7 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 				}
 				if resources != nil {
 					_ = json.Unmarshal(resources, &g.Resources)
-				} else {
-					g.Resources = []types.Resource{}
 				}
-				g.GroupPeers = []types.GroupPeer{}
-				g.Peers = []string{}
 			}
 			return &g, err
 		})
@@ -1305,15 +1301,23 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 	go func() {
 		defer wg.Done()
 		const query = `SELECT account_id, onboarding_flow_pending, signup_form_pending, created_at, updated_at FROM account_onboardings WHERE account_id = $1`
+		var onboardingFlowPending, signupFormPending sql.NullBool
 		err := s.pool.QueryRow(ctx, query, accountID).Scan(
 			&account.Onboarding.AccountID,
-			&account.Onboarding.OnboardingFlowPending,
-			&account.Onboarding.SignupFormPending,
+			&onboardingFlowPending,
+			&signupFormPending,
 			&account.Onboarding.CreatedAt,
 			&account.Onboarding.UpdatedAt,
 		)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			errChan <- err
+			return
+		}
+		if onboardingFlowPending.Valid {
+			account.Onboarding.OnboardingFlowPending = onboardingFlowPending.Bool
+		}
+		if signupFormPending.Valid {
+			account.Onboarding.SignupFormPending = signupFormPending.Bool
 		}
 	}()
 
