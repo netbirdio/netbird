@@ -16,6 +16,15 @@ type RenewableTUN struct {
 	mu      sync.Mutex
 }
 
+func NewRenewableTUN() *RenewableTUN {
+	r := &RenewableTUN{
+		devices: make([]tun.Device, 0),
+		mu:      sync.Mutex{},
+	}
+
+	return r
+}
+
 func (r *RenewableTUN) File() *os.File {
 	log.Debug("sending device file.")
 
@@ -161,13 +170,4 @@ func (r *RenewableTUN) dequeue() tun.Device {
 	first := r.devices[0]
 	r.devices = r.devices[1:]
 	return first
-}
-
-func NewRenewableTUN() *RenewableTUN {
-	r := &RenewableTUN{
-		devices: make([]tun.Device, 0),
-		mu:      sync.Mutex{},
-	}
-
-	return r
 }
