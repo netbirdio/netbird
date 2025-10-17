@@ -736,12 +736,43 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 		keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (types.SetupKey, error) {
 			var sk types.SetupKey
 			var autoGroups []byte
-			err := row.Scan(&sk.Id, &sk.AccountID, &sk.Key, &sk.KeySecret, &sk.Name, &sk.Type, &sk.CreatedAt, &sk.ExpiresAt, &sk.UpdatedAt, &sk.Revoked, &sk.UsedTimes, &sk.LastUsed, &autoGroups, &sk.UsageLimit, &sk.Ephemeral, &sk.AllowExtraDNSLabels)
-			if err == nil && autoGroups != nil {
-				_ = json.Unmarshal(autoGroups, &sk.AutoGroups)
-			}
-			if sk.UpdatedAt.IsZero() {
-				sk.UpdatedAt = sk.CreatedAt
+			var expiresAt, updatedAt, lastUsed sql.NullTime
+			var revoked, ephemeral, allowExtraDNSLabels sql.NullBool
+			var usedTimes, usageLimit sql.NullInt64
+
+			err := row.Scan(&sk.Id, &sk.AccountID, &sk.Key, &sk.KeySecret, &sk.Name, &sk.Type, &sk.CreatedAt, &expiresAt, &updatedAt, &revoked, &usedTimes, &lastUsed, &autoGroups, &usageLimit, &ephemeral, &allowExtraDNSLabels)
+
+			if err == nil {
+				if expiresAt.Valid {
+					sk.ExpiresAt = &expiresAt.Time
+				}
+				if updatedAt.Valid {
+					sk.UpdatedAt = updatedAt.Time
+					if sk.UpdatedAt.IsZero() {
+						sk.UpdatedAt = sk.CreatedAt
+					}
+				}
+				if lastUsed.Valid {
+					sk.LastUsed = &lastUsed.Time
+				}
+				if revoked.Valid {
+					sk.Revoked = revoked.Bool
+				}
+				if usedTimes.Valid {
+					sk.UsedTimes = int(usedTimes.Int64)
+				}
+				if usageLimit.Valid {
+					sk.UsageLimit = int(usageLimit.Int64)
+				}
+				if ephemeral.Valid {
+					sk.Ephemeral = ephemeral.Bool
+				}
+				if allowExtraDNSLabels.Valid {
+					sk.AllowExtraDNSLabels = allowExtraDNSLabels.Bool
+				}
+				if autoGroups != nil {
+					_ = json.Unmarshal(autoGroups, &sk.AutoGroups)
+				}
 			}
 			return sk, err
 		})
@@ -764,6 +795,7 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 
 		peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (nbpeer.Peer, error) {
 			var p nbpeer.Peer
+			p.Status = &nbpeer.PeerStatus{}
 			var lastLogin sql.NullTime
 			var sshEnabled, loginExpirationEnabled, inactivityExpirationEnabled, ephemeral, allowExtraDNSLabels sql.NullBool
 			var peerStatusLastSeen sql.NullTime
@@ -847,9 +879,28 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 		users, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (types.User, error) {
 			var u types.User
 			var autoGroups []byte
-			err := row.Scan(&u.Id, &u.AccountID, &u.Role, &u.IsServiceUser, &u.NonDeletable, &u.ServiceUserName, &autoGroups, &u.Blocked, &u.PendingApproval, &u.LastLogin, &u.CreatedAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType)
-			if err == nil && autoGroups != nil {
-				_ = json.Unmarshal(autoGroups, &u.AutoGroups)
+			var lastLogin sql.NullTime
+			var isServiceUser, nonDeletable, blocked, pendingApproval sql.NullBool
+			err := row.Scan(&u.Id, &u.AccountID, &u.Role, &isServiceUser, &nonDeletable, &u.ServiceUserName, &autoGroups, &blocked, &pendingApproval, &lastLogin, &u.CreatedAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType)
+			if err == nil {
+				if lastLogin.Valid {
+					u.LastLogin = &lastLogin.Time
+				}
+				if isServiceUser.Valid {
+					u.IsServiceUser = isServiceUser.Bool
+				}
+				if nonDeletable.Valid {
+					u.NonDeletable = nonDeletable.Bool
+				}
+				if blocked.Valid {
+					u.Blocked = blocked.Bool
+				}
+				if pendingApproval.Valid {
+					u.PendingApproval = pendingApproval.Bool
+				}
+				if autoGroups != nil {
+					_ = json.Unmarshal(autoGroups, &u.AutoGroups)
+				}
 			}
 			return u, err
 		})
@@ -897,9 +948,15 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 		policies, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*types.Policy, error) {
 			var p types.Policy
 			var checks []byte
-			err := row.Scan(&p.ID, &p.AccountID, &p.Name, &p.Description, &p.Enabled, &checks)
-			if err == nil && checks != nil {
-				_ = json.Unmarshal(checks, &p.SourcePostureChecks)
+			var enabled sql.NullBool
+			err := row.Scan(&p.ID, &p.AccountID, &p.Name, &p.Description, &enabled, &checks)
+			if err == nil {
+				if enabled.Valid {
+					p.Enabled = enabled.Bool
+				}
+				if checks != nil {
+					_ = json.Unmarshal(checks, &p.SourcePostureChecks)
+				}
 			}
 			return &p, err
 		})
@@ -922,8 +979,25 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 		routes, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (route.Route, error) {
 			var r route.Route
 			var network, domains, peerGroups, groups, accessGroups []byte
-			err := row.Scan(&r.ID, &r.AccountID, &network, &domains, &r.KeepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &r.Masquerade, &r.Metric, &r.Enabled, &groups, &accessGroups, &r.SkipAutoApply)
+			var keepRoute, masquerade, enabled, skipAutoApply sql.NullBool
+			var metric sql.NullInt64
+			err := row.Scan(&r.ID, &r.AccountID, &network, &domains, &keepRoute, &r.NetID, &r.Description, &r.Peer, &peerGroups, &r.NetworkType, &masquerade, &metric, &enabled, &groups, &accessGroups, &skipAutoApply)
 			if err == nil {
+				if keepRoute.Valid {
+					r.KeepRoute = keepRoute.Bool
+				}
+				if masquerade.Valid {
+					r.Masquerade = masquerade.Bool
+				}
+				if enabled.Valid {
+					r.Enabled = enabled.Bool
+				}
+				if skipAutoApply.Valid {
+					r.SkipAutoApply = skipAutoApply.Bool
+				}
+				if metric.Valid {
+					r.Metric = int(metric.Int64)
+				}
 				if network != nil {
 					_ = json.Unmarshal(network, &r.Network)
 				}
@@ -961,8 +1035,18 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 		nsgs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (nbdns.NameServerGroup, error) {
 			var n nbdns.NameServerGroup
 			var ns, groups, domains []byte
-			err := row.Scan(&n.ID, &n.AccountID, &n.Name, &n.Description, &ns, &groups, &n.Primary, &domains, &n.Enabled, &n.SearchDomainsEnabled)
+			var primary, enabled, searchDomainsEnabled sql.NullBool
+			err := row.Scan(&n.ID, &n.AccountID, &n.Name, &n.Description, &ns, &groups, &primary, &domains, &enabled, &searchDomainsEnabled)
 			if err == nil {
+				if primary.Valid {
+					n.Primary = primary.Bool
+				}
+				if enabled.Valid {
+					n.Enabled = enabled.Bool
+				}
+				if searchDomainsEnabled.Valid {
+					n.SearchDomainsEnabled = searchDomainsEnabled.Bool
+				}
 				if ns != nil {
 					_ = json.Unmarshal(ns, &n.NameServers)
 				}
@@ -1036,20 +1120,36 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 			errChan <- err
 			return
 		}
-		routers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*routerTypes.NetworkRouter, error) {
+		routers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (routerTypes.NetworkRouter, error) {
 			var r routerTypes.NetworkRouter
 			var peerGroups []byte
-			err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Peer, &peerGroups, &r.Masquerade, &r.Metric, &r.Enabled)
-			if err == nil && peerGroups != nil {
-				_ = json.Unmarshal(peerGroups, &r.PeerGroups)
+			var masquerade, enabled sql.NullBool
+			var metric sql.NullInt64
+			err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Peer, &peerGroups, &masquerade, &metric, &enabled)
+			if err == nil {
+				if masquerade.Valid {
+					r.Masquerade = masquerade.Bool
+				}
+				if enabled.Valid {
+					r.Enabled = enabled.Bool
+				}
+				if metric.Valid {
+					r.Metric = int(metric.Int64)
+				}
+				if peerGroups != nil {
+					_ = json.Unmarshal(peerGroups, &r.PeerGroups)
+				}
 			}
-			return &r, err
+			return r, err
 		})
 		if err != nil {
 			errChan <- err
 			return
 		}
-		account.NetworkRouters = routers
+		account.NetworkRouters = make([]*routerTypes.NetworkRouter, len(routers))
+		for i := range routers {
+			account.NetworkRouters[i] = &routers[i]
+		}
 	}()
 
 	wg.Add(1)
@@ -1061,20 +1161,29 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 			errChan <- err
 			return
 		}
-		resources, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*resourceTypes.NetworkResource, error) {
+		resources, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (resourceTypes.NetworkResource, error) {
 			var r resourceTypes.NetworkResource
 			var prefix []byte
-			err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &r.Enabled)
-			if err == nil && prefix != nil {
-				_ = json.Unmarshal(prefix, &r.Prefix)
+			var enabled sql.NullBool
+			err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &enabled)
+			if err == nil {
+				if enabled.Valid {
+					r.Enabled = enabled.Bool
+				}
+				if prefix != nil {
+					_ = json.Unmarshal(prefix, &r.Prefix)
+				}
 			}
-			return &r, err
+			return r, err
 		})
 		if err != nil {
 			errChan <- err
 			return
 		}
-		account.NetworkResources = resources
+		account.NetworkResources = make([]*resourceTypes.NetworkResource, len(resources))
+		for i := range resources {
+			account.NetworkResources[i] = &resources[i]
+		}
 	}()
 
 	wg.Add(1)
@@ -1129,7 +1238,20 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 			errChan <- err
 			return
 		}
-		pats, err = pgx.CollectRows(rows, pgx.RowToStructByName[types.PersonalAccessToken])
+		pats, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (types.PersonalAccessToken, error) {
+			var pat types.PersonalAccessToken
+			var expirationDate, lastUsed sql.NullTime
+			err := row.Scan(&pat.ID, &pat.UserID, &pat.Name, &pat.HashedToken, &expirationDate, &pat.CreatedBy, &pat.CreatedAt, &lastUsed)
+			if err == nil {
+				if expirationDate.Valid {
+					pat.ExpirationDate = &expirationDate.Time
+				}
+				if lastUsed.Valid {
+					pat.LastUsed = &lastUsed.Time
+				}
+			}
+			return pat, err
+		})
 		if err != nil {
 			errChan <- err
 		}
@@ -1150,8 +1272,15 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 		rules, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (*types.PolicyRule, error) {
 			var r types.PolicyRule
 			var dest, destRes, sources, sourceRes, ports, portRanges []byte
-			err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &r.Enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &r.Bidirectional, &r.Protocol, &ports, &portRanges)
+			var enabled, bidirectional sql.NullBool
+			err := row.Scan(&r.ID, &r.PolicyID, &r.Name, &r.Description, &enabled, &r.Action, &dest, &destRes, &sources, &sourceRes, &bidirectional, &r.Protocol, &ports, &portRanges)
 			if err == nil {
+				if enabled.Valid {
+					r.Enabled = enabled.Bool
+				}
+				if bidirectional.Valid {
+					r.Bidirectional = bidirectional.Bool
+				}
 				if dest != nil {
 					_ = json.Unmarshal(dest, &r.Destinations)
 				}
