@@ -4,7 +4,12 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
+	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -68,4 +73,26 @@ func baseURL(rawURL string) string {
 	}
 
 	return parsedURL.Scheme + "://" + parsedURL.Host
+}
+
+// Provides the env variable name for use with idpTimeout function
+const (
+	idpTimeoutEnv = "NETBIRD_IDP_TIMEOUT"
+	defaultTimeout = 10 * time.Second
+)
+
+// idpTimmeout returns a timeout value for the IDP
+func idpTimeout() time.Duration {
+	timeoutStr, ok := os.LookupEnv(idpTimeoutEnv)
+	if !ok || timeoutStr == "" {
+		return defaultTimeout
+	}
+
+	timeoutInt, err := strconv.Atoi(timeoutStr)
+	if err != nil {
+		log.Printf("Invalid value for %s: %q. Error: %v, using default %s", idpTimeoutEnv, timeoutStr, err, defaultTimeout)
+		return defaultTimeout
+	}
+
+	return time.Duration(timeoutInt) * time.Second
 }
