@@ -76,7 +76,7 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 		return nil, err
 	}
 
-	t.renewableTun.addDevice(unmonitoredTUN)
+	t.renewableTun.AddDevice(unmonitoredTUN)
 
 	t.name = name
 	t.filteredDevice = newDeviceFilter(t.renewableTun)
@@ -123,7 +123,7 @@ func (t *WGTunDevice) RenewTun(fd int) error {
 		return err
 	}
 
-	t.renewableTun.addDevice(unmonitoredTUN)
+	t.renewableTun.AddDevice(unmonitoredTUN)
 
 	return nil
 }

@@ -130,7 +130,7 @@ func (r *RenewableTUN) BatchSize() int {
 	return 1
 }
 
-func (r *RenewableTUN) addDevice(device tun.Device) {
+func (r *RenewableTUN) AddDevice(device tun.Device) {
 	first := r.dequeue()
 
 	// defers closing the old device after adding the new one if there was any.
