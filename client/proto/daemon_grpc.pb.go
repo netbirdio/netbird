@@ -54,7 +54,6 @@ type DaemonServiceClient interface {
 	SetSyncResponsePersistence(ctx context.Context, in *SetSyncResponsePersistenceRequest, opts ...grpc.CallOption) (*SetSyncResponsePersistenceResponse, error)
 	TracePacket(ctx context.Context, in *TracePacketRequest, opts ...grpc.CallOption) (*TracePacketResponse, error)
 	SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error)
-	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
 	SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error)
 	SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error)
 	AddProfile(ctx context.Context, in *AddProfileRequest, opts ...grpc.CallOption) (*AddProfileResponse, error)
@@ -268,15 +267,6 @@ func (x *daemonServiceSubscribeEventsClient) Recv() (*SystemEvent, error) {
 	return m, nil
 }
 
-func (c *daemonServiceClient) GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error) {
-	out := new(GetEventsResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetEvents", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *daemonServiceClient) SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error) {
 	out := new(SwitchProfileResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SwitchProfile", in, out, opts...)
@@ -389,7 +379,6 @@ type DaemonServiceServer interface {
 	SetSyncResponsePersistence(context.Context, *SetSyncResponsePersistenceRequest) (*SetSyncResponsePersistenceResponse, error)
 	TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error)
 	SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error
-	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
 	SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error)
 	SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error)
 	AddProfile(context.Context, *AddProfileRequest) (*AddProfileResponse, error)
@@ -462,9 +451,6 @@ func (UnimplementedDaemonServiceServer) TracePacket(context.Context, *TracePacke
 }
 func (UnimplementedDaemonServiceServer) SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeEvents not implemented")
-}
-func (UnimplementedDaemonServiceServer) GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetEvents not implemented")
 }
 func (UnimplementedDaemonServiceServer) SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SwitchProfile not implemented")
@@ -848,24 +834,6 @@ func (x *daemonServiceSubscribeEventsServer) Send(m *SystemEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func _DaemonService_GetEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetEventsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DaemonServiceServer).GetEvents(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/daemon.DaemonService/GetEvents",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).GetEvents(ctx, req.(*GetEventsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _DaemonService_SwitchProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SwitchProfileRequest)
 	if err := dec(in); err != nil {
@@ -1088,10 +1056,6 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TracePacket",
 			Handler:    _DaemonService_TracePacket_Handler,
-		},
-		{
-			MethodName: "GetEvents",
-			Handler:    _DaemonService_GetEvents_Handler,
 		},
 		{
 			MethodName: "SwitchProfile",
