@@ -682,17 +682,6 @@ renderManagementJson() {
             "URI": "stun:$NETBIRD_DOMAIN:3478"
         }
     ],
-    "TURNConfig": {
-        "Turns": [
-            {
-                "Proto": "udp",
-                "URI": "turn:$NETBIRD_DOMAIN:3478",
-                "Username": "$TURN_USER",
-                "Password": "$TURN_PASSWORD"
-            }
-        ],
-        "TimeBasedCredentials": false
-    },
     "Relay": {
         "Addresses": ["$NETBIRD_RELAY_PROTO://$NETBIRD_DOMAIN:$NETBIRD_PORT"],
         "CredentialsTTL": "24h",
