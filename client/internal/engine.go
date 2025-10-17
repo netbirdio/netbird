@@ -205,6 +205,8 @@ type Engine struct {
 
 	// dns forwarder port
 	dnsFwdPort uint16
+
+	probeStunTurn *relay.StunTurnProbe
 }
 
 // Peer is an instance of the Connection Peer
@@ -248,6 +250,7 @@ func NewEngine(
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		dnsFwdPort:     dnsfwd.ListenPort(),
+		probeStunTurn:  relay.NewStunTurnProb(relay.DefaultCacheTTL),
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -1667,7 +1670,7 @@ func (e *Engine) getRosenpassAddr() string {
 
 // RunHealthProbes executes health checks for Signal, Management, Relay and WireGuard services
 // and updates the status recorder with the latest states.
-func (e *Engine) RunHealthProbes() bool {
+func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	e.syncMsgMux.Lock()
 
 	signalHealthy := e.signal.IsHealthy()
@@ -1699,8 +1702,12 @@ func (e *Engine) RunHealthProbes() bool {
 	}
 
 	e.syncMsgMux.Unlock()
-
-	results := e.probeICE(stuns, turns)
+	var results []relay.ProbeResult
+	if waitForResult {
+		results = e.probeStunTurn.ProbeAllWaitResult(e.ctx, stuns, turns)
+	} else {
+		results = e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
+	}
 	e.statusRecorder.UpdateRelayStates(results)
 
 	relayHealthy := true
@@ -1715,13 +1722,6 @@ func (e *Engine) RunHealthProbes() bool {
 	allHealthy := signalHealthy && managementHealthy && relayHealthy
 	log.Debugf("all health checks completed: healthy=%t", allHealthy)
 	return allHealthy
-}
-
-func (e *Engine) probeICE(stuns, turns []*stun.URI) []relay.ProbeResult {
-	return append(
-		relay.ProbeAll(e.ctx, relay.ProbeSTUN, stuns),
-		relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)...,
-	)
 }
 
 // restartEngine restarts the engine by cancelling the client context
