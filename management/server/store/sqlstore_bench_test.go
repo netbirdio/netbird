@@ -923,9 +923,19 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 		groups, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*types.Group, error) {
 			var g types.Group
 			var resources []byte
-			err := row.Scan(&g.ID, &g.AccountID, &g.Name, &g.Issued, &resources, &g.IntegrationReference.ID, &g.IntegrationReference.IntegrationType)
-			if err == nil && resources != nil {
-				_ = json.Unmarshal(resources, &g.Resources)
+			var refID sql.NullInt64
+			var refType sql.NullString
+			err := row.Scan(&g.ID, &g.AccountID, &g.Name, &g.Issued, &resources, &refID, &refType)
+			if err == nil {
+				if refID.Valid {
+					g.IntegrationReference.ID = int(refID.Int64)
+				}
+				if refType.Valid {
+					g.IntegrationReference.IntegrationType = refType.String
+				}
+				if resources != nil {
+					_ = json.Unmarshal(resources, &g.Resources)
+				}
 			}
 			return &g, err
 		})
@@ -1190,15 +1200,23 @@ func (s *SqlStore) GetAccountPureSQL(ctx context.Context, accountID string) (*ty
 	go func() {
 		defer wg.Done()
 		const query = `SELECT account_id, onboarding_flow_pending, signup_form_pending, created_at, updated_at FROM account_onboardings WHERE account_id = $1`
+		var onboardingFlowPending, signupFormPending sql.NullBool
 		err := s.pool.QueryRow(ctx, query, accountID).Scan(
 			&account.Onboarding.AccountID,
-			&account.Onboarding.OnboardingFlowPending,
-			&account.Onboarding.SignupFormPending,
+			&onboardingFlowPending,
+			&signupFormPending,
 			&account.Onboarding.CreatedAt,
 			&account.Onboarding.UpdatedAt,
 		)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			errChan <- err
+			return
+		}
+		if onboardingFlowPending.Valid {
+			account.Onboarding.OnboardingFlowPending = onboardingFlowPending.Bool
+		}
+		if signupFormPending.Valid {
+			account.Onboarding.SignupFormPending = signupFormPending.Bool
 		}
 	}()
 
