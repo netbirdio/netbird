@@ -18,7 +18,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         skip_ui_mode: [true, false]
-        install_binary: [true, false]
+        install_binary: [true, true]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -35,3 +35,7 @@ jobs:
 
       - name: check cli binary
         run: command -v netbird
+
+      - name: out file
+        if: failure()
+        run: cat out.log
