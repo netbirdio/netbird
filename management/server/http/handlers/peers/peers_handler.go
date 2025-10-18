@@ -33,6 +33,9 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/accessible-peers", peersHandler.GetAccessiblePeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/temporary-access", peersHandler.CreateTemporaryAccess).Methods("POST", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/jobs", peersHandler.ListJobs).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/jobs", peersHandler.CreateJob).Methods("POST", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/jobs/{jobId}", peersHandler.GetJob).Methods("GET", "OPTIONS")
 }
 
 // NewHandler creates a new peers Handler
@@ -40,6 +43,99 @@ func NewHandler(accountManager account.Manager) *Handler {
 	return &Handler{
 		accountManager: accountManager,
 	}
+}
+
+func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+
+	req := &api.JobRequest{}
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	job, err := types.NewJob(userAuth.UserId, userAuth.AccountId, peerID, req)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+	if err := h.accountManager.CreatePeerJob(ctx, userAuth.AccountId, peerID, userAuth.UserId, job); err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	resp, err := toSingleJobResponse(job)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	util.WriteJSONObject(ctx, w, resp)
+}
+
+func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+
+	jobs, err := h.accountManager.GetAllPeerJobs(ctx, userAuth.AccountId, userAuth.UserId, peerID)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	respBody := make([]*api.JobResponse, 0, len(jobs))
+	for _, job := range jobs {
+		resp, err := toSingleJobResponse(job)
+		if err != nil {
+			util.WriteError(ctx, err, w)
+			return
+		}
+		respBody = append(respBody, resp)
+	}
+
+	util.WriteJSONObject(ctx, w, respBody)
+}
+
+func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userAuth, err := nbcontext.GetUserAuthFromContext(ctx)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	peerID := vars["peerId"]
+	jobID := vars["jobId"]
+
+	job, err := h.accountManager.GetPeerJobByID(ctx, userAuth.AccountId, userAuth.UserId, peerID, jobID)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	resp, err := toSingleJobResponse(job)
+	if err != nil {
+		util.WriteError(ctx, err, w)
+		return
+	}
+
+	util.WriteJSONObject(ctx, w, resp)
 }
 
 func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
@@ -502,6 +598,28 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 		InactivityExpirationEnabled: peer.InactivityExpirationEnabled,
 		Ephemeral:                   peer.Ephemeral,
 	}
+}
+
+func toSingleJobResponse(job *types.Job) (*api.JobResponse, error) {
+	workload, err := job.BuildWorkloadResponse()
+	if err != nil {
+		return nil, err
+	}
+
+	var failed *string
+	if job.FailedReason != "" {
+		failed = &job.FailedReason
+	}
+
+	return &api.JobResponse{
+		Id:           job.ID,
+		CreatedAt:    job.CreatedAt,
+		CompletedAt:  job.CompletedAt,
+		TriggeredBy:  job.TriggeredBy,
+		Status:       api.JobResponseStatus(job.Status),
+		FailedReason: failed,
+		Workload:     *workload,
+	}, nil
 }
 
 func fqdn(peer *nbpeer.Peer, dnsDomain string) string {
