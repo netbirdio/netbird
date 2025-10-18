@@ -189,6 +189,10 @@ func (c *GrpcClient) handleJobStream(
 				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 			case codes.Canceled:
 				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+				return err
+			case codes.Unimplemented:
+				log.Warn("Job feature is not supported by the current management server version. " +
+					"Please update the management service to use this feature.")
 				return nil
 			default:
 				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
