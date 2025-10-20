@@ -267,10 +267,6 @@ func (am *DefaultAccountManager) SetEphemeralManager(em ephemeral.Manager) {
 	am.ephemeralManager = em
 }
 
-func (am *DefaultAccountManager) SetPermissionsManager(pm permissions.Manager) {
-	am.permissionsManager = pm
-}
-
 func (am *DefaultAccountManager) startWarmup(ctx context.Context) {
 	var initialInterval int64
 	intervalStr := os.Getenv("NB_PEER_UPDATE_INTERVAL_MS")

@@ -63,11 +63,10 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	userManager := users.NewManager(store)
 	permissionsManager := permissions.NewManager(store)
 	settingsManager := settings.NewManager(store, userManager, integrations.NewManager(&activity.InMemoryEventStore{}), permissionsManager)
-	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, false)
+	am, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager, false)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
-	am.SetPermissionsManager(permissionsManager)
 
 	// @note this is required so that PAT's validate from store, but JWT's are mocked
 	authManager := auth.NewManager(store, "", "", "", "", []string{}, false)
