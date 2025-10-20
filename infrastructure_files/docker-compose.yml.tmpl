@@ -40,6 +40,8 @@ services:
   signal:
     <<: *default
     image: netbirdio/signal:$NETBIRD_SIGNAL_TAG
+    depends_on:
+          - dashboard
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt:ro
