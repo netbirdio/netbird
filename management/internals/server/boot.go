@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	grpcMiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	log "github.com/sirupsen/logrus"
@@ -18,18 +19,19 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	activitystore "github.com/netbirdio/netbird/management/server/activity/store"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 )
+
+const apiPrefix = "/api"
 
 var (
 	kaep = keepalive.EnforcementPolicy{
@@ -68,36 +70,31 @@ func (s *BaseServer) Store() store.Store {
 
 func (s *BaseServer) EventStore() activity.Store {
 	return Create(s, func() activity.Store {
-		integrationMetrics, err := integrations.InitIntegrationMetrics(context.Background(), s.Metrics())
-		if err != nil {
-			log.Fatalf("failed to initialize integration metrics: %v", err)
-		}
-
-		eventStore, key, err := integrations.InitEventStore(context.Background(), s.config.Datadir, s.config.DataStoreEncryptionKey, integrationMetrics)
+		store, err := activitystore.NewSqlStore(context.Background(), s.config.Datadir, s.config.DataStoreEncryptionKey)
 		if err != nil {
 			log.Fatalf("failed to initialize event store: %v", err)
 		}
 
-		if s.config.DataStoreEncryptionKey != key {
-			log.WithContext(context.Background()).Infof("update config with activity store key")
-			s.config.DataStoreEncryptionKey = key
-			err := updateMgmtConfig(context.Background(), nbconfig.MgmtConfigPath, s.config)
-			if err != nil {
-				log.Fatalf("failed to update config with activity store: %v", err)
-			}
-		}
-
-		return eventStore
+		return store
 	})
 }
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(s.Router(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.PermissionsManager(), s.SettingsManager())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
 		return httpAPIHandler
+	})
+}
+
+func (s *BaseServer) Router() *mux.Router {
+	return Create(s, func() *mux.Router {
+		rootRouter := mux.NewRouter()
+		prefix := apiPrefix
+		router := rootRouter.PathPrefix(prefix).Subrouter()
+		return router
 	})
 }
 

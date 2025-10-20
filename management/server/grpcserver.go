@@ -936,7 +936,8 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.En
 		},
 	}
 
-	flowInfoResp := s.integratedPeerValidator.ValidateFlowResponse(ctx, peerKey.String(), initInfoFlow)
+	// flowInfoResp := s.integratedPeerValidator.ValidateFlowResponse(ctx, peerKey.String(), initInfoFlow)
+	flowInfoResp := initInfoFlow
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, flowInfoResp)
 	if err != nil {

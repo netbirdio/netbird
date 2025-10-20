@@ -35,7 +35,7 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 
 func (s *BaseServer) PermissionsManager() permissions.Manager {
 	return Create(s, func() permissions.Manager {
-		return integrations.InitPermissionsManager(s.Store())
+		return permissions.NewManager(s.Store())
 	})
 }
 

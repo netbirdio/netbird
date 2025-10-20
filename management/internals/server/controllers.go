@@ -26,7 +26,8 @@ func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValida
 			context.Background(),
 			s.PeersManager(),
 			s.SettingsManager(),
-			s.EventStore())
+			s.EventStore(),
+			nil)
 		if err != nil {
 			log.Errorf("failed to create integrated peer validator: %v", err)
 		}
