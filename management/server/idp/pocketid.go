@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
@@ -88,9 +87,10 @@ func NewPocketIdManager(config PocketIdClientConfig, appMetrics telemetry.AppMet
 	httpTransport.MaxIdleConns = 5
 
 	httpClient := &http.Client{
-		Timeout:   10 * time.Second,
+		Timeout:   idpTimeout(),
 		Transport: httpTransport,
 	}
+	
 	helper := JsonParser{}
 
 	if config.ManagementEndpoint == "" {
