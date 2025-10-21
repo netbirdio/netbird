@@ -44,7 +44,7 @@ func (s *serviceClient) showQuickActionsUI() {
 			return
 		}
 
-		if status.Status == string(peer.StatusConnected) {
+		if status.Status == peer.StatusConnected.String() {
 			statusLabel.SetText("Status: Connected")
 			connectBtn.Disable()
 			disconnectBtn.Enable()
