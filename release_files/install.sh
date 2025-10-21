@@ -40,10 +40,10 @@ get_release() {
     fi
     if [ -n "$GITHUB_TOKEN" ]; then
           curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "${URL}" \
-              | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+              | grep '"tag_name":' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'
     else
           curl -s "${URL}" \
-              | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+              | grep '"tag_name":' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'
     fi
 }
 
