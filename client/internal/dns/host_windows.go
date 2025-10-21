@@ -197,6 +197,10 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain, "."))
 	}
 
+	if err := r.removeDNSMatchPolicies(); err != nil {
+		log.Errorf("cleanup old dns match policies: %s", err)
+	}
+
 	if len(matchDomains) != 0 {
 		count, err := r.addDNSMatchPolicy(matchDomains, config.ServerIP)
 		if err != nil {
@@ -204,9 +208,6 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		}
 		r.nrptEntryCount = count
 	} else {
-		if err := r.removeDNSMatchPolicies(); err != nil {
-			return fmt.Errorf("remove dns match policies: %w", err)
-		}
 		r.nrptEntryCount = 0
 	}
 
