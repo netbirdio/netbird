@@ -96,7 +96,7 @@ func registryKeyExists(path string) (bool, error) {
 	return true, nil
 }
 
-func cleanupRegistryKeys(t *testing.T) {
+func cleanupRegistryKeys(*testing.T) {
 	cfg := &registryConfigurator{nrptEntryCount: 10}
 	_ = cfg.removeDNSMatchPolicies()
 }
