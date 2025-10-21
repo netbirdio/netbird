@@ -29,6 +29,8 @@ if [ -z ${NETBIRD_RELEASE+x} ]; then
     NETBIRD_RELEASE=latest
 fi
 
+TAG_NAME=""
+
 get_release() {
     local RELEASE=$1
     if [ "$RELEASE" = "latest" ]; then
@@ -39,16 +41,16 @@ get_release() {
         local URL="https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}"
     fi
     if [ -n "$GITHUB_TOKEN" ]; then
-          curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "${URL}" \
-              | grep '"tag_name":' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'
+          TAG_NAME=$(curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "${URL}" | grep '"tag_name":')
     else
-          curl -s "${URL}" \
-              | grep '"tag_name":' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'
+          TAG_NAME=$(curl -s "${URL}" | grep '"tag_name":') 
     fi
+	echo "${TAG_NAME}" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'
 }
 
 download_release_binary() {
     VERSION=$(get_release "$NETBIRD_RELEASE")
+	echo "Using the following tag name for binary installation: ${TAG_NAME}"
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
 
