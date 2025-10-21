@@ -40,11 +40,13 @@ get_release() {
         local TAG="tags/${RELEASE}"
         local URL="https://api.github.com/repos/${OWNER}/${REPO}/releases/${TAG}"
     fi
+	OUTPUT=""
     if [ -n "$GITHUB_TOKEN" ]; then
-          TAG_NAME=$(curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "${URL}" | grep '"tag_name":')
+          OUTPUT=$(curl -H  "Authorization: token ${GITHUB_TOKEN}" -s "${URL}")
     else
-          TAG_NAME=$(curl -s "${URL}" | grep '"tag_name":') 
+          OUTPUT=$(curl -s "${URL}") 
     fi
+	TAG_NAME=$(echo ${OUTPUT} |  grep -Eo '\"tag_name\":\s*\"v([0-9]+\.){2}[0-9]+"' | tail -n 1)
 	echo "${TAG_NAME}" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'
 }
 
