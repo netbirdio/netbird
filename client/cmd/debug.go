@@ -307,9 +307,8 @@ func getStatusOutput(cmd *cobra.Command, anon bool) string {
 	if err != nil {
 		cmd.PrintErrf("Failed to get status: %v\n", err)
 	} else {
-		statusOutputString = nbstatus.ParseToFullDetailSummary(
-			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", ""),
-		)
+		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", "")
+		statusOutputString = overview.FullDetailSummary()
 	}
 	return statusOutputString
 }

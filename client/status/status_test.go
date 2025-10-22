@@ -264,7 +264,7 @@ func TestSortingOfPeers(t *testing.T) {
 }
 
 func TestParsingToJSON(t *testing.T) {
-	jsonString, _ := ParseToJSON(overview)
+	jsonString, _ := overview.JSON()
 
 	//@formatter:off
 	expectedJSONString := `
@@ -396,7 +396,7 @@ func TestParsingToJSON(t *testing.T) {
 }
 
 func TestParsingToYAML(t *testing.T) {
-	yaml, _ := ParseToYAML(overview)
+	yaml, _ := overview.YAML()
 
 	expectedYAML :=
 		`peers:
@@ -500,7 +500,7 @@ func TestParsingToDetail(t *testing.T) {
 	lastConnectionUpdate2 := timeAgo(overview.Peers.Details[1].LastStatusUpdate)
 	lastHandshake2 := timeAgo(overview.Peers.Details[1].LastWireguardHandshake)
 
-	detail := ParseToFullDetailSummary(overview)
+	detail := overview.FullDetailSummary()
 
 	expectedDetail := fmt.Sprintf(
 		`Peers detail:
@@ -563,7 +563,7 @@ Peers count: 2/2 Connected
 }
 
 func TestParsingToShortVersion(t *testing.T) {
-	shortVersion := ParseGeneralSummary(overview, false, false, false)
+	shortVersion := overview.GeneralSummary(false, false, false)
 
 	expectedString := fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
 Daemon version: 0.14.1
