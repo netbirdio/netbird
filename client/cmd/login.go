@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"runtime"
 	"strings"
@@ -356,11 +357,19 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 	cmd.Println("")
 
 	if !noBrowser {
-		if err := open.Run(verificationURIComplete); err != nil {
+		if err := openBrowser(verificationURIComplete); err != nil {
 			cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
 				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 		}
 	}
+}
+
+// openBrowser opens the URL in a browser, respecting the BROWSER environment variable.
+func openBrowser(url string) error {
+	if browser := os.Getenv("BROWSER"); browser != "" {
+		return exec.Command(browser, url).Start()
+	}
+	return open.Run(url)
 }
 
 // isUnixRunningDesktop checks if a Linux OS is running desktop environment
