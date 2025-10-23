@@ -307,8 +307,14 @@ func getStatusOutput(cmd *cobra.Command, anon bool) string {
 	if err != nil {
 		cmd.PrintErrf("Failed to get status: %v\n", err)
 	} else {
+		pm := profilemanager.NewProfileManager()
+		var profName string
+		if activeProf, err := pm.GetActiveProfile(); err == nil {
+			profName = activeProf.Name
+		}
+
 		statusOutputString = nbstatus.ParseToFullDetailSummary(
-			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", ""),
+			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", profName),
 		)
 	}
 	return statusOutputString
