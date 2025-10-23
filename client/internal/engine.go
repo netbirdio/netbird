@@ -186,6 +186,9 @@ type Engine struct {
 
 	dnsServer dns.Server
 
+	// lastDNSConfig stores the last applied DNS configuration
+	lastDNSConfig *nbdns.Config
+
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
 
@@ -1060,8 +1063,13 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
 
-	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
-		log.Errorf("failed to update dns server, err: %v", err)
+	newDNSConfig := toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)
+	if !dnsConfigsEqual(e.lastDNSConfig, &newDNSConfig) {
+		if err := e.dnsServer.UpdateDNSServer(serial, newDNSConfig); err != nil {
+			log.Errorf("failed to update dns server, err: %v", err)
+		} else {
+			e.lastDNSConfig = &newDNSConfig
+		}
 	}
 
 	// apply routes first, route related actions might depend on routing being enabled
@@ -1253,6 +1261,73 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns
 	}
 
 	return dnsUpdate
+}
+
+func dnsConfigsEqual(a, b *nbdns.Config) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	if a.ServiceEnable != b.ServiceEnable {
+		return false
+	}
+	if len(a.CustomZones) != len(b.CustomZones) {
+		return false
+	}
+	if len(a.NameServerGroups) != len(b.NameServerGroups) {
+		return false
+	}
+
+	for i, zoneA := range a.CustomZones {
+		zoneB := b.CustomZones[i]
+		if zoneA.Domain != zoneB.Domain {
+			return false
+		}
+		if len(zoneA.Records) != len(zoneB.Records) {
+			return false
+		}
+		for j, recordA := range zoneA.Records {
+			recordB := zoneB.Records[j]
+			if recordA.Name != recordB.Name ||
+				recordA.Type != recordB.Type ||
+				recordA.Class != recordB.Class ||
+				recordA.TTL != recordB.TTL ||
+				recordA.RData != recordB.RData {
+				return false
+			}
+		}
+	}
+
+	for i, nsGroupA := range a.NameServerGroups {
+		nsGroupB := b.NameServerGroups[i]
+		if nsGroupA.Primary != nsGroupB.Primary ||
+			nsGroupA.SearchDomainsEnabled != nsGroupB.SearchDomainsEnabled {
+			return false
+		}
+		if len(nsGroupA.Domains) != len(nsGroupB.Domains) {
+			return false
+		}
+		for j, domainA := range nsGroupA.Domains {
+			if domainA != nsGroupB.Domains[j] {
+				return false
+			}
+		}
+		if len(nsGroupA.NameServers) != len(nsGroupB.NameServers) {
+			return false
+		}
+		for j, nsA := range nsGroupA.NameServers {
+			nsB := nsGroupB.NameServers[j]
+			if nsA.IP != nsB.IP ||
+				nsA.NSType != nsB.NSType ||
+				nsA.Port != nsB.Port {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
