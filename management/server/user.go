@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
 	"strings"
 	"time"
 
@@ -11,8 +13,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbContext "github.com/netbirdio/netbird/management/server/context"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -175,9 +175,9 @@ func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*t
 	return am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, id)
 }
 
-// GetUser looks up a user by provided nbContext.UserAuths.
+// GetUser looks up a user by provided auth.UserAuths.
 // Expects account to have been created already.
-func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbContext.UserAuth) (*types.User, error) {
+func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		return nil, err
@@ -940,7 +940,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	var peerIDs []string
 	for _, peer := range peers {
 		// nolint:staticcheck
-		ctx = context.WithValue(ctx, nbContext.PeerIDKey, peer.Key)
+		ctx = context.WithValue(ctx, nbcontext.PeerIDKey, peer.Key)
 
 		if peer.UserID == "" {
 			// we do not want to expire peers that are added via setup key
@@ -1171,7 +1171,7 @@ func validateUserInvite(invite *types.UserInfo) error {
 }
 
 // GetCurrentUserInfo retrieves the account's current user info and permissions
-func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
+func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error) {
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)

@@ -26,7 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/ssh/client"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/client/ssh/testutil"
-	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 func TestJWTEnforcement(t *testing.T) {
