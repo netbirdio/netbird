@@ -169,6 +169,7 @@ func (c *Client) Start(startCtx context.Context) error {
 	}
 
 	recorder := peer.NewRecorder(c.config.ManagementURL.String())
+
 	client := internal.NewConnectClient(ctx, c.config, recorder)
 
 	// either startup error (permanent backoff err) or nil err (successful engine up)
@@ -176,7 +177,7 @@ func (c *Client) Start(startCtx context.Context) error {
 	run := make(chan struct{})
 	clientErr := make(chan error, 1)
 	go func() {
-		if err := client.Run(run); err != nil {
+		if err := client.Run(run, ""); err != nil {
 			clientErr <- err
 		}
 	}()
