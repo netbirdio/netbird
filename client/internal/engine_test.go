@@ -1624,3 +1624,462 @@ func getPeers(e *Engine) int {
 
 	return len(e.peerStore.PeersPubKey())
 }
+
+func TestDNSConfigsEqual(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        *nbdns.Config
+		b        *nbdns.Config
+		expected bool
+	}{
+		{
+			name:     "both nil",
+			a:        nil,
+			b:        nil,
+			expected: true,
+		},
+		{
+			name:     "one nil",
+			a:        &nbdns.Config{},
+			b:        nil,
+			expected: false,
+		},
+		{
+			name:     "empty configs",
+			a:        &nbdns.Config{},
+			b:        &nbdns.Config{},
+			expected: true,
+		},
+		{
+			name: "different ServiceEnable",
+			a: &nbdns.Config{
+				ServiceEnable: true,
+			},
+			b: &nbdns.Config{
+				ServiceEnable: false,
+			},
+			expected: false,
+		},
+		{
+			name: "same simple config",
+			a: &nbdns.Config{
+				ServiceEnable: true,
+				CustomZones:   []nbdns.CustomZone{},
+			},
+			b: &nbdns.Config{
+				ServiceEnable: true,
+				CustomZones:   []nbdns.CustomZone{},
+			},
+			expected: true,
+		},
+		{
+			name: "different number of custom zones",
+			a: &nbdns.Config{
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "example.com"},
+				},
+			},
+			b: &nbdns.Config{
+				CustomZones: []nbdns.CustomZone{},
+			},
+			expected: false,
+		},
+		{
+			name: "same custom zones",
+			a: &nbdns.Config{
+				CustomZones: []nbdns.CustomZone{
+					{
+						Domain: "example.com",
+						Records: []nbdns.SimpleRecord{
+							{Name: "test", Type: 1, Class: "IN", TTL: 300, RData: "1.2.3.4"},
+						},
+					},
+				},
+			},
+			b: &nbdns.Config{
+				CustomZones: []nbdns.CustomZone{
+					{
+						Domain: "example.com",
+						Records: []nbdns.SimpleRecord{
+							{Name: "test", Type: 1, Class: "IN", TTL: 300, RData: "1.2.3.4"},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "different custom zone domains",
+			a: &nbdns.Config{
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "example.com"},
+				},
+			},
+			b: &nbdns.Config{
+				CustomZones: []nbdns.CustomZone{
+					{Domain: "example.org"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "different number of nameserver groups",
+			a: &nbdns.Config{
+				NameServerGroups: []*nbdns.NameServerGroup{
+					{Primary: true},
+				},
+			},
+			b: &nbdns.Config{
+				NameServerGroups: []*nbdns.NameServerGroup{},
+			},
+			expected: false,
+		},
+		{
+			name: "same nameserver groups",
+			a: &nbdns.Config{
+				NameServerGroups: []*nbdns.NameServerGroup{
+					{
+						Primary:              true,
+						Domains:              []string{"example.com"},
+						SearchDomainsEnabled: true,
+						NameServers: []nbdns.NameServer{
+							{IP: netip.MustParseAddr("8.8.8.8"), NSType: 1, Port: 53},
+						},
+					},
+				},
+			},
+			b: &nbdns.Config{
+				NameServerGroups: []*nbdns.NameServerGroup{
+					{
+						Primary:              true,
+						Domains:              []string{"example.com"},
+						SearchDomainsEnabled: true,
+						NameServers: []nbdns.NameServer{
+							{IP: netip.MustParseAddr("8.8.8.8"), NSType: 1, Port: 53},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "different nameserver primary",
+			a: &nbdns.Config{
+				NameServerGroups: []*nbdns.NameServerGroup{
+					{Primary: true},
+				},
+			},
+			b: &nbdns.Config{
+				NameServerGroups: []*nbdns.NameServerGroup{
+					{Primary: false},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "different nameserver IPs",
+			a: &nbdns.Config{
+				NameServerGroups: []*nbdns.NameServerGroup{
+					{
+						NameServers: []nbdns.NameServer{
+							{IP: netip.MustParseAddr("8.8.8.8"), NSType: 1, Port: 53},
+						},
+					},
+				},
+			},
+			b: &nbdns.Config{
+				NameServerGroups: []*nbdns.NameServerGroup{
+					{
+						NameServers: []nbdns.NameServer{
+							{IP: netip.MustParseAddr("1.1.1.1"), NSType: 1, Port: 53},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := dnsConfigsEqual(tt.a, tt.b)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestCustomZonesEqual(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        []nbdns.CustomZone
+		b        []nbdns.CustomZone
+		expected bool
+	}{
+		{
+			name:     "both empty",
+			a:        []nbdns.CustomZone{},
+			b:        []nbdns.CustomZone{},
+			expected: true,
+		},
+		{
+			name: "same single zone",
+			a: []nbdns.CustomZone{
+				{Domain: "example.com"},
+			},
+			b: []nbdns.CustomZone{
+				{Domain: "example.com"},
+			},
+			expected: true,
+		},
+		{
+			name: "different domains",
+			a: []nbdns.CustomZone{
+				{Domain: "example.com"},
+			},
+			b: []nbdns.CustomZone{
+				{Domain: "example.org"},
+			},
+			expected: false,
+		},
+		{
+			name: "different number of records",
+			a: []nbdns.CustomZone{
+				{
+					Domain: "example.com",
+					Records: []nbdns.SimpleRecord{
+						{Name: "test1"},
+					},
+				},
+			},
+			b: []nbdns.CustomZone{
+				{
+					Domain: "example.com",
+					Records: []nbdns.SimpleRecord{
+						{Name: "test1"},
+						{Name: "test2"},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "different record names",
+			a: []nbdns.CustomZone{
+				{
+					Domain: "example.com",
+					Records: []nbdns.SimpleRecord{
+						{Name: "test1", Type: 1, Class: "IN", TTL: 300, RData: "1.2.3.4"},
+					},
+				},
+			},
+			b: []nbdns.CustomZone{
+				{
+					Domain: "example.com",
+					Records: []nbdns.SimpleRecord{
+						{Name: "test2", Type: 1, Class: "IN", TTL: 300, RData: "1.2.3.4"},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "different record types",
+			a: []nbdns.CustomZone{
+				{
+					Domain: "example.com",
+					Records: []nbdns.SimpleRecord{
+						{Name: "test", Type: 1, Class: "IN", TTL: 300, RData: "1.2.3.4"},
+					},
+				},
+			},
+			b: []nbdns.CustomZone{
+				{
+					Domain: "example.com",
+					Records: []nbdns.SimpleRecord{
+						{Name: "test", Type: 5, Class: "IN", TTL: 300, RData: "1.2.3.4"},
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := customZonesEqual(tt.a, tt.b)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestNameServerGroupsEqual(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        []*nbdns.NameServerGroup
+		b        []*nbdns.NameServerGroup
+		expected bool
+	}{
+		{
+			name:     "both empty",
+			a:        []*nbdns.NameServerGroup{},
+			b:        []*nbdns.NameServerGroup{},
+			expected: true,
+		},
+		{
+			name: "same single group",
+			a: []*nbdns.NameServerGroup{
+				{Primary: true},
+			},
+			b: []*nbdns.NameServerGroup{
+				{Primary: true},
+			},
+			expected: true,
+		},
+		{
+			name: "different primary",
+			a: []*nbdns.NameServerGroup{
+				{Primary: true},
+			},
+			b: []*nbdns.NameServerGroup{
+				{Primary: false},
+			},
+			expected: false,
+		},
+		{
+			name: "different SearchDomainsEnabled",
+			a: []*nbdns.NameServerGroup{
+				{SearchDomainsEnabled: true},
+			},
+			b: []*nbdns.NameServerGroup{
+				{SearchDomainsEnabled: false},
+			},
+			expected: false,
+		},
+		{
+			name: "different number of domains",
+			a: []*nbdns.NameServerGroup{
+				{Domains: []string{"example.com"}},
+			},
+			b: []*nbdns.NameServerGroup{
+				{Domains: []string{"example.com", "example.org"}},
+			},
+			expected: false,
+		},
+		{
+			name: "different domains",
+			a: []*nbdns.NameServerGroup{
+				{Domains: []string{"example.com"}},
+			},
+			b: []*nbdns.NameServerGroup{
+				{Domains: []string{"example.org"}},
+			},
+			expected: false,
+		},
+		{
+			name: "different number of nameservers",
+			a: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8")},
+					},
+				},
+			},
+			b: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8")},
+						{IP: netip.MustParseAddr("1.1.1.1")},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "different nameserver IPs",
+			a: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: 1, Port: 53},
+					},
+				},
+			},
+			b: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("1.1.1.1"), NSType: 1, Port: 53},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "different nameserver types",
+			a: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: 1, Port: 53},
+					},
+				},
+			},
+			b: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: 2, Port: 53},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "different nameserver ports",
+			a: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: 1, Port: 53},
+					},
+				},
+			},
+			b: []*nbdns.NameServerGroup{
+				{
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: 1, Port: 5353},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "complete matching groups",
+			a: []*nbdns.NameServerGroup{
+				{
+					Primary:              true,
+					Domains:              []string{"example.com", "example.org"},
+					SearchDomainsEnabled: true,
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: 1, Port: 53},
+						{IP: netip.MustParseAddr("1.1.1.1"), NSType: 1, Port: 53},
+					},
+				},
+			},
+			b: []*nbdns.NameServerGroup{
+				{
+					Primary:              true,
+					Domains:              []string{"example.com", "example.org"},
+					SearchDomainsEnabled: true,
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.8.8"), NSType: 1, Port: 53},
+						{IP: netip.MustParseAddr("1.1.1.1"), NSType: 1, Port: 53},
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := nameServerGroupsEqual(tt.a, tt.b)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
