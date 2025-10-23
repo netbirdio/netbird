@@ -1280,8 +1280,20 @@ func dnsConfigsEqual(a, b *nbdns.Config) bool {
 		return false
 	}
 
-	for i, zoneA := range a.CustomZones {
-		zoneB := b.CustomZones[i]
+	if !customZonesEqual(a.CustomZones, b.CustomZones) {
+		return false
+	}
+
+	if !nameServerGroupsEqual(a.NameServerGroups, b.NameServerGroups) {
+		return false
+	}
+
+	return true
+}
+
+func customZonesEqual(a, b []nbdns.CustomZone) bool {
+	for i, zoneA := range a {
+		zoneB := b[i]
 		if zoneA.Domain != zoneB.Domain {
 			return false
 		}
@@ -1299,9 +1311,12 @@ func dnsConfigsEqual(a, b *nbdns.Config) bool {
 			}
 		}
 	}
+	return true
+}
 
-	for i, nsGroupA := range a.NameServerGroups {
-		nsGroupB := b.NameServerGroups[i]
+func nameServerGroupsEqual(a, b []*nbdns.NameServerGroup) bool {
+	for i, nsGroupA := range a {
+		nsGroupB := b[i]
 		if nsGroupA.Primary != nsGroupB.Primary ||
 			nsGroupA.SearchDomainsEnabled != nsGroupB.SearchDomainsEnabled {
 			return false
@@ -1326,7 +1341,6 @@ func dnsConfigsEqual(a, b *nbdns.Config) bool {
 			}
 		}
 	}
-
 	return true
 }
 
