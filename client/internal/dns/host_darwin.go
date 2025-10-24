@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	netbirdDNSStateKeyFormat            = "State:/Network/Service/NetBird-%s/DNS"
+	netbirdDNSStateKeyFormat            = "State:/Network/Service/NetBird-%s-%s/DNS"
 	globalIPv4State                     = "State:/Network/Global/IPv4"
 	primaryServiceStateKeyFormat        = "State:/Network/Service/%s/DNS"
 	keySupplementalMatchDomains         = "SupplementalMatchDomains"
@@ -37,11 +37,13 @@ const (
 type systemConfigurator struct {
 	createdKeys       map[string]struct{}
 	systemDNSSettings SystemDNSSettings
+	interfaceName     string
 }
 
-func newHostManager() (*systemConfigurator, error) {
+func newHostManager(interfaceName string) (*systemConfigurator, error) {
 	return &systemConfigurator{
-		createdKeys: make(map[string]struct{}),
+		createdKeys:   make(map[string]struct{}),
+		interfaceName: interfaceName,
 	}, nil
 }
 
@@ -52,7 +54,9 @@ func (s *systemConfigurator) supportCustomPort() bool {
 func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
 	var err error
 
-	if err := stateManager.UpdateState(&ShutdownState{}); err != nil {
+	if err := stateManager.UpdateState(&ShutdownState{
+		InterfaceName: s.interfaceName,
+	}); err != nil {
 		log.Errorf("failed to update shutdown state: %s", err)
 	}
 
@@ -85,7 +89,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 		searchDomains = append(searchDomains, strings.TrimSuffix(""+dConf.Domain, "."))
 	}
 
-	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)
+	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, s.interfaceName, matchSuffix)
 	if len(matchDomains) != 0 {
 		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), config.ServerIP, config.ServerPort)
 	} else {
@@ -96,7 +100,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 		return fmt.Errorf("add match domains: %w", err)
 	}
 
-	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix)
+	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, s.interfaceName, searchSuffix)
 	if len(searchDomains) != 0 {
 		err = s.addSearchDomains(searchKey, strings.Join(searchDomains, " "), config.ServerIP, config.ServerPort)
 	} else {
@@ -142,7 +146,10 @@ func (s *systemConfigurator) restoreHostDNS() error {
 func (s *systemConfigurator) getRemovableKeysWithDefaults() []string {
 	if len(s.createdKeys) == 0 {
 		// return defaults for startup calls
-		return []string{getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix), getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)}
+		return []string{
+			getKeyWithInput(netbirdDNSStateKeyFormat, s.interfaceName, searchSuffix),
+			getKeyWithInput(netbirdDNSStateKeyFormat, s.interfaceName, matchSuffix),
+		}
 	}
 
 	keys := make([]string, 0, len(s.createdKeys))
@@ -171,7 +178,7 @@ func (s *systemConfigurator) addLocalDNS() error {
 			return fmt.Errorf("recordSystemDNSSettings(): %w", err)
 		}
 	}
-	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
+	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, s.interfaceName, localSuffix)
 	if s.systemDNSSettings.ServerIP.IsValid() && len(s.systemDNSSettings.Domains) != 0 {
 		err := s.addSearchDomains(localKey, strings.Join(s.systemDNSSettings.Domains, " "), s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort)
 		if err != nil {
@@ -203,7 +210,7 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	if err != nil || primaryServiceKey == "" {
 		return SystemDNSSettings{}, fmt.Errorf("couldn't find the primary service key: %w", err)
 	}
-	dnsServiceKey := getKeyWithInput(primaryServiceStateKeyFormat, primaryServiceKey)
+	dnsServiceKey := getKeyWithInput(primaryServiceStateKeyFormat, s.interfaceName, primaryServiceKey)
 	line := buildCommandLine("show", dnsServiceKey, "")
 	stdinCommands := wrapCommand(line)
 
@@ -352,8 +359,9 @@ func (s *systemConfigurator) restoreUncleanShutdownDNS() error {
 	return nil
 }
 
-func getKeyWithInput(format, key string) string {
-	return fmt.Sprintf(format, key)
+
+func getKeyWithInput(format string, iface string, key string) string {
+	return fmt.Sprintf(format, iface, key)
 }
 
 func buildAddCommandLine(key, value string) string {
