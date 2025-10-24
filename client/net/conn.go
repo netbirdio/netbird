@@ -17,8 +17,7 @@ type Conn struct {
 	ID hooks.ConnectionID
 }
 
-// Close overrides the net.Conn Close method to execute all registered hooks after closing the connection
-// Close overrides the net.Conn Close method to execute all registered hooks before closing the connection.
+// Close overrides the net.Conn Close method to execute all registered hooks after closing the connection.
 func (c *Conn) Close() error {
 	return closeConn(c.ID, c.Conn)
 }
@@ -29,7 +28,7 @@ type TCPConn struct {
 	ID hooks.ConnectionID
 }
 
-// Close overrides the net.TCPConn Close method to execute all registered hooks before closing the connection.
+// Close overrides the net.TCPConn Close method to execute all registered hooks after closing the connection.
 func (c *TCPConn) Close() error {
 	return closeConn(c.ID, c.TCPConn)
 }
@@ -37,13 +36,16 @@ func (c *TCPConn) Close() error {
 // closeConn is a helper function to close connections and execute close hooks.
 func closeConn(id hooks.ConnectionID, conn io.Closer) error {
 	err := conn.Close()
+	cleanupConnID(id)
+	return err
+}
 
+// cleanupConnID executes close hooks for a connection ID.
+func cleanupConnID(id hooks.ConnectionID) {
 	closeHooks := hooks.GetCloseHooks()
 	for _, hook := range closeHooks {
 		if err := hook(id); err != nil {
 			log.Errorf("Error executing close hook: %v", err)
 		}
 	}
-
-	return err
 }
