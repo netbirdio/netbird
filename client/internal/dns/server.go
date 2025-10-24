@@ -79,6 +79,7 @@ type DefaultServer struct {
 	updateSerial       uint64
 	previousConfigHash uint64
 	currentConfig      HostDNSConfig
+	currentConfigHash  uint64
 	handlerChain       *HandlerChain
 	extraDomains       map[domain.Domain]int
 
@@ -583,9 +584,26 @@ func (s *DefaultServer) applyHostConfig() {
 
 	log.Debugf("extra match domains: %v", maps.Keys(s.extraDomains))
 
+	hash, err := hashstructure.Hash(config, hashstructure.FormatV2, &hashstructure.HashOptions{
+		ZeroNil:         true,
+		IgnoreZeroValue: true,
+		SlicesAsSets:    true,
+		UseStringer:     true,
+	})
+	if err != nil {
+		log.Errorf("unable to hash the host dns configuration, got error: %s", err)
+	}
+
+	if s.currentConfigHash == hash {
+		log.Infof("not applying host config as there are no changes")
+		return
+	}
+
 	if err := s.hostManager.applyDNSConfig(config, s.stateManager); err != nil {
 		log.Errorf("failed to apply DNS host manager update: %v", err)
 	}
+
+	s.currentConfigHash = hash
 
 	s.registerFallback(config)
 }
