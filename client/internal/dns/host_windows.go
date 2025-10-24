@@ -17,6 +17,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/winregistry"
 )
 
 var (
@@ -197,6 +198,10 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain, "."))
 	}
 
+	if err := r.removeDNSMatchPolicies(); err != nil {
+		log.Errorf("cleanup old dns match policies: %s", err)
+	}
+
 	if len(matchDomains) != 0 {
 		count, err := r.addDNSMatchPolicy(matchDomains, config.ServerIP)
 		if err != nil {
@@ -204,9 +209,6 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		}
 		r.nrptEntryCount = count
 	} else {
-		if err := r.removeDNSMatchPolicies(); err != nil {
-			return fmt.Errorf("remove dns match policies: %w", err)
-		}
 		r.nrptEntryCount = 0
 	}
 
@@ -273,9 +275,9 @@ func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []s
 		return fmt.Errorf("remove existing dns policy: %w", err)
 	}
 
-	regKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, policyPath, registry.SET_VALUE)
+	regKey, _, err := winregistry.CreateVolatileKey(registry.LOCAL_MACHINE, policyPath, registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("create registry key HKEY_LOCAL_MACHINE\\%s: %w", policyPath, err)
+		return fmt.Errorf("create volatile registry key HKEY_LOCAL_MACHINE\\%s: %w", policyPath, err)
 	}
 	defer closer(regKey)
 
