@@ -83,7 +83,7 @@ type SysOps struct {
 	localSubnetsCacheTime time.Time
 }
 
-func NewSysOps(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {
+func New(wgInterface wgIface, notifier *notifier.Notifier) *SysOps {
 	return &SysOps{
 		wgInterface: wgInterface,
 		notifier:    notifier,

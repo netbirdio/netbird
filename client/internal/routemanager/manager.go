@@ -106,7 +106,7 @@ type DefaultManager struct {
 func NewManager(config ManagerConfig) *DefaultManager {
 	mCTX, cancel := context.WithCancel(config.Context)
 	notifier := notifier.NewNotifier()
-	sysOps := systemops.NewSysOps(config.WGInterface, notifier)
+	sysOps := systemops.New(config.WGInterface, notifier)
 
 	if runtime.GOOS == "windows" && config.WGInterface != nil {
 		nbnet.SetVPNInterfaceName(config.WGInterface.Name())

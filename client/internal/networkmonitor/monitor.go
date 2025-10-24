@@ -88,6 +88,7 @@ func (nw *NetworkMonitor) Listen(ctx context.Context) (err error) {
 	event := make(chan struct{}, 1)
 	go nw.checkChanges(ctx, event, nexthop4, nexthop6)
 
+	log.Infof("start watching for network changes")
 	// debounce changes
 	timer := time.NewTimer(0)
 	timer.Stop()
