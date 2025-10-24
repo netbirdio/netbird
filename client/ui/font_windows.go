@@ -31,7 +31,6 @@ func (s *serviceClient) getWindowsFontFilePath() string {
 			"chr-CHER-US": "Gadugi.ttf",
 			"zh-HK":       "Segoeui.ttf",
 			"zh-TW":       "Segoeui.ttf",
-			"ja-JP":       "Yugothm.ttc",
 			"km-KH":       "Leelawui.ttf",
 			"ko-KR":       "Malgun.ttf",
 			"th-TH":       "Leelawui.ttf",
