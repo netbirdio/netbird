@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
