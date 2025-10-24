@@ -7,18 +7,38 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/route"
 	"golang.org/x/sys/unix"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
+
+const (
+	envRouteProtoFlag = "NB_ROUTE_PROTO_FLAG"
+)
+
+var routeProtoFlag int
+
+func init() {
+	switch os.Getenv(envRouteProtoFlag) {
+	case "2":
+		routeProtoFlag = unix.RTF_PROTO2
+	case "3":
+		routeProtoFlag = unix.RTF_PROTO3
+	default:
+		routeProtoFlag = unix.RTF_PROTO1
+	}
+}
 
 func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager, advancedRouting bool) error {
 	return r.setupRefCounter(initAddresses, stateManager)
@@ -26,6 +46,62 @@ func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager
 
 func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRouting bool) error {
 	return r.cleanupRefCounter(stateManager)
+}
+
+// FlushMarkedRoutes removes single IP exclusion routes marked with the configured RTF_PROTO flag.
+func (r *SysOps) FlushMarkedRoutes() error {
+	rib, err := retryFetchRIB()
+	if err != nil {
+		return fmt.Errorf("fetch routing table: %w", err)
+	}
+
+	msgs, err := route.ParseRIB(route.RIBTypeRoute, rib)
+	if err != nil {
+		return fmt.Errorf("parse routing table: %w", err)
+	}
+
+	var merr *multierror.Error
+	flushedCount := 0
+
+	for _, msg := range msgs {
+		rtMsg, ok := msg.(*route.RouteMessage)
+		if !ok {
+			continue
+		}
+
+		if rtMsg.Flags&routeProtoFlag == 0 {
+			continue
+		}
+
+		routeInfo, err := MsgToRoute(rtMsg)
+		if err != nil {
+			log.Debugf("Skipping route flush: %v", err)
+			continue
+		}
+
+		if !routeInfo.Dst.IsValid() || !routeInfo.Dst.IsSingleIP() {
+			continue
+		}
+
+		nexthop := Nexthop{
+			IP:   routeInfo.Gw,
+			Intf: routeInfo.Interface,
+		}
+
+		if err := r.removeFromRouteTable(routeInfo.Dst, nexthop); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", routeInfo.Dst, err))
+			continue
+		}
+
+		flushedCount++
+		log.Debugf("Flushed marked route: %s", routeInfo.Dst)
+	}
+
+	if flushedCount > 0 {
+		log.Infof("Flushed %d residual NetBird routes from previous session", flushedCount)
+	}
+
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
@@ -105,7 +181,7 @@ func (r *SysOps) routeOp(action int, prefix netip.Prefix, nexthop Nexthop) func(
 func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Nexthop) (msg *route.RouteMessage, err error) {
 	msg = &route.RouteMessage{
 		Type:    action,
-		Flags:   unix.RTF_UP,
+		Flags:   unix.RTF_UP | routeProtoFlag,
 		Version: unix.RTM_VERSION,
 		Seq:     r.getSeq(),
 	}
