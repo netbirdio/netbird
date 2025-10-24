@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/amnezia-vpn/amneziawg-go/tun"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
-	"golang.zx2c4.com/wireguard/tun"
 )
 
 type responseWriter struct {

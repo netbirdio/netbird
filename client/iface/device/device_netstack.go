@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/amnezia-vpn/amneziawg-go/conn"
+	"github.com/amnezia-vpn/amneziawg-go/device"
+	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -38,11 +38,12 @@ type TunNetstackDevice struct {
 	nsTun          *nbnetstack.NetStackTun
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
+	amneziaConfig  configurer.AmneziaConfig
 
 	net *netstack.Net
 }
 
-func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, bind Bind, listenAddress string) *TunNetstackDevice {
+func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key string, mtu uint16, bind Bind, listenAddress string, amneziaConfig configurer.AmneziaConfig) *TunNetstackDevice {
 	return &TunNetstackDevice{
 		name:          name,
 		address:       address,
@@ -51,6 +52,7 @@ func NewNetstackDevice(name string, address wgaddr.Address, wgPort int, key stri
 		mtu:           mtu,
 		listenAddress: listenAddress,
 		bind:          bind,
+		amneziaConfig: amneziaConfig,
 	}
 }
 
@@ -79,7 +81,7 @@ func (t *TunNetstackDevice) create() (WGConfigurer, error) {
 		device.NewLogger(wgLogLevel(), "[netbird] "),
 	)
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.bind.ActivityRecorder())
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.bind.ActivityRecorder(), t.amneziaConfig)
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		_ = tunIface.Close()
