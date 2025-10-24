@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -34,7 +35,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -278,6 +278,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
+		}
+
+		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
+			c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
 		}
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
