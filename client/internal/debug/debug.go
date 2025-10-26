@@ -54,6 +54,7 @@ block.prof: Block profiling information.
 heap.prof: Heap profiling information (snapshot of memory allocations).
 allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
+cpu.prof: CPU profiling information.
 
 
 Anonymization Process
