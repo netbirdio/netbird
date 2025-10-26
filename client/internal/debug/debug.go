@@ -498,7 +498,7 @@ func (g *BundleGenerator) addProf() (err error) {
 }
 
 func (g *BundleGenerator) addCPUProfile() error {
-	if g.cpuProfile == nil || len(g.cpuProfile) == 0 {
+	if len(g.cpuProfile) == 0 {
 		return nil
 	}
 
