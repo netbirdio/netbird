@@ -84,6 +84,12 @@ service DaemonService {
   rpc Logout(LogoutRequest) returns (LogoutResponse) {}
 
   rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
+
+  // StartCPUProfile starts CPU profiling in the daemon
+  rpc StartCPUProfile(StartCPUProfileRequest) returns (StartCPUProfileResponse) {}
+
+  // StopCPUProfile stops CPU profiling in the daemon
+  rpc StopCPUProfile(StopCPUProfileRequest) returns (StopCPUProfileResponse) {}
 }
 
 
@@ -641,3 +647,15 @@ message GetFeaturesResponse{
   bool disable_profiles = 1;
   bool disable_update_settings = 2;
 }
+
+// StartCPUProfileRequest for starting CPU profiling
+message StartCPUProfileRequest {}
+
+// StartCPUProfileResponse confirms CPU profiling has started
+message StartCPUProfileResponse {}
+
+// StopCPUProfileRequest for stopping CPU profiling
+message StopCPUProfileRequest {}
+
+// StopCPUProfileResponse confirms CPU profiling has stopped
+message StopCPUProfileResponse {}

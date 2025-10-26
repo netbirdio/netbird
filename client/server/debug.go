@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime/pprof"
 
 	log "github.com/sirupsen/logrus"
 
@@ -32,12 +34,21 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		log.Warnf("failed to get latest sync response: %v", err)
 	}
 
+	var cpuProfileData []byte
+	if s.cpuProfileBuf != nil {
+		cpuProfileData = s.cpuProfileBuf.Bytes()
+		defer func() {
+			s.cpuProfileBuf = nil
+		}()
+	}
+
 	bundleGenerator := debug.NewBundleGenerator(
 		debug.GeneratorDependencies{
 			InternalConfig: s.config,
 			StatusRecorder: s.statusRecorder,
 			SyncResponse:   syncResponse,
 			LogFile:        s.logFile,
+			CPUProfile:     cpuProfileData,
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),
@@ -214,4 +225,44 @@ func (s *Server) getLatestSyncResponse() (*mgmProto.SyncResponse, error) {
 	}
 
 	return cClient.GetLatestSyncResponse()
+}
+
+// StartCPUProfile starts CPU profiling in the daemon.
+func (s *Server) StartCPUProfile(_ context.Context, _ *proto.StartCPUProfileRequest) (*proto.StartCPUProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.cpuProfiling {
+		return nil, fmt.Errorf("CPU profiling already in progress")
+	}
+
+	s.cpuProfileBuf = &bytes.Buffer{}
+	if err := pprof.StartCPUProfile(s.cpuProfileBuf); err != nil {
+		s.cpuProfileBuf = nil
+		return nil, fmt.Errorf("start CPU profile: %w", err)
+	}
+
+	s.cpuProfiling = true
+
+	log.Info("CPU profiling started")
+	return &proto.StartCPUProfileResponse{}, nil
+}
+
+// StopCPUProfile stops CPU profiling in the daemon.
+func (s *Server) StopCPUProfile(_ context.Context, _ *proto.StopCPUProfileRequest) (*proto.StopCPUProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if !s.cpuProfiling {
+		return nil, fmt.Errorf("CPU profiling not in progress")
+	}
+
+	pprof.StopCPUProfile()
+	s.cpuProfiling = false
+
+	if s.cpuProfileBuf != nil {
+		log.Infof("CPU profiling stopped, captured %d bytes", s.cpuProfileBuf.Len())
+	}
+
+	return &proto.StopCPUProfileResponse{}, nil
 }
