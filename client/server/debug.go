@@ -237,12 +237,12 @@ func (s *Server) StartCPUProfile(_ context.Context, _ *proto.StartCPUProfileRequ
 	}
 
 	s.cpuProfileBuf = &bytes.Buffer{}
+	s.cpuProfiling = true
 	if err := pprof.StartCPUProfile(s.cpuProfileBuf); err != nil {
 		s.cpuProfileBuf = nil
+		s.cpuProfiling = false
 		return nil, fmt.Errorf("start CPU profile: %w", err)
 	}
-
-	s.cpuProfiling = true
 
 	log.Info("CPU profiling started")
 	return &proto.StartCPUProfileResponse{}, nil
