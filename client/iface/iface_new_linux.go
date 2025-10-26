@@ -29,7 +29,7 @@ func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
 		return wgIFace, nil
 	}
 
-	if device.WireGuardModuleIsLoaded() {
+	if device.WireGuardModuleIsLoaded(opts.AmneziaConfig) {
 		wgIFace.tun = device.NewKernelDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, opts.TransportNet)
 		wgIFace.wgProxyFactory = wgproxy.NewKernelFactory(opts.WGPort, opts.MTU)
 		return wgIFace, nil

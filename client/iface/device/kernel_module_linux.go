@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/netbirdio/netbird/client/internal/amneziawg"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -85,14 +86,14 @@ func ModuleTunIsLoaded() bool {
 }
 
 // WireGuardModuleIsLoaded check if we can load WireGuard mod (linux only)
-func WireGuardModuleIsLoaded() bool {
+func WireGuardModuleIsLoaded(conf amneziawg.AmneziaConfig) bool {
 
 	if os.Getenv(envDisableWireGuardKernel) == "true" {
 		log.Debugf("WireGuard kernel module disabled because the %s env is set to true", envDisableWireGuardKernel)
 		return false
 	}
 
-	useAmnezia := os.Getenv(envUseAmneziaWireGuardKernel) == "true"
+	useAmnezia := !conf.IsEmpty()
 	if !useAmnezia && canCreateFakeWireGuardInterface() {
 		return true
 	}

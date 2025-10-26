@@ -1,5 +1,7 @@
 package amneziawg
 
+import "github.com/netbirdio/netbird/shared/management/proto"
+
 // AmneziaConfig describes AmneziaWG obfuscation parameters.
 // If nil or all fields are zero, it behaves as standard WireGuard.
 type AmneziaConfig struct {
@@ -21,10 +23,20 @@ type AmneziaConfig struct {
 
 func (cfg AmneziaConfig) IsEmpty() bool {
 
-	return cfg.Jc == 0 && cfg.Jmin == 0 && cfg.Jmax == 0 &&
-		cfg.S1 == 0 && cfg.S2 == 0 &&
-		cfg.H1 == 0 && cfg.H2 == 0 && cfg.H3 == 0 && cfg.H4 == 0 &&
-		cfg.I1 == "" && cfg.I2 == "" && cfg.I3 == "" && cfg.I4 == "" && cfg.I5 == ""
+	return cfg.Jc == 0 &&
+		cfg.Jmin == 0 &&
+		cfg.Jmax == 0 &&
+		cfg.S1 == 0 &&
+		cfg.S2 == 0 &&
+		cfg.H1 == 0 &&
+		cfg.H2 == 0 &&
+		cfg.H3 == 0 &&
+		cfg.H4 == 0 &&
+		cfg.I1 == "" &&
+		cfg.I2 == "" &&
+		cfg.I3 == "" &&
+		cfg.I4 == "" &&
+		cfg.I5 == ""
 }
 func (cfg AmneziaConfig) GetJc() int32   { return cfg.Jc }
 func (cfg AmneziaConfig) GetJmin() int32 { return cfg.Jmin }
@@ -40,3 +52,24 @@ func (cfg AmneziaConfig) GetI2() string  { return cfg.I2 }
 func (cfg AmneziaConfig) GetI3() string  { return cfg.I3 }
 func (cfg AmneziaConfig) GetI4() string  { return cfg.I4 }
 func (cfg AmneziaConfig) GetI5() string  { return cfg.I5 }
+
+func FromProtobuf(config *proto.AmneziaConfig) AmneziaConfig {
+
+	return AmneziaConfig{
+		Jc:   *config.Jc,
+		Jmin: *config.Jmin,
+		Jmax: *config.Jmax,
+		S1:   *config.S1,
+		S2:   *config.S2,
+		H1:   *config.H1,
+		H2:   *config.H2,
+		H3:   *config.H3,
+		H4:   *config.H4,
+		I1:   *config.I1,
+		I2:   *config.I2,
+		I3:   *config.I3,
+		I4:   *config.I4,
+		I5:   *config.I5,
+	}
+
+}

@@ -209,7 +209,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
-			KernelInterface: device.WireGuardModuleIsLoaded(),
+			KernelInterface: false, // do not load kernel interface by default, as it could brake amneziaWG
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
 		c.statusRecorder.UpdateLocalPeerState(localPeerState)
@@ -446,22 +446,16 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 
 		MTU: selectMTU(config.MTU, peerConfig.Mtu),
-		AmneziaConfig: amneziawg.AmneziaConfig{
-			Jc:   *peerConfig.AmneziaConfig.Jc,
-			Jmin: *peerConfig.AmneziaConfig.Jmin,
-			Jmax: *peerConfig.AmneziaConfig.Jmax,
-			S1:   *peerConfig.AmneziaConfig.S1,
-			S2:   *peerConfig.AmneziaConfig.S2,
-			H1:   *peerConfig.AmneziaConfig.H1,
-			H2:   *peerConfig.AmneziaConfig.H2,
-			H3:   *peerConfig.AmneziaConfig.H3,
-			H4:   *peerConfig.AmneziaConfig.H4,
-			I1:   *peerConfig.AmneziaConfig.I1,
-			I2:   *peerConfig.AmneziaConfig.I2,
-			I3:   *peerConfig.AmneziaConfig.I3,
-			I4:   *peerConfig.AmneziaConfig.I4,
-			I5:   *peerConfig.AmneziaConfig.I5,
-		},
+	}
+
+	if peerConfig.AmneziaConfig != nil {
+
+		engineConf.AmneziaConfig = amneziawg.FromProtobuf(peerConfig.AmneziaConfig)
+		log.Infof("Init amneziaWG config from peer: %v", engineConf.AmneziaConfig)
+	} else {
+
+		engineConf.AmneziaConfig = amneziawg.AmneziaConfig{}
+		log.Infof("Init empty amneziaWG config")
 	}
 
 	if config.PreSharedKey != "" {

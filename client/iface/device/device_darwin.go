@@ -29,10 +29,10 @@ type TunDevice struct {
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
-	amneziaConfig  AmneziaConfig
+	amneziaConfig  configurer.AmneziaConfig
 }
 
-func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, amneziaConfig AmneziaConfig) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, amneziaConfig configurer.AmneziaConfig) *TunDevice {
 	return &TunDevice{
 		name:          name,
 		address:       address,
