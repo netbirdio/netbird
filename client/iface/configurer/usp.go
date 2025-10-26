@@ -410,49 +410,7 @@ func (c *WGUSPConfigurer) toWgUserspaceString(wgCfg wgtypes.Config) string {
 		// Write AmneziaWG settings only if config is not empty
 		// If nil or empty, acts as standard WireGuard
 		if !c.amneziaConfig.IsEmpty() {
-
-			if val := c.amneziaConfig.GetJc(); val > 0 {
-				sb.WriteString(fmt.Sprintf("jc=%d\n", val))
-			}
-			if val := c.amneziaConfig.GetJmin(); val > 0 {
-				sb.WriteString(fmt.Sprintf("jmin=%d\n", val))
-			}
-			if val := c.amneziaConfig.GetJmax(); val > 0 {
-				sb.WriteString(fmt.Sprintf("jmax=%d\n", val))
-			}
-			if val := c.amneziaConfig.GetS1(); val > 0 {
-				sb.WriteString(fmt.Sprintf("s1=%d\n", val))
-			}
-			if val := c.amneziaConfig.GetS2(); val > 0 {
-				sb.WriteString(fmt.Sprintf("s2=%d\n", val))
-			}
-			if val := c.amneziaConfig.GetH1(); val > 0 {
-				sb.WriteString(fmt.Sprintf("h1=%d\n", val))
-			}
-			if val := c.amneziaConfig.GetH2(); val > 0 {
-				sb.WriteString(fmt.Sprintf("h2=%d\n", val))
-			}
-			if val := c.amneziaConfig.GetH3(); val > 0 {
-				sb.WriteString(fmt.Sprintf("h3=%d\n", val))
-			}
-			if val := c.amneziaConfig.GetH4(); val > 0 {
-				sb.WriteString(fmt.Sprintf("h4=%d\n", val))
-			}
-			if val := c.amneziaConfig.GetI1(); val != "" {
-				sb.WriteString(fmt.Sprintf("i1=%s\n", val))
-			}
-			if val := c.amneziaConfig.GetI2(); val != "" {
-				sb.WriteString(fmt.Sprintf("i2=%s\n", val))
-			}
-			if val := c.amneziaConfig.GetI3(); val != "" {
-				sb.WriteString(fmt.Sprintf("i3=%s\n", val))
-			}
-			if val := c.amneziaConfig.GetI4(); val != "" {
-				sb.WriteString(fmt.Sprintf("i4=%s\n", val))
-			}
-			if val := c.amneziaConfig.GetI5(); val != "" {
-				sb.WriteString(fmt.Sprintf("i5=%s\n", val))
-			}
+			writeAmneziaWgSettings(sb, c.amneziaConfig)
 		}
 	}
 
@@ -498,6 +456,53 @@ func (c *WGUSPConfigurer) toWgUserspaceString(wgCfg wgtypes.Config) string {
 		}
 	}
 	return sb.String()
+}
+
+func writeAmneziaWgSettings(sb strings.Builder, conf AmneziaConfig) {
+
+	if val := conf.GetJc(); val > 0 {
+		sb.WriteString(fmt.Sprintf("jc=%d\n", val))
+	}
+	if val := conf.GetJmin(); val > 0 {
+		sb.WriteString(fmt.Sprintf("jmin=%d\n", val))
+	}
+	if val := conf.GetJmax(); val > 0 {
+		sb.WriteString(fmt.Sprintf("jmax=%d\n", val))
+	}
+	if val := conf.GetS1(); val > 0 {
+		sb.WriteString(fmt.Sprintf("s1=%d\n", val))
+	}
+	if val := conf.GetS2(); val > 0 {
+		sb.WriteString(fmt.Sprintf("s2=%d\n", val))
+	}
+	if val := conf.GetH1(); val > 0 {
+		sb.WriteString(fmt.Sprintf("h1=%d\n", val))
+	}
+	if val := conf.GetH2(); val > 0 {
+		sb.WriteString(fmt.Sprintf("h2=%d\n", val))
+	}
+	if val := conf.GetH3(); val > 0 {
+		sb.WriteString(fmt.Sprintf("h3=%d\n", val))
+	}
+	if val := conf.GetH4(); val > 0 {
+		sb.WriteString(fmt.Sprintf("h4=%d\n", val))
+	}
+	if val := conf.GetI1(); val != "" {
+		sb.WriteString(fmt.Sprintf("i1=%s\n", val))
+	}
+	if val := conf.GetI2(); val != "" {
+		sb.WriteString(fmt.Sprintf("i2=%s\n", val))
+	}
+	if val := conf.GetI3(); val != "" {
+		sb.WriteString(fmt.Sprintf("i3=%s\n", val))
+	}
+	if val := conf.GetI4(); val != "" {
+		sb.WriteString(fmt.Sprintf("i4=%s\n", val))
+	}
+	if val := conf.GetI5(); val != "" {
+		sb.WriteString(fmt.Sprintf("i5=%s\n", val))
+	}
+
 }
 
 func toLastHandshake(stringVar string) (time.Time, error) {

@@ -35,15 +35,16 @@ type WGTunDevice struct {
 	amneziaConfig  configurer.AmneziaConfig
 }
 
-func NewTunDevice(address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunAdapter TunAdapter, disableDNS bool) *WGTunDevice {
+func NewTunDevice(address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunAdapter TunAdapter, disableDNS bool, amneziaConfig configurer.AmneziaConfig) *WGTunDevice {
 	return &WGTunDevice{
-		address:    address,
-		port:       port,
-		key:        key,
-		mtu:        mtu,
-		iceBind:    iceBind,
-		tunAdapter: tunAdapter,
-		disableDNS: disableDNS,
+		address:       address,
+		port:          port,
+		key:           key,
+		mtu:           mtu,
+		iceBind:       iceBind,
+		tunAdapter:    tunAdapter,
+		disableDNS:    disableDNS,
+		amneziaConfig: amneziaConfig,
 	}
 }
 
