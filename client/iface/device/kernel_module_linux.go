@@ -28,15 +28,14 @@ import (
 type status int
 
 const (
-	unknown                      status = 1
-	unloaded                     status = 2
-	unloading                    status = 3
-	loading                      status = 4
-	live                         status = 5
-	inuse                        status = 6
-	defaultModuleDir                    = "/lib/modules"
-	envDisableWireGuardKernel           = "NB_WG_KERNEL_DISABLED"
-	envUseAmneziaWireGuardKernel        = "NB_WG_KERNEL_USE_AMNEZIAWG"
+	unknown                   status = 1
+	unloaded                  status = 2
+	unloading                 status = 3
+	loading                   status = 4
+	live                      status = 5
+	inuse                     status = 6
+	defaultModuleDir                 = "/lib/modules"
+	envDisableWireGuardKernel        = "NB_WG_KERNEL_DISABLED"
 )
 
 type module struct {
