@@ -51,7 +51,7 @@ func (w *SRWatcher) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancelIceMonitor = cancel
 
-	iceMonitor := NewICEMonitor(w.iFaceDiscover, w.iceConfig)
+	iceMonitor := NewICEMonitor(w.iFaceDiscover, w.iceConfig, GetICEMonitorPeriod())
 	go iceMonitor.Start(ctx, w.onICEChanged)
 	w.signalClient.SetOnReconnectedListener(w.onReconnected)
 	w.relayManager.SetOnReconnectedListener(w.onReconnected)

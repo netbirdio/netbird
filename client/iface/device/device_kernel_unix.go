@@ -179,3 +179,8 @@ func (t *TunKernelDevice) assignAddr() error {
 func (t *TunKernelDevice) GetNet() *netstack.Net {
 	return nil
 }
+
+// GetICEBind returns nil for kernel mode devices
+func (t *TunKernelDevice) GetICEBind() EndpointManager {
+	return nil
+}

@@ -467,6 +467,9 @@ components:
               description: (Cloud only) Indicates whether peer needs approval
               type: boolean
               example: true
+            disapproval_reason:
+              description: (Cloud only) Reason why the peer requires approval
+              type: string
             country_code:
               $ref: '#/components/schemas/CountryCode'
             city_name:
