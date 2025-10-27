@@ -202,7 +202,7 @@ type Engine struct {
 	flowManager         nftypes.FlowManager
 
 	// auto-update
-	updateManager *updatemanager.UpdateManager
+	updateManager *updatemanager.Manager
 
 	// WireGuard interface monitor
 	wgIfaceMonitor   *WGIfaceMonitor
@@ -514,7 +514,7 @@ func (e *Engine) InitialUpdateHandling(autoUpdateSettings *mgmProto.AutoUpdateSe
 	defer e.syncMsgMux.Unlock()
 
 	if e.updateManager == nil {
-		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
+		e.updateManager = updatemanager.NewManager(e.statusRecorder, e.stateManager)
 	}
 
 	e.updateManager.CheckUpdateSuccess(e.ctx)
@@ -758,7 +758,7 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	// Start manager if needed
 	if e.updateManager == nil {
 		log.Infof("starting auto-update manager")
-		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
+		e.updateManager = updatemanager.NewManager(e.statusRecorder, e.stateManager)
 	}
 	e.updateManager.Start(e.ctx)
 	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)
