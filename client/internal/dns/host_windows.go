@@ -179,13 +179,7 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	}
 
-	if err := stateManager.UpdateState(&ShutdownState{
-		Guid:           r.guid,
-		GPO:            r.gpo,
-		NRPTEntryCount: r.nrptEntryCount,
-	}); err != nil {
-		log.Errorf("failed to update shutdown state: %s", err)
-	}
+	r.updateState(stateManager)
 
 	var searchDomains, matchDomains []string
 	for _, dConf := range config.Domains {
@@ -212,13 +206,7 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		r.nrptEntryCount = 0
 	}
 
-	if err := stateManager.UpdateState(&ShutdownState{
-		Guid:           r.guid,
-		GPO:            r.gpo,
-		NRPTEntryCount: r.nrptEntryCount,
-	}); err != nil {
-		log.Errorf("failed to update shutdown state: %s", err)
-	}
+	r.updateState(stateManager)
 
 	if err := r.updateSearchDomains(searchDomains); err != nil {
 		return fmt.Errorf("update search domains: %w", err)
@@ -227,6 +215,16 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 	go r.flushDNSCache()
 
 	return nil
+}
+
+func (r *registryConfigurator) updateState(stateManager *statemanager.Manager) {
+	if err := stateManager.UpdateState(&ShutdownState{
+		Guid:           r.guid,
+		GPO:            r.gpo,
+		NRPTEntryCount: r.nrptEntryCount,
+	}); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
+	}
 }
 
 func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
