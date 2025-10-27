@@ -185,10 +185,13 @@ if [[ "$NETBIRD_DISABLE_LETSENCRYPT" == "true" ]]; then
   echo "You are also free to remove any occurrences of the Letsencrypt-volume $LETSENCRYPT_VOLUMENAME"
   echo ""
 
-  export NETBIRD_SIGNAL_PROTOCOL="https"
   unset NETBIRD_LETSENCRYPT_DOMAIN
   unset NETBIRD_MGMT_API_CERT_FILE
   unset NETBIRD_MGMT_API_CERT_KEY_FILE
+fi
+
+if [[ -n "$NETBIRD_MGMT_API_CERT_FILE" && -n "$NETBIRD_MGMT_API_CERT_KEY_FILE" ]]; then
+  export NETBIRD_SIGNAL_PROTOCOL="https"
 fi
 
 # Check if management identity provider is set

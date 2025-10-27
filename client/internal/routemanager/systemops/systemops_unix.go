@@ -48,7 +48,7 @@ func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRout
 	return r.cleanupRefCounter(stateManager)
 }
 
-// FlushMarkedRoutes removes all routes marked with the configured RTF_PROTO flag.
+// FlushMarkedRoutes removes single IP exclusion routes marked with the configured RTF_PROTO flag.
 func (r *SysOps) FlushMarkedRoutes() error {
 	rib, err := retryFetchRIB()
 	if err != nil {
