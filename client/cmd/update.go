@@ -4,6 +4,11 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -26,12 +31,26 @@ var (
 func init() {
 	updateCmd.Flags().StringVar(&installerPathFlag, "installer-path", "", "Path to the installer")
 	updateCmd.Flags().StringVar(&serviceDirFlag, "service-dir", "", "Service directory")
+}
 
+// isUpdateBinary checks if the current executable is named "update" or "update.exe"
+func isUpdateBinary() bool {
+	execPath, err := os.Executable()
+	if err != nil {
+		return false
+	}
+
+	baseName := filepath.Base(execPath)
+	// Remove extension for cross-platform compatibility
+	name := strings.TrimSuffix(baseName, filepath.Ext(baseName))
+
+	return name == "update"
 }
 
 func updateFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars(rootCmd)
-	SetFlagsFromEnvVars(cmd)
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("not supported OS: %s", runtime.GOOS)
+	}
 
 	// setup log next to the installer path
 	if err := setupLogToFile(installerPathFlag); err != nil {
