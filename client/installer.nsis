@@ -285,6 +285,28 @@ ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 DetailPrint "Removing autostart registry entry if exists..."
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
+; Clean up DNS policies/NRPT entries
+DetailPrint "Cleaning up DNS policies and NRPT entries..."
+nsExec::ExecToLog 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "& {
+    $basePath = \"HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Dnscache\\Parameters\\DnsPolicyConfig\";
+    if (Test-Path $basePath) {
+        $keys = Get-ChildItem -Path $basePath -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match \"^(?i)netbird\" };
+        if ($keys) {
+            foreach ($key in $keys) {
+                Write-Host \"Removing NRPT key: $($key.PSChildName)\" -ForegroundColor Yellow;
+                try { Remove-Item -Path $key.PSPath -Recurse -Force -ErrorAction Stop }
+                catch { Write-Warning \"Failed to remove $($key.PSChildName): $_\" }
+            }
+            Write-Host \"All matching Netbird keys removed. Restarting DNS Client service...\" -ForegroundColor Green;
+            Restart-Service Dnscache -Force
+        } else {
+            Write-Host \"No Netbird-related keys found.\" -ForegroundColor Cyan
+        }
+    } else {
+        Write-Warning \"DnsPolicyConfig path not found. Nothing to remove.\"
+    }
+}"'
+
 ; Handle data deletion based on checkbox
 DetailPrint "Checking if user requested data deletion..."
 ${If} $DeleteDataEnabled == "1"
