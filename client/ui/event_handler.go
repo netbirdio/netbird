@@ -70,19 +70,15 @@ func (h *eventHandler) listen(ctx context.Context) {
 func (h *eventHandler) handleConnectClick() {
 	h.client.mUp.Disable()
 
-	connectCtx, connectCancel := context.WithCancel(h.client.ctx)
+	if h.client.connectCancel != nil {
+		h.client.connectCancel()
+	}
 
-	h.client.connectMu.Lock()
+	connectCtx, connectCancel := context.WithCancel(h.client.ctx)
 	h.client.connectCancel = connectCancel
-	h.client.connectMu.Unlock()
 
 	go func() {
-		defer func() {
-			connectCancel()
-			h.client.connectMu.Lock()
-			h.client.connectCancel = nil
-			h.client.connectMu.Unlock()
-		}()
+		defer connectCancel()
 
 		if err := h.client.menuUpClick(connectCtx); err != nil {
 			st, ok := status.FromError(err)
@@ -102,16 +98,14 @@ func (h *eventHandler) handleConnectClick() {
 
 func (h *eventHandler) handleDisconnectClick() {
 	h.client.mDown.Disable()
+
+	if h.client.connectCancel != nil {
+		log.Debugf("cancelling ongoing connect operation")
+		h.client.connectCancel()
+		h.client.connectCancel = nil
+	}
+
 	go func() {
-		h.client.connectMu.Lock()
-		cancel := h.client.connectCancel
-		h.client.connectMu.Unlock()
-
-		if cancel != nil {
-			log.Debugf("cancelling ongoing connect operation")
-			cancel()
-		}
-
 		if err := h.client.menuDownClick(); err != nil {
 			st, ok := status.FromError(err)
 			if !errors.Is(err, context.Canceled) && !(ok && st.Code() == codes.Canceled) {

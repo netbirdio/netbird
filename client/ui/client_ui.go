@@ -297,7 +297,6 @@ type serviceClient struct {
 	logFile              string
 	wLoginURL            fyne.Window
 
-	connectMu     sync.Mutex
 	connectCancel context.CancelFunc
 }
 
