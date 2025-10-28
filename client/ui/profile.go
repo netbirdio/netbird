@@ -387,6 +387,7 @@ type subItem struct {
 type profileMenu struct {
 	mu                    sync.Mutex
 	ctx                   context.Context
+	serviceClient         *serviceClient
 	profileManager        *profilemanager.ProfileManager
 	eventHandler          *eventHandler
 	profileMenuItem       *systray.MenuItem
@@ -404,6 +405,7 @@ type profileMenu struct {
 
 type newProfileMenuArgs struct {
 	ctx                  context.Context
+	serviceClient        *serviceClient
 	profileManager       *profilemanager.ProfileManager
 	eventHandler         *eventHandler
 	profileMenuItem      *systray.MenuItem
@@ -418,6 +420,7 @@ type newProfileMenuArgs struct {
 func newProfileMenu(args newProfileMenuArgs) *profileMenu {
 	p := profileMenu{
 		ctx:                  args.ctx,
+		serviceClient:        args.serviceClient,
 		profileManager:       args.profileManager,
 		eventHandler:         args.eventHandler,
 		profileMenuItem:      args.profileMenuItem,
@@ -569,9 +572,18 @@ func (p *profileMenu) refresh() {
 						}
 					}
 
-					if err := p.upClickCallback(p.ctx); err != nil {
+					if p.serviceClient.connectCancel != nil {
+						p.serviceClient.connectCancel()
+					}
+
+					connectCtx, connectCancel := context.WithCancel(p.ctx)
+					p.serviceClient.connectCancel = connectCancel
+
+					if err := p.upClickCallback(connectCtx); err != nil {
 						log.Errorf("failed to handle up click after switching profile: %v", err)
 					}
+
+					connectCancel()
 
 					p.refresh()
 					p.loadSettingsCallback()
