@@ -43,7 +43,7 @@ type StunTurnProbe struct {
 	mu              sync.Mutex
 }
 
-func NewStunTurnProb(cacheTTL time.Duration) *StunTurnProbe {
+func NewStunTurnProbe(cacheTTL time.Duration) *StunTurnProbe {
 	return &StunTurnProbe{
 		cacheTTL: cacheTTL,
 	}

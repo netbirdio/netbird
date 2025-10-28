@@ -250,7 +250,7 @@ func NewEngine(
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		dnsFwdPort:     dnsfwd.ListenPort(),
-		probeStunTurn:  relay.NewStunTurnProb(relay.DefaultCacheTTL),
+		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 	}
 
 	sm := profilemanager.NewServiceManager("")
