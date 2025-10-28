@@ -72,7 +72,7 @@ func (p *StunTurnProbe) ProbeAllWaitResult(ctx context.Context, stuns []*stun.UR
 	p.mu.Unlock()
 
 	p.doProbe(ctx, stuns, turns, cacheKey)
-	close(p.probeDone)
+	close(probeDone)
 
 	return p.getCachedResults(cacheKey, stuns, turns)
 }
