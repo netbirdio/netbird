@@ -203,9 +203,6 @@ type Engine struct {
 	wgIfaceMonitor   *WGIfaceMonitor
 	wgIfaceMonitorWg sync.WaitGroup
 
-	// dns forwarder port
-	dnsFwdPort uint16
-
 	probeStunTurn *relay.StunTurnProbe
 }
 
@@ -249,7 +246,6 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
-		dnsFwdPort:     dnsfwd.ListenPort(),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 	}
 
@@ -1087,7 +1083,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
-	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries, uint16(protoDNSConfig.ForwarderPort))
+	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
 
 	// Ingress forward rules
 	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
@@ -1843,7 +1839,6 @@ func (e *Engine) GetWgAddr() netip.Addr {
 func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
-	forwarderPort uint16,
 ) {
 	if e.config.DisableServerRoutes {
 		return
@@ -1860,20 +1855,17 @@ func (e *Engine) updateDNSForwarder(
 	}
 
 	if len(fwdEntries) > 0 {
-		switch {
-		case e.dnsForwardMgr == nil:
-			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, forwarderPort)
+		if e.dnsForwardMgr == nil {
+			localAddr := e.wgInterface.Address().IP
+			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, localAddr)
+
 			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
 				log.Errorf("failed to start DNS forward: %v", err)
 				e.dnsForwardMgr = nil
 			}
-			log.Infof("started domain router service with %d entries", len(fwdEntries))
-		case e.dnsFwdPort != forwarderPort:
-			log.Infof("updating domain router service port from %d to %d", e.dnsFwdPort, forwarderPort)
-			e.restartDnsFwd(fwdEntries, forwarderPort)
-			e.dnsFwdPort = forwarderPort
 
-		default:
+			log.Infof("started domain router service with %d entries", len(fwdEntries))
+		} else {
 			e.dnsForwardMgr.UpdateDomains(fwdEntries)
 		}
 	} else if e.dnsForwardMgr != nil {
@@ -1881,20 +1873,6 @@ func (e *Engine) updateDNSForwarder(
 		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
 			log.Errorf("failed to stop DNS forward: %v", err)
 		}
-		e.dnsForwardMgr = nil
-	}
-
-}
-
-func (e *Engine) restartDnsFwd(fwdEntries []*dnsfwd.ForwarderEntry, forwarderPort uint16) {
-	log.Infof("updating domain router service port from %d to %d", e.dnsFwdPort, forwarderPort)
-	// stop and start the forwarder to apply the new port
-	if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
-		log.Errorf("failed to stop DNS forward: %v", err)
-	}
-	e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, forwarderPort)
-	if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
-		log.Errorf("failed to start DNS forward: %v", err)
 		e.dnsForwardMgr = nil
 	}
 }

@@ -206,15 +206,18 @@ func mapPeers(
 		localICEEndpoint := ""
 		remoteICEEndpoint := ""
 		relayServerAddress := ""
-		connType := "P2P"
+		connType := "-"
 		lastHandshake := time.Time{}
 		transferReceived := int64(0)
 		transferSent := int64(0)
 
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
 
-		if pbPeerState.Relayed {
-			connType = "Relayed"
+		if isPeerConnected {
+			connType = "P2P"
+			if pbPeerState.Relayed {
+				connType = "Relayed"
+			}
 		}
 
 		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter, connType) {

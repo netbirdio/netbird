@@ -19,6 +19,10 @@ const (
 	RootZone = "."
 	// DefaultClass is the class supported by the system
 	DefaultClass = "IN"
+	// ForwarderClientPort is the port clients connect to. DNAT rewrites packets from ForwarderClientPort to ForwarderServerPort.
+	ForwarderClientPort uint16 = 5353
+	// ForwarderServerPort is the port the DNS forwarder actually listens on. Packets to ForwarderClientPort are DNATed here.
+	ForwarderServerPort uint16 = 22054
 )
 
 const invalidHostLabel = "[^a-zA-Z0-9-]+"

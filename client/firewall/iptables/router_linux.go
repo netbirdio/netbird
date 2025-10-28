@@ -880,6 +880,54 @@ func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
+// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
+func (r *router) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	ruleID := fmt.Sprintf("inbound-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if _, exists := r.rules[ruleID]; exists {
+		return nil
+	}
+
+	dnatRule := []string{
+		"-i", r.wgIface.Name(),
+		"-p", strings.ToLower(string(protocol)),
+		"--dport", strconv.Itoa(int(sourcePort)),
+		"-d", localAddr.String(),
+		"-m", "addrtype", "--dst-type", "LOCAL",
+		"-j", "DNAT",
+		"--to-destination", ":" + strconv.Itoa(int(targetPort)),
+	}
+
+	ruleInfo := ruleInfo{
+		table: tableNat,
+		chain: chainRTRDR,
+		rule:  dnatRule,
+	}
+
+	if err := r.iptablesClient.Append(ruleInfo.table, ruleInfo.chain, ruleInfo.rule...); err != nil {
+		return fmt.Errorf("add inbound DNAT rule: %w", err)
+	}
+	r.rules[ruleID] = ruleInfo.rule
+
+	r.updateState()
+	return nil
+}
+
+// RemoveInboundDNAT removes an inbound DNAT rule.
+func (r *router) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	ruleID := fmt.Sprintf("inbound-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if dnatRule, exists := r.rules[ruleID]; exists {
+		if err := r.iptablesClient.Delete(tableNat, chainRTRDR, dnatRule...); err != nil {
+			return fmt.Errorf("delete inbound DNAT rule: %w", err)
+		}
+		delete(r.rules, ruleID)
+	}
+
+	r.updateState()
+	return nil
+}
+
 func applyPort(flag string, port *firewall.Port) []string {
 	if port == nil {
 		return nil
