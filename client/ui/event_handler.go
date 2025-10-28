@@ -78,6 +78,7 @@ func (h *eventHandler) handleConnectClick() {
 
 	go func() {
 		defer func() {
+			connectCancel()
 			h.client.connectMu.Lock()
 			h.client.connectCancel = nil
 			h.client.connectMu.Unlock()
