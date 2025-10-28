@@ -1059,9 +1059,13 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
 
-	if err := e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)); err != nil {
+	dnsConfig := toDNSConfig(protoDNSConfig, e.wgInterface.Address().Network)
+
+	if err := e.dnsServer.UpdateDNSServer(serial, dnsConfig); err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
+
+	e.routeManager.SetDNSForwarderPort(dnsConfig.ForwarderPort)
 
 	// apply routes first, route related actions might depend on routing being enabled
 	routes := toRoutes(networkMap.GetRoutes())
@@ -1207,10 +1211,16 @@ func toRouteDomains(myPubKey string, routes []*route.Route) []*dnsfwd.ForwarderE
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns.Config {
+	forwarderPort := uint16(protoDNSConfig.GetForwarderPort())
+	if forwarderPort == 0 {
+		forwarderPort = nbdns.ForwarderClientPort
+	}
+
 	dnsUpdate := nbdns.Config{
 		ServiceEnable:    protoDNSConfig.GetServiceEnable(),
 		CustomZones:      make([]nbdns.CustomZone, 0),
 		NameServerGroups: make([]*nbdns.NameServerGroup, 0),
+		ForwarderPort:    forwarderPort,
 	}
 
 	for _, zone := range protoDNSConfig.GetCustomZones() {
