@@ -528,7 +528,7 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 		return nil
 	}
 
-	log.Infof("SSH connection from NetBird peer %s allowed", remoteIP)
+	log.Infof("SSH connection from NetBird peer %s allowed", tcpAddr)
 	return conn
 }
 
