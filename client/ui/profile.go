@@ -396,7 +396,7 @@ type profileMenu struct {
 	logoutSubItem         *subItem
 	profilesState         []Profile
 	downClickCallback     func() error
-	upClickCallback       func() error
+	upClickCallback       func(context.Context) error
 	getSrvClientCallback  func(timeout time.Duration) (proto.DaemonServiceClient, error)
 	loadSettingsCallback  func()
 	app                   fyne.App
@@ -409,7 +409,7 @@ type newProfileMenuArgs struct {
 	profileMenuItem      *systray.MenuItem
 	emailMenuItem        *systray.MenuItem
 	downClickCallback    func() error
-	upClickCallback      func() error
+	upClickCallback      func(context.Context) error
 	getSrvClientCallback func(timeout time.Duration) (proto.DaemonServiceClient, error)
 	loadSettingsCallback func()
 	app                  fyne.App
@@ -569,7 +569,7 @@ func (p *profileMenu) refresh() {
 						}
 					}
 
-					if err := p.upClickCallback(); err != nil {
+					if err := p.upClickCallback(p.ctx); err != nil {
 						log.Errorf("failed to handle up click after switching profile: %v", err)
 					}
 
