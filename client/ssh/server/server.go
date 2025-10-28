@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"strings"
@@ -80,10 +81,17 @@ func (e *UserNotFoundError) Unwrap() error {
 	return e.Cause
 }
 
+// logSessionExitError logs session exit errors, ignoring EOF (normal close) errors
+func logSessionExitError(logger *log.Entry, err error) {
+	if err != nil && !errors.Is(err, io.EOF) {
+		logger.Warnf(errExitSession, err)
+	}
+}
+
 // safeLogCommand returns a safe representation of the command for logging
 func safeLogCommand(cmd []string) string {
 	if len(cmd) == 0 {
-		return "<empty>"
+		return "<interactive shell>"
 	}
 	if len(cmd) == 1 {
 		return cmd[0]
@@ -623,19 +631,19 @@ func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn,
 	s.mu.RUnlock()
 
 	if !allowLocal {
-		log.Debugf("direct-tcpip rejected: local port forwarding disabled")
+		log.Warnf("local port forwarding denied for %s:%d: disabled by configuration", payload.Host, payload.Port)
 		_ = newChan.Reject(cryptossh.Prohibited, "local port forwarding disabled")
 		return
 	}
 
 	// Check privilege requirements for the destination port
 	if err := s.checkPortForwardingPrivileges(ctx, "local", payload.Port); err != nil {
-		log.Infof("direct-tcpip denied: %v", err)
+		log.Warnf("local port forwarding denied for %s:%d: %v", payload.Host, payload.Port, err)
 		_ = newChan.Reject(cryptossh.Prohibited, "insufficient privileges")
 		return
 	}
 
-	log.Debugf("direct-tcpip request: %s:%d", payload.Host, payload.Port)
+	log.Infof("local port forwarding: %s:%d", payload.Host, payload.Port)
 
 	ssh.DirectTCPIPHandler(srv, conn, newChan, ctx)
 }

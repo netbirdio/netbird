@@ -99,8 +99,7 @@ func (pm *ptyManager) File() *os.File {
 
 func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
 	cmd := session.Command()
-	localUser := privilegeResult.User
-	logger.Infof("executing Pty command for %s from %s: %s", localUser.Username, session.RemoteAddr(), safeLogCommand(cmd))
+	logger.Infof("executing Pty command: %s", safeLogCommand(cmd))
 
 	execCmd, err := s.createPtyCommand(privilegeResult, ptyReq, session)
 	if err != nil {
@@ -110,7 +109,7 @@ func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResu
 			logger.Debugf(errWriteSession, writeErr)
 		}
 		if err := session.Exit(1); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 		return false
 	}
@@ -119,7 +118,7 @@ func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResu
 	if err != nil {
 		logger.Errorf("Pty start failed: %v", err)
 		if err := session.Exit(1); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 		return false
 	}
@@ -178,18 +177,22 @@ func (s *Server) handlePtyIO(logger *log.Entry, session ssh.Session, ptyMgr *pty
 
 	go func() {
 		if _, err := io.Copy(ptmx, session); err != nil {
-			logger.Debugf("Pty input copy error: %v", err)
+			if !errors.Is(err, io.EOF) && !errors.Is(err, syscall.EIO) {
+				logger.Warnf("Pty input copy error: %v", err)
+			}
 		}
 	}()
 
 	go func() {
 		defer func() {
-			if err := session.Close(); err != nil {
+			if err := session.Close(); err != nil && !errors.Is(err, io.EOF) {
 				logger.Debugf("session close error: %v", err)
 			}
 		}()
 		if _, err := io.Copy(session, ptmx); err != nil {
-			logger.Debugf("Pty output copy error: %v", err)
+			if !errors.Is(err, io.EOF) && !errors.Is(err, syscall.EIO) {
+				logger.Warnf("Pty output copy error: %v", err)
+			}
 		}
 	}()
 }
@@ -229,7 +232,7 @@ func (s *Server) handlePtySessionCancellation(logger *log.Entry, session ssh.Ses
 	}
 
 	if err := session.Exit(130); err != nil {
-		logger.Debugf(errExitSession, err)
+		logSessionExitError(logger, err)
 	}
 }
 
@@ -243,7 +246,7 @@ func (s *Server) handlePtyCommandCompletion(logger *log.Entry, session ssh.Sessi
 	// Normal completion
 	logger.Debugf("Pty command completed successfully")
 	if err := session.Exit(0); err != nil {
-		logger.Debugf(errExitSession, err)
+		logSessionExitError(logger, err)
 	}
 }
 

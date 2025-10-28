@@ -14,7 +14,6 @@ import (
 
 // handleCommand executes an SSH command with privilege validation
 func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, winCh <-chan ssh.Window) {
-	localUser := privilegeResult.User
 	hasPty := winCh != nil
 
 	commandType := "command"
@@ -22,7 +21,7 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 		commandType = "Pty command"
 	}
 
-	logger.Infof("executing %s for %s from %s: %s", commandType, localUser.Username, session.RemoteAddr(), safeLogCommand(session.Command()))
+	logger.Infof("executing %s: %s", commandType, safeLogCommand(session.Command()))
 
 	execCmd, err := s.createCommand(privilegeResult, session, hasPty)
 	if err != nil {
@@ -38,7 +37,7 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 			logger.Debugf(errWriteSession, writeErr)
 		}
 		if err := session.Exit(1); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 		return
 	}
@@ -74,7 +73,7 @@ func (s *Server) executeCommand(logger *log.Entry, session ssh.Session, execCmd 
 	if err != nil {
 		logger.Errorf("create stdin pipe: %v", err)
 		if err := session.Exit(1); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 		return false
 	}
@@ -93,7 +92,7 @@ func (s *Server) executeCommand(logger *log.Entry, session ssh.Session, execCmd 
 		logger.Errorf("command start failed: %v", err)
 		// no user message for exec failure, just exit
 		if err := session.Exit(1); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 		return false
 	}
@@ -135,7 +134,7 @@ func (s *Server) waitForCommandCleanup(logger *log.Entry, session ssh.Session, e
 		}
 
 		if err := session.Exit(130); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 		return false
 
@@ -160,7 +159,7 @@ func (s *Server) handleCommandCompletion(logger *log.Entry, session ssh.Session,
 func (s *Server) handleSessionExit(session ssh.Session, err error, logger *log.Entry) {
 	if err == nil {
 		if err := session.Exit(0); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 		return
 	}
@@ -168,12 +167,12 @@ func (s *Server) handleSessionExit(session ssh.Session, err error, logger *log.E
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {
 		if err := session.Exit(exitError.ExitCode()); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 	} else {
 		logger.Debugf("non-exit error in command execution: %v", err)
 		if err := session.Exit(1); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 	}
 }
