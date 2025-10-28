@@ -58,20 +58,23 @@ func NewUDPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 	return tracker
 }
 
-// TrackOutbound records an outbound UDP connection
-func (t *UDPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, size int) {
-	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, nftypes.Egress, size); !exists {
-		// if (inverted direction) conn is not tracked, track this direction
-		t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Egress, nil, size)
+// TrackOutbound records an outbound UDP connection and returns the original port if DNAT reversal is needed
+func (t *UDPTracker) TrackOutbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, size int) uint16 {
+	_, origPort, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, nftypes.Egress, size)
+	if exists {
+		return origPort
 	}
+	// if (inverted direction) conn is not tracked, track this direction
+	t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Egress, nil, size, 0)
+	return 0
 }
 
 // TrackInbound records an inbound UDP connection
-func (t *UDPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, ruleID []byte, size int) {
-	t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Ingress, ruleID, size)
+func (t *UDPTracker) TrackInbound(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, ruleID []byte, size int, dnatOrigPort uint16) {
+	t.track(srcIP, dstIP, srcPort, dstPort, nftypes.Ingress, ruleID, size, dnatOrigPort)
 }
 
-func (t *UDPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, direction nftypes.Direction, size int) (ConnKey, bool) {
+func (t *UDPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, direction nftypes.Direction, size int) (ConnKey, uint16, bool) {
 	key := ConnKey{
 		SrcIP:   srcIP,
 		DstIP:   dstIP,
@@ -86,15 +89,15 @@ func (t *UDPTracker) updateIfExists(srcIP netip.Addr, dstIP netip.Addr, srcPort 
 	if exists {
 		conn.UpdateLastSeen()
 		conn.UpdateCounters(direction, size)
-		return key, true
+		return key, uint16(conn.DNATOrigPort.Load()), true
 	}
 
-	return key, false
+	return key, 0, false
 }
 
 // track is the common implementation for tracking both inbound and outbound connections
-func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, direction nftypes.Direction, ruleID []byte, size int) {
-	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, direction, size)
+func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, dstPort uint16, direction nftypes.Direction, ruleID []byte, size int, origPort uint16) {
+	key, _, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, direction, size)
 	if exists {
 		return
 	}
@@ -109,6 +112,7 @@ func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 		SourcePort: srcPort,
 		DestPort:   dstPort,
 	}
+	conn.DNATOrigPort.Store(uint32(origPort))
 	conn.UpdateLastSeen()
 	conn.UpdateCounters(direction, size)
 
@@ -116,7 +120,11 @@ func (t *UDPTracker) track(srcIP netip.Addr, dstIP netip.Addr, srcPort uint16, d
 	t.connections[key] = conn
 	t.mutex.Unlock()
 
-	t.logger.Trace2("New %s UDP connection: %s", direction, key)
+	if origPort != 0 {
+		t.logger.Trace4("New %s UDP connection: %s (port DNAT %d -> %d)", direction, key, origPort, dstPort)
+	} else {
+		t.logger.Trace2("New %s UDP connection: %s", direction, key)
+	}
 	t.sendEvent(nftypes.TypeStart, conn, ruleID)
 }
 

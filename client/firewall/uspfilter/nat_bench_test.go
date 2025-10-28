@@ -414,3 +414,127 @@ func BenchmarkChecksumOptimizations(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkPortDNAT measures the performance of port DNAT operations
+func BenchmarkPortDNAT(b *testing.B) {
+	scenarios := []struct {
+		name         string
+		proto        layers.IPProtocol
+		setupDNAT    bool
+		useMatchPort bool
+		description  string
+	}{
+		{
+			name:         "tcp_inbound_dnat_match",
+			proto:        layers.IPProtocolTCP,
+			setupDNAT:    true,
+			useMatchPort: true,
+			description:  "TCP inbound port DNAT translation (22 → 22022)",
+		},
+		{
+			name:         "tcp_inbound_dnat_nomatch",
+			proto:        layers.IPProtocolTCP,
+			setupDNAT:    true,
+			useMatchPort: false,
+			description:  "TCP inbound with DNAT configured but no port match",
+		},
+		{
+			name:         "tcp_inbound_no_dnat",
+			proto:        layers.IPProtocolTCP,
+			setupDNAT:    false,
+			useMatchPort: false,
+			description:  "TCP inbound without DNAT (baseline)",
+		},
+		{
+			name:         "udp_inbound_dnat_match",
+			proto:        layers.IPProtocolUDP,
+			setupDNAT:    true,
+			useMatchPort: true,
+			description:  "UDP inbound port DNAT translation (5353 → 22054)",
+		},
+		{
+			name:         "udp_inbound_dnat_nomatch",
+			proto:        layers.IPProtocolUDP,
+			setupDNAT:    true,
+			useMatchPort: false,
+			description:  "UDP inbound with DNAT configured but no port match",
+		},
+		{
+			name:         "udp_inbound_no_dnat",
+			proto:        layers.IPProtocolUDP,
+			setupDNAT:    false,
+			useMatchPort: false,
+			description:  "UDP inbound without DNAT (baseline)",
+		},
+	}
+
+	for _, sc := range scenarios {
+		b.Run(sc.name, func(b *testing.B) {
+			manager, err := Create(&IFaceMock{
+				SetFilterFunc: func(device.PacketFilter) error { return nil },
+			}, false, flowLogger)
+			require.NoError(b, err)
+			defer func() {
+				require.NoError(b, manager.Close(nil))
+			}()
+
+			// Set logger to error level to reduce noise during benchmarking
+			manager.SetLogLevel(log.ErrorLevel)
+			defer func() {
+				// Restore to info level after benchmark
+				manager.SetLogLevel(log.InfoLevel)
+			}()
+
+			localAddr := netip.MustParseAddr("100.0.2.175")
+			clientIP := netip.MustParseAddr("100.0.169.249")
+
+			var origPort, targetPort, testPort uint16
+			if sc.proto == layers.IPProtocolTCP {
+				origPort, targetPort = 22, 22022
+			} else {
+				origPort, targetPort = 5353, 22054
+			}
+
+			if sc.useMatchPort {
+				testPort = origPort
+			} else {
+				testPort = 443 // Different port
+			}
+
+			// Setup port DNAT mapping if needed
+			if sc.setupDNAT {
+				err := manager.AddInboundDNAT(localAddr, protocolToFirewall(sc.proto), origPort, targetPort)
+				require.NoError(b, err)
+			}
+
+			// Pre-establish inbound connection for outbound reverse test
+			if sc.setupDNAT && sc.useMatchPort {
+				inboundPacket := generateDNATTestPacket(b, clientIP, localAddr, sc.proto, 54321, origPort)
+				manager.filterInbound(inboundPacket, 0)
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			// Benchmark inbound DNAT translation
+			b.Run("inbound", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					// Create fresh packet each time
+					packet := generateDNATTestPacket(b, clientIP, localAddr, sc.proto, 54321, testPort)
+					manager.filterInbound(packet, 0)
+				}
+			})
+
+			// Benchmark outbound reverse DNAT translation (only if DNAT is set up and port matches)
+			if sc.setupDNAT && sc.useMatchPort {
+				b.Run("outbound_reverse", func(b *testing.B) {
+					for i := 0; i < b.N; i++ {
+						// Create fresh return packet (from target port)
+						packet := generateDNATTestPacket(b, localAddr, clientIP, sc.proto, targetPort, 54321)
+						manager.filterOutbound(packet, 0)
+					}
+				})
+			}
+		})
+	}
+}

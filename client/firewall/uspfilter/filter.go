@@ -116,11 +116,9 @@ type Manager struct {
 	dnatMutex    sync.RWMutex
 	dnatBiMap    *biDNATMap
 
-	// Port-specific DNAT for SSH redirection
 	portDNATEnabled atomic.Bool
-	portDNATMap     *portDNATMap
+	portDNATRules   []portDNATRule
 	portDNATMutex   sync.RWMutex
-	portNATTracker  *portNATTracker
 
 	netstackServices     map[serviceKey]struct{}
 	netstackServiceMutex sync.RWMutex
@@ -137,6 +135,8 @@ type decoder struct {
 	icmp6   layers.ICMPv6
 	decoded []gopacket.LayerType
 	parser  *gopacket.DecodingLayerParser
+
+	dnatOrigPort uint16
 }
 
 // Create userspace firewall manager constructor
@@ -211,8 +211,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
-		portDNATMap:         &portDNATMap{rules: make([]portDNATRule, 0)},
-		portNATTracker:      newPortNATTracker(),
+		portDNATRules:       []portDNATRule{},
 		netstackServices:    make(map[serviceKey]struct{}),
 	}
 	m.routingEnabled.Store(false)
@@ -351,22 +350,18 @@ func (m *Manager) initForwarder() error {
 	return nil
 }
 
-// Init initializes the firewall manager with state manager.
 func (m *Manager) Init(*statemanager.Manager) error {
 	return nil
 }
 
-// IsServerRouteSupported returns whether server routes are supported.
 func (m *Manager) IsServerRouteSupported() bool {
 	return true
 }
 
-// IsStateful returns whether the firewall manager tracks connection state.
 func (m *Manager) IsStateful() bool {
 	return m.stateful
 }
 
-// AddNatRule adds a routing firewall rule for NAT translation.
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
 		return m.nativeFirewall.AddNatRule(pair)
@@ -652,9 +647,8 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 		return true
 	}
 
-	m.trackOutbound(d, srcIP, dstIP, size)
+	m.trackOutbound(d, srcIP, dstIP, packetData, size)
 	m.translateOutboundDNAT(packetData, d)
-	m.translateOutboundPortReverse(packetData, d)
 
 	return false
 }
@@ -697,14 +691,26 @@ func getTCPFlags(tcp *layers.TCP) uint8 {
 	return flags
 }
 
-func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, size int) {
+func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) {
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), size)
+		origPort := m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), size)
+		if origPort == 0 {
+			break
+		}
+		if err := m.rewriteUDPPort(packetData, d, origPort, sourcePortOffset); err != nil {
+			m.logger.Error1("failed to rewrite UDP port: %v", err)
+		}
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
+		origPort := m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
+		if origPort == 0 {
+			break
+		}
+		if err := m.rewriteTCPPort(packetData, d, origPort, sourcePortOffset); err != nil {
+			m.logger.Error1("failed to rewrite TCP port: %v", err)
+		}
 	case layers.LayerTypeICMPv4:
 		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, d.icmp4.Payload, size)
 	}
@@ -714,13 +720,15 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, ruleID []byt
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID, size)
+		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID, size, d.dnatOrigPort)
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size)
+		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size, d.dnatOrigPort)
 	case layers.LayerTypeICMPv4:
 		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, ruleID, d.icmp4.Payload, size)
 	}
+
+	d.dnatOrigPort = 0
 }
 
 // udpHooksDrop checks if any UDP hooks should drop the packet
@@ -782,10 +790,11 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 		return false
 	}
 
-	if translated := m.translateInboundPortDNAT(packetData, d); translated {
+	// TODO: optimize port DNAT by caching matched rules in conntrack
+	if translated := m.translateInboundPortDNAT(packetData, d, srcIP, dstIP); translated {
 		// Re-decode after port DNAT translation to update port information
 		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-			m.logger.Error1("Failed to re-decode packet after port DNAT: %v", err)
+			m.logger.Error1("failed to re-decode packet after port DNAT: %v", err)
 			return true
 		}
 		srcIP, dstIP = m.extractIPs(d)
@@ -794,7 +803,7 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 	if translated := m.translateInboundReverse(packetData, d); translated {
 		// Re-decode after translation to get original addresses
 		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-			m.logger.Error1("Failed to re-decode packet after reverse DNAT: %v", err)
+			m.logger.Error1("failed to re-decode packet after reverse DNAT: %v", err)
 			return true
 		}
 		srcIP, dstIP = m.extractIPs(d)

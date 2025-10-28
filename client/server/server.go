@@ -1070,10 +1070,7 @@ func (s *Server) Status(
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
 	if msg.GetFullPeerStatus {
-		if msg.ShouldRunProbes {
-			s.runProbes()
-		}
-
+		s.runProbes(msg.ShouldRunProbes)
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
@@ -1266,7 +1263,7 @@ func isUnixRunningDesktop() bool {
 	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
 
-func (s *Server) runProbes() {
+func (s *Server) runProbes(waitForProbeResult bool) {
 	if s.connectClient == nil {
 		return
 	}
@@ -1277,7 +1274,7 @@ func (s *Server) runProbes() {
 	}
 
 	if time.Since(s.lastProbe) > probeThreshold {
-		if engine.RunHealthProbes() {
+		if engine.RunHealthProbes(waitForProbeResult) {
 			s.lastProbe = time.Now()
 		}
 	}

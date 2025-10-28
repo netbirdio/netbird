@@ -47,7 +47,7 @@ nftables.txt: Anonymized nftables rules with packet counters, if --system-info f
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
-state.json: Anonymized client state dump containing netbird states.
+state.json: Anonymized client state dump containing netbird states for the active profile.
 mutex.prof: Mutex profiling information.
 goroutine.prof: Goroutine profiling information.
 block.prof: Block profiling information.
@@ -575,6 +575,8 @@ func (g *BundleGenerator) addStateFile() error {
 	if path == "" {
 		return nil
 	}
+
+	log.Debugf("Adding state file from: %s", path)
 
 	data, err := os.ReadFile(path)
 	if err != nil {

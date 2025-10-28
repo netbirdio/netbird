@@ -205,8 +205,7 @@ type Engine struct {
 	wgIfaceMonitor   *WGIfaceMonitor
 	wgIfaceMonitorWg sync.WaitGroup
 
-	// dns forwarder port
-	dnsFwdPort uint16
+	probeStunTurn *relay.StunTurnProbe
 }
 
 // Peer is an instance of the Connection Peer
@@ -248,7 +247,7 @@ func NewEngine(
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
-		dnsFwdPort:     dnsfwd.ListenPort(),
+		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -1038,7 +1037,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
-	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries, uint16(protoDNSConfig.ForwarderPort))
+	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
 
 	// Ingress forward rules
 	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
@@ -1613,7 +1612,7 @@ func (e *Engine) getRosenpassAddr() string {
 
 // RunHealthProbes executes health checks for Signal, Management, Relay and WireGuard services
 // and updates the status recorder with the latest states.
-func (e *Engine) RunHealthProbes() bool {
+func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	e.syncMsgMux.Lock()
 
 	signalHealthy := e.signal.IsHealthy()
@@ -1645,8 +1644,12 @@ func (e *Engine) RunHealthProbes() bool {
 	}
 
 	e.syncMsgMux.Unlock()
-
-	results := e.probeICE(stuns, turns)
+	var results []relay.ProbeResult
+	if waitForResult {
+		results = e.probeStunTurn.ProbeAllWaitResult(e.ctx, stuns, turns)
+	} else {
+		results = e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
+	}
 	e.statusRecorder.UpdateRelayStates(results)
 
 	relayHealthy := true
@@ -1661,13 +1664,6 @@ func (e *Engine) RunHealthProbes() bool {
 	allHealthy := signalHealthy && managementHealthy && relayHealthy
 	log.Debugf("all health checks completed: healthy=%t", allHealthy)
 	return allHealthy
-}
-
-func (e *Engine) probeICE(stuns, turns []*stun.URI) []relay.ProbeResult {
-	return append(
-		relay.ProbeAll(e.ctx, relay.ProbeSTUN, stuns),
-		relay.ProbeAll(e.ctx, relay.ProbeTURN, turns)...,
-	)
 }
 
 // restartEngine restarts the engine by cancelling the client context
@@ -1789,14 +1785,9 @@ func (e *Engine) GetWgAddr() netip.Addr {
 func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
-	forwarderPort uint16,
 ) {
 	if e.config.DisableServerRoutes {
 		return
-	}
-
-	if forwarderPort > 0 {
-		dnsfwd.SetListenPort(forwarderPort)
 	}
 
 	if !enabled {
@@ -1810,20 +1801,17 @@ func (e *Engine) updateDNSForwarder(
 	}
 
 	if len(fwdEntries) > 0 {
-		switch {
-		case e.dnsForwardMgr == nil:
-			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder)
+		if e.dnsForwardMgr == nil {
+			localAddr := e.wgInterface.Address().IP
+			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, localAddr)
+
 			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
 				log.Errorf("failed to start DNS forward: %v", err)
 				e.dnsForwardMgr = nil
 			}
-			log.Infof("started domain router service with %d entries", len(fwdEntries))
-		case e.dnsFwdPort != forwarderPort:
-			log.Infof("updating domain router service port from %d to %d", e.dnsFwdPort, forwarderPort)
-			e.restartDnsFwd(fwdEntries, forwarderPort)
-			e.dnsFwdPort = forwarderPort
 
-		default:
+			log.Infof("started domain router service with %d entries", len(fwdEntries))
+		} else {
 			e.dnsForwardMgr.UpdateDomains(fwdEntries)
 		}
 	} else if e.dnsForwardMgr != nil {
@@ -1831,20 +1819,6 @@ func (e *Engine) updateDNSForwarder(
 		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
 			log.Errorf("failed to stop DNS forward: %v", err)
 		}
-		e.dnsForwardMgr = nil
-	}
-
-}
-
-func (e *Engine) restartDnsFwd(fwdEntries []*dnsfwd.ForwarderEntry, forwarderPort uint16) {
-	log.Infof("updating domain router service port from %d to %d", e.dnsFwdPort, forwarderPort)
-	// stop and start the forwarder to apply the new port
-	if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
-		log.Errorf("failed to stop DNS forward: %v", err)
-	}
-	e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder)
-	if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
-		log.Errorf("failed to start DNS forward: %v", err)
 		e.dnsForwardMgr = nil
 	}
 }

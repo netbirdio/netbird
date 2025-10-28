@@ -301,7 +301,7 @@ func (a *Account) GetPeerNetworkMap(
 	if dnsManagementStatus {
 		var zones []nbdns.CustomZone
 		if peersCustomZone.Domain != "" {
-			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnect)
+			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnectIncludingRouters, expiredPeers)
 			zones = append(zones, nbdns.CustomZone{
 				Domain:  peersCustomZone.Domain,
 				Records: records,
@@ -1682,7 +1682,7 @@ func peerSupportsPortRanges(peerVer string) bool {
 }
 
 // filterZoneRecordsForPeers filters DNS records to only include peers to connect.
-func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, peersToConnect []*nbpeer.Peer) []nbdns.SimpleRecord {
+func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, peersToConnect, expiredPeers []*nbpeer.Peer) []nbdns.SimpleRecord {
 	filteredRecords := make([]nbdns.SimpleRecord, 0, len(customZone.Records))
 	peerIPs := make(map[string]struct{})
 
@@ -1691,6 +1691,10 @@ func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, p
 
 	for _, peerToConnect := range peersToConnect {
 		peerIPs[peerToConnect.IP.String()] = struct{}{}
+	}
+
+	for _, expiredPeer := range expiredPeers {
+		peerIPs[expiredPeer.IP.String()] = struct{}{}
 	}
 
 	for _, record := range customZone.Records {
