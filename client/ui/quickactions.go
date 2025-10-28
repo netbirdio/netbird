@@ -284,7 +284,6 @@ func (s *serviceClient) showQuickActionsUI() {
 						uiState.toggleAction()
 					}()
 				}
-			default:
 			}
 		}
 	}()
