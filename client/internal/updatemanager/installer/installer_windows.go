@@ -36,6 +36,8 @@ func (u *Installer) CreateTempDir() (string, error) {
 	return tempDir, nil
 }
 
+// RunInstallation starts the updater process to run the installation
+// This will run by the original service process
 func (u *Installer) RunInstallation(installerPath string) error {
 	updaterPath, err := copyUpdater()
 	if err != nil {
@@ -61,6 +63,8 @@ func (u *Installer) RunInstallation(installerPath string) error {
 	return nil
 }
 
+// Setup runs the installer with appropriate arguments and manages the daemon/UI state
+// This will be run by the updater process
 func (u *Installer) Setup(ctx context.Context, installerPath string, daemonFolder string) error {
 	it, err := TypeByFileExtension(installerPath)
 	if err != nil {
@@ -123,9 +127,9 @@ func (u *Installer) Setup(ctx context.Context, installerPath string, daemonFolde
 func (u *Installer) CleanUp() {
 	if err := os.RemoveAll(tempDir); err != nil {
 		log.Warnf("failed to remove temporary directory %s: %v", tempDir, err)
-	} else {
-		log.Infof("removed temporary directory %s", tempDir)
+		return
 	}
+	log.Infof("removed temporary directory %s", tempDir)
 }
 
 func (u *Installer) stopDaemon(daemonFolder string) error {
@@ -134,8 +138,7 @@ func (u *Installer) stopDaemon(daemonFolder string) error {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, filepath.Join(daemonFolder, daemonName), "service", "stop")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Debugf("failed to stop netbird service: %v, output: '%s'", err, string(output))
 		return err
 	}
@@ -149,8 +152,7 @@ func (u *Installer) startDaemon(daemonFolder string) error {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, filepath.Join(daemonFolder, daemonName), "service", "start")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
+	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Debugf("failed to start netbird service: %v, output: %s", err, string(output))
 		return err
 	}
