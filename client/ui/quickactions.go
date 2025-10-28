@@ -7,6 +7,8 @@ package main
 import (
 	"context"
 	_ "embed"
+	"fmt"
+	"runtime"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -14,6 +16,8 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+	fynetooltip "github.com/dweymouth/fyne-tooltip"
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -168,6 +172,16 @@ func (q *quickActionsViewModel) disconnectClient() {
 	}
 }
 
+func (s *serviceClient) getSystemTrayName() string {
+	os := runtime.GOOS
+	switch os {
+	case "darwin":
+		return "menu bar"
+	default:
+		return "system tray"
+	}
+}
+
 // showQuickActionsUI displays a simple window with the NetBird logo and a connection toggle button.
 func (s *serviceClient) showQuickActionsUI() {
 	s.wQuickActions = s.app.NewWindow("NetBird")
@@ -213,50 +227,69 @@ func (s *serviceClient) showQuickActionsUI() {
 
 	toggleConnectionButton := widget.NewButtonWithIcon(disconnectedLabelText, disconnectedCircle.Resource, func() {})
 
+	hintLabelText := fmt.Sprintf("You can always access NetBird from your %s.", s.getSystemTrayName())
+	hintLabel := ttwidget.NewLabel(hintLabelText)
+	hintLabel.SetToolTip("Test")
+
 	content := container.NewVBox(
 		layout.NewSpacer(),
 		disconnectedImage,
 		layout.NewSpacer(),
 		container.NewCenter(toggleConnectionButton),
 		layout.NewSpacer(),
+		container.NewCenter(hintLabel),
 	)
 
 	// this watches for ui state updates.
 	go func() {
 		var logo *canvas.Image
+		var buttonText string
+		var buttonIcon fyne.Resource
 
 		for {
 			select {
 			case uiState := <-uiChan:
 				if uiState.connectionStatus == "Connected" {
-					toggleConnectionButton.SetText(connectedLabelText)
-					toggleConnectionButton.SetIcon(connectedCircle.Resource)
+					buttonText = connectedLabelText
+					buttonIcon = connectedCircle.Resource
+					//toggleConnectionButton.SetText(connectedLabelText)
+					//toggleConnectionButton.SetIcon(connectedCircle.Resource)
 					logo = connectedImage
 				} else if uiState.connectionStatus == "Idle" {
-					toggleConnectionButton.SetText(disconnectedLabelText)
-					toggleConnectionButton.SetIcon(disconnectedCircle.Resource)
+					buttonText = disconnectedLabelText
+					buttonIcon = disconnectedCircle.Resource
+					//toggleConnectionButton.SetText(disconnectedLabelText)
+					//toggleConnectionButton.SetIcon(disconnectedCircle.Resource)
 					logo = disconnectedImage
 				}
 
-				if uiState.isToggleButtonEnabled {
-					toggleConnectionButton.Enable()
-				} else {
-					toggleConnectionButton.Disable()
-				}
+				fyne.DoAndWait(func() {
+					toggleConnectionButton.SetText(buttonText)
+					toggleConnectionButton.SetIcon(buttonIcon)
+					if uiState.isToggleButtonEnabled {
+						toggleConnectionButton.Enable()
+					} else {
+						toggleConnectionButton.Disable()
+					}
+
+					toggleConnectionButton.Refresh()
+
+					// second position in the content's objects array is the NetBird logo.
+					content.Objects[1] = logo
+					content.Refresh()
+				})
 
 				toggleConnectionButton.OnTapped = func() {
 					go func() {
 						uiState.toggleAction()
 					}()
 				}
-
-				// second position in the content's objects array is the NetBird logo.
-				content.Objects[1] = logo
-				s.wQuickActions.SetContent(content)
+			default:
 			}
 		}
 	}()
 
+	s.wQuickActions.SetContent(fynetooltip.AddWindowToolTipLayer(content, s.wQuickActions.Canvas()))
 	s.wQuickActions.Resize(fyne.NewSize(400, 200))
 	s.wQuickActions.SetFixedSize(true)
 	s.wQuickActions.Show()
