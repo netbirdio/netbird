@@ -252,14 +252,10 @@ func (s *serviceClient) showQuickActionsUI() {
 				if uiState.connectionStatus == "Connected" {
 					buttonText = connectedLabelText
 					buttonIcon = connectedCircle.Resource
-					//toggleConnectionButton.SetText(connectedLabelText)
-					//toggleConnectionButton.SetIcon(connectedCircle.Resource)
 					logo = connectedImage
 				} else if uiState.connectionStatus == "Idle" {
 					buttonText = disconnectedLabelText
 					buttonIcon = disconnectedCircle.Resource
-					//toggleConnectionButton.SetText(disconnectedLabelText)
-					//toggleConnectionButton.SetIcon(disconnectedCircle.Resource)
 					logo = disconnectedImage
 				}
 
