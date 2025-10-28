@@ -151,14 +151,20 @@ type Manager interface {
 
 	DisableRouting() error
 
-	// AddDNATRule adds a DNAT rule
+	// AddDNATRule adds outbound DNAT rule for forwarding external traffic to the NetBird network.
 	AddDNATRule(ForwardRule) (Rule, error)
 
-	// DeleteDNATRule deletes a DNAT rule
+	// DeleteDNATRule deletes the outbound DNAT rule.
 	DeleteDNATRule(Rule) error
 
 	// UpdateSet updates the set with the given prefixes
 	UpdateSet(hash Set, prefixes []netip.Prefix) error
+
+	// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services
+	AddInboundDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
+
+	// RemoveInboundDNAT removes inbound DNAT rule
+	RemoveInboundDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
 }
 
 func GenKey(format string, pair RouterPair) string {
