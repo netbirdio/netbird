@@ -104,6 +104,9 @@ func (p *StunTurnProbe) ProbeAll(ctx context.Context, stuns []*stun.URI, turns [
 
 	p.mu.Unlock()
 
+	timer := time.NewTimer(1300 * time.Millisecond)
+	defer timer.Stop()
+
 	select {
 	case <-ctx.Done():
 		log.Debugf("Context cancelled while waiting for probe results")
@@ -111,7 +114,7 @@ func (p *StunTurnProbe) ProbeAll(ctx context.Context, stuns []*stun.URI, turns [
 	case <-probeDone:
 		// when the probe is return fast, return the results right away
 		return p.getCachedResults(cacheKey, stuns, turns)
-	case <-time.After(1300 * time.Millisecond):
+	case <-timer.C:
 		// if the probe takes longer than 1.3s, return error results to avoid blocking
 		return createErrorResults(stuns, turns)
 	}
