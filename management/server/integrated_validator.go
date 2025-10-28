@@ -88,7 +88,7 @@ func (am *DefaultAccountManager) GroupValidation(ctx context.Context, accountID 
 	return true, nil
 }
 
-func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error) {
+func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error) {
 	var err error
 	var groups []*types.Group
 	var peers []*nbpeer.Peer
@@ -96,20 +96,30 @@ func (am *DefaultAccountManager) GetValidatedPeers(ctx context.Context, accountI
 
 	groups, err = am.Store.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	peers, err = am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, groups, peers, settings.Extra)
+	validPeers, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, groups, peers, settings.Extra)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	invalidPeers, err := am.integratedPeerValidator.GetInvalidPeers(ctx, accountID, settings.Extra)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return validPeers, invalidPeers, nil
 }
 
 type MockIntegratedValidator struct {
@@ -134,6 +144,10 @@ func (a MockIntegratedValidator) GetValidatedPeers(_ context.Context, accountID 
 		validatedPeers[peer.ID] = struct{}{}
 	}
 	return validatedPeers, nil
+}
+
+func (a MockIntegratedValidator) GetInvalidPeers(_ context.Context, accountID string, extraSettings *types.ExtraSettings) (map[string]string, error) {
+	return make(map[string]string), nil
 }
 
 func (MockIntegratedValidator) PreparePeer(_ context.Context, accountID string, peer *nbpeer.Peer, peersGroup []string, extraSettings *types.ExtraSettings, temporary bool) *nbpeer.Peer {
