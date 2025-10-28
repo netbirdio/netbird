@@ -105,11 +105,31 @@ func (r *SysOps) FlushMarkedRoutes() error {
 }
 
 func (r *SysOps) addToRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
+	if prefix.IsSingleIP() {
+		log.Debugf("Adding single IP route: %s via %s", prefix, formatNexthop(nexthop))
+	}
 	return r.routeSocket(unix.RTM_ADD, prefix, nexthop)
 }
 
 func (r *SysOps) removeFromRouteTable(prefix netip.Prefix, nexthop Nexthop) error {
-	return r.routeSocket(unix.RTM_DELETE, prefix, nexthop)
+	if prefix.IsSingleIP() {
+		log.Debugf("Removing single IP route: %s via %s", prefix, formatNexthop(nexthop))
+	}
+
+	if err := r.routeSocket(unix.RTM_DELETE, prefix, nexthop); err != nil {
+		return err
+	}
+
+	if prefix.IsSingleIP() {
+		log.Debugf("Route removal completed for %s, verifying...", prefix)
+		if exists := r.verifyRouteRemoved(prefix); exists {
+			log.Warnf("Route %s still exists in routing table after removal", prefix)
+		} else {
+			log.Debugf("Verified route %s successfully removed", prefix)
+		}
+	}
+
+	return nil
 }
 
 func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) error {
@@ -275,4 +295,52 @@ func prefixToRouteNetmask(prefix netip.Prefix) (route.Addr, error) {
 	}
 
 	return nil, fmt.Errorf("unknown IP version in prefix: %s", prefix.Addr().String())
+}
+
+// formatNexthop returns a string representation of the nexthop for logging.
+func formatNexthop(nexthop Nexthop) string {
+	if nexthop.IP.IsValid() {
+		return nexthop.IP.String()
+	}
+	if nexthop.Intf != nil {
+		return nexthop.Intf.Name
+	}
+	return "direct"
+}
+
+// verifyRouteRemoved checks if a route still exists in the routing table.
+func (r *SysOps) verifyRouteRemoved(prefix netip.Prefix) bool {
+	rib, err := retryFetchRIB()
+	if err != nil {
+		log.Debugf("Failed to fetch RIB for route verification: %v", err)
+		return false
+	}
+
+	msgs, err := route.ParseRIB(route.RIBTypeRoute, rib)
+	if err != nil {
+		log.Debugf("Failed to parse RIB for route verification: %v", err)
+		return false
+	}
+
+	for _, msg := range msgs {
+		rtMsg, ok := msg.(*route.RouteMessage)
+		if !ok {
+			continue
+		}
+
+		if rtMsg.Flags&routeProtoFlag == 0 {
+			continue
+		}
+
+		routeInfo, err := MsgToRoute(rtMsg)
+		if err != nil {
+			continue
+		}
+
+		if routeInfo.Dst == prefix {
+			return true
+		}
+	}
+
+	return false
 }
