@@ -39,11 +39,13 @@ import (
 )
 
 type ConnectClient struct {
-	ctx            context.Context
-	config         *profilemanager.Config
-	statusRecorder *peer.Status
-	engine         *Engine
-	engineMutex    sync.Mutex
+	ctx                 context.Context
+	config              *profilemanager.Config
+	statusRecorder      *peer.Status
+	doInitialAutoUpdate bool
+
+	engine      *Engine
+	engineMutex sync.Mutex
 
 	persistSyncResponse bool
 }
@@ -52,13 +54,15 @@ func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
+	doInitalAutoUpdate bool,
 
 ) *ConnectClient {
 	return &ConnectClient{
-		ctx:            ctx,
-		config:         config,
-		statusRecorder: statusRecorder,
-		engineMutex:    sync.Mutex{},
+		ctx:                 ctx,
+		config:              config,
+		statusRecorder:      statusRecorder,
+		doInitialAutoUpdate: doInitalAutoUpdate,
+		engineMutex:         sync.Mutex{},
 	}
 }
 
@@ -281,7 +285,12 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
-			c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
+			// AutoUpdate will be true when the user click on "Connect" menu on the UI
+			if c.doInitialAutoUpdate {
+				log.Infof("start engine by ui, run auto-update check")
+				c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
+				c.doInitialAutoUpdate = false
+			}
 		}
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())

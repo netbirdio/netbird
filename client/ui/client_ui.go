@@ -34,6 +34,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	protobuf "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
@@ -717,7 +718,9 @@ func (s *serviceClient) menuUpClick() error {
 		return nil
 	}
 
-	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
+	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
+		AutoUpdate: protobuf.Bool(true),
+	}); err != nil {
 		log.Errorf("up service: %v", err)
 		return err
 	}

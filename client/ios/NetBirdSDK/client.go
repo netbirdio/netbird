@@ -20,8 +20,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -127,7 +127,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
 
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, false)
 	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile)
 }
 
