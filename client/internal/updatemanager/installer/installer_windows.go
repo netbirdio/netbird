@@ -23,7 +23,7 @@ const (
 )
 
 var (
-	tempDir = filepath.Join(os.Getenv("ProgramData"), "Netbird", "tmp-install")
+	TempDir = filepath.Join(os.Getenv("ProgramData"), "Netbird", "tmp-install")
 )
 
 type Installer struct {
@@ -34,10 +34,10 @@ func NewInstaller() *Installer {
 }
 
 func (u *Installer) CreateTempDir() (string, error) {
-	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+	if err := os.MkdirAll(TempDir, 0o755); err != nil {
 		return "", err
 	}
-	return tempDir, nil
+	return TempDir, nil
 }
 
 // RunInstallation starts the updater process to run the installation
@@ -57,7 +57,7 @@ func (u *Installer) RunInstallation(installerPath string) error {
 
 	log.Infof("run updater binary: %s", updaterPath)
 
-	cmd := exec.Command(updaterPath, "--installer-path", installerPath, "--service-dir", workspace)
+	cmd := exec.Command(updaterPath, "--installer-path", installerPath, "--service-dir", workspace, "--dry-run=true")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
 	}
@@ -78,30 +78,43 @@ func (u *Installer) RunInstallation(installerPath string) error {
 
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
-func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string, daemonFolder string) error {
+func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string, daemonFolder string) (resultErr error) {
+	installerFolder := filepath.Dir(installerPath)
+	resultHandler := NewResultHandler(installerFolder)
 	it, err := TypeByFileExtension(installerPath)
 	if err != nil {
 		return err
 	}
 
-	if err := u.stopDaemon(daemonFolder); err != nil {
-		log.Errorf("failed to stop daemon: %v", err)
-	}
-
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
+		log.Infof("starting daemon back")
 		if err := u.startDaemon(daemonFolder); err != nil {
 			log.Errorf("failed to start daemon: %v", err)
 		}
 
+		// todo prevent to run UI multiple times
+		log.Infof("starting UI back")
 		if err := u.startUIAsUser(daemonFolder); err != nil {
 			log.Errorf("failed to start UI: %v", err)
+		}
+
+		result := Result{
+			Success: resultErr == nil,
+		}
+		if resultErr != nil {
+			result.Error = resultErr.Error()
+		}
+		log.Infof("write out result")
+		if err := resultHandler.Write(result); err != nil {
+			log.Errorf("failed to write update result: %v", err)
 		}
 	}()
 
 	if dryRun {
 		log.Infof("dry-run mode enabled, skipping actual installation")
-		return nil
+		resultErr = fmt.Errorf("dry-run mode enabled")
+		return
 	}
 
 	var cmd *exec.Cmd
@@ -123,49 +136,20 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 	}
 
 	log.Infof("installer started with PID %d", cmd.Process.Pid)
-
-	// Wait in a goroutine with timeout
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
-
-	// Wait for completion or timeout
-	select {
-	case <-ctx.Done():
-		log.Warnf("installer context cancelled")
-		return ctx.Err()
-	case err := <-done:
-		if err != nil {
-			log.Errorf("installer exited with error: %v", err)
-			return err
-		}
-		log.Infof("installer finished successfully")
+	if resultErr = cmd.Wait(); resultErr != nil {
+		log.Errorf("installer process finished with error: %v", resultErr)
+		return
 	}
 
 	return nil
 }
 
 func (u *Installer) CleanUp() {
-	if err := os.RemoveAll(tempDir); err != nil {
-		log.Warnf("failed to remove temporary directory %s: %v", tempDir, err)
+	if err := os.RemoveAll(TempDir); err != nil {
+		log.Warnf("failed to remove temporary directory %s: %v", TempDir, err)
 		return
 	}
-	log.Infof("removed temporary directory %s", tempDir)
-}
-
-func (u *Installer) stopDaemon(daemonFolder string) error {
-	log.Infof("stopping netbird service")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, filepath.Join(daemonFolder, daemonName), "service", "stop")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Debugf("failed to stop netbird service: %v, output: '%s'", err, string(output))
-		return err
-	}
-	log.Infof("netbird service stopped successfully")
-	return nil
+	log.Infof("removed temporary directory %s", TempDir)
 }
 
 func (u *Installer) startDaemon(daemonFolder string) error {
@@ -198,7 +182,11 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 	if err != nil {
 		return fmt.Errorf("failed to query user token: %w", err)
 	}
-	defer userToken.Close()
+	defer func() {
+		if err := userToken.Close(); err != nil {
+			log.Warnf("failed to close user token: %v", err)
+		}
+	}()
 
 	// Duplicate the token to a primary token
 	var primaryToken windows.Token
@@ -263,12 +251,12 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 }
 
 func copyUpdater() (string, error) {
-	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+	if err := os.MkdirAll(TempDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
 	// Destination path for the copied executable
-	dstPath := filepath.Join(tempDir, updaterBinary)
+	dstPath := filepath.Join(TempDir, updaterBinary)
 
 	// Open the source executable
 	execPath, err := os.Executable()

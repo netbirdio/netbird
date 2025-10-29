@@ -84,6 +84,8 @@ service DaemonService {
   rpc Logout(LogoutRequest) returns (LogoutResponse) {}
 
   rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse) {}
+
+  rpc GetInstallerResult(InstallerResultRequest) returns (InstallerResultResponse) {}
 }
 
 
@@ -641,4 +643,12 @@ message GetFeaturesRequest{}
 message GetFeaturesResponse{
   bool disable_profiles = 1;
   bool disable_update_settings = 2;
+}
+
+message InstallerResultRequest {
+}
+
+message InstallerResultResponse {
+  bool success = 1;
+  string errorMsg = 2;
 }
