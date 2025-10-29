@@ -1620,6 +1620,8 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 	account.RoutesG = nil
 	account.NameServerGroupsG = nil
 
+	account.InitOnce()
+
 	return &account, nil
 }
 
