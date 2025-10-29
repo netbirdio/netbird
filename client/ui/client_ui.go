@@ -166,11 +166,9 @@ func initLogFile() (string, error) {
 
 // watchSettingsChanges listens for Fyne theme/settings changes and updates the client icon.
 func watchSettingsChanges(a fyne.App, client *serviceClient) {
-	settingsChangeChan := make(chan fyne.Settings)
-	a.Settings().AddChangeListener(settingsChangeChan)
-	for range settingsChangeChan {
+	a.Settings().AddListener(func(settings fyne.Settings) {
 		client.updateIcon()
-	}
+	})
 }
 
 // showErrorMessage displays an error message in a simple window.
