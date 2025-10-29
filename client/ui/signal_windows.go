@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 
@@ -54,4 +55,5 @@ func (s *serviceClient) openQuickActions() {
 }
 
 func sendShowWindowSignal(pid int32) error {
+	return fmt.Errorf("signal handler not yet implemented for Windows")
 }
