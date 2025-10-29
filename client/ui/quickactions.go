@@ -192,11 +192,15 @@ func (s *serviceClient) showQuickActionsUI() {
 	client, err := s.getSrvClient(defaultFailTimeout)
 
 	connCmd := connectCommand{
-		connectClient: s.menuUpClick,
+		connectClient: func() error {
+			return s.menuUpClick()
+		},
 	}
 
 	disConnCmd := disconnectCommand{
-		disconnectClient: s.menuDownClick,
+		disconnectClient: func() error {
+			return s.menuDownClick()
+		},
 	}
 
 	if err != nil {
