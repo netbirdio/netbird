@@ -24,6 +24,7 @@ import (
 type quickActionsUiState struct {
 	connectionStatus      string
 	isToggleButtonEnabled bool
+	isConnectionChanged   bool
 	toggleAction          func()
 }
 
@@ -31,6 +32,7 @@ func newQuickActionsUiState() quickActionsUiState {
 	return quickActionsUiState{
 		connectionStatus:      "Idle",
 		isToggleButtonEnabled: false,
+		isConnectionChanged:   false,
 		toggleAction:          func() {},
 	}
 }
@@ -121,9 +123,13 @@ func newQuickActionsViewModel(provider clientConnectionStatusProvider, connect, 
 				}
 
 				if connectionStatus == "Connected" {
-					uiState.toggleAction = viewModel.disconnectClient
+					uiState.toggleAction = func() {
+						viewModel.executeCommand(disconnect)
+					}
 				} else {
-					uiState.toggleAction = viewModel.connectClient
+					uiState.toggleAction = func() {
+						viewModel.executeCommand(connect)
+					}
 				}
 
 				uiState.isToggleButtonEnabled = true
@@ -138,39 +144,26 @@ func newQuickActionsViewModel(provider clientConnectionStatusProvider, connect, 
 	return viewModel
 }
 
-func (q *quickActionsViewModel) connectClient() {
+func (q *quickActionsViewModel) executeCommand(command clientCommand) {
 	uiState := newQuickActionsUiState()
 	uiState.connectionStatus = ""
 
 	q.uiChan <- uiState
 	q.pauseChan <- struct{}{}
 
-	err := q.connect.execute()
+	err := command.execute()
 
 	if err != nil {
 		log.Errorf("Status: Error - %v", err)
 	} else {
-		q.resumeChan <- struct{}{}
+		uiState = newQuickActionsUiState()
+		uiState.isConnectionChanged = true
+		q.uiChan <- uiState
+		//q.resumeChan <- struct{}{}
 	}
 }
 
-func (q *quickActionsViewModel) disconnectClient() {
-	uiState := newQuickActionsUiState()
-	uiState.connectionStatus = ""
-
-	q.uiChan <- uiState
-	q.pauseChan <- struct{}{}
-
-	err := q.disconnect.execute()
-
-	if err != nil {
-		log.Errorf("Status: Error - %v", err)
-	} else {
-		q.resumeChan <- struct{}{}
-	}
-}
-
-func (s *serviceClient) getSystemTrayName() string {
+func getSystemTrayName() string {
 	os := runtime.GOOS
 	switch os {
 	case "darwin":
@@ -225,7 +218,7 @@ func (s *serviceClient) showQuickActionsUI() {
 
 	toggleConnectionButton := widget.NewButtonWithIcon(disconnectedLabelText, disconnectedCircle.Resource, func() {})
 
-	hintLabelText := fmt.Sprintf("You can always access NetBird from your %s.", s.getSystemTrayName())
+	hintLabelText := fmt.Sprintf("You can always access NetBird from your %s.", getSystemTrayName())
 	hintLabel := widget.NewLabel(hintLabelText)
 
 	content := container.NewVBox(
@@ -246,6 +239,14 @@ func (s *serviceClient) showQuickActionsUI() {
 		for {
 			select {
 			case uiState := <-uiChan:
+				if uiState.isConnectionChanged {
+					fyne.DoAndWait(func() {
+						s.wQuickActions.Close()
+					})
+
+					return
+				}
+
 				if uiState.connectionStatus == "Connected" {
 					buttonText = connectedLabelText
 					buttonIcon = connectedCircle.Resource
