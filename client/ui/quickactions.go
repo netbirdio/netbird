@@ -173,6 +173,18 @@ func getSystemTrayName() string {
 	}
 }
 
+func (s *serviceClient) getNetBirdImage(name string, content []byte) *canvas.Image {
+	imageSize := fyne.NewSize(64, 64)
+
+	resource := fyne.NewStaticResource(name, content)
+	image := canvas.NewImageFromResource(resource)
+	image.FillMode = canvas.ImageFillContain
+	image.SetMinSize(imageSize)
+	image.Resize(imageSize)
+
+	return image
+}
+
 // showQuickActionsUI displays a simple window with the NetBird logo and a connection toggle button.
 func (s *serviceClient) showQuickActionsUI() {
 	s.wQuickActions = s.app.NewWindow("NetBird")
@@ -196,19 +208,8 @@ func (s *serviceClient) showQuickActionsUI() {
 	uiChan := make(chan quickActionsUiState, 1)
 	newQuickActionsViewModel(daemonClientConnectionStatusProvider{client: client}, connCmd, disConnCmd, uiChan)
 
-	imageSize := fyne.NewSize(64, 64)
-
-	connectedIcon := fyne.NewStaticResource("netbird.png", iconAbout)
-	connectedImage := canvas.NewImageFromResource(connectedIcon)
-	connectedImage.FillMode = canvas.ImageFillContain
-	connectedImage.SetMinSize(imageSize)
-	connectedImage.Resize(imageSize)
-
-	disconnectedIcon := fyne.NewStaticResource("netbird-disconnected.png", iconAboutDisconnected)
-	disconnectedImage := canvas.NewImageFromResource(disconnectedIcon)
-	disconnectedImage.FillMode = canvas.ImageFillContain
-	disconnectedImage.SetMinSize(imageSize)
-	disconnectedImage.Resize(imageSize)
+	connectedImage := s.getNetBirdImage("netbird.png", iconAbout)
+	disconnectedImage := s.getNetBirdImage("netbird-disconnected.png", iconAboutDisconnected)
 
 	connectedCircle := canvas.NewImageFromResource(resourceConnectedPng)
 	disconnectedCircle := canvas.NewImageFromResource(resourceDisconnectedPng)
