@@ -23,6 +23,9 @@ import (
 
 const (
 	allPeers = "0.0.0.0"
+	fw       = "fw:"
+	rfw      = "route-fw:"
+	nr       = "network-resource-"
 )
 
 type NetworkMapCache struct {
@@ -948,14 +951,41 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 }
 
 func (b *NetworkMapBuilder) generateFirewallRuleID(rule *FirewallRule) string {
-	portRange := fmt.Sprintf("%d-%d", rule.PortRange.Start, rule.PortRange.End)
-	return fmt.Sprintf("fw:%s:%s:%d:%s:%s:%s:%s",
-		rule.PolicyID, rule.PeerIP, rule.Direction, rule.Protocol, rule.Action, rule.Port, portRange)
+	var s strings.Builder
+	s.WriteString(fw)
+	s.WriteString(rule.PolicyID)
+	s.WriteRune(':')
+	s.WriteString(rule.PeerIP)
+	s.WriteRune(':')
+	s.WriteString(strconv.Itoa(rule.Direction))
+	s.WriteRune(':')
+	s.WriteString(rule.Protocol)
+	s.WriteRune(':')
+	s.WriteString(rule.Action)
+	s.WriteRune(':')
+	s.WriteString(rule.Port)
+	s.WriteRune(':')
+	s.WriteString(strconv.Itoa(int(rule.PortRange.Start)))
+	s.WriteRune('-')
+	s.WriteString(strconv.Itoa(int(rule.PortRange.End)))
+	return s.String()
 }
 
 func (b *NetworkMapBuilder) generateRouteFirewallRuleID(rule *RouteFirewallRule) string {
-	return fmt.Sprintf("route-fw:%s:%s:%s:%s:%s:%d",
-		rule.RouteID, rule.Destination, rule.Action, strings.Join(rule.SourceRanges, ","), rule.Protocol, rule.Port)
+	var s strings.Builder
+	s.WriteString(rfw)
+	s.WriteString(string(rule.RouteID))
+	s.WriteRune(':')
+	s.WriteString(rule.Destination)
+	s.WriteRune(':')
+	s.WriteString(rule.Action)
+	s.WriteRune(':')
+	s.WriteString(strings.Join(rule.SourceRanges, ","))
+	s.WriteRune(':')
+	s.WriteString(rule.Protocol)
+	s.WriteRune(':')
+	s.WriteString(strconv.Itoa(int(rule.Port)))
+	return s.String()
 }
 
 func (b *NetworkMapBuilder) isPeerInGroups(groupIDs []string, peerGroups []string) bool {
@@ -1303,11 +1333,14 @@ func (b *NetworkMapBuilder) calculateNetworkResourceFirewallUpdates(
 				}
 				updates[routerPeerID] = delta
 			}
-
-			resourceRouteID := fmt.Sprintf("network-resource-%s-%s", resource.ID, routerPeerID)
+			var resourceRouteID strings.Builder
+			resourceRouteID.WriteString(nr)
+			resourceRouteID.WriteString(resource.ID)
+			resourceRouteID.WriteRune('-')
+			resourceRouteID.WriteString(routerPeerID)
 
 			delta.UpdateRouteFirewallRules = append(delta.UpdateRouteFirewallRules, &RouteFirewallRuleUpdate{
-				RuleID:      resourceRouteID,
+				RuleID:      resourceRouteID.String(),
 				AddSourceIP: newPeer.IP.String(),
 			})
 		}
