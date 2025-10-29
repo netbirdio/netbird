@@ -65,7 +65,7 @@ func (u *Installer) RunInstallation(installerPath string) error {
 
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
-func (u *Installer) Setup(ctx context.Context, installerPath string, daemonFolder string) error {
+func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string, daemonFolder string) error {
 	it, err := TypeByFileExtension(installerPath)
 	if err != nil {
 		return err
@@ -73,6 +73,21 @@ func (u *Installer) Setup(ctx context.Context, installerPath string, daemonFolde
 
 	if err := u.stopDaemon(daemonFolder); err != nil {
 		log.Errorf("failed to stop daemon: %v", err)
+	}
+
+	// Always ensure daemon and UI are restarted after setup
+	defer func() {
+		if err := u.startDaemon(daemonFolder); err != nil {
+			log.Errorf("failed to start daemon: %v", err)
+		}
+		if err := u.startUI(daemonFolder); err != nil {
+			log.Errorf("failed to start UI: %v", err)
+		}
+	}()
+
+	if dryRun {
+		log.Infof("dry-run mode enabled, skipping actual installation")
+		return nil
 	}
 
 	var cmd *exec.Cmd
@@ -112,13 +127,6 @@ func (u *Installer) Setup(ctx context.Context, installerPath string, daemonFolde
 			return err
 		}
 		log.Infof("installer finished successfully")
-	}
-
-	if err := u.startDaemon(daemonFolder); err != nil {
-		log.Errorf("failed to start daemon: %v", err)
-	}
-	if err := u.startUI(daemonFolder); err != nil {
-		log.Errorf("failed to start UI: %v", err)
 	}
 
 	return nil
@@ -162,6 +170,8 @@ func (u *Installer) startDaemon(daemonFolder string) error {
 
 func (u *Installer) startUI(daemonFolder string) error {
 	log.Infof("starting netbird-ui")
+	// workaround to fix UI not starting after installation
+	time.Sleep(3 * time.Second)
 
 	cmd := exec.Command(filepath.Join(daemonFolder, uiName))
 	cmd.Stdout = os.Stdout

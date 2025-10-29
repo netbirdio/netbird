@@ -26,11 +26,13 @@ var (
 
 	installerPathFlag string
 	serviceDirFlag    string
+	dryRunFlag        bool
 )
 
 func init() {
-	updateCmd.Flags().StringVar(&installerPathFlag, "installer-path", "", "Path to the installer")
-	updateCmd.Flags().StringVar(&serviceDirFlag, "service-dir", "", "Service directory")
+	updateCmd.Flags().StringVar(&installerPathFlag, "installer-path", "", "path to the installer")
+	updateCmd.Flags().StringVar(&serviceDirFlag, "service-dir", "", "service directory")
+	updateCmd.Flags().BoolVar(&dryRunFlag, "dry-run", false, "dry run the update process without making any changes")
 }
 
 // isUpdateBinary checks if the current executable is named "update" or "update.exe"
@@ -59,7 +61,7 @@ func updateFunc(cmd *cobra.Command, args []string) error {
 
 	log.Infof("updater started: %s", serviceDirFlag)
 	updater := installer.NewInstaller()
-	if err := updater.Setup(context.Background(), installerPathFlag, serviceDirFlag); err != nil {
+	if err := updater.Setup(context.Background(), dryRunFlag, installerPathFlag, serviceDirFlag); err != nil {
 		log.Errorf("failed to update application: %v", err)
 		return err
 	}
@@ -67,5 +69,5 @@ func updateFunc(cmd *cobra.Command, args []string) error {
 }
 
 func setupLogToFile(installerPath string) error {
-	return util.InitLog(logLevel, installer.LogFilePath(installerPath))
+	return util.InitLog(logLevel, util.LogConsole, installer.LogFilePath(installerPath))
 }
