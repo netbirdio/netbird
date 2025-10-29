@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -88,6 +89,7 @@ type Account struct {
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
 
 	NetworkMapCache *NetworkMapBuilder `gorm:"-"`
+	nmapInitOnce    sync.Once
 }
 
 // this class is used by gorm only
