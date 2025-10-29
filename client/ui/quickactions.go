@@ -33,7 +33,6 @@ func newQuickActionsUiState() quickActionsUiState {
 		connectionStatus:      "Idle",
 		isToggleButtonEnabled: false,
 		isConnectionChanged:   false,
-		toggleAction:          func() {},
 	}
 }
 
@@ -217,7 +216,9 @@ func (s *serviceClient) showQuickActionsUI() {
 	connectedLabelText := "Disconnect"
 	disconnectedLabelText := "Connect"
 
-	toggleConnectionButton := widget.NewButtonWithIcon(disconnectedLabelText, disconnectedCircle.Resource, func() {})
+	toggleConnectionButton := widget.NewButtonWithIcon(disconnectedLabelText, disconnectedCircle.Resource, func() {
+		// This button's tap function will be set when an ui state arrives via the uiChan channel.
+	})
 
 	hintLabelText := fmt.Sprintf("You can always access NetBird from your %s.", getSystemTrayName())
 	hintLabel := widget.NewLabel(hintLabelText)
