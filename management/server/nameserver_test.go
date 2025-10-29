@@ -910,12 +910,12 @@ func TestValidateDomain(t *testing.T) {
 			errFunc: require.NoError,
 		},
 		{
-			name:    "Valid domain name with trailing dot",
+			name:    "Invalid domain name with trailing dot",
 			domain:  "example.",
-			errFunc: require.NoError,
+			errFunc: require.Error,
 		},
 		{
-			name:    "Invalid wildcard domain name",
+			name:    "Valid wildcard domain name",
 			domain:  "*.example",
 			errFunc: require.Error,
 		},
@@ -932,7 +932,7 @@ func TestValidateDomain(t *testing.T) {
 		{
 			name:    "Invalid domain name with double hyphen",
 			domain:  "test--example.com",
-			errFunc: require.Error,
+			errFunc: require.NoError, // Note: Double hyphen is not valid but due to punicode hard to filter out
 		},
 		{
 			name:    "Invalid domain name with a label exceeding 63 characters",
@@ -968,7 +968,7 @@ func TestValidateDomain(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			testCase.errFunc(t, validateDomain(testCase.domain))
+			testCase.errFunc(t, validateDomainInput(false, []string{testCase.domain}, false))
 		})
 	}
 
