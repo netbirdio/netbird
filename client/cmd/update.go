@@ -37,16 +37,15 @@ func init() {
 
 // isUpdateBinary checks if the current executable is named "update" or "update.exe"
 func isUpdateBinary() bool {
+	// Remove extension for cross-platform compatibility
 	execPath, err := os.Executable()
 	if err != nil {
 		return false
 	}
-
 	baseName := filepath.Base(execPath)
-	// Remove extension for cross-platform compatibility
 	name := strings.TrimSuffix(baseName, filepath.Ext(baseName))
 
-	return name == "update"
+	return name == installer.UpdaterBinaryNameWithoutExtension()
 }
 
 func updateFunc(cmd *cobra.Command, args []string) error {

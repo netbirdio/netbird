@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,8 +15,9 @@ import (
 )
 
 const (
-	daemonName = "netbird.exe"
-	uiName     = "netbird-ui.exe"
+	daemonName    = "netbird.exe"
+	uiName        = "netbird-ui.exe"
+	updaterBinary = "updater.exe"
 )
 
 var (
@@ -39,11 +41,13 @@ func (u *Installer) CreateTempDir() (string, error) {
 // RunInstallation starts the updater process to run the installation
 // This will run by the original service process
 func (u *Installer) RunInstallation(installerPath string) error {
+	// copy the current binary to a temp location as an updater binary
 	updaterPath, err := copyUpdater()
 	if err != nil {
 		return err
 	}
 
+	// the directory where the service has been installed
 	workspace, err := getServiceDir()
 	if err != nil {
 		return err
@@ -51,14 +55,21 @@ func (u *Installer) RunInstallation(installerPath string) error {
 
 	log.Infof("run updater binary: %s", updaterPath)
 
-	cmd := exec.Command(updaterPath, "update", "--installer-path", installerPath, "--service-dir", workspace)
+	cmd := exec.Command(updaterPath, "--installer-path", installerPath, "--service-dir", workspace)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
 	}
 
+	// Start the updater process asynchronously
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+
+	// Release the process so the OS can fully detach it
+	if err := cmd.Process.Release(); err != nil {
+		log.Warnf("failed to release updater process: %v", err)
+	}
+
 	log.Infof("updater started with PID %d", cmd.Process.Pid)
 	return nil
 }
@@ -197,7 +208,7 @@ func copyUpdater() (string, error) {
 	}
 
 	// Destination path for the copied executable
-	dstPath := filepath.Join(tempDir, "updater.exe")
+	dstPath := filepath.Join(tempDir, updaterBinary)
 
 	// Open the source executable
 	execPath, err := os.Executable()
@@ -236,4 +247,9 @@ func getServiceDir() (string, error) {
 		return "", err
 	}
 	return filepath.Dir(exePath), nil
+}
+
+func UpdaterBinaryNameWithoutExtension() string {
+	ext := filepath.Ext(updaterBinary)
+	return strings.TrimSuffix(updaterBinary, ext)
 }
