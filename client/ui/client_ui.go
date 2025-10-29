@@ -833,6 +833,7 @@ func (s *serviceClient) onTrayReady() {
 
 	newProfileMenuArgs := &newProfileMenuArgs{
 		ctx:                  s.ctx,
+		serviceClient:        s,
 		profileManager:       s.profileManager,
 		eventHandler:         s.eventHandler,
 		profileMenuItem:      profileMenuItem,
