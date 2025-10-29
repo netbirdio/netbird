@@ -143,7 +143,7 @@ func TestAddVPNRoute(t *testing.T) {
 
 			wgInterface := createWGInterface(t, fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100+n)
 
-			r := NewSysOps(wgInterface, nil)
+			r := New(wgInterface, nil)
 			advancedRouting := nbnet.AdvancedRouting()
 			err := r.SetupRouting(nil, nil, advancedRouting)
 			require.NoError(t, err)
@@ -342,7 +342,7 @@ func TestAddRouteToNonVPNIntf(t *testing.T) {
 
 			wgInterface := createWGInterface(t, fmt.Sprintf("utun54%d", n), "100.65.75.2/24", 33200+n)
 
-			r := NewSysOps(wgInterface, nil)
+			r := New(wgInterface, nil)
 			advancedRouting := nbnet.AdvancedRouting()
 			err := r.SetupRouting(nil, nil, advancedRouting)
 			require.NoError(t, err)
@@ -486,7 +486,7 @@ func setupTestEnv(t *testing.T) {
 		assert.NoError(t, wgInterface.Close())
 	})
 
-	r := NewSysOps(wgInterface, nil)
+	r := New(wgInterface, nil)
 	advancedRouting := nbnet.AdvancedRouting()
 	err := r.SetupRouting(nil, nil, advancedRouting)
 	require.NoError(t, err, "setupRouting should not return err")

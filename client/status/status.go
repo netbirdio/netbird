@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	probeRelay "github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/version"
@@ -340,10 +341,16 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		for _, relay := range overview.Relays.Details {
 			available := "Available"
 			reason := ""
+
 			if !relay.Available {
-				available = "Unavailable"
-				reason = fmt.Sprintf(", reason: %s", relay.Error)
+				if relay.Error == probeRelay.ErrCheckInProgress.Error() {
+					available = "Checking..."
+				} else {
+					available = "Unavailable"
+					reason = fmt.Sprintf(", reason: %s", relay.Error)
+				}
 			}
+
 			relaysString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
 		}
 	} else {

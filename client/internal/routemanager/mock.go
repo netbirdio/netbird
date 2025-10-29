@@ -90,6 +90,10 @@ func (m *MockManager) SetFirewall(firewall.Manager) error {
 	panic("implement me")
 }
 
+// SetDNSForwarderPort mock implementation of SetDNSForwarderPort from Manager interface
+func (m *MockManager) SetDNSForwarderPort(port uint16) {
+}
+
 // Stop mock implementation of Stop from Manager interface
 func (m *MockManager) Stop(stateManager *statemanager.Manager) {
 	if m.StopFunc != nil {
