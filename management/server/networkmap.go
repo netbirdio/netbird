@@ -28,6 +28,9 @@ func (am *DefaultAccountManager) getPeerNetworkMapExp(
 	account := am.getAccountFromHolder(accountId)
 	if account == nil {
 		log.WithContext(ctx).Warnf("account %s not found in holder when getting peer network map", accountId)
+		return &types.NetworkMap{
+			Network: &types.Network{},
+		}
 	}
 	return account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
 }
