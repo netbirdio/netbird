@@ -1,8 +1,6 @@
 package server
 
 import (
-	"context"
-
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -29,11 +27,10 @@ func (am *DefaultAccountManager) getAccountFromHolderOrInit(accountID string) *t
 	if a != nil {
 		return a
 	}
-	account, err := am.requestBuffer.GetAccountWithBackpressure(context.Background(), accountID)
+	account, err := am.holder.LoadOrStoreFunc(accountID, am.requestBuffer.GetAccountWithBackpressure)
 	if err != nil {
 		return nil
 	}
-	am.holder.AddAccount(account)
 	return account
 }
 

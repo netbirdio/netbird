@@ -25,7 +25,7 @@ func (am *DefaultAccountManager) getPeerNetworkMapExp(
 	customZone nbdns.CustomZone,
 	metrics *telemetry.AccountManagerMetrics,
 ) *types.NetworkMap {
-	account := am.getAccountFromHolder(accountId)
+	account := am.getAccountFromHolderOrInit(accountId)
 	if account == nil {
 		log.WithContext(ctx).Warnf("account %s not found in holder when getting peer network map", accountId)
 		return &types.NetworkMap{

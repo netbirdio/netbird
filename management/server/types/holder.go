@@ -1,6 +1,9 @@
 package types
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 type Holder struct {
 	mu       sync.RWMutex
@@ -23,4 +26,18 @@ func (h *Holder) AddAccount(account *Account) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.accounts[account.Id] = account
+}
+
+func (h *Holder) LoadOrStoreFunc(id string, accGetter func(context.Context, string) (*Account, error)) (*Account, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if acc, ok := h.accounts[id]; ok {
+		return acc, nil
+	}
+	account, err := accGetter(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	h.accounts[id] = account
+	return account, nil
 }
