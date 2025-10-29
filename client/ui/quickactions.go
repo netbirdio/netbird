@@ -242,48 +242,45 @@ func (s *serviceClient) showQuickActionsUI() {
 		var buttonText string
 		var buttonIcon fyne.Resource
 
-		for {
-			select {
-			case uiState := <-uiChan:
-				if uiState.isConnectionChanged {
-					fyne.DoAndWait(func() {
-						s.wQuickActions.Close()
-					})
-
-					return
-				}
-
-				if uiState.connectionStatus == "Connected" {
-					buttonText = connectedLabelText
-					buttonIcon = connectedCircle.Resource
-					logo = connectedImage
-				} else if uiState.connectionStatus == "Idle" {
-					buttonText = disconnectedLabelText
-					buttonIcon = disconnectedCircle.Resource
-					logo = disconnectedImage
-				}
-
+		for uiState := range uiChan {
+			if uiState.isConnectionChanged {
 				fyne.DoAndWait(func() {
-					toggleConnectionButton.SetText(buttonText)
-					toggleConnectionButton.SetIcon(buttonIcon)
-					if uiState.isToggleButtonEnabled {
-						toggleConnectionButton.Enable()
-					} else {
-						toggleConnectionButton.Disable()
-					}
-
-					toggleConnectionButton.Refresh()
-
-					// second position in the content's objects array is the NetBird logo.
-					content.Objects[1] = logo
-					content.Refresh()
+					s.wQuickActions.Close()
 				})
 
-				toggleConnectionButton.OnTapped = func() {
-					go func() {
-						uiState.toggleAction()
-					}()
+				return
+			}
+
+			if uiState.connectionStatus == "Connected" {
+				buttonText = connectedLabelText
+				buttonIcon = connectedCircle.Resource
+				logo = connectedImage
+			} else if uiState.connectionStatus == "Idle" {
+				buttonText = disconnectedLabelText
+				buttonIcon = disconnectedCircle.Resource
+				logo = disconnectedImage
+			}
+
+			fyne.DoAndWait(func() {
+				toggleConnectionButton.SetText(buttonText)
+				toggleConnectionButton.SetIcon(buttonIcon)
+				if uiState.isToggleButtonEnabled {
+					toggleConnectionButton.Enable()
+				} else {
+					toggleConnectionButton.Disable()
 				}
+
+				toggleConnectionButton.Refresh()
+
+				// second position in the content's objects array is the NetBird logo.
+				content.Objects[1] = logo
+				content.Refresh()
+			})
+
+			toggleConnectionButton.OnTapped = func() {
+				go func() {
+					uiState.toggleAction()
+				}()
 			}
 		}
 	}()
