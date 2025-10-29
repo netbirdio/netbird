@@ -90,7 +90,11 @@ type Account struct {
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
 
 	NetworkMapCache *NetworkMapBuilder `gorm:"-"`
-	nmapInitOnce    sync.Once
+	nmapInitOnce    *sync.Once         `gorm:"-"`
+}
+
+func (a *Account) InitOnce() {
+	a.nmapInitOnce = &sync.Once{}
 }
 
 // this class is used by gorm only
