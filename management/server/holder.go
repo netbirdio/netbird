@@ -1,8 +1,6 @@
 package server
 
 import (
-	"context"
-
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -21,16 +19,7 @@ func (am *DefaultAccountManager) enrichAccountFromHolder(account *types.Account)
 }
 
 func (am *DefaultAccountManager) getAccountFromHolder(accountID string) *types.Account {
-	a := am.holder.GetAccount(accountID)
-	if a != nil {
-		return a
-	}
-	account, err := am.requestBuffer.GetAccountWithBackpressure(context.Background(), accountID)
-	if err != nil {
-		return nil
-	}
-	am.holder.AddAccount(account)
-	return account
+	return am.holder.GetAccount(accountID)
 }
 
 func (am *DefaultAccountManager) updateAccountInHolder(account *types.Account) {
