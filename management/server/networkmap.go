@@ -41,6 +41,9 @@ func (am *DefaultAccountManager) onPeerDeletedUpdNetworkMapCache(account *types.
 
 func (am *DefaultAccountManager) updatePeerInNetworkMapCache(accountId string, peer *nbpeer.Peer) {
 	account := am.getAccountFromHolder(accountId)
+	if account == nil {
+		return
+	}
 	account.UpdatePeerInNetworkMapCache(peer)
 }
 

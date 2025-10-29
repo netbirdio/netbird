@@ -873,10 +873,9 @@ func peerIsNameserver(peer *nbpeer.Peer, nsGroup *nbdns.NameServerGroup) bool {
 }
 
 func (a *Account) initNetworkMapBuilder(validatedPeers map[string]struct{}) {
-	if a.NetworkMapCache != nil {
-		return
-	}
-	a.NetworkMapCache = NewNetworkMapBuilder(a, validatedPeers)
+	a.nmapInitOnce.Do(func() {
+		a.NetworkMapCache = NewNetworkMapBuilder(a, validatedPeers)
+	})
 }
 
 func (a *Account) InitNetworkMapBuilderIfNeeded(validatedPeers map[string]struct{}) {
