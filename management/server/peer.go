@@ -1221,7 +1221,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 		err     error
 	)
 	if am.experimentalNetworkMap(accountID) {
-		account = am.getAccountFromHolder(accountID)
+		account = am.getAccountFromHolderOrInit(accountID)
 	} else {
 		account, err = am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 		if err != nil {
