@@ -10,8 +10,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/windows"
 )
 
 const (
@@ -91,7 +93,8 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 		if err := u.startDaemon(daemonFolder); err != nil {
 			log.Errorf("failed to start daemon: %v", err)
 		}
-		if err := u.startUI(daemonFolder); err != nil {
+
+		if err := u.startUIAsUser(daemonFolder); err != nil {
 			log.Errorf("failed to start UI: %v", err)
 		}
 	}()
@@ -179,26 +182,83 @@ func (u *Installer) startDaemon(daemonFolder string) error {
 	return nil
 }
 
-func (u *Installer) startUI(daemonFolder string) error {
-	log.Infof("starting netbird-ui")
-	// workaround to fix UI not starting after installation
-	time.Sleep(3 * time.Second)
+func (u *Installer) startUIAsUser(daemonFolder string) error {
+	uiPath := filepath.Join(daemonFolder, uiName)
+	log.Infof("starting netbird-ui: %s", uiPath)
 
-	cmd := exec.Command(filepath.Join(daemonFolder, uiName))
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = nil
-
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
+	// Get the active console session ID
+	sessionID := windows.WTSGetActiveConsoleSessionId()
+	if sessionID == 0xFFFFFFFF {
+		return fmt.Errorf("no active user session found")
 	}
 
-	if err := cmd.Start(); err != nil {
-		log.Debugf("failed to start netbird-ui: %v", err)
-		return err
+	// Get the user token for that session
+	var userToken windows.Token
+	err := windows.WTSQueryUserToken(sessionID, &userToken)
+	if err != nil {
+		return fmt.Errorf("failed to query user token: %w", err)
+	}
+	defer userToken.Close()
+
+	// Duplicate the token to a primary token
+	var primaryToken windows.Token
+	err = windows.DuplicateTokenEx(
+		userToken,
+		windows.MAXIMUM_ALLOWED,
+		nil,
+		windows.SecurityImpersonation,
+		windows.TokenPrimary,
+		&primaryToken,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to duplicate token: %w", err)
+	}
+	defer func() {
+		if err := primaryToken.Close(); err != nil {
+			log.Warnf("failed to close token: %v", err)
+		}
+	}()
+
+	// Prepare startup info
+	var si windows.StartupInfo
+	si.Cb = uint32(unsafe.Sizeof(si))
+	si.Desktop = windows.StringToUTF16Ptr("winsta0\\default")
+
+	var pi windows.ProcessInformation
+
+	cmdLine, err := windows.UTF16PtrFromString(uiPath)
+	if err != nil {
+		return fmt.Errorf("failed to convert path to UTF16: %w", err)
 	}
 
-	log.Infof("netbird-ui started successfully")
+	creationFlags := uint32(0x00000200 | 0x00000008 | 0x00000400) // CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_UNICODE_ENVIRONMENT
+
+	err = windows.CreateProcessAsUser(
+		primaryToken,
+		nil,
+		cmdLine,
+		nil,
+		nil,
+		false,
+		creationFlags,
+		nil,
+		nil,
+		&si,
+		&pi,
+	)
+	if err != nil {
+		return fmt.Errorf("CreateProcessAsUser failed: %w", err)
+	}
+
+	// Close handles
+	if err := windows.CloseHandle(pi.Process); err != nil {
+		log.Warnf("failed to close process handle: %v", err)
+	}
+	if err := windows.CloseHandle(pi.Thread); err != nil {
+		log.Warnf("failed to close thread handle: %v", err)
+	}
+
+	log.Infof("netbird-ui started successfully in session %d", sessionID)
 	return nil
 }
 
