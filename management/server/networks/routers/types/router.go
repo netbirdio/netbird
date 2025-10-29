@@ -5,8 +5,8 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/management/server/networks/types"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 type NetworkRouter struct {

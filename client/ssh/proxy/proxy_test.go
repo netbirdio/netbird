@@ -29,7 +29,7 @@ import (
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/server"
 	"github.com/netbirdio/netbird/client/ssh/testutil"
-	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 func TestMain(m *testing.M) {

@@ -14,8 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/auth"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	http2 "github.com/netbirdio/netbird/management/server/http"
@@ -29,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/users"
+	"github.com/netbirdio/netbird/shared/auth"
 )
 
 func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPeerUpdate *server.UpdateMessage, validateUpdate bool) (http.Handler, account.Manager, chan struct{}) {
@@ -69,8 +69,8 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	}
 
 	// @note this is required so that PAT's validate from store, but JWT's are mocked
-	authManager := auth.NewManager(store, "", "", "", "", []string{}, false)
-	authManagerMock := &auth.MockManager{
+	authManager := serverauth.NewManager(store, "", "", "", "", []string{}, false)
+	authManagerMock := &serverauth.MockManager{
 		ValidateAndParseTokenFunc:       mockValidateAndParseToken,
 		EnsureUserAccessByJWTGroupsFunc: authManager.EnsureUserAccessByJWTGroups,
 		MarkPATUsedFunc:                 authManager.MarkPATUsed,
@@ -115,8 +115,8 @@ func peerShouldReceiveUpdate(t testing_tools.TB, updateMessage <-chan *server.Up
 	}
 }
 
-func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserAuth, *jwt.Token, error) {
-	userAuth := nbcontext.UserAuth{}
+func mockValidateAndParseToken(_ context.Context, token string) (auth.UserAuth, *jwt.Token, error) {
+	userAuth := auth.UserAuth{}
 
 	switch token {
 	case "testUserId", "testAdminId", "testOwnerId", "testServiceUserId", "testServiceAdminId", "blockedUserId":
