@@ -16,8 +16,6 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
-	fynetooltip "github.com/dweymouth/fyne-tooltip"
-	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -228,8 +226,7 @@ func (s *serviceClient) showQuickActionsUI() {
 	toggleConnectionButton := widget.NewButtonWithIcon(disconnectedLabelText, disconnectedCircle.Resource, func() {})
 
 	hintLabelText := fmt.Sprintf("You can always access NetBird from your %s.", s.getSystemTrayName())
-	hintLabel := ttwidget.NewLabel(hintLabelText)
-	hintLabel.SetToolTip("Test")
+	hintLabel := widget.NewLabel(hintLabelText)
 
 	content := container.NewVBox(
 		layout.NewSpacer(),
@@ -284,7 +281,7 @@ func (s *serviceClient) showQuickActionsUI() {
 		}
 	}()
 
-	s.wQuickActions.SetContent(fynetooltip.AddWindowToolTipLayer(content, s.wQuickActions.Canvas()))
+	s.wQuickActions.SetContent(content)
 	s.wQuickActions.Resize(fyne.NewSize(400, 200))
 	s.wQuickActions.SetFixedSize(true)
 	s.wQuickActions.Show()
