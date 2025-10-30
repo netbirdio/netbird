@@ -74,7 +74,6 @@ func DialTCP(network string, laddr, raddr *net.TCPAddr) (transport.TCPConn, erro
 		}
 		return &TCPConn{TCPConn: tcpConn, ID: c.ID}, nil
 	}
-
 	if err := conn.Close(); err != nil {
 		log.Errorf("failed to close connection: %v", err)
 	}
