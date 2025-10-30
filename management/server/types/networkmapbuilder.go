@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1057,6 +1058,7 @@ func (b *NetworkMapBuilder) OnPeerAddedIncremental(peerID string) error {
 
 	log.Debugf("NetworkMapBuilder: Added peer %s to cache", peerID)
 
+	runtime.GC()
 	return nil
 }
 
