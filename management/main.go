@@ -11,7 +11,7 @@ import (
 
 func main() {
 	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
+		log.Println(http.ListenAndServe(":6060", nil))
 	}()
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
