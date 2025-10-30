@@ -17,6 +17,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	probeRelay "github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/version"
@@ -206,15 +207,18 @@ func mapPeers(
 		localICEEndpoint := ""
 		remoteICEEndpoint := ""
 		relayServerAddress := ""
-		connType := "P2P"
+		connType := "-"
 		lastHandshake := time.Time{}
 		transferReceived := int64(0)
 		transferSent := int64(0)
 
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
 
-		if pbPeerState.Relayed {
-			connType = "Relayed"
+		if isPeerConnected {
+			connType = "P2P"
+			if pbPeerState.Relayed {
+				connType = "Relayed"
+			}
 		}
 
 		if skipDetailByFilters(pbPeerState, pbPeerState.ConnStatus, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilter, connectionTypeFilter, connType) {
@@ -338,10 +342,16 @@ func ParseGeneralSummary(overview OutputOverview, showURL bool, showRelays bool,
 		for _, relay := range overview.Relays.Details {
 			available := "Available"
 			reason := ""
+
 			if !relay.Available {
-				available = "Unavailable"
-				reason = fmt.Sprintf(", reason: %s", relay.Error)
+				if relay.Error == probeRelay.ErrCheckInProgress.Error() {
+					available = "Checking..."
+				} else {
+					available = "Unavailable"
+					reason = fmt.Sprintf(", reason: %s", relay.Error)
+				}
 			}
+
 			relaysString += fmt.Sprintf("\n  [%s] is %s%s", relay.URI, available, reason)
 		}
 	} else {

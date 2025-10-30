@@ -168,7 +168,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	client := proto.NewDaemonServiceClient(conn)
 
-	stat, err := client.Status(cmd.Context(), &proto.StatusRequest{})
+	stat, err := client.Status(cmd.Context(), &proto.StatusRequest{ShouldRunProbes: true})
 	if err != nil {
 		return fmt.Errorf("failed to get status: %v", status.Convert(err).Message())
 	}
@@ -303,12 +303,18 @@ func setSyncResponsePersistence(cmd *cobra.Command, args []string) error {
 
 func getStatusOutput(cmd *cobra.Command, anon bool) string {
 	var statusOutputString string
-	statusResp, err := getStatus(cmd.Context())
+	statusResp, err := getStatus(cmd.Context(), true)
 	if err != nil {
 		cmd.PrintErrf("Failed to get status: %v\n", err)
 	} else {
+		pm := profilemanager.NewProfileManager()
+		var profName string
+		if activeProf, err := pm.GetActiveProfile(); err == nil {
+			profName = activeProf.Name
+		}
+
 		statusOutputString = nbstatus.ParseToFullDetailSummary(
-			nbstatus.ConvertToStatusOutputOverview(statusResp.GetFullStatus(), anon, statusResp.GetDaemonVersion(), "", nil, nil, nil, "", ""),
+			nbstatus.ConvertToStatusOutputOverview(statusResp.GetFullStatus(), anon, statusResp.GetDaemonVersion(), "", nil, nil, nil, "", profName),
 		)
 	}
 	return statusOutputString

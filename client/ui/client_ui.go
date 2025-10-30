@@ -31,7 +31,6 @@ import (
 	"fyne.io/systray"
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-	"github.com/skratchdot/open-golang/open"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -297,6 +296,8 @@ type serviceClient struct {
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
+
+	connectCancel context.CancelFunc
 }
 
 type menuHandler struct {
@@ -593,17 +594,15 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 	}
 }
 
-func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
+func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginResponse, error) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("get daemon client: %w", err)
 	}
 
 	activeProf, err := s.profileManager.GetActiveProfile()
 	if err != nil {
-		log.Errorf("get active profile: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("get active profile: %w", err)
 	}
 
 	currUser, err := user.Current()
@@ -611,84 +610,71 @@ func (s *serviceClient) login(openURL bool) (*proto.LoginResponse, error) {
 		return nil, fmt.Errorf("get current user: %w", err)
 	}
 
-	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{
+	loginResp, err := conn.Login(ctx, &proto.LoginRequest{
 		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
 		ProfileName:         &activeProf.Name,
 		Username:            &currUser.Username,
 	})
 	if err != nil {
-		log.Errorf("login to management URL with: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("login to management: %w", err)
 	}
 
 	if loginResp.NeedsSSOLogin && openURL {
-		err = s.handleSSOLogin(loginResp, conn)
-		if err != nil {
-			log.Errorf("handle SSO login failed: %v", err)
-			return nil, err
+		if err = s.handleSSOLogin(ctx, loginResp, conn); err != nil {
+			return nil, fmt.Errorf("SSO login: %w", err)
 		}
 	}
 
 	return loginResp, nil
 }
 
-func (s *serviceClient) handleSSOLogin(loginResp *proto.LoginResponse, conn proto.DaemonServiceClient) error {
-	err := open.Run(loginResp.VerificationURIComplete)
-	if err != nil {
-		log.Errorf("opening the verification uri in the browser failed: %v", err)
-		return err
+func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.LoginResponse, conn proto.DaemonServiceClient) error {
+	if err := openURL(loginResp.VerificationURIComplete); err != nil {
+		return fmt.Errorf("open browser: %w", err)
 	}
 
-	resp, err := conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+	resp, err := conn.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 	if err != nil {
-		log.Errorf("waiting sso login failed with: %v", err)
-		return err
+		return fmt.Errorf("wait for SSO login: %w", err)
 	}
 
 	if resp.Email != "" {
-		err := s.profileManager.SetActiveProfileState(&profilemanager.ProfileState{
+		if err := s.profileManager.SetActiveProfileState(&profilemanager.ProfileState{
 			Email: resp.Email,
-		})
-		if err != nil {
-			log.Warnf("failed to set profile state: %v", err)
+		}); err != nil {
+			log.Debugf("failed to set profile state: %v", err)
 		} else {
 			s.mProfile.refresh()
 		}
-
 	}
 
 	return nil
 }
 
-func (s *serviceClient) menuUpClick() error {
+func (s *serviceClient) menuUpClick(ctx context.Context) error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		systray.SetTemplateIcon(iconErrorMacOS, s.icError)
-		log.Errorf("get client: %v", err)
-		return err
+		return fmt.Errorf("get daemon client: %w", err)
 	}
 
-	_, err = s.login(true)
+	_, err = s.login(ctx, true)
 	if err != nil {
-		log.Errorf("login failed with: %v", err)
-		return err
+		return fmt.Errorf("login: %w", err)
 	}
 
-	status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+	status, err := conn.Status(ctx, &proto.StatusRequest{})
 	if err != nil {
-		log.Errorf("get service status: %v", err)
-		return err
+		return fmt.Errorf("get status: %w", err)
 	}
 
 	if status.Status == string(internal.StatusConnected) {
-		log.Warnf("already connected")
 		return nil
 	}
 
-	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
-		log.Errorf("up service: %v", err)
-		return err
+	if _, err := conn.Up(ctx, &proto.UpRequest{}); err != nil {
+		return fmt.Errorf("start connection: %w", err)
 	}
 
 	return nil
@@ -698,24 +684,20 @@ func (s *serviceClient) menuDownClick() error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
-		return err
+		return fmt.Errorf("get daemon client: %w", err)
 	}
 
 	status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 	if err != nil {
-		log.Errorf("get service status: %v", err)
-		return err
+		return fmt.Errorf("get status: %w", err)
 	}
 
 	if status.Status != string(internal.StatusConnected) && status.Status != string(internal.StatusConnecting) {
-		log.Warnf("already down")
 		return nil
 	}
 
-	if _, err := s.conn.Down(s.ctx, &proto.DownRequest{}); err != nil {
-		log.Errorf("down service: %v", err)
-		return err
+	if _, err := conn.Down(s.ctx, &proto.DownRequest{}); err != nil {
+		return fmt.Errorf("stop connection: %w", err)
 	}
 
 	return nil
@@ -851,6 +833,7 @@ func (s *serviceClient) onTrayReady() {
 
 	newProfileMenuArgs := &newProfileMenuArgs{
 		ctx:                  s.ctx,
+		serviceClient:        s,
 		profileManager:       s.profileManager,
 		eventHandler:         s.eventHandler,
 		profileMenuItem:      profileMenuItem,
@@ -1354,7 +1337,13 @@ func (s *serviceClient) updateConfig() error {
 }
 
 // showLoginURL creates a borderless window styled like a pop-up in the top-right corner using s.wLoginURL.
-func (s *serviceClient) showLoginURL() {
+// It also starts a background goroutine that periodically checks if the client is already connected
+// and closes the window if so. The goroutine can be cancelled by the returned CancelFunc, and it is
+// also cancelled when the window is closed.
+func (s *serviceClient) showLoginURL() context.CancelFunc {
+
+	// create a cancellable context for the background check goroutine
+	ctx, cancel := context.WithCancel(s.ctx)
 
 	resIcon := fyne.NewStaticResource("netbird.png", iconAbout)
 
@@ -1363,6 +1352,8 @@ func (s *serviceClient) showLoginURL() {
 		s.wLoginURL.Resize(fyne.NewSize(400, 200))
 		s.wLoginURL.SetIcon(resIcon)
 	}
+	// ensure goroutine is cancelled when the window is closed
+	s.wLoginURL.SetOnClosed(func() { cancel() })
 	// add a description label
 	label := widget.NewLabel("Your NetBird session has expired.\nPlease re-authenticate to continue using NetBird.")
 
@@ -1374,7 +1365,7 @@ func (s *serviceClient) showLoginURL() {
 			return
 		}
 
-		resp, err := s.login(false)
+		resp, err := s.login(ctx, false)
 		if err != nil {
 			log.Errorf("failed to fetch login URL: %v", err)
 			return
@@ -1394,7 +1385,7 @@ func (s *serviceClient) showLoginURL() {
 			return
 		}
 
-		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: resp.UserCode})
+		_, err = conn.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: resp.UserCode})
 		if err != nil {
 			log.Errorf("Waiting sso login failed with: %v", err)
 			label.SetText("Waiting login failed, please create \na debug bundle in the settings and contact support.")
@@ -1402,7 +1393,7 @@ func (s *serviceClient) showLoginURL() {
 		}
 
 		label.SetText("Re-authentication successful.\nReconnecting")
-		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		status, err := conn.Status(ctx, &proto.StatusRequest{})
 		if err != nil {
 			log.Errorf("get service status: %v", err)
 			return
@@ -1415,7 +1406,7 @@ func (s *serviceClient) showLoginURL() {
 			return
 		}
 
-		_, err = conn.Up(s.ctx, &proto.UpRequest{})
+		_, err = conn.Up(ctx, &proto.UpRequest{})
 		if err != nil {
 			label.SetText("Reconnecting failed, please create \na debug bundle in the settings and contact support.")
 			log.Errorf("Reconnecting failed with: %v", err)
@@ -1443,10 +1434,46 @@ func (s *serviceClient) showLoginURL() {
 	)
 	s.wLoginURL.SetContent(container.NewCenter(content))
 
+	// start a goroutine to check connection status and close the window if connected
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		conn, err := s.getSrvClient(failFastTimeout)
+		if err != nil {
+			return
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+				if err != nil {
+					continue
+				}
+				if status.Status == string(internal.StatusConnected) {
+					if s.wLoginURL != nil {
+						s.wLoginURL.Close()
+					}
+					return
+				}
+			}
+		}
+	}()
+
 	s.wLoginURL.Show()
+
+	// return cancel func so callers can stop the background goroutine if desired
+	return cancel
 }
 
 func openURL(url string) error {
+	if browser := os.Getenv("BROWSER"); browser != "" {
+		return exec.Command(browser, url).Start()
+	}
+
 	var err error
 	switch runtime.GOOS {
 	case "windows":

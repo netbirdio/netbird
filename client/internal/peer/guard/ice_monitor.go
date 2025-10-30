@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	candidatesMonitorPeriod   = 5 * time.Minute
-	candidateGatheringTimeout = 5 * time.Second
+	defaultCandidatesMonitorPeriod = 5 * time.Minute
+	candidateGatheringTimeout      = 5 * time.Second
 )
 
 type ICEMonitor struct {
@@ -25,16 +25,19 @@ type ICEMonitor struct {
 
 	iFaceDiscover stdnet.ExternalIFaceDiscover
 	iceConfig     icemaker.Config
+	tickerPeriod  time.Duration
 
 	currentCandidatesAddress []string
 	candidatesMu             sync.Mutex
 }
 
-func NewICEMonitor(iFaceDiscover stdnet.ExternalIFaceDiscover, config icemaker.Config) *ICEMonitor {
+func NewICEMonitor(iFaceDiscover stdnet.ExternalIFaceDiscover, config icemaker.Config, period time.Duration) *ICEMonitor {
+	log.Debugf("prepare ICE monitor with period: %s", period)
 	cm := &ICEMonitor{
 		ReconnectCh:   make(chan struct{}, 1),
 		iFaceDiscover: iFaceDiscover,
 		iceConfig:     config,
+		tickerPeriod:  period,
 	}
 	return cm
 }
@@ -46,7 +49,12 @@ func (cm *ICEMonitor) Start(ctx context.Context, onChanged func()) {
 		return
 	}
 
-	ticker := time.NewTicker(candidatesMonitorPeriod)
+	// Initial check to populate the candidates for later comparison
+	if _, err := cm.handleCandidateTick(ctx, ufrag, pwd); err != nil {
+		log.Warnf("Failed to check initial ICE candidates: %v", err)
+	}
+
+	ticker := time.NewTicker(cm.tickerPeriod)
 	defer ticker.Stop()
 
 	for {

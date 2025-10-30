@@ -351,6 +351,13 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		config.CustomDNSAddress = []byte{}
 	}
 
+	config.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
+
+	if msg.DnsRouteInterval != nil {
+		interval := msg.DnsRouteInterval.AsDuration()
+		config.DNSRouteInterval = &interval
+	}
+
 	config.RosenpassEnabled = msg.RosenpassEnabled
 	config.RosenpassPermissive = msg.RosenpassPermissive
 	config.DisableAutoConnect = msg.DisableAutoConnect
@@ -1048,10 +1055,7 @@ func (s *Server) Status(
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
 	if msg.GetFullPeerStatus {
-		if msg.ShouldRunProbes {
-			s.runProbes()
-		}
-
+		s.runProbes(msg.ShouldRunProbes)
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
@@ -1061,7 +1065,7 @@ func (s *Server) Status(
 	return &statusResponse, nil
 }
 
-func (s *Server) runProbes() {
+func (s *Server) runProbes(waitForProbeResult bool) {
 	if s.connectClient == nil {
 		return
 	}
@@ -1072,7 +1076,7 @@ func (s *Server) runProbes() {
 	}
 
 	if time.Since(s.lastProbe) > probeThreshold {
-		if engine.RunHealthProbes() {
+		if engine.RunHealthProbes(waitForProbeResult) {
 			s.lastProbe = time.Now()
 		}
 	}

@@ -394,7 +394,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				toProtocolDNSConfig(testData, cache, dnsForwarderPort)
+				toProtocolDNSConfig(testData, cache, int64(dnsForwarderPort))
 			}
 		})
 
@@ -402,7 +402,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				cache := &DNSConfigCache{}
-				toProtocolDNSConfig(testData, cache, dnsForwarderPort)
+				toProtocolDNSConfig(testData, cache, int64(dnsForwarderPort))
 			}
 		})
 	}
@@ -455,13 +455,13 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	}
 
 	// First run with config1
-	result1 := toProtocolDNSConfig(config1, &cache, dnsForwarderPort)
+	result1 := toProtocolDNSConfig(config1, &cache, int64(dnsForwarderPort))
 
 	// Second run with config2
-	result2 := toProtocolDNSConfig(config2, &cache, dnsForwarderPort)
+	result2 := toProtocolDNSConfig(config2, &cache, int64(dnsForwarderPort))
 
 	// Third run with config1 again
-	result3 := toProtocolDNSConfig(config1, &cache, dnsForwarderPort)
+	result3 := toProtocolDNSConfig(config1, &cache, int64(dnsForwarderPort))
 
 	// Verify that result1 and result3 are identical
 	if !reflect.DeepEqual(result1, result3) {
@@ -486,7 +486,7 @@ func TestComputeForwarderPort(t *testing.T) {
 	// Test with empty peers list
 	peers := []*nbpeer.Peer{}
 	result := computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
+	if result != int64(oldForwarderPort) {
 		t.Errorf("Expected %d for empty peers list, got %d", oldForwarderPort, result)
 	}
 
@@ -504,7 +504,7 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
+	if result != int64(oldForwarderPort) {
 		t.Errorf("Expected %d for peers with old versions, got %d", oldForwarderPort, result)
 	}
 
@@ -522,7 +522,7 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result != dnsForwarderPort {
+	if result != int64(dnsForwarderPort) {
 		t.Errorf("Expected %d for peers with new versions, got %d", dnsForwarderPort, result)
 	}
 
@@ -540,7 +540,7 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
+	if result != int64(oldForwarderPort) {
 		t.Errorf("Expected %d for peers with mixed versions, got %d", oldForwarderPort, result)
 	}
 
@@ -553,7 +553,7 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
+	if result != int64(oldForwarderPort) {
 		t.Errorf("Expected %d for peers with empty version, got %d", oldForwarderPort, result)
 	}
 
@@ -565,7 +565,7 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result == oldForwarderPort {
+	if result == int64(oldForwarderPort) {
 		t.Errorf("Expected %d for peers with dev version, got %d", dnsForwarderPort, result)
 	}
 
@@ -578,7 +578,7 @@ func TestComputeForwarderPort(t *testing.T) {
 		},
 	}
 	result = computeForwarderPort(peers, "v0.59.0")
-	if result != oldForwarderPort {
+	if result != int64(oldForwarderPort) {
 		t.Errorf("Expected %d for peers with unknown version, got %d", oldForwarderPort, result)
 	}
 }
