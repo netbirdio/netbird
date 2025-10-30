@@ -16,6 +16,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 )
 
+func prepareFd() (int, error) {
+	return unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
+}
+
 func routeCheck(ctx context.Context, fd int, nexthopv4, nexthopv6 systemops.Nexthop) error {
 	for {
 		select {
