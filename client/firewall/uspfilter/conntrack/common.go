@@ -22,6 +22,8 @@ type BaseConnTrack struct {
 	PacketsRx atomic.Uint64
 	BytesTx   atomic.Uint64
 	BytesRx   atomic.Uint64
+
+	DNATOrigPort atomic.Uint32
 }
 
 // these small methods will be inlined by the compiler
