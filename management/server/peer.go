@@ -1056,9 +1056,17 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return peer, emptyMap, nil, nil
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, nil, nil, err
+	var (
+		account *types.Account
+		err     error
+	)
+	if am.experimentalNetworkMap(accountID) {
+		account = am.getAccountFromHolderOrInit(accountID)
+	} else {
+		account, err = am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
