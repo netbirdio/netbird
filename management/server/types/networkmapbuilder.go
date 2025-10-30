@@ -928,7 +928,7 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 	finalDNSConfig := *dnsConfig
 	if finalDNSConfig.ServiceEnable && customZone.Domain != "" {
 		var zones []nbdns.CustomZone
-		records := filterZoneRecordsForPeers(peer, customZone, peersToConnect)
+		records := filterZoneRecordsForPeers(peer, customZone, peersToConnect, expiredPeers)
 		zones = append(zones, nbdns.CustomZone{
 			Domain:  customZone.Domain,
 			Records: records,
