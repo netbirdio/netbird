@@ -1866,8 +1866,7 @@ func (e *Engine) updateDNSForwarder(
 
 	if len(fwdEntries) > 0 {
 		if e.dnsForwardMgr == nil {
-			localAddr := e.wgInterface.Address().IP
-			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, localAddr)
+			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, e.wgInterface)
 
 			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
 				log.Errorf("failed to start DNS forward: %v", err)
