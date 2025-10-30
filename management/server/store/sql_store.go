@@ -49,6 +49,11 @@ const (
 	accountAndIDsQueryCondition = "account_id = ? AND id IN ?"
 	accountIDCondition          = "account_id = ?"
 	peerNotFoundFMT             = "peer %s not found"
+
+	pgMaxConnections    = 30
+	pgMinConnections    = 5
+	pgMaxConnLifetime   = 60 * time.Minute
+	pgHealthCheckPeriod = 1 * time.Minute
 )
 
 // SqlStore represents an account storage backed by a Sql DB persisted to disk
@@ -2102,10 +2107,10 @@ func connectToPgDb(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("unable to parse database config: %w", err)
 	}
 
-	config.MaxConns = 10
-	config.MinConns = 2
-	config.MaxConnLifetime = time.Hour
-	config.HealthCheckPeriod = time.Minute
+	config.MaxConns = pgMaxConnections
+	config.MinConns = pgMinConnections
+	config.MaxConnLifetime = pgMaxConnLifetime
+	config.HealthCheckPeriod = pgHealthCheckPeriod
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
@@ -2117,7 +2122,6 @@ func connectToPgDb(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("unable to ping database: %w", err)
 	}
 
-	fmt.Println("Successfully connected to the database!")
 	return pool, nil
 }
 
