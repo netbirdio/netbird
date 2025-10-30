@@ -81,12 +81,38 @@ func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesk
 	return pkceFlow, nil
 }
 
+// profileLoginHint retrieves the email from the active profile state to use as login_hint
+func profileLoginHint() string {
+	pm := profilemanager.NewProfileManager()
+	activeProf, err := pm.GetActiveProfile()
+	if err != nil {
+		log.Debugf("failed to retrieve active profile for login_hint: %v", err)
+		return ""
+	}
+
+	profileState, err := pm.GetProfileState(activeProf.Name)
+	if err != nil {
+		log.Debugf("failed to retrieve email from profile state: %v", err)
+		return ""
+	}
+
+	if profileState.Email != "" {
+		log.Debugf("using login_hint from profile: %s", profileState.Email)
+		return profileState.Email
+	}
+
+	return ""
+}
+
 // authenticateWithPKCEFlow initializes the Proof Key for Code Exchange flow auth flow
 func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config) (OAuthFlow, error) {
 	pkceFlowInfo, err := internal.GetPKCEAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL, config.ClientCertKeyPair)
 	if err != nil {
 		return nil, fmt.Errorf("getting pkce authorization flow info failed with error: %v", err)
 	}
+
+	pkceFlowInfo.ProviderConfig.LoginHint = profileLoginHint()
+
 	return NewPKCEAuthorizationFlow(pkceFlowInfo.ProviderConfig)
 }
 
@@ -106,6 +132,8 @@ func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.
 			return nil, fmt.Errorf("getting device authorization flow info failed with error: %v", err)
 		}
 	}
+
+	deviceFlowInfo.ProviderConfig.LoginHint = profileLoginHint()
 
 	return NewDeviceAuthorizationFlow(deviceFlowInfo.ProviderConfig)
 }
