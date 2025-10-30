@@ -78,33 +78,8 @@ func routeCheck(ctx context.Context, fd int, nexthopv4 systemops.Nexthop, nextho
 
 		msg := (*unix.RtMsghdr)(unsafe.Pointer(&buf[0]))
 
-		switch msg.Type {
-		// handle route changes
-		case unix.RTM_ADD, syscall.RTM_DELETE:
-			route, err := parseRouteMessage(buf[:n])
-			if err != nil {
-				log.Debugf("Network monitor: error parsing routing message: %v", err)
-				continue
-			}
-
-			if route.Dst.Bits() != 0 {
-				continue
-			}
-
-			intf := "<nil>"
-			if route.Interface != nil {
-				intf = route.Interface.Name
-			}
-			switch msg.Type {
-			case unix.RTM_ADD:
-				log.Infof("Network monitor: default route changed: via %s, interface %s", route.Gw, intf)
-				return
-			case unix.RTM_DELETE:
-				if nexthopv4.Intf != nil && route.Gw.Compare(nexthopv4.IP) == 0 || nexthopv6.Intf != nil && route.Gw.Compare(nexthopv6.IP) == 0 {
-					log.Infof("Network monitor: default route removed: via %s, interface %s", route.Gw, intf)
-					return
-				}
-			}
+		if handleRouteMessage(msg, buf[:n], nexthopv4, nexthopv6) {
+			return
 		}
 	}
 }
