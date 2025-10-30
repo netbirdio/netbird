@@ -1868,6 +1868,16 @@ func (e *Engine) updateDNSForwarder(
 		if e.dnsForwardMgr == nil {
 			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, e.wgInterface)
 
+			if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
+				if registrar, ok := e.firewall.(interface {
+					RegisterNetstackService(protocol nftypes.Protocol, port uint16)
+				}); ok {
+					registrar.RegisterNetstackService(nftypes.UDP, nbdns.ForwarderServerPort)
+					registrar.RegisterNetstackService(nftypes.TCP, nbdns.ForwarderServerPort)
+					log.Debugf("registered DNS forwarder service with netstack for UDP/TCP:%d", nbdns.ForwarderServerPort)
+				}
+			}
+
 			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
 				log.Errorf("failed to start DNS forward: %v", err)
 				e.dnsForwardMgr = nil
