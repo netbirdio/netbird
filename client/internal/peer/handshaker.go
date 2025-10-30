@@ -44,13 +44,19 @@ type OfferAnswer struct {
 }
 
 type Handshaker struct {
-	mu                  sync.Mutex
-	log                 *log.Entry
-	config              ConnConfig
-	signaler            *Signaler
-	ice                 *WorkerICE
-	relay               *WorkerRelay
-	onNewOfferListeners []*OfferListener
+	mu       sync.Mutex
+	log      *log.Entry
+	config   ConnConfig
+	signaler *Signaler
+	ice      *WorkerICE
+	relay    *WorkerRelay
+	// relayListener is not blocking because the listener is using a goroutine to process the messages
+	// and it will only keep the latest message if multiple offers are received in a short time
+	// this is to avoid blocking the handshaker if the listener is doing some heavy processing
+	// and also to avoid processing old offers if multiple offers are received in a short time
+	// the listener will always process the latest offer
+	relayListener *AsyncOfferListener
+	iceListener   func(remoteOfferAnswer *OfferAnswer)
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -70,28 +76,39 @@ func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *W
 	}
 }
 
-func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAnswer)) {
-	l := NewOfferListener(offer)
-	h.onNewOfferListeners = append(h.onNewOfferListeners, l)
+func (h *Handshaker) AddRelayListener(offer func(remoteOfferAnswer *OfferAnswer)) {
+	h.relayListener = NewAsyncOfferListener(offer)
+}
+
+func (h *Handshaker) AddICEListener(offer func(remoteOfferAnswer *OfferAnswer)) {
+	h.iceListener = offer
 }
 
 func (h *Handshaker) Listen(ctx context.Context) {
 	for {
 		select {
 		case remoteOfferAnswer := <-h.remoteOffersCh:
-			// received confirmation from the remote peer -> ready to proceed
+			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
+			if h.relayListener != nil {
+				h.relayListener.Notify(&remoteOfferAnswer)
+			}
+
+			if h.iceListener != nil {
+				h.iceListener(&remoteOfferAnswer)
+			}
+
 			if err := h.sendAnswer(); err != nil {
 				h.log.Errorf("failed to send remote offer confirmation: %s", err)
 				continue
 			}
-			for _, listener := range h.onNewOfferListeners {
-				listener.Notify(&remoteOfferAnswer)
-			}
-			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
 			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
-			for _, listener := range h.onNewOfferListeners {
-				listener.Notify(&remoteOfferAnswer)
+			if h.relayListener != nil {
+				h.relayListener.Notify(&remoteOfferAnswer)
+			}
+
+			if h.iceListener != nil {
+				h.iceListener(&remoteOfferAnswer)
 			}
 		case <-ctx.Done():
 			h.log.Infof("stop listening for remote offers and answers")

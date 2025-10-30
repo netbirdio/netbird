@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	dnsForwarderPort = 22054
-	oldForwarderPort = 5353
+	dnsForwarderPort = nbdns.ForwarderServerPort
+	oldForwarderPort = nbdns.ForwarderClientPort
 )
 
 const dnsForwarderPortMinVersion = "v0.59.0"
@@ -199,7 +199,7 @@ func validateDNSSettings(ctx context.Context, transaction store.Store, accountID
 // If all peers have the required version, it returns the new well-known port (22054), otherwise returns 0.
 func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 	if len(peers) == 0 {
-		return oldForwarderPort
+		return int64(oldForwarderPort)
 	}
 
 	reqVer := semver.Canonical(requiredVersion)
@@ -214,17 +214,17 @@ func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 		peerVersion := semver.Canonical("v" + peer.Meta.WtVersion)
 		if peerVersion == "" {
 			// If any peer doesn't have version info, return 0
-			return oldForwarderPort
+			return int64(oldForwarderPort)
 		}
 
 		// Compare versions
 		if semver.Compare(peerVersion, reqVer) < 0 {
-			return oldForwarderPort
+			return int64(oldForwarderPort)
 		}
 	}
 
 	// All peers have the required version or newer
-	return dnsForwarderPort
+	return int64(dnsForwarderPort)
 }
 
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache
