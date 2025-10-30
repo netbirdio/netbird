@@ -503,6 +503,12 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	if s.syncSem.Load() >= s.syncLim {
+		return nil, status.Errorf(codes.ResourceExhausted, "too many concurrent login requests, please try again later")
+	}
+	s.syncSem.Add(1)
+	defer s.syncSem.Add(-1)
+
 	reqStart := time.Now()
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
