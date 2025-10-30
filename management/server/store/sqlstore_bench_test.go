@@ -42,7 +42,7 @@ func (s *SqlStore) GetAccountSlow(ctx context.Context, accountID string) (*types
 	var account types.Account
 	result := s.db.Model(&account).
 		Omit("GroupsG").
-		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
+		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
 		Preload(clause.Associations).
 		Take(&account, idQueryCondition, accountID)
 	if result.Error != nil {
