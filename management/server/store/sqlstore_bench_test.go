@@ -117,6 +117,106 @@ func (s *SqlStore) GetAccountSlow(ctx context.Context, accountID string) (*types
 	return &account, nil
 }
 
+func (s *SqlStore) GetAccountGormOpt(ctx context.Context, accountID string) (*types.Account, error) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		if elapsed > 1*time.Second {
+			log.WithContext(ctx).Tracef("GetAccount for account %s exceeded 1s, took: %v", accountID, elapsed)
+		}
+	}()
+
+	var account types.Account
+	result := s.db.Model(&account).
+		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
+		Preload("Policies.Rules").
+		Preload("SetupKeysG").
+		Preload("PeersG").
+		Preload("UsersG").
+		Preload("GroupsG.GroupPeers").
+		Preload("RoutesG").
+		Preload("NameServerGroupsG").
+		Preload("PostureChecks").
+		Preload("Networks").
+		Preload("NetworkRouters").
+		Preload("NetworkResources").
+		Preload("Onboarding").
+		Take(&account, idQueryCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewAccountNotFoundError(accountID)
+		}
+		return nil, status.NewGetAccountFromStoreError(result.Error)
+	}
+
+	account.SetupKeys = make(map[string]*types.SetupKey, len(account.SetupKeysG))
+	for _, key := range account.SetupKeysG {
+		if key.UpdatedAt.IsZero() {
+			key.UpdatedAt = key.CreatedAt
+		}
+		if key.AutoGroups == nil {
+			key.AutoGroups = []string{}
+		}
+		account.SetupKeys[key.Key] = &key
+	}
+	account.SetupKeysG = nil
+
+	account.Peers = make(map[string]*nbpeer.Peer, len(account.PeersG))
+	for _, peer := range account.PeersG {
+		account.Peers[peer.ID] = &peer
+	}
+	account.PeersG = nil
+	account.Users = make(map[string]*types.User, len(account.UsersG))
+	for _, user := range account.UsersG {
+		user.PATs = make(map[string]*types.PersonalAccessToken, len(user.PATs))
+		for _, pat := range user.PATsG {
+			pat.UserID = ""
+			user.PATs[pat.ID] = &pat
+		}
+		if user.AutoGroups == nil {
+			user.AutoGroups = []string{}
+		}
+		account.Users[user.Id] = &user
+		user.PATsG = nil
+	}
+	account.UsersG = nil
+	account.Groups = make(map[string]*types.Group, len(account.GroupsG))
+	for _, group := range account.GroupsG {
+		group.Peers = make([]string, len(group.GroupPeers))
+		for i, gp := range group.GroupPeers {
+			group.Peers[i] = gp.PeerID
+		}
+		if group.Resources == nil {
+			group.Resources = []types.Resource{}
+		}
+		account.Groups[group.ID] = group
+	}
+	account.GroupsG = nil
+
+	account.Routes = make(map[route.ID]*route.Route, len(account.RoutesG))
+	for _, route := range account.RoutesG {
+		account.Routes[route.ID] = &route
+	}
+	account.RoutesG = nil
+	account.NameServerGroups = make(map[string]*nbdns.NameServerGroup, len(account.NameServerGroupsG))
+	for _, ns := range account.NameServerGroupsG {
+		ns.AccountID = ""
+		if ns.NameServers == nil {
+			ns.NameServers = []nbdns.NameServer{}
+		}
+		if ns.Groups == nil {
+			ns.Groups = []string{}
+		}
+		if ns.Domains == nil {
+			ns.Domains = []string{}
+		}
+		account.NameServerGroups[ns.ID] = &ns
+	}
+	account.NameServerGroupsG = nil
+	return &account, nil
+}
+
 func connectDBforTest(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -400,9 +500,9 @@ func BenchmarkGetAccount(b *testing.B) {
 			}
 		}
 	})
-	b.Run("new", func(b *testing.B) {
+	b.Run("gorm opt", func(b *testing.B) {
 		for range b.N {
-			_, err := store.GetAccount(ctx, accountID)
+			_, err := store.GetAccountGormOpt(ctx, accountID)
 			if err != nil {
 				b.Fatalf("GetAccountFast failed: %v", err)
 			}
@@ -410,7 +510,7 @@ func BenchmarkGetAccount(b *testing.B) {
 	})
 	b.Run("raw", func(b *testing.B) {
 		for range b.N {
-			_, err := store.GetAccountPureSQL(ctx, accountID)
+			_, err := store.GetAccount(ctx, accountID)
 			if err != nil {
 				b.Fatalf("GetAccountPureSQL failed: %v", err)
 			}
@@ -430,8 +530,8 @@ func TestAccountEquivalence(t *testing.T) {
 		expectedF getAccountFunc
 		actualF   getAccountFunc
 	}{
-		{"old vs new", store.GetAccountSlow, store.GetAccount},
-		{"old vs raw", store.GetAccountSlow, store.GetAccountPureSQL},
+		{"old vs new", store.GetAccountSlow, store.GetAccountGormOpt},
+		{"old vs raw", store.GetAccountSlow, store.GetAccount},
 	}
 
 	for _, tt := range tests {
