@@ -87,7 +87,7 @@ func wakeUpListen(ctx context.Context) {
 					continue
 				}
 			}
-			log.Infof("initial wakeup hash: %d", initialHash)
+			log.Debugf("initial wakeup hash: %d", initialHash)
 			break
 		}
 		break
@@ -110,7 +110,7 @@ func wakeUpListen(ctx context.Context) {
 			}
 
 			if newHash == initialHash {
-				log.Infof("no wakeup detected")
+				log.Tracef("no wakeup detected")
 				continue
 			}
 
