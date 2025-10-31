@@ -107,7 +107,7 @@ func dotUpdater() func() string {
 	dotCount := 0
 	return func() string {
 		dotCount = (dotCount + 1) % 4
-		return fmt.Sprintf("%s%s", "Updateing", strings.Repeat(".", dotCount))
+		return fmt.Sprintf("%s%s", "Updating", strings.Repeat(".", dotCount))
 	}
 }
 
