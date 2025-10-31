@@ -11,12 +11,12 @@ import (
 	"runtime"
 	"sync"
 
+	wgConn "github.com/amnezia-vpn/amneziawg-go/conn"
 	"github.com/pion/stun/v3"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
-	wgConn "golang.zx2c4.com/wireguard/conn"
 
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"

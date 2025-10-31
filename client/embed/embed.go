@@ -11,8 +11,8 @@ import (
 	"os"
 	"sync"
 
+	wgnetstack "github.com/amnezia-vpn/amneziawg-go/tun/netstack"
 	"github.com/sirupsen/logrus"
-	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal"

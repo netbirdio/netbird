@@ -17,11 +17,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
 	"github.com/hashicorp/go-multierror"
+	"github.com/netbirdio/netbird/client/internal/amneziawg"
 	"github.com/pion/ice/v4"
 	"github.com/pion/stun/v3"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/proto"
 
@@ -128,7 +129,8 @@ type EngineConfig struct {
 
 	LazyConnectionEnabled bool
 
-	MTU uint16
+	MTU           uint16
+	AmneziaConfig amneziawg.AmneziaConfig
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -938,7 +940,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state := e.statusRecorder.GetLocalPeerState()
 	state.IP = e.wgInterface.Address().String()
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
-	state.KernelInterface = device.WireGuardModuleIsLoaded()
+	state.KernelInterface = device.WireGuardModuleIsLoaded(amneziawg.FromProtobuf(conf.AmneziaConfig))
 	state.FQDN = conf.GetFqdn()
 
 	e.statusRecorder.UpdateLocalPeerState(state)
@@ -1550,14 +1552,15 @@ func (e *Engine) newWgIface() (*iface.WGIface, error) {
 	}
 
 	opts := iface.WGIFaceOpts{
-		IFaceName:    e.config.WgIfaceName,
-		Address:      e.config.WgAddr,
-		WGPort:       e.config.WgPort,
-		WGPrivKey:    e.config.WgPrivateKey.String(),
-		MTU:          e.config.MTU,
-		TransportNet: transportNet,
-		FilterFn:     e.addrViaRoutes,
-		DisableDNS:   e.config.DisableDNS,
+		IFaceName:     e.config.WgIfaceName,
+		Address:       e.config.WgAddr,
+		WGPort:        e.config.WgPort,
+		WGPrivKey:     e.config.WgPrivateKey.String(),
+		MTU:           e.config.MTU,
+		TransportNet:  transportNet,
+		FilterFn:      e.addrViaRoutes,
+		DisableDNS:    e.config.DisableDNS,
+		AmneziaConfig: e.config.AmneziaConfig,
 	}
 
 	switch runtime.GOOS {

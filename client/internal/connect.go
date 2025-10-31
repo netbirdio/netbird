@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/netbirdio/netbird/client/internal/amneziawg"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -25,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -34,7 +36,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -208,7 +209,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
-			KernelInterface: device.WireGuardModuleIsLoaded(),
+			KernelInterface: false, // do not load kernel interface by default, as it could brake amneziaWG
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
 		c.statusRecorder.UpdateLocalPeerState(localPeerState)
@@ -445,6 +446,16 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 
 		MTU: selectMTU(config.MTU, peerConfig.Mtu),
+	}
+
+	if peerConfig.AmneziaConfig != nil {
+
+		engineConf.AmneziaConfig = amneziawg.FromProtobuf(peerConfig.AmneziaConfig)
+		log.Infof("Init amneziaWG config from peer: %v", engineConf.AmneziaConfig)
+	} else {
+
+		engineConf.AmneziaConfig = amneziawg.AmneziaConfig{}
+		log.Infof("Init empty amneziaWG config")
 	}
 
 	if config.PreSharedKey != "" {

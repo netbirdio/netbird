@@ -14,6 +14,7 @@ import (
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
+	"github.com/netbirdio/netbird/management/server/amneziawg"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -712,6 +713,22 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
+		AmneziaConfig: &proto.AmneziaConfig{
+			Jc:   &amneziawg.Store.Jc,
+			Jmin: &amneziawg.Store.Jmin,
+			Jmax: &amneziawg.Store.Jmax,
+			S1:   &amneziawg.Store.S1,
+			S2:   &amneziawg.Store.S2,
+			H1:   &amneziawg.Store.H1,
+			H2:   &amneziawg.Store.H2,
+			H3:   &amneziawg.Store.H3,
+			H4:   &amneziawg.Store.H4,
+			I1:   &amneziawg.Store.I1,
+			I2:   &amneziawg.Store.I2,
+			I3:   &amneziawg.Store.I3,
+			I4:   &amneziawg.Store.I4,
+			I5:   &amneziawg.Store.I5,
+		},
 	}
 }
 

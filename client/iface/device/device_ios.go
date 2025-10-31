@@ -6,11 +6,11 @@ package device
 import (
 	"os"
 
+	"github.com/amnezia-vpn/amneziawg-go/device"
+	"github.com/amnezia-vpn/amneziawg-go/tun"
+	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
@@ -31,17 +31,19 @@ type TunDevice struct {
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
+	amneziaConfig  configurer.AmneziaConfig
 }
 
-func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunFd int) *TunDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunFd int, amneziaConfig configurer.AmneziaConfig) *TunDevice {
 	return &TunDevice{
-		name:    name,
-		address: address,
-		port:    port,
-		key:     key,
-		mtu:     mtu,
-		iceBind: iceBind,
-		tunFd:   tunFd,
+		name:          name,
+		address:       address,
+		port:          port,
+		key:           key,
+		mtu:           mtu,
+		iceBind:       iceBind,
+		tunFd:         tunFd,
+		amneziaConfig: amneziaConfig,
 	}
 }
 
@@ -74,7 +76,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	// t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder())
+	t.configurer = configurer.NewUSPConfigurer(t.device, t.name, t.iceBind.ActivityRecorder(), t.amneziaConfig)
 	err = t.configurer.ConfigureInterface(t.key, t.port)
 	if err != nil {
 		t.device.Close()
