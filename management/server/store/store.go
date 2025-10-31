@@ -468,6 +468,9 @@ func getSqlStoreEngine(ctx context.Context, store *SqlStore, kind types.Engine) 
 	closeConnection := func() {
 		cleanup()
 		store.Close(ctx)
+		if store.pool != nil {
+			store.pool.Close()
+		}
 	}
 
 	return store, closeConnection, nil
