@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
@@ -338,6 +339,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add systemd logs: %v", err)
 	}
 
+	if err := g.addUpdateLogs(); err != nil {
+		log.Errorf("failed to add updater logs: %v", err)
+	}
+
 	return nil
 }
 
@@ -593,6 +598,47 @@ func (g *BundleGenerator) addStateFile() error {
 
 	if err := g.addFileToZip(bytes.NewReader(data), "state.json"); err != nil {
 		return fmt.Errorf("add state file to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (g *BundleGenerator) addUpdateLogs() error {
+	inst := installer.New()
+	dir := inst.TempDir()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	log.Debugf("adding update logs from directory: %s", dir)
+
+	binaryExtensions := installer.BinaryExtensions()
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		for _, ext := range binaryExtensions {
+			if strings.HasSuffix(strings.ToLower(name), strings.ToLower(ext)) {
+				continue
+			}
+		}
+
+		fullPath := filepath.Join(dir, name)
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			log.Warnf("failed to read update log file %s: %v", fullPath, err)
+			continue
+		}
+
+		if err := g.addFileToZip(bytes.NewReader(data), filepath.Join("update-logs", name)); err != nil {
+			return fmt.Errorf("add update log file %s to zip: %w", name, err)
+		}
 	}
 
 	return nil

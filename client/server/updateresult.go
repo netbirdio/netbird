@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Server) GetInstallerResult(ctx context.Context, _ *proto.InstallerResultRequest) (*proto.InstallerResultResponse, error) {
-	rh := installer.NewResultHandler(installer.TempDir)
+	rh := installer.NewResultHandler(installer.TempDir())
 	result, err := rh.Watch(ctx)
 	if err != nil {
 		log.Errorf("failed to watch update result: %v", err)

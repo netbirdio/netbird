@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -16,35 +15,45 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	daemonName    = "netbird.exe"
-	uiName        = "netbird-ui.exe"
-	updaterBinary = "updater.exe"
+var (
+	// defaultTempDir is OS specific
+	defaultTempDir = filepath.Join(os.Getenv("ProgramData"), "Netbird", "tmp-install")
 )
 
-var (
-	TempDir = filepath.Join(os.Getenv("ProgramData"), "Netbird", "tmp-install")
-)
+func TempDir() string {
+	return defaultTempDir
+}
 
 type Installer struct {
+	tempDir string
 }
 
-func NewInstaller() *Installer {
-	return &Installer{}
+// New used by the service
+func New() *Installer {
+	return &Installer{
+		tempDir: defaultTempDir,
+	}
 }
 
-func (u *Installer) CreateTempDir() (string, error) {
-	if err := os.MkdirAll(TempDir, 0o755); err != nil {
+// NewWithDir used by the updater process, get the tempDir from the service via cmd line
+func NewWithDir(tempDir string) *Installer {
+	return &Installer{
+		tempDir: tempDir,
+	}
+}
+
+func (u *Installer) MakeTempDir() (string, error) {
+	if err := os.MkdirAll(u.tempDir, 0o755); err != nil {
 		return "", err
 	}
-	return TempDir, nil
+	return u.tempDir, nil
 }
 
 // RunInstallation starts the updater process to run the installation
 // This will run by the original service process
-func (u *Installer) RunInstallation(installerPath string) error {
+func (u *Installer) RunInstallation(installerFile string) error {
 	// copy the current binary to a temp location as an updater binary
-	updaterPath, err := copyUpdater()
+	updaterPath, err := u.copyUpdater()
 	if err != nil {
 		return err
 	}
@@ -57,22 +66,24 @@ func (u *Installer) RunInstallation(installerPath string) error {
 
 	log.Infof("run updater binary: %s", updaterPath)
 
-	cmd := exec.Command(updaterPath, "--installer-path", installerPath, "--service-dir", workspace, "--dry-run=true")
-	cmd.SysProcAttr = &syscall.SysProcAttr{
+	installerFullPath := filepath.Join(u.tempDir, installerFile)
+
+	updateCmd := exec.Command(updaterPath, "--installer-path", installerFullPath, "--service-dir", workspace, "--dry-run=true")
+	updateCmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
 	}
 
 	// Start the updater process asynchronously
-	if err := cmd.Start(); err != nil {
+	if err := updateCmd.Start(); err != nil {
 		return err
 	}
 
 	// Release the process so the OS can fully detach it
-	if err := cmd.Process.Release(); err != nil {
+	if err := updateCmd.Process.Release(); err != nil {
 		log.Warnf("failed to release updater process: %v", err)
 	}
 
-	log.Infof("updater started with PID %d", cmd.Process.Pid)
+	log.Infof("updater started with PID %d", updateCmd.Process.Pid)
 	return nil
 }
 
@@ -100,7 +111,8 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 		}
 
 		result := Result{
-			Success: resultErr == nil,
+			Success:    resultErr == nil,
+			ExecutedAt: time.Now(),
 		}
 		if resultErr != nil {
 			result.Error = resultErr.Error()
@@ -144,12 +156,17 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 	return nil
 }
 
-func (u *Installer) CleanUp() {
-	if err := os.RemoveAll(TempDir); err != nil {
-		log.Warnf("failed to remove temporary directory %s: %v", TempDir, err)
-		return
-	}
-	log.Infof("removed temporary directory %s", TempDir)
+func (u *Installer) TempDir() string {
+	return u.tempDir
+}
+
+func (u *Installer) CleanUpInstallerFile() error {
+	// todo implement me
+	return nil
+}
+
+func (u *Installer) cleanUpLogs() {
+
 }
 
 func (u *Installer) startDaemon(daemonFolder string) error {
@@ -250,13 +267,13 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 	return nil
 }
 
-func copyUpdater() (string, error) {
-	if err := os.MkdirAll(TempDir, 0o755); err != nil {
+func (u *Installer) copyUpdater() (string, error) {
+	if err := os.MkdirAll(u.tempDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
 	// Destination path for the copied executable
-	dstPath := filepath.Join(TempDir, updaterBinary)
+	dstPath := filepath.Join(u.tempDir, updaterBinary)
 
 	// Open the source executable
 	execPath, err := os.Executable()
@@ -295,9 +312,4 @@ func getServiceDir() (string, error) {
 		return "", err
 	}
 	return filepath.Dir(exePath), nil
-}
-
-func UpdaterBinaryNameWithoutExtension() string {
-	ext := filepath.Ext(updaterBinary)
-	return strings.TrimSuffix(updaterBinary, ext)
 }

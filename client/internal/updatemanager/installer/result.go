@@ -14,8 +14,9 @@ import (
 )
 
 type Result struct {
-	Success bool
-	Error   string
+	Success    bool
+	Error      string
+	ExecutedAt time.Time
 }
 
 // ResultHandler handles reading and writing update results

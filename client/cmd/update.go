@@ -53,13 +53,15 @@ func updateFunc(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not supported OS: %s", runtime.GOOS)
 	}
 
+	dir := filepath.Dir(installerPathFlag)
+
 	// setup log next to the installer path
 	if err := setupLogToFile(installerPathFlag); err != nil {
 		return err
 	}
 
 	log.Infof("updater started: %s", serviceDirFlag)
-	updater := installer.NewInstaller()
+	updater := installer.NewWithDir(dir)
 	if err := updater.Setup(context.Background(), dryRunFlag, installerPathFlag, serviceDirFlag); err != nil {
 		log.Errorf("failed to update application: %v", err)
 		return err
@@ -67,6 +69,14 @@ func updateFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func setupLogToFile(installerPath string) error {
-	return util.InitLog(logLevel, util.LogConsole, installer.LogFilePath(installerPath))
+func setupLogToFile(dir string) error {
+	logFile := filepath.Join(dir, "install.log")
+
+	if _, err := os.Stat(logFile); err == nil {
+		if err := os.Remove(logFile); err != nil {
+			log.Errorf("failed to remove existing log file: %v\n", err)
+		}
+	}
+
+	return util.InitLog(logLevel, util.LogConsole, logFile)
 }

@@ -4,6 +4,7 @@ package updatemanager
 
 import (
 	"context"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -19,8 +20,8 @@ const (
 
 func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error {
 	it := installer.TypeByRegistry()
-	inst := installer.NewInstaller()
-	tmpDir, err := inst.CreateTempDir()
+	inst := installer.New()
+	tmpDir, err := inst.MakeTempDir()
 	if err != nil {
 		return err
 	}
@@ -31,7 +32,8 @@ func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error
 	}
 	log.Debugf("installer path: %s", installerPath)
 
-	if err := inst.RunInstallation(installerPath); err != nil {
+	installerFile := filepath.Base(installerPath)
+	if err := inst.RunInstallation(installerFile); err != nil {
 		return err
 	}
 	return nil
