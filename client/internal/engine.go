@@ -1855,35 +1855,69 @@ func (e *Engine) updateDNSForwarder(
 	}
 
 	if !enabled {
-		if e.dnsForwardMgr == nil {
-			return
-		}
-		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
-			log.Errorf("failed to stop DNS forward: %v", err)
-		}
+		e.stopDNSForwarder()
 		return
 	}
 
 	if len(fwdEntries) > 0 {
 		if e.dnsForwardMgr == nil {
-			localAddr := e.wgInterface.Address().IP
-			e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, localAddr)
-
-			if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
-				log.Errorf("failed to start DNS forward: %v", err)
-				e.dnsForwardMgr = nil
-			}
-
-			log.Infof("started domain router service with %d entries", len(fwdEntries))
+			e.startDNSForwarder(fwdEntries)
 		} else {
 			e.dnsForwardMgr.UpdateDomains(fwdEntries)
 		}
 	} else if e.dnsForwardMgr != nil {
 		log.Infof("disable domain router service")
-		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
-			log.Errorf("failed to stop DNS forward: %v", err)
-		}
+		e.stopDNSForwarder()
+	}
+}
+
+func (e *Engine) startDNSForwarder(fwdEntries []*dnsfwd.ForwarderEntry) {
+	e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, e.wgInterface)
+	e.registerDNSServices()
+
+	if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
+		log.Errorf("failed to start DNS forward: %v", err)
 		e.dnsForwardMgr = nil
+		return
+	}
+
+	log.Infof("started domain router service with %d entries", len(fwdEntries))
+}
+
+func (e *Engine) stopDNSForwarder() {
+	if e.dnsForwardMgr == nil {
+		return
+	}
+
+	if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
+		log.Errorf("failed to stop DNS forward: %v", err)
+	}
+
+	e.unregisterDNSServices()
+	e.dnsForwardMgr = nil
+}
+
+func (e *Engine) registerDNSServices() {
+	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
+		if registrar, ok := e.firewall.(interface {
+			RegisterNetstackService(protocol nftypes.Protocol, port uint16)
+		}); ok {
+			registrar.RegisterNetstackService(nftypes.UDP, nbdns.ForwarderServerPort)
+			registrar.RegisterNetstackService(nftypes.TCP, nbdns.ForwarderServerPort)
+			log.Debugf("registered DNS forwarder service with netstack for UDP/TCP:%d", nbdns.ForwarderServerPort)
+		}
+	}
+}
+
+func (e *Engine) unregisterDNSServices() {
+	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
+		if registrar, ok := e.firewall.(interface {
+			UnregisterNetstackService(protocol nftypes.Protocol, port uint16)
+		}); ok {
+			registrar.UnregisterNetstackService(nftypes.UDP, nbdns.ForwarderServerPort)
+			registrar.UnregisterNetstackService(nftypes.TCP, nbdns.ForwarderServerPort)
+			log.Debugf("unregistered DNS forwarder service with netstack for UDP/TCP:%d", nbdns.ForwarderServerPort)
+		}
 	}
 }
 
