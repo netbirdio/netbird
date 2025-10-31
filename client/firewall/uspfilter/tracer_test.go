@@ -104,6 +104,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -126,6 +128,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -153,6 +157,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -179,6 +185,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -204,6 +212,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StageRouteACL,
@@ -228,6 +238,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StageRouteACL,
@@ -246,6 +258,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StageRouteACL,
@@ -264,6 +278,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StageCompleted,
@@ -287,6 +303,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageCompleted,
 			},
@@ -301,6 +319,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageOutbound1to1NAT,
+				StageOutboundPortReverse,
 				StageCompleted,
 			},
 			expectedAllow: true,
@@ -319,6 +339,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -340,6 +362,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -362,6 +386,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -382,6 +408,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageConntrack,
 				StageRouting,
 				StagePeerACL,
@@ -406,6 +434,8 @@ func TestTracePacket(t *testing.T) {
 			},
 			expectedStages: []PacketStage{
 				StageReceived,
+				StageInboundPortDNAT,
+				StageInbound1to1NAT,
 				StageRouting,
 				StagePeerACL,
 				StageCompleted,

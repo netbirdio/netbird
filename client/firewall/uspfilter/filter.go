@@ -50,6 +50,12 @@ const (
 
 var errNatNotSupported = errors.New("nat not supported with userspace firewall")
 
+// serviceKey represents a protocol/port combination for netstack service registry
+type serviceKey struct {
+	protocol gopacket.LayerType
+	port     uint16
+}
+
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
 
@@ -109,6 +115,13 @@ type Manager struct {
 	dnatMappings map[netip.Addr]netip.Addr
 	dnatMutex    sync.RWMutex
 	dnatBiMap    *biDNATMap
+
+	portDNATEnabled atomic.Bool
+	portDNATRules   []portDNATRule
+	portDNATMutex   sync.RWMutex
+
+	netstackServices     map[serviceKey]struct{}
+	netstackServiceMutex sync.RWMutex
 }
 
 // decoder for packages
@@ -122,6 +135,8 @@ type decoder struct {
 	icmp6   layers.ICMPv6
 	decoded []gopacket.LayerType
 	parser  *gopacket.DecodingLayerParser
+
+	dnatOrigPort uint16
 }
 
 // Create userspace firewall manager constructor
@@ -196,6 +211,8 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
+		portDNATRules:       []portDNATRule{},
+		netstackServices:    make(map[serviceKey]struct{}),
 	}
 	m.routingEnabled.Store(false)
 
@@ -630,7 +647,7 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 		return true
 	}
 
-	m.trackOutbound(d, srcIP, dstIP, size)
+	m.trackOutbound(d, srcIP, dstIP, packetData, size)
 	m.translateOutboundDNAT(packetData, d)
 
 	return false
@@ -674,14 +691,26 @@ func getTCPFlags(tcp *layers.TCP) uint8 {
 	return flags
 }
 
-func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, size int) {
+func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) {
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), size)
+		origPort := m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), size)
+		if origPort == 0 {
+			break
+		}
+		if err := m.rewriteUDPPort(packetData, d, origPort, sourcePortOffset); err != nil {
+			m.logger.Error1("failed to rewrite UDP port: %v", err)
+		}
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
+		origPort := m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
+		if origPort == 0 {
+			break
+		}
+		if err := m.rewriteTCPPort(packetData, d, origPort, sourcePortOffset); err != nil {
+			m.logger.Error1("failed to rewrite TCP port: %v", err)
+		}
 	case layers.LayerTypeICMPv4:
 		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, d.icmp4.Payload, size)
 	}
@@ -691,13 +720,15 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, ruleID []byt
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID, size)
+		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID, size, d.dnatOrigPort)
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size)
+		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size, d.dnatOrigPort)
 	case layers.LayerTypeICMPv4:
 		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, ruleID, d.icmp4.Payload, size)
 	}
+
+	d.dnatOrigPort = 0
 }
 
 // udpHooksDrop checks if any UDP hooks should drop the packet
@@ -759,10 +790,20 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 		return false
 	}
 
+	// TODO: optimize port DNAT by caching matched rules in conntrack
+	if translated := m.translateInboundPortDNAT(packetData, d, srcIP, dstIP); translated {
+		// Re-decode after port DNAT translation to update port information
+		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+			m.logger.Error1("failed to re-decode packet after port DNAT: %v", err)
+			return true
+		}
+		srcIP, dstIP = m.extractIPs(d)
+	}
+
 	if translated := m.translateInboundReverse(packetData, d); translated {
 		// Re-decode after translation to get original addresses
 		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-			m.logger.Error1("Failed to re-decode packet after reverse DNAT: %v", err)
+			m.logger.Error1("failed to re-decode packet after reverse DNAT: %v", err)
 			return true
 		}
 		srcIP, dstIP = m.extractIPs(d)
@@ -807,9 +848,7 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 		return true
 	}
 
-	// If requested we pass local traffic to internal interfaces to the forwarder.
-	// netstack doesn't have an interface to forward packets to the native stack so we always need to use the forwarder.
-	if m.localForwarding && (m.netstack || dstIP != m.wgIface.Address().IP) {
+	if m.shouldForward(d, dstIP) {
 		return m.handleForwardedLocalTraffic(packetData)
 	}
 
@@ -1242,4 +1281,87 @@ func (m *Manager) DisableRouting() error {
 	}
 
 	return nil
+}
+
+// RegisterNetstackService registers a service as listening on the netstack for the given protocol and port
+func (m *Manager) RegisterNetstackService(protocol nftypes.Protocol, port uint16) {
+	m.netstackServiceMutex.Lock()
+	defer m.netstackServiceMutex.Unlock()
+	layerType := m.protocolToLayerType(protocol)
+	key := serviceKey{protocol: layerType, port: port}
+	m.netstackServices[key] = struct{}{}
+	m.logger.Debug3("RegisterNetstackService: registered %s:%d (layerType=%s)", protocol, port, layerType)
+	m.logger.Debug1("RegisterNetstackService: current registry size: %d", len(m.netstackServices))
+}
+
+// UnregisterNetstackService removes a service from the netstack registry
+func (m *Manager) UnregisterNetstackService(protocol nftypes.Protocol, port uint16) {
+	m.netstackServiceMutex.Lock()
+	defer m.netstackServiceMutex.Unlock()
+	layerType := m.protocolToLayerType(protocol)
+	key := serviceKey{protocol: layerType, port: port}
+	delete(m.netstackServices, key)
+	m.logger.Debug2("Unregistered netstack service on protocol %s port %d", protocol, port)
+}
+
+// protocolToLayerType converts nftypes.Protocol to gopacket.LayerType for internal use
+func (m *Manager) protocolToLayerType(protocol nftypes.Protocol) gopacket.LayerType {
+	switch protocol {
+	case nftypes.TCP:
+		return layers.LayerTypeTCP
+	case nftypes.UDP:
+		return layers.LayerTypeUDP
+	case nftypes.ICMP:
+		return layers.LayerTypeICMPv4
+	default:
+		return gopacket.LayerType(0) // Invalid/unknown
+	}
+}
+
+// shouldForward determines if a packet should be forwarded to the forwarder.
+// The forwarder handles routing packets to the native OS network stack.
+// Returns true if packet should go to the forwarder, false if it should go to netstack listeners or the native stack directly.
+func (m *Manager) shouldForward(d *decoder, dstIP netip.Addr) bool {
+	// not enabled, never forward
+	if !m.localForwarding {
+		return false
+	}
+
+	// netstack always needs to forward because it's lacking a native interface
+	// exception for registered netstack services, those should go to netstack listeners
+	if m.netstack {
+		return !m.hasMatchingNetstackService(d)
+	}
+
+	// traffic to our other local interfaces (not NetBird IP) - always forward
+	if dstIP != m.wgIface.Address().IP {
+		return true
+	}
+
+	// traffic to our NetBird IP, not netstack mode - send to netstack listeners
+	return false
+}
+
+// hasMatchingNetstackService checks if there's a registered netstack service for this packet
+func (m *Manager) hasMatchingNetstackService(d *decoder) bool {
+	if len(d.decoded) < 2 {
+		return false
+	}
+
+	var dstPort uint16
+	switch d.decoded[1] {
+	case layers.LayerTypeTCP:
+		dstPort = uint16(d.tcp.DstPort)
+	case layers.LayerTypeUDP:
+		dstPort = uint16(d.udp.DstPort)
+	default:
+		return false
+	}
+
+	key := serviceKey{protocol: d.decoded[1], port: dstPort}
+	m.netstackServiceMutex.RLock()
+	_, exists := m.netstackServices[key]
+	m.netstackServiceMutex.RUnlock()
+
+	return exists
 }
