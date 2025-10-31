@@ -1131,6 +1131,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	disableClientRoutes := cfg.DisableClientRoutes
 	disableServerRoutes := cfg.DisableServerRoutes
 	blockLANAccess := cfg.BlockLANAccess
+	disableFirewall := cfg.DisableFirewall
 
 	return &proto.GetConfigResponse{
 		ManagementUrl:         managementURL.String(),
@@ -1151,6 +1152,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableClientRoutes:   disableClientRoutes,
 		DisableServerRoutes:   disableServerRoutes,
 		BlockLanAccess:        blockLANAccess,
+		DisableFirewall:       disableFirewall,
 	}, nil
 }
 
