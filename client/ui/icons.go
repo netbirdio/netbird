@@ -9,6 +9,9 @@ import (
 //go:embed assets/netbird.png
 var iconAbout []byte
 
+//go:embed assets/netbird-disconnected.png
+var iconAboutDisconnected []byte
+
 //go:embed assets/netbird-systemtray-connected.png
 var iconConnected []byte
 

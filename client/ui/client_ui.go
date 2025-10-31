@@ -85,21 +85,22 @@ func main() {
 
 	// Create the service client (this also builds the settings or networks UI if requested).
 	client := newServiceClient(&newServiceClientArgs{
-		addr:         flags.daemonAddr,
-		logFile:      logFile,
-		app:          a,
-		showSettings: flags.showSettings,
-		showNetworks: flags.showNetworks,
-		showLoginURL: flags.showLoginURL,
-		showDebug:    flags.showDebug,
-		showProfiles: flags.showProfiles,
+		addr:             flags.daemonAddr,
+		logFile:          logFile,
+		app:              a,
+		showSettings:     flags.showSettings,
+		showNetworks:     flags.showNetworks,
+		showLoginURL:     flags.showLoginURL,
+		showDebug:        flags.showDebug,
+		showProfiles:     flags.showProfiles,
+		showQuickActions: flags.showQuickActions,
 	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showQuickActions {
 		a.Run()
 		return
 	}
@@ -111,23 +112,29 @@ func main() {
 		return
 	}
 	if running {
-		log.Warnf("another process is running with pid %d, exiting", pid)
+		log.Infof("another process is running with pid %d, sending signal to show window", pid)
+		if err := sendShowWindowSignal(pid); err != nil {
+			log.Errorf("send signal to running instance: %v", err)
+		}
 		return
 	}
+
+	client.setupSignalHandler(client.ctx)
 
 	client.setDefaultFonts()
 	systray.Run(client.onTrayReady, client.onTrayExit)
 }
 
 type cliFlags struct {
-	daemonAddr     string
-	showSettings   bool
-	showNetworks   bool
-	showProfiles   bool
-	showDebug      bool
-	showLoginURL   bool
-	errorMsg       string
-	saveLogsInFile bool
+	daemonAddr       string
+	showSettings     bool
+	showNetworks     bool
+	showProfiles     bool
+	showDebug        bool
+	showLoginURL     bool
+	showQuickActions bool
+	errorMsg         string
+	saveLogsInFile   bool
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -143,6 +150,7 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.showNetworks, "networks", false, "run networks window")
 	flag.BoolVar(&flags.showProfiles, "profiles", false, "run profiles window")
 	flag.BoolVar(&flags.showDebug, "debug", false, "run debug window")
+	flag.BoolVar(&flags.showQuickActions, "quick-actions", false, "run quick actions window")
 	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
 	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
@@ -158,11 +166,9 @@ func initLogFile() (string, error) {
 
 // watchSettingsChanges listens for Fyne theme/settings changes and updates the client icon.
 func watchSettingsChanges(a fyne.App, client *serviceClient) {
-	settingsChangeChan := make(chan fyne.Settings)
-	a.Settings().AddChangeListener(settingsChangeChan)
-	for range settingsChangeChan {
+	a.Settings().AddListener(func(settings fyne.Settings) {
 		client.updateIcon()
-	}
+	})
 }
 
 // showErrorMessage displays an error message in a simple window.
@@ -287,6 +293,7 @@ type serviceClient struct {
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
+	wQuickActions        fyne.Window
 
 	eventManager *event.Manager
 
@@ -306,14 +313,15 @@ type menuHandler struct {
 }
 
 type newServiceClientArgs struct {
-	addr         string
-	logFile      string
-	app          fyne.App
-	showSettings bool
-	showNetworks bool
-	showDebug    bool
-	showLoginURL bool
-	showProfiles bool
+	addr             string
+	logFile          string
+	app              fyne.App
+	showSettings     bool
+	showNetworks     bool
+	showDebug        bool
+	showLoginURL     bool
+	showProfiles     bool
+	showQuickActions bool
 }
 
 // newServiceClient instance constructor
@@ -349,6 +357,8 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		s.showDebugUI()
 	case args.showProfiles:
 		s.showProfilesUI()
+	case args.showQuickActions:
+		s.showQuickActionsUI()
 	}
 
 	return s
