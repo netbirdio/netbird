@@ -1470,8 +1470,6 @@ func (b *NetworkMapBuilder) applyDeltaToPeer(account *Account, peerID string, de
 
 func (b *NetworkMapBuilder) updateRouteFirewallRules(routesView *PeerRoutesView, updates []*RouteFirewallRuleUpdate) {
 	for _, update := range updates {
-		updated := false
-
 		for _, ruleID := range routesView.RouteFirewallRuleIDs {
 			rule := b.cache.globalRouteRules[ruleID]
 			if rule == nil {
@@ -1490,14 +1488,8 @@ func (b *NetworkMapBuilder) updateRouteFirewallRules(routesView *PeerRoutesView,
 				if !slices.Contains(rule.SourceRanges, sourceIP) {
 					rule.SourceRanges = append(rule.SourceRanges, sourceIP)
 				}
-				updated = true
 				break
 			}
-		}
-
-		if !updated {
-			log.Debugf("Route firewall rule not found for route %s",
-				update.RuleID)
 		}
 	}
 }
