@@ -1230,9 +1230,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors.New("account not found")
+			return nil, status.NewAccountNotFoundError(accountID)
 		}
-		return nil, err
+		return nil, status.NewGetAccountFromStoreError(err)
 	}
 
 	_ = json.Unmarshal(networkNet, &account.Network.Net)
