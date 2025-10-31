@@ -52,7 +52,7 @@ func TestDefaultManager(t *testing.T) {
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		err = fw.Close(nil)
@@ -170,7 +170,7 @@ func TestDefaultManagerStateless(t *testing.T) {
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		err = fw.Close(nil)
@@ -321,7 +321,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		err = fw.Close(nil)
