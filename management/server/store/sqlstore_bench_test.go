@@ -238,8 +238,6 @@ func connectDBforTest(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		pool.Close()
 		return nil, fmt.Errorf("unable to ping database: %w", err)
 	}
-
-	fmt.Println("Successfully connected to the database!")
 	return pool, nil
 }
 
@@ -269,7 +267,10 @@ func setupBenchmarkDB(b testing.TB) (*SqlStore, func(), string) {
 	}
 
 	for i := len(models) - 1; i >= 0; i-- {
-		db.Migrator().DropTable(models[i])
+		err := db.Migrator().DropTable(models[i])
+		if err != nil {
+			b.Fatalf("failed to drop table: %v", err)
+		}
 	}
 
 	err = db.AutoMigrate(models...)
