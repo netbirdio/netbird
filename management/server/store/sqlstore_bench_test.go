@@ -25,6 +25,7 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -242,8 +243,12 @@ func connectDBforTest(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func setupBenchmarkDB(b testing.TB) (*SqlStore, string) {
-	dsn := "host=localhost user=postgres password=mysecretpassword dbname=testdb port=5432 sslmode=disable TimeZone=Europe/Berlin"
+func setupBenchmarkDB(b testing.TB) (*SqlStore, func(), string) {
+	cleanup, dsn, err := testutil.CreatePostgresTestContainer()
+	if err != nil {
+		b.Fatalf("failed to create test container: %v", err)
+	}
+
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		b.Fatalf("failed to connect database: %v", err)
@@ -484,11 +489,12 @@ func setupBenchmarkDB(b testing.TB) (*SqlStore, string) {
 		b.Fatalf("create onboarding: %v", err)
 	}
 
-	return store, accountID
+	return store, cleanup, accountID
 }
 
 func BenchmarkGetAccount(b *testing.B) {
-	store, accountID := setupBenchmarkDB(b)
+	store, cleanup, accountID := setupBenchmarkDB(b)
+	defer cleanup()
 	ctx := context.Background()
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -520,7 +526,8 @@ func BenchmarkGetAccount(b *testing.B) {
 }
 
 func TestAccountEquivalence(t *testing.T) {
-	store, accountID := setupBenchmarkDB(t)
+	store, cleanup, accountID := setupBenchmarkDB(t)
+	defer cleanup()
 	ctx := context.Background()
 
 	type getAccountFunc func(context.Context, string) (*types.Account, error)
