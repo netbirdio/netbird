@@ -1194,7 +1194,6 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
 		FROM accounts WHERE id = $1`
 
-	var networkNet, dnsSettingsDisabledGroups []byte
 	var (
 		sPeerLoginExpirationEnabled      sql.NullBool
 		sPeerLoginExpiration             sql.NullInt64
@@ -1204,20 +1203,24 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sGroupsPropagationEnabled        sql.NullBool
 		sJWTGroupsEnabled                sql.NullBool
 		sJWTGroupsClaimName              sql.NullString
-		sJWTAllowGroups                  []byte
+		sJWTAllowGroups                  sql.NullString
 		sRoutingPeerDNSResolutionEnabled sql.NullBool
 		sDNSDomain                       sql.NullString
-		sNetworkRange                    []byte
+		sNetworkRange                    sql.NullString
 		sLazyConnectionEnabled           sql.NullBool
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
-		sExtraIntegratedValidatorGroups  []byte
+		sExtraIntegratedValidatorGroups  sql.NullString
+		networkNet                       sql.NullString
+		dnsSettingsDisabledGroups        sql.NullString
+		networkIdentifier                sql.NullString
+		networkDns                       sql.NullString
+		networkSerial                    sql.NullInt64
 	)
-
 	err := s.pool.QueryRow(ctx, accountQuery, accountID).Scan(
 		&account.Id, &account.CreatedBy, &account.CreatedAt, &account.Domain, &account.DomainCategory, &account.IsDomainPrimaryAccount,
-		&account.Network.Identifier, &networkNet, &account.Network.Dns, &account.Network.Serial,
+		&networkIdentifier, &networkNet, &networkDns, &networkSerial,
 		&dnsSettingsDisabledGroups,
 		&sPeerLoginExpirationEnabled, &sPeerLoginExpiration,
 		&sPeerInactivityExpirationEnabled, &sPeerInactivityExpiration,
@@ -1235,10 +1238,22 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		return nil, status.NewGetAccountFromStoreError(err)
 	}
 
-	_ = json.Unmarshal(networkNet, &account.Network.Net)
-	_ = json.Unmarshal(dnsSettingsDisabledGroups, &account.DNSSettings.DisabledManagementGroups)
-
 	account.Settings = &types.Settings{Extra: &types.ExtraSettings{}}
+	if networkNet.Valid {
+		_ = json.Unmarshal([]byte(networkNet.String), &account.Network.Net)
+	}
+	if dnsSettingsDisabledGroups.Valid {
+		_ = json.Unmarshal([]byte(dnsSettingsDisabledGroups.String), &account.DNSSettings.DisabledManagementGroups)
+	}
+	if networkIdentifier.Valid {
+		account.Network.Identifier = networkIdentifier.String
+	}
+	if networkDns.Valid {
+		account.Network.Dns = networkDns.String
+	}
+	if networkSerial.Valid {
+		account.Network.Serial = uint64(networkSerial.Int64)
+	}
 	if sPeerLoginExpirationEnabled.Valid {
 		account.Settings.PeerLoginExpirationEnabled = sPeerLoginExpirationEnabled.Bool
 	}
@@ -1272,11 +1287,11 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	if sLazyConnectionEnabled.Valid {
 		account.Settings.LazyConnectionEnabled = sLazyConnectionEnabled.Bool
 	}
-	if sJWTAllowGroups != nil {
-		_ = json.Unmarshal(sJWTAllowGroups, &account.Settings.JWTAllowGroups)
+	if sJWTAllowGroups.Valid {
+		_ = json.Unmarshal([]byte(sJWTAllowGroups.String), &account.Settings.JWTAllowGroups)
 	}
-	if sNetworkRange != nil {
-		_ = json.Unmarshal(sNetworkRange, &account.Settings.NetworkRange)
+	if sNetworkRange.Valid {
+		_ = json.Unmarshal([]byte(sNetworkRange.String), &account.Settings.NetworkRange)
 	}
 
 	if sExtraPeerApprovalEnabled.Valid {
@@ -1288,8 +1303,8 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	if sExtraIntegratedValidator.Valid {
 		account.Settings.Extra.IntegratedValidator = sExtraIntegratedValidator.String
 	}
-	if sExtraIntegratedValidatorGroups != nil {
-		_ = json.Unmarshal(sExtraIntegratedValidatorGroups, &account.Settings.Extra.IntegratedValidatorGroups)
+	if sExtraIntegratedValidatorGroups.Valid {
+		_ = json.Unmarshal([]byte(sExtraIntegratedValidatorGroups.String), &account.Settings.Extra.IntegratedValidatorGroups)
 	}
 	return &account, nil
 }
