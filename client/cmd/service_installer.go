@@ -279,6 +279,7 @@ func configureSystemdNetworkd() error {
 		return nil
 	}
 
+	// nolint:gosec // standard networkd permissions
 	if err := os.WriteFile(networkdConfFile, []byte(networkdConfContent), 0644); err != nil {
 		return fmt.Errorf("write networkd configuration: %w", err)
 	}
