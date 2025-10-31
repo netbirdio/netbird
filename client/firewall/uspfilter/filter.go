@@ -50,6 +50,12 @@ const (
 
 var errNatNotSupported = errors.New("nat not supported with userspace firewall")
 
+// serviceKey represents a protocol/port combination for netstack service registry
+type serviceKey struct {
+	protocol gopacket.LayerType
+	port     uint16
+}
+
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
 
@@ -113,6 +119,9 @@ type Manager struct {
 	portDNATEnabled atomic.Bool
 	portDNATRules   []portDNATRule
 	portDNATMutex   sync.RWMutex
+
+	netstackServices     map[serviceKey]struct{}
+	netstackServiceMutex sync.RWMutex
 }
 
 // decoder for packages
@@ -203,6 +212,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		localForwarding:     enableLocalForwarding,
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
 		portDNATRules:       []portDNATRule{},
+		netstackServices:    make(map[serviceKey]struct{}),
 	}
 	m.routingEnabled.Store(false)
 
@@ -838,9 +848,7 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 		return true
 	}
 
-	// If requested we pass local traffic to internal interfaces to the forwarder.
-	// netstack doesn't have an interface to forward packets to the native stack so we always need to use the forwarder.
-	if m.localForwarding && (m.netstack || dstIP != m.wgIface.Address().IP) {
+	if m.shouldForward(d, dstIP) {
 		return m.handleForwardedLocalTraffic(packetData)
 	}
 
@@ -1273,4 +1281,87 @@ func (m *Manager) DisableRouting() error {
 	}
 
 	return nil
+}
+
+// RegisterNetstackService registers a service as listening on the netstack for the given protocol and port
+func (m *Manager) RegisterNetstackService(protocol nftypes.Protocol, port uint16) {
+	m.netstackServiceMutex.Lock()
+	defer m.netstackServiceMutex.Unlock()
+	layerType := m.protocolToLayerType(protocol)
+	key := serviceKey{protocol: layerType, port: port}
+	m.netstackServices[key] = struct{}{}
+	m.logger.Debug3("RegisterNetstackService: registered %s:%d (layerType=%s)", protocol, port, layerType)
+	m.logger.Debug1("RegisterNetstackService: current registry size: %d", len(m.netstackServices))
+}
+
+// UnregisterNetstackService removes a service from the netstack registry
+func (m *Manager) UnregisterNetstackService(protocol nftypes.Protocol, port uint16) {
+	m.netstackServiceMutex.Lock()
+	defer m.netstackServiceMutex.Unlock()
+	layerType := m.protocolToLayerType(protocol)
+	key := serviceKey{protocol: layerType, port: port}
+	delete(m.netstackServices, key)
+	m.logger.Debug2("Unregistered netstack service on protocol %s port %d", protocol, port)
+}
+
+// protocolToLayerType converts nftypes.Protocol to gopacket.LayerType for internal use
+func (m *Manager) protocolToLayerType(protocol nftypes.Protocol) gopacket.LayerType {
+	switch protocol {
+	case nftypes.TCP:
+		return layers.LayerTypeTCP
+	case nftypes.UDP:
+		return layers.LayerTypeUDP
+	case nftypes.ICMP:
+		return layers.LayerTypeICMPv4
+	default:
+		return gopacket.LayerType(0) // Invalid/unknown
+	}
+}
+
+// shouldForward determines if a packet should be forwarded to the forwarder.
+// The forwarder handles routing packets to the native OS network stack.
+// Returns true if packet should go to the forwarder, false if it should go to netstack listeners or the native stack directly.
+func (m *Manager) shouldForward(d *decoder, dstIP netip.Addr) bool {
+	// not enabled, never forward
+	if !m.localForwarding {
+		return false
+	}
+
+	// netstack always needs to forward because it's lacking a native interface
+	// exception for registered netstack services, those should go to netstack listeners
+	if m.netstack {
+		return !m.hasMatchingNetstackService(d)
+	}
+
+	// traffic to our other local interfaces (not NetBird IP) - always forward
+	if dstIP != m.wgIface.Address().IP {
+		return true
+	}
+
+	// traffic to our NetBird IP, not netstack mode - send to netstack listeners
+	return false
+}
+
+// hasMatchingNetstackService checks if there's a registered netstack service for this packet
+func (m *Manager) hasMatchingNetstackService(d *decoder) bool {
+	if len(d.decoded) < 2 {
+		return false
+	}
+
+	var dstPort uint16
+	switch d.decoded[1] {
+	case layers.LayerTypeTCP:
+		dstPort = uint16(d.tcp.DstPort)
+	case layers.LayerTypeUDP:
+		dstPort = uint16(d.udp.DstPort)
+	default:
+		return false
+	}
+
+	key := serviceKey{protocol: d.decoded[1], port: dstPort}
+	m.netstackServiceMutex.RLock()
+	_, exists := m.netstackServices[key]
+	m.netstackServiceMutex.RUnlock()
+
+	return exists
 }

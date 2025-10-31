@@ -10,9 +10,11 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
@@ -24,6 +26,12 @@ const (
 	envServerPort = "NB_DNS_FORWARDER_PORT"
 )
 
+// wgIface defines the interface for WireGuard interface operations needed by the DNS forwarder.
+type wgIface interface {
+	GetNet() *netstack.Net
+	Address() wgaddr.Address
+}
+
 // ForwarderEntry is a mapping from a domain to a resource ID and a hash of the parent domain list.
 type ForwarderEntry struct {
 	Domain domain.Domain
@@ -34,7 +42,7 @@ type ForwarderEntry struct {
 type Manager struct {
 	firewall       firewall.Manager
 	statusRecorder *peer.Status
-	localAddr      netip.Addr
+	wgIface        wgIface
 	serverPort     uint16
 
 	fwRules      []firewall.Rule
@@ -42,7 +50,7 @@ type Manager struct {
 	dnsForwarder *DNSForwarder
 }
 
-func NewManager(fw firewall.Manager, statusRecorder *peer.Status, localAddr netip.Addr) *Manager {
+func NewManager(fw firewall.Manager, statusRecorder *peer.Status, wgIface wgIface) *Manager {
 	serverPort := nbdns.ForwarderServerPort
 	if envPort := os.Getenv(envServerPort); envPort != "" {
 		if port, err := strconv.ParseUint(envPort, 10, 16); err == nil && port > 0 {
@@ -56,7 +64,7 @@ func NewManager(fw firewall.Manager, statusRecorder *peer.Status, localAddr neti
 	return &Manager{
 		firewall:       fw,
 		statusRecorder: statusRecorder,
-		localAddr:      localAddr,
+		wgIface:        wgIface,
 		serverPort:     serverPort,
 	}
 }
@@ -71,21 +79,25 @@ func (m *Manager) Start(fwdEntries []*ForwarderEntry) error {
 		return err
 	}
 
-	if m.localAddr.IsValid() && m.firewall != nil {
-		if err := m.firewall.AddInboundDNAT(m.localAddr, firewall.ProtocolUDP, nbdns.ForwarderClientPort, m.serverPort); err != nil {
+	localAddr := m.wgIface.Address().IP
+
+	if localAddr.IsValid() && m.firewall != nil {
+		if err := m.firewall.AddInboundDNAT(localAddr, firewall.ProtocolUDP, nbdns.ForwarderClientPort, m.serverPort); err != nil {
 			log.Warnf("failed to add DNS UDP DNAT rule: %v", err)
 		} else {
-			log.Infof("added DNS UDP DNAT rule: %s:%d -> %s:%d", m.localAddr, nbdns.ForwarderClientPort, m.localAddr, m.serverPort)
+			log.Infof("added DNS UDP DNAT rule: %s:%d -> %s:%d", localAddr, nbdns.ForwarderClientPort, localAddr, m.serverPort)
 		}
 
-		if err := m.firewall.AddInboundDNAT(m.localAddr, firewall.ProtocolTCP, nbdns.ForwarderClientPort, m.serverPort); err != nil {
+		if err := m.firewall.AddInboundDNAT(localAddr, firewall.ProtocolTCP, nbdns.ForwarderClientPort, m.serverPort); err != nil {
 			log.Warnf("failed to add DNS TCP DNAT rule: %v", err)
 		} else {
-			log.Infof("added DNS TCP DNAT rule: %s:%d -> %s:%d", m.localAddr, nbdns.ForwarderClientPort, m.localAddr, m.serverPort)
+			log.Infof("added DNS TCP DNAT rule: %s:%d -> %s:%d", localAddr, nbdns.ForwarderClientPort, localAddr, m.serverPort)
 		}
 	}
 
-	m.dnsForwarder = NewDNSForwarder(fmt.Sprintf(":%d", m.serverPort), dnsTTL, m.firewall, m.statusRecorder)
+	listenAddress := netip.AddrPortFrom(localAddr, m.serverPort)
+	m.dnsForwarder = NewDNSForwarder(listenAddress, dnsTTL, m.firewall, m.statusRecorder, m.wgIface)
+
 	go func() {
 		if err := m.dnsForwarder.Listen(fwdEntries); err != nil {
 			// todo handle close error if it is exists
@@ -111,12 +123,13 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 	var mErr *multierror.Error
 
-	if m.localAddr.IsValid() && m.firewall != nil {
-		if err := m.firewall.RemoveInboundDNAT(m.localAddr, firewall.ProtocolUDP, nbdns.ForwarderClientPort, m.serverPort); err != nil {
+	localAddr := m.wgIface.Address().IP
+	if localAddr.IsValid() && m.firewall != nil {
+		if err := m.firewall.RemoveInboundDNAT(localAddr, firewall.ProtocolUDP, nbdns.ForwarderClientPort, m.serverPort); err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("remove DNS UDP DNAT rule: %w", err))
 		}
 
-		if err := m.firewall.RemoveInboundDNAT(m.localAddr, firewall.ProtocolTCP, nbdns.ForwarderClientPort, m.serverPort); err != nil {
+		if err := m.firewall.RemoveInboundDNAT(localAddr, firewall.ProtocolTCP, nbdns.ForwarderClientPort, m.serverPort); err != nil {
 			mErr = multierror.Append(mErr, fmt.Errorf("remove DNS TCP DNAT rule: %w", err))
 		}
 	}
