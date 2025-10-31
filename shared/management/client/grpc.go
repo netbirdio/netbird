@@ -45,6 +45,9 @@ type GrpcClient struct {
 	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
+	// lastNetworkMapSerial stores last seen network map serial to optimize sync
+	lastNetworkMapSerial   uint64
+	lastNetworkMapSerialMu sync.Mutex
 }
 
 // NewClient creates a new client to Management service
@@ -216,11 +219,23 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 		return nil, fmt.Errorf("invalid msg, required network map")
 	}
 
+	// update last seen serial
+	c.setLastNetworkMapSerial(decryptedResp.GetNetworkMap().GetSerial())
+
 	return decryptedResp.GetNetworkMap(), nil
 }
 
 func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
-	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
+	// Always compute latest system info to ensure up-to-date PeerSystemMeta on first and subsequent syncs
+	recomputed := system.GetInfo(c.ctx)
+	if sysInfo != nil {
+		recomputed.CopyFlagsFrom(sysInfo)
+		// carry over posture files if any were computed
+		if len(sysInfo.Files) > 0 {
+			recomputed.Files = sysInfo.Files
+		}
+	}
+	req := &proto.SyncRequest{Meta: infoToMetaData(recomputed), NetworkMapSerial: c.getLastNetworkMapSerial()}
 
 	myPrivateKey := c.key
 	myPublicKey := myPrivateKey.PublicKey()
@@ -256,6 +271,11 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 		if err != nil {
 			log.Errorf("failed decrypting update message from Management Service: %s", err)
 			return err
+		}
+
+		// track latest network map serial if present
+		if decryptedResp.GetNetworkMap() != nil {
+			c.setLastNetworkMapSerial(decryptedResp.GetNetworkMap().GetSerial())
 		}
 
 		if err := msgHandler(decryptedResp); err != nil {
@@ -581,4 +601,19 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
 	}
+}
+
+// setLastNetworkMapSerial updates the cached last seen network map serial in a 32-bit safe manner
+func (c *GrpcClient) setLastNetworkMapSerial(serial uint64) {
+	c.lastNetworkMapSerialMu.Lock()
+	c.lastNetworkMapSerial = serial
+	c.lastNetworkMapSerialMu.Unlock()
+}
+
+// getLastNetworkMapSerial returns the cached last seen network map serial in a 32-bit safe manner
+func (c *GrpcClient) getLastNetworkMapSerial() uint64 {
+	c.lastNetworkMapSerialMu.Lock()
+	v := c.lastNetworkMapSerial
+	c.lastNetworkMapSerialMu.Unlock()
+	return v
 }
