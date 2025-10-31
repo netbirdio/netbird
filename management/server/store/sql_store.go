@@ -51,7 +51,7 @@ const (
 	peerNotFoundFMT             = "peer %s not found"
 
 	pgMaxConnections    = 30
-	pgMinConnections    = 5
+	pgMinConnections    = 1
 	pgMaxConnLifetime   = 60 * time.Minute
 	pgHealthCheckPeriod = 1 * time.Minute
 )
