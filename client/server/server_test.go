@@ -311,7 +311,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	settingsMockManager := settings.NewMockManager(ctrl)
 	groupsManager := groups.NewManagerMock()
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
+	accountManager, err := server.BuildManager(context.Background(), config, store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
 	if err != nil {
 		return nil, "", err
 	}

@@ -29,6 +29,12 @@ import (
 
 const layerTypeAll = 0
 
+// serviceKey represents a protocol/port combination for netstack service registry
+type serviceKey struct {
+	protocol gopacket.LayerType
+	port     uint16
+}
+
 const (
 	// EnvDisableConntrack disables the stateful filter, replies to outbound traffic won't be allowed.
 	EnvDisableConntrack = "NB_DISABLE_CONNTRACK"

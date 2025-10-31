@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -34,7 +35,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -420,20 +420,25 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		nm = *config.NetworkMonitor
 	}
 	engineConf := &EngineConfig{
-		WgIfaceName:          config.WgIface,
-		WgAddr:               peerConfig.Address,
-		IFaceBlackList:       config.IFaceBlackList,
-		DisableIPv6Discovery: config.DisableIPv6Discovery,
-		WgPrivateKey:         key,
-		WgPort:               config.WgPort,
-		NetworkMonitor:       nm,
-		SSHKey:               []byte(config.SSHKey),
-		NATExternalIPs:       config.NATExternalIPs,
-		CustomDNSAddress:     config.CustomDNSAddress,
-		RosenpassEnabled:     config.RosenpassEnabled,
-		RosenpassPermissive:  config.RosenpassPermissive,
-		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
-		DNSRouteInterval:     config.DNSRouteInterval,
+		WgIfaceName:                   config.WgIface,
+		WgAddr:                        peerConfig.Address,
+		IFaceBlackList:                config.IFaceBlackList,
+		DisableIPv6Discovery:          config.DisableIPv6Discovery,
+		WgPrivateKey:                  key,
+		WgPort:                        config.WgPort,
+		NetworkMonitor:                nm,
+		SSHKey:                        []byte(config.SSHKey),
+		NATExternalIPs:                config.NATExternalIPs,
+		CustomDNSAddress:              config.CustomDNSAddress,
+		RosenpassEnabled:              config.RosenpassEnabled,
+		RosenpassPermissive:           config.RosenpassPermissive,
+		ServerSSHAllowed:              util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
+		EnableSSHRoot:                 config.EnableSSHRoot,
+		EnableSSHSFTP:                 config.EnableSSHSFTP,
+		EnableSSHLocalPortForwarding:  config.EnableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding: config.EnableSSHRemotePortForwarding,
+		DisableSSHAuth:                config.DisableSSHAuth,
+		DNSRouteInterval:              config.DNSRouteInterval,
 
 		DisableClientRoutes: config.DisableClientRoutes,
 		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
@@ -519,6 +524,11 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.LazyConnectionEnabled,
+		config.EnableSSHRoot,
+		config.EnableSSHSFTP,
+		config.EnableSSHLocalPortForwarding,
+		config.EnableSSHRemotePortForwarding,
+		config.DisableSSHAuth,
 	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {
