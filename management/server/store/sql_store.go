@@ -1221,9 +1221,10 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		networkIdentifier                sql.NullString
 		networkDns                       sql.NullString
 		networkSerial                    sql.NullInt64
+		createdAt                        sql.NullTime
 	)
 	err := s.pool.QueryRow(ctx, accountQuery, accountID).Scan(
-		&account.Id, &account.CreatedBy, &account.CreatedAt, &account.Domain, &account.DomainCategory, &account.IsDomainPrimaryAccount,
+		&account.Id, &account.CreatedBy, &createdAt, &account.Domain, &account.DomainCategory, &account.IsDomainPrimaryAccount,
 		&networkIdentifier, &networkNet, &networkDns, &networkSerial,
 		&dnsSettingsDisabledGroups,
 		&sPeerLoginExpirationEnabled, &sPeerLoginExpiration,
@@ -1245,6 +1246,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	account.Settings = &types.Settings{Extra: &types.ExtraSettings{}}
 	if networkNet.Valid {
 		_ = json.Unmarshal([]byte(networkNet.String), &account.Network.Net)
+	}
+	if createdAt.Valid {
+		account.CreatedAt = createdAt.Time
 	}
 	if dnsSettingsDisabledGroups.Valid {
 		_ = json.Unmarshal([]byte(dnsSettingsDisabledGroups.String), &account.DNSSettings.DisabledManagementGroups)
