@@ -64,6 +64,7 @@ type DaemonServiceClient interface {
 	// Logout disconnects from the network and deletes the peer from the management server
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
 	GetFeatures(ctx context.Context, in *GetFeaturesRequest, opts ...grpc.CallOption) (*GetFeaturesResponse, error)
+	GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -349,6 +350,15 @@ func (c *daemonServiceClient) GetFeatures(ctx context.Context, in *GetFeaturesRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error) {
+	out := new(InstallerResultResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetInstallerResult", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -399,6 +409,7 @@ type DaemonServiceServer interface {
 	// Logout disconnects from the network and deletes the peer from the management server
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
 	GetFeatures(context.Context, *GetFeaturesRequest) (*GetFeaturesResponse, error)
+	GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -489,6 +500,9 @@ func (UnimplementedDaemonServiceServer) Logout(context.Context, *LogoutRequest) 
 }
 func (UnimplementedDaemonServiceServer) GetFeatures(context.Context, *GetFeaturesRequest) (*GetFeaturesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetFeatures not implemented")
+}
+func (UnimplementedDaemonServiceServer) GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInstallerResult not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -1010,6 +1024,24 @@ func _DaemonService_GetFeatures_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_GetInstallerResult_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InstallerResultRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GetInstallerResult(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/GetInstallerResult",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GetInstallerResult(ctx, req.(*InstallerResultRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1124,6 +1156,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetFeatures",
 			Handler:    _DaemonService_GetFeatures_Handler,
+		},
+		{
+			MethodName: "GetInstallerResult",
+			Handler:    _DaemonService_GetInstallerResult_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

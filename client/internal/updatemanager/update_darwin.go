@@ -17,7 +17,7 @@ const (
 	pkgDownloadURL = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_%version_darwin_%arch.pkg"
 )
 
-func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string) error {
+func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error {
 	cmd := exec.CommandContext(ctx, "pkgutil", "--pkg-info", "io.netbird.client")
 	outBytes, err := cmd.Output()
 	if err != nil && cmd.ProcessState.ExitCode() == 1 {
@@ -26,7 +26,7 @@ func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string)
 		return updateHomeBrew(ctx)
 	}
 	// Installed using pkg file
-	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(targetVersion))
+	path, err := downloadFileToTemporaryDir(ctx, urlWithVersionArch(targetVersion), "")
 	if err != nil {
 		return fmt.Errorf("error downloading update file: %w", err)
 	}

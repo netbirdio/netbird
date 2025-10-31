@@ -17,9 +17,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/client/net"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -114,7 +114,7 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, false)
 	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener)
 }
 
@@ -141,7 +141,7 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, false)
 	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener)
 }
 
