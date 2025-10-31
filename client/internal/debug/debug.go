@@ -604,43 +604,26 @@ func (g *BundleGenerator) addStateFile() error {
 }
 
 func (g *BundleGenerator) addUpdateLogs() error {
-	inst := installer.New()
-	dir := inst.TempDir()
-
-	entries, err := os.ReadDir(dir)
+	inst, err := installer.New()
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return err
+		// unsupported platform
+		return nil
 	}
-	log.Debugf("adding update logs from directory: %s", dir)
+	log.Infof("adding updater logs")
+	logFiles := inst.LogFiles()
 
-	binaryExtensions := installer.BinaryExtensions()
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		name := entry.Name()
-		for _, ext := range binaryExtensions {
-			if strings.HasSuffix(strings.ToLower(name), strings.ToLower(ext)) {
-				continue
-			}
-		}
-
-		fullPath := filepath.Join(dir, name)
-		data, err := os.ReadFile(fullPath)
+	for _, logFile := range logFiles {
+		data, err := os.ReadFile(logFile)
 		if err != nil {
-			log.Warnf("failed to read update log file %s: %v", fullPath, err)
+			log.Warnf("failed to read update log file %s: %v", logFile, err)
 			continue
 		}
 
-		if err := g.addFileToZip(bytes.NewReader(data), filepath.Join("update-logs", name)); err != nil {
-			return fmt.Errorf("add update log file %s to zip: %w", name, err)
+		baseName := filepath.Base(logFile)
+		if err := g.addFileToZip(bytes.NewReader(data), filepath.Join("update-logs", baseName)); err != nil {
+			return fmt.Errorf("add update log file %s to zip: %w", baseName, err)
 		}
 	}
-
 	return nil
 }
 

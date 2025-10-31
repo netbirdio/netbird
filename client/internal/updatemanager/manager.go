@@ -16,7 +16,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -79,10 +78,6 @@ func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager)
 
 // CheckUpdateSuccess checks if the update was successful. It works without to start the update manager.
 func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
-	inst := installer.New()
-	if err := inst.CleanUpInstallerFile(); err != nil {
-		log.Errorf("failed to clean up temporary installer file: %v", err)
-	}
 	m.updateStateManager(ctx)
 	return
 }

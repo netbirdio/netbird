@@ -8,8 +8,6 @@ import (
 	"runtime"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 )
 
@@ -20,7 +18,10 @@ const (
 
 func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error {
 	it := installer.TypeByRegistry()
-	inst := installer.New()
+	inst, err := installer.New()
+	if err != nil {
+		return err
+	}
 	tmpDir, err := inst.MakeTempDir()
 	if err != nil {
 		return err
@@ -30,7 +31,6 @@ func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error
 	if err != nil {
 		return err
 	}
-	log.Debugf("installer path: %s", installerPath)
 
 	installerFile := filepath.Base(installerPath)
 	if err := inst.RunInstallation(installerFile); err != nil {

@@ -48,8 +48,3 @@ func TypeByFileExtension(filePath string) (InstallerType, error) {
 		return "", fmt.Errorf("unsupported installer type for file: %s", filePath)
 	}
 }
-
-// BinaryExtensions used by debug bundle to ignore huge files
-func BinaryExtensions() []string {
-	return []string{"exe", "msi"}
-}

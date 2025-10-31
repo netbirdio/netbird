@@ -13,6 +13,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	resultFile = "result.json"
+)
+
 type Result struct {
 	Success    bool
 	Error      string
@@ -32,15 +36,16 @@ func NewResultHandler(installerDir string) *ResultHandler {
 	_ = os.MkdirAll(installerDir, 0o700)
 
 	rh := &ResultHandler{
-		resultFile: filepath.Join(installerDir, "result.json"),
+		resultFile: filepath.Join(installerDir, resultFile),
 	}
-	log.Infof("installer result: %s", rh.resultFile)
 	return rh
 }
 
 func (rh *ResultHandler) Watch(ctx context.Context) (Result, error) {
+	log.Infof("start watching result: %s", rh.resultFile)
 	// Check if file already exists (updater finished before we started watching)
 	if result, err := rh.tryReadResult(); err == nil {
+		log.Infof("installer result: %v", result)
 		return result, nil
 	}
 
@@ -81,8 +86,6 @@ DirectoryReady:
 		return Result{}, fmt.Errorf("failed to watch directory: %v", err)
 	}
 
-	var fileCreated bool
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -97,24 +100,15 @@ DirectoryReady:
 				continue
 			}
 
-			// Track when file is created or written
-			if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) {
-				fileCreated = true
-				continue
-			}
-
-			// Wait for CloseWrite event (Linux) or Rename event (atomic write completion)
-			// On Windows/macOS, we rely on the atomic rename completing the write
-			if fileCreated && (event.Has(fsnotify.Chmod) || event.Has(fsnotify.Rename)) {
-				// File has been closed/completed, try to read it
+			if event.Has(fsnotify.Create) {
 				result, err := rh.tryReadResult()
 				if err != nil {
-					// If read fails, file might have been moved, continue waiting
-					continue
+					log.Debugf("error while reading result: %v", err)
+					return result, err
 				}
+				log.Infof("installer result: %v", result)
 				return result, nil
 			}
-
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return Result{}, errors.New("watcher closed unexpectedly")

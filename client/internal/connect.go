@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
@@ -278,6 +279,14 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
+
+		inst, err := installer.New()
+		if err == nil {
+			// todo consider to keep result file but somehow prevent ui to show error again
+			if err := inst.CleanUpInstallerFiles(); err != nil {
+				log.Errorf("failed to clean up temporary installer file: %v", err)
+			}
+		}
 
 		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -16,32 +15,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var (
-	// defaultTempDir is OS specific
-	defaultTempDir = filepath.Join(os.Getenv("ProgramData"), "Netbird", "tmp-install")
+const (
+	msgLogFile = "msi.log"
 )
-
-func TempDir() string {
-	return defaultTempDir
-}
-
-type Installer struct {
-	tempDir string
-}
-
-// New used by the service
-func New() *Installer {
-	return &Installer{
-		tempDir: defaultTempDir,
-	}
-}
-
-// NewWithDir used by the updater process, get the tempDir from the service via cmd line
-func NewWithDir(tempDir string) *Installer {
-	return &Installer{
-		tempDir: tempDir,
-	}
-}
 
 func (u *Installer) MakeTempDir() (string, error) {
 	if err := os.MkdirAll(u.tempDir, 0o755); err != nil {
@@ -53,6 +29,7 @@ func (u *Installer) MakeTempDir() (string, error) {
 // RunInstallation starts the updater process to run the installation
 // This will run by the original service process
 func (u *Installer) RunInstallation(installerFile string) error {
+	log.Infof("running installer")
 	// copy the current binary to a temp location as an updater binary
 	updaterPath, err := u.copyUpdater()
 	if err != nil {
@@ -65,11 +42,11 @@ func (u *Installer) RunInstallation(installerFile string) error {
 		return err
 	}
 
-	log.Infof("run updater binary: %s", updaterPath)
-
 	installerFullPath := filepath.Join(u.tempDir, installerFile)
 
-	updateCmd := exec.Command(updaterPath, "--installer-path", installerFullPath, "--service-dir", workspace, "--dry-run=true")
+	log.Infof("run updater binary: %s, %s, %s", updaterPath, installerFullPath, workspace)
+
+	updateCmd := exec.Command(updaterPath, "--temp-dir", u.tempDir, "--installer-file", installerFullPath, "--service-dir", workspace, "--dry-run=true")
 	updateCmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
 	}
@@ -136,7 +113,7 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 		cmd = exec.CommandContext(ctx, installerPath, "/S")
 	} else {
 		installerDir := filepath.Dir(installerPath)
-		logPath := filepath.Join(installerDir, "msi.log")
+		logPath := filepath.Join(installerDir, msgLogFile)
 		log.Infof("run msi installer: %s", installerPath)
 		cmd = exec.CommandContext(ctx, "msiexec.exe", "/i", filepath.Base(installerPath), "/quiet", "/qn", "/l*v", logPath)
 	}
@@ -155,51 +132,6 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 	}
 
 	return nil
-}
-
-func (u *Installer) TempDir() string {
-	return u.tempDir
-}
-
-func (u *Installer) CleanUpInstallerFile() error {
-	// Check if tempDir exists
-	info, err := os.Stat(u.tempDir)
-	if os.IsNotExist(err) || !info.IsDir() {
-		return nil
-	} else if err != nil {
-		return err
-	}
-
-	entries, err := os.ReadDir(u.tempDir)
-	if err != nil {
-		return err
-	}
-
-	binaryExtensions := BinaryExtensions()
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		name := entry.Name()
-		for _, ext := range binaryExtensions {
-			// Compare suffix case-insensitively
-			if strings.HasSuffix(strings.ToLower(name), strings.ToLower(ext)) {
-				// Delete the file
-				if err := os.Remove(filepath.Join(u.tempDir, name)); err != nil {
-					return err
-				}
-				break // No need to check other extensions
-			}
-		}
-	}
-
-	return nil
-}
-
-func (u *Installer) cleanUpLogs() {
-
 }
 
 func (u *Installer) startDaemon(daemonFolder string) error {
