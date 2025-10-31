@@ -24,6 +24,7 @@ import (
 // Manager handles netflow tracking and logging
 type Manager struct {
 	mux            sync.Mutex
+	shutdownWg     sync.WaitGroup
 	logger         nftypes.FlowLogger
 	flowConfig     *nftypes.FlowConfig
 	conntrack      nftypes.ConnTracker
@@ -105,8 +106,15 @@ func (m *Manager) resetClient() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 
-	go m.receiveACKs(ctx, flowClient)
-	go m.startSender(ctx)
+	m.shutdownWg.Add(2)
+	go func() {
+		defer m.shutdownWg.Done()
+		m.receiveACKs(ctx, flowClient)
+	}()
+	go func() {
+		defer m.shutdownWg.Done()
+		m.startSender(ctx)
+	}()
 
 	return nil
 }
@@ -176,11 +184,12 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 // Close cleans up all resources
 func (m *Manager) Close() {
 	m.mux.Lock()
-	defer m.mux.Unlock()
-
 	if err := m.disableFlow(); err != nil {
 		log.Warnf("failed to disable flow manager: %v", err)
 	}
+	m.mux.Unlock()
+
+	m.shutdownWg.Wait()
 }
 
 // GetLogger returns the flow logger

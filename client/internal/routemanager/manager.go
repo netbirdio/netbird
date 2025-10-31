@@ -81,6 +81,7 @@ type DefaultManager struct {
 	ctx                  context.Context
 	stop                 context.CancelFunc
 	mux                  sync.Mutex
+	shutdownWg           sync.WaitGroup
 	clientNetworks       map[route.HAUniqueID]*client.Watcher
 	routeSelector        *routeselector.RouteSelector
 	serverRouter         *server.Router
@@ -283,6 +284,7 @@ func (m *DefaultManager) SetDNSForwarderPort(port uint16) {
 // Stop stops the manager watchers and clean firewall rules
 func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 	m.stop()
+	m.shutdownWg.Wait()
 	if m.serverRouter != nil {
 		m.serverRouter.CleanUp()
 	}
@@ -485,7 +487,11 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 		}
 		clientNetworkWatcher := client.NewWatcher(config)
 		m.clientNetworks[id] = clientNetworkWatcher
-		go clientNetworkWatcher.Start()
+		m.shutdownWg.Add(1)
+		go func() {
+			defer m.shutdownWg.Done()
+			clientNetworkWatcher.Start()
+		}()
 		clientNetworkWatcher.SendUpdate(client.RoutesUpdate{Routes: routes})
 	}
 
@@ -527,7 +533,11 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 			}
 			clientNetworkWatcher = client.NewWatcher(config)
 			m.clientNetworks[id] = clientNetworkWatcher
-			go clientNetworkWatcher.Start()
+			m.shutdownWg.Add(1)
+			go func() {
+				defer m.shutdownWg.Done()
+				clientNetworkWatcher.Start()
+			}()
 		}
 		update := client.RoutesUpdate{
 			UpdateSerial: updateSerial,
