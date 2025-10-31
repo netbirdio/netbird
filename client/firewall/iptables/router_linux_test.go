@@ -39,7 +39,6 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		assert.NoError(t, manager.Reset(), "shouldn't return error")
 	}()
 
-	// Now 5 rules:
 	// 1. established rule forward in
 	// 2. estbalished rule forward out
 	// 3. jump rule to POST nat chain
@@ -49,7 +48,9 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	// 7. static return masquerade rule
 	// 8. mangle prerouting mark rule
 	// 9. mangle postrouting mark rule
-	require.Len(t, manager.rules, 9, "should have created rules map")
+	// 10. jump rule to MSS clamping chain
+	// 11. MSS clamping rule for outbound traffic
+	require.Len(t, manager.rules, 11, "should have created rules map")
 
 	exists, err := manager.iptablesClient.Exists(tableNat, chainPOSTROUTING, "-j", chainRTNAT)
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainPOSTROUTING)
