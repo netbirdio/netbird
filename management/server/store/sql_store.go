@@ -1338,14 +1338,14 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 			if expiresAt.Valid {
 				sk.ExpiresAt = &expiresAt.Time
 			}
+			if skCreatedAt.Valid {
+				sk.CreatedAt = skCreatedAt.Time
+			}
 			if updatedAt.Valid {
 				sk.UpdatedAt = updatedAt.Time
 				if sk.UpdatedAt.IsZero() {
 					sk.UpdatedAt = sk.CreatedAt
 				}
-			}
-			if skCreatedAt.Valid {
-				sk.CreatedAt = skCreatedAt.Time
 			}
 			if lastUsed.Valid {
 				sk.LastUsed = &lastUsed.Time
