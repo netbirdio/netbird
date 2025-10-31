@@ -1328,11 +1328,11 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 	keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (types.SetupKey, error) {
 		var sk types.SetupKey
 		var autoGroups []byte
-		var expiresAt, updatedAt, lastUsed sql.NullTime
+		var skCreatedAt, expiresAt, updatedAt, lastUsed sql.NullTime
 		var revoked, ephemeral, allowExtraDNSLabels sql.NullBool
 		var usedTimes, usageLimit sql.NullInt64
 
-		err := row.Scan(&sk.Id, &sk.AccountID, &sk.Key, &sk.KeySecret, &sk.Name, &sk.Type, &sk.CreatedAt, &expiresAt, &updatedAt, &revoked, &usedTimes, &lastUsed, &autoGroups, &usageLimit, &ephemeral, &allowExtraDNSLabels)
+		err := row.Scan(&sk.Id, &sk.AccountID, &sk.Key, &sk.KeySecret, &sk.Name, &sk.Type, &skCreatedAt, &expiresAt, &updatedAt, &revoked, &usedTimes, &lastUsed, &autoGroups, &usageLimit, &ephemeral, &allowExtraDNSLabels)
 
 		if err == nil {
 			if expiresAt.Valid {
@@ -1343,6 +1343,9 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 				if sk.UpdatedAt.IsZero() {
 					sk.UpdatedAt = sk.CreatedAt
 				}
+			}
+			if skCreatedAt.Valid {
+				sk.CreatedAt = skCreatedAt.Time
 			}
 			if lastUsed.Valid {
 				sk.LastUsed = &lastUsed.Time
@@ -1386,17 +1389,20 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (nbpeer.Peer, error) {
 		var p nbpeer.Peer
 		p.Status = &nbpeer.PeerStatus{}
-		var lastLogin sql.NullTime
+		var lastLogin, createdAt sql.NullTime
 		var sshEnabled, loginExpirationEnabled, inactivityExpirationEnabled, ephemeral, allowExtraDNSLabels sql.NullBool
 		var peerStatusLastSeen sql.NullTime
 		var peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval sql.NullBool
 		var ip, extraDNS, netAddr, env, flags, files, connIP []byte
 
-		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled, &loginExpirationEnabled, &inactivityExpirationEnabled, &lastLogin, &p.CreatedAt, &ephemeral, &extraDNS, &allowExtraDNSLabels, &p.Meta.Hostname, &p.Meta.GoOS, &p.Meta.Kernel, &p.Meta.Core, &p.Meta.Platform, &p.Meta.OS, &p.Meta.OSVersion, &p.Meta.WtVersion, &p.Meta.UIVersion, &p.Meta.KernelVersion, &netAddr, &p.Meta.SystemSerialNumber, &p.Meta.SystemProductName, &p.Meta.SystemManufacturer, &env, &flags, &files, &peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP, &p.Location.CountryCode, &p.Location.CityName, &p.Location.GeoNameID)
+		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled, &loginExpirationEnabled, &inactivityExpirationEnabled, &lastLogin, &createdAt, &ephemeral, &extraDNS, &allowExtraDNSLabels, &p.Meta.Hostname, &p.Meta.GoOS, &p.Meta.Kernel, &p.Meta.Core, &p.Meta.Platform, &p.Meta.OS, &p.Meta.OSVersion, &p.Meta.WtVersion, &p.Meta.UIVersion, &p.Meta.KernelVersion, &netAddr, &p.Meta.SystemSerialNumber, &p.Meta.SystemProductName, &p.Meta.SystemManufacturer, &env, &flags, &files, &peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP, &p.Location.CountryCode, &p.Location.CityName, &p.Location.GeoNameID)
 
 		if err == nil {
 			if lastLogin.Valid {
 				p.LastLogin = &lastLogin.Time
+			}
+			if createdAt.Valid {
+				p.CreatedAt = createdAt.Time
 			}
 			if sshEnabled.Valid {
 				p.SSHEnabled = sshEnabled.Bool
@@ -1465,12 +1471,15 @@ func (s *SqlStore) getUsers(ctx context.Context, accountID string) ([]types.User
 	users, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (types.User, error) {
 		var u types.User
 		var autoGroups []byte
-		var lastLogin sql.NullTime
+		var lastLogin, createdAt sql.NullTime
 		var isServiceUser, nonDeletable, blocked, pendingApproval sql.NullBool
-		err := row.Scan(&u.Id, &u.AccountID, &u.Role, &isServiceUser, &nonDeletable, &u.ServiceUserName, &autoGroups, &blocked, &pendingApproval, &lastLogin, &u.CreatedAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType)
+		err := row.Scan(&u.Id, &u.AccountID, &u.Role, &isServiceUser, &nonDeletable, &u.ServiceUserName, &autoGroups, &blocked, &pendingApproval, &lastLogin, &createdAt, &u.Issued, &u.IntegrationReference.ID, &u.IntegrationReference.IntegrationType)
 		if err == nil {
 			if lastLogin.Valid {
 				u.LastLogin = &lastLogin.Time
+			}
+			if createdAt.Valid {
+				u.CreatedAt = createdAt.Time
 			}
 			if isServiceUser.Valid {
 				u.IsServiceUser = isServiceUser.Bool
@@ -1767,15 +1776,22 @@ func (s *SqlStore) getNetworkResources(ctx context.Context, accountID string) ([
 func (s *SqlStore) getAccountOnboarding(ctx context.Context, accountID string, account *types.Account) error {
 	const query = `SELECT account_id, onboarding_flow_pending, signup_form_pending, created_at, updated_at FROM account_onboardings WHERE account_id = $1`
 	var onboardingFlowPending, signupFormPending sql.NullBool
+	var createdAt, updatedAt sql.NullTime
 	err := s.pool.QueryRow(ctx, query, accountID).Scan(
 		&account.Onboarding.AccountID,
 		&onboardingFlowPending,
 		&signupFormPending,
-		&account.Onboarding.CreatedAt,
-		&account.Onboarding.UpdatedAt,
+		&createdAt,
+		&updatedAt,
 	)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
+	}
+	if createdAt.Valid {
+		account.Onboarding.CreatedAt = createdAt.Time
+	}
+	if updatedAt.Valid {
+		account.Onboarding.UpdatedAt = updatedAt.Time
 	}
 	if onboardingFlowPending.Valid {
 		account.Onboarding.OnboardingFlowPending = onboardingFlowPending.Bool
@@ -1797,11 +1813,14 @@ func (s *SqlStore) getPersonalAccessTokens(ctx context.Context, userIDs []string
 	}
 	pats, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (types.PersonalAccessToken, error) {
 		var pat types.PersonalAccessToken
-		var expirationDate, lastUsed sql.NullTime
-		err := row.Scan(&pat.ID, &pat.UserID, &pat.Name, &pat.HashedToken, &expirationDate, &pat.CreatedBy, &pat.CreatedAt, &lastUsed)
+		var expirationDate, lastUsed, createdAt sql.NullTime
+		err := row.Scan(&pat.ID, &pat.UserID, &pat.Name, &pat.HashedToken, &expirationDate, &pat.CreatedBy, &createdAt, &lastUsed)
 		if err == nil {
 			if expirationDate.Valid {
 				pat.ExpirationDate = &expirationDate.Time
+			}
+			if createdAt.Valid {
+				pat.CreatedAt = createdAt.Time
 			}
 			if lastUsed.Valid {
 				pat.LastUsed = &lastUsed.Time
