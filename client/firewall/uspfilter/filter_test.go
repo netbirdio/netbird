@@ -1024,11 +1024,12 @@ func generateSYNPacketWithMSS(tb testing.TB, srcIP, dstIP net.IP, srcPort, dstPo
 			},
 		},
 	}
-	tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	err := tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	require.NoError(tb, err)
 
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
-	err := gopacket.SerializeLayers(buf, opts, ipLayer, tcpLayer, gopacket.Payload([]byte{}))
+	err = gopacket.SerializeLayers(buf, opts, ipLayer, tcpLayer, gopacket.Payload([]byte{}))
 	require.NoError(tb, err)
 
 	return buf.Bytes()
@@ -1059,11 +1060,12 @@ func generateSYNACKPacketWithMSS(tb testing.TB, srcIP, dstIP net.IP, srcPort, ds
 			},
 		},
 	}
-	tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	err := tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	require.NoError(tb, err)
 
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
-	err := gopacket.SerializeLayers(buf, opts, ipLayer, tcpLayer, gopacket.Payload([]byte{}))
+	err = gopacket.SerializeLayers(buf, opts, ipLayer, tcpLayer, gopacket.Payload([]byte{}))
 	require.NoError(tb, err)
 
 	return buf.Bytes()
@@ -1102,11 +1104,12 @@ func generateTCPPacketWithFlags(tb testing.TB, srcIP, dstIP net.IP, srcPort, dst
 		tcpLayer.PSH = true
 	}
 
-	tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	err := tcpLayer.SetNetworkLayerForChecksum(ipLayer)
+	require.NoError(tb, err)
 
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
-	err := gopacket.SerializeLayers(buf, opts, ipLayer, tcpLayer, gopacket.Payload([]byte{}))
+	err = gopacket.SerializeLayers(buf, opts, ipLayer, tcpLayer, gopacket.Payload([]byte{}))
 	require.NoError(tb, err)
 
 	return buf.Bytes()
