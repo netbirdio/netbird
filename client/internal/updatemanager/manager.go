@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -78,8 +79,10 @@ func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager)
 
 // CheckUpdateSuccess checks if the update was successful. It works without to start the update manager.
 func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
-	// todo call installer log pick up
-	// todo call installer cleanup
+	inst := installer.New()
+	if err := inst.CleanUpInstallerFile(); err != nil {
+		log.Errorf("failed to clean up temporary installer file: %v", err)
+	}
 	m.updateStateManager(ctx)
 	return
 }
@@ -289,7 +292,7 @@ func (m *Manager) updateStateManager(ctx context.Context) {
 		log.Errorf("failed to cast state to UpdateState")
 		return
 	}
-	log.Debugf("autoUpdate state loaded, %v", *updateState)
+	log.Debugf("auto-update state loaded, %v", *updateState)
 	if updateState.TargetVersion == m.currentVersion {
 		log.Infof("published notification event")
 		m.statusRecorder.PublishEvent(

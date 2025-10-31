@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -161,7 +162,39 @@ func (u *Installer) TempDir() string {
 }
 
 func (u *Installer) CleanUpInstallerFile() error {
-	// todo implement me
+	// Check if tempDir exists
+	info, err := os.Stat(u.tempDir)
+	if os.IsNotExist(err) || !info.IsDir() {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(u.tempDir)
+	if err != nil {
+		return err
+	}
+
+	binaryExtensions := BinaryExtensions()
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		for _, ext := range binaryExtensions {
+			// Compare suffix case-insensitively
+			if strings.HasSuffix(strings.ToLower(name), strings.ToLower(ext)) {
+				// Delete the file
+				if err := os.Remove(filepath.Join(u.tempDir, name)); err != nil {
+					return err
+				}
+				break // No need to check other extensions
+			}
+		}
+	}
+
 	return nil
 }
 
