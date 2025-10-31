@@ -1319,7 +1319,8 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 }
 
 func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.SetupKey, error) {
-	const query = `SELECT id, account_id, key, key_secret, name, type, created_at, expires_at, updated_at, revoked, used_times, last_used, auto_groups, usage_limit, ephemeral, allow_extra_dns_labels FROM setup_keys WHERE account_id = $1`
+	const query = `SELECT id, account_id, key, key_secret, name, type, created_at, expires_at, updated_at, 
+	revoked, used_times, last_used, auto_groups, usage_limit, ephemeral, allow_extra_dns_labels FROM setup_keys WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1332,7 +1333,8 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 		var revoked, ephemeral, allowExtraDNSLabels sql.NullBool
 		var usedTimes, usageLimit sql.NullInt64
 
-		err := row.Scan(&sk.Id, &sk.AccountID, &sk.Key, &sk.KeySecret, &sk.Name, &sk.Type, &skCreatedAt, &expiresAt, &updatedAt, &revoked, &usedTimes, &lastUsed, &autoGroups, &usageLimit, &ephemeral, &allowExtraDNSLabels)
+		err := row.Scan(&sk.Id, &sk.AccountID, &sk.Key, &sk.KeySecret, &sk.Name, &sk.Type, &skCreatedAt,
+			&expiresAt, &updatedAt, &revoked, &usedTimes, &lastUsed, &autoGroups, &usageLimit, &ephemeral, &allowExtraDNSLabels)
 
 		if err == nil {
 			if expiresAt.Valid {
@@ -1380,7 +1382,13 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 }
 
 func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Peer, error) {
-	const query = `SELECT id, account_id, key, ip, name, dns_label, user_id, ssh_key, ssh_enabled, login_expiration_enabled, inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname, meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version, meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer, meta_environment, meta_flags, meta_files, peer_status_last_seen, peer_status_connected, peer_status_login_expired, peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name, location_geo_name_id FROM peers WHERE account_id = $1`
+	const query = `SELECT id, account_id, key, ip, name, dns_label, user_id, ssh_key, ssh_enabled, login_expiration_enabled,
+	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname, 
+	meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version, 
+	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
+	meta_environment, meta_flags, meta_files, peer_status_last_seen, peer_status_connected, peer_status_login_expired, 
+	peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name, 
+	location_geo_name_id FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1389,13 +1397,26 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (nbpeer.Peer, error) {
 		var p nbpeer.Peer
 		p.Status = &nbpeer.PeerStatus{}
-		var lastLogin, createdAt sql.NullTime
-		var sshEnabled, loginExpirationEnabled, inactivityExpirationEnabled, ephemeral, allowExtraDNSLabels sql.NullBool
-		var peerStatusLastSeen sql.NullTime
-		var peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval sql.NullBool
-		var ip, extraDNS, netAddr, env, flags, files, connIP []byte
+		var (
+			lastLogin, createdAt                                                                            sql.NullTime
+			sshEnabled, loginExpirationEnabled, inactivityExpirationEnabled, ephemeral, allowExtraDNSLabels sql.NullBool
+			peerStatusLastSeen                                                                              sql.NullTime
+			peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval                         sql.NullBool
+			ip, extraDNS, netAddr, env, flags, files, connIP                                                []byte
+			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
+			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
+			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
+			locationCountryCode, locationCityName                                                           sql.NullString
+			locationGeoNameID                                                                               sql.NullInt64
+		)
 
-		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled, &loginExpirationEnabled, &inactivityExpirationEnabled, &lastLogin, &createdAt, &ephemeral, &extraDNS, &allowExtraDNSLabels, &p.Meta.Hostname, &p.Meta.GoOS, &p.Meta.Kernel, &p.Meta.Core, &p.Meta.Platform, &p.Meta.OS, &p.Meta.OSVersion, &p.Meta.WtVersion, &p.Meta.UIVersion, &p.Meta.KernelVersion, &netAddr, &p.Meta.SystemSerialNumber, &p.Meta.SystemProductName, &p.Meta.SystemManufacturer, &env, &flags, &files, &peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP, &p.Location.CountryCode, &p.Location.CityName, &p.Location.GeoNameID)
+		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled,
+			&loginExpirationEnabled, &inactivityExpirationEnabled, &lastLogin, &createdAt, &ephemeral, &extraDNS,
+			&allowExtraDNSLabels, &metaHostname, &metaGoOS, &metaKernel, &metaCore, &metaPlatform,
+			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
+			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files,
+			&peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP,
+			&locationCountryCode, &locationCityName, &locationGeoNameID)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -1431,7 +1452,54 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			if peerStatusRequiresApproval.Valid {
 				p.Status.RequiresApproval = peerStatusRequiresApproval.Bool
 			}
-
+			if metaHostname.Valid {
+				p.Meta.Hostname = metaHostname.String
+			}
+			if metaGoOS.Valid {
+				p.Meta.GoOS = metaGoOS.String
+			}
+			if metaKernel.Valid {
+				p.Meta.Kernel = metaKernel.String
+			}
+			if metaCore.Valid {
+				p.Meta.Core = metaCore.String
+			}
+			if metaPlatform.Valid {
+				p.Meta.Platform = metaPlatform.String
+			}
+			if metaOS.Valid {
+				p.Meta.OS = metaOS.String
+			}
+			if metaOSVersion.Valid {
+				p.Meta.OSVersion = metaOSVersion.String
+			}
+			if metaWtVersion.Valid {
+				p.Meta.WtVersion = metaWtVersion.String
+			}
+			if metaUIVersion.Valid {
+				p.Meta.UIVersion = metaUIVersion.String
+			}
+			if metaKernelVersion.Valid {
+				p.Meta.KernelVersion = metaKernelVersion.String
+			}
+			if metaSystemSerialNumber.Valid {
+				p.Meta.SystemSerialNumber = metaSystemSerialNumber.String
+			}
+			if metaSystemProductName.Valid {
+				p.Meta.SystemProductName = metaSystemProductName.String
+			}
+			if metaSystemManufacturer.Valid {
+				p.Meta.SystemManufacturer = metaSystemManufacturer.String
+			}
+			if locationCountryCode.Valid {
+				p.Location.CountryCode = locationCountryCode.String
+			}
+			if locationCityName.Valid {
+				p.Location.CityName = locationCityName.String
+			}
+			if locationGeoNameID.Valid {
+				p.Location.GeoNameID = uint(locationGeoNameID.Int64)
+			}
 			if ip != nil {
 				_ = json.Unmarshal(ip, &p.IP)
 			}
