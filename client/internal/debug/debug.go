@@ -54,6 +54,7 @@ block.prof: Block profiling information.
 heap.prof: Heap profiling information (snapshot of memory allocations).
 allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
+cpu.prof: CPU profiling information.
 
 
 Anonymization Process
@@ -203,6 +204,7 @@ type BundleGenerator struct {
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
 	logFile        string
+	cpuProfile     []byte
 
 	anonymize         bool
 	clientStatus      string
@@ -224,6 +226,7 @@ type GeneratorDependencies struct {
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
 	LogFile        string
+	CPUProfile     []byte
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -240,6 +243,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
 		logFile:        deps.LogFile,
+		cpuProfile:     deps.CPUProfile,
 
 		anonymize:         cfg.Anonymize,
 		clientStatus:      cfg.ClientStatus,
@@ -309,6 +313,10 @@ func (g *BundleGenerator) createArchive() error {
 
 	if err := g.addProf(); err != nil {
 		log.Errorf("failed to add profiles to debug bundle: %v", err)
+	}
+
+	if err := g.addCPUProfile(); err != nil {
+		log.Errorf("failed to add CPU profile to debug bundle: %v", err)
 	}
 
 	if err := g.addSyncResponse(); err != nil {
@@ -487,6 +495,19 @@ func (g *BundleGenerator) addProf() (err error) {
 			return fmt.Errorf("add %s file to zip: %w", profile, err)
 		}
 	}
+	return nil
+}
+
+func (g *BundleGenerator) addCPUProfile() error {
+	if len(g.cpuProfile) == 0 {
+		return nil
+	}
+
+	reader := bytes.NewReader(g.cpuProfile)
+	if err := g.addFileToZip(reader, "cpu.prof"); err != nil {
+		return fmt.Errorf("add CPU profile to zip: %w", err)
+	}
+
 	return nil
 }
 
