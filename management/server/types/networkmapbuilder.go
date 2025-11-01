@@ -200,9 +200,9 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 		return
 	}
 
-	allPotentialPeers, firewallRules := b.getPeerConnectionResources(account, peerID, b.validatedPeers)
+	allPotentialPeers, firewallRules := b.getPeerConnectionResources(account, peer, b.validatedPeers)
 
-	isRouter, networkResourcesRoutes, sourcePeers := b.getNetworkResourcesForPeer(account, peerID)
+	isRouter, networkResourcesRoutes, sourcePeers := b.getNetworkResourcesForPeer(account, peer)
 
 	var emptyExpiredPeers []*nbpeer.Peer
 	finalAllPeers := b.addNetworksRoutingPeers(
@@ -232,14 +232,12 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 	b.cache.peerACLs[peerID] = view
 }
 
-func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peerID string,
+func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *nbpeer.Peer,
 	validatedPeersMap map[string]struct{},
 ) ([]*nbpeer.Peer, []*FirewallRule) {
 	ctx := context.Background()
-	peer := b.cache.globalPeers[peerID]
-	if peer == nil {
-		return nil, nil
-	}
+
+	peerID := peer.ID
 
 	peerGroups := b.cache.peerToGroups[peerID]
 	peerGroupsMap := make(map[string]struct{}, len(peerGroups))
@@ -260,21 +258,39 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peerID 
 			}
 			rules := b.cache.policyToRules[policy.ID]
 			for _, rule := range rules {
-				peerInSources := b.isPeerInGroupscached(rule.Sources, peerGroupsMap)
-				peerInDestinations := b.isPeerInGroupscached(rule.Destinations, peerGroupsMap)
+				var sourcePeers, destinationPeers []*nbpeer.Peer
+				var peerInSources, peerInDestinations bool
+
+				if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+					peerInSources = rule.SourceResource.ID == peerID
+				} else {
+					peerInSources = b.isPeerInGroupscached(rule.Sources, peerGroupsMap)
+				}
+
+				if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+					peerInDestinations = rule.DestinationResource.ID == peerID
+				} else {
+					peerInDestinations = b.isPeerInGroupscached(rule.Destinations, peerGroupsMap)
+				}
 
 				if !peerInSources && !peerInDestinations {
 					continue
 				}
 
-				var sourcePeers []*nbpeer.Peer
 				if peerInDestinations {
-					sourcePeers = b.getPeersFromGroupscached(account, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+					if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+						sourcePeers = []*nbpeer.Peer{peer}
+					} else {
+						sourcePeers = b.getPeersFromGroupscached(account, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
+					}
 				}
 
-				var destinationPeers []*nbpeer.Peer
 				if peerInSources {
-					destinationPeers = b.getPeersFromGroupscached(account, rule.Destinations, peerID, nil, validatedPeersMap)
+					if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+						destinationPeers = []*nbpeer.Peer{peer}
+					} else {
+						destinationPeers = b.getPeersFromGroupscached(account, rule.Destinations, peerID, nil, validatedPeersMap)
+					}
 				}
 
 				if rule.Bidirectional {
@@ -415,9 +431,9 @@ func (b *NetworkMapBuilder) generateResourcescached(
 	}
 }
 
-func (b *NetworkMapBuilder) getNetworkResourcesForPeer(account *Account, peerID string) (bool, []*route.Route, map[string]struct{}) {
-
+func (b *NetworkMapBuilder) getNetworkResourcesForPeer(account *Account, peer *nbpeer.Peer) (bool, []*route.Route, map[string]struct{}) {
 	ctx := context.Background()
+	peerID := peer.ID
 
 	var isRoutingPeer bool
 	var routes []*route.Route
@@ -473,7 +489,12 @@ func (b *NetworkMapBuilder) getNetworkResourcesForPeer(account *Account, peerID 
 
 		if isRouterForThisResource {
 			for _, policy := range resourcePolicies {
-				peersWithAccess := b.getPeersFromGroupscached(account, policy.SourceGroups(), "", policy.SourcePostureChecks, b.validatedPeers)
+				var peersWithAccess []*nbpeer.Peer
+				if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
+					peersWithAccess = []*nbpeer.Peer{peer}
+				} else {
+					peersWithAccess = b.getPeersFromGroupscached(account, policy.SourceGroups(), "", policy.SourcePostureChecks, b.validatedPeers)
+				}
 				for _, p := range peersWithAccess {
 					allSourcePeers[p.ID] = struct{}{}
 				}
@@ -592,7 +613,7 @@ func (b *NetworkMapBuilder) buildPeerRoutesView(account *Account, peerID string)
 		}
 	}
 
-	_, networkResourcesRoutes, _ := b.getNetworkResourcesForPeer(account, peerID)
+	_, networkResourcesRoutes, _ := b.getNetworkResourcesForPeer(account, peer)
 
 	for _, rt := range networkResourcesRoutes {
 		view.NetworkResourceIDs = append(view.NetworkResourceIDs, rt.ID)
