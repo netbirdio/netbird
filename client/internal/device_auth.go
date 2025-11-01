@@ -38,6 +38,8 @@ type DeviceAuthProviderConfig struct {
 	Scope string
 	// UseIDToken indicates if the id token should be used for authentication
 	UseIDToken bool
+	// LoginHint is used to pre-fill the email/username field during authentication
+	LoginHint string
 }
 
 // GetDeviceAuthorizationFlowInfo initialize a DeviceAuthorizationFlow instance and return with it
