@@ -16,6 +16,7 @@ import (
 	"github.com/google/nftables/xt"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -32,12 +33,16 @@ const (
 	chainNameRoutingNat    = "netbird-rt-postrouting"
 	chainNameRoutingRdr    = "netbird-rt-redirect"
 	chainNameForward       = "FORWARD"
+	chainNameMangleForward = "netbird-mangle-forward"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
 	userDataAcceptForwardRuleOif = "frwacceptoif"
 
 	dnatSuffix = "_dnat"
 	snatSuffix = "_snat"
+
+	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
+	ipTCPHeaderMinSize = 40
 )
 
 const refreshRulesMapError = "refresh rules map: %w"
@@ -63,9 +68,10 @@ type router struct {
 	wgIface          iFaceMapper
 	ipFwdState       *ipfwdstate.IPForwardingState
 	legacyManagement bool
+	mtu              uint16
 }
 
-func newRouter(workTable *nftables.Table, wgIface iFaceMapper) (*router, error) {
+func newRouter(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) (*router, error) {
 	r := &router{
 		conn:       &nftables.Conn{},
 		workTable:  workTable,
@@ -73,6 +79,7 @@ func newRouter(workTable *nftables.Table, wgIface iFaceMapper) (*router, error) 
 		rules:      make(map[string]*nftables.Rule),
 		wgIface:    wgIface,
 		ipFwdState: ipfwdstate.NewIPForwardingState(),
+		mtu:        mtu,
 	}
 
 	r.ipsetCounter = refcounter.New(
@@ -220,9 +227,21 @@ func (r *router) createContainers() error {
 		Type:     nftables.ChainTypeFilter,
 	})
 
+	r.chains[chainNameMangleForward] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameMangleForward,
+		Table:    r.workTable,
+		Hooknum:  nftables.ChainHookForward,
+		Priority: nftables.ChainPriorityMangle,
+		Type:     nftables.ChainTypeFilter,
+	})
+
 	// Add the single NAT rule that matches on mark
 	if err := r.addPostroutingRules(); err != nil {
 		return fmt.Errorf("add single nat rule: %v", err)
+	}
+
+	if err := r.addMSSClampingRules(); err != nil {
+		log.Errorf("failed to add MSS clamping rules: %s", err)
 	}
 
 	if err := r.acceptForwardRules(); err != nil {
@@ -740,6 +759,83 @@ func (r *router) addPostroutingRules() error {
 		Table: r.workTable,
 		Chain: r.chains[chainNameRoutingNat],
 		Exprs: exprs2,
+	})
+
+	return nil
+}
+
+// addMSSClampingRules adds MSS clamping rules to prevent fragmentation for forwarded traffic.
+// TODO: Add IPv6 support
+func (r *router) addMSSClampingRules() error {
+	mss := r.mtu - ipTCPHeaderMinSize
+
+	exprsOut := []expr.Any{
+		&expr.Meta{
+			Key:      expr.MetaKeyOIFNAME,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(r.wgIface.Name()),
+		},
+		&expr.Meta{
+			Key:      expr.MetaKeyL4PROTO,
+			Register: 1,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{unix.IPPROTO_TCP},
+		},
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       13,
+			Len:          1,
+		},
+		&expr.Bitwise{
+			DestRegister:   1,
+			SourceRegister: 1,
+			Len:            1,
+			Mask:           []byte{0x02},
+			Xor:            []byte{0x00},
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpNeq,
+			Register: 1,
+			Data:     []byte{0x00},
+		},
+		&expr.Counter{},
+		&expr.Exthdr{
+			DestRegister: 1,
+			Type:         2,
+			Offset:       2,
+			Len:          2,
+			Op:           expr.ExthdrOpTcpopt,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpGt,
+			Register: 1,
+			Data:     binaryutil.BigEndian.PutUint16(uint16(mss)),
+		},
+		&expr.Immediate{
+			Register: 1,
+			Data:     binaryutil.BigEndian.PutUint16(uint16(mss)),
+		},
+		&expr.Exthdr{
+			SourceRegister: 1,
+			Type:           2,
+			Offset:         2,
+			Len:            2,
+			Op:             expr.ExthdrOpTcpopt,
+		},
+	}
+
+	r.conn.AddRule(&nftables.Rule{
+		Table: r.workTable,
+		Chain: r.chains[chainNameMangleForward],
+		Exprs: exprsOut,
 	})
 
 	return nil

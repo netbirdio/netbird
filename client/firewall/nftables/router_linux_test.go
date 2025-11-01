@@ -17,6 +17,7 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
+	"github.com/netbirdio/netbird/client/iface"
 )
 
 const (
@@ -36,7 +37,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
 			// need fw manager to init both acl mgr and router for all chains to be present
-			manager, err := Create(ifaceMock)
+			manager, err := Create(ifaceMock, iface.DefaultMTU)
 			t.Cleanup(func() {
 				require.NoError(t, manager.Close(nil))
 			})
@@ -125,7 +126,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 
 	for _, testCase := range test.RemoveRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			manager, err := Create(ifaceMock)
+			manager, err := Create(ifaceMock, iface.DefaultMTU)
 			t.Cleanup(func() {
 				require.NoError(t, manager.Close(nil))
 			})
@@ -197,7 +198,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	defer deleteWorkTable()
 
-	r, err := newRouter(workTable, ifaceMock)
+	r, err := newRouter(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "Failed to create router")
 	require.NoError(t, r.init(workTable))
 
@@ -364,7 +365,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 
 	defer deleteWorkTable()
 
-	r, err := newRouter(workTable, ifaceMock)
+	r, err := newRouter(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "Failed to create router")
 	require.NoError(t, r.init(workTable))
 
