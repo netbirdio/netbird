@@ -314,7 +314,7 @@ func getStatusOutput(cmd *cobra.Command, anon bool) string {
 		}
 
 		statusOutputString = nbstatus.ParseToFullDetailSummary(
-			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", profName),
+			nbstatus.ConvertToStatusOutputOverview(statusResp.GetFullStatus(), anon, statusResp.GetDaemonVersion(), "", nil, nil, nil, "", profName),
 		)
 	}
 	return statusOutputString

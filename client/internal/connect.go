@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -34,7 +35,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -52,7 +52,6 @@ func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
-
 ) *ConnectClient {
 	return &ConnectClient{
 		ctx:            ctx,
@@ -63,8 +62,8 @@ func NewConnectClient(
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run(runningChan chan struct{}) error {
-	return c.run(MobileDependency{}, runningChan)
+func (c *ConnectClient) Run(runningChan chan struct{}, logFile string) error {
+	return c.run(MobileDependency{}, runningChan, logFile)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -83,7 +82,7 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 	}
-	return c.run(mobileDependency, nil)
+	return c.run(mobileDependency, nil, "")
 }
 
 func (c *ConnectClient) RunOniOS(
@@ -101,10 +100,10 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		StateFilePath:         stateFilePath,
 	}
-	return c.run(mobileDependency, nil)
+	return c.run(mobileDependency, nil, "")
 }
 
-func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}, logFile string) error {
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -247,7 +246,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		relayURLs, token := parseRelayInfo(loginResp)
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig)
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, logFile)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -271,7 +270,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
+		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, c.config)
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
@@ -414,7 +413,7 @@ func (c *ConnectClient) SetSyncResponsePersistence(enabled bool) {
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConfig *mgmProto.PeerConfig, logFile string) (*EngineConfig, error) {
 	nm := false
 	if config.NetworkMonitor != nil {
 		nm = *config.NetworkMonitor
@@ -444,7 +443,10 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 
-		MTU: selectMTU(config.MTU, peerConfig.Mtu),
+		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
+		LogFile: logFile,
+
+		ProfileConfig: config,
 	}
 
 	if config.PreSharedKey != "" {
