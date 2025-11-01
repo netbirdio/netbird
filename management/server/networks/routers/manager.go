@@ -119,6 +119,9 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterCreated, router.EventMeta(network))
 
+	if err := m.accountManager.RecalculateNetworkMapCache(ctx, router.AccountID); err != nil {
+		return nil, err
+	}
 	go m.accountManager.UpdateAccountPeers(ctx, router.AccountID)
 
 	return router, nil
@@ -183,6 +186,9 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
+	if err := m.accountManager.RecalculateNetworkMapCache(ctx, router.AccountID); err != nil {
+		return nil, err
+	}
 	go m.accountManager.UpdateAccountPeers(ctx, router.AccountID)
 
 	return router, nil
@@ -217,6 +223,9 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 
 	event()
 
+	if err := m.accountManager.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+		return err
+	}
 	go m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return nil

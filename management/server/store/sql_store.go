@@ -857,6 +857,7 @@ func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	account.NameServerGroupsG = nil
 
+	account.InitOnce()
 	return &account, nil
 }
 

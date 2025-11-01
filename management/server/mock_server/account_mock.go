@@ -125,9 +125,10 @@ type MockAccountManager struct {
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 
-	AllowSyncFunc                func(string, uint64) bool
-	UpdateAccountPeersFunc       func(ctx context.Context, accountID string)
-	BufferUpdateAccountPeersFunc func(ctx context.Context, accountID string)
+	AllowSyncFunc                  func(string, uint64) bool
+	UpdateAccountPeersFunc         func(ctx context.Context, accountID string)
+	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string)
+	RecalculateNetworkMapCacheFunc func(ctx context.Context, accountId string) error
 }
 
 func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
@@ -985,4 +986,11 @@ func (am *MockAccountManager) AllowSync(key string, hash uint64) bool {
 		return am.AllowSyncFunc(key, hash)
 	}
 	return true
+}
+
+func (am *MockAccountManager) RecalculateNetworkMapCache(ctx context.Context, accountID string) error {
+	if am.RecalculateNetworkMapCacheFunc != nil {
+		return am.RecalculateNetworkMapCacheFunc(ctx, accountID)
+	}
+	return nil
 }
