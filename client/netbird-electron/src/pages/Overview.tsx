@@ -1,0 +1,279 @@
+import { useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Wifi, WifiOff, Power, User, Shield, Zap, Globe, Activity, Users } from 'lucide-react';
+import { useStore } from '../store/useStore';
+
+
+type Page = 'overview' | 'settings' | 'networks' | 'profiles' | 'debug' | 'peers';
+
+interface OverviewProps {
+  onNavigate: (page: Page) => void;
+}
+
+export default function Overview({ onNavigate }: OverviewProps) {
+  const { status, connected, loading, error, connect, disconnect, activeProfile, config, peers, refreshPeers } = useStore();
+
+  const connectedPeers = peers.filter(peer => peer.connStatus === 'Connected').length;
+
+  // Auto-refresh peers data every 5 seconds when connected
+  useEffect(() => {
+    if (connected && status === 'Connected') {
+      // Initial refresh
+      refreshPeers().catch(err => console.error('Failed to refresh peers:', err));
+
+      // Set up interval for continuous refresh
+      const interval = setInterval(() => {
+        if (connected && status === 'Connected') {
+          refreshPeers().catch(err => console.error('Failed to refresh peers:', err));
+        }
+      }, 5000);
+
+      return () => clearInterval(interval);
+    }
+  }, [connected, status, refreshPeers]);
+
+  const handleToggleConnection = async () => {
+    if (connected) {
+      await disconnect();
+    } else {
+      await connect();
+    }
+  };
+
+  const features = [
+    {
+      icon: Shield,
+      label: 'Allow SSH',
+      enabled: config?.serverSSHAllowed,
+      description: 'SSH server access',
+    },
+    {
+      icon: Zap,
+      label: 'Auto Connect',
+      enabled: config?.autoConnect,
+      description: 'Connect on startup',
+    },
+    {
+      icon: Globe,
+      label: 'Rosenpass',
+      enabled: config?.rosenpassEnabled,
+      description: 'Quantum resistance',
+    },
+    {
+      icon: Activity,
+      label: 'Lazy Connection',
+      enabled: config?.lazyConnectionEnabled,
+      description: 'On-demand peers',
+    },
+  ];
+
+  return (
+    <div className="h-full overflow-auto p-8">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Connection Status Card */}
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="nb-card rounded-nb-card p-8 shadow-nb-card"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-3xl font-bold text-text-light mb-2 text-orange-glow">Connection Status</h2>
+              <p className="text-text-muted">Manage your NetBird VPN connection</p>
+            </div>
+            <motion.div
+              animate={{
+                scale: connected ? [1, 1.05, 1] : 1,
+              }}
+              transition={{ duration: 2, repeat: connected ? Infinity : 0 }}
+              className={`p-4 rounded-full ${
+                connected ? 'bg-gray-bg-card nb-border-strong orange-pulse' : 'bg-gray-bg-card border border-nb-orange/20'
+              }`}
+            >
+              {connected ? (
+                <Wifi className="w-12 h-12 text-nb-orange drop-shadow-[0_0_10px_rgba(163,215,229,0.8)]" />
+              ) : (
+                <WifiOff className="w-12 h-12 text-text-muted" />
+              )}
+            </motion.div>
+          </div>
+
+          {/* Status display and Peers Counter */}
+          <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+            <div
+              className={`px-6 py-3 rounded-lg font-semibold text-lg transition-all ${
+                connected
+                  ? 'bg-nb-orange/10 text-nb-orange nb-border shimmer'
+                  : 'bg-gray-bg-card text-text-muted border border-nb-orange/20'
+              }`}
+            >
+              {status}
+            </div>
+
+            {/* Connected Peers Counter - Only show when connected */}
+            {connected && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => onNavigate('peers')}
+                className="flex items-center gap-2 px-4 py-3 nb-frosted rounded-lg nb-border cursor-pointer hover:nb-border-strong transition-all"
+              >
+                <Users className="w-5 h-5 text-nb-orange drop-shadow-[0_0_8px_rgba(163,215,229,0.6)]" />
+                <span className="text-lg font-semibold text-text-light">
+                  <span className="text-nb-orange text-orange-glow">{connectedPeers}</span>
+                  <span className="text-text-muted"> / {peers.length}</span>
+                </span>
+                <span className="text-xs text-text-muted">peers</span>
+              </motion.div>
+            )}
+          </div>
+
+          {/* Error message */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4"
+            >
+              <p className="text-red-400 font-medium">⚠️ {error}</p>
+            </motion.div>
+          )}
+
+          {/* Lottie Connection Button */}
+          <div className="flex flex-col items-center gap-4">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleToggleConnection}
+              disabled={loading}
+              className={`px-12 py-6 rounded-lg font-bold text-lg transition-all nb-button-${connected ? "secondary" : "primary"} disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              <Power className="w-8 h-8 inline mr-3" />
+              {loading
+                ? connected
+                  ? "Disconnecting..."
+                  : "Connecting..."
+                : connected
+                ? "Disconnect"
+                : "Connect"}
+            </motion.button>
+            {/* Status text below button */}
+            <div className="text-center">
+              <p className="text-text-light font-semibold text-xl">
+                {loading
+                  ? connected
+                    ? 'Disconnecting...'
+                    : 'Connecting...'
+                  : status === 'NeedsLogin'
+                  ? 'Login Required'
+                  : connected
+                  ? 'Connected'
+                  : 'Disconnected'}
+              </p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Profile Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="nb-card rounded-nb-card p-6 shadow-nb-card"
+        >
+          <h3 className="text-xl font-bold text-text-light mb-4">Active Profile</h3>
+
+          {activeProfile ? (
+            <motion.div
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              onClick={() => onNavigate('profiles')}
+              className="flex items-center gap-4 p-4 nb-frosted rounded-lg nb-border cursor-pointer hover:nb-border-strong transition-all"
+            >
+              <div className="p-3 bg-gray-bg-card rounded-lg border border-nb-orange/20">
+                <User className="w-6 h-6 text-nb-orange drop-shadow-[0_0_8px_rgba(163,215,229,0.6)]" />
+              </div>
+              <div className="flex-1">
+                <div className="font-semibold text-text-light">{activeProfile.name}</div>
+                {activeProfile.email && (
+                  <div className="text-sm text-text-muted">{activeProfile.email}</div>
+                )}
+              </div>
+              <div className="text-xs text-text-muted font-medium px-3 py-1 bg-gray-bg-card rounded">
+                Click to manage
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              onClick={() => onNavigate('profiles')}
+              className="text-center py-8 text-text-muted cursor-pointer hover:bg-gray-bg-card/30 rounded-lg transition-all"
+            >
+              <User className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>No active profile</p>
+              <p className="text-sm mt-1">Click to configure a profile</p>
+            </motion.div>
+          )}
+        </motion.div>
+
+        {/* Features Grid */}
+        <div className="grid grid-cols-2 gap-4">
+          {features.map((feature, index) => {
+            const Icon = feature.icon;
+            return (
+              <motion.div
+                key={feature.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 + index * 0.1 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => onNavigate('settings')}
+                className={`nb-frosted rounded-md p-6 transition-all cursor-pointer ${
+                  feature.enabled
+                    ? 'nb-border'
+                    : 'border border-nb-orange/10 hover:border-nb-orange/20'
+                }`}
+              >
+                <div className="flex items-start gap-4">
+                  <div
+                    className={`p-3 rounded-lg transition-all ${
+                      feature.enabled
+                        ? 'bg-nb-orange/10 text-nb-orange border border-nb-orange/30'
+                        : 'bg-gray-bg-card text-text-muted border border-nb-orange/10'
+                    }`}
+                  >
+                    <Icon className={`w-6 h-6 ${feature.enabled ? 'drop-shadow-[0_0_8px_rgba(163,215,229,0.6)]' : ''}`} />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className={`font-semibold mb-1 ${
+                      feature.enabled ? 'text-nb-orange' : 'text-text-light'
+                    }`}>{feature.label}</h3>
+                    <p className="text-sm text-text-muted">{feature.description}</p>
+                    <div
+                      className={`mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all ${
+                        feature.enabled
+                          ? 'bg-nb-orange/10 text-nb-orange border border-nb-orange/30'
+                          : 'bg-gray-bg-card text-text-muted border border-nb-orange/20'
+                      }`}
+                    >
+                      <div className={`w-1.5 h-1.5 rounded-full transition-all ${
+                        feature.enabled ? 'bg-nb-orange icy-glow-animate' : 'bg-text-muted'
+                      }`} />
+                      {feature.enabled ? 'Active' : 'Inactive'}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

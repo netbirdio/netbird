@@ -77,6 +77,11 @@ func main() {
 	a := app.NewWithID("NetBird")
 	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnected))
 
+	// Apply custom dark mode theme with icy blue colors if flag is set
+	if flags.useDarkMode {
+		a.Settings().SetTheme(&GlassTheme{})
+	}
+
 	// Show error message window if needed.
 	if flags.errorMsg != "" {
 		showErrorMessage(flags.errorMsg)
@@ -85,14 +90,15 @@ func main() {
 
 	// Create the service client (this also builds the settings or networks UI if requested).
 	client := newServiceClient(&newServiceClientArgs{
-		addr:         flags.daemonAddr,
-		logFile:      logFile,
-		app:          a,
-		showSettings: flags.showSettings,
-		showNetworks: flags.showNetworks,
-		showLoginURL: flags.showLoginURL,
-		showDebug:    flags.showDebug,
-		showProfiles: flags.showProfiles,
+		addr:          flags.daemonAddr,
+		logFile:       logFile,
+		app:           a,
+		showSettings:  flags.showSettings,
+		showNetworks:  flags.showNetworks,
+		showLoginURL:  flags.showLoginURL,
+		showDebug:     flags.showDebug,
+		showProfiles:  flags.showProfiles,
+		useDarkMode: flags.useDarkMode,
 	})
 
 	// Watch for theme/settings changes to update the icon.
@@ -128,6 +134,7 @@ type cliFlags struct {
 	showLoginURL   bool
 	errorMsg       string
 	saveLogsInFile bool
+	useDarkMode    bool
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -146,6 +153,7 @@ func parseFlags() *cliFlags {
 	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
 	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
+	flag.BoolVar(&flags.useDarkMode, "dark-mode", false, "use icy blue dark mode theme with white monochrome icons")
 	flag.Parse()
 	return &flags
 }
@@ -194,6 +202,24 @@ var iconConnectingMacOS []byte
 
 //go:embed assets/netbird-systemtray-error-macos.png
 var iconErrorMacOS []byte
+
+//go:embed assets/netbird-systemtray-connected-white-monochrome.png
+var iconConnectedWhiteMonochrome []byte
+
+//go:embed assets/netbird-systemtray-disconnected-white-monochrome.png
+var iconDisconnectedWhiteMonochrome []byte
+
+//go:embed assets/netbird-systemtray-update-disconnected-white-monochrome.png
+var iconUpdateDisconnectedWhiteMonochrome []byte
+
+//go:embed assets/netbird-systemtray-update-connected-white-monochrome.png
+var iconUpdateConnectedWhiteMonochrome []byte
+
+//go:embed assets/netbird-systemtray-connecting-white-monochrome.png
+var iconConnectingWhiteMonochrome []byte
+
+//go:embed assets/netbird-systemtray-error-white-monochrome.png
+var iconErrorWhiteMonochrome []byte
 
 //go:embed assets/connected.png
 var iconConnectedDot []byte
@@ -285,6 +311,7 @@ type serviceClient struct {
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
 	showNetworks         bool
+	useDarkMode bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
 
@@ -304,14 +331,15 @@ type menuHandler struct {
 }
 
 type newServiceClientArgs struct {
-	addr         string
-	logFile      string
-	app          fyne.App
-	showSettings bool
-	showNetworks bool
-	showDebug    bool
-	showLoginURL bool
-	showProfiles bool
+	addr          string
+	logFile       string
+	app           fyne.App
+	showSettings  bool
+	showNetworks  bool
+	showDebug     bool
+	showLoginURL  bool
+	showProfiles  bool
+	useDarkMode bool
 }
 
 // newServiceClient instance constructor
@@ -329,6 +357,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
+		useDarkMode:          args.useDarkMode,
 		update:               version.NewUpdate("nb/client-ui"),
 	}
 
@@ -356,6 +385,19 @@ func (s *serviceClient) setNewIcons() {
 	s.icAbout = iconAbout
 	s.icConnectedDot = iconConnectedDot
 	s.icDisconnectedDot = iconDisconnectedDot
+
+	// If dark mode flag is set, use white monochrome icons everywhere
+	if s.useDarkMode {
+		s.icConnected = iconConnectedWhiteMonochrome
+		s.icDisconnected = iconDisconnectedWhiteMonochrome
+		s.icUpdateConnected = iconUpdateConnectedWhiteMonochrome
+		s.icUpdateDisconnected = iconUpdateDisconnectedWhiteMonochrome
+		s.icConnecting = iconConnectingWhiteMonochrome
+		s.icError = iconErrorWhiteMonochrome
+		return
+	}
+
+	// Otherwise use colored icons based on theme
 	if s.app.Settings().ThemeVariant() == theme.VariantDark {
 		s.icConnected = iconConnectedDark
 		s.icDisconnected = iconDisconnected

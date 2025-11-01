@@ -207,10 +207,20 @@ func (h *eventHandler) runSelfCommand(ctx context.Context, command, arg string) 
 		return
 	}
 
-	cmd := exec.CommandContext(ctx, proc,
+	args := []string{
 		fmt.Sprintf("--%s=%s", command, arg),
 		fmt.Sprintf("--daemon-addr=%s", h.client.addr),
-	)
+	}
+
+	// Pass dark mode flag if it's enabled
+	if h.client.useDarkMode {
+		args = append(args, "--dark-mode")
+		log.Debugf("Spawning %s with dark mode enabled", command)
+	} else {
+		log.Debugf("Spawning %s without dark mode (useDarkMode=%v)", command, h.client.useDarkMode)
+	}
+
+	cmd := exec.CommandContext(ctx, proc, args...)
 
 	if out := h.client.attachOutput(cmd); out != nil {
 		defer func() {

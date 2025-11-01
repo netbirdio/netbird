@@ -1,0 +1,307 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
+    Cantarell, 'Helvetica Neue', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: #f2f2f2;
+  background-color: #1a1a1a;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  min-width: 320px;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Custom scrollbar with orange accent */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(246, 131, 48, 0.05);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(246, 131, 48, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(246, 131, 48, 0.5);
+}
+
+/* NetBird card style with gray background */
+.nb-card {
+  background: rgba(42, 42, 42, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(246, 131, 48, 0.2);
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.4),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -1px 1px 0 rgba(246, 131, 48, 0.05);
+}
+
+.nb-card-hover:hover {
+  background: rgba(50, 50, 50, 0.9);
+  border-color: rgba(246, 131, 48, 0.4);
+  box-shadow:
+    0 12px 48px 0 rgba(246, 131, 48, 0.15),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 1px 0 rgba(246, 131, 48, 0.1);
+}
+
+/* Orange glow animations */
+@keyframes orangeGlow {
+  0%, 100% {
+    box-shadow:
+      0 0 20px rgba(246, 131, 48, 0.5),
+      0 0 40px rgba(246, 131, 48, 0.3),
+      0 0 60px rgba(246, 131, 48, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 30px rgba(246, 131, 48, 0.8),
+      0 0 60px rgba(246, 131, 48, 0.5),
+      0 0 90px rgba(246, 131, 48, 0.2);
+  }
+}
+
+@keyframes orangePulse {
+  0%, 100% {
+    box-shadow:
+      0 0 10px rgba(246, 131, 48, 0.6),
+      0 0 20px rgba(246, 131, 48, 0.4),
+      0 0 30px rgba(246, 131, 48, 0.2),
+      inset 0 0 10px rgba(246, 131, 48, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 20px rgba(246, 131, 48, 0.9),
+      0 0 40px rgba(246, 131, 48, 0.6),
+      0 0 60px rgba(246, 131, 48, 0.3),
+      inset 0 0 20px rgba(246, 131, 48, 0.3);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.orange-glow-animate {
+  animation: orangeGlow 2s ease-in-out infinite;
+}
+
+.orange-pulse {
+  animation: orangePulse 2s ease-in-out infinite;
+}
+
+/* Orange border effect */
+.nb-border {
+  position: relative;
+  border: 2px solid rgba(246, 131, 48, 0.4);
+  box-shadow:
+    0 0 10px rgba(246, 131, 48, 0.4),
+    inset 0 0 10px rgba(246, 131, 48, 0.1);
+}
+
+.nb-border-strong {
+  border: 2px solid rgba(246, 131, 48, 0.6);
+  box-shadow:
+    0 0 15px rgba(246, 131, 48, 0.6),
+    0 0 30px rgba(246, 131, 48, 0.3),
+    inset 0 0 15px rgba(246, 131, 48, 0.15);
+}
+
+/* Shimmer effect for special elements */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(246, 131, 48, 0.0) 0%,
+    rgba(246, 131, 48, 0.2) 50%,
+    rgba(246, 131, 48, 0.0) 100%
+  );
+  background-size: 1000px 100%;
+  animation: shimmer 3s linear infinite;
+}
+
+/* Frosted card background */
+.nb-frosted {
+  background: rgba(30, 30, 30, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(246, 131, 48, 0.15);
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.4),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Orange gradient overlay */
+.nb-gradient {
+  background: linear-gradient(
+    135deg,
+    rgba(246, 131, 48, 0.1) 0%,
+    rgba(243, 94, 50, 0.05) 50%,
+    rgba(246, 131, 48, 0.1) 100%
+  );
+}
+
+/* Orange text glow */
+.text-orange-glow {
+  text-shadow:
+    0 0 10px rgba(246, 131, 48, 0.8),
+    0 0 20px rgba(246, 131, 48, 0.5),
+    0 0 30px rgba(246, 131, 48, 0.3);
+}
+
+/* Smooth transitions */
+.transition-all {
+  transition: all 0.3s ease;
+}
+
+/* Card glow on hover - only for interactive elements */
+.nb-interactive:hover {
+  box-shadow:
+    0 0 20px rgba(246, 131, 48, 0.3),
+    0 0 40px rgba(246, 131, 48, 0.2),
+    0 8px 32px 0 rgba(246, 131, 48, 0.15);
+  border-color: rgba(246, 131, 48, 0.5);
+  transform: translateY(-2px);
+}
+
+/* NetBird sidebar styling */
+.nb-sidebar {
+  background: rgba(26, 26, 26, 0.95);
+  border-right: 1px solid rgba(246, 131, 48, 0.2);
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Active navigation item styling */
+.nb-nav-active {
+  background: rgba(246, 131, 48, 0.15);
+  border-left: 3px solid #F68330;
+  color: #F68330;
+  box-shadow: 0 0 15px rgba(246, 131, 48, 0.3);
+}
+
+.nb-nav-item {
+  transition: all 0.2s ease;
+}
+
+.nb-nav-item:hover {
+  background: rgba(246, 131, 48, 0.1);
+  border-left: 3px solid rgba(246, 131, 48, 0.5);
+  box-shadow: 0 0 10px rgba(246, 131, 48, 0.2);
+}
+
+/* Button styles */
+.nb-button-primary {
+  background: linear-gradient(135deg, #F68330 0%, #F35E32 100%);
+  border: 2px solid rgba(246, 131, 48, 0.5);
+  box-shadow: 0 4px 12px rgba(246, 131, 48, 0.3);
+  transition: all 0.3s ease;
+}
+
+.nb-button-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #FF9340 0%, #FF6E42 100%);
+  box-shadow: 0 6px 20px rgba(246, 131, 48, 0.5);
+  transform: translateY(-2px);
+}
+
+.nb-button-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nb-button-secondary {
+  background: rgba(42, 42, 42, 0.8);
+  border: 2px solid rgba(246, 131, 48, 0.3);
+  transition: all 0.3s ease;
+}
+
+.nb-button-secondary:hover:not(:disabled) {
+  background: rgba(50, 50, 50, 0.9);
+  border-color: rgba(246, 131, 48, 0.5);
+  box-shadow: 0 4px 12px rgba(246, 131, 48, 0.2);
+}
+
+/* Input styles */
+.nb-input {
+  background: rgba(30, 30, 30, 0.8);
+  border: 1px solid rgba(246, 131, 48, 0.2);
+  color: #f2f2f2;
+  transition: all 0.3s ease;
+}
+
+.nb-input:focus {
+  outline: none;
+  border-color: rgba(246, 131, 48, 0.5);
+  box-shadow: 0 0 0 3px rgba(246, 131, 48, 0.1);
+}
+
+/* Toggle switch styles */
+.nb-toggle {
+  background: rgba(60, 60, 60, 0.8);
+  border: 1px solid rgba(246, 131, 48, 0.2);
+}
+
+.nb-toggle-active {
+  background: linear-gradient(135deg, #F68330 0%, #F35E32 100%);
+  box-shadow: 0 0 15px rgba(246, 131, 48, 0.5);
+}
+
+/* Status indicators */
+.status-connected {
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.4);
+  color: #81C784;
+}
+
+.status-disconnected {
+  background: rgba(158, 158, 158, 0.2);
+  border: 1px solid rgba(158, 158, 158, 0.4);
+  color: #BDBDBD;
+}
+
+.status-connecting {
+  background: rgba(246, 131, 48, 0.2);
+  border: 1px solid rgba(246, 131, 48, 0.4);
+  color: #F68330;
+}
+
+.status-error {
+  background: rgba(244, 67, 54, 0.2);
+  border: 1px solid rgba(244, 67, 54, 0.4);
+  color: #E57373;
+}
