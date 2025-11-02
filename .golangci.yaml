@@ -100,6 +100,15 @@ linters:
       - linters:
           - staticcheck
         text: grpc.WithBlock is deprecated
+      - linters:
+          - staticcheck
+        text: "QF1001"
+      - linters:
+          - staticcheck
+        text: "QF1008"
+      - linters:
+          - staticcheck
+        text: "QF1012"
     paths:
       - third_party$
       - builtin$

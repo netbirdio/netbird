@@ -390,6 +390,7 @@ func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
+		//nolint
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)

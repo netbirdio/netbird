@@ -210,7 +210,8 @@ func (r *SysOps) refreshLocalSubnetsCache() {
 func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	nextHop := Nexthop{netip.Addr{}, intf}
 
-	if prefix == vars.Defaultv4 {
+	switch prefix {
+	case vars.Defaultv4:
 		if err := r.addToRouteTable(splitDefaultv4_1, nextHop); err != nil {
 			return err
 		}
@@ -233,7 +234,7 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 		}
 
 		return nil
-	} else if prefix == vars.Defaultv6 {
+	case vars.Defaultv6:
 		if err := r.addToRouteTable(splitDefaultv6_1, nextHop); err != nil {
 			return fmt.Errorf("add unreachable route split 1: %w", err)
 		}
@@ -255,7 +256,8 @@ func (r *SysOps) genericAddVPNRoute(prefix netip.Prefix, intf *net.Interface) er
 func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error {
 	nextHop := Nexthop{netip.Addr{}, intf}
 
-	if prefix == vars.Defaultv4 {
+	switch prefix {
+	case vars.Defaultv4:
 		var result *multierror.Error
 		if err := r.removeFromRouteTable(splitDefaultv4_1, nextHop); err != nil {
 			result = multierror.Append(result, err)
@@ -273,7 +275,7 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 		}
 
 		return nberrors.FormatErrorOrNil(result)
-	} else if prefix == vars.Defaultv6 {
+	case vars.Defaultv6:
 		var result *multierror.Error
 		if err := r.removeFromRouteTable(splitDefaultv6_1, nextHop); err != nil {
 			result = multierror.Append(result, err)
@@ -283,9 +285,9 @@ func (r *SysOps) genericRemoveVPNRoute(prefix netip.Prefix, intf *net.Interface)
 		}
 
 		return nberrors.FormatErrorOrNil(result)
+	default:
+		return r.removeFromRouteTable(prefix, nextHop)
 	}
-
-	return r.removeFromRouteTable(prefix, nextHop)
 }
 
 func (r *SysOps) setupHooks(initAddresses []net.IP, stateManager *statemanager.Manager) error {

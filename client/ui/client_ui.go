@@ -469,6 +469,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				// Continue with default behavior if features can't be retrieved
 			} else if features != nil && features.DisableUpdateSettings {
 				log.Warn("Configuration updates are disabled by daemon")
+				//nolint
 				dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
 				return
 			}
@@ -476,6 +477,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 				// validate preSharedKey if it added
 				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
+					//nolint
 					dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
 					return
 				}
@@ -483,6 +485,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 
 			port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
 			if err != nil {
+				//nolint
 				dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
 				return
 			}
@@ -493,6 +496,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				var err error
 				mtu, err = strconv.ParseInt(mtuText, 10, 64)
 				if err != nil {
+					//nolint
 					dialog.ShowError(errors.New("Invalid MTU value"), s.wSettings)
 					return
 				}
@@ -554,12 +558,14 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				conn, err := s.getSrvClient(failFastTimeout)
 				if err != nil {
 					log.Errorf("get client: %v", err)
+					//nolint
 					dialog.ShowError(fmt.Errorf("Failed to connect to the service: %v", err), s.wSettings)
 					return
 				}
 				_, err = conn.SetConfig(s.ctx, &req)
 				if err != nil {
 					log.Errorf("set config: %v", err)
+					//nolint
 					dialog.ShowError(fmt.Errorf("Failed to set configuration: %v", err), s.wSettings)
 					return
 				}
@@ -568,6 +574,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 					if err != nil {
 						log.Errorf("get service status: %v", err)
+						//nolint
 						dialog.ShowError(fmt.Errorf("Failed to get service status: %v", err), s.wSettings)
 						return
 					}
@@ -581,6 +588,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 						_, err = conn.Up(s.ctx, &proto.UpRequest{})
 						if err != nil {
 							log.Errorf("up service: %v", err)
+							//nolint
 							dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
 							return
 						}

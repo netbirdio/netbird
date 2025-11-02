@@ -124,6 +124,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 func getStatus(ctx context.Context, shouldRunProbes bool) (*proto.StatusResponse, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		//nolint
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)

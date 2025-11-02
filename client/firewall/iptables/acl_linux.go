@@ -367,11 +367,8 @@ func (m *aclManager) updateState() {
 
 // filterRuleSpecs returns the specs of a filtering rule
 func filterRuleSpecs(ip net.IP, protocol string, sPort, dPort *firewall.Port, action firewall.Action, ipsetName string) (specs []string) {
-	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
-	if ip.String() == "0.0.0.0" {
-		matchByIP = false
-	}
+	matchByIP := ip.String() != "0.0.0.0"
 
 	if matchByIP {
 		if ipsetName != "" {
