@@ -20,7 +20,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version: "1.25.x"
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -56,7 +56,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version: "1.25.x"
       - name: install gomobile
         run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20240404231514-09dbf07665ed
       - name: gomobile init
