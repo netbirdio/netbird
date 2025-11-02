@@ -52,7 +52,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev libpcap-dev
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
           args: --timeout=12m --out-format colored-line-number
