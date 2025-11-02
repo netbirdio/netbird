@@ -1,5 +1,3 @@
-//go:build ios
-
 package system
 
 import (
