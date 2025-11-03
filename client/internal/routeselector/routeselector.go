@@ -9,8 +9,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"golang.org/x/exp/maps"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/route"
 )
