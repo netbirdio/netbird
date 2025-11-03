@@ -1,9 +1,6 @@
 package installer
 
 import (
-	"fmt"
-	"strings"
-
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows/registry"
 )
@@ -12,13 +9,13 @@ const (
 	uninstallKeyPath64 = `SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Netbird`
 	uninstallKeyPath32 = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Netbird`
 
-	TypeExe InstallerType = "EXE"
-	TypeMSI InstallerType = "MSI"
+	TypeExe Type = "EXE"
+	TypeMSI Type = "MSI"
 )
 
-type InstallerType string
+type Type string
 
-func TypeByRegistry() InstallerType {
+func typeOfInstaller() Type {
 	paths := []string{uninstallKeyPath64, uninstallKeyPath32}
 
 	for _, path := range paths {
@@ -36,15 +33,4 @@ func TypeByRegistry() InstallerType {
 
 	log.Debug("No registry entry found for Netbird, assuming MSI installation")
 	return TypeMSI
-}
-
-func TypeByFileExtension(filePath string) (InstallerType, error) {
-	switch {
-	case strings.HasSuffix(strings.ToLower(filePath), ".exe"):
-		return TypeExe, nil
-	case strings.HasSuffix(strings.ToLower(filePath), ".msi"):
-		return TypeMSI, nil
-	default:
-		return "", fmt.Errorf("unsupported installer type for file: %s", filePath)
-	}
 }

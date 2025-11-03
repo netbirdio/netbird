@@ -6,7 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
+	"runtime"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -15,65 +16,26 @@ import (
 )
 
 const (
-	msgLogFile = "msi.log"
+	daemonName    = "netbird.exe"
+	uiName        = "netbird-ui.exe"
+	updaterBinary = "updater.exe"
+
+	msiLogFile = "msi.log"
+
+	msiDownloadURL = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_installer_%version_windows_%arch.msi"
+	exeDownloadURL = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_installer_%version_windows_%arch.exe"
 )
 
-func (u *Installer) MakeTempDir() (string, error) {
-	if err := os.MkdirAll(u.tempDir, 0o755); err != nil {
-		return "", err
-	}
-	return u.tempDir, nil
-}
+var (
+	defaultTempDir = filepath.Join(os.Getenv("ProgramData"), "Netbird", "tmp-install")
 
-// RunInstallation starts the updater process to run the installation
-// This will run by the original service process
-func (u *Installer) RunInstallation(installerFile string) error {
-	log.Infof("running installer")
-	// copy the current binary to a temp location as an updater binary
-	updaterPath, err := u.copyUpdater()
-	if err != nil {
-		return err
-	}
-
-	// the directory where the service has been installed
-	workspace, err := getServiceDir()
-	if err != nil {
-		return err
-	}
-
-	installerFullPath := filepath.Join(u.tempDir, installerFile)
-
-	log.Infof("run updater binary: %s, %s, %s", updaterPath, installerFullPath, workspace)
-
-	updateCmd := exec.Command(updaterPath, "--temp-dir", u.tempDir, "--installer-file", installerFullPath, "--service-dir", workspace, "--dry-run=true")
-	updateCmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
-	}
-
-	// Start the updater process asynchronously
-	if err := updateCmd.Start(); err != nil {
-		return err
-	}
-
-	// Release the process so the OS can fully detach it
-	if err := updateCmd.Process.Release(); err != nil {
-		log.Warnf("failed to release updater process: %v", err)
-	}
-
-	log.Infof("updater started with PID %d", updateCmd.Process.Pid)
-	return nil
-}
+	// for the cleanup
+	binaryExtensions = []string{"msi", "exe"}
+)
 
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
-func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string, daemonFolder string) (resultErr error) {
-	installerFolder := filepath.Dir(installerPath)
-	resultHandler := NewResultHandler(installerFolder)
-	it, err := TypeByFileExtension(installerPath)
-	if err != nil {
-		return err
-	}
-
+func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string, daemonFolder string) (resultErr error) {
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
 		log.Infof("starting daemon back")
@@ -86,18 +48,6 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 		if err := u.startUIAsUser(daemonFolder); err != nil {
 			log.Errorf("failed to start UI: %v", err)
 		}
-
-		result := Result{
-			Success:    resultErr == nil,
-			ExecutedAt: time.Now(),
-		}
-		if resultErr != nil {
-			result.Error = resultErr.Error()
-		}
-		log.Infof("write out result")
-		if err := resultHandler.Write(result); err != nil {
-			log.Errorf("failed to write update result: %v", err)
-		}
 	}()
 
 	if dryRun {
@@ -106,13 +56,20 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 		return
 	}
 
+	installerType := typeOfInstaller()
+	installerPath, err := u.downloadFileToTemporaryDir(ctx, urlWithVersionArch(installerType, targetVersion))
+	if err != nil {
+		return err
+	}
+
 	var cmd *exec.Cmd
-	if it == TypeExe {
+	switch installerType {
+	case TypeExe:
 		log.Infof("run exe installer: %s", installerPath)
 		cmd = exec.CommandContext(ctx, installerPath, "/S")
-	} else {
+	default:
 		installerDir := filepath.Dir(installerPath)
-		logPath := filepath.Join(installerDir, msgLogFile)
+		logPath := filepath.Join(installerDir, msiLogFile)
 		log.Infof("run msi installer: %s", installerPath)
 		cmd = exec.CommandContext(ctx, "msiexec.exe", "/i", filepath.Base(installerPath), "/quiet", "/qn", "/l*v", logPath)
 	}
@@ -229,6 +186,26 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 
 	log.Infof("netbird-ui started successfully in session %d", sessionID)
 	return nil
+}
+
+func (u *Installer) uiBinaryFile() (string, error) {
+	serviceDir, err := getServiceDir()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(serviceDir, uiName), nil
+}
+
+func urlWithVersionArch(it Type, version string) string {
+	var url string
+	if it == TypeExe {
+		url = exeDownloadURL
+	} else {
+		url = msiDownloadURL
+	}
+	url = strings.ReplaceAll(url, "%version", version)
+	return strings.ReplaceAll(url, "%arch", runtime.GOARCH)
 }
 
 func getServiceDir() (string, error) {

@@ -12,7 +12,7 @@ const (
 
 type Type string
 
-func TypeOfInstaller(ctx context.Context) Type {
+func typeOfInstaller(ctx context.Context) Type {
 	cmd := exec.CommandContext(ctx, "pkgutil", "--pkg-info", "io.netbird.client")
 	_, err := cmd.Output()
 	if err != nil && cmd.ProcessState.ExitCode() == 1 {

@@ -87,9 +87,6 @@ var (
 
 // Execute executes the root command.
 func Execute() error {
-	if isUpdateBinary() {
-		return updateCmd.Execute()
-	}
 	return rootCmd.Execute()
 }
 

@@ -3,11 +3,6 @@ package updatemanager
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -250,7 +246,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		}
 	}
 
-	if err := m.triggerUpdate(ctx, updateVersion.String()); err != nil {
+	if err := m.triggerUpdate(updateVersion.String()); err != nil {
 		log.Errorf("Error triggering auto-update: %v", err)
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_ERROR,
@@ -328,55 +324,11 @@ func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
 	return true
 }
 
-func downloadFileToTemporaryDir(ctx context.Context, tempDir, fileURL string) (string, error) {
-	// Clean up temp directory on error
-	var success bool
-	defer func() {
-		if !success {
-			if err := os.RemoveAll(tempDir); err != nil {
-				log.Errorf("error cleaning up temporary directory: %v", err)
-			}
-		}
-	}()
-
-	fileNameParts := strings.Split(fileURL, "/")
-	out, err := os.Create(filepath.Join(tempDir, fileNameParts[len(fileNameParts)-1]))
+func (m *Manager) triggerUpdate(targetVersion string) error {
+	inst, err := installer.New()
 	if err != nil {
-		return "", fmt.Errorf("error creating temporary file: %w", err)
-	}
-	defer func() {
-		if err := out.Close(); err != nil {
-			log.Errorf("error closing temporary file: %v", err)
-		}
-	}()
-
-	log.Debugf("downloading update file from %s", fileURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("error creating file download request: %w", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("error downloading file: %w", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			log.Errorf("Error closing response body: %v", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Errorf("error downloading update file, received status code: %d", resp.StatusCode)
-		return "", fmt.Errorf("error downloading file, received status code: %d", resp.StatusCode)
+		return err
 	}
 
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error downloading file: %w", err)
-	}
-
-	log.Infof("downloaded update file to %s", out.Name())
-
-	success = true // Mark success to prevent cleanup
-	return out.Name(), nil
+	return inst.RunInstallation(targetVersion)
 }

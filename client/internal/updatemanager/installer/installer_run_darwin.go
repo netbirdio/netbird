@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -14,48 +15,25 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// RunInstallation starts the updater process to run the installation
-// This will run by the original service process
-func (u *Installer) RunInstallation(installerFile string) error {
-	log.Infof("running installer")
-	// copy the current binary to a temp location as an updater binary
-	updaterPath, err := u.copyUpdater()
-	if err != nil {
-		return err
-	}
+const (
+	daemonName    = "netbird"
+	uiName        = "netbird-ui"
+	updaterBinary = "updater"
 
-	// the directory where the service has been installed
-	workspace, err := getServiceDir()
-	if err != nil {
-		return err
-	}
+	defaultTempDir = "/var/lib/netbird/tmp-install"
 
-	installerFullPath := filepath.Join(u.tempDir, installerFile)
+	pkgDownloadURL = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_%version_darwin_%arch.pkg"
 
-	log.Infof("run updater binary: %s, %s, %s", updaterPath, installerFullPath, workspace)
+	updaterSrcPath = "/Applications/NetBird.app/Contents/MacOS/netbird-ui"
+)
 
-	updateCmd := exec.Command(updaterPath, "--temp-dir", u.tempDir, "--installer-file", installerFullPath, "--service-dir", workspace, "--dry-run=true")
-
-	// Start the updater process asynchronously
-	if err := updateCmd.Start(); err != nil {
-		return err
-	}
-
-	// Release the process so the OS can fully detach it
-	if err := updateCmd.Process.Release(); err != nil {
-		log.Warnf("failed to release updater process: %v", err)
-	}
-
-	log.Infof("updater started with PID %d", updateCmd.Process.Pid)
-	return nil
-}
+var (
+	binaryExtensions = []string{"pkg"}
+)
 
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
-func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string, daemonFolder string) (resultErr error) {
-	installerFolder := filepath.Dir(installerPath)
-	resultHandler := NewResultHandler(installerFolder)
-	it := TypeOfInstaller(ctx)
+func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string, daemonFolder string) (resultErr error) {
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
 		log.Infof("starting daemon back")
@@ -68,18 +46,6 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 		if err := u.startUIAsUser(daemonFolder); err != nil {
 			log.Errorf("failed to start UI: %v", err)
 		}
-
-		result := Result{
-			Success:    resultErr == nil,
-			ExecutedAt: time.Now(),
-		}
-		if resultErr != nil {
-			result.Error = resultErr.Error()
-		}
-		log.Infof("write out result")
-		if err := resultHandler.Write(result); err != nil {
-			log.Errorf("failed to write update result: %v", err)
-		}
 	}()
 
 	if dryRun {
@@ -88,10 +54,15 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerPath string
 		return
 	}
 
-	switch it {
+	switch typeOfInstaller(ctx) {
 	case TypePKG:
+		installerFile, err := u.downloadFileToTemporaryDir(ctx, urlWithVersionArch(targetVersion))
+		if err != nil {
+			return fmt.Errorf("error downloading update file: %w", err)
+		}
+
 		log.Infof("installing pkg file")
-		if err := u.installPkgFile(ctx, installerPath); err != nil {
+		if err := u.installPkgFile(ctx, installerFile); err != nil {
 			resultErr = err
 			break
 		}
@@ -248,6 +219,15 @@ func (u *Installer) updateHomeBrew(ctx context.Context) error {
 	// We're dying now, which should restart us
 
 	return nil
+}
+
+func (u *Installer) uiBinaryFile() (string, error) {
+	return updaterSrcPath, nil
+}
+
+func urlWithVersionArch(version string) string {
+	url := strings.ReplaceAll(pkgDownloadURL, "%version", version)
+	return strings.ReplaceAll(url, "%arch", runtime.GOARCH)
 }
 
 func getServiceDir() (string, error) {

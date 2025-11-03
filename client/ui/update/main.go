@@ -15,15 +15,15 @@ import (
 )
 
 var (
-	tempDirFlag    string
-	installerFile  string
-	serviceDirFlag string
-	dryRunFlag     bool
+	tempDirFlag       string
+	targetVersionFlag string
+	serviceDirFlag    string
+	dryRunFlag        bool
 )
 
 func init() {
 	flag.StringVar(&tempDirFlag, "temp-dir", "", "temporary dir")
-	flag.StringVar(&installerFile, "installer-file", "", "installer file")
+	flag.StringVar(&targetVersionFlag, "target-version", "", "target-version")
 	flag.StringVar(&serviceDirFlag, "service-dir", "", "service directory")
 	flag.BoolVar(&dryRunFlag, "dry-run", false, "dry run the update process without making any changes")
 }
@@ -42,6 +42,11 @@ func IsUpdateBinary() bool {
 }
 
 func Execute() {
+	if err := setupLogToFile(tempDirFlag); err != nil {
+		log.Errorf("failed to setup logging: %s", err)
+		return
+	}
+
 	ui := NewUI()
 
 	// Create a context with timeout for the entire update process
@@ -53,7 +58,7 @@ func Execute() {
 	go func() {
 		defer cancel()
 
-		if err := updateFunc(); err != nil {
+		if err := update(); err != nil {
 			log.Errorf("update failed: %v", err)
 			// The UI will handle the error display through context cancellation
 			return
@@ -67,14 +72,11 @@ func Execute() {
 	ui.Run()
 }
 
-func updateFunc() error {
-	if err := setupLogToFile(tempDirFlag); err != nil {
-		return err
-	}
-
+func update() error {
 	log.Infof("updater started: %s", serviceDirFlag)
 	updater := installer.NewWithDir(tempDirFlag)
-	if err := updater.Setup(context.Background(), dryRunFlag, installerFile, serviceDirFlag); err != nil {
+	if err := updater.Setup(context.Background(), dryRunFlag, targetVersionFlag, serviceDirFlag); err != nil {
+		// todo update ui
 		log.Errorf("failed to update application: %v", err)
 		return err
 	}

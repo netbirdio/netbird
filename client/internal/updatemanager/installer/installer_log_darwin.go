@@ -6,7 +6,6 @@ import (
 
 func (u *Installer) LogFiles() []string {
 	return []string{
-		filepath.Join(defaultTempDir, msiLogFile),
 		filepath.Join(defaultTempDir, LogFile),
 	}
 }
