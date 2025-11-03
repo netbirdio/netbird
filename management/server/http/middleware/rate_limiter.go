@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -68,9 +69,9 @@ func (rl *APIRateLimiter) Allow(key string) bool {
 
 // Wait blocks until the rate limiter allows another request for the given key
 // Returns an error if the context is canceled
-func (rl *APIRateLimiter) Wait(key string) error {
+func (rl *APIRateLimiter) Wait(ctx context.Context, key string) error {
 	limiter := rl.getLimiter(key)
-	return limiter.Wait(nil)
+	return limiter.Wait(ctx)
 }
 
 // getLimiter retrieves or creates a rate limiter for the given key
