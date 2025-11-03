@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/client"
@@ -54,6 +56,7 @@ type Manager interface {
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
 	SetFirewall(firewall.Manager) error
+	SetDNSForwarderPort(port uint16)
 	Stop(stateManager *statemanager.Manager)
 }
 
@@ -101,6 +104,7 @@ type DefaultManager struct {
 	disableServerRoutes bool
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
 	fakeIPManager       *fakeip.Manager
+	dnsForwarderPort    atomic.Uint32
 }
 
 func NewManager(config ManagerConfig) *DefaultManager {
@@ -130,6 +134,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		disableServerRoutes: config.DisableServerRoutes,
 		activeRoutes:        make(map[route.HAUniqueID]client.RouteHandler),
 	}
+	dm.dnsForwarderPort.Store(uint32(nbdns.ForwarderClientPort))
 
 	useNoop := netstack.IsEnabled() || config.DisableClientRoutes
 	dm.setupRefCounters(useNoop)
@@ -270,6 +275,11 @@ func (m *DefaultManager) SetFirewall(firewall firewall.Manager) error {
 	return nil
 }
 
+// SetDNSForwarderPort sets the DNS forwarder port for route handlers
+func (m *DefaultManager) SetDNSForwarderPort(port uint16) {
+	m.dnsForwarderPort.Store(uint32(port))
+}
+
 // Stop stops the manager watchers and clean firewall rules
 func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 	m.stop()
@@ -345,6 +355,7 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 			UseNewDNSRoute:       m.useNewDNSRoute,
 			Firewall:             m.firewall,
 			FakeIPManager:        m.fakeIPManager,
+			ForwarderPort:        &m.dnsForwarderPort,
 		}
 		handler := client.HandlerFromRoute(params)
 		if err := handler.AddRoute(m.ctx); err != nil {

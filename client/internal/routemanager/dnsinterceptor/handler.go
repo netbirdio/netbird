@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -20,7 +21,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
-	pkgdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/client/internal/routemanager/common"
 	"github.com/netbirdio/netbird/client/internal/routemanager/fakeip"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
@@ -55,6 +55,7 @@ type DnsInterceptor struct {
 	peerStore            *peerstore.Store
 	firewall             firewall.Manager
 	fakeIPManager        *fakeip.Manager
+	forwarderPort        *atomic.Uint32
 }
 
 func New(params common.HandlerParams) *DnsInterceptor {
@@ -69,6 +70,7 @@ func New(params common.HandlerParams) *DnsInterceptor {
 		firewall:             params.Firewall,
 		fakeIPManager:        params.FakeIPManager,
 		interceptedDomains:   make(domainMap),
+		forwarderPort:        params.ForwarderPort,
 	}
 }
 
@@ -257,7 +259,7 @@ func (d *DnsInterceptor) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		r.MsgHdr.AuthenticatedData = true
 	}
 
-	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), pkgdns.ForwarderClientPort)
+	upstream := fmt.Sprintf("%s:%d", upstreamIP.String(), uint16(d.forwarderPort.Load()))
 	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
 	defer cancel()
 

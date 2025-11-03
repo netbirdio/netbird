@@ -35,6 +35,8 @@ type Config struct {
 	NameServerGroups []*NameServerGroup
 	// CustomZones contains a list of custom zone
 	CustomZones []CustomZone
+	// ForwarderPort is the port clients should connect to on routing peers for DNS forwarding
+	ForwarderPort uint16
 }
 
 // CustomZone represents a custom zone to be resolved by the dns server

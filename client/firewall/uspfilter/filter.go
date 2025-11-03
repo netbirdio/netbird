@@ -56,6 +56,12 @@ const (
 
 var errNatNotSupported = errors.New("nat not supported with userspace firewall")
 
+// serviceKey represents a protocol/port combination for netstack service registry
+type serviceKey struct {
+	protocol gopacket.LayerType
+	port     uint16
+}
+
 // RuleSet is a set of rules grouped by a string key
 type RuleSet map[string]PeerRule
 
