@@ -165,6 +165,16 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 			for _, groupID := range rule.Destinations {
 				affectedGroups[groupID] = struct{}{}
 			}
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				groupId := rule.SourceResource.ID
+				affectedGroups[groupId] = struct{}{}
+				b.cache.peerToGroups[rule.SourceResource.ID] = append(b.cache.peerToGroups[rule.SourceResource.ID], groupId)
+			}
+			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+				groupId := rule.SourceResource.ID
+				affectedGroups[groupId] = struct{}{}
+				b.cache.peerToGroups[rule.DestinationResource.ID] = append(b.cache.peerToGroups[rule.DestinationResource.ID], groupId)
+			}
 		}
 
 		for groupID := range affectedGroups {
@@ -277,20 +287,22 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 					continue
 				}
 
-				if peerInDestinations {
-					if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+					peer := account.GetPeer(rule.SourceResource.ID)
+					if peer != nil {
 						sourcePeers = []*nbpeer.Peer{peer}
-					} else {
-						sourcePeers = b.getPeersFromGroupscached(account, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
 					}
+				} else {
+					sourcePeers = b.getPeersFromGroupscached(account, rule.Sources, peerID, policy.SourcePostureChecks, validatedPeersMap)
 				}
 
-				if peerInSources {
-					if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+				if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+					peer := account.GetPeer(rule.DestinationResource.ID)
+					if peer != nil {
 						destinationPeers = []*nbpeer.Peer{peer}
-					} else {
-						destinationPeers = b.getPeersFromGroupscached(account, rule.Destinations, peerID, nil, validatedPeersMap)
 					}
+				} else {
+					destinationPeers = b.getPeersFromGroupscached(account, rule.Destinations, peerID, nil, validatedPeersMap)
 				}
 
 				if rule.Bidirectional {
