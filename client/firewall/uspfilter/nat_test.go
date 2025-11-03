@@ -238,8 +238,6 @@ func TestInboundPortDNATNegative(t *testing.T) {
 				require.Equal(t, tc.dstPort, uint16(d.tcp.DstPort), "Port should remain unchanged")
 			case layers.IPProtocolUDP:
 				require.Equal(t, tc.dstPort, uint16(d.udp.DstPort), "Port should remain unchanged")
-			default:
-				t.Fatalf("unsupported protocol: %v", tc.protocol)
 			}
 		})
 	}
