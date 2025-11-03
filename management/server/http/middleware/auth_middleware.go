@@ -29,6 +29,7 @@ type AuthMiddleware struct {
 	ensureAccount       EnsureAccountFunc
 	getUserFromUserAuth GetUserFromUserAuthFunc
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
+	rateLimiter         *APIRateLimiter
 }
 
 // NewAuthMiddleware instance constructor
@@ -37,12 +38,19 @@ func NewAuthMiddleware(
 	ensureAccount EnsureAccountFunc,
 	syncUserJWTGroups SyncUserJWTGroupsFunc,
 	getUserFromUserAuth GetUserFromUserAuthFunc,
+	rateLimiterConfig *RateLimiterConfig,
 ) *AuthMiddleware {
+	var rateLimiter *APIRateLimiter
+	if rateLimiterConfig != nil {
+		rateLimiter = NewAPIRateLimiter(rateLimiterConfig)
+	}
+
 	return &AuthMiddleware{
 		authManager:         authManager,
 		ensureAccount:       ensureAccount,
 		syncUserJWTGroups:   syncUserJWTGroups,
 		getUserFromUserAuth: getUserFromUserAuth,
+		rateLimiter:         rateLimiter,
 	}
 }
 
@@ -143,6 +151,12 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, auth []string) (*h
 	token, err := getTokenFromPATRequest(auth)
 	if err != nil {
 		return r, fmt.Errorf("error extracting token: %w", err)
+	}
+
+	if m.rateLimiter != nil {
+		if !m.rateLimiter.Allow(token) {
+			return r, fmt.Errorf("too many requests")
+		}
 	}
 
 	ctx := r.Context()
