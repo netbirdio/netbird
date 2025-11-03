@@ -757,6 +757,7 @@ func (am *DefaultAccountManager) AccountExists(ctx context.Context, accountID st
 // If the user doesn't have an account, it creates one using the provided domain.
 // Returns the account ID or an error if none is found or created.
 func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error) {
+	defer util.TimeTrack(ctx, "GetAccountIDByUserID")()
 	if userID == "" {
 		return "", status.Errorf(status.NotFound, "no valid userID provided")
 	}
@@ -785,6 +786,8 @@ func isNil(i idp.Manager) bool {
 
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
+	defer util.TimeTrack(ctx, "addAccountIDToIDPAppMeta")()
+
 	if !isNil(am.idpManager) {
 		// user can be nil if it wasn't found (e.g., just created)
 		user, err := am.lookupUserInCache(ctx, userID, accountID)
@@ -1043,6 +1046,8 @@ func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accoun
 func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx context.Context, accountID string, userAuth nbcontext.UserAuth,
 	primaryDomain bool,
 ) error {
+	defer util.TimeTrack(ctx, "updateAccountDomainAttributesIfNotUpToDate")()
+
 	if userAuth.Domain == "" {
 		log.WithContext(ctx).Errorf("claims don't contain a valid domain, skipping domain attributes update. Received claims: %v", userAuth)
 		return nil
@@ -1091,6 +1096,8 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 	domainAccountID string,
 	userAuth nbcontext.UserAuth,
 ) error {
+	defer util.TimeTrack(ctx, "handleExistingUserAccount")()
+
 	primaryDomain := domainAccountID == "" || userAccountID == domainAccountID
 	err := am.updateAccountDomainAttributesIfNotUpToDate(ctx, userAccountID, userAuth, primaryDomain)
 	if err != nil {
@@ -1109,6 +1116,8 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 // addNewPrivateAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
 // otherwise it will create a new account and make it primary account for the domain.
 func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domainAccountID string, userAuth nbcontext.UserAuth) (string, error) {
+	defer util.TimeTrack(ctx, "addNewPrivateAccount")()
+
 	if userAuth.UserId == "" {
 		return "", fmt.Errorf("user ID is empty")
 	}
@@ -1140,6 +1149,8 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 }
 
 func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, userAuth nbcontext.UserAuth) (string, error) {
+	defer util.TimeTrack(ctx, "addNewUserToDomainAccount")()
+
 	newUser := types.NewRegularUser(userAuth.UserId)
 	newUser.AccountID = domainAccountID
 
@@ -1508,6 +1519,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 //
 // UserAuth IsChild -> checks that account exists
 func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context.Context, userAuth nbcontext.UserAuth) (string, error) {
+	defer util.TimeTrack(ctx, "getAccountIDWithAuthorizationClaims")()
 	log.WithContext(ctx).Tracef("getting account with authorization claims. User ID: \"%s\", Account ID: \"%s\", Domain: \"%s\", Domain Category: \"%s\"",
 		userAuth.UserId, userAuth.AccountId, userAuth.Domain, userAuth.DomainCategory)
 
@@ -1561,6 +1573,8 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	return am.addNewPrivateAccount(ctx, domainAccountID, userAuth)
 }
 func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Context, domain string) (string, context.CancelFunc, error) {
+	defer util.TimeTrack(ctx, "getPrivateDomainWithGlobalLock")()
+
 	domainAccountID, err := am.Store.GetAccountIDByPrivateDomain(ctx, store.LockingStrengthNone, domain)
 	if handleNotFound(err) != nil {
 
@@ -1587,6 +1601,8 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 }
 
 func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, userAuth nbcontext.UserAuth) (string, error) {
+	defer util.TimeTrack(ctx, "handlePrivateAccountWithIDFromClaim")()
+
 	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)

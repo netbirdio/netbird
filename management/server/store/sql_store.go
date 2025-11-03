@@ -500,6 +500,8 @@ func (s *SqlStore) GetAccountByPrivateDomain(ctx context.Context, domain string)
 }
 
 func (s *SqlStore) GetAccountIDByPrivateDomain(ctx context.Context, lockStrength LockingStrength, domain string) (string, error) {
+	defer util.TimeTrack(ctx, "GetAccountIDByPrivateDomain")()
+
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -942,6 +944,8 @@ func (s *SqlStore) GetAccountIDByPeerPubKey(ctx context.Context, peerKey string)
 }
 
 func (s *SqlStore) GetAccountIDByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (string, error) {
+	defer util.TimeTrack(ctx, "GetAccountIDByUserID")()
+
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -1788,6 +1792,7 @@ func (s *SqlStore) GetAccountDNSSettings(ctx context.Context, lockStrength Locki
 
 // AccountExists checks whether an account exists by the given ID.
 func (s *SqlStore) AccountExists(ctx context.Context, lockStrength LockingStrength, id string) (bool, error) {
+	defer util.TimeTrack(ctx, "AccountExists")()
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -1808,6 +1813,8 @@ func (s *SqlStore) AccountExists(ctx context.Context, lockStrength LockingStreng
 
 // GetAccountDomainAndCategory retrieves the Domain and DomainCategory fields for an account based on the given accountID.
 func (s *SqlStore) GetAccountDomainAndCategory(ctx context.Context, lockStrength LockingStrength, accountID string) (string, string, error) {
+	defer util.TimeTrack(ctx, "GetAccountDomainAndCategory")()
+
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
