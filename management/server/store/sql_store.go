@@ -575,6 +575,8 @@ func (s *SqlStore) GetUserByPATID(ctx context.Context, lockStrength LockingStren
 }
 
 func (s *SqlStore) GetUserByUserID(ctx context.Context, lockStrength LockingStrength, userID string) (*types.User, error) {
+	defer util.TimeTrack(ctx, "GetUserByUserID")()
+
 	ctx, cancel := getDebuggingCtx(ctx)
 	defer cancel()
 
@@ -1127,6 +1129,8 @@ func (s *SqlStore) GetAccountCreatedBy(ctx context.Context, lockStrength Locking
 
 // SaveUserLastLogin stores the last login time for a user in DB.
 func (s *SqlStore) SaveUserLastLogin(ctx context.Context, accountID, userID string, lastLogin time.Time) error {
+	defer util.TimeTrack(ctx, "SyncUserJWTGroups")()
+
 	ctx, cancel := getDebuggingCtx(ctx)
 	defer cancel()
 

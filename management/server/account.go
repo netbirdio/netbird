@@ -1304,6 +1304,7 @@ func (am *DefaultAccountManager) UpdateAccountOnboarding(ctx context.Context, ac
 }
 
 func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+	defer util.TimeTrack(ctx, "GetAccountIDFromUserAuth")()
 	if userAuth.UserId == "" {
 		return "", "", errors.New(emptyUserID)
 	}
@@ -1348,6 +1349,7 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 // and propagates changes to peers if group propagation is enabled.
 // requires userAuth to have been ValidateAndParseToken and EnsureUserAccessByJWTGroups by the AuthManager
 func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error {
+	defer util.TimeTrack(ctx, "SyncUserJWTGroups")()
 	if userAuth.IsChild || userAuth.IsPAT {
 		return nil
 	}

@@ -178,6 +178,8 @@ func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*t
 // GetUser looks up a user by provided nbContext.UserAuths.
 // Expects account to have been created already.
 func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbContext.UserAuth) (*types.User, error) {
+	defer util.TimeTrack(ctx, "SyncUserJWTGroups")()
+
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		return nil, err

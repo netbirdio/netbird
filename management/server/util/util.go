@@ -1,5 +1,12 @@
 package util
 
+import (
+	"context"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+)
+
 // Difference returns the elements in `a` that aren't in `b`.
 func Difference(a, b []string) []string {
 	mb := make(map[string]struct{}, len(b))
@@ -49,4 +56,14 @@ func contains[T comparableObject[T]](slice []T, element T) bool {
 		}
 	}
 	return false
+}
+
+func TimeTrack(ctx context.Context, name string) func() {
+	start := time.Now()
+	return func() {
+		elapsed := time.Since(start)
+		if elapsed > time.Second {
+			log.WithContext(ctx).Infof("Slow Call: [%s] took %s", name, elapsed)
+		}
+	}
 }
