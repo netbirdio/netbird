@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -22,15 +24,11 @@ func (u *Installer) copyUpdater() (string, error) {
 
 	dstPath := filepath.Join(u.tempDir, updaterBinary)
 
-	execPath, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("failed to get executable path: %w", err)
-	}
-
-	updaterSrcPath := filepath.Join(filepath.Dir(execPath), uiName)
-
+	//updaterSrcPath := "/Applications/NetBird.app/Contents/MacOS/netbird-ui"
+	updaterSrcPath := "/Users/pzoli/go/src/github.com/netbirdio/netbird/client/ui/ui"
 	srcFile, err := os.Open(updaterSrcPath)
 	if err != nil {
+		log.Debugf("Failed to open updater binary: %v", err)
 		return "", fmt.Errorf("failed to open source file: %w", err)
 	}
 	defer srcFile.Close()

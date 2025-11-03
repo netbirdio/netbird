@@ -43,6 +43,7 @@ import (
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/client/ui/process"
+	"github.com/netbirdio/netbird/client/ui/update"
 
 	"github.com/netbirdio/netbird/util"
 
@@ -59,6 +60,10 @@ const (
 )
 
 func main() {
+	if update.IsUpdateBinary() {
+		update.Execute()
+		return
+	}
 	flags := parseFlags()
 
 	// Initialize file logging if needed.
