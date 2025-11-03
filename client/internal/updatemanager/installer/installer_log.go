@@ -6,6 +6,6 @@ func (c *Installer) LogFiles() []string {
 	return []string{}
 }
 
-func (u *Installer) CleanUpInstallerFile() error {
+func (u *Installer) CleanUpInstallerFiles() error {
 	return nil
 }

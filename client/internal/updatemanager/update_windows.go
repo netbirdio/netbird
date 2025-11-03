@@ -39,7 +39,7 @@ func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error
 	return nil
 }
 
-func urlWithVersionArch(it installer.InstallerType, version string) string {
+func urlWithVersionArch(it installer.Type, version string) string {
 	var url string
 	if it == installer.TypeExe {
 		url = exeDownloadURL

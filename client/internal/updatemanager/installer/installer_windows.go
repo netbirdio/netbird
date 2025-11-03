@@ -3,7 +3,6 @@ package installer
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -230,45 +229,6 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 
 	log.Infof("netbird-ui started successfully in session %d", sessionID)
 	return nil
-}
-
-func (u *Installer) copyUpdater() (string, error) {
-	if err := os.MkdirAll(u.tempDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create temp dir: %w", err)
-	}
-
-	// Destination path for the copied executable
-	dstPath := filepath.Join(u.tempDir, updaterBinary)
-
-	// Open the source executable
-	execPath, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("failed to get executable path: %w", err)
-	}
-	srcFile, err := os.Open(execPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open source file: %w", err)
-	}
-	defer srcFile.Close()
-
-	// Create the destination file
-	dstFile, err := os.Create(dstPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create destination file: %w", err)
-	}
-	defer dstFile.Close()
-
-	// Copy contents
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return "", fmt.Errorf("failed to copy file: %w", err)
-	}
-
-	// Make executable
-	if err := os.Chmod(dstPath, 0755); err != nil {
-		return "", fmt.Errorf("failed to set permissions: %w", err)
-	}
-
-	return dstPath, nil
 }
 
 func getServiceDir() (string, error) {
