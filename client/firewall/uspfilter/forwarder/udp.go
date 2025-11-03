@@ -131,10 +131,10 @@ func (f *udpForwarder) cleanup() {
 }
 
 // handleUDP is called by the UDP forwarder for new packets
-func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
+func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) bool {
 	if f.ctx.Err() != nil {
 		f.logger.Trace("forwarder: context done, dropping UDP packet")
-		return
+		return false
 	}
 
 	id := r.ID()
@@ -144,7 +144,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	f.udpForwarder.RUnlock()
 	if exists {
 		f.logger.Trace1("forwarder: existing UDP connection for %v", epID(id))
-		return
+		return true
 	}
 
 	flowID := uuid.New()
@@ -162,7 +162,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	if err != nil {
 		f.logger.Debug2("forwarder: UDP dial error for %v: %v", epID(id), err)
 		// TODO: Send ICMP error message
-		return
+		return false
 	}
 
 	// Create wait queue for blocking syscalls
@@ -173,10 +173,10 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
-		return
+		return false
 	}
 
-	inConn := gonet.NewUDPConn(f.stack, &wq, ep)
+	inConn := gonet.NewUDPConn(&wq, ep)
 	connCtx, connCancel := context.WithCancel(f.ctx)
 
 	pConn := &udpPacketConn{
@@ -199,7 +199,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 		if err := outConn.Close(); err != nil {
 			f.logger.Debug2("forwarder: UDP outConn close error for %v: %v", epID(id), err)
 		}
-		return
+		return true
 	}
 	f.udpForwarder.conns[id] = pConn
 	f.udpForwarder.Unlock()
@@ -208,6 +208,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) {
 	f.logger.Trace1("forwarder: established UDP connection %v", epID(id))
 
 	go f.proxyUDP(connCtx, pConn, id, ep)
+	return true
 }
 
 func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack.TransportEndpointID, ep tcpip.Endpoint) {

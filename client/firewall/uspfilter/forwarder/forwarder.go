@@ -63,8 +63,8 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 	endpoint := &endpoint{
 		logger: logger,
 		device: iface.GetWGDevice(),
-		mtu:    uint32(mtu),
 	}
+	endpoint.mtu.Store(uint32(mtu))
 
 	if err := s.CreateNIC(nicID, endpoint); err != nil {
 		return nil, fmt.Errorf("create NIC: %v", err)
