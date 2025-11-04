@@ -357,11 +357,12 @@ func (m *AclManager) addIOFiltering(
 	}
 
 	if err := m.rConn.Flush(); err != nil {
-		return nil, fmt.Errorf(flushError, err)
+		return nil, fmt.Errorf("flush input rule %s: %v", ruleId, err)
 	}
 
 	ruleStruct := &Rule{
-		nftRule:    nftRule,
+		nftRule: nftRule,
+		// best effort mangle rule
 		mangleRule: m.createPreroutingRule(expressions, userData),
 		nftSet:     ipset,
 		ruleID:     ruleId,
@@ -420,12 +421,19 @@ func (m *AclManager) createPreroutingRule(expressions []expr.Any, userData []byt
 		},
 	)
 
-	return m.rConn.AddRule(&nftables.Rule{
+	nfRule := m.rConn.AddRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    m.chainPrerouting,
 		Exprs:    preroutingExprs,
 		UserData: userData,
 	})
+
+	if err := m.rConn.Flush(); err != nil {
+		log.Errorf("failed to flush mangle rule %s: %v", string(userData), err)
+		return nil
+	}
+
+	return nfRule
 }
 
 func (m *AclManager) createDefaultChains() (err error) {

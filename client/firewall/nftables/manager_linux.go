@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"sync"
 
 	"github.com/google/nftables"
@@ -19,12 +20,21 @@ import (
 )
 
 const (
-	// tableNameNetbird is the name of the table that is used for filtering by the Netbird client
+	// tableNameNetbird is the default name of the table that is used for filtering by the Netbird client
 	tableNameNetbird = "netbird"
+	// envTableName is the environment variable to override the table name
+	envTableName = "NB_NFTABLES_TABLE"
 
 	tableNameFilter = "filter"
 	chainNameInput  = "INPUT"
 )
+
+func getTableName() string {
+	if name := os.Getenv(envTableName); name != "" {
+		return name
+	}
+	return tableNameNetbird
+}
 
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
@@ -50,7 +60,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		wgIface: wgIface,
 	}
 
-	workTable := &nftables.Table{Name: tableNameNetbird, Family: nftables.TableFamilyIPv4}
+	workTable := &nftables.Table{Name: getTableName(), Family: nftables.TableFamilyIPv4}
 
 	var err error
 	m.router, err = newRouter(workTable, wgIface)
@@ -314,8 +324,9 @@ func (m *Manager) cleanupNetbirdTables() error {
 		return fmt.Errorf("list tables: %w", err)
 	}
 
+	tableName := getTableName()
 	for _, t := range tables {
-		if t.Name == tableNameNetbird {
+		if t.Name == tableName {
 			m.rConn.DelTable(t)
 		}
 	}
@@ -398,13 +409,14 @@ func (m *Manager) createWorkTable() (*nftables.Table, error) {
 		return nil, fmt.Errorf("list of tables: %w", err)
 	}
 
+	tableName := getTableName()
 	for _, t := range tables {
-		if t.Name == tableNameNetbird {
+		if t.Name == tableName {
 			m.rConn.DelTable(t)
 		}
 	}
 
-	table := m.rConn.AddTable(&nftables.Table{Name: tableNameNetbird, Family: nftables.TableFamilyIPv4})
+	table := m.rConn.AddTable(&nftables.Table{Name: getTableName(), Family: nftables.TableFamilyIPv4})
 	err = m.rConn.Flush()
 	return table, err
 }
