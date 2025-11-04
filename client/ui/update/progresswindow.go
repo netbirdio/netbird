@@ -42,7 +42,9 @@ func (u *UI) ShowUpdateProgress(ctx context.Context) {
 	u.wUpdateProgress.SetContent(content)
 	u.wUpdateProgress.CenterOnScreen()
 	u.wUpdateProgress.SetFixedSize(true)
-	u.wUpdateProgress.SetCloseIntercept(func() {}) // lock window until result known
+	u.wUpdateProgress.SetCloseIntercept(func() {
+		// prevent closing this window until a result
+	})
 	u.wUpdateProgress.RequestFocus()
 	u.wUpdateProgress.Show()
 

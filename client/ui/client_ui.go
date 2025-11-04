@@ -99,14 +99,13 @@ func main() {
 		showLoginURL: flags.showLoginURL,
 		showDebug:    flags.showDebug,
 		showProfiles: flags.showProfiles,
-		showUpdate:   flags.showUpdate,
 	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showUpdate {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles {
 		a.Run()
 		return
 	}
@@ -134,7 +133,6 @@ type cliFlags struct {
 	showDebug      bool
 	showLoginURL   bool
 	errorMsg       string
-	showUpdate     bool
 	saveLogsInFile bool
 }
 
@@ -154,7 +152,6 @@ func parseFlags() *cliFlags {
 	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
 	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
-	flag.BoolVar(&flags.showUpdate, "update", false, "show update progress window")
 	flag.Parse()
 	return &flags
 }
@@ -323,7 +320,6 @@ type newServiceClientArgs struct {
 	showDebug    bool
 	showLoginURL bool
 	showProfiles bool
-	showUpdate   bool
 }
 
 // newServiceClient instance constructor
@@ -359,8 +355,6 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		s.showDebugUI()
 	case args.showProfiles:
 		s.showProfilesUI()
-	case args.showUpdate:
-		s.showUpdateProgress(ctx)
 	}
 
 	return s
