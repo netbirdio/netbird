@@ -148,6 +148,8 @@ type Engine struct {
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
+	// sshMux protects sshServer field access
+	sshMux sync.Mutex
 
 	config    *EngineConfig
 	mobileDep MobileDependency
@@ -710,9 +712,11 @@ func (e *Engine) removeAllPeers() error {
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
 
+	e.sshMux.Lock()
 	if !isNil(e.sshServer) {
 		e.sshServer.RemoveAuthorizedKey(peerKey)
 	}
+	e.sshMux.Unlock()
 
 	e.connMgr.RemovePeerConn(peerKey)
 
@@ -914,6 +918,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
 			return nil
 		}
+		e.sshMux.Lock()
 		// start SSH server if it wasn't running
 		if isNil(e.sshServer) {
 			listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
@@ -925,32 +930,37 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			e.sshServer, err = e.sshServerFunc(e.config.SSHKey, listenAddr)
 
 			if err != nil {
+				e.sshMux.Unlock()
 				return fmt.Errorf("create ssh server: %w", err)
 			}
-			e.shutdownWg.Add(1)
+			e.sshMux.Unlock()
 			go func() {
-				defer e.shutdownWg.Done()
 				// blocking
 				err = e.sshServer.Start()
 				if err != nil {
 					// will throw error when we stop it even if it is a graceful stop
 					log.Debugf("stopped SSH server with error %v", err)
 				}
-				e.syncMsgMux.Lock()
-				defer e.syncMsgMux.Unlock()
+				e.sshMux.Lock()
 				e.sshServer = nil
+				e.sshMux.Unlock()
 				log.Infof("stopped SSH server")
 			}()
 		} else {
+			e.sshMux.Unlock()
 			log.Debugf("SSH server is already running")
 		}
-	} else if !isNil(e.sshServer) {
-		// Disable SSH server request, so stop it if it was running
-		err := e.sshServer.Stop()
-		if err != nil {
-			log.Warnf("failed to stop SSH server %v", err)
+	} else {
+		e.sshMux.Lock()
+		if !isNil(e.sshServer) {
+			// Disable SSH server request, so stop it if it was running
+			err := e.sshServer.Stop()
+			if err != nil {
+				log.Warnf("failed to stop SSH server %v", err)
+			}
+			e.sshServer = nil
 		}
-		e.sshServer = nil
+		e.sshMux.Unlock()
 	}
 	return nil
 }
@@ -1165,6 +1175,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.statusRecorder.FinishPeerListModifications()
 
 		// update SSHServer by adding remote peer SSH keys
+		e.sshMux.Lock()
 		if !isNil(e.sshServer) {
 			for _, config := range networkMap.GetRemotePeers() {
 				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
@@ -1175,6 +1186,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 				}
 			}
 		}
+		e.sshMux.Unlock()
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
@@ -1536,12 +1548,14 @@ func (e *Engine) close() {
 		e.statusRecorder.SetWgIface(nil)
 	}
 
+	e.sshMux.Lock()
 	if !isNil(e.sshServer) {
 		err := e.sshServer.Stop()
 		if err != nil {
 			log.Warnf("failed stopping the SSH server: %v", err)
 		}
 	}
+	e.sshMux.Unlock()
 
 	if e.firewall != nil {
 		err := e.firewall.Close(e.stateManager)
