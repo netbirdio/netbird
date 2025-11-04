@@ -26,7 +26,9 @@ func NewUI() *UI {
 	a := app.NewWithID("NetBird-update")
 
 	return &UI{
-		app: a,
+		app:         a,
+		resultErrCh: make(chan error, 1),
+		resultOkCh:  make(chan struct{}, 1),
 	}
 }
 
@@ -61,13 +63,15 @@ func (u *UI) ShowUpdateProgress(ctx context.Context, version string) {
 		for {
 			select {
 			case <-ctx.Done():
+				u.wUpdateProgress.SetCloseIntercept(u.closeApp)
 				u.showInstallerResult(statusLabel, ctx.Err())
 				return
 			case err := <-u.resultErrCh:
+				u.wUpdateProgress.SetCloseIntercept(u.closeApp)
 				u.showInstallerResult(statusLabel, err)
 				return
 			case <-u.resultOkCh:
-				u.wUpdateProgress.SetCloseIntercept(nil)
+				u.wUpdateProgress.SetCloseIntercept(u.closeApp)
 				u.wUpdateProgress.Close()
 				return
 			case <-ticker.C:
@@ -99,7 +103,6 @@ func (u *UI) SetError(err error) {
 }
 
 func (u *UI) showInstallerResult(statusLabel *widget.Label, err error) {
-	u.wUpdateProgress.SetCloseIntercept(nil)
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		log.Warn("update timed out")
@@ -113,6 +116,11 @@ func (u *UI) showInstallerResult(statusLabel *widget.Label, err error) {
 	default:
 		u.wUpdateProgress.Close()
 	}
+}
+
+func (u *UI) closeApp() {
+	log.Infof("close updater UI app")
+	u.app.Quit()
 }
 
 // dotUpdater returns a closure that cycles through dots for a loading animation.

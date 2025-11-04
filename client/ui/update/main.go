@@ -75,15 +75,15 @@ func Execute() {
 	ui := NewUI()
 
 	// Create a context with timeout for the entire update process
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
+	//defer cancel()
 
-	ui.ShowUpdateProgress(ctx, targetVersionFlag)
+	ui.ShowUpdateProgress(context.Background(), targetVersionFlag)
 	// Run the update function in a goroutine
 	go func() {
-		defer cancel()
+		//defer cancel()
 
-		if err := update(); err != nil {
+		ctx, _ := context.WithTimeout(context.Background(), 10*time.Minute)
+		if err := update(ctx); err != nil {
 			log.Errorf("update failed: %v", err)
 			ui.SetError(err)
 			return
@@ -98,11 +98,10 @@ func Execute() {
 	ui.Run()
 }
 
-func update() error {
+func update(ctx context.Context) error {
 	log.Infof("updater started: %s, %s", serviceDirFlag, targetVersionFlag)
 	updater := installer.NewWithDir(tempDirFlag)
-	if err := updater.Setup(context.Background(), dryRunFlag, targetVersionFlag, serviceDirFlag); err != nil {
-		// todo update ui
+	if err := updater.Setup(ctx, dryRunFlag, targetVersionFlag, serviceDirFlag); err != nil {
 		log.Errorf("failed to update application: %v", err)
 		return err
 	}
