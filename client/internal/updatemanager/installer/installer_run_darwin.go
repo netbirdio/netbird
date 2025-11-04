@@ -34,6 +34,10 @@ var (
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
 func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string, daemonFolder string) (resultErr error) {
+	if err := validateTargetVersion(targetVersion); err != nil {
+		log.Errorf("invalid verion: %s", targetVersion)
+		return err
+	}
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
 		log.Infof("starting daemon back")
@@ -58,7 +62,8 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string
 	case TypePKG:
 		installerFile, err := u.downloadFileToTemporaryDir(ctx, urlWithVersionArch(targetVersion))
 		if err != nil {
-			return fmt.Errorf("error downloading update file: %w", err)
+			resultErr = fmt.Errorf("error downloading update file: %w", err)
+			break
 		}
 
 		log.Infof("installing pkg file")
@@ -77,7 +82,7 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string
 		log.Infof("homebrew updated successfully")
 	}
 
-	return nil
+	return resultErr
 }
 
 func (u *Installer) startDaemon(daemonFolder string) error {

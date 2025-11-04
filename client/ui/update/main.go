@@ -76,7 +76,7 @@ func Execute() {
 }
 
 func update() error {
-	log.Infof("updater started: %s", serviceDirFlag)
+	log.Infof("updater started: %s, %s", serviceDirFlag, targetVersionFlag)
 	updater := installer.NewWithDir(tempDirFlag)
 	if err := updater.Setup(context.Background(), dryRunFlag, targetVersionFlag, serviceDirFlag); err != nil {
 		// todo update ui

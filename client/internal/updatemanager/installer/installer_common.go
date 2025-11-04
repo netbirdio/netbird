@@ -10,9 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
+	goversion "github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -130,35 +132,38 @@ func (u *Installer) mkTempDir() error {
 }
 
 func (u *Installer) copyUpdater() (string, error) {
-	dstPath := filepath.Join(u.tempDir, updaterBinary)
-
-	uiBinary, err := u.uiBinaryFile()
+	src, err := u.uiBinaryFile()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get updater binary: %w", err)
 	}
 
-	srcFile, err := os.Open(uiBinary)
-	if err != nil {
-		log.Debugf("Failed to open updater binary: %v", err)
-		return "", fmt.Errorf("failed to open source file: %w", err)
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dstPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create destination file: %w", err)
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return "", fmt.Errorf("failed to copy file: %w", err)
+	dst := filepath.Join(u.tempDir, updaterBinary)
+	if err := copyFile(src, dst); err != nil {
+		return "", fmt.Errorf("failed to copy updater binary: %w", err)
 	}
 
-	if err := os.Chmod(dstPath, 0755); err != nil {
+	if err := os.Chmod(dst, 0o755); err != nil {
 		return "", fmt.Errorf("failed to set permissions: %w", err)
 	}
 
-	return dstPath, nil
+	if runtime.GOOS == "windows" {
+		if err := u.copyWindowsDLL(); err != nil {
+			return "", fmt.Errorf("failed to copy Windows DLL: %w", err)
+		}
+	}
+
+	return dst, nil
+}
+
+func (u *Installer) copyWindowsDLL() error {
+	serviceDir, err := getServiceDir()
+	if err != nil {
+		return err
+	}
+
+	sourceDLL := filepath.Join(serviceDir, "opengl32.dll")
+	dstDll := filepath.Join(u.tempDir, "opengl32.dll")
+	return copyFile(sourceDLL, dstDll)
 }
 
 func (u *Installer) downloadFileToTemporaryDir(ctx context.Context, fileURL string) (string, error) {
@@ -212,4 +217,45 @@ func (u *Installer) downloadFileToTemporaryDir(ctx context.Context, fileURL stri
 
 	success = true // Mark success to prevent cleanup
 	return out.Name(), nil
+}
+
+func validateTargetVersion(targetVersion string) error {
+	if targetVersion == "" {
+		return fmt.Errorf("target version cannot be empty")
+	}
+
+	_, err := goversion.NewVersion(targetVersion)
+	if err != nil {
+		return fmt.Errorf("invalid target version %q: %w", targetVersion, err)
+	}
+
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer func() {
+		if err := in.Close(); err != nil {
+			log.Warnf("failed to close source file: %v", err)
+		}
+	}()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("create destination: %w", err)
+	}
+	defer func() {
+		if err := out.Close(); err != nil {
+			log.Warnf("failed to close source file: %v", err)
+		}
+	}()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy: %w", err)
+	}
+
+	return nil
 }

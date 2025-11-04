@@ -302,7 +302,6 @@ type serviceClient struct {
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
-	updateContextCancel  context.CancelFunc
 }
 
 type menuHandler struct {
@@ -959,30 +958,6 @@ func (s *serviceClient) onTrayReady() {
 			s.updateExitNodes()
 		}
 	})
-	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
-		if windowAction, ok := event.Metadata["progress_window"]; ok {
-			log.Debugf("window action: %v", windowAction)
-			if windowAction == "show" {
-				log.Debugf("Inside show")
-				if s.updateContextCancel != nil {
-					s.updateContextCancel()
-					s.updateContextCancel = nil
-				}
-
-				subCtx, cancel := context.WithCancel(s.ctx)
-				go s.eventHandler.runSelfCommand(subCtx, "update", "true")
-				s.updateContextCancel = cancel
-			}
-			if windowAction == "hide" {
-				log.Debugf("Inside hide")
-				if s.updateContextCancel != nil {
-					s.updateContextCancel()
-					s.updateContextCancel = nil
-				}
-			}
-		}
-	})
-
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
 }

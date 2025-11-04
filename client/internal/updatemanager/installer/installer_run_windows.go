@@ -36,6 +36,10 @@ var (
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
 func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string, daemonFolder string) (resultErr error) {
+	if err := validateTargetVersion(targetVersion); err != nil {
+		log.Errorf("invalid verion: %s", targetVersion)
+		return err
+	}
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
 		log.Infof("starting daemon back")
