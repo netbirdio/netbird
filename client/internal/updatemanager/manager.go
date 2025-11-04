@@ -57,6 +57,8 @@ type Manager struct {
 
 	// updateMutex protect update and expectedVersion fields
 	updateMutex sync.Mutex
+
+	triggerUpdateFn func(string) error
 }
 
 func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
@@ -68,6 +70,7 @@ func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager)
 		currentVersion: version.NetbirdVersion(),
 		update:         version.NewUpdate("nb/client"),
 	}
+	manager.triggerUpdateFn = manager.triggerUpdate
 
 	return manager
 }
@@ -246,7 +249,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		}
 	}
 
-	if err := m.triggerUpdate(updateVersion.String()); err != nil {
+	if err := m.triggerUpdateFn(updateVersion.String()); err != nil {
 		log.Errorf("Error triggering auto-update: %v", err)
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_ERROR,

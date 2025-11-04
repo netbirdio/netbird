@@ -3,12 +3,14 @@ package updatemanager
 import (
 	"context"
 	"fmt"
-	v "github.com/hashicorp/go-version"
-	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"path"
 	"testing"
 	"time"
+
+	v "github.com/hashicorp/go-version"
+
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
 func (m *Manager) WithCustomVersionUpdate(versionUpdate UpdateInterface) *Manager {
@@ -71,7 +73,7 @@ func Test_LatestVersion(t *testing.T) {
 
 		targetVersionChan := make(chan string, 1)
 
-		m.updateFunc = func(ctx context.Context, targetVersion string) error {
+		m.triggerUpdateFn = func(targetVersion string) error {
 			targetVersionChan <- targetVersion
 			return nil
 		}
@@ -183,7 +185,7 @@ func Test_HandleUpdate(t *testing.T) {
 		m := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(&versionUpdateMock{latestVersion: c.latestVersion})
 		targetVersionChan := make(chan string, 1)
 
-		m.updateFunc = func(ctx context.Context, targetVersion string) error {
+		m.triggerUpdateFn = func(targetVersion string) error {
 			targetVersionChan <- targetVersion
 			return nil
 		}
