@@ -137,7 +137,7 @@ type EngineConfig struct {
 	// for debug bundle generation
 	ProfileConfig *profilemanager.Config
 
-	LogFile string
+	LogPath string
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -1016,7 +1016,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		InternalConfig: e.config.ProfileConfig,
 		StatusRecorder: e.statusRecorder,
 		SyncResponse:   syncResponse,
-		LogFile:        e.config.LogFile,
+		LogPath:        e.config.LogPath,
 	}
 
 	bundleJobParams := debug.BundleConfig{

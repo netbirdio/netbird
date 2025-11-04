@@ -29,7 +29,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 			InternalConfig: s.config,
 			StatusRecorder: s.statusRecorder,
 			SyncResponse:   syncResponse,
-			LogFile:        s.logFile,
+			LogPath:        s.logFile,
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),

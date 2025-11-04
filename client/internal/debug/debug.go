@@ -202,7 +202,7 @@ type BundleGenerator struct {
 	internalConfig *profilemanager.Config
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
-	logFile        string
+	logPath        string
 
 	anonymize         bool
 	clientStatus      string
@@ -223,7 +223,7 @@ type GeneratorDependencies struct {
 	InternalConfig *profilemanager.Config
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
-	LogFile        string
+	LogPath        string
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -239,7 +239,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		internalConfig: deps.InternalConfig,
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
-		logFile:        deps.LogFile,
+		logPath:        deps.LogPath,
 
 		anonymize:         cfg.Anonymize,
 		clientStatus:      cfg.ClientStatus,
@@ -327,7 +327,7 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add wg show output: %v", err)
 	}
 
-	if g.logFile != "" && !slices.Contains(util.SpecialLogs, g.logFile) {
+	if g.logPath != "" && !slices.Contains(util.SpecialLogs, g.logPath) {
 		if err := g.addLogfile(); err != nil {
 			log.Errorf("failed to add log file to debug bundle: %v", err)
 			if err := g.trySystemdLogFallback(); err != nil {
@@ -630,14 +630,14 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 }
 
 func (g *BundleGenerator) addLogfile() error {
-	if g.logFile == "" {
+	if g.logPath == "" {
 		log.Debugf("skipping empty log file in debug bundle")
 		return nil
 	}
 
-	logDir := filepath.Dir(g.logFile)
+	logDir := filepath.Dir(g.logPath)
 
-	if err := g.addSingleLogfile(g.logFile, clientLogFile); err != nil {
+	if err := g.addSingleLogfile(g.logPath, clientLogFile); err != nil {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 

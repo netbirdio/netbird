@@ -62,8 +62,8 @@ func NewConnectClient(
 }
 
 // Run with main logic.
-func (c *ConnectClient) Run(runningChan chan struct{}, logFile string) error {
-	return c.run(MobileDependency{}, runningChan, logFile)
+func (c *ConnectClient) Run(runningChan chan struct{}, logPath string) error {
+	return c.run(MobileDependency{}, runningChan, logPath)
 }
 
 // RunOnAndroid with main logic on mobile system
@@ -103,7 +103,7 @@ func (c *ConnectClient) RunOniOS(
 	return c.run(mobileDependency, nil, "")
 }
 
-func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}, logFile string) error {
+func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan struct{}, logPath string) error {
 	defer func() {
 		if r := recover(); r != nil {
 			rec := c.statusRecorder
@@ -246,7 +246,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		relayURLs, token := parseRelayInfo(loginResp)
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, logFile)
+		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, logPath)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -413,7 +413,7 @@ func (c *ConnectClient) SetSyncResponsePersistence(enabled bool) {
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConfig *mgmProto.PeerConfig, logFile string) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConfig *mgmProto.PeerConfig, logPath string) (*EngineConfig, error) {
 	nm := false
 	if config.NetworkMonitor != nil {
 		nm = *config.NetworkMonitor
@@ -444,7 +444,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
-		LogFile: logFile,
+		LogPath: logPath,
 
 		ProfileConfig: config,
 	}

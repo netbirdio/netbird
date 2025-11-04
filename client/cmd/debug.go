@@ -378,7 +378,7 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 			InternalConfig: config,
 			StatusRecorder: recorder,
 			SyncResponse:   syncResponse,
-			LogFile:        logFilePath,
+			LogPath:        logFilePath,
 		},
 		debug.BundleConfig{
 			IncludeSystemInfo: true,
