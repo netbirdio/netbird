@@ -239,7 +239,7 @@ func (m *AclManager) addIOFiltering(
 	action firewall.Action,
 	ipset *nftables.Set,
 ) (*Rule, error) {
-	ruleId := generatePeerRuleId(ip, sPort, dPort, action, ipset)
+	ruleId := generatePeerRuleId(ip, proto, sPort, dPort, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
 		return &Rule{
 			nftRule:    r.nftRule,
@@ -686,8 +686,8 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain, mangle bool) erro
 	return nil
 }
 
-func generatePeerRuleId(ip net.IP, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action, ipset *nftables.Set) string {
-	rulesetID := ":"
+func generatePeerRuleId(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action, ipset *nftables.Set) string {
+	rulesetID := ":" + string(proto) + ":"
 	if sPort != nil {
 		rulesetID += sPort.String()
 	}
