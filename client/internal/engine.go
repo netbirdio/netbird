@@ -926,17 +926,18 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 				listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
 			}
 			// nil sshServer means it has not yet been started
-			var err error
-			e.sshServer, err = e.sshServerFunc(e.config.SSHKey, listenAddr)
-
+			server, err := e.sshServerFunc(e.config.SSHKey, listenAddr)
 			if err != nil {
 				e.sshMux.Unlock()
 				return fmt.Errorf("create ssh server: %w", err)
 			}
+
+			e.sshServer = server
 			e.sshMux.Unlock()
+
 			go func() {
 				// blocking
-				err = e.sshServer.Start()
+				err = server.Start()
 				if err != nil {
 					// will throw error when we stop it even if it is a graceful stop
 					log.Debugf("stopped SSH server with error %v", err)
