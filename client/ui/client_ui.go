@@ -302,7 +302,6 @@ type serviceClient struct {
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
-	wUpdateProgress      fyne.Window
 	updateContextCancel  context.CancelFunc
 }
 

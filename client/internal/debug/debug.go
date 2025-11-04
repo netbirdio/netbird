@@ -607,6 +607,7 @@ func (g *BundleGenerator) addUpdateLogs() error {
 	inst, err := installer.New()
 	if err != nil {
 		// unsupported platform
+		// nolint
 		return nil
 	}
 	log.Infof("adding updater logs")

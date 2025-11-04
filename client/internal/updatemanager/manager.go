@@ -78,7 +78,6 @@ func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager)
 // CheckUpdateSuccess checks if the update was successful. It works without to start the update manager.
 func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
 	m.updateStateManager(ctx)
-	return
 }
 
 func (m *Manager) Start(ctx context.Context) {

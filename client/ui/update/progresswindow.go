@@ -17,6 +17,8 @@ import (
 type UI struct {
 	app             fyne.App
 	wUpdateProgress fyne.Window
+	resultErrCh     chan error
+	resultOkCh      chan struct{}
 }
 
 func NewUI() *UI {
@@ -32,12 +34,12 @@ func (u *UI) Run() {
 	u.app.Run()
 }
 
-func (u *UI) ShowUpdateProgress(ctx context.Context) {
+func (u *UI) ShowUpdateProgress(ctx context.Context, version string) {
 	log.Infof("show installer progress window")
 	u.wUpdateProgress = u.app.NewWindow("Automatically updating client")
 
+	infoLabel := widget.NewLabel(fmt.Sprintf("Your client version is older than the auto-update version set in Management.\nUpdating client to %s.", version))
 	statusLabel := widget.NewLabel("Updating...")
-	infoLabel := widget.NewLabel("Your client version is older than the auto-update version set in Management.\nUpdating client now.")
 	content := container.NewVBox(infoLabel, statusLabel)
 	u.wUpdateProgress.SetContent(content)
 	u.wUpdateProgress.CenterOnScreen()
@@ -51,10 +53,6 @@ func (u *UI) ShowUpdateProgress(ctx context.Context) {
 	// Initialize dot updater
 	updateText := dotUpdater()
 
-	// Channel to receive the result from RPC call
-	resultErrCh := make(chan error, 1)
-	resultOkCh := make(chan struct{}, 1)
-
 	// Update UI with dots and wait for result
 	go func() {
 		ticker := time.NewTicker(time.Second)
@@ -65,10 +63,10 @@ func (u *UI) ShowUpdateProgress(ctx context.Context) {
 			case <-ctx.Done():
 				u.showInstallerResult(statusLabel, ctx.Err())
 				return
-			case err := <-resultErrCh:
+			case err := <-u.resultErrCh:
 				u.showInstallerResult(statusLabel, err)
 				return
-			case <-resultOkCh:
+			case <-u.resultOkCh:
 				u.wUpdateProgress.SetCloseIntercept(nil)
 				u.wUpdateProgress.Close()
 				return
@@ -79,14 +77,35 @@ func (u *UI) ShowUpdateProgress(ctx context.Context) {
 	}()
 }
 
+func (u *UI) UpdateSuccess() {
+	select {
+	case u.resultOkCh <- struct{}{}:
+		log.Infof("update success signal sent")
+	default:
+		log.Warnf("could not send update success signal - channel full or already processed")
+	}
+}
+
+func (u *UI) SetError(err error) {
+	if err == nil {
+		return
+	}
+	select {
+	case u.resultErrCh <- err:
+		log.Infof("update error signal sent: %v", err)
+	default:
+		log.Warnf("could not send update error signal - channel full or already processed")
+	}
+}
+
 func (u *UI) showInstallerResult(statusLabel *widget.Label, err error) {
 	u.wUpdateProgress.SetCloseIntercept(nil)
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
-		log.Warn("update watcher timed out")
+		log.Warn("update timed out")
 		statusLabel.SetText("Update timed out. Please try again.")
 	case errors.Is(err, context.Canceled):
-		log.Info("update watcher canceled")
+		log.Info("update canceled")
 		statusLabel.SetText("Update canceled.")
 	case err != nil:
 		log.Errorf("update failed: %v", err)

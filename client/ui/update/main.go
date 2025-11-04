@@ -47,25 +47,28 @@ func Execute() {
 		return
 	}
 
+	// todo validate target version
+
 	ui := NewUI()
 
 	// Create a context with timeout for the entire update process
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	ui.ShowUpdateProgress(ctx)
+	ui.ShowUpdateProgress(ctx, targetVersionFlag)
 	// Run the update function in a goroutine
 	go func() {
 		defer cancel()
 
 		if err := update(); err != nil {
 			log.Errorf("update failed: %v", err)
-			// The UI will handle the error display through context cancellation
+			ui.SetError(err)
 			return
 		}
 
 		// Success - the UI will automatically close the window
 		log.Infof("update completed successfully")
+		ui.UpdateSuccess()
 	}()
 
 	// Start the Fyne app event loop (blocks until window is closed or context is done)
