@@ -383,11 +383,8 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 		}
 
 		jobMeta := map[string]any{
-			"job_id":       job.ID,
-			"for_peer_id":  job.PeerID,
-			"job_type":     job.Workload.Type,
-			"job_status":   job.Status,
-			"job_workload": job.Workload,
+			"for_peer_name": peer.Name,
+			"job_type":      job.Workload.Type,
 		}
 
 		eventsToStore = func() {
