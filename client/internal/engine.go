@@ -501,7 +501,7 @@ func (e *Engine) createFirewall() error {
 	}
 
 	var err error
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes)
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes, e.config.MTU)
 	if err != nil || e.firewall == nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 		return nil

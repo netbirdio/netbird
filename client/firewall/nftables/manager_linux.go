@@ -53,7 +53,7 @@ type Manager struct {
 }
 
 // Create nftables firewall manager
-func Create(wgIface iFaceMapper) (*Manager, error) {
+func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	m := &Manager{
 		rConn:   &nftables.Conn{},
 		wgIface: wgIface,
@@ -62,7 +62,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 	workTable := &nftables.Table{Name: getTableName(), Family: nftables.TableFamilyIPv4}
 
 	var err error
-	m.router, err = newRouter(workTable, wgIface)
+	m.router, err = newRouter(workTable, wgIface, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("create router: %w", err)
 	}
@@ -102,6 +102,7 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 			NameStr:       m.wgIface.Name(),
 			WGAddress:     m.wgIface.Address(),
 			UserspaceBind: m.wgIface.IsUserspaceBind(),
+			MTU:           m.router.mtu,
 		},
 	}); err != nil {
 		log.Errorf("failed to update state: %v", err)
