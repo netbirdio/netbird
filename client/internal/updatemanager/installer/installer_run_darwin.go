@@ -17,14 +17,14 @@ import (
 
 const (
 	daemonName    = "netbird"
-	uiName        = "netbird-ui"
 	updaterBinary = "updater"
 
 	defaultTempDir = "/var/lib/netbird/tmp-install"
 
 	pkgDownloadURL = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_%version_darwin_%arch.pkg"
 
-	updaterSrcPath = "/Applications/NetBird.app/Contents/MacOS/netbird-ui"
+	//updaterSrcPath = "/Applications/NetBird.app/Contents/MacOS/netbird-ui"
+	updaterSrcPath = "/Users/pzoli/Desktop/NetBird.app/Contents/MacOS/netbird-ui"
 )
 
 var (
@@ -53,6 +53,7 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string
 	}()
 
 	if dryRun {
+		time.Sleep(10 * time.Second)
 		log.Infof("dry-run mode enabled, skipping actual installation")
 		resultErr = fmt.Errorf("dry-run mode enabled")
 		return
@@ -100,8 +101,7 @@ func (u *Installer) startDaemon(daemonFolder string) error {
 }
 
 func (u *Installer) startUIAsUser(daemonFolder string) error {
-	uiPath := filepath.Join(daemonFolder, uiName)
-	log.Infof("starting netbird-ui: %s", uiPath)
+	log.Infof("starting netbird-ui: %s", updaterSrcPath)
 
 	// Get the current console user
 	cmd := exec.Command("stat", "-f", "%Su", "/dev/console")
@@ -125,8 +125,8 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 
 	// Start the UI process as the console user using launchctl
 	// This ensures the app runs in the user's context with proper GUI access
-	launchCmd := exec.Command("launchctl", "asuser", userInfo.Uid, "sudo", "-u", username, uiPath)
-
+	launchCmd := exec.Command("launchctl", "asuser", userInfo.Uid, "open", "-a", updaterSrcPath)
+	log.Infof("launchCmd: %s", launchCmd.String())
 	// Set the user's home directory for proper macOS app behavior
 	launchCmd.Env = append(os.Environ(), "HOME="+userInfo.HomeDir)
 

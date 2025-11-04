@@ -233,6 +233,7 @@ func validateTargetVersion(targetVersion string) error {
 }
 
 func copyFile(src, dst string) error {
+	log.Infof("copying %s to %s", src, dst)
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
