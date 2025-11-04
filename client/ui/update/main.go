@@ -3,6 +3,7 @@ package update
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,28 @@ func init() {
 	flag.BoolVar(&dryRunFlag, "dry-run", false, "dry run the update process without making any changes")
 }
 
+func parseFlags() {
+	flag.Parse()
+
+	missing := []string{}
+
+	if tempDirFlag == "" {
+		missing = append(missing, "-temp-dir")
+	}
+	if targetVersionFlag == "" {
+		missing = append(missing, "-target-version")
+	}
+	if serviceDirFlag == "" {
+		missing = append(missing, "-service-dir")
+	}
+
+	if len(missing) > 0 {
+		fmt.Printf("Error: missing required flags: %s\n\n", strings.Join(missing, ", "))
+		flag.Usage()
+		os.Exit(2)
+	}
+}
+
 // IsUpdateBinary checks if the current executable is named "update" or "update.exe"
 func IsUpdateBinary() bool {
 	// Remove extension for cross-platform compatibility
@@ -42,12 +65,12 @@ func IsUpdateBinary() bool {
 }
 
 func Execute() {
+	parseFlags()
+
 	if err := setupLogToFile(tempDirFlag); err != nil {
 		log.Errorf("failed to setup logging: %s", err)
 		return
 	}
-
-	// todo validate target version
 
 	ui := NewUI()
 
