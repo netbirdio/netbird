@@ -161,22 +161,20 @@ func (m *Manager) allowDNSFirewall() error {
 
 	dnsRules, err := m.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept, "")
 	if err != nil {
-		log.Errorf("failed to add allow DNS router rules, err: %v", err)
-		return err
+		return fmt.Errorf("add udp firewall rule: %w", err)
 	}
-	m.fwRules = dnsRules
 
 	tcpRules, err := m.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolTCP, nil, dport, firewall.ActionAccept, "")
 	if err != nil {
-		log.Errorf("failed to add allow DNS router rules, err: %v", err)
-		return err
+		return fmt.Errorf("add tcp firewall rule: %w", err)
 	}
-	m.tcpRules = tcpRules
 
 	if err := m.firewall.Flush(); err != nil {
-		log.Errorf("failed to flush DNS firewall rules: %v", err)
-		return err
+		return fmt.Errorf("flush: %w", err)
 	}
+
+	m.fwRules = dnsRules
+	m.tcpRules = tcpRules
 
 	m.registerNetstackServices()
 

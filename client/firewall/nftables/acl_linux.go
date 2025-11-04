@@ -195,25 +195,6 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 // createDefaultAllowRules creates default allow rules for the input and output chains
 func (m *AclManager) createDefaultAllowRules() error {
 	expIn := []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		// mask
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            4,
-			Mask:           []byte{0, 0, 0, 0},
-			Xor:            []byte{0, 0, 0, 0},
-		},
-		// net address
-		&expr.Cmp{
-			Register: 1,
-			Data:     []byte{0, 0, 0, 0},
-		},
 		&expr.Verdict{
 			Kind: expr.VerdictAccept,
 		},

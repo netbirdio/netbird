@@ -1,7 +1,6 @@
 package nftables
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -207,44 +206,11 @@ func (m *Manager) AllowNetbird() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	err := m.aclManager.createDefaultAllowRules()
-	if err != nil {
-		return fmt.Errorf("failed to create default allow rules: %v", err)
+	if err := m.aclManager.createDefaultAllowRules(); err != nil {
+		return fmt.Errorf("create default allow rules: %w", err)
 	}
-
-	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
-	if err != nil {
-		return fmt.Errorf("list of chains: %w", err)
-	}
-
-	var chain *nftables.Chain
-	for _, c := range chains {
-		if c.Table.Name == tableNameFilter && c.Name == chainNameInput {
-			chain = c
-			break
-		}
-	}
-
-	if chain == nil {
-		log.Debugf("chain INPUT not found. Skipping add allow netbird rule")
-		return nil
-	}
-
-	rules, err := m.rConn.GetRules(chain.Table, chain)
-	if err != nil {
-		return fmt.Errorf("failed to get rules for the INPUT chain: %v", err)
-	}
-
-	if rule := m.detectAllowNetbirdRule(rules); rule != nil {
-		log.Debugf("allow netbird rule already exists: %v", rule)
-		return nil
-	}
-
-	m.applyAllowNetbirdRules(chain)
-
-	err = m.rConn.Flush()
-	if err != nil {
-		return fmt.Errorf("failed to flush allow input netbird rules: %v", err)
+	if err := m.rConn.Flush(); err != nil {
+		return fmt.Errorf("flush allow input netbird rules: %w", err)
 	}
 
 	return nil
@@ -259,10 +225,6 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-
-	if err := m.resetNetbirdInputRules(); err != nil {
-		return fmt.Errorf("reset netbird input rules: %v", err)
-	}
 
 	if err := m.router.Reset(); err != nil {
 		return fmt.Errorf("reset router: %v", err)
@@ -281,41 +243,6 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	}
 
 	return nil
-}
-
-func (m *Manager) resetNetbirdInputRules() error {
-	chains, err := m.rConn.ListChains()
-	if err != nil {
-		return fmt.Errorf("list chains: %w", err)
-	}
-
-	m.deleteNetbirdInputRules(chains)
-
-	return nil
-}
-
-func (m *Manager) deleteNetbirdInputRules(chains []*nftables.Chain) {
-	for _, c := range chains {
-		if c.Table.Name == tableNameFilter && c.Name == chainNameInput {
-			rules, err := m.rConn.GetRules(c.Table, c)
-			if err != nil {
-				log.Errorf("get rules for chain %q: %v", c.Name, err)
-				continue
-			}
-
-			m.deleteMatchingRules(rules)
-		}
-	}
-}
-
-func (m *Manager) deleteMatchingRules(rules []*nftables.Rule) {
-	for _, r := range rules {
-		if bytes.Equal(r.UserData, []byte(allowNetbirdInputRuleID)) {
-			if err := m.rConn.DelRule(r); err != nil {
-				log.Errorf("delete rule: %v", err)
-			}
-		}
-	}
 }
 
 func (m *Manager) cleanupNetbirdTables() error {
@@ -419,44 +346,6 @@ func (m *Manager) createWorkTable() (*nftables.Table, error) {
 	table := m.rConn.AddTable(&nftables.Table{Name: getTableName(), Family: nftables.TableFamilyIPv4})
 	err = m.rConn.Flush()
 	return table, err
-}
-
-func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) {
-	rule := &nftables.Rule{
-		Table: chain.Table,
-		Chain: chain,
-		Exprs: []expr.Any{
-			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     ifname(m.wgIface.Name()),
-			},
-			&expr.Verdict{
-				Kind: expr.VerdictAccept,
-			},
-		},
-		UserData: []byte(allowNetbirdInputRuleID),
-	}
-	_ = m.rConn.InsertRule(rule)
-}
-
-func (m *Manager) detectAllowNetbirdRule(existedRules []*nftables.Rule) *nftables.Rule {
-	ifName := ifname(m.wgIface.Name())
-	for _, rule := range existedRules {
-		if rule.Table.Name == tableNameFilter && rule.Chain.Name == chainNameInput {
-			if len(rule.Exprs) < 4 {
-				if e, ok := rule.Exprs[0].(*expr.Meta); !ok || e.Key != expr.MetaKeyIIFNAME {
-					continue
-				}
-				if e, ok := rule.Exprs[1].(*expr.Cmp); !ok || e.Op != expr.CmpOpEq || !bytes.Equal(e.Data, ifName) {
-					continue
-				}
-				return rule
-			}
-		}
-	}
-	return nil
 }
 
 func insertReturnTrafficRule(conn *nftables.Conn, table *nftables.Table, chain *nftables.Chain) {
