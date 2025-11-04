@@ -29,8 +29,6 @@ const (
 	chainNameForwardFilter     = "netbird-acl-forward-filter"
 	chainNameManglePrerouting  = "netbird-mangle-prerouting"
 	chainNameManglePostrouting = "netbird-mangle-postrouting"
-
-	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
 const flushError = "flush: %w"
