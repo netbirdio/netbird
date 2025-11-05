@@ -331,11 +331,6 @@ func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
 }
 
 func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error {
-	// todo use dependency injection
-	inst, err := installer.New()
-	if err != nil {
-		return err
-	}
-
+	inst := installer.New()
 	return inst.RunInstallation(ctx, targetVersion)
 }

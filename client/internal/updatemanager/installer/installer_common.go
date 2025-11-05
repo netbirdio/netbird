@@ -22,10 +22,10 @@ type Installer struct {
 }
 
 // New used by the service
-func New() (*Installer, error) {
+func New() *Installer {
 	return &Installer{
 		tempDir: defaultTempDir,
-	}, nil
+	}
 }
 
 // NewWithDir used by the updater process, get the tempDir from the service via cmd line
@@ -205,8 +205,8 @@ func (u *Installer) TempDir() string {
 }
 
 func (u *Installer) mkTempDir() error {
-	if err := os.MkdirAll(defaultTempDir, 0o755); err != nil {
-		log.Debugf("failed to create tempdir: %s", defaultTempDir)
+	if err := os.MkdirAll(u.tempDir, 0o755); err != nil {
+		log.Debugf("failed to create tempdir: %s", u.tempDir)
 		return err
 	}
 	return nil

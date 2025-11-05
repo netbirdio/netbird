@@ -604,15 +604,13 @@ func (g *BundleGenerator) addStateFile() error {
 }
 
 func (g *BundleGenerator) addUpdateLogs() error {
-	inst, err := installer.New()
-	if err != nil {
-		// unsupported platform
-		// nolint
+	inst := installer.New()
+	logFiles := inst.LogFiles()
+	if len(logFiles) == 0 {
 		return nil
 	}
-	log.Infof("adding updater logs")
-	logFiles := inst.LogFiles()
 
+	log.Infof("adding updater logs")
 	for _, logFile := range logFiles {
 		data, err := os.ReadFile(logFile)
 		if err != nil {

@@ -16,8 +16,8 @@ type Installer struct {
 }
 
 // New used by the service
-func New() (*Installer, error) {
-	return nil, fmt.Errorf("unsupported platform")
+func New() *Installer {
+	return nil
 }
 
 // NewWithDir used by the updater process, get the tempDir from the service via cmd line
@@ -42,5 +42,5 @@ func (u *Installer) RunInstallation(targetVersion string) error {
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
 func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string, daemonFolder string) (resultErr error) {
-	return fmt.Errorf("not supported")
+	return fmt.Errorf("unsupported platform")
 }

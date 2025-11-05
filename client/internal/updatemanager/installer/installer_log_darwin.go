@@ -6,6 +6,6 @@ import (
 
 func (u *Installer) LogFiles() []string {
 	return []string{
-		filepath.Join(defaultTempDir, LogFile),
+		filepath.Join(u.tempDir, LogFile),
 	}
 }

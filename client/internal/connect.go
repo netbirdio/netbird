@@ -280,12 +280,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
-		inst, err := installer.New()
-		if err == nil {
-			// todo consider to keep result file but somehow prevent ui to show error again
-			if err := inst.CleanUpInstallerFiles(); err != nil {
-				log.Errorf("failed to clean up temporary installer file: %v", err)
-			}
+		inst := installer.New()
+		// todo consider to keep result file but somehow prevent ui to show error again
+		if err := inst.CleanUpInstallerFiles(); err != nil {
+			log.Errorf("failed to clean up temporary installer file: %v", err)
 		}
 
 		if err := c.engine.Start(loginResp.GetNetbirdConfig(), c.config.ManagementURL); err != nil {
