@@ -637,6 +637,9 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 	}
 
 	removedGroups, err := tx.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, removedGroupIDs)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get removed groups for user %s update event: %v", oldUser.Id, err)
+	}
 	for _, group := range removedGroups {
 		meta := map[string]any{
 			"group": group.Name, "group_id": group.ID,
