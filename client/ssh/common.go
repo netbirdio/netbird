@@ -68,8 +68,12 @@ func (d *DaemonHostKeyVerifier) VerifySSHHostKey(peerAddress string, presentedKe
 }
 
 // RequestJWTToken requests or retrieves a JWT token for SSH authentication
-func RequestJWTToken(ctx context.Context, client proto.DaemonServiceClient, stdout, stderr io.Writer, useCache bool) (string, error) {
-	authResponse, err := client.RequestJWTAuth(ctx, &proto.RequestJWTAuthRequest{})
+func RequestJWTToken(ctx context.Context, client proto.DaemonServiceClient, stdout, stderr io.Writer, useCache bool, hint string) (string, error) {
+	req := &proto.RequestJWTAuthRequest{}
+	if hint != "" {
+		req.Hint = &hint
+	}
+	authResponse, err := client.RequestJWTAuth(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("request JWT auth: %w", err)
 	}

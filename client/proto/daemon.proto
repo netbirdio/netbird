@@ -90,7 +90,7 @@ service DaemonService {
 
   // RequestJWTAuth initiates JWT authentication flow for SSH
   rpc RequestJWTAuth(RequestJWTAuthRequest) returns (RequestJWTAuthResponse) {}
-  
+
   // WaitJWTToken waits for JWT authentication completion
   rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
 }
@@ -168,11 +168,14 @@ message LoginRequest {
 
   optional int64 mtu = 32;
 
-  optional bool enableSSHRoot = 33;
-  optional bool enableSSHSFTP = 34;
-  optional bool enableSSHLocalPortForwarding = 35;
-  optional bool enableSSHRemotePortForwarding = 36;
-  optional bool disableSSHAuth = 37;
+  // hint is used to pre-fill the email/username field during SSO authentication
+  optional string hint = 33;
+
+  optional bool enableSSHRoot = 34;
+  optional bool enableSSHSFTP = 35;
+  optional bool enableSSHLocalPortForwarding = 36;
+  optional bool enableSSHRemotePortForwarding = 37;
+  optional bool disableSSHAuth = 38;
 }
 
 message LoginResponse {
@@ -202,7 +205,7 @@ message StatusRequest{
   bool getFullPeerStatus = 1;
   bool shouldRunProbes = 2;
   // the UI do not using this yet, but CLIs could use it to wait until the status is ready
-  optional bool waitForReady     = 3;
+  optional bool waitForReady = 3;
 }
 
 message StatusResponse{
@@ -694,6 +697,8 @@ message GetPeerSSHHostKeyResponse {
 
 // RequestJWTAuthRequest for initiating JWT authentication flow
 message RequestJWTAuthRequest {
+  // hint for OIDC login_hint parameter (typically email address)
+  optional string hint = 1;
 }
 
 // RequestJWTAuthResponse contains authentication flow information

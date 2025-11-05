@@ -716,11 +716,20 @@ func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginRe
 		return nil, fmt.Errorf("get current user: %w", err)
 	}
 
-	loginResp, err := conn.Login(ctx, &proto.LoginRequest{
+	loginReq := &proto.LoginRequest{
 		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
 		ProfileName:         &activeProf.Name,
 		Username:            &currUser.Username,
-	})
+	}
+
+	profileState, err := s.profileManager.GetProfileState(activeProf.Name)
+	if err != nil {
+		log.Debugf("failed to get profile state for login hint: %v", err)
+	} else if profileState.Email != "" {
+		loginReq.Hint = &profileState.Email
+	}
+
+	loginResp, err := conn.Login(ctx, loginReq)
 	if err != nil {
 		return nil, fmt.Errorf("login to management: %w", err)
 	}

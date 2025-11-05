@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
@@ -365,6 +366,8 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 
 // requestJWTToken requests a JWT token from the NetBird daemon
 func requestJWTToken(ctx context.Context, daemonAddr string, skipCache bool) (string, error) {
+	hint := auth.GetLoginHint()
+
 	conn, err := connectToDaemon(daemonAddr)
 	if err != nil {
 		return "", fmt.Errorf("connect to daemon: %w", err)
@@ -372,7 +375,7 @@ func requestJWTToken(ctx context.Context, daemonAddr string, skipCache bool) (st
 	defer conn.Close()
 
 	client := proto.NewDaemonServiceClient(conn)
-	return nbssh.RequestJWTToken(ctx, client, os.Stdout, os.Stderr, !skipCache)
+	return nbssh.RequestJWTToken(ctx, client, os.Stdout, os.Stderr, !skipCache, hint)
 }
 
 // verifyHostKeyViaDaemon verifies SSH host key by querying the NetBird daemon

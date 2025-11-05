@@ -273,17 +273,19 @@ type LoginRequest struct {
 	// cleanDNSLabels clean map list of DNS labels.
 	// This is needed because the generated code
 	// omits initialized empty slices due to omitempty tags
-	CleanDNSLabels                bool    `protobuf:"varint,27,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
-	LazyConnectionEnabled         *bool   `protobuf:"varint,28,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
-	BlockInbound                  *bool   `protobuf:"varint,29,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
-	ProfileName                   *string `protobuf:"bytes,30,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
-	Username                      *string `protobuf:"bytes,31,opt,name=username,proto3,oneof" json:"username,omitempty"`
-	Mtu                           *int64  `protobuf:"varint,32,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
-	EnableSSHRoot                 *bool   `protobuf:"varint,33,opt,name=enableSSHRoot,proto3,oneof" json:"enableSSHRoot,omitempty"`
-	EnableSSHSFTP                 *bool   `protobuf:"varint,34,opt,name=enableSSHSFTP,proto3,oneof" json:"enableSSHSFTP,omitempty"`
-	EnableSSHLocalPortForwarding  *bool   `protobuf:"varint,35,opt,name=enableSSHLocalPortForwarding,proto3,oneof" json:"enableSSHLocalPortForwarding,omitempty"`
-	EnableSSHRemotePortForwarding *bool   `protobuf:"varint,36,opt,name=enableSSHRemotePortForwarding,proto3,oneof" json:"enableSSHRemotePortForwarding,omitempty"`
-	DisableSSHAuth                *bool   `protobuf:"varint,37,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
+	CleanDNSLabels        bool    `protobuf:"varint,27,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
+	LazyConnectionEnabled *bool   `protobuf:"varint,28,opt,name=lazyConnectionEnabled,proto3,oneof" json:"lazyConnectionEnabled,omitempty"`
+	BlockInbound          *bool   `protobuf:"varint,29,opt,name=block_inbound,json=blockInbound,proto3,oneof" json:"block_inbound,omitempty"`
+	ProfileName           *string `protobuf:"bytes,30,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
+	Username              *string `protobuf:"bytes,31,opt,name=username,proto3,oneof" json:"username,omitempty"`
+	Mtu                   *int64  `protobuf:"varint,32,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
+	// hint is used to pre-fill the email/username field during SSO authentication
+	Hint                          *string `protobuf:"bytes,33,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
+	EnableSSHRoot                 *bool   `protobuf:"varint,34,opt,name=enableSSHRoot,proto3,oneof" json:"enableSSHRoot,omitempty"`
+	EnableSSHSFTP                 *bool   `protobuf:"varint,35,opt,name=enableSSHSFTP,proto3,oneof" json:"enableSSHSFTP,omitempty"`
+	EnableSSHLocalPortForwarding  *bool   `protobuf:"varint,36,opt,name=enableSSHLocalPortForwarding,proto3,oneof" json:"enableSSHLocalPortForwarding,omitempty"`
+	EnableSSHRemotePortForwarding *bool   `protobuf:"varint,37,opt,name=enableSSHRemotePortForwarding,proto3,oneof" json:"enableSSHRemotePortForwarding,omitempty"`
+	DisableSSHAuth                *bool   `protobuf:"varint,38,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -541,6 +543,13 @@ func (x *LoginRequest) GetMtu() int64 {
 		return *x.Mtu
 	}
 	return 0
+}
+
+func (x *LoginRequest) GetHint() string {
+	if x != nil && x.Hint != nil {
+		return *x.Hint
+	}
+	return ""
 }
 
 func (x *LoginRequest) GetEnableSSHRoot() bool {
@@ -4800,7 +4809,9 @@ func (x *GetPeerSSHHostKeyResponse) GetFound() bool {
 
 // RequestJWTAuthRequest for initiating JWT authentication flow
 type RequestJWTAuthRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// hint for OIDC login_hint parameter (typically email address)
+	Hint          *string `protobuf:"bytes,1,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4833,6 +4844,13 @@ func (x *RequestJWTAuthRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RequestJWTAuthRequest.ProtoReflect.Descriptor instead.
 func (*RequestJWTAuthRequest) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{71}
+}
+
+func (x *RequestJWTAuthRequest) GetHint() string {
+	if x != nil && x.Hint != nil {
+		return *x.Hint
+	}
+	return ""
 }
 
 // RequestJWTAuthResponse contains authentication flow information
@@ -5111,7 +5129,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\xd4\x11\n" +
+	"\fEmptyRequest\"\xf6\x11\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -5148,12 +5166,13 @@ const file_daemon_proto_rawDesc = "" +
 	"\rblock_inbound\x18\x1d \x01(\bH\x10R\fblockInbound\x88\x01\x01\x12%\n" +
 	"\vprofileName\x18\x1e \x01(\tH\x11R\vprofileName\x88\x01\x01\x12\x1f\n" +
 	"\busername\x18\x1f \x01(\tH\x12R\busername\x88\x01\x01\x12\x15\n" +
-	"\x03mtu\x18  \x01(\x03H\x13R\x03mtu\x88\x01\x01\x12)\n" +
-	"\renableSSHRoot\x18! \x01(\bH\x14R\renableSSHRoot\x88\x01\x01\x12)\n" +
-	"\renableSSHSFTP\x18\" \x01(\bH\x15R\renableSSHSFTP\x88\x01\x01\x12G\n" +
-	"\x1cenableSSHLocalPortForwarding\x18# \x01(\bH\x16R\x1cenableSSHLocalPortForwarding\x88\x01\x01\x12I\n" +
-	"\x1denableSSHRemotePortForwarding\x18$ \x01(\bH\x17R\x1denableSSHRemotePortForwarding\x88\x01\x01\x12+\n" +
-	"\x0edisableSSHAuth\x18% \x01(\bH\x18R\x0edisableSSHAuth\x88\x01\x01B\x13\n" +
+	"\x03mtu\x18  \x01(\x03H\x13R\x03mtu\x88\x01\x01\x12\x17\n" +
+	"\x04hint\x18! \x01(\tH\x14R\x04hint\x88\x01\x01\x12)\n" +
+	"\renableSSHRoot\x18\" \x01(\bH\x15R\renableSSHRoot\x88\x01\x01\x12)\n" +
+	"\renableSSHSFTP\x18# \x01(\bH\x16R\renableSSHSFTP\x88\x01\x01\x12G\n" +
+	"\x1cenableSSHLocalPortForwarding\x18$ \x01(\bH\x17R\x1cenableSSHLocalPortForwarding\x88\x01\x01\x12I\n" +
+	"\x1denableSSHRemotePortForwarding\x18% \x01(\bH\x18R\x1denableSSHRemotePortForwarding\x88\x01\x01\x12+\n" +
+	"\x0edisableSSHAuth\x18& \x01(\bH\x19R\x0edisableSSHAuth\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -5173,7 +5192,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0e_block_inboundB\x0e\n" +
 	"\f_profileNameB\v\n" +
 	"\t_usernameB\x06\n" +
-	"\x04_mtuB\x10\n" +
+	"\x04_mtuB\a\n" +
+	"\x05_hintB\x10\n" +
 	"\x0e_enableSSHRootB\x10\n" +
 	"\x0e_enableSSHSFTPB\x1f\n" +
 	"\x1d_enableSSHLocalPortForwardingB \n" +
@@ -5544,8 +5564,10 @@ const file_daemon_proto_rawDesc = "" +
 	"sshHostKey\x12\x16\n" +
 	"\x06peerIP\x18\x02 \x01(\tR\x06peerIP\x12\x1a\n" +
 	"\bpeerFQDN\x18\x03 \x01(\tR\bpeerFQDN\x12\x14\n" +
-	"\x05found\x18\x04 \x01(\bR\x05found\"\x17\n" +
-	"\x15RequestJWTAuthRequest\"\x9a\x02\n" +
+	"\x05found\x18\x04 \x01(\bR\x05found\"9\n" +
+	"\x15RequestJWTAuthRequest\x12\x17\n" +
+	"\x04hint\x18\x01 \x01(\tH\x00R\x04hint\x88\x01\x01B\a\n" +
+	"\x05_hint\"\x9a\x02\n" +
 	"\x16RequestJWTAuthResponse\x12(\n" +
 	"\x0fverificationURI\x18\x01 \x01(\tR\x0fverificationURI\x128\n" +
 	"\x17verificationURIComplete\x18\x02 \x01(\tR\x17verificationURIComplete\x12\x1a\n" +
@@ -5827,6 +5849,7 @@ func file_daemon_proto_init() {
 	file_daemon_proto_msgTypes[52].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[54].OneofWrappers = []any{}
 	file_daemon_proto_msgTypes[65].OneofWrappers = []any{}
+	file_daemon_proto_msgTypes[71].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

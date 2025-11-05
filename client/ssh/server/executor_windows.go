@@ -181,7 +181,6 @@ func newLsaString(s string) lsaString {
 func generateS4UUserToken(username, domain string) (windows.Handle, error) {
 	userCpn := buildUserCpn(username, domain)
 
-	// Use proper domain detection logic instead of simple string check
 	pd := NewPrivilegeDropper()
 	isDomainUser := !pd.isLocalUser(domain)
 

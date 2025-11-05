@@ -496,7 +496,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient)
+		hint := ""
+		if msg.Hint != nil {
+			hint = *msg.Hint
+		}
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, hint)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
@@ -1160,7 +1164,7 @@ func getJWTCacheTTL() time.Duration {
 // RequestJWTAuth initiates JWT authentication flow for SSH
 func (s *Server) RequestJWTAuth(
 	ctx context.Context,
-	_ *proto.RequestJWTAuthRequest,
+	msg *proto.RequestJWTAuthRequest,
 ) (*proto.RequestJWTAuthResponse, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -1186,8 +1190,17 @@ func (s *Server) RequestJWTAuth(
 		}
 	}
 
+	hint := ""
+	if msg.Hint != nil {
+		hint = *msg.Hint
+	}
+
+	if hint == "" {
+		hint = auth.GetLoginHint()
+	}
+
 	isDesktop := isUnixRunningDesktop()
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, hint)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
