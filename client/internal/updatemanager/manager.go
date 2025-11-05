@@ -61,6 +61,9 @@ type UpdateManager struct {
 
 	// updateMutex protect update and expectedVersion fields
 	updateMutex sync.Mutex
+
+	// updateFunc is used for testing to mock the triggerUpdate behavior
+	updateFunc func(ctx context.Context, targetVersion string) error
 }
 
 func NewUpdateManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *UpdateManager {
@@ -79,7 +82,6 @@ func NewUpdateManager(statusRecorder *peer.Status, stateManager *statemanager.Ma
 // CheckUpdateSuccess checks if the update was successful. It works without to start the update manager.
 func (u *UpdateManager) CheckUpdateSuccess(ctx context.Context) {
 	u.updateStateManager(ctx)
-	return
 }
 
 func (u *UpdateManager) Start(ctx context.Context) {
