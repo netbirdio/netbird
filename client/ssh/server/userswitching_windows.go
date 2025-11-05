@@ -38,10 +38,13 @@ func validateUsername(username string) error {
 	return nil
 }
 
-// extractUsernameFromDomain extracts the username part from domain\username format
+// extractUsernameFromDomain extracts the username part from domain\username or username@domain format
 func extractUsernameFromDomain(username string) string {
 	if idx := strings.LastIndex(username, `\`); idx != -1 {
 		return username[idx+1:]
+	}
+	if idx := strings.Index(username, "@"); idx != -1 {
+		return username[:idx]
 	}
 	return username
 }
