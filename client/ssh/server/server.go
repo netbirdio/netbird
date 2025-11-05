@@ -21,8 +21,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/ssh/detection"
-	"github.com/netbirdio/netbird/management/server/auth/jwt"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/auth/jwt"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -349,7 +349,7 @@ func (s *Server) checkTokenAge(token *gojwt.Token, jwtConfig *JWTConfig) error {
 	return nil
 }
 
-func (s *Server) extractAndValidateUser(token *gojwt.Token) (*nbcontext.UserAuth, error) {
+func (s *Server) extractAndValidateUser(token *gojwt.Token) (*auth.UserAuth, error) {
 	s.mu.RLock()
 	jwtExtractor := s.jwtExtractor
 	s.mu.RUnlock()
@@ -372,7 +372,7 @@ func (s *Server) extractAndValidateUser(token *gojwt.Token) (*nbcontext.UserAuth
 	return &userAuth, nil
 }
 
-func (s *Server) hasSSHAccess(userAuth *nbcontext.UserAuth) bool {
+func (s *Server) hasSSHAccess(userAuth *auth.UserAuth) bool {
 	return userAuth.UserId != ""
 }
 

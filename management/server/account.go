@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/netbirdio/netbird/shared/auth"
+
 	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
 	"github.com/rs/xid"
@@ -1046,7 +1048,7 @@ func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accoun
 }
 
 // updateAccountDomainAttributesIfNotUpToDate updates the account domain attributes if they are not up to date and then, saves the account changes
-func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx context.Context, accountID string, userAuth nbcontext.UserAuth,
+func (am *DefaultAccountManager) updateAccountDomainAttributesIfNotUpToDate(ctx context.Context, accountID string, userAuth auth.UserAuth,
 	primaryDomain bool,
 ) error {
 	if userAuth.Domain == "" {
@@ -1095,7 +1097,7 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 	ctx context.Context,
 	userAccountID string,
 	domainAccountID string,
-	userAuth nbcontext.UserAuth,
+	userAuth auth.UserAuth,
 ) error {
 	primaryDomain := domainAccountID == "" || userAccountID == domainAccountID
 	err := am.updateAccountDomainAttributesIfNotUpToDate(ctx, userAccountID, userAuth, primaryDomain)
@@ -1114,7 +1116,7 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 
 // addNewPrivateAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
 // otherwise it will create a new account and make it primary account for the domain.
-func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domainAccountID string, userAuth nbcontext.UserAuth) (string, error) {
+func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domainAccountID string, userAuth auth.UserAuth) (string, error) {
 	if userAuth.UserId == "" {
 		return "", fmt.Errorf("user ID is empty")
 	}
@@ -1145,7 +1147,7 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 	return newAccount.Id, nil
 }
 
-func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, userAuth nbcontext.UserAuth) (string, error) {
+func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, userAuth auth.UserAuth) (string, error) {
 	newUser := types.NewRegularUser(userAuth.UserId)
 	newUser.AccountID = domainAccountID
 
@@ -1309,7 +1311,7 @@ func (am *DefaultAccountManager) UpdateAccountOnboarding(ctx context.Context, ac
 	return newOnboarding, nil
 }
 
-func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (string, string, error) {
 	if userAuth.UserId == "" {
 		return "", "", errors.New(emptyUserID)
 	}
@@ -1353,7 +1355,7 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
 // and propagates changes to peers if group propagation is enabled.
 // requires userAuth to have been ValidateAndParseToken and EnsureUserAccessByJWTGroups by the AuthManager
-func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error {
+func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error {
 	if userAuth.IsChild || userAuth.IsPAT {
 		return nil
 	}
@@ -1511,7 +1513,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
 //
 // UserAuth IsChild -> checks that account exists
-func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context.Context, userAuth nbcontext.UserAuth) (string, error) {
+func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context.Context, userAuth auth.UserAuth) (string, error) {
 	log.WithContext(ctx).Tracef("getting account with authorization claims. User ID: \"%s\", Account ID: \"%s\", Domain: \"%s\", Domain Category: \"%s\"",
 		userAuth.UserId, userAuth.AccountId, userAuth.Domain, userAuth.DomainCategory)
 
@@ -1590,7 +1592,7 @@ func (am *DefaultAccountManager) getPrivateDomainWithGlobalLock(ctx context.Cont
 	return domainAccountID, cancel, nil
 }
 
-func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, userAuth nbcontext.UserAuth) (string, error) {
+func (am *DefaultAccountManager) handlePrivateAccountWithIDFromClaim(ctx context.Context, userAuth auth.UserAuth) (string, error) {
 	userAccountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		log.WithContext(ctx).Errorf("error getting account ID by user ID: %v", err)
@@ -1638,7 +1640,7 @@ func handleNotFound(err error) error {
 	return nil
 }
 
-func domainIsUpToDate(domain string, domainCategory string, userAuth nbcontext.UserAuth) bool {
+func domainIsUpToDate(domain string, domainCategory string, userAuth auth.UserAuth) bool {
 	return domainCategory == types.PrivateCategory || userAuth.DomainCategory != types.PrivateCategory || domain != userAuth.Domain
 }
 
