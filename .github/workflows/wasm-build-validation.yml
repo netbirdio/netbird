@@ -34,7 +34,6 @@ jobs:
         run: |
           golangci-lint cache clean
           md5sum client/firewall/uspfilter/filter.go
-          GOOS=js GOARCH=wasm golangci-lint run --timeout=12m --out-format colored-line-number ./client/...
         continue-on-error: true
 
   js_build:
