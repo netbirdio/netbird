@@ -8,10 +8,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 func randomBytesInHex(count int) (string, error) {
@@ -61,22 +57,4 @@ func isValidAccessToken(token string, audience string) error {
 	}
 
 	return fmt.Errorf("invalid JWT token audience field")
-}
-
-// GetLoginHint retrieves the email from the active profile to use as login_hint
-func GetLoginHint() string {
-	pm := profilemanager.NewProfileManager()
-	activeProf, err := pm.GetActiveProfile()
-	if err != nil {
-		log.Debugf("failed to get active profile for login hint: %v", err)
-		return ""
-	}
-
-	profileState, err := pm.GetProfileState(activeProf.Name)
-	if err != nil {
-		log.Debugf("failed to get profile state for login hint: %v", err)
-		return ""
-	}
-
-	return profileState.Email
 }

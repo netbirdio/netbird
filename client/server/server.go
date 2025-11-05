@@ -1196,7 +1196,7 @@ func (s *Server) RequestJWTAuth(
 	}
 
 	if hint == "" {
-		hint = auth.GetLoginHint()
+		hint = profilemanager.GetLoginHint()
 	}
 
 	isDesktop := isUnixRunningDesktop()

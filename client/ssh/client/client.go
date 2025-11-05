@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
@@ -366,7 +366,7 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 
 // requestJWTToken requests a JWT token from the NetBird daemon
 func requestJWTToken(ctx context.Context, daemonAddr string, skipCache bool) (string, error) {
-	hint := auth.GetLoginHint()
+	hint := profilemanager.GetLoginHint()
 
 	conn, err := connectToDaemon(daemonAddr)
 	if err != nil {

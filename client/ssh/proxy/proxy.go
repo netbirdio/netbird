@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
@@ -59,7 +59,7 @@ func New(daemonAddr, targetHost string, targetPort int, stderr io.Writer) (*SSHP
 }
 
 func (p *SSHProxy) Connect(ctx context.Context) error {
-	hint := auth.GetLoginHint()
+	hint := profilemanager.GetLoginHint()
 
 	jwtToken, err := nbssh.RequestJWTToken(ctx, p.daemonClient, nil, p.stderr, true, hint)
 	if err != nil {
