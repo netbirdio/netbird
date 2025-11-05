@@ -10,6 +10,7 @@ import (
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
@@ -44,7 +45,7 @@ func TestTracePacket(t *testing.T) {
 			},
 		}
 
-		m, err := Create(ifaceMock, false, flowLogger)
+		m, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
 		require.NoError(t, err)
 
 		if !statefulMode {

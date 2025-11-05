@@ -15,6 +15,7 @@ import (
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
@@ -134,6 +135,8 @@ func (m *Manager) Stop(ctx context.Context) error {
 		}
 	}
 
+	m.unregisterNetstackServices()
+
 	if err := m.dropDNSFirewall(); err != nil {
 		mErr = multierror.Append(mErr, err)
 	}
@@ -158,19 +161,48 @@ func (m *Manager) allowDNSFirewall() error {
 
 	dnsRules, err := m.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolUDP, nil, dport, firewall.ActionAccept, "")
 	if err != nil {
-		log.Errorf("failed to add allow DNS router rules, err: %v", err)
-		return err
+		return fmt.Errorf("add udp firewall rule: %w", err)
 	}
-	m.fwRules = dnsRules
 
 	tcpRules, err := m.firewall.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolTCP, nil, dport, firewall.ActionAccept, "")
 	if err != nil {
-		log.Errorf("failed to add allow DNS router rules, err: %v", err)
-		return err
+		return fmt.Errorf("add tcp firewall rule: %w", err)
 	}
+
+	if err := m.firewall.Flush(); err != nil {
+		return fmt.Errorf("flush: %w", err)
+	}
+
+	m.fwRules = dnsRules
 	m.tcpRules = tcpRules
 
+	m.registerNetstackServices()
+
 	return nil
+}
+
+func (m *Manager) registerNetstackServices() {
+	if netstackNet := m.wgIface.GetNet(); netstackNet != nil {
+		if registrar, ok := m.firewall.(interface {
+			RegisterNetstackService(protocol nftypes.Protocol, port uint16)
+		}); ok {
+			registrar.RegisterNetstackService(nftypes.TCP, m.serverPort)
+			registrar.RegisterNetstackService(nftypes.UDP, m.serverPort)
+			log.Debugf("registered DNS forwarder service with netstack for UDP/TCP:%d", m.serverPort)
+		}
+	}
+}
+
+func (m *Manager) unregisterNetstackServices() {
+	if netstackNet := m.wgIface.GetNet(); netstackNet != nil {
+		if registrar, ok := m.firewall.(interface {
+			UnregisterNetstackService(protocol nftypes.Protocol, port uint16)
+		}); ok {
+			registrar.UnregisterNetstackService(nftypes.TCP, m.serverPort)
+			registrar.UnregisterNetstackService(nftypes.UDP, m.serverPort)
+			log.Debugf("unregistered DNS forwarder service with netstack for UDP/TCP:%d", m.serverPort)
+		}
+	}
 }
 
 func (m *Manager) dropDNSFirewall() error {
