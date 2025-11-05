@@ -244,7 +244,7 @@ func (h *handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Domains != nil {
-		d, err := domain.ValidateDomains(*req.Domains)
+		d, err := domain.ValidateFQDNs(*req.Domains)
 		if err != nil {
 			util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid domains: %v", err), w)
 			return

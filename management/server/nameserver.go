@@ -2,11 +2,8 @@ package server
 
 import (
 	"context"
-	"errors"
-	"regexp"
 	"unicode/utf8"
 
-	"github.com/miekg/dns"
 	"github.com/rs/xid"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -15,12 +12,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbDomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
-
-const domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*[*.a-z]{1,}$`
-
-var invalidDomainName = errors.New("invalid domain name")
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(ctx context.Context, accountID, userID, nsGroupID string) (*nbdns.NameServerGroup, error) {
@@ -259,8 +253,8 @@ func validateDomainInput(primary bool, domains []string, searchDomainsEnabled bo
 	}
 
 	for _, domain := range domains {
-		if err := validateDomain(domain); err != nil {
-			return status.Errorf(status.InvalidArgument, "nameserver group got an invalid domain: %s %q", domain, err)
+		if !nbDomain.IsValidDomain(domain, false, true) {
+			return status.Errorf(status.InvalidArgument, "nameserver group got an invalid domain: %s", domain)
 		}
 	}
 	return nil
@@ -300,21 +294,6 @@ func validateGroups(list []string, groups map[string]*types.Group) error {
 		if _, found := groups[id]; !found {
 			return status.Errorf(status.InvalidArgument, "group id %s not found", id)
 		}
-	}
-
-	return nil
-}
-
-var domainMatcher = regexp.MustCompile(domainPattern)
-
-func validateDomain(domain string) error {
-	if !domainMatcher.MatchString(domain) {
-		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
-	}
-
-	_, valid := dns.IsDomainName(domain)
-	if !valid {
-		return invalidDomainName
 	}
 
 	return nil

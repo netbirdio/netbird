@@ -4,15 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"regexp"
 
 	"github.com/rs/xid"
 
-	nbDomain "github.com/netbirdio/netbird/shared/management/domain"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
+	nbDomain "github.com/netbirdio/netbird/shared/management/domain"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
@@ -166,9 +165,8 @@ func GetResourceType(address string) (NetworkResourceType, string, netip.Prefix,
 		return Host, "", netip.PrefixFrom(ip, ip.BitLen()), nil
 	}
 
-	domainRegex := regexp.MustCompile(`^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
-	if domainRegex.MatchString(address) {
-		return Domain, address, netip.Prefix{}, nil
+	if domain, err := nbDomain.ToValidDomain(address, true, false); err == nil {
+		return Domain, string(domain), netip.Prefix{}, nil
 	}
 
 	return "", "", netip.Prefix{}, errors.New("not a valid host, subnet, or domain")
