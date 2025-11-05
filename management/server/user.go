@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
-	"github.com/netbirdio/netbird/shared/auth"
 	"strings"
 	"time"
+
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"

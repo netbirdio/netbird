@@ -2,10 +2,11 @@ package account
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/shared/auth"
 	"net"
 	"net/netip"
 	"time"
+
+	"github.com/netbirdio/netbird/shared/auth"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+
 	"github.com/netbirdio/netbird/shared/auth"
 
 	"github.com/golang-jwt/jwt/v5"

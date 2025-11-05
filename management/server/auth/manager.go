@@ -5,10 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"github.com/netbirdio/netbird/shared/auth"
 	"hash/crc32"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/netbirdio/netbird/shared/auth"
 
 	"github.com/netbirdio/netbird/base62"
 	"github.com/netbirdio/netbird/management/server/store"
