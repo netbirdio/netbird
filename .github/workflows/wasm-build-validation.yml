@@ -24,12 +24,13 @@ jobs:
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev libpcap-dev
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
           install-mode: binary
           skip-cache: true
           skip-save-cache: true
+          cache-invalidation-interval: 0
       - name: Run golangci-lint for WASM
         run: |
           golangci-lint cache clean
