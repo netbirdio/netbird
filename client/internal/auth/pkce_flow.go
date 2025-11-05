@@ -109,6 +109,9 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 			params = append(params, oauth2.SetAuthURLParam("max_age", "0"))
 		}
 	}
+	if p.providerConfig.LoginHint != "" {
+		params = append(params, oauth2.SetAuthURLParam("login_hint", p.providerConfig.LoginHint))
+	}
 
 	authURL := p.oAuthConfig.AuthCodeURL(state, params...)
 
