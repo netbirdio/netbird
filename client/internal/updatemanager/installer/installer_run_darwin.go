@@ -34,6 +34,8 @@ var (
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
 func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string, daemonFolder string) (resultErr error) {
+	resultHandler := NewResultHandler(u.tempDir)
+
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
 		log.Infof("starting daemon back")
@@ -43,9 +45,23 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 
 		// todo prevent to run UI multiple times
 		log.Infof("starting UI back")
-		if err := u.startUIAsUser(daemonFolder); err != nil {
+		if err := u.startUIAsUser(); err != nil {
 			log.Errorf("failed to start UI: %v", err)
 		}
+
+		result := Result{
+			Success:    resultErr == nil,
+			ExecutedAt: time.Now(),
+		}
+		if resultErr != nil {
+			result.Error = resultErr.Error()
+		}
+
+		log.Infof("write out result")
+		if err := resultHandler.Write(result); err != nil {
+			log.Errorf("failed to write update result: %v", err)
+		}
+
 	}()
 
 	if dryRun {
@@ -90,7 +106,7 @@ func (u *Installer) startDaemon(daemonFolder string) error {
 	return nil
 }
 
-func (u *Installer) startUIAsUser(daemonFolder string) error {
+func (u *Installer) startUIAsUser() error {
 	log.Infof("starting netbird-ui: %s", updaterSrcPath)
 
 	// Get the current console user
@@ -220,23 +236,7 @@ func (u *Installer) uiBinaryFile() (string, error) {
 	return updaterSrcPath, nil
 }
 
-func downloadUrl(ctx context.Context, targetVersion string) (string, bool) {
-	installerType := typeOfInstaller(ctx)
-	if installerType != TypePKG {
-		return "", false
-	}
-	return urlWithVersionArch(targetVersion), true
-}
-
-func urlWithVersionArch(version string) string {
+func urlWithVersionArch(_ Type, version string) string {
 	url := strings.ReplaceAll(pkgDownloadURL, "%version", version)
 	return strings.ReplaceAll(url, "%arch", runtime.GOARCH)
-}
-
-func getServiceDir() (string, error) {
-	exePath, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(exePath), nil
 }

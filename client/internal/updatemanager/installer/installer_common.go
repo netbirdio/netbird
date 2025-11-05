@@ -271,3 +271,15 @@ func copyFile(src, dst string) error {
 
 	return nil
 }
+
+func getServiceDir() (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(exePath), nil
+}
+
+func getServiceBinary() (string, error) {
+	return os.Executable()
+}

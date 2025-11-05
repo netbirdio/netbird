@@ -213,19 +213,3 @@ func urlWithVersionArch(it Type, version string) string {
 	url = strings.ReplaceAll(url, "%version", version)
 	return strings.ReplaceAll(url, "%arch", runtime.GOARCH)
 }
-
-func getServiceDir() (string, error) {
-	exePath, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(exePath), nil
-}
-
-func getServiceBinary() (string, error) {
-	exePath, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Dir(exePath), nil
-}
