@@ -1442,15 +1442,8 @@ func (e *Engine) receiveSignalEvents() {
 
 			switch msg.GetBody().Type {
 			case sProto.Body_OFFER, sProto.Body_ANSWER:
-				offerAnswer, err := convertToOfferAnswer(msg)
-				if err != nil {
+				if err := e.handleOfferAnswer(msg, conn); err != nil {
 					return err
-				}
-
-				if msg.Body.Type == sProto.Body_OFFER {
-					conn.OnRemoteOffer(*offerAnswer)
-				} else {
-					conn.OnRemoteAnswer(*offerAnswer)
 				}
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
@@ -1477,6 +1470,20 @@ func (e *Engine) receiveSignalEvents() {
 	}()
 
 	e.signal.WaitStreamConnected()
+}
+
+func (e *Engine) handleOfferAnswer(msg *sProto.Message, conn *peer.Conn) error {
+	offerAnswer, err := convertToOfferAnswer(msg)
+	if err != nil {
+		return err
+	}
+
+	if msg.Body.Type == sProto.Body_OFFER {
+		conn.OnRemoteOffer(*offerAnswer)
+	} else {
+		conn.OnRemoteAnswer(*offerAnswer)
+	}
+	return nil
 }
 
 func (e *Engine) parseNATExternalIPMappings() []string {
