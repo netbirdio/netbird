@@ -595,7 +595,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 }
 
 // prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
-func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool, removedGroups, addedGroups []string) []func() {
+func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool, removedGroupIDs, addedGroupIDs []string, tx store.Store) []func() {
 	var eventsToStore []func()
 
 	if oldUser.IsBlocked() != newUser.IsBlocked() {
@@ -621,12 +621,12 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 		})
 	}
 
-	for _, groupID := range addedGroups {
-		group, err := am.GetGroup(ctx, accountID, groupID, initiatorUserID)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to get group %s for user %s update event: %v", groupID, oldUser.Id, err)
-			continue
-		}
+	addedGroups, err := tx.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, addedGroupIDs)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get added groups for user %s update event: %v", oldUser.Id, err)
+	}
+
+	for _, group := range addedGroups {
 		meta := map[string]any{
 			"group": group.Name, "group_id": group.ID,
 			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
@@ -636,12 +636,8 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 		})
 	}
 
-	for _, groupID := range removedGroups {
-		group, err := am.GetGroup(ctx, accountID, groupID, initiatorUserID)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to get group %s for user %s update event: %v", groupID, oldUser.Id, err)
-			continue
-		}
+	removedGroups, err := tx.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, removedGroupIDs)
+	for _, group := range removedGroups {
 		meta := map[string]any{
 			"group": group.Name, "group_id": group.ID,
 			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
@@ -716,7 +712,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	}
 
 	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, removedGroups, addedGroups)
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, removedGroups, addedGroups, transaction)
 
 	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
 }
