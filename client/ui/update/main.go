@@ -80,9 +80,9 @@ func Execute() {
 	ui.ShowUpdateProgress(context.Background(), targetVersionFlag)
 	// Run the update function in a goroutine
 	go func() {
-		//defer cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
 
-		ctx, _ := context.WithTimeout(context.Background(), 10*time.Minute)
 		if err := update(ctx); err != nil {
 			log.Errorf("update failed: %v", err)
 			ui.SetError(err)

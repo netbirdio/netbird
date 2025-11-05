@@ -55,27 +55,41 @@ func (u *Installer) RunInstallation(targetVersion string) error {
 		return err
 	}
 
-	log.Infof("run updater binary: %s, %s, %s", updaterPath, targetVersion, workspace)
+	subcmd := fmt.Sprintf("\"%s\" --temp-dir \"%s\" --service-dir \"%s\" --target-version \"%s\" --dry-run",
+		updaterPath, defaultTempDir, workspace, targetVersion)
 
-	updateCmd := exec.Command(updaterPath, "--temp-dir", defaultTempDir, "--service-dir", workspace, "--target-version", targetVersion, "--dry-run=true")
-	// todo apply it
+	// Optional: log the command for debugging
+	log.Infof("updater command: %s", subcmd)
+
+	createTask := exec.Command("schtasks", "/create", "/tn", "MyUpdaterTask", "/tr", subcmd, "/sc", "once", "/st", "00:00", "/rl", "highest", "/f")
+	log.Infof("updater command: %s", createTask.String())
+	if out, err := createTask.CombinedOutput(); err != nil {
+		log.Errorf("failed to update scheduled task: %v\n%s", err, out)
+		//return err
+	}
+
+	// Update the scheduled task to run this exact command line
+	updateTask := exec.Command("schtasks", "/change", "/tn", "MyUpdaterTask", "/tr", subcmd)
+	log.Infof("updater command: %s", updateTask.String())
+	if out, err := updateTask.CombinedOutput(); err != nil {
+		log.Errorf("failed to update scheduled task: %v\n%s", err, out)
+		return err
+	}
+
+	// Run the scheduled task (elevated, no UAC prompt, visible GUI)
+	runTask := exec.Command("schtasks", "/run", "/tn", "MyUpdaterTask")
+	log.Infof("updater command: %s", runTask.String())
+
+	if out, err := runTask.CombinedOutput(); err != nil {
+		log.Errorf("failed to start scheduled task: %v\n%s", err, out)
+		return err
+	}
 	/*
 		updateCmd.SysProcAttr = &syscall.SysProcAttr{
 			CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
 		}
 	*/
 
-	// Start the updater process asynchronously
-	if err := updateCmd.Start(); err != nil {
-		return err
-	}
-
-	// Release the process so the OS can fully detach it
-	if err := updateCmd.Process.Release(); err != nil {
-		log.Warnf("failed to release updater process: %v", err)
-	}
-
-	log.Infof("updater started with PID %d", updateCmd.Process.Pid)
 	return nil
 }
 
