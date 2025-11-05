@@ -134,6 +134,7 @@ func (d *DeviceAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlow
 func (d *DeviceAuthorizationFlow) requestToken(info AuthFlowInfo) (TokenRequestResponse, error) {
 	form := url.Values{}
 	form.Add("client_id", d.providerConfig.ClientID)
+	form.Add("client_secret", d.providerConfig.ClientSecret)
 	form.Add("grant_type", HostedGrantType)
 	form.Add("device_code", info.DeviceCode)
 
