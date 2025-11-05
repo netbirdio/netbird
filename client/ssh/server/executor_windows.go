@@ -102,6 +102,12 @@ const (
 	MicrosoftKerberosNameA = "Kerberos"
 	// Msv10packagename is the authentication package name for MSV1_0
 	Msv10packagename = "MICROSOFT_AUTHENTICATION_PACKAGE_V1_0"
+
+	NameSamCompatible = 2
+	NameUserPrincipal = 8
+	NameCanonical     = 7
+
+	maxUPNLen = 1024
 )
 
 // kerbS4ULogon structure for S4U authentication (domain users)
@@ -157,6 +163,7 @@ var (
 	procLsaLogonUser                   = secur32.NewProc("LsaLogonUser")
 	procLsaFreeReturnBuffer            = secur32.NewProc("LsaFreeReturnBuffer")
 	procLsaDeregisterLogonProcess      = secur32.NewProc("LsaDeregisterLogonProcess")
+	procTranslateNameW                 = secur32.NewProc("TranslateNameW")
 )
 
 // newLsaString creates an LsaString from a Go string
@@ -189,7 +196,7 @@ func generateS4UUserToken(username, domain string) (windows.Handle, error) {
 		return 0, err
 	}
 
-	logonInfo, logonInfoSize, err := prepareS4ULogonStructure(username, userCpn, isDomainUser)
+	logonInfo, logonInfoSize, err := prepareS4ULogonStructure(username, domain, isDomainUser)
 	if err != nil {
 		return 0, err
 	}
@@ -252,26 +259,80 @@ func lookupAuthenticationPackage(lsaHandle windows.Handle, isDomainUser bool) (u
 	return authPackageId, nil
 }
 
+// lookupPrincipalName converts DOMAIN\username to username@domain.fqdn (UPN format)
+func lookupPrincipalName(username, domain string) (string, error) {
+	samAccountName := fmt.Sprintf(`%s\%s`, domain, username)
+	samAccountNameUtf16, err := windows.UTF16PtrFromString(samAccountName)
+	if err != nil {
+		return "", fmt.Errorf("convert SAM account name to UTF-16: %w", err)
+	}
+
+	upnBuf := make([]uint16, maxUPNLen+1)
+	upnSize := uint32(len(upnBuf))
+
+	ret, _, _ := procTranslateNameW.Call(
+		uintptr(unsafe.Pointer(samAccountNameUtf16)),
+		uintptr(NameSamCompatible),
+		uintptr(NameUserPrincipal),
+		uintptr(unsafe.Pointer(&upnBuf[0])),
+		uintptr(unsafe.Pointer(&upnSize)),
+	)
+
+	if ret != 0 {
+		upn := windows.UTF16ToString(upnBuf[:upnSize])
+		log.Debugf("Translated %s to explicit UPN: %s", samAccountName, upn)
+		return upn, nil
+	}
+
+	upnSize = uint32(len(upnBuf))
+	ret, _, _ = procTranslateNameW.Call(
+		uintptr(unsafe.Pointer(samAccountNameUtf16)),
+		uintptr(NameSamCompatible),
+		uintptr(NameCanonical),
+		uintptr(unsafe.Pointer(&upnBuf[0])),
+		uintptr(unsafe.Pointer(&upnSize)),
+	)
+
+	if ret != 0 {
+		canonical := windows.UTF16ToString(upnBuf[:upnSize])
+		slashIdx := strings.IndexByte(canonical, '/')
+		if slashIdx > 0 {
+			fqdn := canonical[:slashIdx]
+			upn := fmt.Sprintf("%s@%s", username, fqdn)
+			log.Debugf("Translated %s to implicit UPN: %s (from canonical: %s)", samAccountName, upn, canonical)
+			return upn, nil
+		}
+	}
+
+	log.Debugf("Could not translate %s to UPN, using SAM format", samAccountName)
+	return samAccountName, nil
+}
+
 // prepareS4ULogonStructure creates the appropriate S4U logon structure
-func prepareS4ULogonStructure(username, userCpn string, isDomainUser bool) (unsafe.Pointer, uintptr, error) {
+func prepareS4ULogonStructure(username, domain string, isDomainUser bool) (unsafe.Pointer, uintptr, error) {
 	if isDomainUser {
-		return prepareDomainS4ULogon(userCpn)
+		return prepareDomainS4ULogon(username, domain)
 	}
 	return prepareLocalS4ULogon(username)
 }
 
 // prepareDomainS4ULogon creates S4U logon structure for domain users
-func prepareDomainS4ULogon(userCpn string) (unsafe.Pointer, uintptr, error) {
-	log.Debugf("using KerbS4ULogon for domain user: %s", userCpn)
+func prepareDomainS4ULogon(username, domain string) (unsafe.Pointer, uintptr, error) {
+	upn, err := lookupPrincipalName(username, domain)
+	if err != nil {
+		return nil, 0, fmt.Errorf("lookup principal name: %w", err)
+	}
 
-	userCpnUtf16, err := windows.UTF16FromString(userCpn)
+	log.Debugf("using KerbS4ULogon for domain user with UPN: %s", upn)
+
+	upnUtf16, err := windows.UTF16FromString(upn)
 	if err != nil {
 		return nil, 0, fmt.Errorf(convertUsernameError, err)
 	}
 
 	structSize := unsafe.Sizeof(kerbS4ULogon{})
-	usernameByteSize := len(userCpnUtf16) * 2
-	logonInfoSize := structSize + uintptr(usernameByteSize)
+	upnByteSize := len(upnUtf16) * 2
+	logonInfoSize := structSize + uintptr(upnByteSize)
 
 	buffer := make([]byte, logonInfoSize)
 	logonInfo := unsafe.Pointer(&buffer[0])
@@ -280,14 +341,14 @@ func prepareDomainS4ULogon(userCpn string) (unsafe.Pointer, uintptr, error) {
 	s4uLogon.MessageType = KerbS4ULogonType
 	s4uLogon.Flags = 0
 
-	usernameOffset := structSize
-	usernameBuffer := (*uint16)(unsafe.Pointer(uintptr(logonInfo) + usernameOffset))
-	copy((*[512]uint16)(unsafe.Pointer(usernameBuffer))[:len(userCpnUtf16)], userCpnUtf16)
+	upnOffset := structSize
+	upnBuffer := (*uint16)(unsafe.Pointer(uintptr(logonInfo) + upnOffset))
+	copy((*[512]uint16)(unsafe.Pointer(upnBuffer))[:len(upnUtf16)], upnUtf16)
 
 	s4uLogon.ClientUpn = unicodeString{
-		Length:        uint16((len(userCpnUtf16) - 1) * 2),
-		MaximumLength: uint16(len(userCpnUtf16) * 2),
-		Buffer:        usernameBuffer,
+		Length:        uint16((len(upnUtf16) - 1) * 2),
+		MaximumLength: uint16(len(upnUtf16) * 2),
+		Buffer:        upnBuffer,
 	}
 	s4uLogon.ClientRealm = unicodeString{}
 
