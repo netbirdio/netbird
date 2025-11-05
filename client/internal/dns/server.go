@@ -65,8 +65,9 @@ type hostManagerWithOriginalNS interface {
 
 // DefaultServer dns server object
 type DefaultServer struct {
-	ctx       context.Context
-	ctxCancel context.CancelFunc
+	ctx        context.Context
+	ctxCancel  context.CancelFunc
+	shutdownWg sync.WaitGroup
 	// disableSys disables system DNS management (e.g., /etc/resolv.conf updates) while keeping the DNS service running.
 	// This is different from ServiceEnable=false from management which completely disables the DNS service.
 	disableSys         bool
@@ -318,6 +319,7 @@ func (s *DefaultServer) DnsIP() netip.Addr {
 // Stop stops the server
 func (s *DefaultServer) Stop() {
 	s.ctxCancel()
+	s.shutdownWg.Wait()
 
 	s.mux.Lock()
 	defer s.mux.Unlock()
@@ -507,8 +509,9 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.applyHostConfig()
 
+	s.shutdownWg.Add(1)
 	go func() {
-		// persist dns state right away
+		defer s.shutdownWg.Done()
 		if err := s.stateManager.PersistState(s.ctx); err != nil {
 			log.Errorf("Failed to persist dns state: %v", err)
 		}
