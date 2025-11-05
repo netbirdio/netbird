@@ -138,6 +138,11 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
+		newGroup.AccountID = accountID
+
+		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+		eventsToStore = append(eventsToStore, events...)
+
 		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
 		if err != nil {
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
@@ -156,11 +161,6 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 				return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, newGroup.ID, err)
 			}
 		}
-
-		newGroup.AccountID = accountID
-
-		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-		eventsToStore = append(eventsToStore, events...)
 
 		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{newGroup.ID})
 		if err != nil {
@@ -339,6 +339,16 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 		addedPeers = append(addedPeers, newGroup.Peers...)
 		eventsToStore = append(eventsToStore, func() {
 			am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
+		})
+	}
+
+	if oldGroup.Name != newGroup.Name {
+		eventsToStore = append(eventsToStore, func() {
+			meta := map[string]any{
+				"old_name": oldGroup.Name,
+				"new_name": newGroup.Name,
+			}
+			am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupUpdated, meta)
 		})
 	}
 

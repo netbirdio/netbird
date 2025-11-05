@@ -595,7 +595,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 }
 
 // prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
-func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool) []func() {
+func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool, removedGroups, addedGroups []string) []func() {
 	var eventsToStore []func()
 
 	if oldUser.IsBlocked() != newUser.IsBlocked() {
@@ -618,6 +618,36 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 	case oldUser.Role != newUser.Role:
 		eventsToStore = append(eventsToStore, func() {
 			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
+		})
+	}
+
+	for _, groupID := range addedGroups {
+		group, err := am.GetGroup(ctx, accountID, groupID, initiatorUserID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get group %s for user %s update event: %v", groupID, oldUser.Id, err)
+			continue
+		}
+		meta := map[string]any{
+			"group": group.Name, "group_id": group.ID,
+			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
+		}
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupAddedToUser, meta)
+		})
+	}
+
+	for _, groupID := range removedGroups {
+		group, err := am.GetGroup(ctx, accountID, groupID, initiatorUserID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get group %s for user %s update event: %v", groupID, oldUser.Id, err)
+			continue
+		}
+		meta := map[string]any{
+			"group": group.Name, "group_id": group.ID,
+			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
+		}
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupRemovedFromUser, meta)
 		})
 	}
 
@@ -667,9 +697,10 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		peersToExpire = userPeers
 	}
 
+	var removedGroups, addedGroups []string
 	if update.AutoGroups != nil && settings.GroupsPropagationEnabled {
-		removedGroups := util.Difference(oldUser.AutoGroups, update.AutoGroups)
-		addedGroups := util.Difference(update.AutoGroups, oldUser.AutoGroups)
+		removedGroups = util.Difference(oldUser.AutoGroups, update.AutoGroups)
+		addedGroups = util.Difference(update.AutoGroups, oldUser.AutoGroups)
 		for _, peer := range userPeers {
 			for _, groupID := range removedGroups {
 				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, groupID); err != nil {
@@ -685,7 +716,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	}
 
 	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole)
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, removedGroups, addedGroups)
 
 	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
 }
