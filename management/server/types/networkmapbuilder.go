@@ -1371,12 +1371,12 @@ func (b *NetworkMapBuilder) calculateNewRouterNetworkResourceUpdates(
 				delta := updates[peerID]
 				if delta == nil {
 					delta = &PeerUpdateDelta{
-						PeerID:                   peerID,
-						AddConnectedPeer:         newPeerID,
-						UpdateRouteFirewallRules: make([]*RouteFirewallRuleUpdate, 0),
+						PeerID: peerID,
 					}
 					updates[peerID] = delta
-				} else if delta.AddConnectedPeer == "" {
+				}
+
+				if delta.AddConnectedPeer == "" {
 					delta.AddConnectedPeer = newPeerID
 				}
 
@@ -1501,24 +1501,16 @@ func (b *NetworkMapBuilder) calculateNetworkResourceFirewallUpdates(
 			delta := updates[routerPeerID]
 			if delta == nil {
 				delta = &PeerUpdateDelta{
-					PeerID:                   routerPeerID,
-					UpdateRouteFirewallRules: make([]*RouteFirewallRuleUpdate, 0),
+					PeerID: routerPeerID,
 				}
 				updates[routerPeerID] = delta
 			}
 
-			delta.AddConnectedPeer = newPeerID
+			if delta.AddConnectedPeer == "" {
+				delta.AddConnectedPeer = newPeerID
+			}
 
-			var resourceRouteID strings.Builder
-			resourceRouteID.WriteString(nr)
-			resourceRouteID.WriteString(resource.ID)
-			resourceRouteID.WriteRune('-')
-			resourceRouteID.WriteString(routerPeerID)
-
-			delta.UpdateRouteFirewallRules = append(delta.UpdateRouteFirewallRules, &RouteFirewallRuleUpdate{
-				RuleID:      resourceRouteID.String(),
-				AddSourceIP: newPeer.IP.String(),
-			})
+			delta.RebuildRoutesView = true
 		}
 	}
 }
