@@ -57,4 +57,5 @@ jobs:
           version: latest
           skip-cache: true
           skip-save-cache: true
+          cache-invalidation-interval: 0
           args: --timeout=12m
