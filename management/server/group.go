@@ -335,20 +335,20 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 	if err == nil && oldGroup != nil {
 		addedPeers = util.Difference(newGroup.Peers, oldGroup.Peers)
 		removedPeers = util.Difference(oldGroup.Peers, newGroup.Peers)
+
+		if oldGroup.Name != newGroup.Name {
+			eventsToStore = append(eventsToStore, func() {
+				meta := map[string]any{
+					"old_name": oldGroup.Name,
+					"new_name": newGroup.Name,
+				}
+				am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupUpdated, meta)
+			})
+		}
 	} else {
 		addedPeers = append(addedPeers, newGroup.Peers...)
 		eventsToStore = append(eventsToStore, func() {
 			am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
-		})
-	}
-
-	if oldGroup.Name != newGroup.Name {
-		eventsToStore = append(eventsToStore, func() {
-			meta := map[string]any{
-				"old_name": oldGroup.Name,
-				"new_name": newGroup.Name,
-			}
-			am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupUpdated, meta)
 		})
 	}
 
