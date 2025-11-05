@@ -89,8 +89,12 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 	}
 
 	sql.SetMaxOpenConns(conns)
+	sql.SetMaxIdleConns(conns)
+	sql.SetConnMaxLifetime(time.Hour)
+	sql.SetConnMaxIdleTime(3 * time.Minute)
 
-	log.WithContext(ctx).Infof("Set max open db connections to %d", conns)
+	log.WithContext(ctx).Infof("Set max open db connections to %d, max idle to %d, max lifetime to %v, max idle time to %v",
+		conns, conns, time.Hour, 3*time.Minute)
 
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")

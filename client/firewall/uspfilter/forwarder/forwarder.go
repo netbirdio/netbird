@@ -45,7 +45,7 @@ type Forwarder struct {
 	netstack     bool
 }
 
-func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool) (*Forwarder, error) {
+func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
 	s := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{
@@ -56,10 +56,6 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 		HandleLocal: false,
 	})
 
-	mtu, err := iface.GetDevice().MTU()
-	if err != nil {
-		return nil, fmt.Errorf("get MTU: %w", err)
-	}
 	nicID := tcpip.NICID(1)
 	endpoint := &endpoint{
 		logger: logger,
@@ -68,7 +64,7 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 	}
 
 	if err := s.CreateNIC(nicID, endpoint); err != nil {
-		return nil, fmt.Errorf("failed to create NIC: %v", err)
+		return nil, fmt.Errorf("create NIC: %v", err)
 	}
 
 	protoAddr := tcpip.ProtocolAddress{
