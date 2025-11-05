@@ -43,6 +43,13 @@ func NewResultHandler(installerDir string) *ResultHandler {
 
 func (rh *ResultHandler) Watch(ctx context.Context) (Result, error) {
 	log.Infof("start watching result: %s", rh.resultFile)
+
+	defer func() {
+		if err := rh.Cleanup(); err != nil {
+			log.Warnf("failed to cleanup result file: %v", err)
+		}
+	}()
+
 	// Check if file already exists (updater finished before we started watching)
 	if result, err := rh.tryReadResult(); err == nil {
 		log.Infof("installer result: %v", result)
@@ -157,6 +164,7 @@ func (rh *ResultHandler) Cleanup() error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	log.Debugf("delete installer result file: %s", rh.resultFile)
 	return nil
 }
 

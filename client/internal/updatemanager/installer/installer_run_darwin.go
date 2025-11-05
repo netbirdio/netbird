@@ -46,13 +46,14 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 			result.Error = resultErr.Error()
 		}
 
-		if dryRun {
-			return
-		}
-
 		log.Infof("write out result")
 		if err := resultHandler.Write(result); err != nil {
 			log.Errorf("failed to write update result: %v", err)
+		}
+
+		// skip service restart if dry-run mode is enabled
+		if dryRun {
+			return
 		}
 
 		log.Infof("starting daemon back")

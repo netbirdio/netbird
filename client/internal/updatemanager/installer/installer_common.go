@@ -38,11 +38,11 @@ func NewWithDir(tempDir string) *Installer {
 // RunInstallation starts the updater process to run the installation
 // This will run by the original service process
 func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) error {
-	if err := u.mkTempDir(); err != nil {
+	if err := validateTargetVersion(targetVersion); err != nil {
 		return err
 	}
 
-	if err := validateTargetVersion(targetVersion); err != nil {
+	if err := u.mkTempDir(); err != nil {
 		return err
 	}
 
@@ -103,7 +103,6 @@ func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) e
 
 // CleanUpInstallerFiles
 // - the installer file (pkg, exe, msi)
-// - result.json file to prevent automatically showing the deprecated error state
 // - the selfcopy updater.exe
 func (u *Installer) CleanUpInstallerFiles() error {
 	// Check if tempDir exists

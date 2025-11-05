@@ -218,13 +218,12 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	/*
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
-
 	*/
 
 	m.lastTrigger = time.Now()
 	log.Infof("Auto-update triggered, current version: %s, target version: %s", m.currentVersion, updateVersion)
 	m.statusRecorder.PublishEvent(
-		cProto.SystemEvent_INFO,
+		cProto.SystemEvent_CRITICAL,
 		cProto.SystemEvent_SYSTEM,
 		"Automatically updating client",
 		"Your client version is older than auto-update version set in Management, updating client now.",
@@ -232,7 +231,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	)
 
 	m.statusRecorder.PublishEvent(
-		cProto.SystemEvent_INFO,
+		cProto.SystemEvent_CRITICAL,
 		cProto.SystemEvent_SYSTEM,
 		"",
 		"",
