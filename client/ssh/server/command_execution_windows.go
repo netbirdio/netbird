@@ -266,9 +266,14 @@ func (s *Server) prepareCommandEnv(localUser *user.User, session ssh.Session) []
 }
 
 func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
-	localUser := privilegeResult.User
 	cmd := session.Command()
-	logger.Infof("executing Pty command for %s from %s: %s", localUser.Username, session.RemoteAddr(), safeLogCommand(cmd))
+	shell := getUserShell(privilegeResult.User.Uid)
+
+	if len(cmd) == 0 {
+		logger.Infof("starting interactive shell: %s", shell)
+	} else {
+		logger.Infof("executing command: %s", safeLogCommand(cmd))
+	}
 
 	// Always use user switching on Windows - no direct execution
 	s.handlePtyWithUserSwitching(logger, session, privilegeResult, ptyReq, winCh, cmd)
@@ -317,7 +322,7 @@ func (s *Server) handlePtyWithUserSwitching(logger *log.Entry, session ssh.Sessi
 			logger.Debugf(errWriteSession, writeErr)
 		}
 		if err := session.Exit(1); err != nil {
-			logger.Debugf(errExitSession, err)
+			logSessionExitError(logger, err)
 		}
 		return
 	}

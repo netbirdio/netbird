@@ -16,7 +16,7 @@ func (s *Server) handlePty(logger *log.Entry, session ssh.Session, _ PrivilegeCh
 		logger.Debugf(errWriteSession, err)
 	}
 	if err := session.Exit(1); err != nil {
-		logger.Debugf(errExitSession, err)
+		logSessionExitError(logger, err)
 	}
 	return false
 }

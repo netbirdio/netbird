@@ -60,8 +60,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		var err error
 		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent)
 		if err != nil {
-			log.Printf("createConnection error: %v", err)
-			return err
+			return fmt.Errorf("create connection: %w", err)
 		}
 		return nil
 	}

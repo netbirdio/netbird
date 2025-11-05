@@ -110,7 +110,7 @@ type Manager interface {
 	GetIdpManager() idp.Manager
 	UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
-	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error)
+	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error)
 	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error

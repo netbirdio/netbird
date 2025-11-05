@@ -16,21 +16,18 @@ import (
 // sessionHandler handles SSH sessions
 func (s *Server) sessionHandler(session ssh.Session) {
 	sessionKey := s.registerSession(session)
+	logger := log.WithField("session", sessionKey)
+	logger.Infof("SSH session started")
 	sessionStart := time.Now()
 
-	logger := log.WithField("session", sessionKey)
 	defer s.unregisterSession(sessionKey, session)
 	defer func() {
-		duration := time.Since(sessionStart)
-		if err := session.Close(); err != nil {
-			logger.Debugf("close session after %v: %v", duration, err)
-			return
+		duration := time.Since(sessionStart).Round(time.Millisecond)
+		if err := session.Close(); err != nil && !errors.Is(err, io.EOF) {
+			logger.Warnf("close session after %v: %v", duration, err)
 		}
-
-		logger.Debugf("session closed after %v", duration)
+		logger.Infof("SSH session closed after %v", duration)
 	}()
-
-	logger.Infof("establishing SSH session for %s from %s", session.User(), session.RemoteAddr())
 
 	privilegeResult, err := s.userPrivilegeCheck(session.User())
 	if err != nil {
@@ -61,7 +58,7 @@ func (s *Server) rejectInvalidSession(logger *log.Entry, session ssh.Session) {
 		logger.Debugf(errWriteSession, err)
 	}
 	if err := session.Exit(1); err != nil {
-		logger.Debugf(errExitSession, err)
+		logSessionExitError(logger, err)
 	}
 	logger.Infof("rejected non-Pty session without command from %s", session.RemoteAddr())
 }
@@ -86,7 +83,6 @@ func (s *Server) registerSession(session ssh.Session) SessionKey {
 	s.sessions[sessionKey] = session
 	s.mu.Unlock()
 
-	log.WithField("session", sessionKey).Debugf("registered SSH session")
 	return sessionKey
 }
 
@@ -111,7 +107,6 @@ func (s *Server) unregisterSession(sessionKey SessionKey, _ ssh.Session) {
 	}
 
 	s.mu.Unlock()
-	log.WithField("session", sessionKey).Debugf("unregistered SSH session")
 }
 
 func (s *Server) handlePrivError(logger *log.Entry, session ssh.Session, err error) {
@@ -123,7 +118,7 @@ func (s *Server) handlePrivError(logger *log.Entry, session ssh.Session, err err
 		logger.Debugf(errWriteSession, writeErr)
 	}
 	if exitErr := session.Exit(1); exitErr != nil {
-		logger.Debugf(errExitSession, exitErr)
+		logSessionExitError(logger, exitErr)
 	}
 }
 

@@ -63,7 +63,7 @@ require (
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/nadoo/ipset v0.5.0
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20251010134843-7af36217ac1f
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20251027212525-d751b79f5d48
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
@@ -78,7 +78,7 @@ require (
 	github.com/pion/turn/v3 v3.0.1
 	github.com/pkg/sftp v1.13.9
 	github.com/prometheus/client_golang v1.22.0
-	github.com/quic-go/quic-go v0.48.2
+	github.com/quic-go/quic-go v0.49.1
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/xid v1.3.0
 	github.com/shirou/gopsutil/v3 v3.24.4
@@ -245,7 +245,7 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.51.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
-	go.uber.org/mock v0.4.0 // indirect
+	go.uber.org/mock v0.5.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/image v0.18.0 // indirect
 	golang.org/x/text v0.28.0 // indirect

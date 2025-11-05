@@ -1,6 +1,7 @@
 package uspfilter
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -27,7 +28,12 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-const layerTypeAll = 0
+const (
+	layerTypeAll = 0
+
+	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
+	ipTCPHeaderMinSize = 40
+)
 
 // serviceKey represents a protocol/port combination for netstack service registry
 type serviceKey struct {
@@ -41,6 +47,9 @@ const (
 
 	// EnvDisableUserspaceRouting disables userspace routing, to-be-routed packets will be dropped.
 	EnvDisableUserspaceRouting = "NB_DISABLE_USERSPACE_ROUTING"
+
+	// EnvDisableMSSClamping disables TCP MSS clamping for forwarded traffic.
+	EnvDisableMSSClamping = "NB_DISABLE_MSS_CLAMPING"
 
 	// EnvForceUserspaceRouter forces userspace routing even if native routing is available.
 	EnvForceUserspaceRouter = "NB_FORCE_USERSPACE_ROUTER"
@@ -116,14 +125,16 @@ type Manager struct {
 	dnatMutex    sync.RWMutex
 	dnatBiMap    *biDNATMap
 
-	// Port-specific DNAT for SSH redirection
 	portDNATEnabled atomic.Bool
-	portDNATMap     *portDNATMap
+	portDNATRules   []portDNATRule
 	portDNATMutex   sync.RWMutex
-	portNATTracker  *portNATTracker
 
 	netstackServices     map[serviceKey]struct{}
 	netstackServiceMutex sync.RWMutex
+
+	mtu             uint16
+	mssClampValue   uint16
+	mssClampEnabled bool
 }
 
 // decoder for packages
@@ -137,19 +148,21 @@ type decoder struct {
 	icmp6   layers.ICMPv6
 	decoded []gopacket.LayerType
 	parser  *gopacket.DecodingLayerParser
+
+	dnatOrigPort uint16
 }
 
 // Create userspace firewall manager constructor
-func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
-	return create(iface, nil, disableServerRoutes, flowLogger)
+func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
+	return create(iface, nil, disableServerRoutes, flowLogger, mtu)
 }
 
-func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
+func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
 	if nativeFirewall == nil {
 		return nil, errors.New("native firewall is nil")
 	}
 
-	mgr, err := create(iface, nativeFirewall, disableServerRoutes, flowLogger)
+	mgr, err := create(iface, nativeFirewall, disableServerRoutes, flowLogger, mtu)
 	if err != nil {
 		return nil, err
 	}
@@ -157,8 +170,8 @@ func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.
 	return mgr, nil
 }
 
-func parseCreateEnv() (bool, bool) {
-	var disableConntrack, enableLocalForwarding bool
+func parseCreateEnv() (bool, bool, bool) {
+	var disableConntrack, enableLocalForwarding, disableMSSClamping bool
 	var err error
 	if val := os.Getenv(EnvDisableConntrack); val != "" {
 		disableConntrack, err = strconv.ParseBool(val)
@@ -177,12 +190,18 @@ func parseCreateEnv() (bool, bool) {
 			log.Warnf("failed to parse %s: %v", EnvEnableLocalForwarding, err)
 		}
 	}
+	if val := os.Getenv(EnvDisableMSSClamping); val != "" {
+		disableMSSClamping, err = strconv.ParseBool(val)
+		if err != nil {
+			log.Warnf("failed to parse %s: %v", EnvDisableMSSClamping, err)
+		}
+	}
 
-	return disableConntrack, enableLocalForwarding
+	return disableConntrack, enableLocalForwarding, disableMSSClamping
 }
 
-func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger) (*Manager, error) {
-	disableConntrack, enableLocalForwarding := parseCreateEnv()
+func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
+	disableConntrack, enableLocalForwarding, disableMSSClamping := parseCreateEnv()
 
 	m := &Manager{
 		decoders: sync.Pool{
@@ -211,16 +230,19 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
-		portDNATMap:         &portDNATMap{rules: make([]portDNATRule, 0)},
-		portNATTracker:      newPortNATTracker(),
+		portDNATRules:       []portDNATRule{},
 		netstackServices:    make(map[serviceKey]struct{}),
+		mtu:                 mtu,
 	}
 	m.routingEnabled.Store(false)
 
+	if !disableMSSClamping {
+		m.mssClampEnabled = true
+		m.mssClampValue = mtu - ipTCPHeaderMinSize
+	}
 	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
 		return nil, fmt.Errorf("update local IPs: %w", err)
 	}
-
 	if disableConntrack {
 		log.Info("conntrack is disabled")
 	} else {
@@ -228,14 +250,11 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		m.icmpTracker = conntrack.NewICMPTracker(conntrack.DefaultICMPTimeout, m.logger, flowLogger)
 		m.tcpTracker = conntrack.NewTCPTracker(conntrack.DefaultTCPTimeout, m.logger, flowLogger)
 	}
-
-	// netstack needs the forwarder for local traffic
 	if m.netstack && m.localForwarding {
 		if err := m.initForwarder(); err != nil {
 			log.Errorf("failed to initialize forwarder: %v", err)
 		}
 	}
-
 	if err := iface.SetFilter(m); err != nil {
 		return nil, fmt.Errorf("set filter: %w", err)
 	}
@@ -338,7 +357,7 @@ func (m *Manager) initForwarder() error {
 		return errors.New("forwarding not supported")
 	}
 
-	forwarder, err := forwarder.New(m.wgIface, m.logger, m.flowLogger, m.netstack)
+	forwarder, err := forwarder.New(m.wgIface, m.logger, m.flowLogger, m.netstack, m.mtu)
 	if err != nil {
 		m.routingEnabled.Store(false)
 		return fmt.Errorf("create forwarder: %w", err)
@@ -351,22 +370,18 @@ func (m *Manager) initForwarder() error {
 	return nil
 }
 
-// Init initializes the firewall manager with state manager.
 func (m *Manager) Init(*statemanager.Manager) error {
 	return nil
 }
 
-// IsServerRouteSupported returns whether server routes are supported.
 func (m *Manager) IsServerRouteSupported() bool {
 	return true
 }
 
-// IsStateful returns whether the firewall manager tracks connection state.
 func (m *Manager) IsStateful() bool {
 	return m.stateful
 }
 
-// AddNatRule adds a routing firewall rule for NAT translation.
 func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
 		return m.nativeFirewall.AddNatRule(pair)
@@ -648,13 +663,21 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 		return false
 	}
 
-	if d.decoded[1] == layers.LayerTypeUDP && m.udpHooksDrop(uint16(d.udp.DstPort), dstIP, packetData) {
-		return true
+	switch d.decoded[1] {
+	case layers.LayerTypeUDP:
+		if m.udpHooksDrop(uint16(d.udp.DstPort), dstIP, packetData) {
+			return true
+		}
+	case layers.LayerTypeTCP:
+		// Clamp MSS on all TCP SYN packets, including those from local IPs.
+		// SNATed routed traffic may appear as local IP but still requires clamping.
+		if m.mssClampEnabled {
+			m.clampTCPMSS(packetData, d)
+		}
 	}
 
-	m.trackOutbound(d, srcIP, dstIP, size)
+	m.trackOutbound(d, srcIP, dstIP, packetData, size)
 	m.translateOutboundDNAT(packetData, d)
-	m.translateOutboundPortReverse(packetData, d)
 
 	return false
 }
@@ -697,14 +720,117 @@ func getTCPFlags(tcp *layers.TCP) uint8 {
 	return flags
 }
 
-func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, size int) {
+// clampTCPMSS clamps the TCP MSS option in SYN and SYN-ACK packets to prevent fragmentation.
+// Both sides advertise their MSS during connection establishment, so we need to clamp both.
+func (m *Manager) clampTCPMSS(packetData []byte, d *decoder) bool {
+	if !d.tcp.SYN {
+		return false
+	}
+	if len(d.tcp.Options) == 0 {
+		return false
+	}
+
+	mssOptionIndex := -1
+	var currentMSS uint16
+	for i, opt := range d.tcp.Options {
+		if opt.OptionType == layers.TCPOptionKindMSS && len(opt.OptionData) == 2 {
+			currentMSS = binary.BigEndian.Uint16(opt.OptionData)
+			if currentMSS > m.mssClampValue {
+				mssOptionIndex = i
+				break
+			}
+		}
+	}
+
+	if mssOptionIndex == -1 {
+		return false
+	}
+
+	ipHeaderSize := int(d.ip4.IHL) * 4
+	if ipHeaderSize < 20 {
+		return false
+	}
+
+	if !m.updateMSSOption(packetData, d, mssOptionIndex, ipHeaderSize) {
+		return false
+	}
+
+	m.logger.Trace2("Clamped TCP MSS from %d to %d", currentMSS, m.mssClampValue)
+	return true
+}
+
+func (m *Manager) updateMSSOption(packetData []byte, d *decoder, mssOptionIndex, ipHeaderSize int) bool {
+	tcpHeaderStart := ipHeaderSize
+	tcpOptionsStart := tcpHeaderStart + 20
+
+	optOffset := tcpOptionsStart
+	for j := 0; j < mssOptionIndex; j++ {
+		switch d.tcp.Options[j].OptionType {
+		case layers.TCPOptionKindEndList, layers.TCPOptionKindNop:
+			optOffset++
+		default:
+			optOffset += 2 + len(d.tcp.Options[j].OptionData)
+		}
+	}
+
+	mssValueOffset := optOffset + 2
+	binary.BigEndian.PutUint16(packetData[mssValueOffset:mssValueOffset+2], m.mssClampValue)
+
+	m.recalculateTCPChecksum(packetData, d, tcpHeaderStart)
+	return true
+}
+
+func (m *Manager) recalculateTCPChecksum(packetData []byte, d *decoder, tcpHeaderStart int) {
+	tcpLayer := packetData[tcpHeaderStart:]
+	tcpLength := len(packetData) - tcpHeaderStart
+
+	tcpLayer[16] = 0
+	tcpLayer[17] = 0
+
+	var pseudoSum uint32
+	pseudoSum += uint32(d.ip4.SrcIP[0])<<8 | uint32(d.ip4.SrcIP[1])
+	pseudoSum += uint32(d.ip4.SrcIP[2])<<8 | uint32(d.ip4.SrcIP[3])
+	pseudoSum += uint32(d.ip4.DstIP[0])<<8 | uint32(d.ip4.DstIP[1])
+	pseudoSum += uint32(d.ip4.DstIP[2])<<8 | uint32(d.ip4.DstIP[3])
+	pseudoSum += uint32(d.ip4.Protocol)
+	pseudoSum += uint32(tcpLength)
+
+	var sum uint32 = pseudoSum
+	for i := 0; i < tcpLength-1; i += 2 {
+		sum += uint32(tcpLayer[i])<<8 | uint32(tcpLayer[i+1])
+	}
+	if tcpLength%2 == 1 {
+		sum += uint32(tcpLayer[tcpLength-1]) << 8
+	}
+
+	for sum > 0xFFFF {
+		sum = (sum & 0xFFFF) + (sum >> 16)
+	}
+
+	checksum := ^uint16(sum)
+	binary.BigEndian.PutUint16(tcpLayer[16:18], checksum)
+}
+
+func (m *Manager) trackOutbound(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) {
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), size)
+		origPort := m.udpTracker.TrackOutbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), size)
+		if origPort == 0 {
+			break
+		}
+		if err := m.rewriteUDPPort(packetData, d, origPort, sourcePortOffset); err != nil {
+			m.logger.Error1("failed to rewrite UDP port: %v", err)
+		}
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
+		origPort := m.tcpTracker.TrackOutbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, size)
+		if origPort == 0 {
+			break
+		}
+		if err := m.rewriteTCPPort(packetData, d, origPort, sourcePortOffset); err != nil {
+			m.logger.Error1("failed to rewrite TCP port: %v", err)
+		}
 	case layers.LayerTypeICMPv4:
 		m.icmpTracker.TrackOutbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, d.icmp4.Payload, size)
 	}
@@ -714,13 +840,15 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, ruleID []byt
 	transport := d.decoded[1]
 	switch transport {
 	case layers.LayerTypeUDP:
-		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID, size)
+		m.udpTracker.TrackInbound(srcIP, dstIP, uint16(d.udp.SrcPort), uint16(d.udp.DstPort), ruleID, size, d.dnatOrigPort)
 	case layers.LayerTypeTCP:
 		flags := getTCPFlags(&d.tcp)
-		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size)
+		m.tcpTracker.TrackInbound(srcIP, dstIP, uint16(d.tcp.SrcPort), uint16(d.tcp.DstPort), flags, ruleID, size, d.dnatOrigPort)
 	case layers.LayerTypeICMPv4:
 		m.icmpTracker.TrackInbound(srcIP, dstIP, d.icmp4.Id, d.icmp4.TypeCode, ruleID, d.icmp4.Payload, size)
 	}
+
+	d.dnatOrigPort = 0
 }
 
 // udpHooksDrop checks if any UDP hooks should drop the packet
@@ -782,10 +910,11 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 		return false
 	}
 
-	if translated := m.translateInboundPortDNAT(packetData, d); translated {
+	// TODO: optimize port DNAT by caching matched rules in conntrack
+	if translated := m.translateInboundPortDNAT(packetData, d, srcIP, dstIP); translated {
 		// Re-decode after port DNAT translation to update port information
 		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-			m.logger.Error1("Failed to re-decode packet after port DNAT: %v", err)
+			m.logger.Error1("failed to re-decode packet after port DNAT: %v", err)
 			return true
 		}
 		srcIP, dstIP = m.extractIPs(d)
@@ -794,7 +923,7 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 	if translated := m.translateInboundReverse(packetData, d); translated {
 		// Re-decode after translation to get original addresses
 		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
-			m.logger.Error1("Failed to re-decode packet after reverse DNAT: %v", err)
+			m.logger.Error1("failed to re-decode packet after reverse DNAT: %v", err)
 			return true
 		}
 		srcIP, dstIP = m.extractIPs(d)

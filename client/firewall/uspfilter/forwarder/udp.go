@@ -49,7 +49,7 @@ type idleConn struct {
 	conn *udpPacketConn
 }
 
-func newUDPForwarder(mtu int, logger *nblog.Logger, flowLogger nftypes.FlowLogger) *udpForwarder {
+func newUDPForwarder(mtu uint16, logger *nblog.Logger, flowLogger nftypes.FlowLogger) *udpForwarder {
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &udpForwarder{
 		logger:     logger,

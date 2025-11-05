@@ -36,7 +36,7 @@ type iFaceMapper interface {
 }
 
 // Create iptables firewall manager
-func Create(wgIface iFaceMapper) (*Manager, error) {
+func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		return nil, fmt.Errorf("init iptables: %w", err)
@@ -47,7 +47,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		ipv4Client: iptablesClient,
 	}
 
-	m.router, err = newRouter(iptablesClient, wgIface)
+	m.router, err = newRouter(iptablesClient, wgIface, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("create router: %w", err)
 	}
@@ -66,6 +66,7 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 			NameStr:       m.wgIface.Name(),
 			WGAddress:     m.wgIface.Address(),
 			UserspaceBind: m.wgIface.IsUserspaceBind(),
+			MTU:           m.router.mtu,
 		},
 	}
 	stateManager.RegisterState(state)
@@ -260,7 +261,7 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	return m.router.UpdateSet(set, prefixes)
 }
 
-// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services
+// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
 func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -268,7 +269,7 @@ func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protoco
 	return m.router.AddInboundDNAT(localAddr, protocol, sourcePort, targetPort)
 }
 
-// RemoveInboundDNAT removes inbound DNAT rule
+// RemoveInboundDNAT removes an inbound DNAT rule.
 func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
