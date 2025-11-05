@@ -58,7 +58,7 @@ type Manager struct {
 	// updateMutex protect update and expectedVersion fields
 	updateMutex sync.Mutex
 
-	triggerUpdateFn func(string) error
+	triggerUpdateFn func(context.Context, string) error
 }
 
 func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
@@ -214,8 +214,12 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
+	// todo: review the usage of this context
+	/*
+		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+
+	*/
 
 	m.lastTrigger = time.Now()
 	log.Infof("Auto-update triggered, current version: %s, target version: %s", m.currentVersion, updateVersion)
@@ -248,7 +252,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		}
 	}
 
-	if err := m.triggerUpdateFn(updateVersion.String()); err != nil {
+	if err := m.triggerUpdateFn(ctx, updateVersion.String()); err != nil {
 		log.Errorf("Error triggering auto-update: %v", err)
 		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_ERROR,
@@ -326,11 +330,12 @@ func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
 	return true
 }
 
-func (m *Manager) triggerUpdate(targetVersion string) error {
+func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error {
+	// todo use dependency injection
 	inst, err := installer.New()
 	if err != nil {
 		return err
 	}
 
-	return inst.RunInstallation(targetVersion)
+	return inst.RunInstallation(ctx, targetVersion)
 }

@@ -5,12 +5,10 @@ import (
 	"os/exec"
 )
 
-const (
-	TypeHomebrew Type = "Homebrew"
-	TypePKG      Type = "pkg"
+var (
+	TypeHomebrew = Type{name: "Homebrew", downloadable: true}
+	TypePKG      = Type{name: "pkg", downloadable: false}
 )
-
-type Type string
 
 func typeOfInstaller(ctx context.Context) Type {
 	cmd := exec.CommandContext(ctx, "pkgutil", "--pkg-info", "io.netbird.client")

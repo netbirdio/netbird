@@ -33,11 +33,7 @@ var (
 
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
-func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string, daemonFolder string) (resultErr error) {
-	if err := validateTargetVersion(targetVersion); err != nil {
-		log.Errorf("invalid verion: %s", targetVersion)
-		return err
-	}
+func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string, daemonFolder string) (resultErr error) {
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
 		log.Infof("starting daemon back")
@@ -61,12 +57,6 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string
 
 	switch typeOfInstaller(ctx) {
 	case TypePKG:
-		installerFile, err := u.downloadFileToTemporaryDir(ctx, urlWithVersionArch(targetVersion))
-		if err != nil {
-			resultErr = fmt.Errorf("error downloading update file: %w", err)
-			break
-		}
-
 		log.Infof("installing pkg file")
 		if err := u.installPkgFile(ctx, installerFile); err != nil {
 			resultErr = err
@@ -228,6 +218,14 @@ func (u *Installer) updateHomeBrew(ctx context.Context) error {
 
 func (u *Installer) uiBinaryFile() (string, error) {
 	return updaterSrcPath, nil
+}
+
+func downloadUrl(ctx context.Context, targetVersion string) (string, bool) {
+	installerType := typeOfInstaller(ctx)
+	if installerType != TypePKG {
+		return "", false
+	}
+	return urlWithVersionArch(targetVersion), true
 }
 
 func urlWithVersionArch(version string) string {

@@ -43,8 +43,6 @@ import (
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
 	"github.com/netbirdio/netbird/client/ui/process"
-	"github.com/netbirdio/netbird/client/ui/update"
-
 	"github.com/netbirdio/netbird/util"
 
 	"github.com/netbirdio/netbird/version"
@@ -60,10 +58,6 @@ const (
 )
 
 func main() {
-	if update.IsUpdateBinary() {
-		update.Execute()
-		return
-	}
 	flags := parseFlags()
 
 	// Initialize file logging if needed.
@@ -99,13 +93,14 @@ func main() {
 		showLoginURL: flags.showLoginURL,
 		showDebug:    flags.showDebug,
 		showProfiles: flags.showProfiles,
+		showUpdate:   flags.showUpdate,
 	})
 
 	// Watch for theme/settings changes to update the icon.
 	go watchSettingsChanges(a, client)
 
 	// Run in window mode if any UI flag was set.
-	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles {
+	if flags.showSettings || flags.showNetworks || flags.showDebug || flags.showLoginURL || flags.showProfiles || flags.showUpdate {
 		a.Run()
 		return
 	}
@@ -133,6 +128,7 @@ type cliFlags struct {
 	showDebug      bool
 	showLoginURL   bool
 	errorMsg       string
+	showUpdate     bool
 	saveLogsInFile bool
 }
 
@@ -152,6 +148,7 @@ func parseFlags() *cliFlags {
 	flag.StringVar(&flags.errorMsg, "error-msg", "", "displays an error message window")
 	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
+	flag.BoolVar(&flags.showUpdate, "update", false, "show update progress window")
 	flag.Parse()
 	return &flags
 }
@@ -302,6 +299,8 @@ type serviceClient struct {
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
+	wUpdateProgress      fyne.Window
+	updateContextCancel  context.CancelFunc
 }
 
 type menuHandler struct {
@@ -318,6 +317,7 @@ type newServiceClientArgs struct {
 	showDebug    bool
 	showLoginURL bool
 	showProfiles bool
+	showUpdate   bool
 }
 
 // newServiceClient instance constructor
@@ -353,6 +353,8 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		s.showDebugUI()
 	case args.showProfiles:
 		s.showProfilesUI()
+	case args.showUpdate:
+		s.showUpdateProgress(ctx)
 	}
 
 	return s
@@ -958,6 +960,30 @@ func (s *serviceClient) onTrayReady() {
 			s.updateExitNodes()
 		}
 	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		if windowAction, ok := event.Metadata["progress_window"]; ok {
+			log.Debugf("window action: %v", windowAction)
+			if windowAction == "show" {
+				log.Debugf("Inside show")
+				if s.updateContextCancel != nil {
+					s.updateContextCancel()
+					s.updateContextCancel = nil
+				}
+
+				subCtx, cancel := context.WithCancel(s.ctx)
+				go s.eventHandler.runSelfCommand(subCtx, "update", "true")
+				s.updateContextCancel = cancel
+			}
+			if windowAction == "hide" {
+				log.Debugf("Inside hide")
+				if s.updateContextCancel != nil {
+					s.updateContextCancel()
+					s.updateContextCancel = nil
+				}
+			}
+		}
+	})
+
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
 }

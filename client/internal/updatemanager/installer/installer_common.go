@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
@@ -38,9 +37,24 @@ func NewWithDir(tempDir string) *Installer {
 
 // RunInstallation starts the updater process to run the installation
 // This will run by the original service process
-func (u *Installer) RunInstallation(targetVersion string) error {
+func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) error {
 	if err := u.mkTempDir(); err != nil {
 		return err
+	}
+
+	if err := validateTargetVersion(targetVersion); err != nil {
+		return err
+	}
+
+	var installerFile string
+	if installerType := typeOfInstaller(ctx); installerType.Downloadable() {
+		log.Infof("download installer")
+		var err error
+		installerFile, err = u.downloadInstaller(ctx, installerType, targetVersion)
+		if err != nil {
+			log.Errorf("failed to download installer: %v", err)
+			return err
+		}
 	}
 
 	log.Infof("running installer")
@@ -55,41 +69,35 @@ func (u *Installer) RunInstallation(targetVersion string) error {
 		return err
 	}
 
-	subcmd := fmt.Sprintf("\"%s\" --temp-dir \"%s\" --service-dir \"%s\" --target-version \"%s\" --dry-run",
-		updaterPath, defaultTempDir, workspace, targetVersion)
-
-	// Optional: log the command for debugging
-	log.Infof("updater command: %s", subcmd)
-
-	createTask := exec.Command("schtasks", "/create", "/tn", "MyUpdaterTask", "/tr", subcmd, "/sc", "once", "/st", "00:00", "/rl", "highest", "/f")
-	log.Infof("updater command: %s", createTask.String())
-	if out, err := createTask.CombinedOutput(); err != nil {
-		log.Errorf("failed to update scheduled task: %v\n%s", err, out)
-		//return err
+	args := []string{
+		"--temp-dir", u.tempDir,
+		"--service-dir", workspace,
+		"--dry-run=true",
 	}
 
-	// Update the scheduled task to run this exact command line
-	updateTask := exec.Command("schtasks", "/change", "/tn", "MyUpdaterTask", "/tr", subcmd)
-	log.Infof("updater command: %s", updateTask.String())
-	if out, err := updateTask.CombinedOutput(); err != nil {
-		log.Errorf("failed to update scheduled task: %v\n%s", err, out)
-		return err
+	if installerFile != "" {
+		args = append(args, "--installer-file", filepath.Join(u.tempDir, installerFile))
 	}
 
-	// Run the scheduled task (elevated, no UAC prompt, visible GUI)
-	runTask := exec.Command("schtasks", "/run", "/tn", "MyUpdaterTask")
-	log.Infof("updater command: %s", runTask.String())
-
-	if out, err := runTask.CombinedOutput(); err != nil {
-		log.Errorf("failed to start scheduled task: %v\n%s", err, out)
-		return err
-	}
+	updateCmd := exec.Command(updaterPath, args...)
+	log.Infof("starting updater process: %s", updateCmd.String())
 	/*
 		updateCmd.SysProcAttr = &syscall.SysProcAttr{
 			CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // 0x00000008 is DETACHED_PROCESS
 		}
 	*/
 
+	// Start the updater process asynchronously
+	if err := updateCmd.Start(); err != nil {
+		return err
+	}
+
+	// Release the process so the OS can fully detach it
+	if err := updateCmd.Process.Release(); err != nil {
+		log.Warnf("failed to release updater process: %v", err)
+	}
+
+	log.Infof("updater started with PID %d", updateCmd.Process.Pid)
 	return nil
 }
 
@@ -137,50 +145,9 @@ func (u *Installer) CleanUpInstallerFiles() error {
 	return nil
 }
 
-func (u *Installer) mkTempDir() error {
-	if err := os.MkdirAll(defaultTempDir, 0o755); err != nil {
-		log.Debugf("failed to create tempdir: %s", defaultTempDir)
-		return err
-	}
-	return nil
-}
+func (u *Installer) downloadInstaller(ctx context.Context, installerType Type, targetVersion string) (string, error) {
+	fileURL := urlWithVersionArch(installerType, targetVersion)
 
-func (u *Installer) copyUpdater() (string, error) {
-	src, err := u.uiBinaryFile()
-	if err != nil {
-		return "", fmt.Errorf("failed to get updater binary: %w", err)
-	}
-
-	dst := filepath.Join(u.tempDir, updaterBinary)
-	if err := copyFile(src, dst); err != nil {
-		return "", fmt.Errorf("failed to copy updater binary: %w", err)
-	}
-
-	if err := os.Chmod(dst, 0o755); err != nil {
-		return "", fmt.Errorf("failed to set permissions: %w", err)
-	}
-
-	if runtime.GOOS == "windows" {
-		if err := u.copyWindowsDLL(); err != nil {
-			return "", fmt.Errorf("failed to copy Windows DLL: %w", err)
-		}
-	}
-
-	return dst, nil
-}
-
-func (u *Installer) copyWindowsDLL() error {
-	serviceDir, err := getServiceDir()
-	if err != nil {
-		return err
-	}
-
-	sourceDLL := filepath.Join(serviceDir, "opengl32.dll")
-	dstDll := filepath.Join(u.tempDir, "opengl32.dll")
-	return copyFile(sourceDLL, dstDll)
-}
-
-func (u *Installer) downloadFileToTemporaryDir(ctx context.Context, fileURL string) (string, error) {
 	// Clean up temp directory on error
 	var success bool
 	defer func() {
@@ -231,6 +198,36 @@ func (u *Installer) downloadFileToTemporaryDir(ctx context.Context, fileURL stri
 
 	success = true // Mark success to prevent cleanup
 	return out.Name(), nil
+}
+
+func (u *Installer) TempDir() string {
+	return u.tempDir
+}
+
+func (u *Installer) mkTempDir() error {
+	if err := os.MkdirAll(defaultTempDir, 0o755); err != nil {
+		log.Debugf("failed to create tempdir: %s", defaultTempDir)
+		return err
+	}
+	return nil
+}
+
+func (u *Installer) copyUpdater() (string, error) {
+	src, err := getServiceBinary()
+	if err != nil {
+		return "", fmt.Errorf("failed to get updater binary: %w", err)
+	}
+
+	dst := filepath.Join(u.tempDir, updaterBinary)
+	if err := copyFile(src, dst); err != nil {
+		return "", fmt.Errorf("failed to copy updater binary: %w", err)
+	}
+
+	if err := os.Chmod(dst, 0o755); err != nil {
+		return "", fmt.Errorf("failed to set permissions: %w", err)
+	}
+
+	return dst, nil
 }
 
 func validateTargetVersion(targetVersion string) error {

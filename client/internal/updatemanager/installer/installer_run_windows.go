@@ -35,11 +35,9 @@ var (
 
 // Setup runs the installer with appropriate arguments and manages the daemon/UI state
 // This will be run by the updater process
-func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string, daemonFolder string) (resultErr error) {
-	if err := validateTargetVersion(targetVersion); err != nil {
-		log.Errorf("invalid verion: %s", targetVersion)
-		return err
-	}
+func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string, daemonFolder string) (resultErr error) {
+	resultHandler := NewResultHandler(u.tempDir)
+
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
 		log.Infof("starting daemon back")
@@ -47,10 +45,22 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string
 			log.Errorf("failed to start daemon: %v", err)
 		}
 
-		// todo prevent to run UI multiple times
 		log.Infof("starting UI back")
 		if err := u.startUIAsUser(daemonFolder); err != nil {
 			log.Errorf("failed to start UI: %v", err)
+		}
+
+		result := Result{
+			Success:    resultErr == nil,
+			ExecutedAt: time.Now(),
+		}
+		if resultErr != nil {
+			result.Error = resultErr.Error()
+		}
+
+		log.Infof("write out result")
+		if err := resultHandler.Write(result); err != nil {
+			log.Errorf("failed to write update result: %v", err)
 		}
 	}()
 
@@ -60,29 +70,30 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, targetVersion string
 		return
 	}
 
-	installerType := typeOfInstaller()
-	installerPath, err := u.downloadFileToTemporaryDir(ctx, urlWithVersionArch(installerType, targetVersion))
+	installerType, err := typeByFileExtension(installerFile)
 	if err != nil {
-		return err
+		log.Debugf("%v", err)
+		resultErr = err
+		return
 	}
 
 	var cmd *exec.Cmd
 	switch installerType {
 	case TypeExe:
-		log.Infof("run exe installer: %s", installerPath)
-		cmd = exec.CommandContext(ctx, installerPath, "/S")
+		log.Infof("run exe installer: %s", installerFile)
+		cmd = exec.CommandContext(ctx, installerFile, "/S")
 	default:
-		installerDir := filepath.Dir(installerPath)
+		installerDir := filepath.Dir(installerFile)
 		logPath := filepath.Join(installerDir, msiLogFile)
-		log.Infof("run msi installer: %s", installerPath)
-		cmd = exec.CommandContext(ctx, "msiexec.exe", "/i", filepath.Base(installerPath), "/quiet", "/qn", "/l*v", logPath)
+		log.Infof("run msi installer: %s", installerFile)
+		cmd = exec.CommandContext(ctx, "msiexec.exe", "/i", filepath.Base(installerFile), "/quiet", "/qn", "/l*v", logPath)
 	}
 
-	cmd.Dir = filepath.Dir(installerPath)
+	cmd.Dir = filepath.Dir(installerFile)
 
-	if err := cmd.Start(); err != nil {
-		log.Errorf("error starting installer: %v", err)
-		return err
+	if resultErr = cmd.Start(); resultErr != nil {
+		log.Errorf("error starting installer: %v", resultErr)
+		return
 	}
 
 	log.Infof("installer started with PID %d", cmd.Process.Pid)
@@ -192,15 +203,6 @@ func (u *Installer) startUIAsUser(daemonFolder string) error {
 	return nil
 }
 
-func (u *Installer) uiBinaryFile() (string, error) {
-	serviceDir, err := getServiceDir()
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(serviceDir, uiName), nil
-}
-
 func urlWithVersionArch(it Type, version string) string {
 	var url string
 	if it == TypeExe {
@@ -213,6 +215,14 @@ func urlWithVersionArch(it Type, version string) string {
 }
 
 func getServiceDir() (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(exePath), nil
+}
+
+func getServiceBinary() (string, error) {
 	exePath, err := os.Executable()
 	if err != nil {
 		return "", err
