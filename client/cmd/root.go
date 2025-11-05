@@ -18,11 +18,11 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -197,38 +197,6 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 	}()
 }
 
-// SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_
-func SetFlagsFromEnvVars(cmd *cobra.Command) {
-	flags := cmd.PersistentFlags()
-	flags.VisitAll(func(f *pflag.Flag) {
-		oldEnvVar := FlagNameToEnvVar(f.Name, "WT_")
-
-		if value, present := os.LookupEnv(oldEnvVar); present {
-			err := flags.Set(f.Name, value)
-			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, oldEnvVar, err)
-			}
-		}
-
-		newEnvVar := FlagNameToEnvVar(f.Name, "NB_")
-
-		if value, present := os.LookupEnv(newEnvVar); present {
-			err := flags.Set(f.Name, value)
-			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, newEnvVar, err)
-			}
-		}
-	})
-}
-
-// FlagNameToEnvVar converts flag name to environment var name adding a prefix,
-// replacing dashes and making all uppercase (e.g. setup-keys is converted to NB_SETUP_KEYS according to the input prefix)
-func FlagNameToEnvVar(cmdFlag string, prefix string) string {
-	parsed := strings.ReplaceAll(cmdFlag, "-", "_")
-	upper := strings.ToUpper(parsed)
-	return prefix + upper
-}
-
 // DialClientGRPCServer returns client connection to the daemon server.
 func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
@@ -385,7 +353,7 @@ func migrateToNetbird(oldPath, newPath string) bool {
 }
 
 func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
-	SetFlagsFromEnvVars(rootCmd)
+	util.SetFlagsFromEnvVars(rootCmd)
 	cmd.SetOut(cmd.OutOrStdout())
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)

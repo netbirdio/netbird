@@ -92,7 +92,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LogFile, "log-file", "console", "log file")
 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.HealthcheckListenAddress, "health-listen-address", "H", ":9000", "listen address of healthcheck server")
 
-	setFlagsFromEnvVars(rootCmd)
+	util.SetFlagsFromEnvVars(rootCmd)
 }
 
 func Execute() error {

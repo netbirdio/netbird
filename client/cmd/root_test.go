@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/util"
 )
 
 func TestInitCommands(t *testing.T) {
@@ -45,7 +46,7 @@ func TestSetFlagsFromEnvVars(t *testing.T) {
 		Long:         "test",
 		SilenceUsage: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			SetFlagsFromEnvVars(cmd)
+			util.SetFlagsFromEnvVars(cmd)
 		},
 	}
 
