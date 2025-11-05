@@ -1130,7 +1130,7 @@ func TestShouldForward(t *testing.T) {
 		return wgaddr.Address{IP: wgIP, Network: netip.PrefixFrom(wgIP, 24)}
 	}
 
-	manager, err := Create(ifaceMock, false, flowLogger)
+	manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))

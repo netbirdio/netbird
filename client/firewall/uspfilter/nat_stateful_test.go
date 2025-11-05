@@ -7,6 +7,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 )
 
@@ -14,7 +15,7 @@ import (
 func TestPortDNATBasic(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger)
+	}, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
@@ -50,7 +51,7 @@ func TestPortDNATBasic(t *testing.T) {
 func TestPortDNATMultipleRules(t *testing.T) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger)
+	}, false, flowLogger, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, manager.Close(nil))
