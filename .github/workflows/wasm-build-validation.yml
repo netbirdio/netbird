@@ -30,10 +30,9 @@ jobs:
           install-mode: binary
           skip-cache: true
           skip-save-cache: true
-          skip-pkg-cache: true
-          skip-build-cache: true
       - name: Run golangci-lint for WASM
         run: |
+          golangci-lint cache clean
           GOOS=js GOARCH=wasm golangci-lint run --timeout=12m --out-format colored-line-number ./client/...
         continue-on-error: true
 
