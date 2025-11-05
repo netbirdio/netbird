@@ -34,6 +34,7 @@ const (
 	enableSSHLocalPortForwardFlag  = "enable-ssh-local-port-forwarding"
 	enableSSHRemotePortForwardFlag = "enable-ssh-remote-port-forwarding"
 	disableSSHAuthFlag             = "disable-ssh-auth"
+	sshJWTCacheTTLFlag             = "ssh-jwt-cache-ttl"
 )
 
 var (
@@ -56,6 +57,7 @@ var (
 	enableSSHLocalPortForward  bool
 	enableSSHRemotePortForward bool
 	disableSSHAuth             bool
+	sshJWTCacheTTL             int
 )
 
 func init() {
@@ -65,6 +67,7 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&enableSSHLocalPortForward, enableSSHLocalPortForwardFlag, false, "Enable local port forwarding for SSH server")
 	upCmd.PersistentFlags().BoolVar(&enableSSHRemotePortForward, enableSSHRemotePortForwardFlag, false, "Enable remote port forwarding for SSH server")
 	upCmd.PersistentFlags().BoolVar(&disableSSHAuth, disableSSHAuthFlag, false, "Disable SSH authentication")
+	upCmd.PersistentFlags().IntVar(&sshJWTCacheTTL, sshJWTCacheTTLFlag, 0, "SSH JWT token cache TTL in seconds (0=disabled)")
 
 	sshCmd.PersistentFlags().IntVarP(&port, "port", "p", sshserver.DefaultSSHPort, "Remote SSH port")
 	sshCmd.PersistentFlags().StringVarP(&username, "user", "u", "", sshUsernameDesc)

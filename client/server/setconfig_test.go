@@ -72,6 +72,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	lazyConnectionEnabled := true
 	blockInbound := true
 	mtu := int64(1280)
+	sshJWTCacheTTL := int32(300)
 
 	req := &proto.SetConfigRequest{
 		ProfileName:           profName,
@@ -102,6 +103,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		CleanDNSLabels:        false,
 		DnsRouteInterval:      durationpb.New(2 * time.Minute),
 		Mtu:                   &mtu,
+		SshJWTCacheTTL:        &sshJWTCacheTTL,
 	}
 
 	_, err = s.SetConfig(ctx, req)
@@ -146,6 +148,8 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, []string{"label1", "label2"}, cfg.DNSLabels.ToPunycodeList())
 	require.Equal(t, 2*time.Minute, cfg.DNSRouteInterval)
 	require.Equal(t, uint16(mtu), cfg.MTU)
+	require.NotNil(t, cfg.SSHJWTCacheTTL)
+	require.Equal(t, int(sshJWTCacheTTL), *cfg.SSHJWTCacheTTL)
 
 	verifyAllFieldsCovered(t, req)
 }
@@ -196,6 +200,7 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"EnableSSHLocalPortForward":  true,
 		"EnableSSHRemotePortForward": true,
 		"DisableSSHAuth":             true,
+		"SshJWTCacheTTL":             true,
 	}
 
 	val := reflect.ValueOf(req).Elem()
@@ -254,6 +259,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"enable-ssh-local-port-forwarding":  "EnableSSHLocalPortForward",
 		"enable-ssh-remote-port-forwarding": "EnableSSHRemotePortForward",
 		"disable-ssh-auth":                  "DisableSSHAuth",
+		"ssh-jwt-cache-ttl":                 "SshJWTCacheTTL",
 	}
 
 	// SetConfigRequest fields that don't have CLI flags (settable only via UI or other means).

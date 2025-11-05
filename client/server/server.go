@@ -46,8 +46,8 @@ const (
 	defaultMaxRetryTime     = 14 * 24 * time.Hour
 	defaultRetryMultiplier  = 1.7
 
-	// JWT token cache TTL for the client daemon
-	defaultJWTCacheTTL = 5 * time.Minute
+	// JWT token cache TTL for the client daemon (disabled by default)
+	defaultJWTCacheTTL = 0
 
 	errRestoreResidualState   = "failed to restore residual state: %v"
 	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
@@ -385,6 +385,10 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.EnableSSHRemotePortForwarding = msg.EnableSSHRemotePortForward
 	if msg.DisableSSHAuth != nil {
 		config.DisableSSHAuth = msg.DisableSSHAuth
+	}
+	if msg.SshJWTCacheTTL != nil {
+		ttl := int(*msg.SshJWTCacheTTL)
+		config.SSHJWTCacheTTL = &ttl
 	}
 
 	if msg.Mtu != nil {
@@ -1136,28 +1140,24 @@ func (s *Server) GetPeerSSHHostKey(
 	return response, nil
 }
 
-// getJWTCacheTTL returns the JWT cache TTL from environment variable or default
-// NB_SSH_JWT_CACHE_TTL=0 disables caching
-// NB_SSH_JWT_CACHE_TTL=<seconds> sets custom cache TTL
-func getJWTCacheTTL() time.Duration {
-	envValue := os.Getenv("NB_SSH_JWT_CACHE_TTL")
-	if envValue == "" {
+// getJWTCacheTTL returns the JWT cache TTL from config or default (disabled)
+func (s *Server) getJWTCacheTTL() time.Duration {
+	s.mutex.Lock()
+	config := s.config
+	s.mutex.Unlock()
+
+	if config == nil || config.SSHJWTCacheTTL == nil {
 		return defaultJWTCacheTTL
 	}
 
-	seconds, err := strconv.Atoi(envValue)
-	if err != nil {
-		log.Warnf("invalid NB_SSH_JWT_CACHE_TTL value %s, using default: %v", envValue, defaultJWTCacheTTL)
-		return defaultJWTCacheTTL
-	}
-
+	seconds := *config.SSHJWTCacheTTL
 	if seconds == 0 {
-		log.Info("SSH JWT cache disabled via NB_SSH_JWT_CACHE_TTL=0")
+		log.Debug("SSH JWT cache disabled (configured to 0)")
 		return 0
 	}
 
 	ttl := time.Duration(seconds) * time.Second
-	log.Infof("SSH JWT cache TTL set to %v via NB_SSH_JWT_CACHE_TTL", ttl)
+	log.Debugf("SSH JWT cache TTL set to %v from config", ttl)
 	return ttl
 }
 
@@ -1178,7 +1178,7 @@ func (s *Server) RequestJWTAuth(
 		return nil, gstatus.Errorf(codes.FailedPrecondition, "client is not configured")
 	}
 
-	jwtCacheTTL := getJWTCacheTTL()
+	jwtCacheTTL := s.getJWTCacheTTL()
 	if jwtCacheTTL > 0 {
 		if cachedToken, found := s.jwtCache.get(); found {
 			log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
@@ -1251,7 +1251,7 @@ func (s *Server) WaitJWTToken(
 
 	token := tokenInfo.GetTokenToUse()
 
-	jwtCacheTTL := getJWTCacheTTL()
+	jwtCacheTTL := s.getJWTCacheTTL()
 	if jwtCacheTTL > 0 {
 		s.jwtCache.store(token, jwtCacheTTL)
 		log.Debugf("JWT token cached for SSH authentication, TTL: %v", jwtCacheTTL)
@@ -1366,6 +1366,11 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		disableSSHAuth = *s.config.DisableSSHAuth
 	}
 
+	sshJWTCacheTTL := int32(0)
+	if s.config.SSHJWTCacheTTL != nil {
+		sshJWTCacheTTL = int32(*s.config.SSHJWTCacheTTL)
+	}
+
 	return &proto.GetConfigResponse{
 		ManagementUrl:                 managementURL.String(),
 		PreSharedKey:                  preSharedKey,
@@ -1390,6 +1395,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		EnableSSHLocalPortForwarding:  enableSSHLocalPortForwarding,
 		EnableSSHRemotePortForwarding: enableSSHRemotePortForwarding,
 		DisableSSHAuth:                disableSSHAuth,
+		SshJWTCacheTTL:                sshJWTCacheTTL,
 	}, nil
 }
 

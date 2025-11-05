@@ -176,6 +176,7 @@ message LoginRequest {
   optional bool enableSSHLocalPortForwarding = 36;
   optional bool enableSSHRemotePortForwarding = 37;
   optional bool disableSSHAuth = 38;
+  optional int32 sshJWTCacheTTL = 39;
 }
 
 message LoginResponse {
@@ -280,6 +281,8 @@ message GetConfigResponse {
   bool enableSSHRemotePortForwarding = 23;
 
   bool disableSSHAuth = 25;
+
+  int32 sshJWTCacheTTL = 26;
 }
 
 // PeerState contains the latest state of a peer
@@ -625,6 +628,7 @@ message SetConfigRequest {
   optional bool enableSSHLocalPortForward = 31;
   optional bool enableSSHRemotePortForward = 32;
   optional bool disableSSHAuth = 33;
+  optional int32 sshJWTCacheTTL = 34;
 }
 
 message SetConfigResponse{}

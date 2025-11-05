@@ -55,6 +55,7 @@ type ConfigInput struct {
 	EnableSSHLocalPortForwarding  *bool
 	EnableSSHRemotePortForwarding *bool
 	DisableSSHAuth                *bool
+	SSHJWTCacheTTL                *int
 	NATExternalIPs                []string
 	CustomDNSAddress              []byte
 	RosenpassEnabled              *bool
@@ -104,6 +105,7 @@ type Config struct {
 	EnableSSHLocalPortForwarding  *bool
 	EnableSSHRemotePortForwarding *bool
 	DisableSSHAuth                *bool
+	SSHJWTCacheTTL                *int
 
 	DisableClientRoutes bool
 	DisableServerRoutes bool
@@ -433,6 +435,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("enabling SSH authentication")
 		}
 		config.DisableSSHAuth = input.DisableSSHAuth
+		updated = true
+	}
+
+	if input.SSHJWTCacheTTL != nil && input.SSHJWTCacheTTL != config.SSHJWTCacheTTL {
+		log.Infof("updating SSH JWT cache TTL to %d seconds", *input.SSHJWTCacheTTL)
+		config.SSHJWTCacheTTL = input.SSHJWTCacheTTL
 		updated = true
 	}
 

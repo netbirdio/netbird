@@ -270,6 +270,7 @@ type serviceClient struct {
 	sEnableSSHLocalPortForward  *widget.Check
 	sEnableSSHRemotePortForward *widget.Check
 	sDisableSSHAuth             *widget.Check
+	iSSHJWTCacheTTL             *widget.Entry
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL string
@@ -289,6 +290,7 @@ type serviceClient struct {
 	enableSSHLocalPortForward  bool
 	enableSSHRemotePortForward bool
 	disableSSHAuth             bool
+	sshJWTCacheTTL             int
 
 	connected            bool
 	update               *version.Update
@@ -441,6 +443,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.sEnableSSHLocalPortForward = widget.NewCheck("Enable SSH Local Port Forwarding", nil)
 	s.sEnableSSHRemotePortForward = widget.NewCheck("Enable SSH Remote Port Forwarding", nil)
 	s.sDisableSSHAuth = widget.NewCheck("Disable SSH Authentication", nil)
+	s.iSSHJWTCacheTTL = widget.NewEntry()
 
 	s.wSettings.SetContent(s.getSettingsForm())
 	s.wSettings.Resize(fyne.NewSize(600, 400))
@@ -603,6 +606,19 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	req.EnableSSHRemotePortForward = &s.sEnableSSHRemotePortForward.Checked
 	req.DisableSSHAuth = &s.sDisableSSHAuth.Checked
 
+	sshJWTCacheTTLText := strings.TrimSpace(s.iSSHJWTCacheTTL.Text)
+	if sshJWTCacheTTLText != "" {
+		sshJWTCacheTTL, err := strconv.ParseInt(sshJWTCacheTTLText, 10, 32)
+		if err != nil {
+			return nil, errors.New("Invalid SSH JWT Cache TTL value")
+		}
+		if sshJWTCacheTTL < 0 {
+			return nil, errors.New("SSH JWT Cache TTL must be 0 or positive")
+		}
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
+	}
+
 	if s.iPreSharedKey.Text != censoredPreSharedKey {
 		req.OptionalPreSharedKey = &s.iPreSharedKey.Text
 	}
@@ -688,16 +704,25 @@ func (s *serviceClient) getSSHForm() *widget.Form {
 			{Text: "Enable SSH Local Port Forwarding", Widget: s.sEnableSSHLocalPortForward},
 			{Text: "Enable SSH Remote Port Forwarding", Widget: s.sEnableSSHRemotePortForward},
 			{Text: "Disable SSH Authentication", Widget: s.sDisableSSHAuth},
+			{Text: "JWT Cache TTL (seconds, 0=disabled)", Widget: s.iSSHJWTCacheTTL},
 		},
 	}
 }
 
 func (s *serviceClient) hasSSHChanges() bool {
+	currentSSHJWTCacheTTL := 0
+	if text := strings.TrimSpace(s.iSSHJWTCacheTTL.Text); text != "" {
+		if val, err := strconv.Atoi(text); err == nil {
+			currentSSHJWTCacheTTL = val
+		}
+	}
+
 	return s.enableSSHRoot != s.sEnableSSHRoot.Checked ||
 		s.enableSSHSFTP != s.sEnableSSHSFTP.Checked ||
 		s.enableSSHLocalPortForward != s.sEnableSSHLocalPortForward.Checked ||
 		s.enableSSHRemotePortForward != s.sEnableSSHRemotePortForward.Checked ||
-		s.disableSSHAuth != s.sDisableSSHAuth.Checked
+		s.disableSSHAuth != s.sDisableSSHAuth.Checked ||
+		s.sshJWTCacheTTL != currentSSHJWTCacheTTL
 }
 
 func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginResponse, error) {
@@ -1234,6 +1259,9 @@ func (s *serviceClient) getSrvConfig() {
 	if cfg.DisableSSHAuth != nil {
 		s.disableSSHAuth = *cfg.DisableSSHAuth
 	}
+	if cfg.SSHJWTCacheTTL != nil {
+		s.sshJWTCacheTTL = *cfg.SSHJWTCacheTTL
+	}
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
@@ -1269,6 +1297,9 @@ func (s *serviceClient) getSrvConfig() {
 		}
 		if cfg.DisableSSHAuth != nil {
 			s.sDisableSSHAuth.SetChecked(*cfg.DisableSSHAuth)
+		}
+		if cfg.SSHJWTCacheTTL != nil {
+			s.iSSHJWTCacheTTL.SetText(strconv.Itoa(*cfg.SSHJWTCacheTTL))
 		}
 	}
 
@@ -1340,21 +1371,14 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.DisableServerRoutes = cfg.DisableServerRoutes
 	config.BlockLANAccess = cfg.BlockLanAccess
 
-	if cfg.EnableSSHRoot {
-		config.EnableSSHRoot = &cfg.EnableSSHRoot
-	}
-	if cfg.EnableSSHSFTP {
-		config.EnableSSHSFTP = &cfg.EnableSSHSFTP
-	}
-	if cfg.EnableSSHLocalPortForwarding {
-		config.EnableSSHLocalPortForwarding = &cfg.EnableSSHLocalPortForwarding
-	}
-	if cfg.EnableSSHRemotePortForwarding {
-		config.EnableSSHRemotePortForwarding = &cfg.EnableSSHRemotePortForwarding
-	}
-	if cfg.DisableSSHAuth {
-		config.DisableSSHAuth = &cfg.DisableSSHAuth
-	}
+	config.EnableSSHRoot = &cfg.EnableSSHRoot
+	config.EnableSSHSFTP = &cfg.EnableSSHSFTP
+	config.EnableSSHLocalPortForwarding = &cfg.EnableSSHLocalPortForwarding
+	config.EnableSSHRemotePortForwarding = &cfg.EnableSSHRemotePortForwarding
+	config.DisableSSHAuth = &cfg.DisableSSHAuth
+
+	ttl := int(cfg.SshJWTCacheTTL)
+	config.SSHJWTCacheTTL = &ttl
 
 	return &config
 }
