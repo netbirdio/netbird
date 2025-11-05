@@ -15,11 +15,13 @@ import (
 )
 
 func (c *Client) setupTerminalMode(ctx context.Context, session *ssh.Session) error {
-	fd := int(os.Stdout.Fd())
+	stdinFd := int(os.Stdin.Fd())
 
-	if !term.IsTerminal(fd) {
+	if !term.IsTerminal(stdinFd) {
 		return c.setupNonTerminalMode(ctx, session)
 	}
+
+	fd := int(os.Stdout.Fd())
 
 	state, err := term.MakeRaw(fd)
 	if err != nil {
@@ -59,23 +61,6 @@ func (c *Client) setupTerminalMode(ctx context.Context, session *ssh.Session) er
 }
 
 func (c *Client) setupNonTerminalMode(_ context.Context, session *ssh.Session) error {
-	w, h := 80, 24
-
-	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
-		ssh.TTY_OP_ISPEED: 14400,
-		ssh.TTY_OP_OSPEED: 14400,
-	}
-
-	terminal := os.Getenv("TERM")
-	if terminal == "" {
-		terminal = "xterm-256color"
-	}
-
-	if err := session.RequestPty(terminal, h, w, modes); err != nil {
-		return fmt.Errorf("request pty: %w", err)
-	}
-
 	return nil
 }
 

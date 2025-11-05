@@ -62,11 +62,10 @@ func (c *Client) setupTerminalMode(_ context.Context, session *ssh.Session) erro
 	if err := c.saveWindowsConsoleState(); err != nil {
 		var consoleErr *ConsoleUnavailableError
 		if errors.As(err, &consoleErr) {
-			log.Debugf("console unavailable, continuing with defaults: %v", err)
-			c.terminalFd = 0
-		} else {
-			return fmt.Errorf("save console state: %w", err)
+			log.Debugf("console unavailable, not requesting PTY: %v", err)
+			return nil
 		}
+		return fmt.Errorf("save console state: %w", err)
 	}
 
 	if err := c.enableWindowsVirtualTerminal(); err != nil {

@@ -3,12 +3,14 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/user"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -17,47 +19,6 @@ import (
 	"github.com/gliderlabs/ssh"
 	log "github.com/sirupsen/logrus"
 )
-
-// createSuCommand creates a command using su -l -c for privilege switching
-func (s *Server) createSuCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
-	suPath, err := exec.LookPath("su")
-	if err != nil {
-		return nil, fmt.Errorf("su command not available: %w", err)
-	}
-
-	command := session.RawCommand()
-	if command == "" {
-		return nil, fmt.Errorf("no command specified for su execution")
-	}
-
-	// TODO: handle pty flag if available
-	args := []string{"-l", localUser.Username, "-c", command}
-
-	cmd := exec.CommandContext(session.Context(), suPath, args...)
-	cmd.Dir = localUser.HomeDir
-
-	return cmd, nil
-}
-
-// getShellCommandArgs returns the shell command and arguments for executing a command string
-func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
-	if cmdString == "" {
-		return []string{shell, "-l"}
-	}
-	return []string{shell, "-l", "-c", cmdString}
-}
-
-// prepareCommandEnv prepares environment variables for command execution on Unix
-func (s *Server) prepareCommandEnv(localUser *user.User, session ssh.Session) []string {
-	env := prepareUserEnv(localUser, getUserShell(localUser.Uid))
-	env = append(env, prepareSSHEnv(session)...)
-	for _, v := range session.Environ() {
-		if acceptEnv(v) {
-			env = append(env, v)
-		}
-	}
-	return env
-}
 
 // ptyManager manages Pty file operations with thread safety
 type ptyManager struct {
@@ -88,13 +49,85 @@ func (pm *ptyManager) Setsize(ws *pty.Winsize) error {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	if pm.closed {
-		return errors.New("Pty is closed")
+		return errors.New("pty is closed")
 	}
 	return pty.Setsize(pm.file, ws)
 }
 
 func (pm *ptyManager) File() *os.File {
 	return pm.file
+}
+
+// detectSuPtySupport checks if su supports the --pty flag
+func (s *Server) detectSuPtySupport(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "su", "--help")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Debugf("su --help failed (may not support --help): %v", err)
+		return false
+	}
+
+	supported := strings.Contains(string(output), "--pty")
+	log.Debugf("su --pty support detected: %v", supported)
+	return supported
+}
+
+// createSuCommand creates a command using su -l -c for privilege switching
+func (s *Server) createSuCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
+	suPath, err := exec.LookPath("su")
+	if err != nil {
+		return nil, fmt.Errorf("su command not available: %w", err)
+	}
+
+	command := session.RawCommand()
+	if command == "" {
+		return nil, fmt.Errorf("no command specified for su execution")
+	}
+
+	args := []string{"-l"}
+	if hasPty {
+		args = append(args, "--pty")
+	}
+	args = append(args, localUser.Username, "-c", command)
+
+	cmd := exec.CommandContext(session.Context(), suPath, args...)
+	cmd.Dir = localUser.HomeDir
+
+	return cmd, nil
+}
+
+// getShellCommandArgs returns the shell command and arguments for executing a command string
+func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
+	if cmdString == "" {
+		return []string{shell, "-l"}
+	}
+	return []string{shell, "-l", "-c", cmdString}
+}
+
+// prepareCommandEnv prepares environment variables for command execution on Unix
+func (s *Server) prepareCommandEnv(localUser *user.User, session ssh.Session) []string {
+	env := prepareUserEnv(localUser, getUserShell(localUser.Uid))
+	env = append(env, prepareSSHEnv(session)...)
+	for _, v := range session.Environ() {
+		if acceptEnv(v) {
+			env = append(env, v)
+		}
+	}
+	return env
+}
+
+// executeCommandWithPty executes a command with PTY allocation
+func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
+	termType := ptyReq.Term
+	if termType == "" {
+		termType = "xterm-256color"
+	}
+	execCmd.Env = append(execCmd.Env, fmt.Sprintf("TERM=%s", termType))
+
+	return s.runPtyCommand(logger, session, execCmd, ptyReq, winCh)
 }
 
 func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
@@ -111,14 +144,12 @@ func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResu
 		return false
 	}
 
-	shell := execCmd.Path
-	cmd := session.Command()
-	if len(cmd) == 0 {
-		logger.Infof("starting interactive shell: %s", shell)
-	} else {
-		logger.Infof("executing command: %s", safeLogCommand(cmd))
-	}
+	logger.Infof("starting interactive shell: %s", execCmd.Path)
+	return s.runPtyCommand(logger, session, execCmd, ptyReq, winCh)
+}
 
+// runPtyCommand runs a command with PTY management (common code for interactive and command execution)
+func (s *Server) runPtyCommand(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
 	ptmx, err := s.startPtyCommandWithSize(execCmd, ptyReq)
 	if err != nil {
 		logger.Errorf("Pty start failed: %v", err)

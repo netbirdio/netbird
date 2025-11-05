@@ -42,13 +42,33 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 		return
 	}
 
-	if s.executeCommand(logger, session, execCmd) {
+	if !hasPty {
+		if s.executeCommand(logger, session, execCmd) {
+			logger.Debugf("%s execution completed", commandType)
+		}
+		return
+	}
+
+	ptyReq, _, _ := session.Pty()
+	if s.executeCommandWithPty(logger, session, execCmd, privilegeResult, ptyReq, winCh) {
 		logger.Debugf("%s execution completed", commandType)
 	}
 }
 
 func (s *Server) createCommand(privilegeResult PrivilegeCheckResult, session ssh.Session, hasPty bool) (*exec.Cmd, error) {
 	localUser := privilegeResult.User
+
+	// If PTY requested but su doesn't support --pty, skip su and use executor
+	// This ensures PTY functionality is provided (executor runs within our allocated PTY)
+	if hasPty && !s.suSupportsPty {
+		log.Debugf("PTY requested but su doesn't support --pty, using executor for PTY functionality")
+		cmd, err := s.createExecutorCommand(session, localUser, hasPty)
+		if err != nil {
+			return nil, fmt.Errorf("create command with privileges: %w", err)
+		}
+		cmd.Env = s.prepareCommandEnv(localUser, session)
+		return cmd, nil
+	}
 
 	// Try su first for system integration (PAM/audit) when privileged
 	cmd, err := s.createSuCommand(session, localUser, hasPty)

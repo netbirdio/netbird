@@ -48,6 +48,7 @@ var (
 	knownHostsFile        string
 	identityFile          string
 	skipCachedToken       bool
+	requestPTY            bool
 )
 
 var (
@@ -72,9 +73,11 @@ func init() {
 	sshCmd.PersistentFlags().IntVarP(&port, "port", "p", sshserver.DefaultSSHPort, "Remote SSH port")
 	sshCmd.PersistentFlags().StringVarP(&username, "user", "u", "", sshUsernameDesc)
 	sshCmd.PersistentFlags().StringVar(&username, "login", "", sshUsernameDesc+" (alias for --user)")
+	sshCmd.PersistentFlags().BoolVarP(&requestPTY, "tty", "t", false, "Force pseudo-terminal allocation")
 	sshCmd.PersistentFlags().BoolVar(&strictHostKeyChecking, "strict-host-key-checking", true, "Enable strict host key checking (default: true)")
 	sshCmd.PersistentFlags().StringVarP(&knownHostsFile, "known-hosts", "o", "", "Path to known_hosts file (default: ~/.ssh/known_hosts)")
-	sshCmd.PersistentFlags().StringVarP(&identityFile, "identity", "i", "", "Path to SSH private key file")
+	sshCmd.PersistentFlags().StringVarP(&identityFile, "identity", "i", "", "Path to SSH private key file (deprecated)")
+	_ = sshCmd.PersistentFlags().MarkDeprecated("identity", "this flag is no longer used")
 	sshCmd.PersistentFlags().BoolVar(&skipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
 
 	sshCmd.PersistentFlags().StringArrayP("L", "L", []string{}, "Local port forwarding [bind_address:]port:host:hostport")
@@ -100,9 +103,9 @@ SSH Options:
   -p, --port int                       Remote SSH port (default 22)
   -u, --user string                    SSH username
       --login string                   SSH username (alias for --user)
+  -t, --tty                            Force pseudo-terminal allocation
       --strict-host-key-checking       Enable strict host key checking (default: true)
   -o, --known-hosts string             Path to known_hosts file
-  -i, --identity string                Path to SSH private key file
 
 Examples:
   netbird ssh peer-hostname
@@ -110,8 +113,10 @@ Examples:
   netbird ssh --login root peer-hostname
   netbird ssh peer-hostname ls -la
   netbird ssh peer-hostname whoami
-  netbird ssh -L 8080:localhost:80 peer-hostname    # Local port forwarding
-  netbird ssh -R 9090:localhost:3000 peer-hostname  # Remote port forwarding
+  netbird ssh -t peer-hostname tmux                  # Force PTY for tmux/screen
+  netbird ssh -t peer-hostname sudo -i               # Force PTY for interactive sudo
+  netbird ssh -L 8080:localhost:80 peer-hostname     # Local port forwarding
+  netbird ssh -R 9090:localhost:3000 peer-hostname   # Remote port forwarding
   netbird ssh -L "*:8080:localhost:80" peer-hostname # Bind to all interfaces
   netbird ssh -L 8080:/tmp/socket peer-hostname      # Unix socket forwarding`,
 	DisableFlagParsing: true,
@@ -354,6 +359,7 @@ type sshFlags struct {
 	Port                  int
 	Username              string
 	Login                 string
+	RequestPTY            bool
 	StrictHostKeyChecking bool
 	KnownHostsFile        string
 	IdentityFile          string
@@ -380,6 +386,8 @@ func createSSHFlagSet() (*flag.FlagSet, *sshFlags) {
 	fs.StringVar(&flags.Username, "u", "", sshUsernameDesc)
 	fs.String("user", "", sshUsernameDesc)
 	fs.StringVar(&flags.Login, "login", "", sshUsernameDesc+" (alias for --user)")
+	fs.BoolVar(&flags.RequestPTY, "t", false, "Force pseudo-terminal allocation")
+	fs.Bool("tty", false, "Force pseudo-terminal allocation")
 
 	fs.BoolVar(&flags.StrictHostKeyChecking, "strict-host-key-checking", true, "Enable strict host key checking")
 	fs.StringVar(&flags.KnownHostsFile, "o", "", "Path to known_hosts file")
@@ -427,6 +435,7 @@ func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
 		username = flags.Login
 	}
 
+	requestPTY = flags.RequestPTY
 	strictHostKeyChecking = flags.StrictHostKeyChecking
 	knownHostsFile = flags.KnownHostsFile
 	identityFile = flags.IdentityFile
@@ -523,7 +532,14 @@ func runSSH(ctx context.Context, addr string, cmd *cobra.Command) error {
 
 // executeSSHCommand executes a command over SSH.
 func executeSSHCommand(ctx context.Context, c *sshclient.Client, command string) error {
-	if err := c.ExecuteCommandWithIO(ctx, command); err != nil {
+	var err error
+	if requestPTY {
+		err = c.ExecuteCommandWithPTY(ctx, command)
+	} else {
+		err = c.ExecuteCommandWithIO(ctx, command)
+	}
+
+	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil
 		}

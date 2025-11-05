@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"unsafe"
 
@@ -34,6 +33,11 @@ func (s *Server) getUserEnvironment(username, domain string) ([]string, error) {
 		}
 	}()
 
+	return s.getUserEnvironmentWithToken(userToken, username, domain)
+}
+
+// getUserEnvironmentWithToken retrieves the Windows environment using an existing token.
+func (s *Server) getUserEnvironmentWithToken(userToken windows.Handle, username, domain string) ([]string, error) {
 	userProfile, err := s.loadUserProfile(userToken, username, domain)
 	if err != nil {
 		log.Debugf("failed to load user profile for %s\\%s: %v", domain, username, err)
@@ -275,7 +279,6 @@ func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResu
 		logger.Infof("executing command: %s", safeLogCommand(cmd))
 	}
 
-	// Always use user switching on Windows - no direct execution
 	s.handlePtyWithUserSwitching(logger, session, privilegeResult, ptyReq, winCh, cmd)
 	return true
 }
@@ -289,45 +292,8 @@ func (s *Server) getShellCommandArgs(shell, cmdString string) []string {
 }
 
 func (s *Server) handlePtyWithUserSwitching(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, _ <-chan ssh.Window, _ []string) {
-	localUser := privilegeResult.User
-
-	username, domain := s.parseUsername(localUser.Username)
-	shell := getUserShell(localUser.Uid)
-
-	var command string
-	rawCmd := session.RawCommand()
-	if rawCmd != "" {
-		command = rawCmd
-	}
-
-	req := PtyExecutionRequest{
-		Shell:    shell,
-		Command:  command,
-		Width:    ptyReq.Window.Width,
-		Height:   ptyReq.Window.Height,
-		Username: username,
-		Domain:   domain,
-	}
-	err := executePtyCommandWithUserToken(session.Context(), session, req)
-
-	if err != nil {
-		logger.Errorf("Windows ConPty with user switching failed: %v", err)
-		var errorMsg string
-		if runtime.GOOS == "windows" {
-			errorMsg = "Windows user switching failed - NetBird must run as a Windows service or with elevated privileges for user switching\r\n"
-		} else {
-			errorMsg = "User switching failed - login command not available\r\n"
-		}
-		if _, writeErr := fmt.Fprint(session.Stderr(), errorMsg); writeErr != nil {
-			logger.Debugf(errWriteSession, writeErr)
-		}
-		if err := session.Exit(1); err != nil {
-			logSessionExitError(logger, err)
-		}
-		return
-	}
-
-	logger.Debugf("Windows ConPty command execution with user switching completed")
+	logger.Info("starting interactive shell")
+	s.executeConPtyCommand(logger, session, privilegeResult, ptyReq, session.RawCommand())
 }
 
 type PtyExecutionRequest struct {
@@ -355,7 +321,7 @@ func executePtyCommandWithUserToken(ctx context.Context, session ssh.Session, re
 	}()
 
 	server := &Server{}
-	userEnv, err := server.getUserEnvironment(req.Username, req.Domain)
+	userEnv, err := server.getUserEnvironmentWithToken(userToken, req.Username, req.Domain)
 	if err != nil {
 		log.Debugf("failed to get user environment for %s\\%s, using system environment: %v", req.Domain, req.Username, err)
 		userEnv = os.Environ()
@@ -407,4 +373,50 @@ func (s *Server) killProcessGroup(cmd *exec.Cmd) {
 	if err := cmd.Process.Kill(); err != nil {
 		logger.Debugf("kill process failed: %v", err)
 	}
+}
+
+// detectSuPtySupport always returns false on Windows as su is not available
+func (s *Server) detectSuPtySupport(context.Context) bool {
+	return false
+}
+
+// executeCommandWithPty executes a command with PTY allocation on Windows using ConPty
+func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
+	command := session.RawCommand()
+	if command == "" {
+		logger.Error("no command specified for PTY execution")
+		if err := session.Exit(1); err != nil {
+			logSessionExitError(logger, err)
+		}
+		return false
+	}
+
+	return s.executeConPtyCommand(logger, session, privilegeResult, ptyReq, command)
+}
+
+// executeConPtyCommand executes a command using ConPty (common for interactive and command execution)
+func (s *Server) executeConPtyCommand(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, command string) bool {
+	localUser := privilegeResult.User
+	username, domain := s.parseUsername(localUser.Username)
+	shell := getUserShell(localUser.Uid)
+
+	req := PtyExecutionRequest{
+		Shell:    shell,
+		Command:  command,
+		Width:    ptyReq.Window.Width,
+		Height:   ptyReq.Window.Height,
+		Username: username,
+		Domain:   domain,
+	}
+
+	if err := executePtyCommandWithUserToken(session.Context(), session, req); err != nil {
+		logger.Errorf("ConPty execution failed: %v", err)
+		if err := session.Exit(1); err != nil {
+			logSessionExitError(logger, err)
+		}
+		return false
+	}
+
+	logger.Debug("ConPty execution completed")
+	return true
 }
