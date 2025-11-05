@@ -289,15 +289,18 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		<-engineCtx.Done()
+
 		c.engineMutex.Lock()
-		if c.engine != nil && c.engine.wgInterface != nil {
-			log.Infof("ensuring %s is removed, Netbird engine context cancelled", c.engine.wgInterface.Name())
-			if err := c.engine.Stop(); err != nil {
+		engine := c.engine
+		c.engine = nil
+		c.engineMutex.Unlock()
+
+		if engine != nil && engine.wgInterface != nil {
+			log.Infof("ensuring %s is removed, Netbird engine context cancelled", engine.wgInterface.Name())
+			if err := engine.Stop(); err != nil {
 				log.Errorf("Failed to stop engine: %v", err)
 			}
-			c.engine = nil
 		}
-		c.engineMutex.Unlock()
 		c.statusRecorder.ClientTeardown()
 
 		backOff.Reset()
@@ -382,19 +385,12 @@ func (c *ConnectClient) Status() StatusType {
 }
 
 func (c *ConnectClient) Stop() error {
-	if c == nil {
-		return nil
+	engine := c.Engine()
+	if engine != nil {
+		if err := engine.Stop(); err != nil {
+			return fmt.Errorf("stop engine: %w", err)
+		}
 	}
-	c.engineMutex.Lock()
-	defer c.engineMutex.Unlock()
-
-	if c.engine == nil {
-		return nil
-	}
-	if err := c.engine.Stop(); err != nil {
-		return fmt.Errorf("stop engine: %w", err)
-	}
-
 	return nil
 }
 

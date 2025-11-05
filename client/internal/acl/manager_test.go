@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
 	"github.com/netbirdio/netbird/client/internal/netflow"
@@ -52,7 +53,7 @@ func TestDefaultManager(t *testing.T) {
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		err = fw.Close(nil)
@@ -170,7 +171,7 @@ func TestDefaultManagerStateless(t *testing.T) {
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		err = fw.Close(nil)

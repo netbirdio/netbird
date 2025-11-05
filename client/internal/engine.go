@@ -202,8 +202,10 @@ type Engine struct {
 	flowManager         nftypes.FlowManager
 
 	// WireGuard interface monitor
-	wgIfaceMonitor   *WGIfaceMonitor
-	wgIfaceMonitorWg sync.WaitGroup
+	wgIfaceMonitor *WGIfaceMonitor
+
+	// shutdownWg tracks all long-running goroutines to ensure clean shutdown
+	shutdownWg sync.WaitGroup
 
 	probeStunTurn *relay.StunTurnProbe
 }
@@ -306,15 +308,10 @@ func (e *Engine) Stop() error {
 		e.ingressGatewayMgr = nil
 	}
 
+	e.stopDNSForwarder()
+
 	if e.routeManager != nil {
 		e.routeManager.Stop(e.stateManager)
-	}
-
-	if e.dnsForwardMgr != nil {
-		if err := e.dnsForwardMgr.Stop(context.Background()); err != nil {
-			log.Errorf("failed to stop DNS forward: %v", err)
-		}
-		e.dnsForwardMgr = nil
 	}
 
 	if e.srWatcher != nil {
@@ -333,18 +330,12 @@ func (e *Engine) Stop() error {
 		e.cancel()
 	}
 
-	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
-	// Removing peers happens in the conn.Close() asynchronously
-	time.Sleep(500 * time.Millisecond)
-
 	e.close()
 
 	// stop flow manager after wg interface is gone
 	if e.flowManager != nil {
 		e.flowManager.Close()
 	}
-
-	log.Infof("stopped Netbird Engine")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -356,10 +347,50 @@ func (e *Engine) Stop() error {
 		log.Errorf("failed to persist state: %v", err)
 	}
 
-	// Stop WireGuard interface monitor and wait for it to exit
-	e.wgIfaceMonitorWg.Wait()
+	timeout := e.calculateShutdownTimeout()
+	log.Debugf("waiting for goroutines to finish with timeout: %v", timeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := waitWithContext(shutdownCtx, &e.shutdownWg); err != nil {
+		log.Warnf("shutdown timeout exceeded after %v, some goroutines may still be running", timeout)
+	}
+
+	log.Infof("stopped Netbird Engine")
 
 	return nil
+}
+
+// calculateShutdownTimeout returns shutdown timeout: 10s base + 100ms per peer, capped at 30s.
+func (e *Engine) calculateShutdownTimeout() time.Duration {
+	peerCount := len(e.peerStore.PeersPubKey())
+
+	baseTimeout := 10 * time.Second
+	perPeerTimeout := time.Duration(peerCount) * 100 * time.Millisecond
+	timeout := baseTimeout + perPeerTimeout
+
+	maxTimeout := 30 * time.Second
+	if timeout > maxTimeout {
+		timeout = maxTimeout
+	}
+
+	return timeout
+}
+
+// waitWithContext waits for WaitGroup with timeout, returns ctx.Err() on timeout.
+func waitWithContext(ctx context.Context, wg *sync.WaitGroup) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
@@ -491,14 +522,14 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	// monitor WireGuard interface lifecycle and restart engine on changes
 	e.wgIfaceMonitor = NewWGIfaceMonitor()
-	e.wgIfaceMonitorWg.Add(1)
+	e.shutdownWg.Add(1)
 
 	go func() {
-		defer e.wgIfaceMonitorWg.Done()
+		defer e.shutdownWg.Done()
 
 		if shouldRestart, err := e.wgIfaceMonitor.Start(e.ctx, e.wgInterface.Name()); shouldRestart {
 			log.Infof("WireGuard interface monitor: %s, restarting engine", err)
-			e.restartEngine()
+			e.triggerClientRestart()
 		} else if err != nil {
 			log.Warnf("WireGuard interface monitor: %s", err)
 		}
@@ -514,7 +545,7 @@ func (e *Engine) createFirewall() error {
 	}
 
 	var err error
-	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes)
+	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes, e.config.MTU)
 	if err != nil || e.firewall == nil {
 		log.Errorf("failed creating firewall manager: %s", err)
 		return nil
@@ -898,7 +929,9 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
+	e.shutdownWg.Add(1)
 	go func() {
+		defer e.shutdownWg.Done()
 		info, err := system.GetInfoWithChecks(e.ctx, e.checks)
 		if err != nil {
 			log.Warnf("failed to get system info with checks: %v", err)
@@ -1325,7 +1358,9 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 
 // receiveSignalEvents connects to the Signal Service event stream to negotiate connection with remote peers
 func (e *Engine) receiveSignalEvents() {
+	e.shutdownWg.Add(1)
 	go func() {
+		defer e.shutdownWg.Done()
 		// connect to a stream of messages coming from the signal server
 		err := e.signal.Receive(e.ctx, func(msg *sProto.Message) error {
 			e.syncMsgMux.Lock()
@@ -1676,8 +1711,10 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	return allHealthy
 }
 
-// restartEngine restarts the engine by cancelling the client context
-func (e *Engine) restartEngine() {
+// triggerClientRestart triggers a full client restart by cancelling the client context.
+// Note: This does NOT just restart the engine - it cancels the entire client context,
+// which causes the connect client's retry loop to create a completely new engine.
+func (e *Engine) triggerClientRestart() {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -1699,7 +1736,9 @@ func (e *Engine) startNetworkMonitor() {
 	}
 
 	e.networkMonitor = networkmonitor.New()
+	e.shutdownWg.Add(1)
 	go func() {
+		defer e.shutdownWg.Done()
 		if err := e.networkMonitor.Listen(e.ctx); err != nil {
 			if errors.Is(err, context.Canceled) {
 				log.Infof("network monitor stopped")
@@ -1709,8 +1748,8 @@ func (e *Engine) startNetworkMonitor() {
 			return
 		}
 
-		log.Infof("Network monitor: detected network change, restarting engine")
-		e.restartEngine()
+		log.Infof("Network monitor: detected network change, triggering client restart")
+		e.triggerClientRestart()
 	}()
 }
 
@@ -1819,7 +1858,6 @@ func (e *Engine) updateDNSForwarder(
 
 func (e *Engine) startDNSForwarder(fwdEntries []*dnsfwd.ForwarderEntry) {
 	e.dnsForwardMgr = dnsfwd.NewManager(e.firewall, e.statusRecorder, e.wgInterface)
-	e.registerDNSServices()
 
 	if err := e.dnsForwardMgr.Start(fwdEntries); err != nil {
 		log.Errorf("failed to start DNS forward: %v", err)
@@ -1839,32 +1877,7 @@ func (e *Engine) stopDNSForwarder() {
 		log.Errorf("failed to stop DNS forward: %v", err)
 	}
 
-	e.unregisterDNSServices()
 	e.dnsForwardMgr = nil
-}
-
-func (e *Engine) registerDNSServices() {
-	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
-		if registrar, ok := e.firewall.(interface {
-			RegisterNetstackService(protocol nftypes.Protocol, port uint16)
-		}); ok {
-			registrar.RegisterNetstackService(nftypes.UDP, nbdns.ForwarderServerPort)
-			registrar.RegisterNetstackService(nftypes.TCP, nbdns.ForwarderServerPort)
-			log.Debugf("registered DNS forwarder service with netstack for UDP/TCP:%d", nbdns.ForwarderServerPort)
-		}
-	}
-}
-
-func (e *Engine) unregisterDNSServices() {
-	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
-		if registrar, ok := e.firewall.(interface {
-			UnregisterNetstackService(protocol nftypes.Protocol, port uint16)
-		}); ok {
-			registrar.UnregisterNetstackService(nftypes.UDP, nbdns.ForwarderServerPort)
-			registrar.UnregisterNetstackService(nftypes.TCP, nbdns.ForwarderServerPort)
-			log.Debugf("unregistered DNS forwarder service with netstack for UDP/TCP:%d", nbdns.ForwarderServerPort)
-		}
-	}
 }
 
 func (e *Engine) GetNet() (*netstack.Net, error) {
