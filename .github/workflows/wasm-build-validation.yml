@@ -14,6 +14,9 @@ jobs:
   js_lint:
     name: "JS / Lint"
     runs-on: ubuntu-latest
+    env:
+      GOOS: js
+      GOARCH: wasm
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,10 +34,7 @@ jobs:
           skip-cache: true
           skip-save-cache: true
           cache-invalidation-interval: 0
-      - name: Run golangci-lint for WASM
-        run: |
-          golangci-lint cache clean
-          md5sum client/firewall/uspfilter/filter.go
+          working-directory: ./client
         continue-on-error: true
 
   js_build:
