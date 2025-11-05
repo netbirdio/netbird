@@ -29,6 +29,7 @@ jobs:
           version: latest
           install-mode: binary
           skip-cache: true
+          skip-save-cache: true
           skip-pkg-cache: true
           skip-build-cache: true
       - name: Run golangci-lint for WASM
