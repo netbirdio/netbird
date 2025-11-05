@@ -1318,7 +1318,72 @@ func (b *NetworkMapBuilder) calculateIncrementalUpdates(account *Account, newPee
 
 	b.calculateNetworkResourceFirewallUpdates(ctx, account, newPeerID, newPeer, peerGroups, updates)
 
+	b.calculateNewRouterNetworkResourceUpdates(ctx, account, newPeerID, updates)
+
 	return updates
+}
+
+func (b *NetworkMapBuilder) calculateNewRouterNetworkResourceUpdates(
+	ctx context.Context, account *Account, newPeerID string,
+	updates map[string]*PeerUpdateDelta,
+) {
+	resourceRouters := b.cache.resourceRouters
+
+	for networkID, routers := range resourceRouters {
+		router, isRouter := routers[newPeerID]
+		if !isRouter || !router.Enabled {
+			continue
+		}
+
+		for _, resource := range b.cache.globalResources {
+			if resource.NetworkID != networkID {
+				continue
+			}
+
+			policies := b.cache.resourcePolicies[resource.ID]
+			if len(policies) == 0 {
+				continue
+			}
+
+			peersWithAccess := make(map[string]struct{})
+
+			for _, policy := range policies {
+				if !policy.Enabled {
+					continue
+				}
+
+				sourceGroups := policy.SourceGroups()
+				for _, sourceGroup := range sourceGroups {
+					groupPeers := b.cache.groupToPeers[sourceGroup]
+					for _, peerID := range groupPeers {
+						if peerID == newPeerID {
+							continue
+						}
+
+						if account.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID) {
+							peersWithAccess[peerID] = struct{}{}
+						}
+					}
+				}
+			}
+
+			for peerID := range peersWithAccess {
+				delta := updates[peerID]
+				if delta == nil {
+					delta = &PeerUpdateDelta{
+						PeerID:                   peerID,
+						AddConnectedPeer:         newPeerID,
+						UpdateRouteFirewallRules: make([]*RouteFirewallRuleUpdate, 0),
+					}
+					updates[peerID] = delta
+				} else if delta.AddConnectedPeer == "" {
+					delta.AddConnectedPeer = newPeerID
+				}
+
+				delta.RebuildRoutesView = true
+			}
+		}
+	}
 }
 
 func (b *NetworkMapBuilder) calculateRouteFirewallUpdates(
@@ -1441,6 +1506,9 @@ func (b *NetworkMapBuilder) calculateNetworkResourceFirewallUpdates(
 				}
 				updates[routerPeerID] = delta
 			}
+
+			delta.AddConnectedPeer = newPeerID
+
 			var resourceRouteID strings.Builder
 			resourceRouteID.WriteString(nr)
 			resourceRouteID.WriteString(resource.ID)
