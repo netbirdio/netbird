@@ -73,7 +73,7 @@ func Test_LatestVersion(t *testing.T) {
 
 		targetVersionChan := make(chan string, 1)
 
-		m.triggerUpdateFn = func(targetVersion string) error {
+		m.triggerUpdateFn = func(ctx context.Context, targetVersion string) error {
 			targetVersionChan <- targetVersion
 			return nil
 		}
@@ -185,7 +185,7 @@ func Test_HandleUpdate(t *testing.T) {
 		m := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(&versionUpdateMock{latestVersion: c.latestVersion})
 		targetVersionChan := make(chan string, 1)
 
-		m.triggerUpdateFn = func(targetVersion string) error {
+		m.triggerUpdateFn = func(ctx context.Context, targetVersion string) error {
 			targetVersionChan <- targetVersion
 			return nil
 		}

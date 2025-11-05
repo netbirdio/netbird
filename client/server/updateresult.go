@@ -10,10 +10,7 @@ import (
 )
 
 func (s *Server) GetInstallerResult(ctx context.Context, _ *proto.InstallerResultRequest) (*proto.InstallerResultResponse, error) {
-	inst, err := installer.New()
-	if err != nil {
-		return nil, err
-	}
+	inst := installer.New()
 	dir := inst.TempDir()
 
 	rh := installer.NewResultHandler(dir)

@@ -38,6 +38,23 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
+		result := Result{
+			Success:    resultErr == nil,
+			ExecutedAt: time.Now(),
+		}
+		if resultErr != nil {
+			result.Error = resultErr.Error()
+		}
+
+		if dryRun {
+			return
+		}
+
+		log.Infof("write out result")
+		if err := resultHandler.Write(result); err != nil {
+			log.Errorf("failed to write update result: %v", err)
+		}
+
 		log.Infof("starting daemon back")
 		if err := u.startDaemon(daemonFolder); err != nil {
 			log.Errorf("failed to start daemon: %v", err)
@@ -49,23 +66,10 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 			log.Errorf("failed to start UI: %v", err)
 		}
 
-		result := Result{
-			Success:    resultErr == nil,
-			ExecutedAt: time.Now(),
-		}
-		if resultErr != nil {
-			result.Error = resultErr.Error()
-		}
-
-		log.Infof("write out result")
-		if err := resultHandler.Write(result); err != nil {
-			log.Errorf("failed to write update result: %v", err)
-		}
-
 	}()
 
 	if dryRun {
-		time.Sleep(10 * time.Second)
+		time.Sleep(7 * time.Second)
 		log.Infof("dry-run mode enabled, skipping actual installation")
 		resultErr = fmt.Errorf("dry-run mode enabled")
 		return
