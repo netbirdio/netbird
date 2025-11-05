@@ -75,9 +75,42 @@ func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager)
 	return manager
 }
 
-// CheckUpdateSuccess checks if the update was successful. It works without to start the update manager.
+// CheckUpdateSuccess checks if the update was successful and send a notification.
+// It works without to start the update manager.
 func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
-	m.updateStateManager(ctx)
+	reason := m.lastResultErrReason()
+	if reason != "" {
+		m.statusRecorder.PublishEvent(
+			cProto.SystemEvent_ERROR,
+			cProto.SystemEvent_SYSTEM,
+			"Auto-update failed",
+			fmt.Sprintf("Auto-update failed: %s", reason),
+			nil,
+		)
+	}
+
+	updateState, err := m.loadAndDeleteUpdateState(ctx)
+	if err != nil {
+		log.Errorf("failed to load update state: %v", err)
+		return
+	}
+
+	if updateState == nil {
+		return
+	}
+
+	log.Debugf("auto-update state loaded, %v", *updateState)
+
+	if updateState.TargetVersion == m.currentVersion {
+		m.statusRecorder.PublishEvent(
+			cProto.SystemEvent_INFO,
+			cProto.SystemEvent_SYSTEM,
+			"Auto-update completed",
+			fmt.Sprintf("Your NetBird Client was auto-updated to version %s", m.currentVersion),
+			nil,
+		)
+		return
+	}
 }
 
 func (m *Manager) Start(ctx context.Context) {
@@ -218,6 +251,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	/*
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
+
 	*/
 
 	m.lastTrigger = time.Now()
@@ -235,7 +269,7 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 		cProto.SystemEvent_SYSTEM,
 		"",
 		"",
-		map[string]string{"progress_window": "show"},
+		map[string]string{"progress_window": "show", "version": updateVersion.String()},
 	)
 
 	updateState := UpdateState{
@@ -270,40 +304,35 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 	}
 }
 
-func (m *Manager) updateStateManager(ctx context.Context) {
+// loadAndDeleteUpdateState loads the update state, deletes it from storage, and returns it.
+// Returns nil if no state exists.
+func (m *Manager) loadAndDeleteUpdateState(ctx context.Context) (*UpdateState, error) {
 	stateType := &UpdateState{}
 
 	m.stateManager.RegisterState(stateType)
 	if err := m.stateManager.LoadState(stateType); err != nil {
-		log.Errorf("failed to load state: %v", err)
-		return
+		return nil, fmt.Errorf("load state: %w", err)
 	}
+
 	state := m.stateManager.GetState(stateType)
 	if state == nil {
-		return
+		return nil, nil
 	}
 
 	updateState, ok := state.(*UpdateState)
 	if !ok {
-		log.Errorf("failed to cast state to UpdateState")
-		return
+		return nil, fmt.Errorf("failed to cast state to UpdateState")
 	}
-	log.Debugf("auto-update state loaded, %v", *updateState)
-	if updateState.TargetVersion == m.currentVersion {
-		log.Infof("published notification event")
-		m.statusRecorder.PublishEvent(
-			cProto.SystemEvent_INFO,
-			cProto.SystemEvent_SYSTEM,
-			"Auto-update completed",
-			fmt.Sprintf("Your NetBird Client was auto-updated to version %s", m.currentVersion),
-			nil,
-		)
-	}
+
 	if err := m.stateManager.DeleteState(updateState); err != nil {
-		log.Errorf("failed to delete state: %v", err)
-	} else if err = m.stateManager.PersistState(ctx); err != nil {
-		log.Errorf("failed to persist state: %v", err)
+		return nil, fmt.Errorf("delete state: %w", err)
 	}
+
+	if err := m.stateManager.PersistState(ctx); err != nil {
+		return nil, fmt.Errorf("persist state: %w", err)
+	}
+
+	return updateState, nil
 }
 
 func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
@@ -327,6 +356,12 @@ func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
 	}
 
 	return true
+}
+
+func (m *Manager) lastResultErrReason() string {
+	inst := installer.New()
+	result := installer.NewResultHandler(inst.TempDir())
+	return result.GetErrorResultReason()
 }
 
 func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error {

@@ -14,12 +14,12 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-func (s *serviceClient) showUpdateProgress(ctx context.Context) {
-	log.Infof("show installer progress window")
+func (s *serviceClient) showUpdateProgress(ctx context.Context, version string) {
+	log.Infof("show installer progress window: %s", version)
 	s.wUpdateProgress = s.app.NewWindow("Automatically updating client")
 
 	statusLabel := widget.NewLabel("Updating...")
-	infoLabel := widget.NewLabel("Your client version is older than the auto-update version set in Management.\nUpdating client now.")
+	infoLabel := widget.NewLabel(fmt.Sprintf("Your client version is older than the auto-update version set in Management.\nUpdating client to: %s.", version))
 	content := container.NewVBox(infoLabel, statusLabel)
 	s.wUpdateProgress.SetContent(content)
 	s.wUpdateProgress.CenterOnScreen()

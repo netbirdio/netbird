@@ -271,6 +271,10 @@ func NewEngine(
 	}
 	engine.stateManager = statemanager.New(path)
 
+	// todo: move this to connect.go
+	updateManager := updatemanager.NewManager(statusRecorder, engine.stateManager)
+	updateManager.CheckUpdateSuccess(clientCtx)
+
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
 }
@@ -512,12 +516,6 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 func (e *Engine) InitialUpdateHandling(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
-
-	if e.updateManager == nil {
-		e.updateManager = updatemanager.NewManager(e.statusRecorder, e.stateManager)
-	}
-
-	e.updateManager.CheckUpdateSuccess(e.ctx)
 
 	e.handleAutoUpdateVersion(autoUpdateSettings, true)
 }

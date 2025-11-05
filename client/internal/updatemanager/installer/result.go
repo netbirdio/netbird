@@ -41,14 +41,21 @@ func NewResultHandler(installerDir string) *ResultHandler {
 	return rh
 }
 
+func (rh *ResultHandler) GetErrorResultReason() string {
+	result, err := rh.tryReadResult()
+	if err == nil && !result.Success {
+		return result.Error
+	}
+
+	if err := rh.cleanup(); err != nil {
+		log.Warnf("failed to cleanup result file: %v", err)
+	}
+
+	return ""
+}
+
 func (rh *ResultHandler) Watch(ctx context.Context) (Result, error) {
 	log.Infof("start watching result: %s", rh.resultFile)
-
-	defer func() {
-		if err := rh.Cleanup(); err != nil {
-			log.Warnf("failed to cleanup result file: %v", err)
-		}
-	}()
 
 	// Check if file already exists (updater finished before we started watching)
 	if result, err := rh.tryReadResult(); err == nil {
@@ -158,8 +165,7 @@ func (rh *ResultHandler) Write(result Result) error {
 	return nil
 }
 
-// Cleanup removes the result file if it exists
-func (rh *ResultHandler) Cleanup() error {
+func (rh *ResultHandler) cleanup() error {
 	err := os.Remove(rh.resultFile)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -178,6 +184,10 @@ func (rh *ResultHandler) tryReadResult() (Result, error) {
 	var result Result
 	if err := json.Unmarshal(data, &result); err != nil {
 		return Result{}, fmt.Errorf("invalid result format: %w", err)
+	}
+
+	if err := rh.cleanup(); err != nil {
+		log.Warnf("failed to cleanup result file: %v", err)
 	}
 
 	return result, nil

@@ -85,15 +85,16 @@ func main() {
 
 	// Create the service client (this also builds the settings or networks UI if requested).
 	client := newServiceClient(&newServiceClientArgs{
-		addr:         flags.daemonAddr,
-		logFile:      logFile,
-		app:          a,
-		showSettings: flags.showSettings,
-		showNetworks: flags.showNetworks,
-		showLoginURL: flags.showLoginURL,
-		showDebug:    flags.showDebug,
-		showProfiles: flags.showProfiles,
-		showUpdate:   flags.showUpdate,
+		addr:              flags.daemonAddr,
+		logFile:           logFile,
+		app:               a,
+		showSettings:      flags.showSettings,
+		showNetworks:      flags.showNetworks,
+		showLoginURL:      flags.showLoginURL,
+		showDebug:         flags.showDebug,
+		showProfiles:      flags.showProfiles,
+		showUpdate:        flags.showUpdate,
+		showUpdateVersion: flags.showUpdateVersion,
 	})
 
 	// Watch for theme/settings changes to update the icon.
@@ -121,15 +122,16 @@ func main() {
 }
 
 type cliFlags struct {
-	daemonAddr     string
-	showSettings   bool
-	showNetworks   bool
-	showProfiles   bool
-	showDebug      bool
-	showLoginURL   bool
-	errorMsg       string
-	showUpdate     bool
-	saveLogsInFile bool
+	daemonAddr        string
+	showSettings      bool
+	showNetworks      bool
+	showProfiles      bool
+	showDebug         bool
+	showLoginURL      bool
+	errorMsg          string
+	showUpdate        bool
+	showUpdateVersion string
+	saveLogsInFile    bool
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -149,6 +151,7 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.saveLogsInFile, "use-log-file", false, fmt.Sprintf("save logs in a file: %s/netbird-ui-PID.log", os.TempDir()))
 	flag.BoolVar(&flags.showLoginURL, "login-url", false, "show login URL in a popup window")
 	flag.BoolVar(&flags.showUpdate, "update", false, "show update progress window")
+	flag.StringVar(&flags.showUpdateVersion, "update-version", "", "version to update to")
 	flag.Parse()
 	return &flags
 }
@@ -309,15 +312,16 @@ type menuHandler struct {
 }
 
 type newServiceClientArgs struct {
-	addr         string
-	logFile      string
-	app          fyne.App
-	showSettings bool
-	showNetworks bool
-	showDebug    bool
-	showLoginURL bool
-	showProfiles bool
-	showUpdate   bool
+	addr              string
+	logFile           string
+	app               fyne.App
+	showSettings      bool
+	showNetworks      bool
+	showDebug         bool
+	showLoginURL      bool
+	showProfiles      bool
+	showUpdate        bool
+	showUpdateVersion string
 }
 
 // newServiceClient instance constructor
@@ -354,7 +358,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 	case args.showProfiles:
 		s.showProfilesUI()
 	case args.showUpdate:
-		s.showUpdateProgress(ctx)
+		s.showUpdateProgress(ctx, args.showUpdateVersion)
 	}
 
 	return s
@@ -961,17 +965,22 @@ func (s *serviceClient) onTrayReady() {
 		}
 	})
 	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		// todo use new Category
+		log.Infof("--- on new event: %v", event)
 		if windowAction, ok := event.Metadata["progress_window"]; ok {
+			targetVersion, ok := event.Metadata["version"]
+			if !ok {
+				targetVersion = "unknown"
+			}
 			log.Debugf("window action: %v", windowAction)
 			if windowAction == "show" {
-				log.Debugf("Inside show")
 				if s.updateContextCancel != nil {
 					s.updateContextCancel()
 					s.updateContextCancel = nil
 				}
 
 				subCtx, cancel := context.WithCancel(s.ctx)
-				go s.eventHandler.runSelfCommand(subCtx, "update", "true")
+				go s.eventHandler.runSelfCommand(subCtx, "update", "--update-version", targetVersion)
 				s.updateContextCancel = cancel
 			}
 			if windowAction == "hide" {
