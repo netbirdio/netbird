@@ -496,6 +496,12 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 	}
 
 	dsn, cleanup, err := createRandomDB(dsn, db, kind)
+
+	sqlDB, _ := db.DB()
+	if sqlDB != nil {
+		sqlDB.Close()
+	}
+
 	if err != nil {
 		return nil, nil, err
 	}
@@ -549,19 +555,28 @@ func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(
 
 	var err error
 	cleanup := func() {
+		var dropDB *gorm.DB
 		switch engine {
 		case types.PostgresStoreEngine:
-			err = db.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName)).Error
+			dropDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+			if err == nil {
+				err = dropDB.Exec(fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", dbName)).Error
+			}
 		case types.MysqlStoreEngine:
-			// err = killMySQLConnections(dsn, dbName)
-			err = db.Exec(fmt.Sprintf("DROP DATABASE %s", dbName)).Error
+			dropDB, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+			if err == nil {
+				err = dropDB.Exec(fmt.Sprintf("DROP DATABASE %s", dbName)).Error
+			}
 		}
 		if err != nil {
 			log.Errorf("failed to drop database %s: %v", dbName, err)
-			panic(err)
 		}
-		sqlDB, _ := db.DB()
-		_ = sqlDB.Close()
+		if dropDB != nil {
+			sqlDB, _ := dropDB.DB()
+			if sqlDB != nil {
+				sqlDB.Close()
+			}
+		}
 	}
 
 	return replaceDBName(dsn, dbName), cleanup, nil
