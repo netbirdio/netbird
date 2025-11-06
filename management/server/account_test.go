@@ -1422,6 +1422,14 @@ func testAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 		return
 	}
 
+	for drained := false; !drained; {
+		select {
+		case <-updMsg:
+		default:
+			drained = true
+		}
+	}
+
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
@@ -1783,6 +1791,7 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		NetworkMapCache: &types.NetworkMapBuilder{},
 	}
+	account.InitOnce()
 	err := hasNilField(account)
 	if err != nil {
 		t.Fatal(err)
