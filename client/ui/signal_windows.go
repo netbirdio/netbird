@@ -92,13 +92,21 @@ func (s *serviceClient) waitForEvent(ctx context.Context, eventHandle windows.Ha
 		case uint32(windows.WAIT_TIMEOUT):
 
 		default:
-			log.Errorf("Unexpected status %d from WaitForSingleObject for quick actions event '%s': %v", status, quickActionsTriggerEventName, err)
-			select {
-			case <-time.After(5 * time.Second):
-			case <-ctx.Done():
+			if isDone := logUnexpectedStatus(ctx, status, err); isDone {
 				return
 			}
 		}
+	}
+}
+
+func logUnexpectedStatus(ctx context.Context, status uint32, err error) bool {
+	log.Errorf("Unexpected status %d from WaitForSingleObject for quick actions event '%s': %v",
+		status, quickActionsTriggerEventName, err)
+	select {
+	case <-time.After(5 * time.Second):
+		return false
+	case <-ctx.Done():
+		return true
 	}
 }
 
