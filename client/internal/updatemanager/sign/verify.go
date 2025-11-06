@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/google/martian/v3/log"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/updatemanager/downloader"
 )
@@ -93,6 +93,58 @@ func (a *ArtifactVerify) Verify(ctx context.Context, version string, artifactFil
 	return nil
 }
 
+func (a *ArtifactVerify) loadRevocationList(ctx context.Context) (*RevocationList, error) {
+	url := a.keysBaseURL.JoinPath(revocationFileName).String()
+	data, err := downloader.DownloadToMemory(ctx, url, revocationLimit)
+	if err != nil {
+		log.Debugf("failed to download revocation list for: %s", err)
+		return nil, err
+	}
+
+	url = a.keysBaseURL.JoinPath(revocationSignFileName).String()
+	sigData, err := downloader.DownloadToMemory(ctx, url, signatureLimit)
+	if err != nil {
+		log.Debugf("failed to download revocation list for: %s", err)
+		return nil, err
+	}
+
+	signature, err := ParseSignature(sigData)
+	if err != nil {
+		log.Debugf("failed to parse revocation list signature: %s", err)
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	if signature.Timestamp.After(now.Add(maxClockSkew)) {
+		err := fmt.Errorf("revocation signature timestamp is in the future: %v", signature.Timestamp)
+		log.Debugf("revocation list signature error: %v", err)
+		return nil, err
+	}
+	if now.Sub(signature.Timestamp) > maxSignatureAge {
+		err := fmt.Errorf("revocation list signature is too old: %v (created %v)", now.Sub(signature.Timestamp), signature.Timestamp)
+		log.Debugf("revocation list signature error: %v", err)
+		return nil, err
+	}
+
+	// Verify with root keys
+	var rootKeys []ed25519.PublicKey
+	for _, r := range a.rootKeys {
+		rootKeys = append(rootKeys, r.Key)
+	}
+
+	if !verifyAny(rootKeys, data, signature.Signature) {
+		return nil, errors.New("revocation list verification failed")
+	}
+
+	revoList, err := ParseRevocationList(data)
+	if err != nil {
+		log.Debugf("failed to parse revocation list signature: %s", err)
+		return nil, err
+	}
+
+	return revoList, nil
+}
+
 func (a *ArtifactVerify) loadArtifactKeys(ctx context.Context) ([]PublicKey, error) {
 	url := a.keysBaseURL.JoinPath(artifactPubKeysFileName).String()
 	log.Debugf("starting downloading artifact keys from: %s", url)
@@ -160,58 +212,6 @@ func (a *ArtifactVerify) loadArtifactKeys(ctx context.Context) ([]PublicKey, err
 	}
 
 	return validKeys, nil
-}
-
-func (a *ArtifactVerify) loadRevocationList(ctx context.Context) (*RevocationList, error) {
-	url := a.keysBaseURL.JoinPath(revocationFileName).String()
-	data, err := downloader.DownloadToMemory(ctx, url, revocationLimit)
-	if err != nil {
-		log.Debugf("failed to download revocation list for: %s", err)
-		return nil, err
-	}
-
-	url = a.keysBaseURL.JoinPath(revocationSignFileName).String()
-	sigData, err := downloader.DownloadToMemory(ctx, url, signatureLimit)
-	if err != nil {
-		log.Debugf("failed to download revocation list for: %s", err)
-		return nil, err
-	}
-
-	signature, err := ParseSignature(sigData)
-	if err != nil {
-		log.Debugf("failed to parse revocation list signature: %s", err)
-		return nil, err
-	}
-
-	now := time.Now().UTC()
-	if signature.Timestamp.After(now.Add(maxClockSkew)) {
-		err := fmt.Errorf("revocation signature timestamp is in the future: %v", signature.Timestamp)
-		log.Debugf("revocation list signature error: %v", err)
-		return nil, err
-	}
-	if now.Sub(signature.Timestamp) > maxSignatureAge {
-		err := fmt.Errorf("revocation list signature is too old: %v (created %v)", now.Sub(signature.Timestamp), signature.Timestamp)
-		log.Debugf("revocation list signature error: %v", err)
-		return nil, err
-	}
-
-	// Verify with root keys
-	var rootKeys []ed25519.PublicKey
-	for _, r := range a.rootKeys {
-		rootKeys = append(rootKeys, r.Key)
-	}
-
-	if !verifyAny(rootKeys, data, signature.Signature) {
-		return nil, errors.New("revocation list verification failed")
-	}
-
-	revoList, err := ParseRevocationList(data)
-	if err != nil {
-		log.Debugf("failed to parse revocation list signature: %s", err)
-		return nil, err
-	}
-
-	return revoList, nil
 }
 
 func (a *ArtifactVerify) loadArtifactSignature(ctx context.Context, version string, artifactFile string) (*Signature, error) {
