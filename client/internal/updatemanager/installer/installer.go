@@ -27,6 +27,10 @@ func NewWithDir(tempDir string) *Installer {
 	}
 }
 
+func (u *Installer) TempDir() string {
+	return ""
+}
+
 func (c *Installer) LogFiles() []string {
 	return []string{}
 }
@@ -35,7 +39,7 @@ func (u *Installer) CleanUpInstallerFiles() error {
 	return nil
 }
 
-func (u *Installer) RunInstallation(targetVersion string) error {
+func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) error {
 	return fmt.Errorf("unsupported platform")
 }
 
