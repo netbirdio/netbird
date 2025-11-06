@@ -2,6 +2,7 @@ package updatemanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -21,6 +22,8 @@ const (
 	// this version will be ignored
 	developmentVersion = "development"
 )
+
+var errNoUpdateState = errors.New("no update state found")
 
 type UpdateInterface interface {
 	StopWatch()
@@ -91,11 +94,10 @@ func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
 
 	updateState, err := m.loadAndDeleteUpdateState(ctx)
 	if err != nil {
+		if errors.Is(err, errNoUpdateState) {
+			return
+		}
 		log.Errorf("failed to load update state: %v", err)
-		return
-	}
-
-	if updateState == nil {
 		return
 	}
 
@@ -316,7 +318,7 @@ func (m *Manager) loadAndDeleteUpdateState(ctx context.Context) (*UpdateState, e
 
 	state := m.stateManager.GetState(stateType)
 	if state == nil {
-		return nil, nil
+		return nil, errNoUpdateState
 	}
 
 	updateState, ok := state.(*UpdateState)

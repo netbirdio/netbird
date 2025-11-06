@@ -149,7 +149,7 @@ func (rh *ResultHandler) Write(result Result) error {
 
 	// Write to a temporary file first, then rename for atomic operation
 	tmpPath := rh.resultFile + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
 		log.Errorf("failed to create temp file: %s", err)
 		return err
 	}
