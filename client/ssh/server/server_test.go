@@ -65,9 +65,12 @@ func TestSSHServerIntegration(t *testing.T) {
 			return
 		}
 
-		started <- actualAddr
 		addrPort, _ := netip.ParseAddrPort(actualAddr)
-		errChan <- server.Start(context.Background(), addrPort)
+		if err := server.Start(context.Background(), addrPort); err != nil {
+			errChan <- err
+			return
+		}
+		started <- actualAddr
 	}()
 
 	select {
@@ -78,8 +81,6 @@ func TestSSHServerIntegration(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Server start timeout")
 	}
-
-	// Server is ready when we get the started signal
 
 	defer func() {
 		err := server.Stop()
@@ -166,9 +167,12 @@ func TestSSHServerMultipleConnections(t *testing.T) {
 			return
 		}
 
-		started <- actualAddr
 		addrPort, _ := netip.ParseAddrPort(actualAddr)
-		errChan <- server.Start(context.Background(), addrPort)
+		if err := server.Start(context.Background(), addrPort); err != nil {
+			errChan <- err
+			return
+		}
+		started <- actualAddr
 	}()
 
 	select {
@@ -179,8 +183,6 @@ func TestSSHServerMultipleConnections(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Server start timeout")
 	}
-
-	// Server is ready when we get the started signal
 
 	defer func() {
 		err := server.Stop()
@@ -277,9 +279,12 @@ func TestSSHServerNoAuthMode(t *testing.T) {
 			return
 		}
 
-		started <- actualAddr
 		addrPort, _ := netip.ParseAddrPort(actualAddr)
-		errChan <- server.Start(context.Background(), addrPort)
+		if err := server.Start(context.Background(), addrPort); err != nil {
+			errChan <- err
+			return
+		}
+		started <- actualAddr
 	}()
 
 	select {
@@ -290,8 +295,6 @@ func TestSSHServerNoAuthMode(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Server start timeout")
 	}
-
-	// Server is ready when we get the started signal
 
 	defer func() {
 		err := server.Stop()
