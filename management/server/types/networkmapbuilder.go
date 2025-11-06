@@ -183,7 +183,7 @@ func (b *NetworkMapBuilder) buildGlobalIndexes(account *Account) {
 				b.cache.peerToGroups[rule.SourceResource.ID] = append(b.cache.peerToGroups[rule.SourceResource.ID], groupId)
 			}
 			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-				groupId := rule.SourceResource.ID
+				groupId := rule.DestinationResource.ID
 				affectedGroups[groupId] = struct{}{}
 				b.cache.peerToGroups[rule.DestinationResource.ID] = append(b.cache.peerToGroups[rule.DestinationResource.ID], groupId)
 			}
