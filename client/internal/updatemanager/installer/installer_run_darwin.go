@@ -237,10 +237,6 @@ func (u *Installer) updateHomeBrew(ctx context.Context) error {
 	return nil
 }
 
-func (u *Installer) uiBinaryFile() (string, error) {
-	return updaterSrcPath, nil
-}
-
 func urlWithVersionArch(_ Type, version string) string {
 	url := strings.ReplaceAll(pkgDownloadURL, "%version", version)
 	return strings.ReplaceAll(url, "%arch", runtime.GOARCH)
