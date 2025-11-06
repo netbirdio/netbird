@@ -6,15 +6,17 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	goversion "github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/updatemanager/downloader"
 )
 
 type Installer struct {
@@ -157,46 +159,17 @@ func (u *Installer) downloadInstaller(ctx context.Context, installerType Type, t
 		}
 	}()
 
-	fileNameParts := strings.Split(fileURL, "/")
-	out, err := os.Create(filepath.Join(u.tempDir, fileNameParts[len(fileNameParts)-1]))
-	if err != nil {
-		return "", fmt.Errorf("error creating temporary file: %w", err)
-	}
-	defer func() {
-		if err := out.Close(); err != nil {
-			log.Errorf("error closing temporary file: %v", err)
-		}
-	}()
-
-	log.Debugf("downloading update file from %s", fileURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("error creating file download request: %w", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("error downloading file: %w", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			log.Errorf("Error closing response body: %v", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Errorf("error downloading update file, received status code: %d", resp.StatusCode)
-		return "", fmt.Errorf("error downloading file, received status code: %d", resp.StatusCode)
+	fileName := path.Base(fileURL)
+	if fileName == "." || fileName == "/" || fileName == "" {
+		return "", fmt.Errorf("invalid file URL: %s", fileURL)
 	}
 
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error downloading file: %w", err)
+	if err := downloader.DownloadToFile(ctx, fileURL, filepath.Join(u.tempDir, fileName)); err != nil {
+		return "", err
 	}
 
-	log.Infof("downloaded update file to %s", out.Name())
-
-	success = true // Mark success to prevent cleanup
-	return out.Name(), nil
+	success = true
+	return fileName, nil
 }
 
 func (u *Installer) TempDir() string {
