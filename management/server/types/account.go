@@ -902,6 +902,7 @@ func (a *Account) Copy() *Account {
 		NetworkResources:       networkResources,
 		Onboarding:             a.Onboarding,
 		NetworkMapCache:        a.NetworkMapCache,
+		nmapInitOnce:           a.nmapInitOnce,
 	}
 }
 

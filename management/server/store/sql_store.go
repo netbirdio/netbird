@@ -894,6 +894,7 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.NameServerGroups[ns.ID] = &ns
 	}
 	account.NameServerGroupsG = nil
+	account.InitOnce()
 	return &account, nil
 }
 

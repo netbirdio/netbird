@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"os"
@@ -109,6 +110,8 @@ func NewServer(
 		syncLimParsed, err := strconv.Atoi(syncLimStr)
 		if err != nil {
 			log.Errorf("invalid value for %s: %v using %d", envConcurrentSyncs, err, defaultSyncLim)
+		} else if syncLimParsed < math.MinInt32 || syncLimParsed > math.MaxInt32 {
+			log.Errorf("sync limit value %d out of valid range", syncLimParsed)
 		} else {
 			syncLim = int32(syncLimParsed)
 		}
