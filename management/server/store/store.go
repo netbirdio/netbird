@@ -490,7 +490,7 @@ func newReusedPostgresStore(ctx context.Context, store *SqlStore, kind types.Eng
 		return nil, nil, fmt.Errorf("%s is not set", postgresDsnEnv)
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := openDBWithRetry(dsn, kind, 5)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open postgres connection: %v", err)
 	}
@@ -528,7 +528,7 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine
 		return nil, nil, fmt.Errorf("%s is not set", mysqlDsnEnv)
 	}
 
-	db, err := gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+	db, err := openDBWithRetry(dsn, kind, 5)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open mysql connection: %v", err)
 	}
@@ -554,6 +554,31 @@ func newReusedMysqlStore(ctx context.Context, store *SqlStore, kind types.Engine
 	}
 
 	return store, cleanup, nil
+}
+
+func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB, error) {
+	var db *gorm.DB
+	var err error
+
+	for i := range maxRetries {
+		switch engine {
+		case types.PostgresStoreEngine:
+			db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		case types.MysqlStoreEngine:
+			db, err = gorm.Open(mysql.Open(dsn+"?charset=utf8&parseTime=True&loc=Local"), &gorm.Config{})
+		}
+
+		if err == nil {
+			return db, nil
+		}
+
+		if i < maxRetries-1 {
+			waitTime := time.Duration(100*(i+1)) * time.Millisecond
+			time.Sleep(waitTime)
+		}
+	}
+
+	return nil, err
 }
 
 func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(), error) {
