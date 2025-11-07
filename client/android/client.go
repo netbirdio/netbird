@@ -328,6 +328,8 @@ func (c *Client) DeselectRoute(route string) error {
 	return c.toggleRoute(deselectRouteCommand{route: route, manager: manager})
 }
 
+// getNetworkDomainsFromRoute extracts domains from a route and enriches each domain
+// with its resolved IP addresses from the provided resolvedDomains map.
 func (c *Client) getNetworkDomainsFromRoute(route *route.Route, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo) NetworkDomains {
 	domains := NetworkDomains{}
 
