@@ -1062,14 +1062,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 	rules := make([]*FirewallRule, 0)
 	peers := make([]*nbpeer.Peer, 0)
 
-	all, err := a.GetGroupAll()
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get group all: %v", err)
-		all = &Group{}
-	}
-
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
-			isAll := (len(all.Peers) - 1) == len(groupPeers)
 			for _, peer := range groupPeers {
 				if peer == nil {
 					continue
@@ -1086,10 +1079,6 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 					Direction: direction,
 					Action:    string(rule.Action),
 					Protocol:  string(rule.Protocol),
-				}
-
-				if isAll {
-					fr.PeerIP = "0.0.0.0"
 				}
 
 				ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +
