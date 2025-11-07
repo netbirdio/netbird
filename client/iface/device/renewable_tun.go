@@ -3,10 +3,11 @@
 package device
 
 import (
-	"errors"
+	"io"
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun"
@@ -14,33 +15,60 @@ import (
 
 // closeAwareDevice wraps a tun.Device along with a flag
 // indicating whether its Close method was called.
+//
+// It also redirects tun.Device's Events() to a separate goroutine
+// and closes it when Close is called.
+//
+// The WaitGroup and CloseOnce
+// fields are used to ensure that the goroutine is closed only once.
 type closeAwareDevice struct {
 	isClosed atomic.Bool
 	tun.Device
+	closeEventCh chan struct{}
+	wg           sync.WaitGroup
+	closeOnce    sync.Once
 }
 
 func newClosableDevice(tunDevice tun.Device) *closeAwareDevice {
 	return &closeAwareDevice{
-		Device:   tunDevice,
-		isClosed: atomic.Bool{},
+		Device:       tunDevice,
+		isClosed:     atomic.Bool{},
+		closeEventCh: make(chan struct{}),
 	}
+}
+
+func (c *closeAwareDevice) redirectEvents(out chan tun.Event) {
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		for {
+			select {
+			case ev, ok := <-c.Device.Events():
+				if !ok {
+					return
+				}
+				select {
+				case out <- ev:
+				case <-c.closeEventCh:
+					return
+				default:
+				}
+			case <-c.closeEventCh:
+				return
+			}
+		}
+	}()
 }
 
 // Close calls the underlying Device's Close method
 // after setting isClosed to true.
 func (c *closeAwareDevice) Close() (err error) {
-	fd := c.Device.File().Fd()
-
-	defer func() {
-		if err == nil {
-			log.Debugf("device %v is now closed", fd)
-		} else {
-			log.Debugf("error attempting to close device %v: %v", fd, err)
-		}
-	}()
-
-	c.isClosed.Store(true)
-	err = c.Device.Close()
+	c.closeOnce.Do(func() {
+		c.isClosed.Store(true)
+		close(c.closeEventCh)
+		err = c.Device.Close()
+		c.wg.Wait()
+	})
 
 	return err
 }
@@ -52,124 +80,146 @@ func (c *closeAwareDevice) IsClosed() bool {
 type RenewableTUN struct {
 	devices []*closeAwareDevice
 	mu      sync.Mutex
+	cond    *sync.Cond
+	events  chan tun.Event
+	closed  atomic.Bool
 }
 
 func NewRenewableTUN() *RenewableTUN {
 	r := &RenewableTUN{
 		devices: make([]*closeAwareDevice, 0),
 		mu:      sync.Mutex{},
+		events:  make(chan tun.Event, 16),
 	}
-
+	r.cond = sync.NewCond(&r.mu)
 	return r
 }
 
 func (r *RenewableTUN) File() *os.File {
-	log.Debug("sending device file")
-
-	device := r.peekLast()
-	if device == nil {
-		return nil
+	for {
+		dev := r.peekLast()
+		if dev == nil {
+			if !r.waitForDevice() {
+				return nil
+			}
+			continue
+		}
+		return dev.File()
 	}
-
-	return device.File()
 }
 
 func (r *RenewableTUN) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
-	log.Debug("reading from device")
-
-	device := r.peekLast()
-	if device == nil {
-		return 0, errors.New("no available devices")
-	}
-
-	n, err = device.Read(bufs, sizes, offset)
-
-	if err != nil {
-		log.Debugf("error reading from device: %v", err)
-
-		if device.IsClosed() {
-			err = nil
+	for {
+		dev := r.peekLast()
+		if dev == nil {
+			// wait until AddDevice() signals a new device via cond.Broadcast()
+			if !r.waitForDevice() { // returns false if the renewable TUN itself is closed
+				return 0, io.EOF
+			}
+			continue
 		}
-	} else {
-		log.Debugf("read %v bytes from device %v", n, device.File().Fd())
-	}
 
-	return n, err
+		n, err = dev.Read(bufs, sizes, offset)
+		if err == nil {
+			return n, nil
+		}
+
+		// swap in progress; retry on the newest
+		if dev.IsClosed() {
+			time.Sleep(1 * time.Millisecond)
+			continue
+		}
+		return n, err // propagate non-swap error
+	}
 }
 
 func (r *RenewableTUN) Write(bufs [][]byte, offset int) (int, error) {
-	log.Debug("writing to device")
-
-	device := r.peekLast()
-	if device == nil {
-		return 0, nil
-	}
-
-	n, err := device.Write(bufs, offset)
-
-	if err != nil {
-		log.Debugf("error writing to device: %v", err)
-
-		if device.IsClosed() {
-			err = nil
+	for {
+		dev := r.peekLast()
+		if dev == nil {
+			if !r.waitForDevice() {
+				return 0, io.EOF
+			}
+			continue
 		}
+		n, err := dev.Write(bufs, offset)
+		if err == nil {
+			return n, nil
+		}
+		if dev.IsClosed() {
+			time.Sleep(1 * time.Millisecond)
+			continue
+		}
+		return n, err
 	}
-
-	return n, err
 }
 
 func (r *RenewableTUN) MTU() (int, error) {
-	log.Debug("sending mtu")
-
-	device := r.peekLast()
-	if device == nil {
-		return 0, nil
+	for {
+		dev := r.peekLast()
+		if dev == nil {
+			if !r.waitForDevice() {
+				return 0, io.EOF
+			}
+			continue
+		}
+		mtu, err := dev.MTU()
+		if err == nil {
+			return mtu, nil
+		}
+		if dev.IsClosed() {
+			time.Sleep(1 * time.Millisecond)
+			continue
+		}
 	}
-
-	return device.MTU()
 }
 
 func (r *RenewableTUN) Name() (string, error) {
-	log.Debug("sending name")
-
-	device := r.peekLast()
-	if device == nil {
-		return "", nil
+	for {
+		dev := r.peekLast()
+		if dev == nil {
+			if !r.waitForDevice() {
+				return "", io.EOF
+			}
+			continue
+		}
+		name, err := dev.Name()
+		if err == nil {
+			return name, nil
+		}
+		if dev.IsClosed() {
+			time.Sleep(1 * time.Millisecond)
+			continue
+		}
 	}
-
-	return device.Name()
 }
 
 func (r *RenewableTUN) Events() <-chan tun.Event {
-	log.Debug("returning events channel")
-
-	device := r.peekLast()
-	if device == nil {
-		return nil
-	}
-
-	return device.Events()
+	return r.events
 }
 
 func (r *RenewableTUN) Close() error {
+	if !r.closed.CompareAndSwap(false, true) {
+		return nil // already closed: idempotent
+	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	devices := r.devices
+	r.devices = nil
+	r.cond.Broadcast()
+	r.mu.Unlock()
 
-	log.Debugf("closing %d devices", len(r.devices))
+	var lastErr error
 
-	var err error
-
-	for _, device := range r.devices {
-		err = device.Close()
-
-		if err != nil {
+	log.Debugf("closing %d devices", len(devices))
+	for _, device := range devices {
+		if err := device.Close(); err != nil {
 			log.Debugf("error closing a device: %v", err)
+			lastErr = err
 		}
 	}
 
-	r.devices = r.devices[:0]
-
-	return err
+	close(r.events)
+	return lastErr
 }
 
 func (r *RenewableTUN) BatchSize() int {
@@ -179,35 +229,38 @@ func (r *RenewableTUN) BatchSize() int {
 }
 
 func (r *RenewableTUN) AddDevice(device tun.Device) {
-	//first := r.dequeue()
-	//
-	//// defers closing the old device after adding the new one if there was any.
-	//if first != nil {
-	//	defer func(first *closeAwareDevice) {
-	//		err := first.Close()
-	//		if err != nil {
-	//			log.Debugf("error closing first device: %v", err)
-	//		}
-	//	}(first)
-	//}
-	//
-	//r.mu.Lock()
-	//defer r.mu.Unlock()
-	//r.devices = append(r.devices, newClosableDevice(device))
+	if r.closed.Load() {
+		_ = device.Close()
+		return
+	}
 
 	var toClose *closeAwareDevice
 	r.mu.Lock()
 	if len(r.devices) > 0 {
 		toClose = r.devices[len(r.devices)-1]
 	}
-	r.devices = []*closeAwareDevice{newClosableDevice(device)}
+
+	cad := newClosableDevice(device)
+	cad.redirectEvents(r.events)
+	r.devices = []*closeAwareDevice{cad}
+	r.cond.Broadcast()
 	r.mu.Unlock()
 
 	if toClose != nil {
 		if err := toClose.Close(); err != nil {
-			log.Debugf("error closing device: %v", err)
+			log.Debugf("error closing last device: %v", err)
 		}
 	}
+}
+
+func (r *RenewableTUN) waitForDevice() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for len(r.devices) == 0 && !r.closed.Load() {
+		r.cond.Wait()
+	}
+	return !r.closed.Load()
 }
 
 func (r *RenewableTUN) peekLast() *closeAwareDevice {
@@ -219,17 +272,4 @@ func (r *RenewableTUN) peekLast() *closeAwareDevice {
 	}
 
 	return r.devices[len(r.devices)-1]
-}
-
-func (r *RenewableTUN) dequeue() *closeAwareDevice {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if len(r.devices) == 0 {
-		return nil
-	}
-
-	first := r.devices[0]
-	r.devices = r.devices[1:]
-	return first
 }
