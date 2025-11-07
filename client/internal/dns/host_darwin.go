@@ -79,10 +79,11 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 		searchDomains = append(searchDomains, strings.TrimSuffix(""+dConf.Domain, "."))
 	}
 
+	configServerIPs := []netip.Addr{config.ServerIP}
 	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)
 	var err error
 	if len(matchDomains) != 0 {
-		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), config.ServerIP, config.ServerPort)
+		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), configServerIPs, config.ServerPort)
 	} else {
 		log.Infof("removing match domains from the system")
 		err = s.removeKeyFromSystemConfig(matchKey)
@@ -94,7 +95,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 
 	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix)
 	if len(searchDomains) != 0 {
-		err = s.addSearchDomains(searchKey, strings.Join(searchDomains, " "), config.ServerIP, config.ServerPort)
+		err = s.addSearchDomains(searchKey, strings.Join(searchDomains, " "), configServerIPs, config.ServerPort)
 	} else {
 		log.Infof("removing search domains from the system")
 		err = s.removeKeyFromSystemConfig(searchKey)
@@ -168,20 +169,20 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 }
 
 func (s *systemConfigurator) addLocalDNS() error {
-	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
+	if len(s.systemDNSSettings.ServerIPs) == 0 || len(s.systemDNSSettings.Domains) == 0 {
 		if err := s.recordSystemDNSSettings(true); err != nil {
 			return fmt.Errorf("recordSystemDNSSettings(): %w", err)
 		}
 	}
 	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
-	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
+	if len(s.systemDNSSettings.ServerIPs) == 0 || len(s.systemDNSSettings.Domains) == 0 {
 		log.Info("Not enabling local DNS server")
 		return nil
 	}
 
 	if err := s.addSearchDomains(
 		localKey,
-		strings.Join(s.systemDNSSettings.Domains, " "), s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort,
+		strings.Join(s.systemDNSSettings.Domains, " "), s.systemDNSSettings.ServerIPs, s.systemDNSSettings.ServerPort,
 	); err != nil {
 		return fmt.Errorf("add search domains: %w", err)
 	}
@@ -190,7 +191,7 @@ func (s *systemConfigurator) addLocalDNS() error {
 }
 
 func (s *systemConfigurator) recordSystemDNSSettings(force bool) error {
-	if s.systemDNSSettings.ServerIP.IsValid() && len(s.systemDNSSettings.Domains) != 0 && !force {
+	if len(s.systemDNSSettings.ServerIPs) != 0 && len(s.systemDNSSettings.Domains) != 0 && !force {
 		return nil
 	}
 
@@ -218,6 +219,7 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	}
 
 	var dnsSettings SystemDNSSettings
+	localDomainsMap := make(map[string]struct{})
 	inSearchDomainsArray := false
 	inServerAddressesArray := false
 
@@ -227,7 +229,10 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 		switch {
 		case strings.HasPrefix(line, "DomainName :"):
 			domainName := strings.TrimSpace(strings.Split(line, ":")[1])
-			dnsSettings.Domains = append(dnsSettings.Domains, domainName)
+			if _, exists := localDomainsMap[domainName]; !exists {
+				localDomainsMap[domainName] = struct{}{}
+				dnsSettings.Domains = append(dnsSettings.Domains, domainName)
+			}
 		case line == "SearchDomains : <array> {":
 			inSearchDomainsArray = true
 			continue
@@ -241,12 +246,16 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 
 		if inSearchDomainsArray {
 			searchDomain := strings.Split(line, " : ")[1]
-			dnsSettings.Domains = append(dnsSettings.Domains, searchDomain)
+			if _, exists := localDomainsMap[searchDomain]; !exists {
+				localDomainsMap[searchDomain] = struct{}{}
+				dnsSettings.Domains = append(dnsSettings.Domains, searchDomain)
+			}
 		} else if inServerAddressesArray {
 			address := strings.Split(line, " : ")[1]
-			if ip, err := netip.ParseAddr(address); err == nil && ip.Is4() {
-				dnsSettings.ServerIP = ip.Unmap()
-				inServerAddressesArray = false // Stop reading after finding the first IPv4 address
+			if ip, err := netip.ParseAddr(address); err == nil {
+				if ip.IsValid() {
+					dnsSettings.ServerIPs = append(dnsSettings.ServerIPs, ip.Unmap())
+				}
 			}
 		}
 	}
@@ -261,8 +270,8 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	return dnsSettings, nil
 }
 
-func (s *systemConfigurator) addSearchDomains(key, domains string, ip netip.Addr, port int) error {
-	err := s.addDNSState(key, domains, ip, port, true)
+func (s *systemConfigurator) addSearchDomains(key, domains string, ips []netip.Addr, port int) error {
+	err := s.addDNSState(key, domains, ips, port, true)
 	if err != nil {
 		return fmt.Errorf("add dns state: %w", err)
 	}
@@ -274,8 +283,8 @@ func (s *systemConfigurator) addSearchDomains(key, domains string, ip netip.Addr
 	return nil
 }
 
-func (s *systemConfigurator) addMatchDomains(key, domains string, dnsServer netip.Addr, port int) error {
-	err := s.addDNSState(key, domains, dnsServer, port, false)
+func (s *systemConfigurator) addMatchDomains(key, domains string, dnsServers []netip.Addr, port int) error {
+	err := s.addDNSState(key, domains, dnsServers, port, false)
 	if err != nil {
 		return fmt.Errorf("add dns state: %w", err)
 	}
@@ -287,14 +296,20 @@ func (s *systemConfigurator) addMatchDomains(key, domains string, dnsServer neti
 	return nil
 }
 
-func (s *systemConfigurator) addDNSState(state, domains string, dnsServer netip.Addr, port int, enableSearch bool) error {
+func (s *systemConfigurator) addDNSState(state, domains string, dnsServers []netip.Addr, port int, enableSearch bool) error {
 	noSearch := "1"
 	if enableSearch {
 		noSearch = "0"
 	}
+
+	servers := make([]string, 0, len(dnsServers))
+	for _, serverIP := range dnsServers {
+		servers = append(servers, serverIP.String())
+	}
+	serversStr := strings.Join(servers, " ")
 	lines := buildAddCommandLine(keySupplementalMatchDomains, arraySymbol+domains)
 	lines += buildAddCommandLine(keySupplementalMatchDomainsNoSearch, digitSymbol+noSearch)
-	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer.String())
+	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+serversStr)
 	lines += buildAddCommandLine(keyServerPort, digitSymbol+strconv.Itoa(port))
 
 	addDomainCommand := buildCreateStateWithOperation(state, lines)
