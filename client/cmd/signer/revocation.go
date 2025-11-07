@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/netbirdio/netbird/client/internal/updatemanager/sign"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/reposign"
 )
 
 var (
@@ -64,12 +64,12 @@ func handleCreateRevocationList(revocationListFile string, privateRootKeyFile st
 		return fmt.Errorf("failed to read private root key file: %w", err)
 	}
 
-	privateRootKey, err := sign.ParseRootKey(privKeyPEM)
+	privateRootKey, err := reposign.ParseRootKey(privKeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to parse private root key: %w", err)
 	}
 
-	rlBytes, sigBytes, err := sign.CreateRevocationList(*privateRootKey)
+	rlBytes, sigBytes, err := reposign.CreateRevocationList(*privateRootKey)
 	if err != nil {
 		return fmt.Errorf("failed to create revocation list: %w", err)
 	}
@@ -88,7 +88,7 @@ func handleExtendRevocationList(keyID, revocationListFile, privateRootKeyFile st
 		return fmt.Errorf("failed to read private root key file: %w", err)
 	}
 
-	privateRootKey, err := sign.ParseRootKey(privKeyPEM)
+	privateRootKey, err := reposign.ParseRootKey(privKeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to parse private root key: %w", err)
 	}
@@ -98,17 +98,17 @@ func handleExtendRevocationList(keyID, revocationListFile, privateRootKeyFile st
 		return fmt.Errorf("failed to read revocation list file: %w", err)
 	}
 
-	rl, err := sign.ParseRevocationList(rlBytes)
+	rl, err := reposign.ParseRevocationList(rlBytes)
 	if err != nil {
 		return fmt.Errorf("failed to parse revocation list: %w", err)
 	}
 
-	kid, err := sign.ParseKeyID(keyID)
+	kid, err := reposign.ParseKeyID(keyID)
 	if err != nil {
 		return fmt.Errorf("invalid key ID: %w", err)
 	}
 
-	newRLBytes, sigBytes, err := sign.ExtendRevocationList(*privateRootKey, *rl, kid)
+	newRLBytes, sigBytes, err := reposign.ExtendRevocationList(*privateRootKey, *rl, kid)
 	if err != nil {
 		return fmt.Errorf("failed to extend revocation list: %w", err)
 	}
@@ -122,10 +122,10 @@ func handleExtendRevocationList(keyID, revocationListFile, privateRootKeyFile st
 }
 
 func writeOutputFiles(rlPath, sigPath string, rlBytes, sigBytes []byte) error {
-	if err := os.WriteFile(rlPath, rlBytes, 0o644); err != nil {
+	if err := os.WriteFile(rlPath, rlBytes, 0o600); err != nil {
 		return fmt.Errorf("failed to write revocation list file: %w", err)
 	}
-	if err := os.WriteFile(sigPath, sigBytes, 0o644); err != nil {
+	if err := os.WriteFile(sigPath, sigBytes, 0o600); err != nil {
 		return fmt.Errorf("failed to write signature file: %w", err)
 	}
 	return nil

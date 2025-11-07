@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/netbirdio/netbird/client/internal/updatemanager/sign"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/reposign"
 )
 
 var (
@@ -101,12 +101,12 @@ func handleCreateArtifactKey(rootPrivKeyFile, artifactPrivKeyFile, artifactPubKe
 		return fmt.Errorf("read root private key file: %w", err)
 	}
 
-	privateRootKey, err := sign.ParseRootKey(privKeyPEM)
+	privateRootKey, err := reposign.ParseRootKey(privKeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to parse private root key: %w", err)
 	}
 
-	artifactKey, privPEM, pubPEM, signature, err := sign.GenerateArtifactKey(privateRootKey, expiration)
+	artifactKey, privPEM, pubPEM, signature, err := reposign.GenerateArtifactKey(privateRootKey, expiration)
 	if err != nil {
 		return fmt.Errorf("generate artifact key: %w", err)
 	}
@@ -115,12 +115,12 @@ func handleCreateArtifactKey(rootPrivKeyFile, artifactPrivKeyFile, artifactPubKe
 		return fmt.Errorf("write private key file (%s): %w", artifactPrivKeyFile, err)
 	}
 
-	if err := os.WriteFile(artifactPubKeyFile, pubPEM, 0o644); err != nil {
+	if err := os.WriteFile(artifactPubKeyFile, pubPEM, 0o600); err != nil {
 		return fmt.Errorf("write public key file (%s): %w", artifactPubKeyFile, err)
 	}
 
 	signatureFile := artifactPubKeyFile + ".sig"
-	if err := os.WriteFile(signatureFile, signature, 0o644); err != nil {
+	if err := os.WriteFile(signatureFile, signature, 0o600); err != nil {
 		return fmt.Errorf("write signature file (%s): %w", signatureFile, err)
 	}
 
@@ -137,33 +137,36 @@ func handleBundlePubKeys(rootPrivKeyFile string, artifactPubKeyFiles []string, b
 		return fmt.Errorf("read root private key file: %w", err)
 	}
 
-	privateRootKey, err := sign.ParseRootKey(privKeyPEM)
+	privateRootKey, err := reposign.ParseRootKey(privKeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to parse private root key: %w", err)
 	}
 
-	publicKeys := make([]sign.PublicKey, 0, len(artifactPubKeyFiles))
+	publicKeys := make([]reposign.PublicKey, 0, len(artifactPubKeyFiles))
 	for _, pubFile := range artifactPubKeyFiles {
 		pubPem, err := os.ReadFile(pubFile)
 		if err != nil {
 			return fmt.Errorf("read public key file: %w", err)
 		}
 
-		pk, err := sign.ParseArtifactPubKey(pubPem)
+		pk, err := reposign.ParseArtifactPubKey(pubPem)
 		if err != nil {
 			return fmt.Errorf("failed to parse artifact key: %w", err)
 		}
 		publicKeys = append(publicKeys, pk)
 	}
 
-	parsedKeys, signature, err := sign.BundleArtifactKeys(privateRootKey, publicKeys)
+	parsedKeys, signature, err := reposign.BundleArtifactKeys(privateRootKey, publicKeys)
+	if err != nil {
+		return fmt.Errorf("bundle artifact keys: %w", err)
+	}
 
-	if err := os.WriteFile(bundlePubKeysFile, parsedKeys, 0o644); err != nil {
+	if err := os.WriteFile(bundlePubKeysFile, parsedKeys, 0o600); err != nil {
 		return fmt.Errorf("write public keys file (%s): %w", bundlePubKeysFile, err)
 	}
 
 	signatureFile := bundlePubKeysFile + ".sig"
-	if err := os.WriteFile(signatureFile, signature, 0o644); err != nil {
+	if err := os.WriteFile(signatureFile, signature, 0o600); err != nil {
 		return fmt.Errorf("write signature file (%s): %w", signatureFile, err)
 	}
 

@@ -1,4 +1,4 @@
-package sign
+package reposign
 
 import (
 	"encoding/json"

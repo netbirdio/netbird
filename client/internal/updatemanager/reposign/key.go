@@ -1,4 +1,4 @@
-package sign
+package reposign
 
 import (
 	"crypto/ed25519"
@@ -13,7 +13,7 @@ import (
 
 const (
 	maxClockSkew    = 5 * time.Minute
-	maxSignatureAge = 365 * 24 * time.Hour
+	maxSignatureAge = 10 * 365 * 24 * time.Hour
 )
 
 // KeyID is a unique identifier for a Key (first 8 bytes of SHA-256 of public Key)
@@ -25,6 +25,11 @@ func computeKeyID(pub ed25519.PublicKey) KeyID {
 	var id KeyID
 	copy(id[:], h[:8])
 	return id
+}
+
+// MarshalJSON implements json.Marshaler for KeyID
+func (k KeyID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(k.String())
 }
 
 // UnmarshalJSON implements json.Unmarshaler for KeyID
@@ -41,11 +46,6 @@ func (k *KeyID) UnmarshalJSON(data []byte) error {
 
 	*k = parsed
 	return nil
-}
-
-// MarshalJSON implements json.Marshaler for KeyID
-func (k KeyID) MarshalJSON() ([]byte, error) {
-	return json.Marshal(k.String())
 }
 
 // ParseKeyID parses a hex string (16 hex chars = 8 bytes) into a KeyID.

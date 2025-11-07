@@ -1,4 +1,4 @@
-package sign
+package reposign
 
 import (
 	"crypto/ed25519"
@@ -16,7 +16,7 @@ type RevocationList struct {
 	LastUpdated time.Time           `json:"last_updated"` // When the list was last modified
 }
 
-func (rl *RevocationList) MarshalJSON() ([]byte, error) {
+func (rl RevocationList) MarshalJSON() ([]byte, error) {
 	// Convert map[KeyID]time.Time to map[string]time.Time
 	strMap := make(map[string]time.Time, len(rl.Revoked))
 	for k, v := range rl.Revoked {
@@ -136,7 +136,7 @@ func CreateRevocationList(privateRootKey RootKey) ([]byte, []byte, error) {
 		return nil, nil, fmt.Errorf("failed to sign revocation list: %w", err)
 	}
 
-	rlData, err := json.Marshal(rl)
+	rlData, err := json.Marshal(&rl)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal revocation list: %w", err)
 	}
@@ -160,7 +160,7 @@ func ExtendRevocationList(privateRootKey RootKey, rl RevocationList, kid KeyID) 
 		return nil, nil, fmt.Errorf("failed to sign revocation list: %w", err)
 	}
 
-	rlData, err := json.Marshal(rl)
+	rlData, err := json.Marshal(&rl)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal revocation list: %w", err)
 	}

@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/netbirdio/netbird/client/internal/updatemanager/sign"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/reposign"
 )
 
 var (
@@ -55,7 +55,7 @@ func init() {
 }
 
 func handleGenerateRootKey(privKeyFile, pubKeyFile string, expiration time.Duration) error {
-	rk, privPEM, pubPEM, err := sign.GenerateRootKey(expiration)
+	rk, privPEM, pubPEM, err := reposign.GenerateRootKey(expiration)
 	if err != nil {
 		return fmt.Errorf("generate root key: %w", err)
 	}
@@ -66,7 +66,7 @@ func handleGenerateRootKey(privKeyFile, pubKeyFile string, expiration time.Durat
 	}
 
 	// Write public key
-	if err := os.WriteFile(pubKeyFile, pubPEM, 0o644); err != nil {
+	if err := os.WriteFile(pubKeyFile, pubPEM, 0o600); err != nil {
 		return fmt.Errorf("write public key file (%s): %w", pubKeyFile, err)
 	}
 

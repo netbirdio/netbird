@@ -1,4 +1,4 @@
-package sign
+package reposign
 
 import (
 	"crypto/ed25519"
@@ -190,6 +190,13 @@ func ValidateArtifactKeys(publicRootKeys []PublicKey, data []byte, signature Sig
 
 	validKeys := make([]PublicKey, 0, len(pubKeys))
 	for _, pubKey := range pubKeys {
+		// Filter out expired keys
+		if !pubKey.Metadata.ExpiresAt.IsZero() && now.After(pubKey.Metadata.ExpiresAt) {
+			log.Debugf("Key %s is expired at %v (current time %v)",
+				pubKey.Metadata.ID, pubKey.Metadata.ExpiresAt, now)
+			continue
+		}
+
 		if revocationList != nil {
 			if revTime, revoked := revocationList.Revoked[pubKey.Metadata.ID]; revoked {
 				log.Debugf("Key %s is revoked as of %v (created %v)",

@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/netbirdio/netbird/client/internal/updatemanager/sign"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/reposign"
 )
 
 var (
@@ -50,7 +50,7 @@ func handleSignArtifact(privKeyFile, artifactFile string) error {
 		return fmt.Errorf("read private key file: %w", err)
 	}
 
-	privateKey, err := sign.ParseArtifactKey(privKeyPEM)
+	privateKey, err := reposign.ParseArtifactKey(privKeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to parse artifact private key: %w", err)
 	}
@@ -60,13 +60,13 @@ func handleSignArtifact(privKeyFile, artifactFile string) error {
 		return fmt.Errorf("read artifact file: %w", err)
 	}
 
-	signature, err := sign.SignData(privateKey, artifactData)
+	signature, err := reposign.SignData(privateKey, artifactData)
 	if err != nil {
 		return fmt.Errorf("sign artifact: %w", err)
 	}
 
 	sigFile := artifactFile + ".sig"
-	if err := os.WriteFile(artifactFile+".sig", signature, 0o644); err != nil {
+	if err := os.WriteFile(artifactFile+".sig", signature, 0o600); err != nil {
 		return fmt.Errorf("write signature file (%s): %w", sigFile, err)
 	}
 
