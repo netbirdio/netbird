@@ -30,6 +30,7 @@ type AuthMiddleware struct {
 	ensureAccount       EnsureAccountFunc
 	getUserFromUserAuth GetUserFromUserAuthFunc
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
+	rateLimiter         *APIRateLimiter
 }
 
 // NewAuthMiddleware instance constructor
@@ -38,12 +39,19 @@ func NewAuthMiddleware(
 	ensureAccount EnsureAccountFunc,
 	syncUserJWTGroups SyncUserJWTGroupsFunc,
 	getUserFromUserAuth GetUserFromUserAuthFunc,
+	rateLimiterConfig *RateLimiterConfig,
 ) *AuthMiddleware {
+	var rateLimiter *APIRateLimiter
+	if rateLimiterConfig != nil {
+		rateLimiter = NewAPIRateLimiter(rateLimiterConfig)
+	}
+
 	return &AuthMiddleware{
 		authManager:         authManager,
 		ensureAccount:       ensureAccount,
 		syncUserJWTGroups:   syncUserJWTGroups,
 		getUserFromUserAuth: getUserFromUserAuth,
+		rateLimiter:         rateLimiter,
 	}
 }
 
@@ -77,7 +85,11 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 			request, err := m.checkPATFromRequest(r, authHeader)
 			if err != nil {
 				log.WithContext(r.Context()).Debugf("Error when validating PAT: %s", err.Error())
-				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
+				// Check if it's a status error, otherwise default to Unauthorized
+				if _, ok := status.FromError(err); !ok {
+					err = status.Errorf(status.Unauthorized, "token invalid")
+				}
+				util.WriteError(r.Context(), err, w)
 				return
 			}
 			h.ServeHTTP(w, request)
@@ -144,6 +156,12 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 	token, err := getTokenFromPATRequest(authHeaderParts)
 	if err != nil {
 		return r, fmt.Errorf("error extracting token: %w", err)
+	}
+
+	if m.rateLimiter != nil {
+		if !m.rateLimiter.Allow(token) {
+			return r, status.Errorf(status.TooManyRequests, "too many requests")
+		}
 	}
 
 	ctx := r.Context()
