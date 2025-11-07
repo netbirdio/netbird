@@ -85,7 +85,7 @@ type quickActionsViewModel struct {
 	isWatchingConnectionStatus atomic.Bool
 }
 
-func newQuickActionsViewModel(ctx context.Context, provider clientConnectionStatusProvider, connect, disconnect clientCommand, uiChan chan quickActionsUiState) *quickActionsViewModel {
+func newQuickActionsViewModel(ctx context.Context, provider clientConnectionStatusProvider, connect, disconnect clientCommand, uiChan chan quickActionsUiState) {
 	viewModel := quickActionsViewModel{
 		provider:   provider,
 		connect:    connect,
@@ -101,8 +101,6 @@ func newQuickActionsViewModel(ctx context.Context, provider clientConnectionStat
 	// this retrieves the current connection status
 	// and pushes the UI state that reflects it via uiChan
 	go viewModel.watchConnectionStatus(ctx)
-
-	return &viewModel
 }
 
 func (q *quickActionsViewModel) updateUiState(ctx context.Context) {
@@ -258,7 +256,8 @@ func (s *serviceClient) applyQuickActionsUiState(
 // showQuickActionsUI displays a simple window with the NetBird logo and a connection toggle button.
 func (s *serviceClient) showQuickActionsUI() {
 	s.wQuickActions = s.app.NewWindow("NetBird")
-	s.wQuickActions.SetOnClosed(s.cancel)
+	vmCtx, vmCancel := context.WithCancel(s.ctx)
+	s.wQuickActions.SetOnClosed(vmCancel)
 
 	client, err := s.getSrvClient(defaultFailTimeout)
 
@@ -280,7 +279,7 @@ func (s *serviceClient) showQuickActionsUI() {
 	}
 
 	uiChan := make(chan quickActionsUiState, 1)
-	newQuickActionsViewModel(s.ctx, daemonClientConnectionStatusProvider{client: client}, connCmd, disConnCmd, uiChan)
+	newQuickActionsViewModel(vmCtx, daemonClientConnectionStatusProvider{client: client}, connCmd, disConnCmd, uiChan)
 
 	connectedImage := s.getNetBirdImage("netbird.png", iconAbout)
 	disconnectedImage := s.getNetBirdImage("netbird-disconnected.png", iconAboutDisconnected)
@@ -315,7 +314,7 @@ func (s *serviceClient) showQuickActionsUI() {
 
 		for {
 			select {
-			case <-s.ctx.Done():
+			case <-vmCtx.Done():
 				return
 			case uiState, ok := <-uiChan:
 				if !ok {
