@@ -186,6 +186,7 @@ func (r *RenewableTUN) MTU() (int, error) {
 			time.Sleep(1 * time.Millisecond)
 			continue
 		}
+		return 0, err
 	}
 }
 
@@ -206,6 +207,7 @@ func (r *RenewableTUN) Name() (string, error) {
 			time.Sleep(1 * time.Millisecond)
 			continue
 		}
+		return "", err
 	}
 }
 
