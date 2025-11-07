@@ -256,13 +256,13 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
@@ -307,13 +307,13 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
@@ -349,13 +349,13 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
@@ -392,13 +392,13 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
@@ -455,13 +455,13 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
