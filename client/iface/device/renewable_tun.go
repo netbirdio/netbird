@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun"
@@ -14,14 +15,14 @@ import (
 // closeAwareDevice wraps a tun.Device along with a flag
 // indicating whether its Close method was called.
 type closeAwareDevice struct {
-	isClosed bool
+	isClosed atomic.Bool
 	tun.Device
 }
 
 func newClosableDevice(tunDevice tun.Device) *closeAwareDevice {
 	return &closeAwareDevice{
 		Device:   tunDevice,
-		isClosed: false,
+		isClosed: atomic.Bool{},
 	}
 }
 
@@ -38,14 +39,14 @@ func (c *closeAwareDevice) Close() (err error) {
 		}
 	}()
 
-	c.isClosed = true
+	c.isClosed.Store(true)
 	err = c.Device.Close()
 
 	return err
 }
 
 func (c *closeAwareDevice) IsClosed() bool {
-	return c.isClosed
+	return c.isClosed.Load()
 }
 
 type RenewableTUN struct {
@@ -166,7 +167,7 @@ func (r *RenewableTUN) Close() error {
 		}
 	}
 
-	clear(r.devices)
+	r.devices = r.devices[:0]
 
 	return err
 }
