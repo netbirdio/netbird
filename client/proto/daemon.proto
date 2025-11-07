@@ -346,6 +346,20 @@ message NSGroupState {
   string error = 4;
 }
 
+// SSHSessionInfo contains information about an active SSH session
+message SSHSessionInfo {
+  string username = 1;
+  string remoteAddress = 2;
+  string command = 3;
+  string jwtUsername = 4;
+}
+
+// SSHServerState contains the latest state of the SSH server
+message SSHServerState {
+  bool enabled = 1;
+  repeated SSHSessionInfo sessions = 2;
+}
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
   ManagementState managementState = 1;
@@ -359,6 +373,7 @@ message FullStatus {
   repeated SystemEvent events = 7;
 
   bool lazyConnectionEnabled = 9;
+  SSHServerState sshServerState = 10;
 }
 
 // Networks

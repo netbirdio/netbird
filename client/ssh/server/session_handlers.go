@@ -11,13 +11,29 @@ import (
 
 	"github.com/gliderlabs/ssh"
 	log "github.com/sirupsen/logrus"
+	cryptossh "golang.org/x/crypto/ssh"
 )
 
 // sessionHandler handles SSH sessions
 func (s *Server) sessionHandler(session ssh.Session) {
 	sessionKey := s.registerSession(session)
+
+	key := newAuthKey(session.User(), session.RemoteAddr())
+	s.mu.Lock()
+	jwtUsername := s.pendingAuthJWT[key]
+	if jwtUsername != "" {
+		s.sessionJWTUsers[sessionKey] = jwtUsername
+		delete(s.pendingAuthJWT, key)
+	}
+	s.mu.Unlock()
+
 	logger := log.WithField("session", sessionKey)
-	logger.Infof("SSH session started")
+	if jwtUsername != "" {
+		logger = logger.WithField("jwt_user", jwtUsername)
+		logger.Infof("SSH session started (JWT user: %s)", jwtUsername)
+	} else {
+		logger.Infof("SSH session started")
+	}
 	sessionStart := time.Now()
 
 	defer s.unregisterSession(sessionKey, session)
@@ -86,9 +102,10 @@ func (s *Server) registerSession(session ssh.Session) SessionKey {
 	return sessionKey
 }
 
-func (s *Server) unregisterSession(sessionKey SessionKey, _ ssh.Session) {
+func (s *Server) unregisterSession(sessionKey SessionKey, session ssh.Session) {
 	s.mu.Lock()
 	delete(s.sessions, sessionKey)
+	delete(s.sessionJWTUsers, sessionKey)
 
 	// Cancel all port forwarding connections for this session
 	var connectionsToCancel []ConnectionKey
@@ -103,6 +120,12 @@ func (s *Server) unregisterSession(sessionKey SessionKey, _ ssh.Session) {
 			log.WithField("session", sessionKey).Debugf("cancelling port forwarding context: %s", key)
 			cancelFunc()
 			delete(s.sessionCancels, key)
+		}
+	}
+
+	if sshConnValue := session.Context().Value(ssh.ContextKeyConn); sshConnValue != nil {
+		if sshConn, ok := sshConnValue.(*cryptossh.ServerConn); ok {
+			delete(s.sshConnections, sshConn)
 		}
 	}
 

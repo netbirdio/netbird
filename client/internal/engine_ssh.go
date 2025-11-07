@@ -19,6 +19,7 @@ import (
 type sshServer interface {
 	Start(ctx context.Context, addr netip.AddrPort) error
 	Stop() error
+	GetStatus() (bool, []sshserver.SessionInfo)
 }
 
 func (e *Engine) setupSSHPortRedirection() error {
@@ -335,4 +336,17 @@ func (e *Engine) stopSSHServer() error {
 		return fmt.Errorf("stop: %w", err)
 	}
 	return nil
+}
+
+// GetSSHServerStatus returns the SSH server status and active sessions
+func (e *Engine) GetSSHServerStatus() (enabled bool, sessions []sshserver.SessionInfo) {
+	e.syncMsgMux.Lock()
+	sshServer := e.sshServer
+	e.syncMsgMux.Unlock()
+
+	if sshServer == nil {
+		return false, nil
+	}
+
+	return sshServer.GetStatus()
 }

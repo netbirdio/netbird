@@ -1082,10 +1082,45 @@ func (s *Server) Status(
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
+
+		pbFullStatus.SshServerState = s.getSSHServerState()
+
 		statusResponse.FullStatus = pbFullStatus
 	}
 
 	return &statusResponse, nil
+}
+
+// getSSHServerState retrieves the current SSH server state including enabled status and active sessions
+func (s *Server) getSSHServerState() *proto.SSHServerState {
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient == nil {
+		return nil
+	}
+
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil
+	}
+
+	enabled, sessions := engine.GetSSHServerStatus()
+	sshServerState := &proto.SSHServerState{
+		Enabled: enabled,
+	}
+
+	for _, session := range sessions {
+		sshServerState.Sessions = append(sshServerState.Sessions, &proto.SSHSessionInfo{
+			Username:      session.Username,
+			RemoteAddress: session.RemoteAddress,
+			Command:       session.Command,
+			JwtUsername:   session.JWTUsername,
+		})
+	}
+
+	return sshServerState
 }
 
 // GetPeerSSHHostKey retrieves SSH host key for a specific peer
