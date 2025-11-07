@@ -104,7 +104,6 @@ type sshConnectionState struct {
 	hasActivePortForward bool
 	username             string
 	remoteAddr           string
-	jwtUsername          string
 }
 
 type authKey string
