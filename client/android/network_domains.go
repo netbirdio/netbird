@@ -37,10 +37,10 @@ func (d *NetworkDomain) GetResolvedIPs() *ResolvedIPs {
 }
 
 type NetworkDomains struct {
-	domains []NetworkDomain
+	domains []*NetworkDomain
 }
 
-func (n *NetworkDomains) Add(domain NetworkDomain) {
+func (n *NetworkDomains) Add(domain *NetworkDomain) {
 	n.domains = append(n.domains, domain)
 }
 
@@ -48,7 +48,7 @@ func (n *NetworkDomains) Get(i int) (*NetworkDomain, error) {
 	if i < 0 || i >= len(n.domains) {
 		return nil, fmt.Errorf("%d is out of range", i)
 	}
-	return &n.domains[i], nil
+	return n.domains[i], nil
 }
 
 func (n *NetworkDomains) Size() int {

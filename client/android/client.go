@@ -344,7 +344,7 @@ func (c *Client) getNetworkDomainsFromRoute(route *route.Route, resolvedDomains 
 			}
 		}
 
-		domains.Add(networkDomain)
+		domains.Add(&networkDomain)
 	}
 
 	return domains
