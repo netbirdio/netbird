@@ -84,7 +84,11 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 			request, err := m.checkPATFromRequest(r, auth)
 			if err != nil {
 				log.WithContext(r.Context()).Debugf("Error when validating PAT: %s", err.Error())
-				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
+				// Check if it's a status error, otherwise default to Unauthorized
+				if _, ok := status.FromError(err); !ok {
+					err = status.Errorf(status.Unauthorized, "token invalid")
+				}
+				util.WriteError(r.Context(), err, w)
 				return
 			}
 			h.ServeHTTP(w, request)
@@ -155,7 +159,7 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, auth []string) (*h
 
 	if m.rateLimiter != nil {
 		if !m.rateLimiter.Allow(token) {
-			return r, fmt.Errorf("too many requests")
+			return r, status.Errorf(status.TooManyRequests, "too many requests")
 		}
 	}
 

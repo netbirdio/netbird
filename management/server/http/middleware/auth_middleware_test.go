@@ -292,7 +292,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code, "Request beyond burst should fail")
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code, "Request beyond burst should be rate limited")
 	})
 
 	t.Run("PAT Token Rate Limiting - Rate Limit Enforced", func(t *testing.T) {
@@ -334,7 +334,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 		req.Header.Set("Authorization", "Token "+PAT)
 		rec = httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code, "Second request should be rate limited")
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code, "Second request should be rate limited")
 	})
 
 	t.Run("Bearer Token Not Rate Limited", func(t *testing.T) {
@@ -419,7 +419,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 		req.Header.Set("Authorization", "Token "+PAT)
 		rec = httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code, "Second request with same PAT should be rate limited")
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code, "Second request with same PAT should be rate limited")
 
 		// Use second PAT token - should succeed because it has independent rate limit
 		req = httptest.NewRequest("GET", "http://testing/test", nil)
@@ -433,7 +433,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 		req.Header.Set("Authorization", "Token "+PAT2)
 		rec = httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code, "Second request with PAT2 should be rate limited")
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code, "Second request with PAT2 should be rate limited")
 
 		// JWT should still work (not rate limited)
 		req = httptest.NewRequest("GET", "http://testing/test", nil)
@@ -482,7 +482,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 		req.Header.Set("Authorization", "Token "+PAT)
 		rec = httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code, "Second request should be rate limited")
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code, "Second request should be rate limited")
 
 		// Wait for limiter to be cleaned up (TTL + cleanup interval + buffer)
 		time.Sleep(400 * time.Millisecond)
@@ -499,7 +499,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 		req.Header.Set("Authorization", "Token "+PAT)
 		rec = httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code, "Second request after cleanup should be rate limited again")
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code, "Second request after cleanup should be rate limited again")
 	})
 }
 
