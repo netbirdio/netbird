@@ -264,6 +264,7 @@ func (a *Account) GetPeerNetworkMap(
 	routers map[string]map[string]*routerTypes.NetworkRouter,
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
+	start := time.Now()
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
