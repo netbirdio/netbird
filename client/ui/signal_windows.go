@@ -60,7 +60,7 @@ func (s *serviceClient) setupSignalHandler(ctx context.Context) {
 		return
 	}
 
-	log.Infof("Debug handler waiting for signal on event: %s", quickActionsTriggerEventName)
+	log.Infof("Quick actions handler waiting for signal on event: %s", quickActionsTriggerEventName)
 
 	go s.waitForEvent(ctx, eventHandle)
 }
@@ -163,8 +163,7 @@ func sendShowWindowSignal(pid int32) error {
 
 	err = windows.SetEvent(eventHandle)
 	if err != nil {
-		log.Printf("Error setting event: %v", err)
-		return err
+		return fmt.Errorf("Error setting event: %w", err)
 	}
 
 	return nil
