@@ -12,7 +12,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-func toggleRoute(id string, manager routemanager.Manager,
+func executeRouteToggle(id string, manager routemanager.Manager,
 	operationName string,
 	routeOperation func(routes []route.NetID, allRoutes []route.NetID) error) error {
 	netID := route.NetID(id)
@@ -49,7 +49,7 @@ func (s selectRouteCommand) toggleRoute() error {
 		return routeSelector.SelectRoutes(routes, true, allRoutes)
 	}
 
-	return toggleRoute(s.route, s.manager, "selecting route", routeOperation)
+	return executeRouteToggle(s.route, s.manager, "selecting route", routeOperation)
 }
 
 type deselectRouteCommand struct {
@@ -63,5 +63,5 @@ func (d deselectRouteCommand) toggleRoute() error {
 		return fmt.Errorf("no route selector available")
 	}
 
-	return toggleRoute(d.route, d.manager, "deselecting route", routeSelector.DeselectRoutes)
+	return executeRouteToggle(d.route, d.manager, "deselecting route", routeSelector.DeselectRoutes)
 }
