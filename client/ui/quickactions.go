@@ -9,6 +9,7 @@ import (
 	_ "embed"
 	"fmt"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -18,6 +19,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -30,22 +32,24 @@ type quickActionsUiState struct {
 
 func newQuickActionsUiState() quickActionsUiState {
 	return quickActionsUiState{
-		connectionStatus:      "Idle",
+		connectionStatus:      string(internal.StatusIdle),
 		isToggleButtonEnabled: false,
 		isConnectionChanged:   false,
 	}
 }
 
 type clientConnectionStatusProvider interface {
-	connectionStatus() (string, error)
+	connectionStatus(ctx context.Context) (string, error)
 }
 
 type daemonClientConnectionStatusProvider struct {
 	client proto.DaemonServiceClient
 }
 
-func (d daemonClientConnectionStatusProvider) connectionStatus() (string, error) {
-	status, err := d.client.Status(context.Background(), &proto.StatusRequest{})
+func (d daemonClientConnectionStatusProvider) connectionStatus(ctx context.Context) (string, error) {
+	childCtx, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
+	defer cancel()
+	status, err := d.client.Status(childCtx, &proto.StatusRequest{})
 	if err != nil {
 		return "", err
 	}
@@ -74,91 +78,93 @@ func (c disconnectCommand) execute() error {
 }
 
 type quickActionsViewModel struct {
-	provider   clientConnectionStatusProvider
-	connect    clientCommand
-	disconnect clientCommand
-	uiChan     chan quickActionsUiState
-	pauseChan  chan struct{}
-	resumeChan chan struct{}
+	provider                   clientConnectionStatusProvider
+	connect                    clientCommand
+	disconnect                 clientCommand
+	uiChan                     chan quickActionsUiState
+	isWatchingConnectionStatus atomic.Bool
 }
 
-func newQuickActionsViewModel(provider clientConnectionStatusProvider, connect, disconnect clientCommand, uiChan chan quickActionsUiState) quickActionsViewModel {
+func newQuickActionsViewModel(ctx context.Context, provider clientConnectionStatusProvider, connect, disconnect clientCommand, uiChan chan quickActionsUiState) *quickActionsViewModel {
 	viewModel := quickActionsViewModel{
 		provider:   provider,
 		connect:    connect,
 		disconnect: disconnect,
 		uiChan:     uiChan,
-		pauseChan:  make(chan struct{}),
-		resumeChan: make(chan struct{}),
 	}
+
+	viewModel.isWatchingConnectionStatus.Store(true)
 
 	// base UI status
 	uiChan <- newQuickActionsUiState()
 
 	// this retrieves the current connection status
-	go func() {
-		getConnectionStatus := true
+	// and pushes the UI state that reflects it via uiChan
+	go viewModel.watchConnectionStatus(ctx)
 
-		for {
-			select {
-			case <-viewModel.pauseChan:
-				// pause until resumed.
-				getConnectionStatus = false
-				log.Debug("uiChan paused.")
-			case <-viewModel.resumeChan:
-				getConnectionStatus = true
-				log.Debug("uiChan resumed.")
-			default:
-				if !getConnectionStatus {
-					continue
-				}
+	return &viewModel
+}
 
-				uiState := newQuickActionsUiState()
-				connectionStatus, err := provider.connectionStatus()
+func (q *quickActionsViewModel) updateUiState(ctx context.Context) {
+	uiState := newQuickActionsUiState()
+	connectionStatus, err := q.provider.connectionStatus(ctx)
 
-				if err != nil {
-					log.Errorf("Status: Error - %v", err)
-					uiChan <- uiState
-				}
+	if err != nil {
+		log.Errorf("Status: Error - %v", err)
+		q.uiChan <- uiState
+		return
+	}
 
-				if connectionStatus == "Connected" {
-					uiState.toggleAction = func() {
-						viewModel.executeCommand(disconnect)
-					}
-				} else {
-					uiState.toggleAction = func() {
-						viewModel.executeCommand(connect)
-					}
-				}
+	if connectionStatus == string(internal.StatusConnected) {
+		uiState.toggleAction = func() {
+			q.executeCommand(q.disconnect)
+		}
+	} else {
+		uiState.toggleAction = func() {
+			q.executeCommand(q.connect)
+		}
+	}
 
-				uiState.isToggleButtonEnabled = true
-				uiState.connectionStatus = connectionStatus
-				//uiState.statusLabelText = fmt.Sprintf("Connection status: %s", connectionStatus)
-				uiChan <- uiState
-				time.Sleep(500 * time.Millisecond)
+	uiState.isToggleButtonEnabled = true
+	uiState.connectionStatus = connectionStatus
+	q.uiChan <- uiState
+}
+
+func (q *quickActionsViewModel) watchConnectionStatus(ctx context.Context) {
+	ticker := time.NewTicker(1000 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if q.isWatchingConnectionStatus.Load() {
+				q.updateUiState(ctx)
 			}
 		}
-	}()
-
-	return viewModel
+	}
 }
 
 func (q *quickActionsViewModel) executeCommand(command clientCommand) {
 	uiState := newQuickActionsUiState()
+	// newQuickActionsUiState starts with Idle connection status,
+	// and all that's necessary here is to just disable the toggle button.
 	uiState.connectionStatus = ""
 
 	q.uiChan <- uiState
-	q.pauseChan <- struct{}{}
+
+	q.isWatchingConnectionStatus.Store(false)
 
 	err := command.execute()
 
 	if err != nil {
 		log.Errorf("Status: Error - %v", err)
+		q.isWatchingConnectionStatus.Store(true)
 	} else {
 		uiState = newQuickActionsUiState()
 		uiState.isConnectionChanged = true
 		q.uiChan <- uiState
-		//q.resumeChan <- struct{}{}
 	}
 }
 
@@ -182,6 +188,71 @@ func (s *serviceClient) getNetBirdImage(name string, content []byte) *canvas.Ima
 	image.Resize(imageSize)
 
 	return image
+}
+
+// applyQuickActionsUiState applies a single UI state to the quick actions window.
+// It closes the window and returns true if the connection status has changed,
+// in which case the caller should stop processing further states.
+func (s *serviceClient) applyQuickActionsUiState(
+	uiState quickActionsUiState,
+	content *fyne.Container,
+	toggleConnectionButton *widget.Button,
+	connectedLabelText, disconnectedLabelText string,
+	connectedImage, disconnectedImage *canvas.Image,
+	connectedCircleRes, disconnectedCircleRes fyne.Resource,
+) bool {
+	if uiState.isConnectionChanged {
+		fyne.DoAndWait(func() {
+			s.wQuickActions.Close()
+		})
+		return true
+	}
+
+	var logo *canvas.Image
+	var buttonText string
+	var buttonIcon fyne.Resource
+
+	if uiState.connectionStatus == string(internal.StatusConnected) {
+		buttonText = connectedLabelText
+		buttonIcon = connectedCircleRes
+		logo = connectedImage
+	} else if uiState.connectionStatus == string(internal.StatusIdle) {
+		buttonText = disconnectedLabelText
+		buttonIcon = disconnectedCircleRes
+		logo = disconnectedImage
+	}
+
+	fyne.DoAndWait(func() {
+		if buttonText != "" {
+			toggleConnectionButton.SetText(buttonText)
+		}
+
+		if buttonIcon != nil {
+			toggleConnectionButton.SetIcon(buttonIcon)
+		}
+
+		if uiState.isToggleButtonEnabled {
+			toggleConnectionButton.Enable()
+		} else {
+			toggleConnectionButton.Disable()
+		}
+
+		toggleConnectionButton.OnTapped = func() {
+			if uiState.toggleAction != nil {
+				go uiState.toggleAction()
+			}
+		}
+
+		toggleConnectionButton.Refresh()
+
+		// the second position in the content's object array is the NetBird logo.
+		if logo != nil {
+			content.Objects[1] = logo
+			content.Refresh()
+		}
+	})
+
+	return false
 }
 
 // showQuickActionsUI displays a simple window with the NetBird logo and a connection toggle button.
@@ -209,7 +280,7 @@ func (s *serviceClient) showQuickActionsUI() {
 	}
 
 	uiChan := make(chan quickActionsUiState, 1)
-	newQuickActionsViewModel(daemonClientConnectionStatusProvider{client: client}, connCmd, disConnCmd, uiChan)
+	newQuickActionsViewModel(s.ctx, daemonClientConnectionStatusProvider{client: client}, connCmd, disConnCmd, uiChan)
 
 	connectedImage := s.getNetBirdImage("netbird.png", iconAbout)
 	disconnectedImage := s.getNetBirdImage("netbird-disconnected.png", iconAboutDisconnected)
@@ -223,6 +294,9 @@ func (s *serviceClient) showQuickActionsUI() {
 	toggleConnectionButton := widget.NewButtonWithIcon(disconnectedLabelText, disconnectedCircle.Resource, func() {
 		// This button's tap function will be set when an ui state arrives via the uiChan channel.
 	})
+
+	// Button starts disabled until the first ui state arrives.
+	toggleConnectionButton.Disable()
 
 	hintLabelText := fmt.Sprintf("You can always access NetBird from your %s.", getSystemTrayName())
 	hintLabel := widget.NewLabel(hintLabelText)
@@ -238,49 +312,27 @@ func (s *serviceClient) showQuickActionsUI() {
 
 	// this watches for ui state updates.
 	go func() {
-		var logo *canvas.Image
-		var buttonText string
-		var buttonIcon fyne.Resource
 
-		for uiState := range uiChan {
-			if uiState.isConnectionChanged {
-				fyne.DoAndWait(func() {
-					s.wQuickActions.Close()
-				})
-
+		for {
+			select {
+			case <-s.ctx.Done():
 				return
-			}
-
-			if uiState.connectionStatus == "Connected" {
-				buttonText = connectedLabelText
-				buttonIcon = connectedCircle.Resource
-				logo = connectedImage
-			} else if uiState.connectionStatus == "Idle" {
-				buttonText = disconnectedLabelText
-				buttonIcon = disconnectedCircle.Resource
-				logo = disconnectedImage
-			}
-
-			fyne.DoAndWait(func() {
-				toggleConnectionButton.SetText(buttonText)
-				toggleConnectionButton.SetIcon(buttonIcon)
-				if uiState.isToggleButtonEnabled {
-					toggleConnectionButton.Enable()
-				} else {
-					toggleConnectionButton.Disable()
+			case uiState, ok := <-uiChan:
+				if !ok {
+					return
 				}
 
-				toggleConnectionButton.Refresh()
-
-				// second position in the content's objects array is the NetBird logo.
-				content.Objects[1] = logo
-				content.Refresh()
-			})
-
-			toggleConnectionButton.OnTapped = func() {
-				go func() {
-					uiState.toggleAction()
-				}()
+				closed := s.applyQuickActionsUiState(
+					uiState,
+					content,
+					toggleConnectionButton,
+					connectedLabelText, disconnectedLabelText,
+					connectedImage, disconnectedImage,
+					connectedCircle.Resource, disconnectedCircle.Resource,
+				)
+				if closed {
+					return
+				}
 			}
 		}
 	}()
