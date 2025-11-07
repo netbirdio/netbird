@@ -19,8 +19,8 @@ import (
 // It also redirects tun.Device's Events() to a separate goroutine
 // and closes it when Close is called.
 //
-// The WaitGroup and CloseOnce
-// fields are used to ensure that the goroutine is closed only once.
+// The WaitGroup and CloseOnce fields are used to ensure that the
+// goroutine is awaited and closed only once.
 type closeAwareDevice struct {
 	isClosed atomic.Bool
 	tun.Device
@@ -37,6 +37,8 @@ func newClosableDevice(tunDevice tun.Device) *closeAwareDevice {
 	}
 }
 
+// redirectEvents redirects the Events() method of the underlying tun.Device
+// to the given channel (RenewableTUN's events channel).
 func (c *closeAwareDevice) redirectEvents(out chan tun.Event) {
 	c.wg.Add(1)
 	go func() {
@@ -108,6 +110,11 @@ func (r *RenewableTUN) File() *os.File {
 	}
 }
 
+// Read reads from an underlying tun.Device kept in the r.devices slice.
+// If no device is available, it waits for one to be added via AddDevice().
+//
+// On error, it retries reading from the newest device instead of returning the error
+// if the device is closed; if not, it propagates the error.
 func (r *RenewableTUN) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
 	for {
 		dev := r.peekLast()
@@ -124,7 +131,7 @@ func (r *RenewableTUN) Read(bufs [][]byte, sizes []int, offset int) (n int, err 
 			return n, nil
 		}
 
-		// swap in progress; retry on the newest
+		// swap in progress; retry on the newest instead of returning the error
 		if dev.IsClosed() {
 			time.Sleep(1 * time.Millisecond)
 			continue
@@ -133,6 +140,11 @@ func (r *RenewableTUN) Read(bufs [][]byte, sizes []int, offset int) (n int, err 
 	}
 }
 
+// Write writes to underlying tun.Device kept in the r.devices slice.
+// If no device is available, it waits for one to be added via AddDevice().
+//
+// On error, it retries writing to the newest device instead of returning the error
+// if the device is closed; if not, it propagates the error.
 func (r *RenewableTUN) Write(bufs [][]byte, offset int) (int, error) {
 	for {
 		dev := r.peekLast()
@@ -142,14 +154,17 @@ func (r *RenewableTUN) Write(bufs [][]byte, offset int) (int, error) {
 			}
 			continue
 		}
+
 		n, err := dev.Write(bufs, offset)
 		if err == nil {
 			return n, nil
 		}
+
 		if dev.IsClosed() {
 			time.Sleep(1 * time.Millisecond)
 			continue
 		}
+
 		return n, err
 	}
 }
@@ -194,11 +209,15 @@ func (r *RenewableTUN) Name() (string, error) {
 	}
 }
 
+// Events returns a channel that is fed events from the underlying tun.Device's events channel
+// once it is added.
 func (r *RenewableTUN) Events() <-chan tun.Event {
 	return r.events
 }
 
 func (r *RenewableTUN) Close() error {
+	// Attempts to set the RenewableTUN closed flag to true.
+	// If it's already true, returns immediately.
 	if !r.closed.CompareAndSwap(false, true) {
 		return nil // already closed: idempotent
 	}
@@ -223,8 +242,6 @@ func (r *RenewableTUN) Close() error {
 }
 
 func (r *RenewableTUN) BatchSize() int {
-	log.Debug("returning batch size")
-
 	return 1
 }
 
