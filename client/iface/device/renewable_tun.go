@@ -179,21 +179,35 @@ func (r *RenewableTUN) BatchSize() int {
 }
 
 func (r *RenewableTUN) AddDevice(device tun.Device) {
-	first := r.dequeue()
+	//first := r.dequeue()
+	//
+	//// defers closing the old device after adding the new one if there was any.
+	//if first != nil {
+	//	defer func(first *closeAwareDevice) {
+	//		err := first.Close()
+	//		if err != nil {
+	//			log.Debugf("error closing first device: %v", err)
+	//		}
+	//	}(first)
+	//}
+	//
+	//r.mu.Lock()
+	//defer r.mu.Unlock()
+	//r.devices = append(r.devices, newClosableDevice(device))
 
-	// defers closing the old device after adding the new one if there was any.
-	if first != nil {
-		defer func(first *closeAwareDevice) {
-			err := first.Close()
-			if err != nil {
-				log.Debugf("error closing first device: %v", err)
-			}
-		}(first)
-	}
-
+	var toClose *closeAwareDevice
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.devices = append(r.devices, newClosableDevice(device))
+	if len(r.devices) > 0 {
+		toClose = r.devices[len(r.devices)-1]
+	}
+	r.devices = []*closeAwareDevice{newClosableDevice(device)}
+	r.mu.Unlock()
+
+	if toClose != nil {
+		if err := toClose.Close(); err != nil {
+			log.Debugf("error closing device: %v", err)
+		}
+	}
 }
 
 func (r *RenewableTUN) peekLast() *closeAwareDevice {
