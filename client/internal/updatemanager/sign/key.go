@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+const (
+	maxClockSkew    = 5 * time.Minute
+	maxSignatureAge = 365 * 24 * time.Hour
+)
+
 // KeyID is a unique identifier for a Key (first 8 bytes of SHA-256 of public Key)
 type KeyID [8]byte
 
@@ -103,7 +108,6 @@ type PrivateKey struct {
 	Metadata KeyMetadata
 }
 
-// parsePrivateKey parses a PEM-encoded private Key with Metadata
 func parsePrivateKey(data []byte, typeTag string) (PrivateKey, error) {
 	b, rest := pem.Decode(data)
 	if b == nil {
@@ -129,4 +133,19 @@ func parsePrivateKey(data []byte, typeTag string) (PrivateKey, error) {
 	}
 
 	return pk, nil
+}
+
+func verifyAny(publicRootKeys []PublicKey, msg, sig []byte) bool {
+	// Verify with root keys
+	var rootKeys []ed25519.PublicKey
+	for _, r := range publicRootKeys {
+		rootKeys = append(rootKeys, r.Key)
+	}
+
+	for _, k := range rootKeys {
+		if ed25519.Verify(k, msg, sig) {
+			return true
+		}
+	}
+	return false
 }

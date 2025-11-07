@@ -4,13 +4,16 @@ import (
 	"crypto/ed25519"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
-// RevocationList contains revoked Key IDs and their revocation timestamps
 type RevocationList struct {
-	Revoked map[KeyID]time.Time // KeyID -> revocation time
+	Revoked     map[KeyID]time.Time `json:"revoked"`      // KeyID -> revocation time
+	LastUpdated time.Time           `json:"last_updated"` // When the list was last modified
 }
 
 func (rl *RevocationList) MarshalJSON() ([]byte, error) {
@@ -21,13 +24,16 @@ func (rl *RevocationList) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(map[string]interface{}{
-		"revoked": strMap,
+		"revoked":      strMap,
+		"last_updated": rl.LastUpdated,
 	})
 }
 
 func (rl *RevocationList) UnmarshalJSON(data []byte) error {
 	var temp struct {
-		Revoked map[string]time.Time `json:"revoked"`
+		Revoked     map[string]time.Time `json:"revoked"`
+		LastUpdated time.Time            `json:"last_updated"`
+		Version     int                  `json:"version"`
 	}
 
 	if err := json.Unmarshal(data, &temp); err != nil {
@@ -44,6 +50,8 @@ func (rl *RevocationList) UnmarshalJSON(data []byte) error {
 		rl.Revoked[kid] = v
 	}
 
+	rl.LastUpdated = temp.LastUpdated
+
 	return nil
 }
 
@@ -58,12 +66,69 @@ func ParseRevocationList(data []byte) (*RevocationList, error) {
 		rl.Revoked = make(map[KeyID]time.Time)
 	}
 
+	if rl.LastUpdated.IsZero() {
+		return nil, fmt.Errorf("revocation list missing last_updated timestamp")
+	}
+
 	return &rl, nil
 }
 
+func ValidateRevocationList(publicRootKeys []PublicKey, data []byte, signature Signature) (*RevocationList, error) {
+	revoList, err := ParseRevocationList(data)
+	if err != nil {
+		log.Debugf("failed to parse revocation list: %s", err)
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+
+	// Validate signature timestamp
+	if signature.Timestamp.After(now.Add(maxClockSkew)) {
+		err := fmt.Errorf("revocation signature timestamp is in the future: %v", signature.Timestamp)
+		log.Debugf("revocation list signature error: %v", err)
+		return nil, err
+	}
+
+	if now.Sub(signature.Timestamp) > maxSignatureAge {
+		err := fmt.Errorf("revocation list signature is too old: %v (created %v)",
+			now.Sub(signature.Timestamp), signature.Timestamp)
+		log.Debugf("revocation list signature error: %v", err)
+		return nil, err
+	}
+
+	// Ensure LastUpdated is not in the future (with clock skew tolerance)
+	if revoList.LastUpdated.After(now.Add(maxClockSkew)) {
+		err := fmt.Errorf("revocation list LastUpdated is in the future: %v", revoList.LastUpdated)
+		log.Errorf("rejecting future-dated revocation list: %v", err)
+		return nil, err
+	}
+
+	// Validate signature timestamp is close to LastUpdated
+	// (prevents signing old lists with new timestamps)
+	timeDiff := signature.Timestamp.Sub(revoList.LastUpdated).Abs()
+	if timeDiff > maxClockSkew {
+		err := fmt.Errorf("signature timestamp %v differs too much from list LastUpdated %v (diff: %v)",
+			signature.Timestamp, revoList.LastUpdated, timeDiff)
+		log.Errorf("timestamp mismatch in revocation list: %v", err)
+		return nil, err
+	}
+
+	// Reconstruct the signed message: revocation_list_data || timestamp || version
+	msg := make([]byte, 0, len(data)+8)
+	msg = append(msg, data...)
+	msg = binary.LittleEndian.AppendUint64(msg, uint64(signature.Timestamp.Unix()))
+
+	if !verifyAny(publicRootKeys, msg, signature.Signature) {
+		return nil, errors.New("revocation list verification failed")
+	}
+	return revoList, nil
+}
+
 func CreateRevocationList(privateRootKey RootKey) ([]byte, []byte, error) {
+	now := time.Now().UTC()
 	rl := RevocationList{
-		Revoked: make(map[KeyID]time.Time),
+		Revoked:     make(map[KeyID]time.Time),
+		LastUpdated: now,
 	}
 
 	signature, err := signRevocationList(privateRootKey, rl)
@@ -85,7 +150,10 @@ func CreateRevocationList(privateRootKey RootKey) ([]byte, []byte, error) {
 }
 
 func ExtendRevocationList(privateRootKey RootKey, rl RevocationList, kid KeyID) ([]byte, []byte, error) {
-	rl.Revoked[kid] = time.Now().UTC()
+	now := time.Now().UTC()
+
+	rl.Revoked[kid] = now
+	rl.LastUpdated = now
 
 	signature, err := signRevocationList(privateRootKey, rl)
 	if err != nil {
@@ -113,7 +181,6 @@ func signRevocationList(privateRootKey RootKey, rl RevocationList) (*Signature, 
 
 	timestamp := time.Now().UTC()
 
-	// This ensures the timestamp is cryptographically bound to the signature
 	msg := make([]byte, 0, len(data)+8)
 	msg = append(msg, data...)
 	msg = binary.LittleEndian.AppendUint64(msg, uint64(timestamp.Unix()))
@@ -122,7 +189,7 @@ func signRevocationList(privateRootKey RootKey, rl RevocationList) (*Signature, 
 
 	signature := &Signature{
 		Signature: sig,
-		Timestamp: time.Now().UTC(),
+		Timestamp: timestamp,
 		KeyID:     privateRootKey.Metadata.ID,
 		Algorithm: "ed25519",
 		HashAlgo:  "sha512",

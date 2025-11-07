@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"embed"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -29,9 +28,6 @@ const (
 	keySizeLimit    = 5 * 1024 * 1024 //5MB
 	signatureLimit  = 1024
 	revocationLimit = 10 * 1024 * 1024
-
-	maxClockSkew    = 5 * time.Minute
-	maxSignatureAge = 365 * 24 * time.Hour
 )
 
 //go:embed certs
@@ -86,7 +82,13 @@ func (a *ArtifactVerify) Verify(ctx context.Context, version string, artifactFil
 		return fmt.Errorf("failed to download signature file for: %s, %v", filepath.Base(artifactFile), err)
 	}
 
-	if err := a.validateArtifact(artifactPubKeys, artifactFile, signature); err != nil {
+	artifactData, err := os.ReadFile(artifactFile)
+	if err != nil {
+		log.Errorf("failed to read artifact file: %v", err)
+		return fmt.Errorf("failed to read artifact file: %w", err)
+	}
+
+	if err := ValidateArtifact(artifactPubKeys, artifactData, *signature); err != nil {
 		return fmt.Errorf("failed to validate artifact: %v", err)
 	}
 
@@ -94,15 +96,15 @@ func (a *ArtifactVerify) Verify(ctx context.Context, version string, artifactFil
 }
 
 func (a *ArtifactVerify) loadRevocationList(ctx context.Context) (*RevocationList, error) {
-	url := a.keysBaseURL.JoinPath(revocationFileName).String()
-	data, err := downloader.DownloadToMemory(ctx, url, revocationLimit)
+	downloadURL := a.keysBaseURL.JoinPath(revocationFileName).String()
+	data, err := downloader.DownloadToMemory(ctx, downloadURL, revocationLimit)
 	if err != nil {
 		log.Debugf("failed to download revocation list for: %s", err)
 		return nil, err
 	}
 
-	url = a.keysBaseURL.JoinPath(revocationSignFileName).String()
-	sigData, err := downloader.DownloadToMemory(ctx, url, signatureLimit)
+	downloadURL = a.keysBaseURL.JoinPath(revocationSignFileName).String()
+	sigData, err := downloader.DownloadToMemory(ctx, downloadURL, signatureLimit)
 	if err != nil {
 		log.Debugf("failed to download revocation list for: %s", err)
 		return nil, err
@@ -114,48 +116,21 @@ func (a *ArtifactVerify) loadRevocationList(ctx context.Context) (*RevocationLis
 		return nil, err
 	}
 
-	now := time.Now().UTC()
-	if signature.Timestamp.After(now.Add(maxClockSkew)) {
-		err := fmt.Errorf("revocation signature timestamp is in the future: %v", signature.Timestamp)
-		log.Debugf("revocation list signature error: %v", err)
-		return nil, err
-	}
-	if now.Sub(signature.Timestamp) > maxSignatureAge {
-		err := fmt.Errorf("revocation list signature is too old: %v (created %v)", now.Sub(signature.Timestamp), signature.Timestamp)
-		log.Debugf("revocation list signature error: %v", err)
-		return nil, err
-	}
-
-	// Reconstruct the signed message: revocation_list_data || timestamp
-	msg := make([]byte, 0, len(data)+8)
-	msg = append(msg, data...)
-	msg = binary.LittleEndian.AppendUint64(msg, uint64(signature.Timestamp.Unix()))
-
-	if !verifyAny(a.rootKeys, msg, signature.Signature) {
-		return nil, errors.New("revocation list verification failed")
-	}
-
-	revoList, err := ParseRevocationList(data)
-	if err != nil {
-		log.Debugf("failed to parse revocation list signature: %s", err)
-		return nil, err
-	}
-
-	return revoList, nil
+	return ValidateRevocationList(a.rootKeys, data, *signature)
 }
 
 func (a *ArtifactVerify) loadArtifactKeys(ctx context.Context) ([]PublicKey, error) {
-	url := a.keysBaseURL.JoinPath(artifactPubKeysFileName).String()
-	log.Debugf("starting downloading artifact keys from: %s", url)
-	data, err := downloader.DownloadToMemory(ctx, url, keySizeLimit)
+	downloadURL := a.keysBaseURL.JoinPath(artifactPubKeysFileName).String()
+	log.Debugf("starting downloading artifact keys from: %s", downloadURL)
+	data, err := downloader.DownloadToMemory(ctx, downloadURL, keySizeLimit)
 	if err != nil {
 		log.Debugf("failed to download artifact keys: %s", err)
 		return nil, err
 	}
 
-	url = a.keysBaseURL.JoinPath(artifactPubKeysSigFileName).String()
-	log.Debugf("start downloading signature of artifact pub key from: %s", url)
-	sigData, err := downloader.DownloadToMemory(ctx, url, signatureLimit)
+	downloadURL = a.keysBaseURL.JoinPath(artifactPubKeysSigFileName).String()
+	log.Debugf("start downloading signature of artifact pub key from: %s", downloadURL)
+	sigData, err := downloader.DownloadToMemory(ctx, downloadURL, signatureLimit)
 	if err != nil {
 		log.Debugf("failed to download signature of public keys: %s", err)
 		return nil, err
@@ -167,55 +142,13 @@ func (a *ArtifactVerify) loadArtifactKeys(ctx context.Context) ([]PublicKey, err
 		return nil, err
 	}
 
-	now := time.Now().UTC()
-	if signature.Timestamp.After(now.Add(maxClockSkew)) {
-		err := fmt.Errorf("signature timestamp is in the future: %v", signature.Timestamp)
-		log.Debugf("artifact signature error: %v", err)
-		return nil, err
-	}
-	if now.Sub(signature.Timestamp) > maxSignatureAge {
-		err := fmt.Errorf("signature is too old: %v (created %v)", now.Sub(signature.Timestamp), signature.Timestamp)
-		log.Debugf("artifact signature error: %v", err)
-		return nil, err
-	}
-
-	// Reconstruct the signed message: artifact_key_data || timestamp
-	msg := make([]byte, 0, len(data)+8)
-	msg = append(msg, data...)
-	msg = binary.LittleEndian.AppendUint64(msg, uint64(signature.Timestamp.Unix()))
-
-	if !verifyAny(a.rootKeys, msg, signature.Signature) {
-		return nil, errors.New("failed to verify signature of artifact keys")
-	}
-
-	pubKeys, err := parsePublicKeyBundle(data, tagArtifactPublic)
-	if err != nil {
-		log.Debugf("failed to parse public keys for: %s", err)
-		return nil, err
-	}
-
-	validKeys := make([]PublicKey, 0, len(pubKeys))
-	for _, pubKey := range pubKeys {
-		if revTime, revoked := a.revocationList.Revoked[pubKey.Metadata.ID]; revoked {
-			log.Debugf("Key %s is revoked as of %v (created %v)",
-				pubKey.Metadata.ID, revTime, pubKey.Metadata.CreatedAt)
-			continue
-		}
-		validKeys = append(validKeys, pubKey)
-	}
-
-	if len(validKeys) == 0 {
-		log.Debugf("no valid public keys found for artifact keys")
-		return nil, fmt.Errorf("all %d artifact keys are revoked", len(pubKeys))
-	}
-
-	return validKeys, nil
+	return ValidateArtifactKeys(a.rootKeys, data, *signature, a.revocationList)
 }
 
 func (a *ArtifactVerify) loadArtifactSignature(ctx context.Context, version string, artifactFile string) (*Signature, error) {
-	url := a.artifactsBaseURL.JoinPath(version, artifactFile+".sig").String()
-	log.Debugf("starting downloading artifact signature from: %s", url)
-	data, err := downloader.DownloadToMemory(ctx, url, signatureLimit)
+	downloadURL := a.artifactsBaseURL.JoinPath(version, artifactFile+".sig").String()
+	log.Debugf("starting downloading artifact signature from: %s", downloadURL)
+	data, err := downloader.DownloadToMemory(ctx, downloadURL, signatureLimit)
 	if err != nil {
 		log.Debugf("failed to download artifact signature: %s", err)
 		return nil, err
@@ -315,19 +248,4 @@ func loadEmbeddedPublicKeys() ([]PublicKey, error) {
 	}
 
 	return allKeys, nil
-}
-
-func verifyAny(publicRootKeys []PublicKey, msg, sig []byte) bool {
-	// Verify with root keys
-	var rootKeys []ed25519.PublicKey
-	for _, r := range publicRootKeys {
-		rootKeys = append(rootKeys, r.Key)
-	}
-
-	for _, k := range rootKeys {
-		if ed25519.Verify(k, msg, sig) {
-			return true
-		}
-	}
-	return false
 }

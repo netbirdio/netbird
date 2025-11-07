@@ -11,6 +11,7 @@ import (
 	"hash"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/blake2s"
 )
 
@@ -159,34 +160,130 @@ func BundleArtifactKeys(rootKey *RootKey, keys []PublicKey) ([]byte, []byte, err
 	return pubBundle, signature, nil
 }
 
+func ValidateArtifactKeys(publicRootKeys []PublicKey, data []byte, signature Signature, revocationList *RevocationList) ([]PublicKey, error) {
+	now := time.Now().UTC()
+	if signature.Timestamp.After(now.Add(maxClockSkew)) {
+		err := fmt.Errorf("signature timestamp is in the future: %v", signature.Timestamp)
+		log.Debugf("artifact signature error: %v", err)
+		return nil, err
+	}
+	if now.Sub(signature.Timestamp) > maxSignatureAge {
+		err := fmt.Errorf("signature is too old: %v (created %v)", now.Sub(signature.Timestamp), signature.Timestamp)
+		log.Debugf("artifact signature error: %v", err)
+		return nil, err
+	}
+
+	// Reconstruct the signed message: artifact_key_data || timestamp
+	msg := make([]byte, 0, len(data)+8)
+	msg = append(msg, data...)
+	msg = binary.LittleEndian.AppendUint64(msg, uint64(signature.Timestamp.Unix()))
+
+	if !verifyAny(publicRootKeys, msg, signature.Signature) {
+		return nil, errors.New("failed to verify signature of artifact keys")
+	}
+
+	pubKeys, err := parsePublicKeyBundle(data, tagArtifactPublic)
+	if err != nil {
+		log.Debugf("failed to parse public keys: %s", err)
+		return nil, err
+	}
+
+	validKeys := make([]PublicKey, 0, len(pubKeys))
+	for _, pubKey := range pubKeys {
+		if revocationList != nil {
+			if revTime, revoked := revocationList.Revoked[pubKey.Metadata.ID]; revoked {
+				log.Debugf("Key %s is revoked as of %v (created %v)",
+					pubKey.Metadata.ID, revTime, pubKey.Metadata.CreatedAt)
+				continue
+			}
+		}
+		validKeys = append(validKeys, pubKey)
+	}
+
+	if len(validKeys) == 0 {
+		log.Debugf("no valid public keys found for artifact keys")
+		return nil, fmt.Errorf("all %d artifact keys are revoked", len(pubKeys))
+	}
+
+	return validKeys, nil
+}
+
+func ValidateArtifact(artifactPubKeys []PublicKey, data []byte, signature Signature) error {
+	// Validate signature timestamp
+	now := time.Now().UTC()
+	if signature.Timestamp.After(now.Add(maxClockSkew)) {
+		err := fmt.Errorf("artifact signature timestamp is in the future: %v", signature.Timestamp)
+		log.Debugf("failed to verify signature of artifact: %s", err)
+		return err
+	}
+	if now.Sub(signature.Timestamp) > maxSignatureAge {
+		return fmt.Errorf("artifact signature is too old: %v (created %v)",
+			now.Sub(signature.Timestamp), signature.Timestamp)
+	}
+
+	h := NewArtifactHash()
+	if _, err := h.Write(data); err != nil {
+		return fmt.Errorf("failed to hash artifact: %w", err)
+	}
+	hash := h.Sum(nil)
+
+	// Reconstruct the signed message: hash || length || timestamp
+	msg := make([]byte, 0, len(hash)+8+8)
+	msg = append(msg, hash...)
+	msg = binary.LittleEndian.AppendUint64(msg, uint64(len(data)))
+	msg = binary.LittleEndian.AppendUint64(msg, uint64(signature.Timestamp.Unix()))
+
+	// Find matching Key and verify
+	for _, keyInfo := range artifactPubKeys {
+		if keyInfo.Metadata.ID == signature.KeyID {
+			// Check Key expiration
+			if !keyInfo.Metadata.ExpiresAt.IsZero() &&
+				signature.Timestamp.After(keyInfo.Metadata.ExpiresAt) {
+				return fmt.Errorf("signing Key %s expired at %v, signature from %v",
+					signature.KeyID, keyInfo.Metadata.ExpiresAt, signature.Timestamp)
+			}
+
+			if ed25519.Verify(keyInfo.Key, msg, signature.Signature) {
+				log.Debugf("artifact verified successfully with Key: %s", signature.KeyID)
+				return nil
+			}
+			return fmt.Errorf("signature verification failed for Key %s", signature.KeyID)
+		}
+	}
+
+	return fmt.Errorf("no signing Key found with ID %s", signature.KeyID)
+}
+
 func SignData(artifactKey ArtifactKey, data []byte) ([]byte, error) {
+	if len(data) == 0 { // Check happens too late
+		return nil, fmt.Errorf("artifact length must be positive, got %d", len(data))
+	}
+
 	h := NewArtifactHash()
 	if _, err := h.Write(data); err != nil {
 		return nil, fmt.Errorf("failed to write artifact hash: %w", err)
 	}
-	return signArtifactHash(artifactKey, h.Sum(nil), len(data))
-}
-
-// signArtifactHash signs the hash and length of an artifact with timestamp
-func signArtifactHash(key ArtifactKey, hash []byte, length int) ([]byte, error) {
-	if length <= 0 {
-		return nil, fmt.Errorf("artifact length must be positive, got %d", length)
-	}
 
 	timestamp := time.Now().UTC()
+
+	if !artifactKey.Metadata.ExpiresAt.IsZero() && timestamp.After(artifactKey.Metadata.ExpiresAt) {
+		return nil, fmt.Errorf("artifact key expired at %v", artifactKey.Metadata.ExpiresAt)
+	}
+
+	hash := h.Sum(nil)
 
 	// Create message: hash || length || timestamp
 	msg := make([]byte, 0, len(hash)+8+8)
 	msg = append(msg, hash...)
-	msg = binary.LittleEndian.AppendUint64(msg, uint64(length))
+	msg = binary.LittleEndian.AppendUint64(msg, uint64(len(data)))
 	msg = binary.LittleEndian.AppendUint64(msg, uint64(timestamp.Unix()))
 
-	sig := ed25519.Sign(key.Key, msg)
+	sig := ed25519.Sign(artifactKey.Key, msg)
 
 	bundle := Signature{
 		Signature: sig,
 		Timestamp: timestamp,
-		KeyID:     key.Metadata.ID,
+		KeyID:     artifactKey.Metadata.ID,
 		Algorithm: "ed25519",
 		HashAlgo:  "blake2s",
 	}
