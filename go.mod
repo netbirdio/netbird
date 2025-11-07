@@ -56,6 +56,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
 	github.com/hashicorp/go-version v1.6.0
+	github.com/jackc/pgx/v5 v5.5.5
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-netroute v0.2.1
 	github.com/mdlayher/socket v0.5.1
@@ -102,12 +103,11 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a
-	golang.org/x/mod v0.25.0
+	golang.org/x/mod v0.26.0
 	golang.org/x/net v0.42.0
-	golang.org/x/oauth2 v0.28.0
+	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sync v0.16.0
 	golang.org/x/term v0.33.0
-	golang.org/x/time v0.5.0
 	google.golang.org/api v0.177.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.5.7
@@ -147,7 +147,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/caddyserver/zerossl v0.1.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/containerd/containerd v1.7.27 // indirect
+	github.com/containerd/containerd v1.7.29 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
@@ -184,7 +184,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
-	github.com/jackc/pgx/v5 v5.5.5 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/jeandeaual/go-locale v0.0.0-20240223122105-ce5225dcaa49 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
@@ -246,6 +245,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/image v0.18.0 // indirect
 	golang.org/x/text v0.27.0 // indirect
+	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.34.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250707201910-8d1bb00bc6a7 // indirect

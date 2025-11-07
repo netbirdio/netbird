@@ -14,6 +14,7 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
+	"github.com/netbirdio/netbird/client/iface"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
@@ -30,7 +31,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "failed to init iptables client")
 
-	manager, err := newRouter(iptablesClient, ifaceMock)
+	manager, err := newRouter(iptablesClient, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "should return a valid iptables manager")
 	require.NoError(t, manager.init(nil))
 
@@ -38,7 +39,6 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		assert.NoError(t, manager.Reset(), "shouldn't return error")
 	}()
 
-	// Now 5 rules:
 	// 1. established rule forward in
 	// 2. estbalished rule forward out
 	// 3. jump rule to POST nat chain
@@ -48,7 +48,9 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	// 7. static return masquerade rule
 	// 8. mangle prerouting mark rule
 	// 9. mangle postrouting mark rule
-	require.Len(t, manager.rules, 9, "should have created rules map")
+	// 10. jump rule to MSS clamping chain
+	// 11. MSS clamping rule for outbound traffic
+	require.Len(t, manager.rules, 11, "should have created rules map")
 
 	exists, err := manager.iptablesClient.Exists(tableNat, chainPOSTROUTING, "-j", chainRTNAT)
 	require.NoError(t, err, "should be able to query the iptables %s table and %s chain", tableNat, chainPOSTROUTING)
@@ -82,7 +84,7 @@ func TestIptablesManager_AddNatRule(t *testing.T) {
 			iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 			require.NoError(t, err, "failed to init iptables client")
 
-			manager, err := newRouter(iptablesClient, ifaceMock)
+			manager, err := newRouter(iptablesClient, ifaceMock, iface.DefaultMTU)
 			require.NoError(t, err, "shouldn't return error")
 			require.NoError(t, manager.init(nil))
 
@@ -155,7 +157,7 @@ func TestIptablesManager_RemoveNatRule(t *testing.T) {
 		t.Run(testCase.Name, func(t *testing.T) {
 			iptablesClient, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 
-			manager, err := newRouter(iptablesClient, ifaceMock)
+			manager, err := newRouter(iptablesClient, ifaceMock, iface.DefaultMTU)
 			require.NoError(t, err, "shouldn't return error")
 			require.NoError(t, manager.init(nil))
 			defer func() {
@@ -217,7 +219,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 	iptablesClient, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err, "Failed to create iptables client")
 
-	r, err := newRouter(iptablesClient, ifaceMock)
+	r, err := newRouter(iptablesClient, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "Failed to create router manager")
 	require.NoError(t, r.init(nil))
 
