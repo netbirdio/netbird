@@ -188,16 +188,20 @@ func (s *serviceClient) getNetBirdImage(name string, content []byte) *canvas.Ima
 	return image
 }
 
+type quickActionsUiComponents struct {
+	content                                   *fyne.Container
+	toggleConnectionButton                    *widget.Button
+	connectedLabelText, disconnectedLabelText string
+	connectedImage, disconnectedImage         *canvas.Image
+	connectedCircleRes, disconnectedCircleRes fyne.Resource
+}
+
 // applyQuickActionsUiState applies a single UI state to the quick actions window.
 // It closes the window and returns true if the connection status has changed,
 // in which case the caller should stop processing further states.
 func (s *serviceClient) applyQuickActionsUiState(
 	uiState quickActionsUiState,
-	content *fyne.Container,
-	toggleConnectionButton *widget.Button,
-	connectedLabelText, disconnectedLabelText string,
-	connectedImage, disconnectedImage *canvas.Image,
-	connectedCircleRes, disconnectedCircleRes fyne.Resource,
+	components quickActionsUiComponents,
 ) bool {
 	if uiState.isConnectionChanged {
 		fyne.DoAndWait(func() {
@@ -211,42 +215,42 @@ func (s *serviceClient) applyQuickActionsUiState(
 	var buttonIcon fyne.Resource
 
 	if uiState.connectionStatus == string(internal.StatusConnected) {
-		buttonText = connectedLabelText
-		buttonIcon = connectedCircleRes
-		logo = connectedImage
+		buttonText = components.connectedLabelText
+		buttonIcon = components.connectedCircleRes
+		logo = components.connectedImage
 	} else if uiState.connectionStatus == string(internal.StatusIdle) {
-		buttonText = disconnectedLabelText
-		buttonIcon = disconnectedCircleRes
-		logo = disconnectedImage
+		buttonText = components.disconnectedLabelText
+		buttonIcon = components.disconnectedCircleRes
+		logo = components.disconnectedImage
 	}
 
 	fyne.DoAndWait(func() {
 		if buttonText != "" {
-			toggleConnectionButton.SetText(buttonText)
+			components.toggleConnectionButton.SetText(buttonText)
 		}
 
 		if buttonIcon != nil {
-			toggleConnectionButton.SetIcon(buttonIcon)
+			components.toggleConnectionButton.SetIcon(buttonIcon)
 		}
 
 		if uiState.isToggleButtonEnabled {
-			toggleConnectionButton.Enable()
+			components.toggleConnectionButton.Enable()
 		} else {
-			toggleConnectionButton.Disable()
+			components.toggleConnectionButton.Disable()
 		}
 
-		toggleConnectionButton.OnTapped = func() {
+		components.toggleConnectionButton.OnTapped = func() {
 			if uiState.toggleAction != nil {
 				go uiState.toggleAction()
 			}
 		}
 
-		toggleConnectionButton.Refresh()
+		components.toggleConnectionButton.Refresh()
 
 		// the second position in the content's object array is the NetBird logo.
 		if logo != nil {
-			content.Objects[1] = logo
-			content.Refresh()
+			components.content.Objects[1] = logo
+			components.content.Refresh()
 		}
 	})
 
@@ -323,11 +327,13 @@ func (s *serviceClient) showQuickActionsUI() {
 
 				closed := s.applyQuickActionsUiState(
 					uiState,
-					content,
-					toggleConnectionButton,
-					connectedLabelText, disconnectedLabelText,
-					connectedImage, disconnectedImage,
-					connectedCircle.Resource, disconnectedCircle.Resource,
+					quickActionsUiComponents{
+						content,
+						toggleConnectionButton,
+						connectedLabelText, disconnectedLabelText,
+						connectedImage, disconnectedImage,
+						connectedCircle.Resource, disconnectedCircle.Resource,
+					},
 				)
 				if closed {
 					return
