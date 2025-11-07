@@ -4,10 +4,12 @@ package android
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/route"
+
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
+
+	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/route"
 )
 
 func toggleRoute(id string, manager routemanager.Manager,
