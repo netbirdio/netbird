@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/system"
@@ -290,39 +291,38 @@ func (c *Client) toggleRoute(command routeCommand) error {
 	return command.toggleRoute()
 }
 
-func (c *Client) SelectRoute(route string) error {
+func (c *Client) getRouteManager() (routemanager.Manager, error) {
 	client := c.connectClient
 	if client == nil {
-		return fmt.Errorf("not connected")
+		return nil, fmt.Errorf("not connected")
 	}
 
 	engine := client.Engine()
 	if engine == nil {
-		return fmt.Errorf("engine is not running")
+		return nil, fmt.Errorf("engine is not running")
 	}
 
 	manager := engine.GetRouteManager()
 	if manager == nil {
-		return fmt.Errorf("could not get route manager")
+		return nil, fmt.Errorf("could not get route manager")
+	}
+
+	return manager, nil
+}
+
+func (c *Client) SelectRoute(route string) error {
+	manager, err := c.getRouteManager()
+	if err != nil {
+		return err
 	}
 
 	return c.toggleRoute(selectRouteCommand{route: route, manager: manager})
 }
 
 func (c *Client) DeselectRoute(route string) error {
-	client := c.connectClient
-	if client == nil {
-		return fmt.Errorf("not connected")
-	}
-
-	engine := client.Engine()
-	if engine == nil {
-		return fmt.Errorf("engine is not running")
-	}
-
-	manager := engine.GetRouteManager()
-	if manager == nil {
-		return fmt.Errorf("could not get route manager")
+	manager, err := c.getRouteManager()
+	if err != nil {
+		return err
 	}
 
 	return c.toggleRoute(deselectRouteCommand{route: route, manager: manager})
