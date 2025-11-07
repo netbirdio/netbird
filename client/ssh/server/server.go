@@ -322,8 +322,13 @@ func (s *Server) validateJWTToken(tokenString string) (*gojwt.Token, error) {
 }
 
 func (s *Server) checkTokenAge(token *gojwt.Token, jwtConfig *JWTConfig) error {
-	if jwtConfig == nil || jwtConfig.MaxTokenAge <= 0 {
+	if jwtConfig == nil {
 		return nil
+	}
+
+	maxTokenAge := jwtConfig.MaxTokenAge
+	if maxTokenAge <= 0 {
+		maxTokenAge = DefaultJWTMaxTokenAge
 	}
 
 	claims, ok := token.Claims.(gojwt.MapClaims)
@@ -340,7 +345,7 @@ func (s *Server) checkTokenAge(token *gojwt.Token, jwtConfig *JWTConfig) error {
 
 	issuedAt := time.Unix(int64(iat), 0)
 	tokenAge := time.Since(issuedAt)
-	maxAge := time.Duration(jwtConfig.MaxTokenAge) * time.Second
+	maxAge := time.Duration(maxTokenAge) * time.Second
 	if tokenAge > maxAge {
 		userID := getUserIDFromClaims(claims)
 		return fmt.Errorf("token expired for user=%s: age=%v, max=%v", userID, tokenAge, maxAge)

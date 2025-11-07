@@ -311,6 +311,16 @@ func TestJWTFailClose(t *testing.T) {
 				"iat": time.Now().Add(-2 * time.Hour).Unix(),
 			},
 		},
+		{
+			name: "blocks_token_exceeding_max_age",
+			tokenClaims: jwt.MapClaims{
+				"iss": issuer,
+				"aud": audience,
+				"sub": "test-user",
+				"exp": time.Now().Add(time.Hour).Unix(),
+				"iat": time.Now().Add(-2 * time.Hour).Unix(),
+			},
+		},
 	}
 
 	for _, tc := range testCases {
