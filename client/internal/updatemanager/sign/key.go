@@ -27,6 +27,27 @@ func computeKeyID(pub ed25519.PublicKey) KeyID {
 	return id
 }
 
+// UnmarshalJSON implements json.Unmarshaler for KeyID
+func (k *KeyID) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+
+	parsed, err := ParseKeyID(s)
+	if err != nil {
+		return err
+	}
+
+	*k = parsed
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler for KeyID
+func (k KeyID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(k.String())
+}
+
 // ParseKeyID parses a hex string (16 hex chars = 8 bytes) into a KeyID.
 func ParseKeyID(s string) (KeyID, error) {
 	var id KeyID
