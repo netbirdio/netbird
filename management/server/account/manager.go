@@ -129,4 +129,5 @@ type Manager interface {
 	GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error)
 	SetEphemeralManager(em ephemeral.Manager)
 	AllowSync(string, uint64) bool
+	RecalculateNetworkMapCache(ctx context.Context, accountId string) error
 }

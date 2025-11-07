@@ -124,6 +124,7 @@ func (r *Route) EventMeta() map[string]any {
 func (r *Route) Copy() *Route {
 	route := &Route{
 		ID:                  r.ID,
+		AccountID:           r.AccountID,
 		Description:         r.Description,
 		NetID:               r.NetID,
 		Network:             r.Network,

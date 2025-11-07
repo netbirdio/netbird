@@ -8,15 +8,13 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 const channelBufferSize = 100
 
 type UpdateMessage struct {
-	Update     *proto.SyncResponse
-	NetworkMap *types.NetworkMap
+	Update *proto.SyncResponse
 }
 
 type PeersUpdateManager struct {

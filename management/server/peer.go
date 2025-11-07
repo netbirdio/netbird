@@ -145,6 +145,9 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	}
 
 	if expired {
+		if am.experimentalNetworkMap(accountID) {
+			am.updatePeerInNetworkMapCache(peer.AccountID, peer)
+		}
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
 		// the expired one. Here we notify them that connection is now allowed again.
 		am.BufferUpdateAccountPeers(ctx, accountID)
@@ -321,6 +324,10 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 	}
 
+	if am.experimentalNetworkMap(accountID) {
+		am.updatePeerInNetworkMapCache(peer.AccountID, peer)
+	}
+
 	if peerLabelChanged || requiresPeerUpdates {
 		am.UpdateAccountPeers(ctx, accountID)
 	} else if sshChanged {
@@ -381,6 +388,18 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		storeEvent()
 	}
 
+	if am.experimentalNetworkMap(accountID) {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return err
+		}
+
+		if err := am.onPeerDeletedUpdNetworkMapCache(account, peerID); err != nil {
+			log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", peerID, err)
+		}
+
+	}
+
 	if userID != activity.SystemInitiator {
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
@@ -417,7 +436,13 @@ func (am *DefaultAccountManager) GetNetworkMap(ctx context.Context, peerID strin
 		return nil, err
 	}
 
-	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+	var networkMap *types.NetworkMap
+
+	if am.experimentalNetworkMap(peer.AccountID) {
+		networkMap = am.getPeerNetworkMapExp(ctx, peer.AccountID, peerID, validatedPeers, customZone, nil)
+	} else {
+		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
+	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
 	if ok {
@@ -690,6 +715,17 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
+	if am.experimentalNetworkMap(accountID) {
+		account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		if err := am.onPeerAddedUpdNetworkMapCache(account, newPeer.ID); err != nil {
+			log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
+		}
+	}
+
 	am.BufferUpdateAccountPeers(ctx, accountID)
 
 	return am.getValidatedPeerWithMap(ctx, false, accountID, newPeer)
@@ -776,6 +812,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
+		if am.experimentalNetworkMap(accountID) {
+			am.updatePeerInNetworkMapCache(peer.AccountID, peer)
+		}
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
@@ -783,6 +822,10 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 }
 
 func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, login types.PeerLogin, err error) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("handlePeerNotFound: took %s", time.Since(start))
+	}()
 	if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
 		// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
 		// Try registering it.
@@ -804,6 +847,11 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("LoginPeer: took %s", time.Since(start))
+	}()
+
 	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, login.WireGuardPubKey)
 	if err != nil {
 		return am.handlePeerLoginNotFound(ctx, login, err)
@@ -831,6 +879,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, err
 	}
 
+	startTransaction := time.Now()
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
 		if err != nil {
@@ -900,8 +949,15 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, err
 	}
 
+	log.WithContext(ctx).Debugf("LoginPeer: transaction took %v", time.Since(startTransaction))
+
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
+		if am.experimentalNetworkMap(accountID) {
+			am.updatePeerInNetworkMapCache(peer.AccountID, peer)
+		}
+		startBuffer := time.Now()
 		am.BufferUpdateAccountPeers(ctx, accountID)
+		log.WithContext(ctx).Debugf("LoginPeer: BufferUpdateAccountPeers took %v", time.Since(startBuffer))
 	}
 
 	return am.getValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peer)
@@ -909,6 +965,11 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 // getPeerPostureChecks returns the posture checks for the peer.
 func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID, peerID string) ([]*posture.Checks, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("getPostureChecks: took %s", time.Since(start))
+	}()
+
 	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
@@ -1014,9 +1075,17 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return peer, emptyMap, nil, nil
 	}
 
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, nil, nil, err
+	var (
+		account *types.Account
+		err     error
+	)
+	if am.experimentalNetworkMap(accountID) {
+		account = am.getAccountFromHolderOrInit(accountID)
+	} else {
+		account, err = am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
@@ -1024,10 +1093,12 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
+	startPosture := time.Now()
 	postureChecks, err := am.getPeerPostureChecks(account, peer.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	log.WithContext(ctx).Debugf("getPeerPostureChecks took %s", time.Since(startPosture))
 
 	customZone := account.GetPeersCustomZone(ctx, am.GetDNSDomain(account.Settings))
 
@@ -1037,7 +1108,13 @@ func (am *DefaultAccountManager) getValidatedPeerWithMap(ctx context.Context, is
 		return nil, nil, nil, err
 	}
 
-	networkMap := account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics())
+	var networkMap *types.NetworkMap
+
+	if am.experimentalNetworkMap(accountID) {
+		networkMap = am.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+	} else {
+		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), am.metrics.AccountManagerMetrics())
+	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
 	if ok {
@@ -1167,11 +1244,18 @@ func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accoun
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
 	log.WithContext(ctx).Tracef("updating peers for account %s from %s", accountID, util.GetCallerName())
-
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to send out updates to peers. failed to get account: %v", err)
-		return
+	var (
+		account *types.Account
+		err     error
+	)
+	if am.experimentalNetworkMap(accountID) {
+		account = am.getAccountFromHolderOrInit(accountID)
+	} else {
+		account, err = am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to send out updates to peers. failed to get account: %v", err)
+			return
+		}
 	}
 
 	globalStart := time.Now()
@@ -1203,6 +1287,10 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	customZone := account.GetPeersCustomZone(ctx, dnsDomain)
 	resourcePolicies := account.GetResourcePoliciesMap()
 	routers := account.GetResourceRoutersMap()
+
+	if am.experimentalNetworkMap(accountID) {
+		am.initNetworkMapBuilderIfNeeded(account, approvedPeersMap)
+	}
 
 	proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMapsAll(ctx, accountID, account.Peers)
 	if err != nil {
@@ -1241,7 +1329,13 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			am.metrics.UpdateChannelMetrics().CountCalcPostureChecksDuration(time.Since(start))
 			start = time.Now()
 
-			remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+			var remotePeerNetworkMap *types.NetworkMap
+
+			if am.experimentalNetworkMap(accountID) {
+				remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, p.AccountID, p.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+			} else {
+				remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, p.ID, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+			}
 
 			am.metrics.UpdateChannelMetrics().CountCalcPeerNetworkMapDuration(time.Since(start))
 			start = time.Now()
@@ -1257,7 +1351,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 			update := toSyncResponse(ctx, am.config, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
 			am.metrics.UpdateChannelMetrics().CountToSyncResponseDuration(time.Since(start))
 
-			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
+			am.peersUpdateManager.SendUpdate(ctx, p.ID, &UpdateMessage{Update: update})
 		}(peer)
 	}
 
@@ -1351,7 +1445,13 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 		return
 	}
 
-	remotePeerNetworkMap := account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+	var remotePeerNetworkMap *types.NetworkMap
+
+	if am.experimentalNetworkMap(accountId) {
+		remotePeerNetworkMap = am.getPeerNetworkMapExp(ctx, peer.AccountID, peer.ID, approvedPeersMap, customZone, am.metrics.AccountManagerMetrics())
+	} else {
+		remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, am.metrics.AccountManagerMetrics())
+	}
 
 	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
 	if ok {
@@ -1368,7 +1468,7 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), dnsForwarderPortMinVersion)
 
 	update := toSyncResponse(ctx, am.config, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
-	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update, NetworkMap: remotePeerNetworkMap})
+	am.peersUpdateManager.SendUpdate(ctx, peer.ID, &UpdateMessage{Update: update})
 }
 
 // getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
@@ -1511,6 +1611,10 @@ func (am *DefaultAccountManager) GetPeerGroups(ctx context.Context, accountID, p
 
 // getPeerGroupIDs returns the IDs of the groups that the peer is part of.
 func getPeerGroupIDs(ctx context.Context, transaction store.Store, accountID string, peerID string) ([]string, error) {
+	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("getPeerGroupIDs: took %s", time.Since(start))
+	}()
 	return transaction.GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
 }
 
@@ -1580,7 +1684,6 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 					},
 				},
 			},
-			NetworkMap: &types.NetworkMap{},
 		})
 		am.peersUpdateManager.CloseChannel(ctx, peer.ID)
 		peerDeletedEvents = append(peerDeletedEvents, func() {
