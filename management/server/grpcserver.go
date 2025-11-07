@@ -775,11 +775,6 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 }
 
 func toSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("toSyncResponse: took %s", time.Since(start))
-	}()
-
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
 		NetworkMap: &proto.NetworkMap{
@@ -844,11 +839,6 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer) error {
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("sendInitialSync: took %s", time.Since(start))
-	}()
-
 	var err error
 
 	var turnToken *Token
