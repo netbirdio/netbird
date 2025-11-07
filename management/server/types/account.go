@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -87,6 +88,13 @@ type Account struct {
 	NetworkRouters   []*routerTypes.NetworkRouter     `gorm:"foreignKey:AccountID;references:id"`
 	NetworkResources []*resourceTypes.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
+
+	NetworkMapCache *NetworkMapBuilder `gorm:"-"`
+	nmapInitOnce    *sync.Once         `gorm:"-"`
+}
+
+func (a *Account) InitOnce() {
+	a.nmapInitOnce = &sync.Once{}
 }
 
 // this class is used by gorm only
@@ -257,6 +265,9 @@ func (a *Account) GetPeerNetworkMap(
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
+	defer func() {
+		log.WithContext(ctx).Debugf("GetPeerNetworkMap: took %s", time.Since(start))
+	}()
 
 	peer := a.Peers[peerID]
 	if peer == nil {
@@ -890,6 +901,8 @@ func (a *Account) Copy() *Account {
 		NetworkRouters:         networkRouters,
 		NetworkResources:       networkResources,
 		Onboarding:             a.Onboarding,
+		NetworkMapCache:        a.NetworkMapCache,
+		nmapInitOnce:           a.nmapInitOnce,
 	}
 }
 

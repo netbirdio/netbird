@@ -991,6 +991,10 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
 		)
+
+		if am.experimentalNetworkMap(accountID) {
+			am.updatePeerInNetworkMapCache(peer.AccountID, peer)
+		}
 	}
 
 	if len(peerIDs) != 0 {

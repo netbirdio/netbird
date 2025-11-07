@@ -192,6 +192,9 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return nil, err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -246,6 +249,9 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
 	if oldRouteAffectsPeers || newRouteAffectsPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -289,6 +295,9 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	am.StoreEvent(ctx, userID, string(route.ID), accountID, activity.RouteRemoved, route.EventMeta())
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
