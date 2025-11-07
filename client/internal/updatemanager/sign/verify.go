@@ -34,7 +34,7 @@ const (
 	maxSignatureAge = 365 * 24 * time.Hour
 )
 
-//go:embed certs/*.pem
+//go:embed certs
 var embeddedCerts embed.FS
 
 type ArtifactVerify struct {
@@ -126,13 +126,12 @@ func (a *ArtifactVerify) loadRevocationList(ctx context.Context) (*RevocationLis
 		return nil, err
 	}
 
-	// Verify with root keys
-	var rootKeys []ed25519.PublicKey
-	for _, r := range a.rootKeys {
-		rootKeys = append(rootKeys, r.Key)
-	}
+	// Reconstruct the signed message: revocation_list_data || timestamp
+	msg := make([]byte, 0, len(data)+8)
+	msg = append(msg, data...)
+	msg = binary.LittleEndian.AppendUint64(msg, uint64(signature.Timestamp.Unix()))
 
-	if !verifyAny(rootKeys, data, signature.Signature) {
+	if !verifyAny(a.rootKeys, msg, signature.Signature) {
 		return nil, errors.New("revocation list verification failed")
 	}
 
@@ -180,13 +179,12 @@ func (a *ArtifactVerify) loadArtifactKeys(ctx context.Context) ([]PublicKey, err
 		return nil, err
 	}
 
-	// Verify with root keys
-	var rootKeys []ed25519.PublicKey
-	for _, r := range a.rootKeys {
-		rootKeys = append(rootKeys, r.Key)
-	}
+	// Reconstruct the signed message: artifact_key_data || timestamp
+	msg := make([]byte, 0, len(data)+8)
+	msg = append(msg, data...)
+	msg = binary.LittleEndian.AppendUint64(msg, uint64(signature.Timestamp.Unix()))
 
-	if !verifyAny(rootKeys, data, signature.Signature) {
+	if !verifyAny(a.rootKeys, msg, signature.Signature) {
 		return nil, errors.New("failed to verify signature of artifact keys")
 	}
 
@@ -244,16 +242,6 @@ func (a *ArtifactVerify) validateArtifact(artifactPubKeys []PublicKey, artifactF
 	if now.Sub(signature.Timestamp) > maxSignatureAge {
 		return fmt.Errorf("artifact signature is too old: %v (created %v)",
 			now.Sub(signature.Timestamp), signature.Timestamp)
-	}
-
-	// Check if signing Key is revoked
-	if a.revocationList != nil {
-		if revTime, ok := a.revocationList.Revoked[signature.KeyID]; ok {
-			if signature.Timestamp.After(revTime) {
-				return fmt.Errorf("signature Key %s was revoked at %v, but signature is from %v",
-					signature.KeyID, revTime, signature.Timestamp)
-			}
-		}
 	}
 
 	// Read and hash the artifact file
@@ -329,8 +317,14 @@ func loadEmbeddedPublicKeys() ([]PublicKey, error) {
 	return allKeys, nil
 }
 
-func verifyAny(keys []ed25519.PublicKey, msg, sig []byte) bool {
-	for _, k := range keys {
+func verifyAny(publicRootKeys []PublicKey, msg, sig []byte) bool {
+	// Verify with root keys
+	var rootKeys []ed25519.PublicKey
+	for _, r := range publicRootKeys {
+		rootKeys = append(rootKeys, r.Key)
+	}
+
+	for _, k := range rootKeys {
 		if ed25519.Verify(k, msg, sig) {
 			return true
 		}

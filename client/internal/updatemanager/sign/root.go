@@ -3,6 +3,7 @@ package sign
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -19,16 +20,27 @@ type RootKey struct {
 	PrivateKey
 }
 
+func (k RootKey) String() string {
+	return fmt.Sprintf(
+		"RootKey[ID=%s, CreatedAt=%s, ExpiresAt=%s]",
+		k.Metadata.ID,
+		k.Metadata.CreatedAt.Format(time.RFC3339),
+		k.Metadata.ExpiresAt.Format(time.RFC3339),
+	)
+}
+
 func ParseRootKey(privKeyPEM []byte) (*RootKey, error) {
-	pk, err := parsePrivateKey(privKeyPEM, tagArtifactPrivate)
+	pk, err := parsePrivateKey(privKeyPEM, tagRootPrivate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse artifact Key: %w", err)
+		return nil, fmt.Errorf("failed to parse root Key: %w", err)
 	}
 	return &RootKey{pk}, nil
 }
 
 // GenerateRootKey generates a new root Key pair with Metadata
-func GenerateRootKey(expiresAt time.Time) (*RootKey, []byte, []byte, error) {
+func GenerateRootKey(expiration time.Duration) (*RootKey, []byte, []byte, error) {
+	now := time.Now()
+	expirationTime := now.Add(expiration)
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, nil, err
@@ -36,8 +48,8 @@ func GenerateRootKey(expiresAt time.Time) (*RootKey, []byte, []byte, error) {
 
 	metadata := KeyMetadata{
 		ID:        computeKeyID(pub),
-		CreatedAt: time.Now().UTC(),
-		ExpiresAt: expiresAt,
+		CreatedAt: now.UTC(),
+		ExpiresAt: expirationTime.UTC(),
 	}
 
 	rk := &RootKey{
@@ -47,29 +59,49 @@ func GenerateRootKey(expiresAt time.Time) (*RootKey, []byte, []byte, error) {
 		},
 	}
 
-	// Encode private Key with Metadata
-	metaJSON, _ := json.Marshal(metadata)
+	// Marshal PrivateKey struct to JSON
+	privJSON, err := json.Marshal(rk.PrivateKey)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to marshal private key: %w", err)
+	}
+
+	// Marshal PublicKey struct to JSON
+	pubKey := PublicKey{
+		Key:      pub,
+		Metadata: metadata,
+	}
+	pubJSON, err := json.Marshal(pubKey)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to marshal public key: %w", err)
+	}
+
+	// Encode to PEM with metadata embedded in bytes
 	privPEM := pem.EncodeToMemory(&pem.Block{
-		Type:    tagRootPrivate,
-		Headers: map[string]string{"Metadata": string(metaJSON)},
-		Bytes:   priv,
+		Type:  tagRootPrivate,
+		Bytes: privJSON,
 	})
 
 	pubPEM := pem.EncodeToMemory(&pem.Block{
-		Type:    tagRootPublic,
-		Headers: map[string]string{"Metadata": string(metaJSON)},
-		Bytes:   pub,
+		Type:  tagRootPublic,
+		Bytes: pubJSON,
 	})
 
 	return rk, privPEM, pubPEM, nil
 }
 
 func SignArtifactKey(rootKey RootKey, data []byte) ([]byte, error) {
-	sig := ed25519.Sign(rootKey.Key, data)
+	timestamp := time.Now().UTC()
+
+	// This ensures the timestamp is cryptographically bound to the signature
+	msg := make([]byte, 0, len(data)+8)
+	msg = append(msg, data...)
+	msg = binary.LittleEndian.AppendUint64(msg, uint64(timestamp.Unix()))
+
+	sig := ed25519.Sign(rootKey.Key, msg)
 	// Create signature bundle with timestamp and Metadata
 	bundle := Signature{
 		Signature: sig,
-		Timestamp: time.Now().UTC(),
+		Timestamp: timestamp,
 		KeyID:     rootKey.Metadata.ID,
 		Algorithm: "ed25519",
 		HashAlgo:  "sha512",

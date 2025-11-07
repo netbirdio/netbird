@@ -3,6 +3,7 @@ package sign
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -13,36 +14,32 @@ import (
 // KeyID is a unique identifier for a Key (first 8 bytes of SHA-256 of public Key)
 type KeyID [8]byte
 
-func (k KeyID) String() string {
-	return fmt.Sprintf("%x", k[:])
-}
-
-// MarshalJSON implements json.Marshaler
-func (k KeyID) MarshalJSON() ([]byte, error) {
-	return json.Marshal(k.String())
-}
-
-// UnmarshalJSON implements json.Unmarshaler
-func (k *KeyID) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	if len(s) != 16 {
-		return fmt.Errorf("invalid KeyID length: %d", len(s))
-	}
-	for i := 0; i < 8; i++ {
-		fmt.Sscanf(s[i*2:i*2+2], "%02x", &k[i])
-	}
-	return nil
-}
-
 // computeKeyID generates a unique ID from a public Key
 func computeKeyID(pub ed25519.PublicKey) KeyID {
 	h := sha256.Sum256(pub)
 	var id KeyID
 	copy(id[:], h[:8])
 	return id
+}
+
+// ParseKeyID parses a hex string (16 hex chars = 8 bytes) into a KeyID.
+func ParseKeyID(s string) (KeyID, error) {
+	var id KeyID
+	if len(s) != 16 {
+		return id, fmt.Errorf("invalid KeyID length: got %d, want 16 hex chars (8 bytes)", len(s))
+	}
+
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return id, fmt.Errorf("failed to decode KeyID: %w", err)
+	}
+
+	copy(id[:], b)
+	return id, nil
+}
+
+func (k KeyID) String() string {
+	return fmt.Sprintf("%x", k[:])
 }
 
 // KeyMetadata contains versioning and lifecycle information for a Key
@@ -82,18 +79,23 @@ func parsePublicKey(data []byte, typeTag string) (PublicKey, []byte, error) {
 	if b.Type != typeTag {
 		return PublicKey{}, nil, fmt.Errorf("PEM type is %q, want %q", b.Type, typeTag)
 	}
-	if len(b.Bytes) != ed25519.PublicKeySize {
-		return PublicKey{}, nil, errors.New("incorrect Ed25519 public Key size")
+
+	// Unmarshal JSON-embedded format
+	var pub PublicKey
+	if err := json.Unmarshal(b.Bytes, &pub); err != nil {
+		return PublicKey{}, nil, fmt.Errorf("failed to unmarshal public key: %w", err)
 	}
 
-	pub := ed25519.PublicKey(b.Bytes)
-	var meta KeyMetadata
-	if metaStr, ok := b.Headers["Metadata"]; ok {
-		json.Unmarshal([]byte(metaStr), &meta)
+	// Validate key length
+	if len(pub.Key) != ed25519.PublicKeySize {
+		return PublicKey{}, nil, fmt.Errorf("incorrect Ed25519 public key size: expected %d, got %d",
+			ed25519.PublicKeySize, len(pub.Key))
 	}
-	meta.ID = computeKeyID(pub) // Always recompute ID
 
-	return PublicKey{Key: pub, Metadata: meta}, rest, nil
+	// Always recompute ID to ensure integrity
+	pub.Metadata.ID = computeKeyID(pub.Key)
+
+	return pub, rest, nil
 }
 
 type PrivateKey struct {
@@ -113,14 +115,18 @@ func parsePrivateKey(data []byte, typeTag string) (PrivateKey, error) {
 	if b.Type != typeTag {
 		return PrivateKey{}, fmt.Errorf("PEM type is %q, want %q", b.Type, typeTag)
 	}
-	if len(b.Bytes) != ed25519.PrivateKeySize {
-		return PrivateKey{}, errors.New("incorrect Ed25519 private Key size")
+
+	// Unmarshal JSON-embedded format
+	var pk PrivateKey
+	if err := json.Unmarshal(b.Bytes, &pk); err != nil {
+		return PrivateKey{}, fmt.Errorf("failed to unmarshal private key: %w", err)
 	}
 
-	var meta KeyMetadata
-	if metaStr, ok := b.Headers["Metadata"]; ok {
-		_ = json.Unmarshal([]byte(metaStr), &meta)
+	// Validate key length
+	if len(pk.Key) != ed25519.PrivateKeySize {
+		return PrivateKey{}, fmt.Errorf("incorrect Ed25519 private key size: expected %d, got %d",
+			ed25519.PrivateKeySize, len(pk.Key))
 	}
 
-	return PrivateKey{Key: b.Bytes, Metadata: meta}, nil
+	return pk, nil
 }
