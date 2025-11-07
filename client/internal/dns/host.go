@@ -25,7 +25,7 @@ type hostManager interface {
 
 type SystemDNSSettings struct {
 	Domains    []string
-	ServerIP   netip.Addr
+	ServerIPs  []netip.Addr
 	ServerPort int
 }
 
