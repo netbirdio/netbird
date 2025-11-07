@@ -2422,7 +2422,7 @@ func NewSqliteStoreFromFileStore(ctx context.Context, fileStore *FileStore, data
 
 // NewPostgresqlStoreFromSqlStore restores a store from SqlStore and stores Postgres DB.
 func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn string, metrics telemetry.AppMetrics) (*SqlStore, error) {
-	store, err := NewPostgresqlStore(ctx, dsn, metrics, false)
+	store, err := NewPostgresqlStoreForTests(ctx, dsn, metrics, false)
 	if err != nil {
 		return nil, err
 	}
@@ -2440,6 +2440,50 @@ func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, 
 	}
 
 	return store, nil
+}
+
+// used for tests only
+func NewPostgresqlStoreForTests(ctx context.Context, dsn string, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+	db, err := gorm.Open(postgres.Open(dsn), getGormConfig())
+	if err != nil {
+		return nil, err
+	}
+	pool, err := connectToPgDbForTests(context.Background(), dsn)
+	if err != nil {
+		return nil, err
+	}
+	store, err := NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, skipMigration)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	store.pool = pool
+	return store, nil
+}
+
+// used for tests only
+func connectToPgDbForTests(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse database config: %w", err)
+	}
+
+	config.MaxConns = 5
+	config.MinConns = 1
+	config.MaxConnLifetime = 30 * time.Second
+	config.HealthCheckPeriod = 10 * time.Second
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create connection pool: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("unable to ping database: %w", err)
+	}
+
+	return pool, nil
 }
 
 // NewMysqlStoreFromSqlStore restores a store from SqlStore and stores MySQL DB.
