@@ -259,6 +259,7 @@ func isServiceRunning() (bool, error) {
 }
 
 const (
+	networkdConf        = "/etc/systemd/networkd.conf"
 	networkdConfDir     = "/etc/systemd/networkd.conf.d"
 	networkdConfFile    = "/etc/systemd/networkd.conf.d/99-netbird.conf"
 	networkdConfContent = `# Created by NetBird to prevent systemd-networkd from removing
@@ -273,10 +274,14 @@ ManageForeignRoutingPolicyRules=no
 // configureSystemdNetworkd creates a drop-in configuration file to prevent
 // systemd-networkd from removing NetBird's routes and policy rules.
 func configureSystemdNetworkd() error {
-	parentDir := filepath.Dir(networkdConfDir)
-	if _, err := os.Stat(parentDir); os.IsNotExist(err) {
-		log.Debug("systemd networkd.conf.d parent directory does not exist, skipping configuration")
+	if _, err := os.Stat(networkdConf); os.IsNotExist(err) {
+		log.Debug("systemd-networkd not in use, skipping configuration")
 		return nil
+	}
+
+	// nolint:gosec // standard networkd permissions
+	if err := os.MkdirAll(networkdConfDir, 0755); err != nil {
+		return fmt.Errorf("create networkd.conf.d directory: %w", err)
 	}
 
 	// nolint:gosec // standard networkd permissions
