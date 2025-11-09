@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	maxClockSkew    = 5 * time.Minute
-	maxSignatureAge = 10 * 365 * 24 * time.Hour
+	maxClockSkew = 5 * time.Minute
 )
 
 // KeyID is a unique identifier for a Key (first 8 bytes of SHA-256 of public Key)

@@ -18,6 +18,9 @@ import (
 const (
 	tagArtifactPrivate = "ARTIFACT PRIVATE KEY"
 	tagArtifactPublic  = "ARTIFACT PUBLIC KEY"
+
+	maxArtifactKeySignatureAge = 10 * 365 * 24 * time.Hour
+	maxArtifactSignatureAge    = 10 * 365 * 24 * time.Hour
 )
 
 // ArtifactHash wraps a hash.Hash and counts bytes written
@@ -167,7 +170,7 @@ func ValidateArtifactKeys(publicRootKeys []PublicKey, data []byte, signature Sig
 		log.Debugf("artifact signature error: %v", err)
 		return nil, err
 	}
-	if now.Sub(signature.Timestamp) > maxSignatureAge {
+	if now.Sub(signature.Timestamp) > maxArtifactKeySignatureAge {
 		err := fmt.Errorf("signature is too old: %v (created %v)", now.Sub(signature.Timestamp), signature.Timestamp)
 		log.Debugf("artifact signature error: %v", err)
 		return nil, err
@@ -223,7 +226,7 @@ func ValidateArtifact(artifactPubKeys []PublicKey, data []byte, signature Signat
 		log.Debugf("failed to verify signature of artifact: %s", err)
 		return err
 	}
-	if now.Sub(signature.Timestamp) > maxSignatureAge {
+	if now.Sub(signature.Timestamp) > maxArtifactSignatureAge {
 		return fmt.Errorf("artifact signature is too old: %v (created %v)",
 			now.Sub(signature.Timestamp), signature.Timestamp)
 	}

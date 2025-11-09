@@ -11,6 +11,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	maxRevocationSignatureAge = 10 * 365 * 24 * time.Hour
+)
+
 type RevocationList struct {
 	Revoked     map[KeyID]time.Time `json:"revoked"`      // KeyID -> revocation time
 	LastUpdated time.Time           `json:"last_updated"` // When the list was last modified
@@ -89,7 +93,7 @@ func ValidateRevocationList(publicRootKeys []PublicKey, data []byte, signature S
 		return nil, err
 	}
 
-	if now.Sub(signature.Timestamp) > maxSignatureAge {
+	if now.Sub(signature.Timestamp) > maxRevocationSignatureAge {
 		err := fmt.Errorf("revocation list signature is too old: %v (created %v)",
 			now.Sub(signature.Timestamp), signature.Timestamp)
 		log.Debugf("revocation list signature error: %v", err)
