@@ -20,12 +20,14 @@ func TestRevocationList_MarshalJSON(t *testing.T) {
 	keyID := computeKeyID(pub)
 	revokedTime := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
 	lastUpdated := time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC)
+	expiresAt := time.Date(2024, 4, 15, 11, 0, 0, 0, time.UTC)
 
 	rl := &RevocationList{
 		Revoked: map[KeyID]time.Time{
 			keyID: revokedTime,
 		},
 		LastUpdated: lastUpdated,
+		ExpiresAt:   expiresAt,
 	}
 
 	jsonData, err := json.Marshal(rl)
@@ -38,6 +40,7 @@ func TestRevocationList_MarshalJSON(t *testing.T) {
 
 	assert.Contains(t, decoded, "revoked")
 	assert.Contains(t, decoded, "last_updated")
+	assert.Contains(t, decoded, "expires_at")
 }
 
 func TestRevocationList_UnmarshalJSON(t *testing.T) {
@@ -186,14 +189,28 @@ func TestParseRevocationList_EmptyObject(t *testing.T) {
 
 func TestParseRevocationList_NilRevoked(t *testing.T) {
 	lastUpdated := time.Now().UTC()
+	expiresAt := lastUpdated.Add(90 * 24 * time.Hour)
 	jsonData := []byte(`{
-		"last_updated": "` + lastUpdated.Format(time.RFC3339) + `"
+		"last_updated": "` + lastUpdated.Format(time.RFC3339) + `",
+		"expires_at": "` + expiresAt.Format(time.RFC3339) + `"
 	}`)
 
 	parsed, err := ParseRevocationList(jsonData)
 	require.NoError(t, err)
 	assert.NotNil(t, parsed.Revoked)
 	assert.Empty(t, parsed.Revoked)
+}
+
+func TestParseRevocationList_MissingExpiresAt(t *testing.T) {
+	lastUpdated := time.Now().UTC()
+	jsonData := []byte(`{
+		"revoked": {},
+		"last_updated": "` + lastUpdated.Format(time.RFC3339) + `"
+	}`)
+
+	_, err := ParseRevocationList(jsonData)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing expires_at")
 }
 
 // Test ValidateRevocationList
@@ -224,7 +241,7 @@ func TestValidateRevocationList_Valid(t *testing.T) {
 	}
 
 	// Create revocation list
-	rlData, sigData, err := CreateRevocationList(rootKey)
+	rlData, sigData, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	signature, err := ParseSignature(sigData)
@@ -263,7 +280,7 @@ func TestValidateRevocationList_InvalidSignature(t *testing.T) {
 	}
 
 	// Create revocation list
-	rlData, _, err := CreateRevocationList(rootKey)
+	rlData, _, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	// Create invalid signature
@@ -305,7 +322,7 @@ func TestValidateRevocationList_FutureTimestamp(t *testing.T) {
 		},
 	}
 
-	rlData, sigData, err := CreateRevocationList(rootKey)
+	rlData, sigData, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	signature, err := ParseSignature(sigData)
@@ -343,7 +360,7 @@ func TestValidateRevocationList_TooOld(t *testing.T) {
 		},
 	}
 
-	rlData, sigData, err := CreateRevocationList(rootKey)
+	rlData, sigData, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	signature, err := ParseSignature(sigData)
@@ -470,6 +487,96 @@ func TestValidateRevocationList_TimestampMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "differs too much")
 }
 
+func TestValidateRevocationList_Expired(t *testing.T) {
+	rootPub, rootPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	rootKey := RootKey{
+		PrivateKey{
+			Key: rootPriv,
+			Metadata: KeyMetadata{
+				ID:        computeKeyID(rootPub),
+				CreatedAt: time.Now().UTC(),
+			},
+		},
+	}
+
+	rootKeys := []PublicKey{
+		{
+			Key: rootPub,
+			Metadata: KeyMetadata{
+				ID:        computeKeyID(rootPub),
+				CreatedAt: time.Now().UTC(),
+			},
+		},
+	}
+
+	// Create revocation list that expired in the past
+	now := time.Now().UTC()
+	rl := RevocationList{
+		Revoked:     make(map[KeyID]time.Time),
+		LastUpdated: now.Add(-100 * 24 * time.Hour),
+		ExpiresAt:   now.Add(-10 * 24 * time.Hour), // Expired 10 days ago
+	}
+
+	rlData, err := json.Marshal(rl)
+	require.NoError(t, err)
+
+	// Sign it
+	sig, err := signRevocationList(rootKey, rl)
+	require.NoError(t, err)
+	// Adjust signature timestamp to match LastUpdated
+	sig.Timestamp = rl.LastUpdated
+
+	_, err = ValidateRevocationList(rootKeys, rlData, *sig)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expired")
+}
+
+func TestValidateRevocationList_ExpiresAtTooFarInFuture(t *testing.T) {
+	rootPub, rootPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	rootKey := RootKey{
+		PrivateKey{
+			Key: rootPriv,
+			Metadata: KeyMetadata{
+				ID:        computeKeyID(rootPub),
+				CreatedAt: time.Now().UTC(),
+			},
+		},
+	}
+
+	rootKeys := []PublicKey{
+		{
+			Key: rootPub,
+			Metadata: KeyMetadata{
+				ID:        computeKeyID(rootPub),
+				CreatedAt: time.Now().UTC(),
+			},
+		},
+	}
+
+	// Create revocation list with ExpiresAt too far in the future (beyond maxRevocationSignatureAge)
+	now := time.Now().UTC()
+	rl := RevocationList{
+		Revoked:     make(map[KeyID]time.Time),
+		LastUpdated: now,
+		ExpiresAt:   now.Add(15 * 365 * 24 * time.Hour), // 15 years in the future
+	}
+
+	rlData, err := json.Marshal(rl)
+	require.NoError(t, err)
+
+	// Sign it
+	sig, err := signRevocationList(rootKey, rl)
+	require.NoError(t, err)
+
+	_, err = ValidateRevocationList(rootKeys, rlData, *sig)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "too far in the future")
+}
+
 // Test CreateRevocationList
 
 func TestCreateRevocationList_Valid(t *testing.T) {
@@ -486,7 +593,7 @@ func TestCreateRevocationList_Valid(t *testing.T) {
 		},
 	}
 
-	rlData, sigData, err := CreateRevocationList(rootKey)
+	rlData, sigData, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 	assert.NotEmpty(t, rlData)
 	assert.NotEmpty(t, sigData)
@@ -521,7 +628,7 @@ func TestExtendRevocationList_AddKey(t *testing.T) {
 	}
 
 	// Create empty revocation list
-	rlData, _, err := CreateRevocationList(rootKey)
+	rlData, _, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	rl, err := ParseRevocationList(rlData)
@@ -534,7 +641,7 @@ func TestExtendRevocationList_AddKey(t *testing.T) {
 	revokedKeyID := computeKeyID(revokedPub)
 
 	// Extend the revocation list
-	newRLData, newSigData, err := ExtendRevocationList(rootKey, *rl, revokedKeyID)
+	newRLData, newSigData, err := ExtendRevocationList(rootKey, *rl, revokedKeyID, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	// Verify the new list
@@ -564,7 +671,7 @@ func TestExtendRevocationList_MultipleKeys(t *testing.T) {
 	}
 
 	// Create empty revocation list
-	rlData, _, err := CreateRevocationList(rootKey)
+	rlData, _, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	rl, err := ParseRevocationList(rlData)
@@ -575,7 +682,7 @@ func TestExtendRevocationList_MultipleKeys(t *testing.T) {
 	require.NoError(t, err)
 	key1ID := computeKeyID(key1Pub)
 
-	rlData, _, err = ExtendRevocationList(rootKey, *rl, key1ID)
+	rlData, _, err = ExtendRevocationList(rootKey, *rl, key1ID, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	rl, err = ParseRevocationList(rlData)
@@ -587,7 +694,7 @@ func TestExtendRevocationList_MultipleKeys(t *testing.T) {
 	require.NoError(t, err)
 	key2ID := computeKeyID(key2Pub)
 
-	rlData, _, err = ExtendRevocationList(rootKey, *rl, key2ID)
+	rlData, _, err = ExtendRevocationList(rootKey, *rl, key2ID, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	rl, err = ParseRevocationList(rlData)
@@ -612,7 +719,7 @@ func TestExtendRevocationList_DuplicateKey(t *testing.T) {
 	}
 
 	// Create empty revocation list
-	rlData, _, err := CreateRevocationList(rootKey)
+	rlData, _, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	rl, err := ParseRevocationList(rlData)
@@ -623,7 +730,7 @@ func TestExtendRevocationList_DuplicateKey(t *testing.T) {
 	require.NoError(t, err)
 	keyID := computeKeyID(keyPub)
 
-	rlData, _, err = ExtendRevocationList(rootKey, *rl, keyID)
+	rlData, _, err = ExtendRevocationList(rootKey, *rl, keyID, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	rl, err = ParseRevocationList(rlData)
@@ -634,7 +741,7 @@ func TestExtendRevocationList_DuplicateKey(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Add the same key again
-	rlData, _, err = ExtendRevocationList(rootKey, *rl, keyID)
+	rlData, _, err = ExtendRevocationList(rootKey, *rl, keyID, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	rl, err = ParseRevocationList(rlData)
@@ -661,7 +768,7 @@ func TestExtendRevocationList_UpdatesLastUpdated(t *testing.T) {
 	}
 
 	// Create revocation list
-	rlData, _, err := CreateRevocationList(rootKey)
+	rlData, _, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	rl, err := ParseRevocationList(rlData)
@@ -676,7 +783,7 @@ func TestExtendRevocationList_UpdatesLastUpdated(t *testing.T) {
 	require.NoError(t, err)
 	keyID := computeKeyID(keyPub)
 
-	rlData, _, err = ExtendRevocationList(rootKey, *rl, keyID)
+	rlData, _, err = ExtendRevocationList(rootKey, *rl, keyID, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	rl, err = ParseRevocationList(rlData)
@@ -714,7 +821,7 @@ func TestRevocationList_FullWorkflow(t *testing.T) {
 	}
 
 	// Step 1: Create empty revocation list
-	rlData, sigData, err := CreateRevocationList(rootKey)
+	rlData, sigData, err := CreateRevocationList(rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	// Step 2: Validate it
@@ -730,7 +837,7 @@ func TestRevocationList_FullWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	revokedKeyID := computeKeyID(revokedPub)
 
-	rlData, sigData, err = ExtendRevocationList(rootKey, *rl, revokedKeyID)
+	rlData, sigData, err = ExtendRevocationList(rootKey, *rl, revokedKeyID, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	// Step 4: Validate the extended list

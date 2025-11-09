@@ -80,7 +80,7 @@ func TestArtifactVerify_FullWorkflow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 3: Create revocation list
-	revocationData, revocationSig, err := CreateRevocationList(*rootKey)
+	revocationData, revocationSig, err := CreateRevocationList(*rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	// Step 4: Bundle artifact keys
@@ -177,7 +177,7 @@ func TestArtifactVerify_MissingArtifactFile(t *testing.T) {
 	}
 
 	// Create revocation list
-	revocationData, revocationSig, err := CreateRevocationList(*rootKey)
+	revocationData, revocationSig, err := CreateRevocationList(*rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	artifactKey, _, artifactPubPEM, _, err := GenerateArtifactKey(rootKey, 30*24*time.Hour)
@@ -296,13 +296,13 @@ func TestArtifactVerify_WithRevocation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create revocation list with first key revoked
-	emptyRevocation, _, err := CreateRevocationList(*rootKey)
+	emptyRevocation, _, err := CreateRevocationList(*rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	parsedRevocation, err := ParseRevocationList(emptyRevocation)
 	require.NoError(t, err)
 
-	revocationData, revocationSig, err := ExtendRevocationList(*rootKey, *parsedRevocation, artifactPubKey1.Metadata.ID)
+	revocationData, revocationSig, err := ExtendRevocationList(*rootKey, *parsedRevocation, artifactPubKey1.Metadata.ID, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	// Bundle both keys
@@ -370,13 +370,13 @@ func TestArtifactVerify_ValidWithSecondKey(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create revocation list with first key revoked
-	emptyRevocation, _, err := CreateRevocationList(*rootKey)
+	emptyRevocation, _, err := CreateRevocationList(*rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	parsedRevocation, err := ParseRevocationList(emptyRevocation)
 	require.NoError(t, err)
 
-	revocationData, revocationSig, err := ExtendRevocationList(*rootKey, *parsedRevocation, artifactPubKey1.Metadata.ID)
+	revocationData, revocationSig, err := ExtendRevocationList(*rootKey, *parsedRevocation, artifactPubKey1.Metadata.ID, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	// Bundle both keys
@@ -437,7 +437,7 @@ func TestArtifactVerify_TamperedArtifact(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create revocation list
-	revocationData, revocationSig, err := CreateRevocationList(*rootKey)
+	revocationData, revocationSig, err := CreateRevocationList(*rootKey, defaultRevocationListExpiration)
 	require.NoError(t, err)
 
 	// Bundle keys

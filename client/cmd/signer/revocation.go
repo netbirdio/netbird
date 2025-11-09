@@ -3,16 +3,22 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/internal/updatemanager/reposign"
 )
 
+const (
+	defaultRevocationListExpiration = 365 * 24 * time.Hour // 1 year
+)
+
 var (
 	keyID              string
 	revocationListFile string
 	privateRootKeyFile string
+	expirationDuration time.Duration
 )
 
 var createRevocationListCmd = &cobra.Command{
@@ -37,6 +43,7 @@ func init() {
 
 	createRevocationListCmd.Flags().StringVar(&revocationListFile, "revocation-list-file", "", "Path to the existing revocation list file")
 	createRevocationListCmd.Flags().StringVar(&privateRootKeyFile, "private-root-key", "", "Path to the private root key PEM file")
+	createRevocationListCmd.Flags().DurationVar(&expirationDuration, "expiration", defaultRevocationListExpiration, "Expiration duration for the revocation list (e.g., 8760h for 1 year)")
 	if err := createRevocationListCmd.MarkFlagRequired("revocation-list-file"); err != nil {
 		panic(err)
 	}
@@ -47,6 +54,7 @@ func init() {
 	extendRevocationListCmd.Flags().StringVar(&keyID, "key-id", "", "ID of the key to extend the revocation list for")
 	extendRevocationListCmd.Flags().StringVar(&revocationListFile, "revocation-list-file", "", "Path to the existing revocation list file")
 	extendRevocationListCmd.Flags().StringVar(&privateRootKeyFile, "private-root-key", "", "Path to the private root key PEM file")
+	extendRevocationListCmd.Flags().DurationVar(&expirationDuration, "expiration", defaultRevocationListExpiration, "Expiration duration for the revocation list (e.g., 8760h for 1 year)")
 	if err := extendRevocationListCmd.MarkFlagRequired("key-id"); err != nil {
 		panic(err)
 	}
@@ -69,7 +77,7 @@ func handleCreateRevocationList(revocationListFile string, privateRootKeyFile st
 		return fmt.Errorf("failed to parse private root key: %w", err)
 	}
 
-	rlBytes, sigBytes, err := reposign.CreateRevocationList(*privateRootKey)
+	rlBytes, sigBytes, err := reposign.CreateRevocationList(*privateRootKey, expirationDuration)
 	if err != nil {
 		return fmt.Errorf("failed to create revocation list: %w", err)
 	}
@@ -108,7 +116,7 @@ func handleExtendRevocationList(keyID, revocationListFile, privateRootKeyFile st
 		return fmt.Errorf("invalid key ID: %w", err)
 	}
 
-	newRLBytes, sigBytes, err := reposign.ExtendRevocationList(*privateRootKey, *rl, kid)
+	newRLBytes, sigBytes, err := reposign.ExtendRevocationList(*privateRootKey, *rl, kid, expirationDuration)
 	if err != nil {
 		return fmt.Errorf("failed to extend revocation list: %w", err)
 	}

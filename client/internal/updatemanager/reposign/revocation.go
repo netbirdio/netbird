@@ -12,12 +12,14 @@ import (
 )
 
 const (
-	maxRevocationSignatureAge = 10 * 365 * 24 * time.Hour
+	maxRevocationSignatureAge       = 10 * 365 * 24 * time.Hour
+	defaultRevocationListExpiration = 365 * 24 * time.Hour
 )
 
 type RevocationList struct {
 	Revoked     map[KeyID]time.Time `json:"revoked"`      // KeyID -> revocation time
 	LastUpdated time.Time           `json:"last_updated"` // When the list was last modified
+	ExpiresAt   time.Time           `json:"expires_at"`   // When the list expires
 }
 
 func (rl RevocationList) MarshalJSON() ([]byte, error) {
@@ -30,6 +32,7 @@ func (rl RevocationList) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
 		"revoked":      strMap,
 		"last_updated": rl.LastUpdated,
+		"expires_at":   rl.ExpiresAt,
 	})
 }
 
@@ -37,6 +40,7 @@ func (rl *RevocationList) UnmarshalJSON(data []byte) error {
 	var temp struct {
 		Revoked     map[string]time.Time `json:"revoked"`
 		LastUpdated time.Time            `json:"last_updated"`
+		ExpiresAt   time.Time            `json:"expires_at"`
 		Version     int                  `json:"version"`
 	}
 
@@ -55,6 +59,7 @@ func (rl *RevocationList) UnmarshalJSON(data []byte) error {
 	}
 
 	rl.LastUpdated = temp.LastUpdated
+	rl.ExpiresAt = temp.ExpiresAt
 
 	return nil
 }
@@ -72,6 +77,10 @@ func ParseRevocationList(data []byte) (*RevocationList, error) {
 
 	if rl.LastUpdated.IsZero() {
 		return nil, fmt.Errorf("revocation list missing last_updated timestamp")
+	}
+
+	if rl.ExpiresAt.IsZero() {
+		return nil, fmt.Errorf("revocation list missing expires_at timestamp")
 	}
 
 	return &rl, nil
@@ -107,6 +116,21 @@ func ValidateRevocationList(publicRootKeys []PublicKey, data []byte, signature S
 		return nil, err
 	}
 
+	// Check if the revocation list has expired
+	if now.After(revoList.ExpiresAt) {
+		err := fmt.Errorf("revocation list expired at %v (current time: %v)", revoList.ExpiresAt, now)
+		log.Errorf("rejecting expired revocation list: %v", err)
+		return nil, err
+	}
+
+	// Ensure ExpiresAt is not in the future by more than the expected expiration window
+	// (allows some clock skew but prevents maliciously long expiration times)
+	if revoList.ExpiresAt.After(now.Add(maxRevocationSignatureAge)) {
+		err := fmt.Errorf("revocation list ExpiresAt is too far in the future: %v", revoList.ExpiresAt)
+		log.Errorf("rejecting revocation list with invalid expiration: %v", err)
+		return nil, err
+	}
+
 	// Validate signature timestamp is close to LastUpdated
 	// (prevents signing old lists with new timestamps)
 	timeDiff := signature.Timestamp.Sub(revoList.LastUpdated).Abs()
@@ -128,11 +152,12 @@ func ValidateRevocationList(publicRootKeys []PublicKey, data []byte, signature S
 	return revoList, nil
 }
 
-func CreateRevocationList(privateRootKey RootKey) ([]byte, []byte, error) {
-	now := time.Now().UTC()
+func CreateRevocationList(privateRootKey RootKey, expiration time.Duration) ([]byte, []byte, error) {
+	now := time.Now()
 	rl := RevocationList{
 		Revoked:     make(map[KeyID]time.Time),
-		LastUpdated: now,
+		LastUpdated: now.UTC(),
+		ExpiresAt:   now.Add(expiration).UTC(),
 	}
 
 	signature, err := signRevocationList(privateRootKey, rl)
@@ -153,11 +178,12 @@ func CreateRevocationList(privateRootKey RootKey) ([]byte, []byte, error) {
 	return rlData, signData, nil
 }
 
-func ExtendRevocationList(privateRootKey RootKey, rl RevocationList, kid KeyID) ([]byte, []byte, error) {
+func ExtendRevocationList(privateRootKey RootKey, rl RevocationList, kid KeyID, expiration time.Duration) ([]byte, []byte, error) {
 	now := time.Now().UTC()
 
 	rl.Revoked[kid] = now
 	rl.LastUpdated = now
+	rl.ExpiresAt = now.Add(expiration)
 
 	signature, err := signRevocationList(privateRootKey, rl)
 	if err != nil {
