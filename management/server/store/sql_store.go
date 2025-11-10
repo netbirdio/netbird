@@ -2921,11 +2921,11 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	}()
 
 	if s.storeEngine == types.PostgresStoreEngine {
-		if err := tx.Exec("SET LOCAL statement_timeout = '1m'").Error; err != nil {
+		if err := tx.Exec("SET LOCAL statement_timeout = '1min'").Error; err != nil {
 			tx.Rollback()
 			return fmt.Errorf("failed to set statement timeout: %w", err)
 		}
-		if err := tx.Exec("SET LOCAL lock_timeout = '1m'").Error; err != nil {
+		if err := tx.Exec("SET LOCAL lock_timeout = '1min'").Error; err != nil {
 			tx.Rollback()
 			return fmt.Errorf("failed to set lock timeout: %w", err)
 		}
