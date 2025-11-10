@@ -92,23 +92,16 @@ func NewWorkerICE(ctx context.Context, log *log.Entry, config ConnConfig, conn *
 func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.log.Debugf("OnNewOffer for ICE, serial: %s", remoteOfferAnswer.SessionIDString())
 	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
 
-	if w.agentConnecting {
-		w.log.Debugf("agent connection is in progress, skipping the offer")
-		w.muxAgent.Unlock()
-		return
-	}
-
-	if w.agent != nil {
+	if w.agent != nil || w.agentConnecting {
 		// backward compatibility with old clients that do not send session ID
 		if remoteOfferAnswer.SessionID == nil {
 			w.log.Debugf("agent already exists, skipping the offer")
-			w.muxAgent.Unlock()
 			return
 		}
 		if w.remoteSessionID == *remoteOfferAnswer.SessionID {
 			w.log.Debugf("agent already exists and session ID matches, skipping the offer: %s", remoteOfferAnswer.SessionIDString())
-			w.muxAgent.Unlock()
 			return
 		}
 		w.log.Debugf("agent already exists, recreate the connection")
@@ -116,6 +109,12 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		if err := w.agent.Close(); err != nil {
 			w.log.Warnf("failed to close ICE agent: %s", err)
 		}
+
+		sessionID, err := NewICESessionID()
+		if err != nil {
+			w.log.Errorf("failed to create new session ID: %s", err)
+		}
+		w.sessionID = sessionID
 		w.agent = nil
 	}
 
@@ -126,18 +125,23 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		preferredCandidateTypes = icemaker.CandidateTypes()
 	}
 
-	w.log.Debugf("recreate ICE agent")
+	if remoteOfferAnswer.SessionID != nil {
+		w.log.Debugf("recreate ICE agent: %s / %s", w.sessionID, *remoteOfferAnswer.SessionID)
+	}
 	dialerCtx, dialerCancel := context.WithCancel(w.ctx)
 	agent, err := w.reCreateAgent(dialerCancel, preferredCandidateTypes)
 	if err != nil {
 		w.log.Errorf("failed to recreate ICE Agent: %s", err)
-		w.muxAgent.Unlock()
 		return
 	}
 	w.agent = agent
 	w.agentDialerCancel = dialerCancel
 	w.agentConnecting = true
-	w.muxAgent.Unlock()
+	if remoteOfferAnswer.SessionID != nil {
+		w.remoteSessionID = *remoteOfferAnswer.SessionID
+	} else {
+		w.remoteSessionID = ""
+	}
 
 	go w.connect(dialerCtx, agent, remoteOfferAnswer)
 }
@@ -218,7 +222,9 @@ func (w *WorkerICE) reCreateAgent(dialerCancel context.CancelFunc, candidates []
 		return nil, err
 	}
 
-	if err := agent.OnSelectedCandidatePairChange(w.onICESelectedCandidatePair); err != nil {
+	if err := agent.OnSelectedCandidatePairChange(func(c1, c2 ice.Candidate) {
+		w.onICESelectedCandidatePair(agent, c1, c2)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -291,9 +297,6 @@ func (w *WorkerICE) connect(ctx context.Context, agent *icemaker.ThreadSafeAgent
 	w.muxAgent.Lock()
 	w.agentConnecting = false
 	w.lastSuccess = time.Now()
-	if remoteOfferAnswer.SessionID != nil {
-		w.remoteSessionID = *remoteOfferAnswer.SessionID
-	}
 	w.muxAgent.Unlock()
 
 	// todo: the potential problem is a race between the onConnectionStateChange
@@ -307,16 +310,17 @@ func (w *WorkerICE) closeAgent(agent *icemaker.ThreadSafeAgent, cancel context.C
 	}
 
 	w.muxAgent.Lock()
-	// todo review does it make sense to generate new session ID all the time when w.agent==agent
-	sessionID, err := NewICESessionID()
-	if err != nil {
-		w.log.Errorf("failed to create new session ID: %s", err)
-	}
-	w.sessionID = sessionID
 
 	if w.agent == agent {
+		// consider to remove from here and move to the OnNewOffer
+		sessionID, err := NewICESessionID()
+		if err != nil {
+			w.log.Errorf("failed to create new session ID: %s", err)
+		}
+		w.sessionID = sessionID
 		w.agent = nil
 		w.agentConnecting = false
+		w.remoteSessionID = ""
 	}
 	w.muxAgent.Unlock()
 }
@@ -365,26 +369,17 @@ func (w *WorkerICE) onICECandidate(candidate ice.Candidate) {
 	}()
 }
 
-func (w *WorkerICE) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
+func (w *WorkerICE) onICESelectedCandidatePair(agent *icemaker.ThreadSafeAgent, c1, c2 ice.Candidate) {
 	w.log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
 		w.config.Key)
 
-	w.muxAgent.Lock()
-
-	pair, err := w.agent.GetSelectedCandidatePair()
-	if err != nil {
-		w.log.Warnf("failed to get selected candidate pair: %s", err)
-		w.muxAgent.Unlock()
+	pairStat, ok := agent.GetSelectedCandidatePairStats()
+	if !ok {
+		w.log.Warnf("failed to get selected candidate pair stats")
 		return
 	}
-	if pair == nil {
-		w.log.Warnf("selected candidate pair is nil, cannot proceed")
-		w.muxAgent.Unlock()
-		return
-	}
-	w.muxAgent.Unlock()
 
-	duration := time.Duration(pair.CurrentRoundTripTime() * float64(time.Second))
+	duration := time.Duration(pairStat.CurrentRoundTripTime * float64(time.Second))
 	if err := w.statusRecorder.UpdateLatency(w.config.Key, duration); err != nil {
 		w.log.Debugf("failed to update latency for peer: %s", err)
 		return
@@ -402,11 +397,12 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
 			// notify the conn.onICEStateDisconnected changes to update the current used priority
 
+			w.closeAgent(agent, dialerCancel)
+
 			if w.lastKnownState == ice.ConnectionStateConnected {
 				w.lastKnownState = ice.ConnectionStateDisconnected
 				w.conn.onICEStateDisconnected()
 			}
-			w.closeAgent(agent, dialerCancel)
 		default:
 			return
 		}

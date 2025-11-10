@@ -19,11 +19,10 @@ type SRWatcher struct {
 	signalClient chNotifier
 	relayManager chNotifier
 
-	listeners     map[chan struct{}]struct{}
-	mu            sync.Mutex
-	iFaceDiscover stdnet.ExternalIFaceDiscover
-	iceConfig     ice.Config
-
+	listeners        map[chan struct{}]struct{}
+	mu               sync.Mutex
+	iFaceDiscover    stdnet.ExternalIFaceDiscover
+	iceConfig        ice.Config
 	cancelIceMonitor context.CancelFunc
 }
 
@@ -51,7 +50,7 @@ func (w *SRWatcher) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancelIceMonitor = cancel
 
-	iceMonitor := NewICEMonitor(w.iFaceDiscover, w.iceConfig)
+	iceMonitor := NewICEMonitor(w.iFaceDiscover, w.iceConfig, GetICEMonitorPeriod())
 	go iceMonitor.Start(ctx, w.onICEChanged)
 	w.signalClient.SetOnReconnectedListener(w.onReconnected)
 	w.relayManager.SetOnReconnectedListener(w.onReconnected)

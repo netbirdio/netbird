@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -22,6 +23,7 @@ type Manager interface {
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
 
 	GetPermissionsByRole(ctx context.Context, role types.UserRole) (roles.Permissions, error)
+	SetAccountManager(accountManager account.Manager)
 }
 
 type managerImpl struct {
@@ -120,4 +122,8 @@ func (m *managerImpl) GetPermissionsByRole(ctx context.Context, role types.UserR
 	}
 
 	return permissions, nil
+}
+
+func (m *managerImpl) SetAccountManager(accountManager account.Manager) {
+	// no-op
 }

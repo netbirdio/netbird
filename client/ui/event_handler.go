@@ -12,6 +12,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
@@ -67,20 +69,55 @@ func (h *eventHandler) listen(ctx context.Context) {
 
 func (h *eventHandler) handleConnectClick() {
 	h.client.mUp.Disable()
+
+	if h.client.connectCancel != nil {
+		h.client.connectCancel()
+	}
+
+	connectCtx, connectCancel := context.WithCancel(h.client.ctx)
+	h.client.connectCancel = connectCancel
+
 	go func() {
-		defer h.client.mUp.Enable()
-		if err := h.client.menuUpClick(); err != nil {
-			h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird service"))
+		defer connectCancel()
+
+		if err := h.client.menuUpClick(connectCtx); err != nil {
+			st, ok := status.FromError(err)
+			if errors.Is(err, context.Canceled) || (ok && st.Code() == codes.Canceled) {
+				log.Debugf("connect operation cancelled by user")
+			} else {
+				h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect"))
+				log.Errorf("connect failed: %v", err)
+			}
+		}
+
+		if err := h.client.updateStatus(); err != nil {
+			log.Debugf("failed to update status after connect: %v", err)
 		}
 	}()
 }
 
 func (h *eventHandler) handleDisconnectClick() {
 	h.client.mDown.Disable()
+
+	if h.client.connectCancel != nil {
+		log.Debugf("cancelling ongoing connect operation")
+		h.client.connectCancel()
+		h.client.connectCancel = nil
+	}
+
 	go func() {
-		defer h.client.mDown.Enable()
 		if err := h.client.menuDownClick(); err != nil {
-			h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect to NetBird daemon"))
+			st, ok := status.FromError(err)
+			if !errors.Is(err, context.Canceled) && !(ok && st.Code() == codes.Canceled) {
+				h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to disconnect"))
+				log.Errorf("disconnect failed: %v", err)
+			} else {
+				log.Debugf("disconnect cancelled or already disconnecting")
+			}
+		}
+
+		if err := h.client.updateStatus(); err != nil {
+			log.Debugf("failed to update status after disconnect: %v", err)
 		}
 	}()
 }
@@ -245,6 +282,6 @@ func (h *eventHandler) logout(ctx context.Context) error {
 	}
 
 	h.client.getSrvConfig()
-	
+
 	return nil
 }

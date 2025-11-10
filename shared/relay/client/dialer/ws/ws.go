@@ -16,7 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/relay"
 	"github.com/netbirdio/netbird/util/embeddedroots"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type Dialer struct {
@@ -32,9 +32,7 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 		return nil, err
 	}
 
-	opts := &websocket.DialOptions{
-		HTTPClient: httpClientNbDialer(),
-	}
+	opts := createDialOptions()
 
 	parsedURL, err := url.Parse(wsURL)
 	if err != nil {

@@ -29,11 +29,6 @@ type Manager interface {
 	ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRouteFeatureFlag bool)
 }
 
-type protoMatch struct {
-	ips      map[string]int
-	policyID []byte
-}
-
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
 	firewall       firewall.Manager
@@ -86,21 +81,14 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap, dnsRout
 }
 
 func (d *DefaultManager) applyPeerACLs(networkMap *mgmProto.NetworkMap) {
-	rules, squashedProtocols := d.squashAcceptRules(networkMap)
+	rules := networkMap.FirewallRules
 
 	enableSSH := networkMap.PeerConfig != nil &&
 		networkMap.PeerConfig.SshConfig != nil &&
 		networkMap.PeerConfig.SshConfig.SshEnabled
-	if _, ok := squashedProtocols[mgmProto.RuleProtocol_ALL]; ok {
-		enableSSH = enableSSH && !ok
-	}
-	if _, ok := squashedProtocols[mgmProto.RuleProtocol_TCP]; ok {
-		enableSSH = enableSSH && !ok
-	}
 
-	// if TCP protocol rules not squashed and SSH enabled
-	// we add default firewall rule which accepts connection to any peer
-	// in the network by SSH (TCP 22 port).
+	// If SSH enabled, add default firewall rule which accepts connection to any peer
+	// in the network by SSH (TCP port defined by ssh.DefaultSSHPort).
 	if enableSSH {
 		rules = append(rules, &mgmProto.FirewallRule{
 			PeerIP:    "0.0.0.0",
@@ -366,145 +354,6 @@ func (d *DefaultManager) getPeerRuleID(
 	}
 
 	return id.RuleID(hex.EncodeToString(md5.New().Sum([]byte(idStr))))
-}
-
-// squashAcceptRules does complex logic to convert many rules which allows connection by traffic type
-// to all peers in the network map to one rule which just accepts that type of the traffic.
-//
-// NOTE: It will not squash two rules for same protocol if one covers all peers in the network,
-// but other has port definitions or has drop policy.
-func (d *DefaultManager) squashAcceptRules(
-	networkMap *mgmProto.NetworkMap,
-) ([]*mgmProto.FirewallRule, map[mgmProto.RuleProtocol]struct{}) {
-	totalIPs := 0
-	for _, p := range append(networkMap.RemotePeers, networkMap.OfflinePeers...) {
-		for range p.AllowedIps {
-			totalIPs++
-		}
-	}
-
-	in := map[mgmProto.RuleProtocol]*protoMatch{}
-	out := map[mgmProto.RuleProtocol]*protoMatch{}
-
-	// trace which type of protocols was squashed
-	squashedRules := []*mgmProto.FirewallRule{}
-	squashedProtocols := map[mgmProto.RuleProtocol]struct{}{}
-
-	// this function we use to do calculation, can we squash the rules by protocol or not.
-	// We summ amount of Peers IP for given protocol we found in original rules list.
-	// But we zeroed the IP's for protocol if:
-	// 1. Any of the rule has DROP action type.
-	// 2. Any of rule contains Port.
-	//
-	// We zeroed this to notify squash function that this protocol can't be squashed.
-	addRuleToCalculationMap := func(i int, r *mgmProto.FirewallRule, protocols map[mgmProto.RuleProtocol]*protoMatch) {
-		hasPortRestrictions := r.Action == mgmProto.RuleAction_DROP ||
-			r.Port != "" || !portInfoEmpty(r.PortInfo)
-
-		if hasPortRestrictions {
-			// Don't squash rules with port restrictions
-			protocols[r.Protocol] = &protoMatch{ips: map[string]int{}}
-			return
-		}
-
-		if _, ok := protocols[r.Protocol]; !ok {
-			protocols[r.Protocol] = &protoMatch{
-				ips: map[string]int{},
-				// store the first encountered PolicyID for this protocol
-				policyID: r.PolicyID,
-			}
-		}
-
-		// special case, when we receive this all network IP address
-		// it means that rules for that protocol was already optimized on the
-		// management side
-		if r.PeerIP == "0.0.0.0" {
-			squashedRules = append(squashedRules, r)
-			squashedProtocols[r.Protocol] = struct{}{}
-			return
-		}
-
-		ipset := protocols[r.Protocol].ips
-
-		if _, ok := ipset[r.PeerIP]; ok {
-			return
-		}
-		ipset[r.PeerIP] = i
-	}
-
-	for i, r := range networkMap.FirewallRules {
-		// calculate squash for different directions
-		if r.Direction == mgmProto.RuleDirection_IN {
-			addRuleToCalculationMap(i, r, in)
-		} else {
-			addRuleToCalculationMap(i, r, out)
-		}
-	}
-
-	// order of squashing by protocol is important
-	// only for their first element ALL, it must be done first
-	protocolOrders := []mgmProto.RuleProtocol{
-		mgmProto.RuleProtocol_ALL,
-		mgmProto.RuleProtocol_ICMP,
-		mgmProto.RuleProtocol_TCP,
-		mgmProto.RuleProtocol_UDP,
-	}
-
-	squash := func(matches map[mgmProto.RuleProtocol]*protoMatch, direction mgmProto.RuleDirection) {
-		for _, protocol := range protocolOrders {
-			match, ok := matches[protocol]
-			if !ok || len(match.ips) != totalIPs || len(match.ips) < 2 {
-				// don't squash if :
-				// 1. Rules not cover all peers in the network
-				// 2. Rules cover only one peer in the network.
-				continue
-			}
-
-			// add special rule 0.0.0.0 which allows all IP's in our firewall implementations
-			squashedRules = append(squashedRules, &mgmProto.FirewallRule{
-				PeerIP:    "0.0.0.0",
-				Direction: direction,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  protocol,
-				PolicyID:  match.policyID,
-			})
-			squashedProtocols[protocol] = struct{}{}
-
-			if protocol == mgmProto.RuleProtocol_ALL {
-				// if we have ALL traffic type squashed rule
-				// it allows all other type of traffic, so we can stop processing
-				break
-			}
-		}
-	}
-
-	squash(in, mgmProto.RuleDirection_IN)
-	squash(out, mgmProto.RuleDirection_OUT)
-
-	// if all protocol was squashed everything is allow and we can ignore all other rules
-	if _, ok := squashedProtocols[mgmProto.RuleProtocol_ALL]; ok {
-		return squashedRules, squashedProtocols
-	}
-
-	if len(squashedRules) == 0 {
-		return networkMap.FirewallRules, squashedProtocols
-	}
-
-	var rules []*mgmProto.FirewallRule
-	// filter out rules which was squashed from final list
-	// if we also have other not squashed rules.
-	for i, r := range networkMap.FirewallRules {
-		if _, ok := squashedProtocols[r.Protocol]; ok {
-			if m, ok := in[r.Protocol]; ok && m.ips[r.PeerIP] == i {
-				continue
-			} else if m, ok := out[r.Protocol]; ok && m.ips[r.PeerIP] == i {
-				continue
-			}
-		}
-		rules = append(rules, r)
-	}
-
-	return append(rules, squashedRules...), squashedProtocols
 }
 
 // getRuleGroupingSelector takes all rule properties except IP address to build selector

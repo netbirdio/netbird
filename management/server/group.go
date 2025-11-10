@@ -114,6 +114,9 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 	}
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -138,6 +141,11 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
+		newGroup.AccountID = accountID
+
+		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+		eventsToStore = append(eventsToStore, events...)
+
 		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
 		if err != nil {
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
@@ -156,11 +164,6 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 				return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, newGroup.ID, err)
 			}
 		}
-
-		newGroup.AccountID = accountID
-
-		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-		eventsToStore = append(eventsToStore, events...)
 
 		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{newGroup.ID})
 		if err != nil {
@@ -182,6 +185,9 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	}
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -250,6 +256,9 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	}
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -318,6 +327,9 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -335,6 +347,16 @@ func (am *DefaultAccountManager) prepareGroupEvents(ctx context.Context, transac
 	if err == nil && oldGroup != nil {
 		addedPeers = util.Difference(newGroup.Peers, oldGroup.Peers)
 		removedPeers = util.Difference(oldGroup.Peers, newGroup.Peers)
+
+		if oldGroup.Name != newGroup.Name {
+			eventsToStore = append(eventsToStore, func() {
+				meta := map[string]any{
+					"old_name": oldGroup.Name,
+					"new_name": newGroup.Name,
+				}
+				am.StoreEvent(ctx, userID, newGroup.ID, accountID, activity.GroupUpdated, meta)
+			})
+		}
 	} else {
 		addedPeers = append(addedPeers, newGroup.Peers...)
 		eventsToStore = append(eventsToStore, func() {
@@ -471,6 +493,9 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	}
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -509,6 +534,9 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 	}
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -537,6 +565,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	}
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 
@@ -575,6 +606,9 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 	}
 
 	if updateAccountPeers {
+		if err := am.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+			return err
+		}
 		am.UpdateAccountPeers(ctx, accountID)
 	}
 

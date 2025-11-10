@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -87,6 +88,13 @@ type Account struct {
 	NetworkRouters   []*routerTypes.NetworkRouter     `gorm:"foreignKey:AccountID;references:id"`
 	NetworkResources []*resourceTypes.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
+
+	NetworkMapCache *NetworkMapBuilder `gorm:"-"`
+	nmapInitOnce    *sync.Once         `gorm:"-"`
+}
+
+func (a *Account) InitOnce() {
+	a.nmapInitOnce = &sync.Once{}
 }
 
 // this class is used by gorm only
@@ -257,7 +265,6 @@ func (a *Account) GetPeerNetworkMap(
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
-
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -300,9 +307,12 @@ func (a *Account) GetPeerNetworkMap(
 
 	if dnsManagementStatus {
 		var zones []nbdns.CustomZone
-
 		if peersCustomZone.Domain != "" {
-			zones = append(zones, peersCustomZone)
+			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnectIncludingRouters, expiredPeers)
+			zones = append(zones, nbdns.CustomZone{
+				Domain:  peersCustomZone.Domain,
+				Records: records,
+			})
 		}
 		dnsUpdate.CustomZones = zones
 		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
@@ -887,6 +897,8 @@ func (a *Account) Copy() *Account {
 		NetworkRouters:         networkRouters,
 		NetworkResources:       networkResources,
 		Onboarding:             a.Onboarding,
+		NetworkMapCache:        a.NetworkMapCache,
+		nmapInitOnce:           a.nmapInitOnce,
 	}
 }
 
@@ -998,8 +1010,20 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 				continue
 			}
 
-			sourcePeers, peerInSources := a.getAllPeersFromGroups(ctx, rule.Sources, peer.ID, policy.SourcePostureChecks, validatedPeersMap)
-			destinationPeers, peerInDestinations := a.getAllPeersFromGroups(ctx, rule.Destinations, peer.ID, nil, validatedPeersMap)
+			var sourcePeers, destinationPeers []*nbpeer.Peer
+			var peerInSources, peerInDestinations bool
+
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				sourcePeers, peerInSources = a.getPeerFromResource(rule.SourceResource, peer.ID)
+			} else {
+				sourcePeers, peerInSources = a.getAllPeersFromGroups(ctx, rule.Sources, peer.ID, policy.SourcePostureChecks, validatedPeersMap)
+			}
+
+			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+				destinationPeers, peerInDestinations = a.getPeerFromResource(rule.DestinationResource, peer.ID)
+			} else {
+				destinationPeers, peerInDestinations = a.getAllPeersFromGroups(ctx, rule.Destinations, peer.ID, nil, validatedPeersMap)
+			}
 
 			if rule.Bidirectional {
 				if peerInSources {
@@ -1034,14 +1058,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 	rules := make([]*FirewallRule, 0)
 	peers := make([]*nbpeer.Peer, 0)
 
-	all, err := a.GetGroupAll()
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get group all: %v", err)
-		all = &Group{}
-	}
-
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
-			isAll := (len(all.Peers) - 1) == len(groupPeers)
 			for _, peer := range groupPeers {
 				if peer == nil {
 					continue
@@ -1058,10 +1075,6 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 					Direction: direction,
 					Action:    string(rule.Action),
 					Protocol:  string(rule.Protocol),
-				}
-
-				if isAll {
-					fr.PeerIP = "0.0.0.0"
 				}
 
 				ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +
@@ -1119,6 +1132,15 @@ func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, pe
 	}
 
 	return filteredPeers, peerInGroups
+}
+
+func (a *Account) getPeerFromResource(resource Resource, peerID string) ([]*nbpeer.Peer, bool) {
+	peer := a.GetPeer(resource.ID)
+	if peer == nil {
+		return []*nbpeer.Peer{}, false
+	}
+
+	return []*nbpeer.Peer{peer}, resource.ID == peerID
 }
 
 // validatePostureChecksOnPeer validates the posture checks on a peer
@@ -1376,7 +1398,12 @@ func (a *Account) GetNetworkResourcesRoutesToSync(ctx context.Context, peerID st
 
 		addedResourceRoute := false
 		for _, policy := range resourcePolicies[resource.ID] {
-			peers := a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+			var peers []string
+			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
+				peers = []string{policy.Rules[0].SourceResource.ID}
+			} else {
+				peers = a.getUniquePeerIDsFromGroupsIDs(ctx, policy.SourceGroups())
+			}
 			if addSourcePeers {
 				for _, pID := range a.getPostureValidPeers(peers, policy.SourcePostureChecks) {
 					allSourcePeers[pID] = struct{}{}
@@ -1650,4 +1677,29 @@ func peerSupportsPortRanges(peerVer string) bool {
 
 	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
 	return err == nil && meetMinVer
+}
+
+// filterZoneRecordsForPeers filters DNS records to only include peers to connect.
+func filterZoneRecordsForPeers(peer *nbpeer.Peer, customZone nbdns.CustomZone, peersToConnect, expiredPeers []*nbpeer.Peer) []nbdns.SimpleRecord {
+	filteredRecords := make([]nbdns.SimpleRecord, 0, len(customZone.Records))
+	peerIPs := make(map[string]struct{})
+
+	// Add peer's own IP to include its own DNS records
+	peerIPs[peer.IP.String()] = struct{}{}
+
+	for _, peerToConnect := range peersToConnect {
+		peerIPs[peerToConnect.IP.String()] = struct{}{}
+	}
+
+	for _, expiredPeer := range expiredPeers {
+		peerIPs[expiredPeer.IP.String()] = struct{}{}
+	}
+
+	for _, record := range customZone.Records {
+		if _, exists := peerIPs[record.RData]; exists {
+			filteredRecords = append(filteredRecords, record)
+		}
+	}
+
+	return filteredRecords
 }

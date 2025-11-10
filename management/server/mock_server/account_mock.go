@@ -15,6 +15,7 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -41,7 +42,7 @@ type MockAccountManager struct {
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
 	GetPeerNetworkFunc                    func(ctx context.Context, peerKey string) (*types.Network, error)
-	AddPeerFunc                           func(ctx context.Context, setupKey string, userId string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	AddPeerFunc                           func(ctx context.Context, accountID string, setupKey string, userId string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	GetGroupFunc                          func(ctx context.Context, accountID, groupID, userID string) (*types.Group, error)
 	GetAllGroupsFunc                      func(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByNameFunc                    func(ctx context.Context, accountID, groupName string) (*types.Group, error)
@@ -124,9 +125,10 @@ type MockAccountManager struct {
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 
-	AllowSyncFunc                func(string, uint64) bool
-	UpdateAccountPeersFunc       func(ctx context.Context, accountID string)
-	BufferUpdateAccountPeersFunc func(ctx context.Context, accountID string)
+	AllowSyncFunc                  func(string, uint64) bool
+	UpdateAccountPeersFunc         func(ctx context.Context, accountID string)
+	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string)
+	RecalculateNetworkMapCacheFunc func(ctx context.Context, accountId string) error
 }
 
 func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
@@ -188,17 +190,17 @@ func (am *MockAccountManager) OnPeerDisconnected(_ context.Context, accountID st
 	panic("implement me")
 }
 
-func (am *MockAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, error) {
+func (am *MockAccountManager) GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error) {
 	account, err := am.GetAccountFunc(ctx, accountID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	approvedPeers := make(map[string]struct{})
 	for id := range account.Peers {
 		approvedPeers[id] = struct{}{}
 	}
-	return approvedPeers, nil
+	return approvedPeers, nil, nil
 }
 
 // GetGroup mock implementation of GetGroup from server.AccountManager interface
@@ -351,12 +353,14 @@ func (am *MockAccountManager) GetPeerNetwork(ctx context.Context, peerKey string
 // AddPeer mock implementation of AddPeer from server.AccountManager interface
 func (am *MockAccountManager) AddPeer(
 	ctx context.Context,
+	accountID string,
 	setupKey string,
 	userId string,
 	peer *nbpeer.Peer,
+	temporary bool,
 ) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
 	if am.AddPeerFunc != nil {
-		return am.AddPeerFunc(ctx, setupKey, userId, peer)
+		return am.AddPeerFunc(ctx, accountID, setupKey, userId, peer, temporary)
 	}
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
 }
@@ -972,9 +976,21 @@ func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth n
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
 }
 
+// SetEphemeralManager mocks SetEphemeralManager of the AccountManager interface
+func (am *MockAccountManager) SetEphemeralManager(em ephemeral.Manager) {
+	// Mock implementation - does nothing
+}
+
 func (am *MockAccountManager) AllowSync(key string, hash uint64) bool {
 	if am.AllowSyncFunc != nil {
 		return am.AllowSyncFunc(key, hash)
 	}
 	return true
+}
+
+func (am *MockAccountManager) RecalculateNetworkMapCache(ctx context.Context, accountID string) error {
+	if am.RecalculateNetworkMapCacheFunc != nil {
+		return am.RecalculateNetworkMapCacheFunc(ctx, accountID)
+	}
+	return nil
 }

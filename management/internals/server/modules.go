@@ -35,7 +35,13 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 
 func (s *BaseServer) PermissionsManager() permissions.Manager {
 	return Create(s, func() permissions.Manager {
-		return integrations.InitPermissionsManager(s.Store())
+		manager := integrations.InitPermissionsManager(s.Store(), s.Metrics().GetMeter())
+
+		s.AfterInit(func(s *BaseServer) {
+			manager.SetAccountManager(s.AccountManager())
+		})
+
+		return manager
 	})
 }
 
@@ -65,6 +71,10 @@ func (s *BaseServer) AccountManager() account.Manager {
 		if err != nil {
 			log.Fatalf("failed to create account manager: %v", err)
 		}
+
+		s.AfterInit(func(s *BaseServer) {
+			accountManager.SetEphemeralManager(s.EphemeralManager())
+		})
 		return accountManager
 	})
 }

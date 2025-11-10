@@ -66,7 +66,7 @@ func verifyCanAddPeerToAccount(t *testing.T, manager nbAccount.Manager, account 
 		setupKey = key.Key
 	}
 
-	_, _, _, err := manager.AddPeer(context.Background(), setupKey, userID, peer)
+	_, _, _, err := manager.AddPeer(context.Background(), "", setupKey, userID, peer, false)
 	if err != nil {
 		t.Error("expected to add new peer successfully after creating new account, but failed", err)
 	}
@@ -1048,10 +1048,10 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	}
 	expectedPeerKey := key.PublicKey().String()
 
-	peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-	})
+	}, false)
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -1112,10 +1112,10 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedUserID := userID
 
-	peer, _, _, err := manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:  expectedPeerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-	})
+	}, false)
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v, account users: %v", err, account.CreatedBy)
 		return
@@ -1154,7 +1154,16 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
+func TestAccountManager_NetworkUpdates_SaveGroup_Experimental(t *testing.T) {
+	t.Setenv(envNewNetworkMapBuilder, "true")
+	testAccountManager_NetworkUpdates_SaveGroup(t)
+}
+
 func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
+	testAccountManager_NetworkUpdates_SaveGroup(t)
+}
+
+func testAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	group := types.Group{
@@ -1205,7 +1214,16 @@ func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	wg.Wait()
 }
 
+func TestAccountManager_NetworkUpdates_DeletePolicy_Experimental(t *testing.T) {
+	t.Setenv(envNewNetworkMapBuilder, "true")
+	testAccountManager_NetworkUpdates_DeletePolicy(t)
+}
+
 func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
+	testAccountManager_NetworkUpdates_DeletePolicy(t)
+}
+
+func testAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	manager, account, peer1, _, _ := setupNetworkMapTest(t)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -1239,7 +1257,16 @@ func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	wg.Wait()
 }
 
+func TestAccountManager_NetworkUpdates_SavePolicy_Experimental(t *testing.T) {
+	t.Setenv(envNewNetworkMapBuilder, "true")
+	testAccountManager_NetworkUpdates_SavePolicy(t)
+}
+
 func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
+	testAccountManager_NetworkUpdates_SavePolicy(t)
+}
+
+func testAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	manager, account, peer1, peer2, _ := setupNetworkMapTest(t)
 
 	group := types.Group{
@@ -1288,7 +1315,16 @@ func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	wg.Wait()
 }
 
+func TestAccountManager_NetworkUpdates_DeletePeer_Experimental(t *testing.T) {
+	t.Setenv(envNewNetworkMapBuilder, "true")
+	testAccountManager_NetworkUpdates_DeletePeer(t)
+}
+
 func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
+	testAccountManager_NetworkUpdates_DeletePeer(t)
+}
+
+func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	manager, account, peer1, _, peer3 := setupNetworkMapTest(t)
 
 	group := types.Group{
@@ -1341,7 +1377,16 @@ func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	wg.Wait()
 }
 
+func TestAccountManager_NetworkUpdates_DeleteGroup_Experimental(t *testing.T) {
+	t.Setenv(envNewNetworkMapBuilder, "true")
+	testAccountManager_NetworkUpdates_DeleteGroup(t)
+}
+
 func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
+	testAccountManager_NetworkUpdates_DeleteGroup(t)
+}
+
+func testAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
@@ -1375,6 +1420,14 @@ func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
 	if err != nil {
 		t.Errorf("save policy: %v", err)
 		return
+	}
+
+	for drained := false; !drained; {
+		select {
+		case <-updMsg:
+		default:
+			drained = true
+		}
 	}
 
 	wg := sync.WaitGroup{}
@@ -1429,10 +1482,10 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 
 	peerKey := key.PublicKey().String()
 
-	peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey,
 		Meta: nbpeer.PeerSystemMeta{Hostname: peerKey},
-	})
+	}, false)
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -1736,7 +1789,9 @@ func TestAccount_Copy(t *testing.T) {
 				Address:   "172.12.6.1/24",
 			},
 		},
+		NetworkMapCache: &types.NetworkMapBuilder{},
 	}
+	account.InitOnce()
 	err := hasNilField(account)
 	if err != nil {
 		t.Fatal(err)
@@ -1805,11 +1860,11 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	peer, _, _, err := manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
+	peer, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
-	})
+	}, false)
 	require.NoError(t, err, "unable to add peer")
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
@@ -1861,11 +1916,11 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, _, _, err = manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
-	})
+	}, false)
 	require.NoError(t, err, "unable to add peer")
 	_, err = manager.UpdateAccountSettings(context.Background(), accountID, userID, &types.Settings{
 		PeerLoginExpiration:        time.Hour,
@@ -1904,11 +1959,11 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, _, _, err = manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
-	})
+	}, false)
 	require.NoError(t, err, "unable to add peer")
 
 	accountID, err := manager.GetAccountIDByUserID(context.Background(), userID, "")
@@ -2952,14 +3007,14 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *types.Account, 
 		}
 		expectedPeerKey := key.PublicKey().String()
 
-		peer, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+		peer, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 			Key:  expectedPeerKey,
 			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
 			Status: &nbpeer.PeerStatus{
 				Connected: true,
 				LastSeen:  time.Now().UTC(),
 			},
-		})
+		}, false)
 		if err != nil {
 			t.Fatalf("expecting peer to be added, got failure %v", err)
 		}
@@ -3552,16 +3607,16 @@ func TestDefaultAccountManager_UpdatePeerIP(t *testing.T) {
 	key2, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
 
-	peer1, _, _, err := manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:  key1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
-	})
+	}, false)
 	require.NoError(t, err, "unable to add peer1")
 
-	peer2, _, _, err := manager.AddPeer(context.Background(), "", userID, &nbpeer.Peer{
+	peer2, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
 		Key:  key2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
-	})
+	}, false)
 	require.NoError(t, err, "unable to add peer2")
 
 	t.Run("update peer IP successfully", func(t *testing.T) {

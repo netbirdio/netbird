@@ -67,6 +67,7 @@ type Server struct {
 	proto.UnimplementedDaemonServiceServer
 	clientRunning     bool // protected by mutex
 	clientRunningChan chan struct{}
+	clientGiveUpChan  chan struct{}
 
 	connectClient *internal.ConnectClient
 
@@ -114,6 +115,10 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 func (s *Server) Start() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.clientRunning {
+		return nil
+	}
 
 	state := internal.CtxGetState(s.rootCtx)
 
@@ -183,12 +188,10 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	if s.clientRunning {
-		return nil
-	}
 	s.clientRunning = true
-	s.clientRunningChan = make(chan struct{}, 1)
-	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan)
+	s.clientRunningChan = make(chan struct{})
+	s.clientGiveUpChan = make(chan struct{})
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 	return nil
 }
 
@@ -219,7 +222,7 @@ func (s *Server) setDefaultConfigIfNotExists(ctx context.Context) error {
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
-func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}) {
+func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
 	defer func() {
 		s.mutex.Lock()
 		s.clientRunning = false
@@ -268,6 +271,10 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 	if err := backoff.Retry(runOperation, backOff); err != nil {
 		log.Errorf("operation failed: %v", err)
+	}
+
+	if giveUpChan != nil {
+		close(giveUpChan)
 	}
 }
 
@@ -354,6 +361,13 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		config.CustomDNSAddress = []byte{}
 	}
 
+	config.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
+
+	if msg.DnsRouteInterval != nil {
+		interval := msg.DnsRouteInterval.AsDuration()
+		config.DNSRouteInterval = &interval
+	}
+
 	config.RosenpassEnabled = msg.RosenpassEnabled
 	config.RosenpassPermissive = msg.RosenpassPermissive
 	config.DisableAutoConnect = msg.DisableAutoConnect
@@ -387,7 +401,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	if s.actCancel != nil {
 		s.actCancel()
 	}
-	ctx, cancel := context.WithCancel(s.rootCtx)
+	ctx, cancel := context.WithCancel(callerCtx)
 
 	md, ok := metadata.FromIncomingContext(callerCtx)
 	if ok {
@@ -397,11 +411,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
-	if err := restoreResidualState(ctx, s.profileManager.GetStatePath()); err != nil {
+	if err := restoreResidualState(s.rootCtx, s.profileManager.GetStatePath()); err != nil {
 		log.Warnf(errRestoreResidualState, err)
 	}
 
-	state := internal.CtxGetState(ctx)
+	state := internal.CtxGetState(s.rootCtx)
 	defer func() {
 		status, err := state.Status()
 		if err != nil || (status != internal.StatusNeedsLogin && status != internal.StatusLoginFailed) {
@@ -477,7 +491,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient)
+		hint := ""
+		if msg.Hint != nil {
+			hint = *msg.Hint
+		}
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, hint)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
@@ -614,6 +632,20 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
+	if s.clientRunning {
+		state := internal.CtxGetState(s.rootCtx)
+		status, err := state.Status()
+		if err != nil {
+			s.mutex.Unlock()
+			return nil, err
+		}
+		if status == internal.StatusNeedsLogin {
+			s.actCancel()
+		}
+		s.mutex.Unlock()
+
+		return s.waitForUp(callerCtx)
+	}
 	defer s.mutex.Unlock()
 
 	if err := restoreResidualState(callerCtx, s.profileManager.GetStatePath()); err != nil {
@@ -629,16 +661,16 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	if err != nil {
 		return nil, err
 	}
+
 	if status != internal.StatusIdle {
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
 
-	// it should be nil here, but .
+	// it should be nil here, but in case it isn't we cancel it.
 	if s.actCancel != nil {
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
-
 	md, ok := metadata.FromIncomingContext(callerCtx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -681,26 +713,31 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
+	s.clientRunning = true
+	s.clientRunningChan = make(chan struct{})
+	s.clientGiveUpChan = make(chan struct{})
+	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+
+	return s.waitForUp(callerCtx)
+}
+
+// todo: handle potential race conditions
+func (s *Server) waitForUp(callerCtx context.Context) (*proto.UpResponse, error) {
 	timeoutCtx, cancel := context.WithTimeout(callerCtx, 50*time.Second)
 	defer cancel()
 
-	if !s.clientRunning {
-		s.clientRunning = true
-		s.clientRunningChan = make(chan struct{}, 1)
-		go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan)
-	}
-	for {
-		select {
-		case <-s.clientRunningChan:
-			s.isSessionActive.Store(true)
-			return &proto.UpResponse{}, nil
-		case <-callerCtx.Done():
-			log.Debug("context done, stopping the wait for engine to become ready")
-			return nil, callerCtx.Err()
-		case <-timeoutCtx.Done():
-			log.Debug("up is timed out, stopping the wait for engine to become ready")
-			return nil, timeoutCtx.Err()
-		}
+	select {
+	case <-s.clientGiveUpChan:
+		return nil, fmt.Errorf("client gave up to connect")
+	case <-s.clientRunningChan:
+		s.isSessionActive.Store(true)
+		return &proto.UpResponse{}, nil
+	case <-callerCtx.Done():
+		log.Debug("context done, stopping the wait for engine to become ready")
+		return nil, callerCtx.Err()
+	case <-timeoutCtx.Done():
+		log.Debug("up is timed out, stopping the wait for engine to become ready")
+		return nil, timeoutCtx.Err()
 	}
 }
 
@@ -974,12 +1011,46 @@ func (s *Server) Status(
 	ctx context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	clientRunning := s.clientRunning
+	s.mutex.Unlock()
+
+	if msg.WaitForReady != nil && *msg.WaitForReady && clientRunning {
+		state := internal.CtxGetState(s.rootCtx)
+		status, err := state.Status()
+		if err != nil {
+			return nil, err
+		}
+
+		if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
+			s.actCancel()
+		}
+
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+	loop:
+		for {
+			select {
+			case <-s.clientGiveUpChan:
+				ticker.Stop()
+				break loop
+			case <-s.clientRunningChan:
+				ticker.Stop()
+				break loop
+			case <-ticker.C:
+				status, err := state.Status()
+				if err != nil {
+					continue
+				}
+				if status != internal.StatusIdle && status != internal.StatusConnected && status != internal.StatusConnecting {
+					s.actCancel()
+				}
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
 
 	status, err := internal.CtxGetState(s.rootCtx).Status()
 	if err != nil {
@@ -998,10 +1069,7 @@ func (s *Server) Status(
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
 	if msg.GetFullPeerStatus {
-		if msg.ShouldRunProbes {
-			s.runProbes()
-		}
-
+		s.runProbes(msg.ShouldRunProbes)
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
@@ -1011,7 +1079,7 @@ func (s *Server) Status(
 	return &statusResponse, nil
 }
 
-func (s *Server) runProbes() {
+func (s *Server) runProbes(waitForProbeResult bool) {
 	if s.connectClient == nil {
 		return
 	}
@@ -1022,7 +1090,7 @@ func (s *Server) runProbes() {
 	}
 
 	if time.Since(s.lastProbe) > probeThreshold {
-		if engine.RunHealthProbes() {
+		if engine.RunHealthProbes(waitForProbeResult) {
 			s.lastProbe = time.Now()
 		}
 	}

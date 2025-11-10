@@ -21,4 +21,5 @@ type WGTunDevice interface {
 	FilteredDevice() *device.FilteredDevice
 	Device() *wgdevice.Device
 	GetNet() *netstack.Net
+	GetICEBind() device.EndpointManager
 }

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/client/internal/routemanager/client"
@@ -36,9 +38,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/routeselector"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/route"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-	nbnet "github.com/netbirdio/netbird/util/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -54,6 +56,7 @@ type Manager interface {
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
 	SetFirewall(firewall.Manager) error
+	SetDNSForwarderPort(port uint16)
 	Stop(stateManager *statemanager.Manager)
 }
 
@@ -78,6 +81,7 @@ type DefaultManager struct {
 	ctx                  context.Context
 	stop                 context.CancelFunc
 	mux                  sync.Mutex
+	shutdownWg           sync.WaitGroup
 	clientNetworks       map[route.HAUniqueID]*client.Watcher
 	routeSelector        *routeselector.RouteSelector
 	serverRouter         *server.Router
@@ -101,12 +105,17 @@ type DefaultManager struct {
 	disableServerRoutes bool
 	activeRoutes        map[route.HAUniqueID]client.RouteHandler
 	fakeIPManager       *fakeip.Manager
+	dnsForwarderPort    atomic.Uint32
 }
 
 func NewManager(config ManagerConfig) *DefaultManager {
 	mCTX, cancel := context.WithCancel(config.Context)
 	notifier := notifier.NewNotifier()
-	sysOps := systemops.NewSysOps(config.WGInterface, notifier)
+	sysOps := systemops.New(config.WGInterface, notifier)
+
+	if runtime.GOOS == "windows" && config.WGInterface != nil {
+		nbnet.SetVPNInterfaceName(config.WGInterface.Name())
+	}
 
 	dm := &DefaultManager{
 		ctx:                 mCTX,
@@ -126,6 +135,7 @@ func NewManager(config ManagerConfig) *DefaultManager {
 		disableServerRoutes: config.DisableServerRoutes,
 		activeRoutes:        make(map[route.HAUniqueID]client.RouteHandler),
 	}
+	dm.dnsForwarderPort.Store(uint32(nbdns.ForwarderClientPort))
 
 	useNoop := netstack.IsEnabled() || config.DisableClientRoutes
 	dm.setupRefCounters(useNoop)
@@ -208,7 +218,7 @@ func (m *DefaultManager) Init() error {
 		return nil
 	}
 
-	if err := m.sysOps.CleanupRouting(nil); err != nil {
+	if err := m.sysOps.CleanupRouting(nil, nbnet.AdvancedRouting()); err != nil {
 		log.Warnf("Failed cleaning up routing: %v", err)
 	}
 
@@ -219,7 +229,7 @@ func (m *DefaultManager) Init() error {
 
 	ips := resolveURLsToIPs(initialAddresses)
 
-	if err := m.sysOps.SetupRouting(ips, m.stateManager); err != nil {
+	if err := m.sysOps.SetupRouting(ips, m.stateManager, nbnet.AdvancedRouting()); err != nil {
 		return fmt.Errorf("setup routing: %w", err)
 	}
 
@@ -266,9 +276,15 @@ func (m *DefaultManager) SetFirewall(firewall firewall.Manager) error {
 	return nil
 }
 
+// SetDNSForwarderPort sets the DNS forwarder port for route handlers
+func (m *DefaultManager) SetDNSForwarderPort(port uint16) {
+	m.dnsForwarderPort.Store(uint32(port))
+}
+
 // Stop stops the manager watchers and clean firewall rules
 func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 	m.stop()
+	m.shutdownWg.Wait()
 	if m.serverRouter != nil {
 		m.serverRouter.CleanUp()
 	}
@@ -285,10 +301,14 @@ func (m *DefaultManager) Stop(stateManager *statemanager.Manager) {
 	}
 
 	if !nbnet.CustomRoutingDisabled() && !m.disableClientRoutes {
-		if err := m.sysOps.CleanupRouting(stateManager); err != nil {
+		if err := m.sysOps.CleanupRouting(stateManager, nbnet.AdvancedRouting()); err != nil {
 			log.Errorf("Error cleaning up routing: %v", err)
 		} else {
 			log.Info("Routing cleanup complete")
+		}
+
+		if runtime.GOOS == "windows" {
+			nbnet.SetVPNInterfaceName("")
 		}
 	}
 
@@ -337,6 +357,7 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 			UseNewDNSRoute:       m.useNewDNSRoute,
 			Firewall:             m.firewall,
 			FakeIPManager:        m.fakeIPManager,
+			ForwarderPort:        &m.dnsForwarderPort,
 		}
 		handler := client.HandlerFromRoute(params)
 		if err := handler.AddRoute(m.ctx); err != nil {
@@ -466,7 +487,11 @@ func (m *DefaultManager) TriggerSelection(networks route.HAMap) {
 		}
 		clientNetworkWatcher := client.NewWatcher(config)
 		m.clientNetworks[id] = clientNetworkWatcher
-		go clientNetworkWatcher.Start()
+		m.shutdownWg.Add(1)
+		go func() {
+			defer m.shutdownWg.Done()
+			clientNetworkWatcher.Start()
+		}()
 		clientNetworkWatcher.SendUpdate(client.RoutesUpdate{Routes: routes})
 	}
 
@@ -508,7 +533,11 @@ func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks rout
 			}
 			clientNetworkWatcher = client.NewWatcher(config)
 			m.clientNetworks[id] = clientNetworkWatcher
-			go clientNetworkWatcher.Start()
+			m.shutdownWg.Add(1)
+			go func() {
+				defer m.shutdownWg.Done()
+				clientNetworkWatcher.Start()
+			}()
 		}
 		update := client.RoutesUpdate{
 			UpdateSerial: updateSerial,

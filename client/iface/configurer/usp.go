@@ -17,8 +17,8 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/monotime"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 const (
@@ -103,6 +103,67 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 		addrPort := netip.AddrPortFrom(addr, uint16(endpoint.Port))
 		c.activityRecorder.UpsertAddress(peerKey, addrPort)
 	}
+	return nil
+}
+
+func (c *WGUSPConfigurer) RemoveEndpointAddress(peerKey string) error {
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return fmt.Errorf("parse peer key: %w", err)
+	}
+
+	ipcStr, err := c.device.IpcGet()
+	if err != nil {
+		return fmt.Errorf("get IPC config: %w", err)
+	}
+
+	// Parse current status to get allowed IPs for the peer
+	stats, err := parseStatus(c.deviceName, ipcStr)
+	if err != nil {
+		return fmt.Errorf("parse IPC config: %w", err)
+	}
+
+	var allowedIPs []net.IPNet
+	found := false
+	for _, peer := range stats.Peers {
+		if peer.PublicKey == peerKey {
+			allowedIPs = peer.AllowedIPs
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("peer %s not found", peerKey)
+	}
+
+	// remove the peer from the WireGuard configuration
+	peer := wgtypes.PeerConfig{
+		PublicKey: peerKeyParsed,
+		Remove:    true,
+	}
+
+	config := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+	if ipcErr := c.device.IpcSet(toWgUserspaceString(config)); ipcErr != nil {
+		return fmt.Errorf("failed to remove peer: %s", ipcErr)
+	}
+
+	// Build the peer config
+	peer = wgtypes.PeerConfig{
+		PublicKey:         peerKeyParsed,
+		ReplaceAllowedIPs: true,
+		AllowedIPs:        allowedIPs,
+	}
+
+	config = wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+
+	if err := c.device.IpcSet(toWgUserspaceString(config)); err != nil {
+		return fmt.Errorf("remove endpoint address: %w", err)
+	}
+
 	return nil
 }
 
@@ -409,7 +470,7 @@ func toBytes(s string) (int64, error) {
 }
 
 func getFwmark() int {
-	if nbnet.AdvancedRouting() {
+	if nbnet.AdvancedRouting() && runtime.GOOS == "linux" {
 		return nbnet.ControlPlaneMark
 	}
 	return 0

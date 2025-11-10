@@ -168,6 +168,7 @@ const (
 const (
 	ResourceTypeDomain ResourceType = "domain"
 	ResourceTypeHost   ResourceType = "host"
+	ResourceTypePeer   ResourceType = "peer"
 	ResourceTypeSubnet ResourceType = "subnet"
 )
 
@@ -1036,6 +1037,9 @@ type Peer struct {
 	// CreatedAt Peer creation date (UTC)
 	CreatedAt time.Time `json:"created_at"`
 
+	// DisapprovalReason (Cloud only) Reason why the peer requires approval
+	DisapprovalReason *string `json:"disapproval_reason,omitempty"`
+
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
@@ -1122,6 +1126,9 @@ type PeerBatch struct {
 
 	// CreatedAt Peer creation date (UTC)
 	CreatedAt time.Time `json:"created_at"`
+
+	// DisapprovalReason (Cloud only) Reason why the peer requires approval
+	DisapprovalReason *string `json:"disapproval_reason,omitempty"`
 
 	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
@@ -1219,6 +1226,30 @@ type PeerRequest struct {
 	LoginExpirationEnabled bool    `json:"login_expiration_enabled"`
 	Name                   string  `json:"name"`
 	SshEnabled             bool    `json:"ssh_enabled"`
+}
+
+// PeerTemporaryAccessRequest defines model for PeerTemporaryAccessRequest.
+type PeerTemporaryAccessRequest struct {
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// Rules List of temporary access rules
+	Rules []string `json:"rules"`
+
+	// WgPubKey Peer's WireGuard public key
+	WgPubKey string `json:"wg_pub_key"`
+}
+
+// PeerTemporaryAccessResponse defines model for PeerTemporaryAccessResponse.
+type PeerTemporaryAccessResponse struct {
+	// Id Peer ID
+	Id string `json:"id"`
+
+	// Name Peer's hostname
+	Name string `json:"name"`
+
+	// Rules List of temporary access rules
+	Rules []string `json:"rules"`
 }
 
 // PersonalAccessToken defines model for PersonalAccessToken.
@@ -1948,6 +1979,9 @@ type PostApiPeersPeerIdIngressPortsJSONRequestBody = IngressPortAllocationReques
 
 // PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody defines body for PutApiPeersPeerIdIngressPortsAllocationId for application/json ContentType.
 type PutApiPeersPeerIdIngressPortsAllocationIdJSONRequestBody = IngressPortAllocationRequest
+
+// PostApiPeersPeerIdTemporaryAccessJSONRequestBody defines body for PostApiPeersPeerIdTemporaryAccess for application/json ContentType.
+type PostApiPeersPeerIdTemporaryAccessJSONRequestBody = PeerTemporaryAccessRequest
 
 // PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
 type PostApiPoliciesJSONRequestBody = PolicyUpdate

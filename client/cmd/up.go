@@ -185,7 +185,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 
 	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
 
-	err = foregroundLogin(ctx, cmd, config, providedSetupKey)
+	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.Name)
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
@@ -230,7 +230,9 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	client := proto.NewDaemonServiceClient(conn)
 
-	status, err := client.Status(ctx, &proto.StatusRequest{})
+	status, err := client.Status(ctx, &proto.StatusRequest{
+		WaitForReady: func() *bool { b := true; return &b }(),
+	})
 	if err != nil {
 		return fmt.Errorf("unable to get daemon status: %v", err)
 	}
@@ -283,6 +285,13 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 
 	loginRequest.ProfileName = &activeProf.Name
 	loginRequest.Username = &username
+
+	profileState, err := pm.GetProfileState(activeProf.Name)
+	if err != nil {
+		log.Debugf("failed to get profile state for login hint: %v", err)
+	} else if profileState.Email != "" {
+		loginRequest.Hint = &profileState.Email
+	}
 
 	var loginErr error
 	var loginResp *proto.LoginResponse

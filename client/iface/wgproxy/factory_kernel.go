@@ -39,7 +39,6 @@ func (w *KernelFactory) GetProxy() Proxy {
 	}
 
 	return ebpf.NewProxyWrapper(w.ebpfProxy)
-
 }
 
 func (w *KernelFactory) Free() error {

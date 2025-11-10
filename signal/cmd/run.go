@@ -8,14 +8,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-
 	// nolint:gosec
 	_ "net/http/pprof"
-	"strings"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/crypto/acme/autocert"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/netbirdio/netbird/signal/metrics"
 
@@ -23,6 +24,8 @@ import (
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/wsproxy"
+	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
 
 	log "github.com/sirupsen/logrus"
@@ -31,6 +34,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 )
+
+const legacyGRPCPort = 10000
 
 var (
 	signalPort              int
@@ -57,10 +62,10 @@ var (
 		Use:          "run",
 		Short:        "start NetBird Signal Server daemon",
 		SilenceUsage: true,
-		PreRun: func(cmd *cobra.Command, args []string) {
+		PreRunE: func(cmd *cobra.Command, args []string) error {
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
-				log.Fatalf("failed initializing log %v", err)
+				return fmt.Errorf("failed initializing log: %w", err)
 			}
 
 			flag.Parse()
@@ -81,13 +86,15 @@ var (
 					signalPort = 80
 				}
 			}
+
+			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
 
 			startPprof()
 
-			opts, certManager, err := getTLSConfigurations()
+			opts, certManager, tlsConfig, err := getTLSConfigurations()
 			if err != nil {
 				return err
 			}
@@ -113,7 +120,7 @@ var (
 			}
 			proto.RegisterSignalExchangeServer(grpcServer, srv)
 
-			grpcRootHandler := grpcHandlerFunc(grpcServer)
+			grpcRootHandler := grpcHandlerFunc(grpcServer, metricsServer.Meter)
 
 			if certManager != nil {
 				startServerWithCertManager(certManager, grpcRootHandler)
@@ -123,19 +130,31 @@ var (
 			var grpcListener net.Listener
 			var httpListener net.Listener
 
-			// If certManager is configured and signalPort == 443, then the gRPC server has already been started
-			if certManager == nil || signalPort != 443 {
-				grpcListener, err = serveGRPC(grpcServer, signalPort)
+			// Start the main server - always serve HTTP with WebSocket proxy support
+			// If certManager is configured and signalPort == 443, it's already handled by startServerWithCertManager
+			if tlsConfig == nil {
+				// Without TLS, serve plain HTTP
+				httpListener, err = net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
 				if err != nil {
 					return err
 				}
-				log.Infof("running gRPC server: %s", grpcListener.Addr().String())
+				log.Infof("running HTTP server with WebSocket proxy (no TLS): %s", httpListener.Addr().String())
+				serveHTTP(httpListener, grpcRootHandler)
+			} else if certManager == nil || signalPort != 443 {
+				// Serve HTTPS if not already handled by startServerWithCertManager
+				// (custom certificates or Let's Encrypt with custom port)
+				httpListener, err = tls.Listen("tcp", fmt.Sprintf(":%d", signalPort), tlsConfig)
+				if err != nil {
+					return err
+				}
+				log.Infof("running HTTPS server with WebSocket proxy: %s", httpListener.Addr().String())
+				serveHTTP(httpListener, grpcRootHandler)
 			}
 
-			if signalPort != 10000 {
+			if signalPort != legacyGRPCPort {
 				// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
 				// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
-				compatListener, err = serveGRPC(grpcServer, 10000)
+				compatListener, err = serveGRPC(grpcServer, legacyGRPCPort)
 				if err != nil {
 					return err
 				}
@@ -184,7 +203,7 @@ func startPprof() {
 	}()
 }
 
-func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, error) {
+func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, *tls.Config, error) {
 	var (
 		err         error
 		certManager *autocert.Manager
@@ -193,33 +212,33 @@ func getTLSConfigurations() ([]grpc.ServerOption, *autocert.Manager, error) {
 
 	if signalLetsencryptDomain == "" && signalCertFile == "" && signalCertKey == "" {
 		log.Infof("running without TLS")
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	if signalLetsencryptDomain != "" {
 		certManager, err = encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 		if err != nil {
-			return nil, certManager, err
+			return nil, certManager, nil, err
 		}
 		tlsConfig = certManager.TLSConfig()
 		log.Infof("setting up TLS with LetsEncrypt.")
 	} else {
 		if signalCertFile == "" || signalCertKey == "" {
 			log.Errorf("both cert-file and cert-key must be provided when not using LetsEncrypt")
-			return nil, certManager, errors.New("both cert-file and cert-key must be provided when not using LetsEncrypt")
+			return nil, certManager, nil, errors.New("both cert-file and cert-key must be provided when not using LetsEncrypt")
 		}
 
 		tlsConfig, err = loadTLSConfig(signalCertFile, signalCertKey)
 		if err != nil {
 			log.Errorf("cannot load TLS credentials: %v", err)
-			return nil, certManager, err
+			return nil, certManager, nil, err
 		}
 		log.Infof("setting up TLS with custom certificates.")
 	}
 
 	transportCredentials := credentials.NewTLS(tlsConfig)
 
-	return []grpc.ServerOption{grpc.Creds(transportCredentials)}, certManager, err
+	return []grpc.ServerOption{grpc.Creds(transportCredentials)}, certManager, tlsConfig, err
 }
 
 func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler http.Handler) {
@@ -236,11 +255,14 @@ func startServerWithCertManager(certManager *autocert.Manager, grpcRootHandler h
 	}
 }
 
-func grpcHandlerFunc(grpcServer *grpc.Server) http.Handler {
+func grpcHandlerFunc(grpcServer *grpc.Server, meter metric.Meter) http.Handler {
+	wsProxy := wsproxyserver.New(grpcServer, wsproxyserver.WithOTelMeter(meter))
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		grpcHeader := strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") ||
-			strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc+proto")
-		if r.ProtoMajor == 2 && grpcHeader {
+		switch {
+		case r.URL.Path == wsproxy.ProxyPath+wsproxy.SignalComponent:
+			wsProxy.Handler().ServeHTTP(w, r)
+		default:
 			grpcServer.ServeHTTP(w, r)
 		}
 	})
@@ -257,7 +279,11 @@ func notifyStop(msg string) {
 
 func serveHTTP(httpListener net.Listener, handler http.Handler) {
 	go func() {
-		err := http.Serve(httpListener, handler)
+		// Use h2c to support HTTP/2 without TLS (needed for gRPC)
+		h1s := &http.Server{
+			Handler: h2c.NewHandler(handler, &http2.Server{}),
+		}
+		err := h1s.Serve(httpListener)
 		if err != nil {
 			notifyStop(fmt.Sprintf("failed running HTTP server %v", err))
 		}

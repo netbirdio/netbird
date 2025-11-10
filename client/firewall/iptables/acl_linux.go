@@ -12,7 +12,7 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
@@ -400,7 +400,6 @@ func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port, action fi
 		return ""
 	}
 
-	// Include action in the ipset name to prevent squashing rules with different actions
 	actionSuffix := ""
 	if action == firewall.ActionDrop {
 		actionSuffix = "-drop"
