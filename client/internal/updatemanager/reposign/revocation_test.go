@@ -149,6 +149,7 @@ func TestParseRevocationList_Valid(t *testing.T) {
 			keyID: revokedTime,
 		},
 		LastUpdated: lastUpdated,
+		ExpiresAt:   time.Date(2025, 2, 20, 14, 45, 0, 0, time.UTC),
 	}
 
 	jsonData, err := rl.MarshalJSON()
@@ -428,6 +429,7 @@ func TestValidateRevocationList_FutureLastUpdated(t *testing.T) {
 	rl := RevocationList{
 		Revoked:     make(map[KeyID]time.Time),
 		LastUpdated: time.Now().UTC().Add(10 * time.Minute),
+		ExpiresAt:   time.Now().UTC().Add(365 * 24 * time.Hour),
 	}
 
 	rlData, err := json.Marshal(rl)
@@ -470,6 +472,7 @@ func TestValidateRevocationList_TimestampMismatch(t *testing.T) {
 	rl := RevocationList{
 		Revoked:     make(map[KeyID]time.Time),
 		LastUpdated: time.Now().UTC().Add(-1 * time.Hour),
+		ExpiresAt:   time.Now().UTC().Add(365 * 24 * time.Hour),
 	}
 
 	rlData, err := json.Marshal(rl)
