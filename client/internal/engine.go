@@ -149,8 +149,6 @@ type Engine struct {
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
 
-	wgMux *sync.Mutex
-
 	config    *EngineConfig
 	mobileDep MobileDependency
 
@@ -240,7 +238,6 @@ func NewEngine(
 		relayManager:   relayManager,
 		peerStore:      peerstore.NewConnStore(),
 		syncMsgMux:     &sync.Mutex{},
-		wgMux:          &sync.Mutex{},
 		config:         config,
 		mobileDep:      mobileDep,
 		STUNs:          []*stun.URI{},
@@ -1843,10 +1840,10 @@ func (e *Engine) GetWgAddr() netip.Addr {
 }
 
 func (e *Engine) RenewTun(fd int) error {
-	e.wgMux.Lock()
-	defer e.wgMux.Unlock()
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
 
-	// todo review the mutex usage here. We must to be sure we do not modify the e.wgInterface when run this function
+	// We must be sure we do not modify the e.wgInterface when run this function.
 	if e.wgInterface == nil {
 		return fmt.Errorf("wireguard interface not initialized")
 	}
