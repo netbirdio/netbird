@@ -26,7 +26,9 @@ func (s *serviceClient) showUpdateProgress(ctx context.Context, version string) 
 	s.wUpdateProgress.SetContent(content)
 	s.wUpdateProgress.CenterOnScreen()
 	s.wUpdateProgress.SetFixedSize(true)
-	s.wUpdateProgress.SetCloseIntercept(func() {}) // lock window until result known
+	s.wUpdateProgress.SetCloseIntercept(func() {
+		// this is empty to lock window until result known
+	})
 	s.wUpdateProgress.RequestFocus()
 	s.wUpdateProgress.Show()
 
