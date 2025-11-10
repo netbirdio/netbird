@@ -54,84 +54,6 @@ func (rh *ResultHandler) GetErrorResultReason() string {
 	return ""
 }
 
-func (rh *ResultHandler) Watch(ctx context.Context) (Result, error) {
-	log.Infof("start watching result: %s", rh.resultFile)
-
-	// Check if file already exists (updater finished before we started watching)
-	if result, err := rh.tryReadResult(); err == nil {
-		log.Infof("installer result: %v", result)
-		return result, nil
-	}
-
-	dir := filepath.Dir(rh.resultFile)
-
-	// Wait for directory to exist (with timeout from context)
-	ticker := time.NewTicker(300 * time.Millisecond)
-	defer ticker.Stop()
-
-DirectoryReady:
-	for {
-		select {
-		case <-ctx.Done():
-			return Result{}, ctx.Err()
-		case <-ticker.C:
-			if info, err := os.Stat(dir); err == nil && info.IsDir() {
-				// Directory exists, continue with watcher setup
-				break DirectoryReady
-			}
-		}
-	}
-
-	// Create filesystem watcher
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Error(err)
-		return Result{}, err
-	}
-
-	defer func() {
-		if err := watcher.Close(); err != nil {
-			log.Warnf("failed to close watcher: %v", err)
-		}
-	}()
-
-	// Watch the directory (not the file, since it doesn't exist yet)
-	if err := watcher.Add(dir); err != nil {
-		return Result{}, fmt.Errorf("failed to watch directory: %v", err)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return Result{}, ctx.Err()
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return Result{}, errors.New("watcher closed unexpectedly")
-			}
-
-			// Check if this is our result file
-			if event.Name != rh.resultFile {
-				continue
-			}
-
-			if event.Has(fsnotify.Create) {
-				result, err := rh.tryReadResult()
-				if err != nil {
-					log.Debugf("error while reading result: %v", err)
-					return result, err
-				}
-				log.Infof("installer result: %v", result)
-				return result, nil
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return Result{}, errors.New("watcher closed unexpectedly")
-			}
-			return Result{}, fmt.Errorf("watcher error: %w", err)
-		}
-	}
-}
-
 // Write writes the update result to a file for the UI to read
 func (rh *ResultHandler) Write(result Result) error {
 	log.Infof("write out installer result to: %s", rh.resultFile)
@@ -163,6 +85,96 @@ func (rh *ResultHandler) Write(result Result) error {
 	}
 
 	return nil
+}
+
+func (rh *ResultHandler) Watch(ctx context.Context) (Result, error) {
+	log.Infof("start watching result: %s", rh.resultFile)
+
+	// Check if file already exists (updater finished before we started watching)
+	if result, err := rh.tryReadResult(); err == nil {
+		log.Infof("installer result: %v", result)
+		return result, nil
+	}
+
+	dir := filepath.Dir(rh.resultFile)
+
+	if err := rh.waitForDirectory(ctx, dir); err != nil {
+		return Result{}, err
+	}
+
+	return rh.watchForResultFile(ctx, dir)
+}
+
+func (rh *ResultHandler) waitForDirectory(ctx context.Context, dir string) error {
+	ticker := time.NewTicker(300 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if info, err := os.Stat(dir); err == nil && info.IsDir() {
+				return nil
+			}
+		}
+	}
+}
+
+func (rh *ResultHandler) watchForResultFile(ctx context.Context, dir string) (Result, error) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Error(err)
+		return Result{}, err
+	}
+
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			log.Warnf("failed to close watcher: %v", err)
+		}
+	}()
+
+	if err := watcher.Add(dir); err != nil {
+		return Result{}, fmt.Errorf("failed to watch directory: %v", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return Result{}, ctx.Err()
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return Result{}, errors.New("watcher closed unexpectedly")
+			}
+
+			if result, done := rh.handleWatchEvent(event); done {
+				return result, nil
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return Result{}, errors.New("watcher closed unexpectedly")
+			}
+			return Result{}, fmt.Errorf("watcher error: %w", err)
+		}
+	}
+}
+
+func (rh *ResultHandler) handleWatchEvent(event fsnotify.Event) (Result, bool) {
+	if event.Name != rh.resultFile {
+		return Result{}, false
+	}
+
+	if event.Has(fsnotify.Create) {
+		result, err := rh.tryReadResult()
+		if err != nil {
+			log.Debugf("error while reading result: %v", err)
+			return result, true
+		}
+		log.Infof("installer result: %v", result)
+		return result, true
+	}
+
+	return Result{}, false
 }
 
 func (rh *ResultHandler) cleanup() error {
