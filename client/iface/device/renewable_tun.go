@@ -106,7 +106,15 @@ func (r *RenewableTUN) File() *os.File {
 			}
 			continue
 		}
-		return dev.File()
+
+		file := dev.File()
+
+		if dev.IsClosed() {
+			time.Sleep(1 * time.Millisecond)
+			continue
+		}
+
+		return file
 	}
 }
 
