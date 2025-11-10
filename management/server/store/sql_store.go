@@ -2917,6 +2917,7 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			panic(r)
 		}
 	}()
 
