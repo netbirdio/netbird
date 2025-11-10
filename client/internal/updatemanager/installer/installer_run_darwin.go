@@ -18,13 +18,11 @@ import (
 const (
 	daemonName    = "netbird"
 	updaterBinary = "updater"
+	uiBinary      = "/Applications/NetBird.app/Contents/MacOS/netbird-ui"
 
 	defaultTempDir = "/var/lib/netbird/tmp-install"
 
 	pkgDownloadURL = "https://github.com/netbirdio/netbird/releases/download/v%version/netbird_%version_darwin_%arch.pkg"
-
-	//updaterSrcPath = "/Applications/NetBird.app/Contents/MacOS/netbird-ui"
-	updaterSrcPath = "/Users/pzoli/Desktop/NetBird.app/Contents/MacOS/netbird-ui"
 )
 
 var (
@@ -112,7 +110,7 @@ func (u *Installer) startDaemon(daemonFolder string) error {
 }
 
 func (u *Installer) startUIAsUser() error {
-	log.Infof("starting netbird-ui: %s", updaterSrcPath)
+	log.Infof("starting netbird-ui: %s", uiBinary)
 
 	// Get the current console user
 	cmd := exec.Command("stat", "-f", "%Su", "/dev/console")
@@ -136,7 +134,7 @@ func (u *Installer) startUIAsUser() error {
 
 	// Start the UI process as the console user using launchctl
 	// This ensures the app runs in the user's context with proper GUI access
-	launchCmd := exec.Command("launchctl", "asuser", userInfo.Uid, "open", "-a", updaterSrcPath)
+	launchCmd := exec.Command("launchctl", "asuser", userInfo.Uid, "open", "-a", uiBinary)
 	log.Infof("launchCmd: %s", launchCmd.String())
 	// Set the user's home directory for proper macOS app behavior
 	launchCmd.Env = append(os.Environ(), "HOME="+userInfo.HomeDir)

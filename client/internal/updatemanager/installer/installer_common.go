@@ -74,7 +74,10 @@ func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) e
 	args := []string{
 		"--temp-dir", u.tempDir,
 		"--service-dir", workspace,
-		"--dry-run=true",
+	}
+
+	if isDryRunEnabled() {
+		args = append(args, "--dry-run=true")
 	}
 
 	if installerFile != "" {
@@ -254,4 +257,8 @@ func getServiceDir() (string, error) {
 
 func getServiceBinary() (string, error) {
 	return os.Executable()
+}
+
+func isDryRunEnabled() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("NB_AUTO_UPDATE_DRY_RUN")), "true")
 }
