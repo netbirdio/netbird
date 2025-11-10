@@ -76,20 +76,9 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 
 	switch typeOfInstaller(ctx) {
 	case TypePKG:
-		log.Infof("installing pkg file")
-		if err := u.installPkgFile(ctx, installerFile); err != nil {
-			resultErr = err
-			break
-		}
-		log.Infof("pkg file installed successfully")
-		return
+		resultErr = u.installPkgFile(ctx, installerFile)
 	case TypeHomebrew:
-		log.Infof("updating homebrew")
-		if err := u.updateHomeBrew(ctx); err != nil {
-			resultErr = err
-			break
-		}
-		log.Infof("homebrew updated successfully")
+		resultErr = u.updateHomeBrew(ctx)
 	}
 
 	return resultErr
@@ -153,6 +142,7 @@ func (u *Installer) startUIAsUser() error {
 }
 
 func (u *Installer) installPkgFile(ctx context.Context, path string) error {
+	log.Infof("installing pkg file")
 	volume := "/"
 	for _, v := range strings.Split(path, "\n") {
 		trimmed := strings.TrimSpace(v)
@@ -170,10 +160,13 @@ func (u *Installer) installPkgFile(ctx context.Context, path string) error {
 	if err != nil {
 		return fmt.Errorf("error running pkg file: %w, output: %s", err, string(res))
 	}
+	log.Infof("pkg file installed successfully")
 	return nil
 }
 
 func (u *Installer) updateHomeBrew(ctx context.Context) error {
+	log.Infof("updating homebrew")
+
 	// Homebrew must be run as a non-root user
 	// To find out which user installed NetBird using HomeBrew we can check the owner of our brew tap directory
 	fileInfo, err := os.Stat("/opt/homebrew/Library/Taps/netbirdio/homebrew-tap/")
@@ -231,7 +224,7 @@ func (u *Installer) updateHomeBrew(ctx context.Context) error {
 		return fmt.Errorf("error sending SIGTERM to current process: %w", err)
 	}
 	// We're dying now, which should restart us
-
+	log.Infof("homebrew updated successfully")
 	return nil
 }
 
