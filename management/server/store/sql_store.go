@@ -2914,6 +2914,22 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	if tx.Error != nil {
 		return tx.Error
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if s.storeEngine == types.PostgresStoreEngine {
+		if err := tx.Exec("SET LOCAL statement_timeout = '1m'").Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to set statement timeout: %w", err)
+		}
+		if err := tx.Exec("SET LOCAL lock_timeout = '1m'").Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to set lock timeout: %w", err)
+		}
+	}
 
 	// For MySQL, disable FK checks within this transaction to avoid deadlocks
 	// This is session-scoped and doesn't require SUPER privileges
