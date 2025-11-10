@@ -12,6 +12,10 @@ import (
 var (
 	signArtifactRootPrivKeyFile string
 	signArtifactArtifactFile    string
+
+	verifyArtifactPubKeyFile    string
+	verifyArtifactFile          string
+	verifyArtifactSignatureFile string
 )
 
 var signArtifactCmd = &cobra.Command{
@@ -28,8 +32,22 @@ This command produces a detached signature that can be verified using the corres
 	},
 }
 
+var verifyArtifactCmd = &cobra.Command{
+	Use:          "verify-artifact",
+	Short:        "Verify an artifact signature using an artifact public key",
+	Long:         `Verify a software artifact signature using the artifact's public key.`,
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := handleVerifyArtifact(verifyArtifactPubKeyFile, verifyArtifactFile, verifyArtifactSignatureFile); err != nil {
+			return fmt.Errorf("failed to verify artifact: %w", err)
+		}
+		return nil
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(signArtifactCmd)
+	rootCmd.AddCommand(verifyArtifactCmd)
 
 	signArtifactCmd.Flags().StringVar(&signArtifactRootPrivKeyFile, "artifact-key-file", "", "Path to the artifact private key file used for signing")
 	signArtifactCmd.Flags().StringVar(&signArtifactArtifactFile, "artifact-file", "", "Path to the artifact to be signed")
@@ -40,6 +58,20 @@ func init() {
 	}
 	if err := signArtifactCmd.MarkFlagRequired("artifact-file"); err != nil {
 		panic(fmt.Errorf("mark artifact-file as required: %w", err))
+	}
+
+	verifyArtifactCmd.Flags().StringVar(&verifyArtifactPubKeyFile, "artifact-public-key-file", "", "Path to the artifact public key file")
+	verifyArtifactCmd.Flags().StringVar(&verifyArtifactFile, "artifact-file", "", "Path to the artifact to be verified")
+	verifyArtifactCmd.Flags().StringVar(&verifyArtifactSignatureFile, "signature-file", "", "Path to the signature file")
+
+	if err := verifyArtifactCmd.MarkFlagRequired("artifact-public-key-file"); err != nil {
+		panic(fmt.Errorf("mark artifact-public-key-file as required: %w", err))
+	}
+	if err := verifyArtifactCmd.MarkFlagRequired("artifact-file"); err != nil {
+		panic(fmt.Errorf("mark artifact-file as required: %w", err))
+	}
+	if err := verifyArtifactCmd.MarkFlagRequired("signature-file"); err != nil {
+		panic(fmt.Errorf("mark signature-file as required: %w", err))
 	}
 }
 
@@ -73,5 +105,48 @@ func handleSignArtifact(privKeyFile, artifactFile string) error {
 
 	fmt.Printf("✅ Artifact signed successfully.\n")
 	fmt.Printf("Signature file: %s\n", sigFile)
+	return nil
+}
+
+func handleVerifyArtifact(pubKeyFile, artifactFile, signatureFile string) error {
+	fmt.Println("🔍 Verifying artifact...")
+
+	// Read artifact public key
+	pubKeyPEM, err := os.ReadFile(pubKeyFile)
+	if err != nil {
+		return fmt.Errorf("read public key file: %w", err)
+	}
+
+	publicKey, err := reposign.ParseArtifactPubKey(pubKeyPEM)
+	if err != nil {
+		return fmt.Errorf("failed to parse artifact public key: %w", err)
+	}
+
+	// Read artifact data
+	artifactData, err := os.ReadFile(artifactFile)
+	if err != nil {
+		return fmt.Errorf("read artifact file: %w", err)
+	}
+
+	// Read signature
+	sigBytes, err := os.ReadFile(signatureFile)
+	if err != nil {
+		return fmt.Errorf("read signature file: %w", err)
+	}
+
+	signature, err := reposign.ParseSignature(sigBytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse signature: %w", err)
+	}
+
+	// Validate artifact
+	if err := reposign.ValidateArtifact([]reposign.PublicKey{publicKey}, artifactData, *signature); err != nil {
+		return fmt.Errorf("artifact verification failed: %w", err)
+	}
+
+	fmt.Println("✅ Artifact signature is valid")
+	fmt.Printf("Artifact: %s\n", artifactFile)
+	fmt.Printf("Signed by key: %s\n", signature.KeyID)
+	fmt.Printf("Signature timestamp: %s\n", signature.Timestamp.Format("2006-01-02 15:04:05 MST"))
 	return nil
 }
