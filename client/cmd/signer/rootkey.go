@@ -16,13 +16,11 @@ var (
 	rootExpiration time.Duration
 )
 
-var generateRootKeyCmd = &cobra.Command{
-	Use:   "generate-root-key",
-	Short: "Generate a new root key pair",
-	Long: `Generate a new root key pair and specify an expiration time for it.
-
-Example:
-  mycli generate-root-key --priv-key-file root.priv --pub-key-file root.pub --expiration 8760h`,
+var createRootKeyCmd = &cobra.Command{
+	Use:          "create-root-key",
+	Short:        "Create a new root key pair",
+	Long:         `Create a new root key pair and specify an expiration time for it.`,
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Validate expiration
 		if rootExpiration <= 0 {
@@ -38,18 +36,18 @@ Example:
 }
 
 func init() {
-	rootCmd.AddCommand(generateRootKeyCmd)
-	generateRootKeyCmd.Flags().StringVar(&privKeyFile, "priv-key-file", "", "Path to output private key file")
-	generateRootKeyCmd.Flags().StringVar(&pubKeyFile, "pub-key-file", "", "Path to output public key file")
-	generateRootKeyCmd.Flags().DurationVar(&rootExpiration, "expiration", 0, "Expiration time for the root key (e.g., 720h,)")
+	rootCmd.AddCommand(createRootKeyCmd)
+	createRootKeyCmd.Flags().StringVar(&privKeyFile, "priv-key-file", "", "Path to output private key file")
+	createRootKeyCmd.Flags().StringVar(&pubKeyFile, "pub-key-file", "", "Path to output public key file")
+	createRootKeyCmd.Flags().DurationVar(&rootExpiration, "expiration", 0, "Expiration time for the root key (e.g., 720h,)")
 
-	if err := generateRootKeyCmd.MarkFlagRequired("priv-key-file"); err != nil {
+	if err := createRootKeyCmd.MarkFlagRequired("priv-key-file"); err != nil {
 		panic(err)
 	}
-	if err := generateRootKeyCmd.MarkFlagRequired("pub-key-file"); err != nil {
+	if err := createRootKeyCmd.MarkFlagRequired("pub-key-file"); err != nil {
 		panic(err)
 	}
-	if err := generateRootKeyCmd.MarkFlagRequired("expiration"); err != nil {
+	if err := createRootKeyCmd.MarkFlagRequired("expiration"); err != nil {
 		panic(err)
 	}
 }

@@ -19,6 +19,7 @@ var signArtifactCmd = &cobra.Command{
 	Short: "Sign an artifact using an artifact private key",
 	Long: `Sign a software artifact (e.g., update bundle or binary) using the artifact's private key.
 This command produces a detached signature that can be verified using the corresponding artifact public key.`,
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := handleSignArtifact(signArtifactRootPrivKeyFile, signArtifactArtifactFile); err != nil {
 			return fmt.Errorf("failed to sign artifact: %w", err)

@@ -37,6 +37,15 @@ func ParseRootKey(privKeyPEM []byte) (*RootKey, error) {
 	return &RootKey{pk}, nil
 }
 
+// ParseRootPublicKey parses a root public key from PEM format
+func ParseRootPublicKey(pubKeyPEM []byte) (PublicKey, error) {
+	pk, _, err := parsePublicKey(pubKeyPEM, tagRootPublic)
+	if err != nil {
+		return PublicKey{}, fmt.Errorf("failed to parse root public key: %w", err)
+	}
+	return pk, nil
+}
+
 // GenerateRootKey generates a new root Key pair with Metadata
 func GenerateRootKey(expiration time.Duration) (*RootKey, []byte, []byte, error) {
 	now := time.Now()

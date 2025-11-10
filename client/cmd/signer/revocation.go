@@ -18,28 +18,42 @@ var (
 	keyID              string
 	revocationListFile string
 	privateRootKeyFile string
+	publicRootKeyFile  string
+	signatureFile      string
 	expirationDuration time.Duration
 )
 
 var createRevocationListCmd = &cobra.Command{
-	Use:   "create-revocation-list",
-	Short: "Create a new revocation list signed by the private root key",
+	Use:          "create-revocation-list",
+	Short:        "Create a new revocation list signed by the private root key",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return handleCreateRevocationList(revocationListFile, privateRootKeyFile)
 	},
 }
 
 var extendRevocationListCmd = &cobra.Command{
-	Use:   "extend-revocation-list",
-	Short: "Extend an existing revocation list with a given key ID",
+	Use:          "extend-revocation-list",
+	Short:        "Extend an existing revocation list with a given key ID",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return handleExtendRevocationList(keyID, revocationListFile, privateRootKeyFile)
+	},
+}
+
+var verifyRevocationListCmd = &cobra.Command{
+	Use:          "verify-revocation-list",
+	Short:        "Verify a revocation list signature using the public root key",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return handleVerifyRevocationList(revocationListFile, signatureFile, publicRootKeyFile)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(createRevocationListCmd)
 	rootCmd.AddCommand(extendRevocationListCmd)
+	rootCmd.AddCommand(verifyRevocationListCmd)
 
 	createRevocationListCmd.Flags().StringVar(&revocationListFile, "revocation-list-file", "", "Path to the existing revocation list file")
 	createRevocationListCmd.Flags().StringVar(&privateRootKeyFile, "private-root-key", "", "Path to the private root key PEM file")
@@ -62,6 +76,19 @@ func init() {
 		panic(err)
 	}
 	if err := extendRevocationListCmd.MarkFlagRequired("private-root-key"); err != nil {
+		panic(err)
+	}
+
+	verifyRevocationListCmd.Flags().StringVar(&revocationListFile, "revocation-list-file", "", "Path to the revocation list file")
+	verifyRevocationListCmd.Flags().StringVar(&signatureFile, "signature-file", "", "Path to the signature file")
+	verifyRevocationListCmd.Flags().StringVar(&publicRootKeyFile, "public-root-key", "", "Path to the public root key PEM file")
+	if err := verifyRevocationListCmd.MarkFlagRequired("revocation-list-file"); err != nil {
+		panic(err)
+	}
+	if err := verifyRevocationListCmd.MarkFlagRequired("signature-file"); err != nil {
+		panic(err)
+	}
+	if err := verifyRevocationListCmd.MarkFlagRequired("public-root-key"); err != nil {
 		panic(err)
 	}
 }
@@ -126,6 +153,59 @@ func handleExtendRevocationList(keyID, revocationListFile, privateRootKeyFile st
 	}
 
 	fmt.Println("✅ Revocation list extended successfully")
+	return nil
+}
+
+func handleVerifyRevocationList(revocationListFile, signatureFile, publicRootKeyFile string) error {
+	// Read revocation list file
+	rlBytes, err := os.ReadFile(revocationListFile)
+	if err != nil {
+		return fmt.Errorf("failed to read revocation list file: %w", err)
+	}
+
+	// Read signature file
+	sigBytes, err := os.ReadFile(signatureFile)
+	if err != nil {
+		return fmt.Errorf("failed to read signature file: %w", err)
+	}
+
+	// Read public root key file
+	pubKeyPEM, err := os.ReadFile(publicRootKeyFile)
+	if err != nil {
+		return fmt.Errorf("failed to read public root key file: %w", err)
+	}
+
+	// Parse public root key
+	publicKey, err := reposign.ParseRootPublicKey(pubKeyPEM)
+	if err != nil {
+		return fmt.Errorf("failed to parse public root key: %w", err)
+	}
+
+	// Parse signature
+	signature, err := reposign.ParseSignature(sigBytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse signature: %w", err)
+	}
+
+	// Validate revocation list
+	rl, err := reposign.ValidateRevocationList([]reposign.PublicKey{publicKey}, rlBytes, *signature)
+	if err != nil {
+		return fmt.Errorf("failed to validate revocation list: %w", err)
+	}
+
+	// Display results
+	fmt.Println("✅ Revocation list signature is valid")
+	fmt.Printf("Last Updated: %s\n", rl.LastUpdated.Format(time.RFC3339))
+	fmt.Printf("Expires At: %s\n", rl.ExpiresAt.Format(time.RFC3339))
+	fmt.Printf("Number of revoked keys: %d\n", len(rl.Revoked))
+
+	if len(rl.Revoked) > 0 {
+		fmt.Println("\nRevoked Keys:")
+		for keyID, revokedTime := range rl.Revoked {
+			fmt.Printf("  - %s (revoked at: %s)\n", keyID, revokedTime.Format(time.RFC3339))
+		}
+	}
+
 	return nil
 }
 

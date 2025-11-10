@@ -26,6 +26,7 @@ var createArtifactKeyCmd = &cobra.Command{
 	Short: "Create a new artifact signing key",
 	Long: `Generate a new artifact signing key pair signed by the root private key.
 The artifact key will be used to sign software artifacts/updates.`,
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if createArtifactKeyExpiration <= 0 {
 			return fmt.Errorf("--expiration must be a positive duration (e.g., 720h, 365d, 8760h)")
