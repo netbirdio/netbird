@@ -85,7 +85,7 @@ func NewAPIHandler(
 					log.Warnf("value for %s (%d) exceeds maximum (%d), using maximum", rateLimitingRPMKey, value, maxRPM)
 					rpm = maxRPM
 				} else {
-					rpm = value
+				rpm = value
 				}
 			}
 		}
@@ -105,8 +105,8 @@ func NewAPIHandler(
 				} else if value > maxBurst {
 					log.Warnf("value for %s (%d) exceeds maximum (%d), using maximum", rateLimitingBurstKey, value, maxBurst)
 					burst = maxBurst
-				} else {
-					burst = value
+			} else {
+				burst = value
 				}
 			}
 		}

@@ -49,6 +49,9 @@ type Counter[Key comparable, I, O any] struct {
 	refCountMap map[Key]Ref[O]
 	mu          sync.Mutex
 	// idMap keeps track of the keys associated with an ID for removal
+	// Security: This map can grow unbounded if IDs are never cleaned up.
+	// In practice, IDs should be cleaned up via DecrementWithID, but we document
+	// this potential memory growth for awareness.
 	idMap  map[string][]Key
 	add    AddFunc[Key, I, O]
 	remove RemoveFunc[Key, O]
@@ -129,6 +132,11 @@ func (rm *Counter[Key, I, O]) increment(key Key, in I) (Ref[O], error) {
 
 // IncrementWithID increments the reference count for the given key and groups it under the given ID.
 // If this is the first reference to the key, the AddFunc is called.
+//
+// Security: The idMap can grow unbounded if IDs are never cleaned up via DecrementWithID.
+// Callers should ensure that DecrementWithID is called for each ID to prevent memory leaks.
+// The slice for each ID can also grow if the same key is added multiple times with the same ID,
+// but this is expected behavior for reference counting.
 func (rm *Counter[Key, I, O]) IncrementWithID(id string, key Key, in I) (Ref[O], error) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -137,6 +145,9 @@ func (rm *Counter[Key, I, O]) IncrementWithID(id string, key Key, in I) (Ref[O],
 	if err != nil {
 		return ref, fmt.Errorf("with ID: %w", err)
 	}
+	// Security: Append to slice - this can grow if the same key is added multiple times
+	// with the same ID, but this is expected for reference counting. The slice is cleaned
+	// up when DecrementWithID is called.
 	rm.idMap[id] = append(rm.idMap[id], key)
 
 	return ref, nil

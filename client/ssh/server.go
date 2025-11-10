@@ -271,7 +271,7 @@ func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
 			case <-ctx.Done():
 				return
 			default:
-				time.Sleep(TerminalBackoffDelay)
+			time.Sleep(TerminalBackoffDelay)
 			}
 		}
 	}
@@ -302,8 +302,8 @@ func getUserShell(userID string) string {
 			if err != nil {
 				log.Debugf("getent failed for user %s: %v", userID, err)
 			} else {
-				line := strings.SplitN(string(output), ":", 10)
-				if len(line) > 6 {
+		line := strings.SplitN(string(output), ":", 10)
+		if len(line) > 6 {
 					shell := strings.TrimSpace(line[6])
 					if shell != "" {
 						return shell

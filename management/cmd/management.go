@@ -218,7 +218,11 @@ type OIDCConfigResponse struct {
 
 // fetchOIDCConfig fetches OIDC configuration from the IDP
 func fetchOIDCConfig(ctx context.Context, oidcEndpoint string) (OIDCConfigResponse, error) {
-	res, err := http.Get(oidcEndpoint)
+	// Security: Use HTTP client with timeout to prevent hanging requests
+	client := &http.Client{
+		Timeout: 10 * time.Second, // 10 second timeout for OIDC configuration fetch
+	}
+	res, err := client.Get(oidcEndpoint)
 	if err != nil {
 		return OIDCConfigResponse{}, fmt.Errorf("failed fetching OIDC configuration from endpoint %s %v", oidcEndpoint, err)
 	}
@@ -281,29 +285,47 @@ func handleRebrand(cmd *cobra.Command) error {
 	return nil
 }
 
+// cpFile copies a file from src to dst with secure permissions.
+// Security: This function validates that the source file is not a symlink to prevent symlink attacks.
+// It also sets secure permissions (0640) on the destination file instead of copying source permissions.
 func cpFile(src, dst string) error {
-	var err error
-	var srcfd *os.File
-	var dstfd *os.File
-	var srcinfo os.FileInfo
+	// Security: Check if source is a symlink to prevent symlink attacks
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return fmt.Errorf("failed to stat source file: %w", err)
+	}
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source file is a symlink, refusing to copy for security")
+	}
+	
+	// Security: Validate source is a regular file
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("source is not a regular file")
+	}
 
-	if srcfd, err = os.Open(src); err != nil {
-		return err
+	srcfd, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
 	}
 	defer srcfd.Close()
 
-	if dstfd, err = os.Create(dst); err != nil {
-		return err
+	dstfd, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
 	}
 	defer dstfd.Close()
 
 	if _, err = io.Copy(dstfd, srcfd); err != nil {
-		return err
+		return fmt.Errorf("failed to copy file contents: %w", err)
 	}
-	if srcinfo, err = os.Stat(src); err != nil {
-		return err
+	
+	// Security: Use secure permissions instead of copying source permissions
+	// 0640 = owner read/write, group read, others no access
+	if err := os.Chmod(dst, 0640); err != nil {
+		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
-	return os.Chmod(dst, srcinfo.Mode())
+	
+	return nil
 }
 
 func copySymLink(source, dest string) error {
@@ -314,43 +336,59 @@ func copySymLink(source, dest string) error {
 	return os.Symlink(link, dest)
 }
 
+// cpDir copies a directory from src to dst with secure permissions.
+// Security: This function validates that source files are not symlinks to prevent symlink attacks.
+// It also sets secure permissions (0750) on directories instead of copying source permissions.
 func cpDir(src string, dst string) error {
-	var err error
-	var fds []os.DirEntry
-	var srcinfo os.FileInfo
-
-	if srcinfo, err = os.Stat(src); err != nil {
-		return err
+	// Security: Check if source is a symlink to prevent symlink attacks
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return fmt.Errorf("failed to stat source directory: %w", err)
+	}
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source directory is a symlink, refusing to copy for security")
+	}
+	
+	// Security: Validate source is a directory
+	if !srcInfo.IsDir() {
+		return fmt.Errorf("source is not a directory")
 	}
 
-	if err = os.MkdirAll(dst, srcinfo.Mode()); err != nil {
-		return err
+	// Security: Create destination directory with secure permissions (0750 = owner rwx, group rx)
+	if err = os.MkdirAll(dst, 0750); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
-	if fds, err = os.ReadDir(src); err != nil {
-		return err
+	fds, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("failed to read source directory: %w", err)
 	}
+	
 	for _, fd := range fds {
 		srcfp := path.Join(src, fd.Name())
 		dstfp := path.Join(dst, fd.Name())
 
-		fileInfo, err := os.Stat(srcfp)
+		// Security: Use Lstat to detect symlinks without following them
+		fileInfo, err := os.Lstat(srcfp)
 		if err != nil {
-			log.Fatalf("Couldn't get fileInfo; %v", err)
+			log.Errorf("Couldn't get fileInfo for %s: %v", srcfp, err)
+			continue // Skip files we can't stat
 		}
 
 		switch fileInfo.Mode() & os.ModeType {
 		case os.ModeSymlink:
-			if err = copySymLink(srcfp, dstfp); err != nil {
-				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
-			}
+			// Security: Refuse to copy symlinks to prevent symlink attacks
+			log.Warnf("Skipping symlink %s for security", srcfp)
+			continue
 		case os.ModeDir:
 			if err = cpDir(srcfp, dstfp); err != nil {
-				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
+				log.Errorf("Failed to copy directory from %s to %s: %v", srcfp, dstfp, err)
+				// Continue with other files instead of fatal error
 			}
 		default:
 			if err = cpFile(srcfp, dstfp); err != nil {
-				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
+				log.Errorf("Failed to copy file from %s to %s: %v", srcfp, dstfp, err)
+				// Continue with other files instead of fatal error
 			}
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -26,6 +27,11 @@ type ErrorResponse struct {
 // WriteJSONObject writes an object to the HTTP response in JSON format.
 // Security: This function sets appropriate security headers and content type.
 // It also handles encoding errors gracefully without exposing internal details.
+//
+// Security considerations:
+// - Sets security headers to prevent XSS and clickjacking
+// - Uses HTML escaping in JSON encoder to prevent XSS
+// - Sanitizes error messages to prevent information leakage
 func WriteJSONObject(ctx context.Context, w http.ResponseWriter, obj interface{}) {
 	// Set security headers
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
@@ -33,9 +39,18 @@ func WriteJSONObject(ctx context.Context, w http.ResponseWriter, obj interface{}
 	w.Header().Set("X-Frame-Options", "DENY")
 	
 	w.WriteHeader(http.StatusOK)
-	err := json.NewEncoder(w).Encode(obj)
+	
+	// Security: Use json.Encoder which is more efficient for streaming
+	// and allows better error handling. The encoder will write directly
+	// to the response writer, reducing memory usage for large objects.
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(true) // Security: Escape HTML in JSON strings to prevent XSS
+	
+	err := encoder.Encode(obj)
 	if err != nil {
-		WriteError(ctx, err, w)
+		// Security: Log full error server-side but return sanitized error to client
+		log.WithContext(ctx).Errorf("failed to encode JSON response: %v", err)
+		WriteError(ctx, fmt.Errorf("failed to encode response"), w)
 		return
 	}
 }
@@ -76,6 +91,11 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 // Security: This function sets security headers and sanitizes error messages
 // to prevent information leakage. Error messages are already sanitized before
 // calling this function.
+//
+// Security considerations:
+// - Sets security headers to prevent XSS and clickjacking
+// - Error messages are pre-sanitized to prevent information leakage
+// - Uses HTML escaping in JSON encoder to prevent XSS
 func WriteErrorResponse(errMsg string, httpStatus int, w http.ResponseWriter) {
 	// Set security headers
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
@@ -83,12 +103,19 @@ func WriteErrorResponse(errMsg string, httpStatus int, w http.ResponseWriter) {
 	w.Header().Set("X-Frame-Options", "DENY")
 	
 	w.WriteHeader(httpStatus)
-	err := json.NewEncoder(w).Encode(&ErrorResponse{
+	
+	// Security: Use json.Encoder with HTML escaping to prevent XSS
+	// Even though error messages are sanitized, we add an extra layer of protection
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(true) // Security: Escape HTML in JSON strings to prevent XSS
+	
+	err := encoder.Encode(&ErrorResponse{
 		Message: errMsg,
 		Code:    httpStatus,
 	})
 	if err != nil {
-		// If encoding fails, use plain text error (should never happen)
+		// Security: If encoding fails, use plain text error without exposing details
+		// This should never happen in practice, but we handle it defensively
 		http.Error(w, "failed handling request", http.StatusInternalServerError)
 	}
 }

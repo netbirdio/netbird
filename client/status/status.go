@@ -469,9 +469,13 @@ func ParseToFullDetailSummary(overview OutputOverview) string {
 }
 
 func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bool) string {
-	var (
-		peersString = ""
-	)
+	// Performance: Use strings.Builder instead of string concatenation in loop
+	// String concatenation in loops creates many temporary string objects, causing
+	// memory allocations and performance degradation. strings.Builder is optimized
+	// for building strings incrementally and reduces memory allocations.
+	var peersBuilder strings.Builder
+	// Pre-allocate capacity to reduce reallocations (estimate ~500 bytes per peer)
+	peersBuilder.Grow(len(peers.Details) * 500)
 
 	for _, peerState := range peers.Details {
 
@@ -553,9 +557,10 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			peerState.Latency.String(),
 		)
 
-		peersString += peerString
+		// Performance: Use strings.Builder instead of string concatenation in loop
+		peersBuilder.WriteString(peerString)
 	}
-	return peersString
+	return peersBuilder.String()
 }
 
 func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFilter string, prefixNamesFilter []string, prefixNamesFilterMap map[string]struct{}, ipsFilter map[string]struct{}, connectionTypeFilter, connType string) bool {

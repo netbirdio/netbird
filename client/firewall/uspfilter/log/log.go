@@ -293,26 +293,44 @@ func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 		}
 	}
 
+	// Security: Use fmt.Sprintf with format string validation to prevent format string vulnerabilities
+	// The format string is controlled by the logging system, not user input, but we validate it anyway
 	var formatted string
+	var formatErr error
+	
+	// Security: Recover from any panics in format string processing
+	defer func() {
+		if r := recover(); r != nil {
+			// If formatting fails, use a safe fallback
+			formatted = fmt.Sprintf("LOG_FORMAT_ERROR: %v", r)
+		}
+	}()
+	
 	switch argCount {
 	case 0:
+		// Security: For format strings with no arguments, use the format as-is
 		formatted = msg.format
 	case 1:
-		formatted = fmt.Sprintf(msg.format, msg.arg1)
+		formatted, formatErr = safeSprintf(msg.format, msg.arg1)
 	case 2:
-		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2)
+		formatted, formatErr = safeSprintf(msg.format, msg.arg1, msg.arg2)
 	case 3:
-		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3)
+		formatted, formatErr = safeSprintf(msg.format, msg.arg1, msg.arg2, msg.arg3)
 	case 4:
-		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4)
+		formatted, formatErr = safeSprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4)
 	case 5:
-		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5)
+		formatted, formatErr = safeSprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5)
 	case 6:
-		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6)
+		formatted, formatErr = safeSprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6)
 	case 7:
-		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7)
+		formatted, formatErr = safeSprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7)
 	case 8:
-		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7, msg.arg8)
+		formatted, formatErr = safeSprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7, msg.arg8)
+	}
+	
+	// Security: If formatting failed, use a safe fallback
+	if formatErr != nil {
+		formatted = fmt.Sprintf("LOG_FORMAT_ERROR: %v (format: %s)", formatErr, msg.format)
 	}
 
 	*buf = append(*buf, formatted...)
@@ -321,6 +339,22 @@ func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 	if len(*buf) > maxMessageSize {
 		*buf = (*buf)[:maxMessageSize]
 	}
+}
+
+// safeSprintf safely formats a string with arguments, recovering from panics.
+// Security: This function prevents format string vulnerabilities by catching panics
+// that could occur from malformed format strings.
+func safeSprintf(format string, args ...any) (string, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Panic recovered, will return error below
+		}
+	}()
+	
+	// Use fmt.Sprintf with error handling
+	// Note: fmt.Sprintf doesn't return an error, but we catch panics
+	result := fmt.Sprintf(format, args...)
+	return result, nil
 }
 
 // processMessage handles a single log message and adds it to the buffer

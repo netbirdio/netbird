@@ -95,6 +95,10 @@ func (s *Store) PeerConnOpen(ctx context.Context, pubKey string) {
 
 }
 
+// PeerConnIdle marks a peer connection as idle and closes it.
+// Security: This function holds a read lock while calling p.Close(true), which may block.
+// The lock is held to ensure the peer connection is not removed while closing.
+// This is safe as Close() should complete quickly.
 func (s *Store) PeerConnIdle(pubKey string) {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()

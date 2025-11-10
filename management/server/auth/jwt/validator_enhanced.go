@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -176,9 +178,23 @@ func (v *EnhancedValidator) refreshKeys(ctx context.Context) error {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
+	// Security: Limit response body size to prevent DoS attacks
+	// 1MB is a reasonable limit for JWKS responses
+	const maxJWKSSize = 1024 * 1024 // 1MB
+	
+	// Limit the response body size
+	limitedReader := io.LimitReader(resp.Body, maxJWKSSize+1)
+
 	var keys Jwks
-	if err := json.NewDecoder(resp.Body).Decode(&keys); err != nil {
+	decoder := json.NewDecoder(limitedReader)
+	if err := decoder.Decode(&keys); err != nil {
 		return fmt.Errorf("failed to decode keys: %w", err)
+	}
+	
+	// Security: Check if response exceeded size limit by attempting to read one more byte
+	var buf [1]byte
+	if n, _ := limitedReader.Read(buf[:]); n > 0 {
+		return fmt.Errorf("JWKS response too large: maximum size is %d bytes", maxJWKSSize)
 	}
 
 	// Set expiration time for the keys (default to 1 hour if not specified in cache headers)

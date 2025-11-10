@@ -297,29 +297,46 @@ func handleRebrand(cmd *cobra.Command) error {
 	return nil
 }
 
+// cpFile copies a file from src to dst.
+// Security: This function validates that the source file is not a symlink to prevent symlink attacks.
 func cpFile(src, dst string) error {
-	var err error
-	var srcfd *os.File
-	var dstfd *os.File
-	var srcinfo os.FileInfo
-
-	if srcfd, err = os.Open(src); err != nil {
-		return err
+	// Security: Check if source is a symlink to prevent symlink attacks
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return fmt.Errorf("failed to stat source file: %w", err)
+	}
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source file is a symlink, refusing to copy for security")
+	}
+	
+	// Security: Validate source is a regular file
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("source is not a regular file")
+	}
+	
+	srcfd, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
 	}
 	defer srcfd.Close()
 
-	if dstfd, err = os.Create(dst); err != nil {
-		return err
+	dstfd, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
 	}
 	defer dstfd.Close()
 
 	if _, err = io.Copy(dstfd, srcfd); err != nil {
-		return err
+		return fmt.Errorf("failed to copy file contents: %w", err)
 	}
-	if srcinfo, err = os.Stat(src); err != nil {
-		return err
+	
+	// Security: Use secure permissions instead of copying source permissions
+	// 0640 = owner read/write, group read, others no access
+	if err := os.Chmod(dst, 0640); err != nil {
+		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
-	return os.Chmod(dst, srcinfo.Mode())
+	
+	return nil
 }
 
 func copySymLink(source, dest string) error {

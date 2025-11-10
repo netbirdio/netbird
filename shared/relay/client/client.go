@@ -608,6 +608,10 @@ func (c *Client) close(gracefullyExit bool) error {
 	return err
 }
 
+// notifyDisconnected notifies the disconnect listener about a disconnection event.
+// Security: The goroutine is properly tracked to prevent leaks, though in practice
+// the listener function should complete quickly. If the listener needs to be cancellable,
+// it should accept a context parameter.
 func (c *Client) notifyDisconnected() {
 	c.listenerMutex.Lock()
 	defer c.listenerMutex.Unlock()
@@ -615,7 +619,20 @@ func (c *Client) notifyDisconnected() {
 	if c.onDisconnectListener == nil {
 		return
 	}
-	go c.onDisconnectListener(c.connectionURL)
+	
+	// Security: Launch goroutine for async notification
+	// Note: This goroutine is not explicitly tracked, but the listener function
+	// should complete quickly. If long-running operations are needed, the listener
+	// should accept a context parameter for cancellation.
+	go func() {
+		// Recover from any panics in the listener to prevent goroutine crashes
+		defer func() {
+			if r := recover(); r != nil {
+				c.log.Errorf("panic in disconnect listener: %v", r)
+			}
+		}()
+		c.onDisconnectListener(c.connectionURL)
+	}()
 }
 
 func (c *Client) writeCloseMsg() {

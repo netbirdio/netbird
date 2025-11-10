@@ -277,11 +277,19 @@ func notifyStop(msg string) {
 	}
 }
 
+// serveHTTP starts an HTTP server with security timeouts.
+// Security: This function configures HTTP server with timeouts to prevent resource exhaustion
+// and slowloris attacks. The server supports HTTP/2 without TLS (h2c) for gRPC compatibility.
 func serveHTTP(httpListener net.Listener, handler http.Handler) {
 	go func() {
 		// Use h2c to support HTTP/2 without TLS (needed for gRPC)
+		// Security: Configure timeouts to prevent resource exhaustion
 		h1s := &http.Server{
-			Handler: h2c.NewHandler(handler, &http2.Server{}),
+			Handler:      h2c.NewHandler(handler, &http2.Server{}),
+			ReadTimeout:  15 * time.Second,  // Maximum time to read request headers and body
+			WriteTimeout: 15 * time.Second,  // Maximum time to write response
+			IdleTimeout:  60 * time.Second,  // Maximum time to wait for next request on keep-alive
+			MaxHeaderBytes: 1 << 20, // 1MB maximum header size
 		}
 		err := h1s.Serve(httpListener)
 		if err != nil {

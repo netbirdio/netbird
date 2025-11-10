@@ -283,3 +283,7 @@ When contributing to this package:
 
 This package is part of the NetBird project and follows the same license terms.
 
+---
+
+**Last Updated**: November 10, 2025
+

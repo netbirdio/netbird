@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"reflect"
@@ -290,15 +291,54 @@ func (m *Manager) PersistState(ctx context.Context) error {
 	return nil
 }
 
-// loadStateFile reads and unmarshals the state file into a map of raw JSON messages
+// loadStateFile reads and unmarshals the state file into a map of raw JSON messages.
+// Security: This function limits the size of the state file to prevent DoS attacks
+// and validates that the file is not a symlink.
 func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage, error) {
-	data, err := os.ReadFile(m.filePath)
+	// Security: Limit state file size to prevent DoS attacks
+	// 10MB is a reasonable limit for state files
+	const maxStateFileSize = 10 * 1024 * 1024 // 10MB
+	
+	// Security: Check if file is a symlink to prevent symlink attacks
+	fileInfo, err := os.Lstat(m.filePath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			log.Debugf("state file %s does not exist", m.filePath)
+			return nil, nil // nolint:nilnil
+		}
+		return nil, fmt.Errorf("failed to stat state file: %w", err)
+	}
+	
+	// Security: Validate file is not a symlink
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("state file is a symlink, refusing to read for security")
+	}
+	
+	// Security: Validate file is a regular file
+	if !fileInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("state file is not a regular file")
+	}
+	
+	f, err := os.Open(m.filePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			log.Debugf("state file %s does not exist", m.filePath)
 			return nil, nil // nolint:nilnil
 		}
 		return nil, fmt.Errorf("read state file: %w", err)
+	}
+	defer f.Close()
+	
+	// Limit the file size to prevent DoS attacks
+	limitedReader := io.LimitReader(f, maxStateFileSize+1)
+	data, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read state file: %w", err)
+	}
+	
+	// Check if file exceeded size limit
+	if len(data) > maxStateFileSize {
+		return nil, fmt.Errorf("state file too large: maximum size is %d bytes", maxStateFileSize)
 	}
 
 	var rawStates map[string]json.RawMessage

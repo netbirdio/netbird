@@ -316,8 +316,13 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 		} else {
 			// the following magic is needed to support HTTP2 without TLS
 			// and still share a single port between gRPC and HTTP APIs
+			// Security: Configure HTTP server with timeouts to prevent resource exhaustion
 			h1s := &http.Server{
-				Handler: h2c.NewHandler(handler, &http2.Server{}),
+				Handler:       h2c.NewHandler(handler, &http2.Server{}),
+				ReadTimeout:   15 * time.Second,  // Maximum time to read request headers and body
+				WriteTimeout:  15 * time.Second,  // Maximum time to write response
+				IdleTimeout:   60 * time.Second,  // Maximum time to wait for next request on keep-alive
+				MaxHeaderBytes: 1 << 20, // 1MB maximum header size
 			}
 			err = h1s.Serve(listener)
 		}

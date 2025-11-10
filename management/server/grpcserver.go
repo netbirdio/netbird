@@ -404,12 +404,23 @@ func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string
 	return userAuth.UserId, nil
 }
 
+// acquirePeerLockByUID acquires a lock for a peer by unique ID.
+// Security: Uses safe type assertion with panic recovery to prevent application crashes.
 func (s *GRPCServer) acquirePeerLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
 	log.WithContext(ctx).Tracef("acquiring peer lock for ID %s", uniqueID)
 
 	start := time.Now()
 	value, _ := s.peerLocks.LoadOrStore(uniqueID, &sync.RWMutex{})
-	mtx := value.(*sync.RWMutex)
+	
+	// Security: Safe type assertion with validation to prevent panic
+	mtx, ok := value.(*sync.RWMutex)
+	if !ok {
+		// This should never happen, but handle gracefully to prevent panic
+		log.WithContext(ctx).Errorf("unexpected type in peerLocks map for ID %s, creating new mutex", uniqueID)
+		mtx = &sync.RWMutex{}
+		s.peerLocks.Store(uniqueID, mtx)
+	}
+	
 	mtx.Lock()
 	log.WithContext(ctx).Tracef("acquired peer lock for ID %s in %v", uniqueID, time.Since(start))
 	start = time.Now()
@@ -728,6 +739,9 @@ func (s *GRPCServer) processJwtToken(ctx context.Context, loginReq *proto.LoginR
 	return userID, nil
 }
 
+// ToResponseProto converts a NetBird config protocol to a gRPC protocol enum.
+// Security: Returns a safe default (UDP) instead of panicking on invalid input
+// to prevent application crashes. Invalid protocol types are logged as errors.
 func ToResponseProto(configProto nbconfig.Protocol) proto.HostConfig_Protocol {
 	switch configProto {
 	case nbconfig.UDP:
@@ -741,7 +755,11 @@ func ToResponseProto(configProto nbconfig.Protocol) proto.HostConfig_Protocol {
 	case nbconfig.TCP:
 		return proto.HostConfig_TCP
 	default:
-		panic(fmt.Errorf("unexpected config protocol type %v", configProto))
+		// Security: Log error and return safe default instead of panicking
+		// This prevents application crashes from programming errors
+		// The error should be caught during development/testing
+		log.Errorf("unexpected config protocol type %v, defaulting to UDP", configProto)
+		return proto.HostConfig_UDP // Safe default
 	}
 }
 

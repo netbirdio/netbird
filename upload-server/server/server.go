@@ -49,8 +49,18 @@ func NewServer() *Server {
 		http.Error(w, "not found", http.StatusNotFound)
 	})
 
+	// Security: Configure HTTP server with timeouts to prevent resource exhaustion
+	// These timeouts protect against slowloris attacks and hanging connections
 	return &Server{
-		srv: &http.Server{Addr: address, Handler: mux},
+		srv: &http.Server{
+			Addr:         address,
+			Handler:      mux,
+			ReadTimeout:  15 * time.Second,  // Maximum time to read request headers and body
+			WriteTimeout: 15 * time.Second,  // Maximum time to write response
+			IdleTimeout:  60 * time.Second,  // Maximum time to wait for next request on keep-alive
+			// Security: Limit header size to prevent header-based DoS attacks
+			MaxHeaderBytes: 1 << 20, // 1MB maximum header size
+		},
 	}
 }
 

@@ -566,6 +566,15 @@ func (v *Validator) ValidateJSON(r *http.Request, dest interface{}) error {
 	// Restore the request body for potential further processing
 	r.Body = io.NopCloser(strings.NewReader(string(body)))
 
+	// Security: Validate JSON depth to prevent DoS from deeply nested JSON structures
+	// Deeply nested JSON can cause stack overflow during unmarshaling
+	// A reasonable limit is 32 levels, which is sufficient for most use cases
+	// but prevents malicious deeply nested structures
+	const maxJSONDepth = 32
+	if err := validateJSONDepth(body, maxJSONDepth); err != nil {
+		return fmt.Errorf("JSON structure too deeply nested: %v", err)
+	}
+
 	// Parse the JSON into the destination struct
 	if err := json.Unmarshal(body, dest); err != nil {
 		return fmt.Errorf("failed to parse JSON: %v", err)
@@ -976,9 +985,12 @@ func (v *Validator) SanitizeInput(input string) string {
 	sanitized := htmlTagRegex.ReplaceAllString(input, "")
 	
 	// Remove script and style tags with their content (more comprehensive)
+	// Security: Use non-greedy quantifier (*?) to prevent ReDoS attacks
+	// The (?i) flag makes it case-insensitive, and *? is non-greedy to prevent catastrophic backtracking
 	scriptRegex := regexp.MustCompile(`(?i)<script[^>]*>.*?</script>`)
 	sanitized = scriptRegex.ReplaceAllString(sanitized, "")
 	
+	// Security: Use non-greedy quantifier (*?) to prevent ReDoS attacks
 	styleRegex := regexp.MustCompile(`(?i)<style[^>]*>.*?</style>`)
 	sanitized = styleRegex.ReplaceAllString(sanitized, "")
 	
@@ -1003,6 +1015,56 @@ func (v *Validator) SanitizeInput(input string) string {
 	sanitized = nullByteRegex.ReplaceAllString(sanitized, "")
 	
 	return sanitized
+}
+
+// validateJSONDepth checks if a JSON structure exceeds the maximum nesting depth.
+// This prevents DoS attacks from deeply nested JSON structures that could cause
+// stack overflow during unmarshaling.
+//
+// Security: Deeply nested JSON structures can cause stack overflow in the JSON
+// decoder, leading to a DoS attack. This function validates the depth before
+// attempting to unmarshal the JSON.
+//
+// Parameters:
+//   - data: The JSON data to validate
+//   - maxDepth: Maximum allowed nesting depth
+//
+// Returns:
+//   - nil if depth is within limits
+//   - An error if depth exceeds the limit
+func validateJSONDepth(data []byte, maxDepth int) error {
+	depth := 0
+	maxSeenDepth := 0
+	
+	for i := 0; i < len(data); i++ {
+		switch data[i] {
+		case '{', '[':
+			depth++
+			if depth > maxSeenDepth {
+				maxSeenDepth = depth
+			}
+			if depth > maxDepth {
+				return fmt.Errorf("JSON nesting depth (%d) exceeds maximum allowed depth (%d)", depth, maxDepth)
+			}
+		case '}', ']':
+			depth--
+			if depth < 0 {
+				// Mismatched brackets - will be caught by json.Unmarshal
+				return nil
+			}
+		case '"':
+			// Skip string contents
+			i++
+			for i < len(data) && data[i] != '"' {
+				if data[i] == '\\' && i+1 < len(data) {
+					i++ // Skip escaped character
+				}
+				i++
+			}
+		}
+	}
+	
+	return nil
 }
 
 // SanitizeURL ensures a URL is safe and well-formed by validating and sanitizing it.

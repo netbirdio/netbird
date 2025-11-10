@@ -7,17 +7,20 @@ This document outlines the security measures implemented in the NetBird project 
 ## Security Principles
 
 ### 1. Defense in Depth
+
 - Multiple layers of security controls
 - Fail-safe defaults
 - Least privilege principle
 - Complete mediation
 
 ### 2. Secure by Default
+
 - All security features enabled by default
 - Secure configurations out of the box
 - Minimal attack surface
 
 ### 3. Fail Securely
+
 - Errors don't expose sensitive information
 - Failures default to secure state
 - Graceful degradation
@@ -27,6 +30,7 @@ This document outlines the security measures implemented in the NetBird project 
 ### Input Validation and Sanitization
 
 #### Request Body Size Limits
+
 - **JSON Requests**: Maximum 10MB
 - **File Uploads**: Maximum 100MB
 - **Audit Logging**: Maximum 1MB
@@ -34,12 +38,14 @@ This document outlines the security measures implemented in the NetBird project 
 **Implementation**: All request bodies are read through `io.LimitReader` to prevent DoS attacks.
 
 #### Path Traversal Protection
+
 - Rejects paths containing `..`
 - Validates resolved paths are within base directory
 - Logs path traversal attempts
 - Uses absolute path validation
 
 **Example**:
+
 ```go
 // Validate path is within base directory
 absFilePath, _ := filepath.Abs(file)
@@ -50,6 +56,7 @@ if !strings.HasPrefix(absFilePath, absBaseDir) {
 ```
 
 #### Input Sanitization
+
 - XSS protection in `SanitizeInput`
 - URL sanitization
 - Command injection prevention
@@ -58,6 +65,7 @@ if !strings.HasPrefix(absFilePath, absBaseDir) {
 ### Error Handling
 
 #### Error Message Sanitization
+
 Error messages are sanitized to prevent information leakage:
 
 - **Removed**: File paths, stack traces, database details
@@ -65,21 +73,22 @@ Error messages are sanitized to prevent information leakage:
 - **Logged**: Full error details server-side only
 
 **Implementation**:
+
 ```go
 func sanitizeErrorMessage(errMsg string) string {
     // Remove file paths
     pathRegex := regexp.MustCompile(`(/[^\s]+|\\[^\s]+|C:\\[^\s]+)`)
     errMsg = pathRegex.ReplaceAllString(errMsg, "[path]")
-    
+
     // Remove stack traces
     stackRegex := regexp.MustCompile(`(?m)^\s+at\s+.*$|goroutine\s+\d+|panic:|runtime\.`)
     errMsg = stackRegex.ReplaceAllString(errMsg, "")
-    
+
     // Limit length
     if len(errMsg) > 200 {
         errMsg = errMsg[:200] + "..."
     }
-    
+
     return strings.TrimSpace(errMsg)
 }
 ```
@@ -87,6 +96,7 @@ func sanitizeErrorMessage(errMsg string) string {
 ### File Permissions
 
 #### Secure Default Permissions
+
 - **Temporary Files**: 0600 (owner read/write only)
 - **Log Files**: 0640 (owner read/write, group read)
 - **Directories**: 0750 (owner rwx, group rx)
@@ -99,17 +109,20 @@ func sanitizeErrorMessage(errMsg string) string {
 ### Resource Management
 
 #### Goroutine Management
+
 - All goroutines have proper cleanup
 - Context-based cancellation
 - WaitGroup synchronization
 - Defer statements for cleanup
 
 #### File Handle Management
+
 - All file handles closed with defer
 - Temporary files cleaned up
 - Error handling for close operations
 
 #### Network Connection Management
+
 - Connections closed properly
 - Timeouts on all network operations
 - Context cancellation support
@@ -117,12 +130,14 @@ func sanitizeErrorMessage(errMsg string) string {
 ### Memory Management
 
 #### Bounded Data Structures
+
 - Maps have maximum size limits
 - LRU eviction for rate limiters
 - FIFO eviction for memory stores
 - Capacity limits on slices
 
 **Example**:
+
 ```go
 const maxEvents = 10000
 
@@ -138,12 +153,14 @@ if len(m.events) >= maxEvents {
 ### Cryptographic Security
 
 #### Password Hashing
+
 - **Algorithm**: Argon2id
 - **Salt**: Cryptographically secure random (16 bytes)
 - **Parameters**: Configurable memory, time, threads
 - **Verification**: Constant-time comparison
 
 #### Encryption
+
 - **New Code**: AES-GCM with random nonces
 - **Legacy Code**: AES-CBC (documented as insecure, for backward compatibility only)
 
@@ -152,6 +169,7 @@ if len(m.events) >= maxEvents {
 ### HTTP Security Headers
 
 #### Security Headers Implemented
+
 - `X-Content-Type-Options: nosniff` - Prevents MIME type sniffing
 - `X-Frame-Options: DENY` - Prevents clickjacking
 - `X-XSS-Protection: 1; mode=block` - XSS protection
@@ -159,6 +177,7 @@ if len(m.events) >= maxEvents {
 - `Permissions-Policy` - Feature policy
 
 #### HSTS (HTTP Strict Transport Security)
+
 - Enabled for HTTPS connections
 - Max age: 2 years (configurable)
 - Include subdomains: Yes
@@ -167,6 +186,7 @@ if len(m.events) >= maxEvents {
 ### Rate Limiting
 
 #### Features
+
 - IP-based rate limiting
 - Per-user rate limiting
 - Automatic cleanup of old entries
@@ -174,6 +194,7 @@ if len(m.events) >= maxEvents {
 - LRU eviction for memory management
 
 #### Configuration
+
 - Maximum requests per window
 - Window duration
 - Ban duration
@@ -182,6 +203,7 @@ if len(m.events) >= maxEvents {
 ### Authentication and Authorization
 
 #### JWT Validation
+
 - Algorithm whitelist (RS256, RS384, RS512, ES256, ES384, ES512)
 - Expiration required
 - Issuer validation
@@ -190,6 +212,7 @@ if len(m.events) >= maxEvents {
 - Cache control headers
 
 #### IP Validation
+
 - Validates IP addresses from headers
 - Prevents IP spoofing
 - Uses `net.ParseIP()` for validation
@@ -197,6 +220,7 @@ if len(m.events) >= maxEvents {
 ### Audit Logging
 
 #### Features
+
 - Buffered logging for performance
 - Automatic background flushing
 - Sensitive data redaction
@@ -204,6 +228,7 @@ if len(m.events) >= maxEvents {
 - File and/or stderr output
 
 #### Redacted Data
+
 - Passwords
 - Tokens
 - API keys
@@ -213,6 +238,7 @@ if len(m.events) >= maxEvents {
 ## Security Checklist
 
 ### Before Deployment
+
 - [ ] All security headers configured
 - [ ] File permissions verified
 - [ ] Input validation enabled
@@ -225,6 +251,7 @@ if len(m.events) >= maxEvents {
 - [ ] Security updates applied
 
 ### Code Review Checklist
+
 - [ ] Input validation on all user inputs
 - [ ] Error messages don't leak information
 - [ ] File permissions are secure
@@ -239,29 +266,37 @@ if len(m.events) >= maxEvents {
 ## Common Vulnerabilities and Mitigations
 
 ### SQL Injection
+
 **Mitigation**: Parameterized queries, input validation, database name sanitization
 
 ### XSS (Cross-Site Scripting)
+
 **Mitigation**: Input sanitization, output encoding, CSP headers
 
 ### Path Traversal
+
 **Mitigation**: Path validation, absolute path checking, base directory validation
 
 ### Command Injection
+
 **Mitigation**: Input validation, whitelist approach, regex validation
 
 ### DoS (Denial of Service)
+
 **Mitigation**: Request size limits, rate limiting, resource limits, timeouts
 
 ### Information Disclosure
+
 **Mitigation**: Error message sanitization, security headers, access controls
 
 ### Memory Leaks
+
 **Mitigation**: Bounded data structures, proper cleanup, resource limits
 
 ## Security Monitoring
 
 ### Logging
+
 - All security events logged
 - Failed authentication attempts
 - Rate limit violations
@@ -269,6 +304,7 @@ if len(m.events) >= maxEvents {
 - Error conditions
 
 ### Metrics
+
 - Request rates
 - Error rates
 - Resource usage
@@ -277,6 +313,7 @@ if len(m.events) >= maxEvents {
 ## Incident Response
 
 ### Security Incident Procedure
+
 1. Identify and contain the incident
 2. Assess the impact
 3. Remediate vulnerabilities
@@ -284,6 +321,7 @@ if len(m.events) >= maxEvents {
 5. Review and improve
 
 ### Reporting Security Issues
+
 - Report to: security@netbird.io
 - Include: Description, steps to reproduce, impact assessment
 - Response time: Within 48 hours
@@ -291,6 +329,7 @@ if len(m.events) >= maxEvents {
 ## Compliance
 
 ### Standards Compliance
+
 - OWASP Top 10
 - CWE Top 25
 - Security best practices
@@ -299,12 +338,14 @@ if len(m.events) >= maxEvents {
 ## Updates and Maintenance
 
 ### Security Updates
+
 - Regular dependency updates
 - Security patch management
 - Vulnerability scanning
 - Penetration testing
 
 ### Security Reviews
+
 - Quarterly security audits
 - Code review for security
 - Architecture reviews
@@ -320,6 +361,10 @@ if len(m.events) >= maxEvents {
 ## Contact
 
 For security concerns or questions:
+
 - Email: security@netbird.io
 - Security Policy: See SECURITY.md
 
+---
+
+**Last Updated**: November 10, 2025

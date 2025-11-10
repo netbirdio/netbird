@@ -202,23 +202,49 @@ func openOrCreateFile(file string) (*os.File, error) {
 	return targetFile, nil
 }
 
-// ReadJson reads JSON config file and maps to a provided interface
+// ReadJson reads JSON config file and maps to a provided interface.
+// Security: This function limits the size of the input file to prevent DoS attacks
+// and validates that the file is not a symlink.
 func ReadJson(file string, res interface{}) (interface{}, error) {
+	// Security: Limit file size to prevent DoS attacks
+	// 10MB is a reasonable limit for configuration files
+	const maxConfigFileSize = 10 * 1024 * 1024 // 10MB
+	
+	// Security: Check if file is a symlink to prevent symlink attacks
+	fileInfo, err := os.Lstat(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("file is a symlink, refusing to read for security")
+	}
+	
+	// Security: Validate file is a regular file
+	if !fileInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("file is not a regular file")
+	}
 
 	f, err := os.Open(file)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer f.Close()
 
-	bs, err := io.ReadAll(f)
+	// Limit the file size to prevent DoS attacks
+	limitedReader := io.LimitReader(f, maxConfigFileSize+1)
+	bs, err := io.ReadAll(limitedReader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	
+	// Check if file exceeded size limit
+	if len(bs) > maxConfigFileSize {
+		return nil, fmt.Errorf("config file too large: maximum size is %d bytes", maxConfigFileSize)
 	}
 
 	err = json.Unmarshal(bs, &res)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
 	return res, nil
@@ -329,16 +355,33 @@ func getEnvMap() map[string]string {
 	return envMap
 }
 
-// CopyFileContents copies contents of the given src file to the dst file
+// CopyFileContents copies contents of the given src file to the dst file.
+// Security: This function validates that the source file is not a symlink to prevent symlink attacks.
+// It also sets secure permissions (0640) on the destination file.
 func CopyFileContents(src, dst string) (err error) {
+	// Security: Check if source is a symlink to prevent symlink attacks
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return fmt.Errorf("failed to stat source file: %w", err)
+	}
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source file is a symlink, refusing to copy for security")
+	}
+	
+	// Security: Validate source is a regular file
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("source is not a regular file")
+	}
+	
 	in, err := os.Open(src)
 	if err != nil {
-		return
+		return fmt.Errorf("failed to open source file: %w", err)
 	}
 	defer in.Close()
+	
 	out, err := os.Create(dst)
 	if err != nil {
-		return
+		return fmt.Errorf("failed to create destination file: %w", err)
 	}
 	defer func() {
 		cErr := out.Close()
@@ -346,10 +389,21 @@ func CopyFileContents(src, dst string) (err error) {
 			err = cErr
 		}
 	}()
-	if _, err = io.Copy(out, in); err != nil {
-		return
+	
+	// Security: Set secure permissions on destination file (0640 = owner read/write, group read)
+	if err := os.Chmod(dst, 0640); err != nil {
+		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
+	
+	if _, err = io.Copy(out, in); err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+	
 	err = out.Sync()
+	if err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
+	}
+	
 	return
 }
 

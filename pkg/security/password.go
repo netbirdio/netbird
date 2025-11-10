@@ -464,19 +464,19 @@ func isSequential(password string) bool {
 		for j := 1; j < 3; j++ {
 			if password[i+j] != password[i+j-1]+1 {
 				isSeq = false
-				break
-			}
+			break
 		}
+	}
 		if isSeq {
-			return true
-		}
+		return true
+	}
 
 		// Check reverse sequence
 		isRevSeq := true
 		for j := 1; j < 3; j++ {
 			if password[i+j] != password[i+j-1]-1 {
 				isRevSeq = false
-				break
+			break
 			}
 		}
 		if isRevSeq {

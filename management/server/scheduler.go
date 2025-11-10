@@ -178,7 +178,7 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 					wm.mu.Lock()
 					// Check if job still exists (might have been cancelled)
 					if _, exists := wm.jobs[ID]; exists {
-						delete(wm.jobs, ID)
+					delete(wm.jobs, ID)
 					}
 					wm.mu.Unlock()
 					log.WithContext(ctx).Debugf("job %s is not scheduled to run again", ID)

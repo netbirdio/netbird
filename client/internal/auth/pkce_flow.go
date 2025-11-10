@@ -133,7 +133,14 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 		return TokenInfo{}, fmt.Errorf("failed to parse redirect URL: %v", err)
 	}
 
-	server := &http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
+	// Security: Configure HTTP server with timeouts to prevent resource exhaustion
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%s", parsedURL.Port()),
+		ReadTimeout:  15 * time.Second,  // Maximum time to read request headers and body
+		WriteTimeout: 15 * time.Second,  // Maximum time to write response
+		IdleTimeout:  60 * time.Second,  // Maximum time to wait for next request on keep-alive
+		MaxHeaderBytes: 1 << 20, // 1MB maximum header size
+	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()

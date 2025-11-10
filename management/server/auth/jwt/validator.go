@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -170,15 +171,32 @@ func getPemKeys(keysLocation string) (*Jwks, error) {
 		return jwks, err
 	}
 
-	resp, err := http.Get(url.String())
+	// Security: Use HTTP client with timeout to prevent hanging requests
+	client := &http.Client{
+		Timeout: 10 * time.Second, // 10 second timeout for JWKS endpoint requests
+	}
+	resp, err := client.Get(url.String())
 	if err != nil {
 		return jwks, err
 	}
 	defer resp.Body.Close()
 
-	err = json.NewDecoder(resp.Body).Decode(jwks)
+	// Security: Limit response body size to prevent DoS attacks
+	// JWKS responses should be small, but we limit to prevent abuse
+	const maxJWKSSize = 1024 * 1024 // 1MB
+	limitedReader := io.LimitReader(resp.Body, maxJWKSSize+1)
+	
+	decoder := json.NewDecoder(limitedReader)
+	err = decoder.Decode(jwks)
 	if err != nil {
 		return jwks, err
+	}
+	
+	// Security: Check if response exceeded size limit by attempting to read one more byte
+	// If we can read at least one more byte, the response was too large
+	var checkBuf [1]byte
+	if n, _ := limitedReader.Read(checkBuf[:]); n > 0 {
+		return jwks, fmt.Errorf("JWKS response too large: exceeds %d bytes", maxJWKSSize)
 	}
 
 	cacheControlHeader := resp.Header.Get("Cache-Control")

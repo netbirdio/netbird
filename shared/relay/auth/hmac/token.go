@@ -88,7 +88,7 @@ func (m *TimedHMAC) Validate(algo func() hash.Hash, token Token) error {
 	if len(token.Payload) < 10 { // Unix timestamp minimum length
 		return fmt.Errorf("invalid payload: too short")
 	}
-	
+
 	timeAuthInt, err := strconv.ParseInt(token.Payload, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid payload: %w", err)

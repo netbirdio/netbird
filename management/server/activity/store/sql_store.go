@@ -268,10 +268,13 @@ func initDatabase(ctx context.Context, dataDir string) (*gorm.DB, error) {
 	return configureConnectionPool(db, storeEngine)
 }
 
+// configureConnectionPool configures the database connection pool with secure defaults.
+// Security: This function validates connection pool settings to prevent resource exhaustion
+// and ensures reasonable limits are enforced.
 func configureConnectionPool(db *gorm.DB, storeEngine types.Engine) (*gorm.DB, error) {
 	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get database connection: %w", err)
 	}
 
 	conns, err := strconv.Atoi(os.Getenv(sqlMaxOpenConnsEnv))
@@ -280,6 +283,17 @@ func configureConnectionPool(db *gorm.DB, storeEngine types.Engine) (*gorm.DB, e
 	}
 	if storeEngine == types.SqliteStoreEngine {
 		conns = 1
+	}
+	
+	// Security: Validate and sanitize connection pool size to prevent resource exhaustion
+	const minConns = 1
+	const maxConns = 100 // Reasonable upper limit
+	if conns < minConns {
+		log.Warnf("connection pool size (%d) is below minimum (%d), using minimum", conns, minConns)
+		conns = minConns
+	} else if conns > maxConns {
+		log.Warnf("connection pool size (%d) exceeds maximum (%d), using maximum", conns, maxConns)
+		conns = maxConns
 	}
 
 	sqlDB.SetMaxOpenConns(conns)
