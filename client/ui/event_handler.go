@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/systray"
@@ -238,6 +239,18 @@ func (h *eventHandler) updateConfigWithErr() error {
 }
 
 func (h *eventHandler) runSelfCommand(ctx context.Context, command, arg string) {
+	// Validate command and arg to prevent injection
+	// Only allow alphanumeric, dash, and underscore characters
+	commandRegex := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	if !commandRegex.MatchString(command) {
+		log.Errorf("invalid command format: %s", command)
+		return
+	}
+	if !commandRegex.MatchString(arg) {
+		log.Errorf("invalid arg format: %s", arg)
+		return
+	}
+
 	proc, err := os.Executable()
 	if err != nil {
 		log.Errorf("error getting executable path: %v", err)

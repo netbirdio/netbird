@@ -265,10 +265,21 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 }
 
 // Generate creates a debug bundle and returns the location.
+// Security: The debug bundle may contain sensitive information, so it's created with
+// secure permissions (0600 = owner read/write only) to prevent unauthorized access.
 func (g *BundleGenerator) Generate() (resp string, err error) {
 	bundlePath, err := os.CreateTemp("", "netbird.debug.*.zip")
 	if err != nil {
 		return "", fmt.Errorf("create zip file: %w", err)
+	}
+	
+	// Set secure permissions on debug bundle (owner read/write only)
+	// Debug bundles may contain sensitive configuration and state information
+	bundleName := bundlePath.Name()
+	if err := os.Chmod(bundleName, 0600); err != nil {
+		_ = bundlePath.Close()
+		_ = os.Remove(bundleName)
+		return "", fmt.Errorf("set bundle permissions: %w", err)
 	}
 	defer func() {
 		if closeErr := bundlePath.Close(); closeErr != nil && err == nil {

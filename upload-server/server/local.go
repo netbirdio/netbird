@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -82,15 +83,31 @@ func (l *local) getUploadURL(objectKey string) (string, error) {
 	return newURL.String(), nil
 }
 
+// handlePutRequest handles file upload requests.
+// Security: This function enforces size limits and validates file paths to prevent
+// DoS attacks and path traversal vulnerabilities.
 func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	// Security: Limit request body size to prevent DoS attacks
+	// 100MB is a reasonable limit for file uploads
+	const maxUploadSize = 100 * 1024 * 1024 // 100MB
+	
+	// Limit the request body size
+	limitedReader := io.LimitReader(r.Body, maxUploadSize+1)
+	body, err := io.ReadAll(limitedReader)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to read body: %v", err), http.StatusInternalServerError)
+		http.Error(w, "failed to read body", http.StatusInternalServerError)
+		log.Errorf("Failed to read upload body: %v", err)
+		return
+	}
+	
+	// Check if body exceeded the size limit
+	if len(body) > maxUploadSize {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 
@@ -105,7 +122,40 @@ func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Security: Validate and sanitize directory and file names to prevent path traversal
+	// Remove any path traversal attempts (../, ..\, etc.)
+	if strings.Contains(uploadDir, "..") || strings.Contains(uploadFile, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		log.Warnf("Path traversal attempt detected: dir=%s, file=%s", uploadDir, uploadFile)
+		return
+	}
+	
+	// Validate that directory and file names don't contain path separators
+	if strings.Contains(uploadDir, string(filepath.Separator)) || 
+	   strings.Contains(uploadFile, string(filepath.Separator)) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
 	dirPath := filepath.Join(l.dir, uploadDir)
+	// Security: Ensure the resolved path is still within the base directory
+	// This prevents path traversal attacks even if validation above fails
+	absDirPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	absBaseDir, err := filepath.Abs(l.dir)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !strings.HasPrefix(absDirPath, absBaseDir) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		log.Warnf("Path traversal attempt: resolved path %s is outside base dir %s", absDirPath, absBaseDir)
+		return
+	}
+	
 	err = os.MkdirAll(dirPath, 0750)
 	if err != nil {
 		http.Error(w, "failed to create upload dir", http.StatusInternalServerError)
@@ -114,6 +164,19 @@ func (l *local) handlePutRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	file := filepath.Join(dirPath, uploadFile)
+	
+	// Security: Validate the final file path is within the base directory
+	absFilePath, err := filepath.Abs(file)
+	if err != nil {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	if !strings.HasPrefix(absFilePath, absBaseDir) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		log.Warnf("Path traversal attempt: file path %s is outside base dir %s", absFilePath, absBaseDir)
+		return
+	}
+	
 	if err := os.WriteFile(file, body, 0600); err != nil {
 		http.Error(w, "failed to write file", http.StatusInternalServerError)
 		log.Errorf("Failed to write file %s: %v", file, err)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/sirupsen/logrus"
@@ -20,8 +21,18 @@ var (
 	ErrIncompatibleVersion = errors.New("incompatible version of argon2")
 )
 
-// Argon2Config holds the configuration for Argon2 hashing
-// These values should be tuned based on your security requirements and hardware
+// DefaultArgon2Config provides a secure default configuration for Argon2 password hashing.
+// These values are tuned for a balance between security and performance on modern hardware.
+//
+// Configuration:
+//   - Time: 3 iterations (higher = more secure but slower)
+//   - Memory: 64MB (higher = more secure but requires more RAM)
+//   - Threads: 4 parallel threads (should match CPU cores)
+//   - KeyLen: 32 bytes (256 bits) for the hash output
+//   - SaltLen: 16 bytes (128 bits) for the salt
+//
+// For production use, consider tuning these values based on your security requirements
+// and hardware capabilities. Higher values provide better security but increase computation time.
 var DefaultArgon2Config = &Argon2Config{
 	Time:    3,
 	Memory:  64 * 1024, // 64MB
@@ -30,16 +41,42 @@ var DefaultArgon2Config = &Argon2Config{
 	SaltLen: 16,
 }
 
-// Argon2Config holds the configuration for Argon2 hashing
+// Argon2Config holds the configuration parameters for Argon2 password hashing.
+// Argon2 is a memory-hard password hashing function that provides resistance against
+// both GPU and ASIC attacks.
+//
+// Fields:
+//   - Time: Number of iterations (higher = more secure but slower)
+//   - Memory: Memory cost in KB (higher = more secure but requires more RAM)
+//   - Threads: Number of parallel threads (should match available CPU cores)
+//   - KeyLen: Length of the generated hash in bytes (typically 32 for 256 bits)
+//   - SaltLen: Length of the salt in bytes (typically 16 for 128 bits)
 type Argon2Config struct {
-	Time    uint32
-	Memory  uint32
-	Threads uint8
-	KeyLen  uint32
-	SaltLen uint32
+	Time    uint32 // Number of iterations
+	Memory  uint32 // Memory cost in KB
+	Threads uint8  // Number of parallel threads
+	KeyLen  uint32 // Length of hash output in bytes
+	SaltLen uint32 // Length of salt in bytes
 }
 
-// HashPassword hashes a password using Argon2id
+// HashPassword hashes a password using Argon2id, which is the recommended variant
+// of Argon2 for password hashing. It provides a balance between resistance to
+// side-channel attacks and GPU cracking attacks.
+//
+// The function generates a cryptographically secure random salt and combines it
+// with the password to create a hash. The result is encoded in a format that
+// includes all parameters needed for verification.
+//
+// Parameters:
+//   - password: The plaintext password to hash
+//   - config: Argon2 configuration parameters. If nil, DefaultArgon2Config is used.
+//
+// Returns:
+//   - A string containing the encoded hash in format: $argon2id$v=VERSION$m=MEMORY,t=TIME,p=THREADS$SALT$HASH
+//   - An error if salt generation or hashing fails
+//
+// Security: The password is never logged or exposed. The hash can be safely stored
+// in a database. Use VerifyPassword to check passwords against the hash.
 func HashPassword(password string, config *Argon2Config) (string, error) {
 	if config == nil {
 		config = DefaultArgon2Config
@@ -79,7 +116,20 @@ func HashPassword(password string, config *Argon2Config) (string, error) {
 	return encodedHash, nil
 }
 
-// VerifyPassword verifies a password against a hashed value
+// VerifyPassword verifies a password against a previously hashed value.
+// It uses constant-time comparison to prevent timing attacks.
+//
+// Parameters:
+//   - password: The plaintext password to verify
+//   - encodedHash: The encoded hash string from HashPassword
+//
+// Returns:
+//   - true if the password matches the hash
+//   - false if the password does not match
+//   - An error if the hash format is invalid or incompatible
+//
+// Security: Uses constant-time comparison to prevent timing attacks that could
+// reveal information about the correct password.
 func VerifyPassword(password, encodedHash string) (bool, error) {
 	// Parse the encoded hash
 	parts := strings.Split(encodedHash, "$")
@@ -132,16 +182,32 @@ func VerifyPassword(password, encodedHash string) (bool, error) {
 	return subtle.ConstantTimeCompare(hash, comparisonHash) == 1, nil
 }
 
-// PasswordPolicy defines the password policy requirements
+// PasswordPolicy defines the requirements that passwords must meet to be considered valid.
+// This helps enforce strong passwords and prevent common weak passwords.
+//
+// Fields:
+//   - MinLength: Minimum password length (default: 12)
+//   - RequireUpper: Require at least one uppercase letter
+//   - RequireLower: Require at least one lowercase letter
+//   - RequireNumber: Require at least one numeric digit
+//   - RequireSymbol: Require at least one special character
 type PasswordPolicy struct {
-	MinLength     int
-	RequireUpper  bool
-	RequireLower  bool
-	RequireNumber bool
-	RequireSymbol bool
+	MinLength     int  // Minimum password length
+	RequireUpper  bool // Require uppercase letters
+	RequireLower  bool // Require lowercase letters
+	RequireNumber bool // Require numeric digits
+	RequireSymbol bool // Require special characters
 }
 
-// DefaultPasswordPolicy returns a sensible default password policy
+// DefaultPasswordPolicy returns a sensible default password policy that enforces
+// strong passwords. The default requires:
+//   - Minimum 12 characters
+//   - At least one uppercase letter
+//   - At least one lowercase letter
+//   - At least one number
+//   - At least one special character
+//
+// This policy helps prevent common weak passwords while remaining user-friendly.
 func DefaultPasswordPolicy() *PasswordPolicy {
 	return &PasswordPolicy{
 		MinLength:     12,
@@ -152,7 +218,24 @@ func DefaultPasswordPolicy() *PasswordPolicy {
 	}
 }
 
-// ValidatePassword checks if a password meets the policy requirements
+// ValidatePassword checks if a password meets the specified policy requirements.
+// It performs various checks including length, character requirements, and
+// common password patterns.
+//
+// Parameters:
+//   - password: The password to validate
+//   - policy: The password policy to enforce. If nil, DefaultPasswordPolicy is used.
+//
+// Returns:
+//   - nil if the password meets all requirements
+//   - An error describing which requirement was not met
+//
+// The function checks for:
+//   - Minimum length
+//   - Required character types (uppercase, lowercase, numbers, symbols)
+//   - Common weak passwords
+//   - Sequential characters (e.g., "123456", "abc")
+//   - Repeated characters (e.g., "aaaaaa")
 func ValidatePassword(password string, policy *PasswordPolicy) error {
 	if policy == nil {
 		policy = DefaultPasswordPolicy()
@@ -217,8 +300,15 @@ func ValidatePassword(password string, policy *PasswordPolicy) error {
 	return nil
 }
 
-// isCommonPassword checks if the password is in a list of common passwords
-// This is a simplified example - in production, use a larger dictionary
+// isCommonPassword checks if the password matches a known common or weak password.
+// This function uses a curated list of common passwords and also checks for
+// sequential and repeated character patterns.
+//
+// Note: This is a simplified implementation. For production use, consider
+// integrating with a larger password dictionary or a service that provides
+// real-time password breach checking.
+//
+// Returns true if the password is considered common or weak.
 func isCommonPassword(password string) bool {
 	commonPasswords := map[string]bool{
 		"password":          true,
@@ -355,38 +445,52 @@ func isCommonPassword(password string) bool {
 	return false
 }
 
-// isSequential checks if the password contains sequential characters
+// isSequential checks if the password contains sequences of 3 or more consecutive characters.
+// This helps identify weak passwords like "123456", "abcdef", "321", "cba", etc.
+//
+// The function checks both forward sequences (e.g., "123", "abc") and reverse
+// sequences (e.g., "321", "cba") anywhere in the password.
+//
+// Returns true if a sequence of 3+ consecutive characters is found.
 func isSequential(password string) bool {
 	if len(password) < 3 {
 		return false
 	}
 
-	// Check for sequential numbers (e.g., 12345, 98765)
-	isSequential := true
-	for i := 1; i < len(password); i++ {
-		if password[i] != password[i-1]+1 {
-			isSequential = false
-			break
+	// Check for sequential characters (forward or reverse) of length 3 or more
+	for i := 0; i <= len(password)-3; i++ {
+		// Check forward sequence
+		isSeq := true
+		for j := 1; j < 3; j++ {
+			if password[i+j] != password[i+j-1]+1 {
+				isSeq = false
+				break
+			}
+		}
+		if isSeq {
+			return true
+		}
+
+		// Check reverse sequence
+		isRevSeq := true
+		for j := 1; j < 3; j++ {
+			if password[i+j] != password[i+j-1]-1 {
+				isRevSeq = false
+				break
+			}
+		}
+		if isRevSeq {
+			return true
 		}
 	}
 
-	if isSequential {
-		return true
-	}
-
-	// Check for reverse sequential numbers (e.g., 54321)
-	isReverseSequential := true
-	for i := 1; i < len(password); i++ {
-		if password[i] != password[i-1]-1 {
-			isReverseSequential = false
-			break
-		}
-	}
-
-	return isReverseSequential
+	return false
 }
 
-// isRepeated checks if the password contains repeated characters
+// isRepeated checks if the password consists entirely of the same repeated character.
+// This helps identify weak passwords like "aaaaaa", "111111", etc.
+//
+// Returns true if all characters in the password are identical.
 func isRepeated(password string) bool {
 	if len(password) < 3 {
 		return false
@@ -402,7 +506,21 @@ func isRepeated(password string) bool {
 	return true
 }
 
-// GenerateRandomPassword generates a random password that meets the policy requirements
+// GenerateRandomPassword generates a cryptographically secure random password
+// that meets the specified policy requirements. The password is guaranteed to
+// include at least one character from each required character type.
+//
+// Parameters:
+//   - length: Desired password length. If less than policy.MinLength, it will be
+//     adjusted to meet the minimum requirement.
+//   - policy: The password policy to follow. If nil, DefaultPasswordPolicy is used.
+//
+// Returns:
+//   - A randomly generated password that meets all policy requirements
+//   - An error if password generation fails (should not happen in normal operation)
+//
+// Security: Uses crypto/rand for secure random number generation. The generated
+// password is shuffled to ensure randomness even after including required characters.
 func GenerateRandomPassword(length int, policy *PasswordPolicy) (string, error) {
 	if policy == nil {
 		policy = DefaultPasswordPolicy()
@@ -469,11 +587,34 @@ func GenerateRandomPassword(length int, policy *PasswordPolicy) (string, error) 
 	return result, nil
 }
 
-// randomInt returns a random integer in the range [min, max)
+// randomInt returns a cryptographically secure random integer in the range [min, max).
+// This function uses crypto/rand for secure random number generation.
+//
+// Parameters:
+//   - min: Minimum value (inclusive)
+//   - max: Maximum value (exclusive)
+//
+// Returns:
+//   - A random integer in the specified range
+//   - If crypto/rand fails (extremely rare), falls back to time-based randomness
+//
+// Note: In the extremely unlikely event that crypto/rand fails, the function
+// logs an error and uses a time-based fallback. This prevents panics but
+// should be monitored in production.
 func randomInt(min, max int) int {
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
-		panic(err) // This should never happen with crypto/rand
+		// Log error and return a fallback value instead of panicking
+		// This prevents the application from crashing
+		logrus.WithError(err).Error("Failed to generate random number, using fallback")
+		// Use a simple fallback: current time nanoseconds modulo range
+		if min == max {
+			return min
+		}
+		if min > max {
+			min, max = max, min
+		}
+		return min + (int(time.Now().UnixNano()) % (max - min))
 	}
 
 	r := int(buf[0])<<56 | int(buf[1])<<48 | int(buf[2])<<40 | int(buf[3])<<32 |
@@ -487,10 +628,22 @@ func randomInt(min, max int) int {
 		min, max = max, min
 	}
 
-	return min + (r % (max - min))
+	// Ensure positive modulo result
+	mod := r % (max - min)
+	if mod < 0 {
+		mod = -mod
+	}
+
+	return min + mod
 }
 
-// shuffleBytes shuffles a byte slice in place
+// shuffleBytes shuffles a byte slice in place using the Fisher-Yates algorithm
+// with cryptographically secure random number generation. This ensures the
+// password characters are in a random order even after including required
+// character types.
+//
+// Parameters:
+//   - b: The byte slice to shuffle (modified in place)
 func shuffleBytes(b []byte) {
 	for i := range b {
 		j := randomInt(i, len(b))

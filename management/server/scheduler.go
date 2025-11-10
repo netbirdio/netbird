@@ -60,8 +60,11 @@ func (mock *MockScheduler) IsSchedulerRunning(ID string) bool {
 }
 
 // DefaultScheduler is a generic structure that allows to schedule jobs (functions) to run in the future and cancel them.
+// It manages a map of scheduled jobs, each with its own cancellation channel and goroutine.
+// The scheduler is thread-safe and handles job lifecycle including cleanup on cancellation or completion.
 type DefaultScheduler struct {
 	// jobs map holds cancellation channels indexed by the job ID
+	// Each channel is used to signal cancellation to the job's goroutine
 	jobs map[string]chan struct{}
 	mu   *sync.Mutex
 }
@@ -104,8 +107,28 @@ func (wm *DefaultScheduler) Cancel(ctx context.Context, IDs []string) {
 	}
 }
 
-// Schedule a job to run in some time in the future. If job returns true then it will be scheduled one more time.
-// If job with the provided ID already exists, a new one won't be scheduled.
+// Schedule schedules a job to run after the specified duration. The job function is called
+// and can return a new duration and a boolean indicating whether to reschedule.
+//
+// If the job returns reschedule=true, it will be scheduled again after the returned duration.
+// If reschedule=false, the job is removed from the scheduler and will not run again.
+//
+// If a job with the same ID already exists, the new job will not be scheduled.
+//
+// Parameters:
+//   - ctx: Context for logging and cancellation propagation
+//   - in: Initial duration before the job runs
+//   - ID: Unique identifier for the job (used to prevent duplicates and for cancellation)
+//   - job: Function to execute. Returns (nextRunIn, reschedule) where nextRunIn is the
+//     duration until the next run (if reschedule is true), and reschedule indicates
+//     whether to schedule the job again.
+//
+// Thread-safety: This method is safe for concurrent use. The job function itself
+// should be thread-safe if it accesses shared state.
+//
+// Resource management: Each scheduled job runs in its own goroutine. The goroutine
+// is properly cleaned up when the job completes or is cancelled. The ticker is
+// always stopped via defer to prevent resource leaks.
 func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
@@ -121,24 +144,44 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 	wm.jobs[ID] = cancel
 	log.WithContext(ctx).Debugf("scheduled a job %s to run in %s. There are %d total jobs scheduled.", ID, in.String(), len(wm.jobs))
 	go func() {
+		defer func() {
+			// Ensure ticker is stopped even if job panics
+			ticker.Stop()
+			// Recover from panic to prevent goroutine crash
+			if r := recover(); r != nil {
+				log.WithContext(ctx).Errorf("job %s panicked: %v", ID, r)
+				// Clean up job from map
+				wm.mu.Lock()
+				delete(wm.jobs, ID)
+				wm.mu.Unlock()
+			}
+		}()
+
 		for {
 			select {
 			case <-ticker.C:
 				select {
 				case <-cancel:
 					log.WithContext(ctx).Debugf("scheduled job %s was canceled, stop timer", ID)
-					ticker.Stop()
 					return
 				default:
 					log.WithContext(ctx).Debugf("time to do a scheduled job %s", ID)
 				}
 				runIn, reschedule := job()
 				if !reschedule {
+					// Job requested to stop - remove from map and exit goroutine
+					// We need to lock here to safely delete from the map
+					// This is safe even if Cancel is called concurrently because:
+					// 1. We hold the lock while deleting
+					// 2. The cancel channel is already in the map, so Cancel will close it
+					// 3. We return immediately after deleting, so the goroutine exits
 					wm.mu.Lock()
-					defer wm.mu.Unlock()
-					delete(wm.jobs, ID)
+					// Check if job still exists (might have been cancelled)
+					if _, exists := wm.jobs[ID]; exists {
+						delete(wm.jobs, ID)
+					}
+					wm.mu.Unlock()
 					log.WithContext(ctx).Debugf("job %s is not scheduled to run again", ID)
-					ticker.Stop()
 					return
 				}
 				// we need this comparison to avoid resetting the ticker with the same duration and missing the current elapsesed time
@@ -147,7 +190,6 @@ func (wm *DefaultScheduler) Schedule(ctx context.Context, in time.Duration, ID s
 				}
 			case <-cancel:
 				log.WithContext(ctx).Debugf("job %s was canceled, stopping timer", ID)
-				ticker.Stop()
 				return
 			}
 		}

@@ -3,12 +3,14 @@
 package ssh
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"os/user"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -192,9 +194,21 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 		file, err := pty.Start(cmd)
 		if err != nil {
 			log.Errorf("failed starting SSH server: %v", err)
+			return
 		}
+		defer func() {
+			if err := file.Close(); err != nil {
+				log.Debugf("failed to close pty file: %v", err)
+			}
+		}()
 
+		// Handle window size changes
 		go func() {
+			defer func() {
+				// Drain the channel to prevent goroutine leak
+				for range winCh {
+				}
+			}()
 			for win := range winCh {
 				setWinSize(file, win.Width, win.Height)
 			}
@@ -220,19 +234,27 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 }
 
 func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
+	// Use context to manage goroutine lifecycle
+	ctx, cancel := context.WithCancel(session.Context())
+	defer cancel()
+
+	// Copy stdin from session to file
 	go func() {
-		// stdin
+		defer cancel()
 		_, err := io.Copy(file, session)
-		if err != nil {
+		if err != nil && ctx.Err() == nil {
 			_ = session.Exit(1)
-			return
 		}
 	}()
 
 	// AWS Linux 2 machines need some time to open the terminal so we need to wait for it
 	timer := time.NewTimer(TerminalTimeout)
+	defer timer.Stop()
+
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-timer.C:
 			_, _ = session.Write([]byte("Reached timeout while opening connection\n"))
 			_ = session.Exit(1)
@@ -244,7 +266,13 @@ func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
 				_ = session.Exit(0)
 				return
 			}
-			time.Sleep(TerminalBackoffDelay)
+			// Check context before sleeping
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				time.Sleep(TerminalBackoffDelay)
+			}
 		}
 	}
 }
@@ -265,10 +293,23 @@ func (srv *DefaultServer) Start() error {
 
 func getUserShell(userID string) string {
 	if runtime.GOOS == "linux" {
-		output, _ := exec.Command("getent", "passwd", userID).Output()
-		line := strings.SplitN(string(output), ":", 10)
-		if len(line) > 6 {
-			return strings.TrimSpace(line[6])
+		// Validate userID to prevent command injection
+		// Only allow alphanumeric, underscore, dash, and dot characters
+		if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_.-]+$`, userID); !matched {
+			log.Warnf("invalid userID format for getent: %s", userID)
+		} else {
+			output, err := exec.Command("getent", "passwd", userID).Output()
+			if err != nil {
+				log.Debugf("getent failed for user %s: %v", userID, err)
+			} else {
+				line := strings.SplitN(string(output), ":", 10)
+				if len(line) > 6 {
+					shell := strings.TrimSpace(line[6])
+					if shell != "" {
+						return shell
+					}
+				}
+			}
 		}
 	}
 

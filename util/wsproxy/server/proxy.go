@@ -85,11 +85,15 @@ func (p *Proxy) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Debugf("WebSocket proxy established: %s -> gRPC handler", r.RemoteAddr)
 
+	// Start HTTP/2 server in a goroutine
+	// The context will be cancelled when the connection closes, which will stop the server
 	go func() {
 		(&http2.Server{}).ServeConn(serverConn, &http2.ServeConnOpts{
 			Context: ctx,
 			Handler: p.config.Handler,
 		})
+		// Ensure serverConn is closed when ServeConn returns
+		_ = serverConn.Close()
 	}()
 
 	p.proxyData(ctx, wsConn, clientConn, r.RemoteAddr)

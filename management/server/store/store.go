@@ -582,7 +582,23 @@ func openDBWithRetry(dsn string, engine types.Engine, maxRetries int) (*gorm.DB,
 }
 
 func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(), error) {
-	dbName := fmt.Sprintf("test_db_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
+	// Generate a safe database name by replacing hyphens with underscores
+	// and ensuring it only contains alphanumeric characters and underscores
+	dbNameSuffix := strings.ReplaceAll(uuid.New().String(), "-", "_")
+	// Sanitize to ensure only safe characters (alphanumeric and underscore)
+	dbNameSuffix = regexp.MustCompile(`[^a-zA-Z0-9_]`).ReplaceAllString(dbNameSuffix, "_")
+	dbName := fmt.Sprintf("test_db_%s", dbNameSuffix)
+
+	// Validate database name length and format to prevent injection
+	if len(dbName) > 64 {
+		return "", nil, fmt.Errorf("database name too long: %d characters", len(dbName))
+	}
+
+	// Use parameterized query where possible, but CREATE DATABASE doesn't support it
+	// So we validate the name format instead
+	if !regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`).MatchString(dbName) {
+		return "", nil, fmt.Errorf("invalid database name format: %s", dbName)
+	}
 
 	if err := db.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)).Error; err != nil {
 		return "", nil, fmt.Errorf("failed to create database: %v", err)
@@ -591,6 +607,18 @@ func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(
 	originalDSN := dsn
 
 	cleanup := func() {
+		// Re-validate database name for defense in depth (security best practice)
+		// Even though dbName was validated earlier, we validate again in cleanup
+		// to prevent any potential issues if the closure is called in unexpected ways
+		if !regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]*$`).MatchString(dbName) {
+			log.Errorf("invalid database name format in cleanup: %s", dbName)
+			return
+		}
+		if len(dbName) > 64 {
+			log.Errorf("database name too long in cleanup: %d characters", len(dbName))
+			return
+		}
+
 		var dropDB *gorm.DB
 		var err error
 
@@ -616,6 +644,7 @@ func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(
 				sqlDB.SetConnMaxLifetime(time.Second)
 			}
 
+			// dbName is validated above, safe to use in fmt.Sprintf
 			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", dbName)).Error
 
 		case types.MysqlStoreEngine:
@@ -639,6 +668,7 @@ func createRandomDB(dsn string, db *gorm.DB, engine types.Engine) (string, func(
 				sqlDB.SetConnMaxLifetime(time.Second)
 			}
 
+			// dbName is validated above, safe to use in fmt.Sprintf
 			err = dropDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)).Error
 		}
 

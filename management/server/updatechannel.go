@@ -91,9 +91,13 @@ func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) c
 	return channel
 }
 
+// closeChannel closes a channel for a peer
+// NOTE: This function must be called while holding channelsMux.Lock()
 func (p *PeersUpdateManager) closeChannel(ctx context.Context, peerID string) {
 	if channel, ok := p.peerChannels[peerID]; ok {
 		delete(p.peerChannels, peerID)
+		// Close channel - safe because we hold the lock and have exclusive access
+		// Channels can only be closed once, and we've already removed it from the map
 		close(channel)
 
 		log.WithContext(ctx).Debugf("closed updates channel of a peer %s", peerID)

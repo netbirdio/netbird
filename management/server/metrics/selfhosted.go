@@ -86,6 +86,8 @@ func (w *Worker) Run(ctx context.Context) {
 	interval := getMetricsInterval(ctx)
 
 	pushTicker := time.NewTicker(interval)
+	defer pushTicker.Stop() // Ensure ticker is stopped to prevent memory leak
+
 	for {
 		select {
 		case <-w.ctx.Done():
@@ -127,7 +129,11 @@ func (w *Worker) sendMetrics(ctx context.Context) error {
 		return err
 	}
 
-	httpClient := http.Client{}
+	// Create HTTP client with timeout to prevent hanging requests
+	// Context timeout is set in createPostRequest, but explicit client timeout provides additional safety
+	httpClient := http.Client{
+		Timeout: requestTimeout,
+	}
 
 	exportJobReq, cancelCTX, err := createPostRequest(w.ctx, payloadEndpoint+"/capture/", payloadString)
 	if err != nil {
@@ -379,7 +385,11 @@ func getAPIKey(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 
-	httpClient := http.Client{}
+	// Create HTTP client with timeout to prevent hanging requests
+	// Context timeout is set above, but explicit client timeout provides additional safety
+	httpClient := http.Client{
+		Timeout: requestTimeout,
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, payloadEndpoint+"/GetToken", nil)
 	if err != nil {

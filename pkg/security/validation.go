@@ -19,27 +19,44 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Validator provides methods for validating various types of input
+// Validator provides comprehensive input validation and sanitization capabilities.
+// It supports validation of various data types including emails, URLs, IPs, UUIDs,
+// and custom validation rules. The validator uses pre-compiled regular expressions
+// for efficient validation.
+//
+// Example usage:
+//
+//	validator := NewValidator()
+//	err := validator.ValidateStruct(myStruct)
+//	if err != nil {
+//		// Handle validation error
+//	}
+//
+// Thread-safety: The Validator is safe for concurrent use after initialization.
 type Validator struct {
-	// Logger for validation errors and warnings
+	// logger is used for logging validation errors and warnings
 	logger *logrus.Logger
 
-	// Regular expressions for common validations
+	// regex contains pre-compiled regular expressions for common validations
 	regex struct {
-		Email    *regexp.Regexp
-		URL      *regexp.Regexp
-		IP       *regexp.Regexp
-		IPv4     *regexp.Regexp
-		IPv6     *regexp.Regexp
-		UUID     *regexp.Regexp
-		HexColor *regexp.Regexp
-		Alpha    *regexp.Regexp
-		Numeric  *regexp.Regexp
-		AlphaNum *regexp.Regexp
+		Email    *regexp.Regexp // Email address validation
+		URL      *regexp.Regexp // URL validation
+		IP       *regexp.Regexp // IP address (IPv4 or IPv6) validation
+		IPv4     *regexp.Regexp // IPv4 address validation
+		IPv6     *regexp.Regexp // IPv6 address validation
+		UUID     *regexp.Regexp // UUID validation
+		HexColor *regexp.Regexp // Hexadecimal color code validation
+		Alpha    *regexp.Regexp // Alphabetic characters only
+		Numeric  *regexp.Regexp // Numeric characters only
+		AlphaNum *regexp.Regexp // Alphanumeric characters only
 	}
 }
 
-// NewValidator creates a new Validator instance with default settings
+// NewValidator creates a new Validator instance with default settings.
+// The validator is initialized with pre-compiled regular expressions for
+// common validation patterns.
+//
+// Returns a configured Validator ready to use.
 func NewValidator() *Validator {
 	v := &Validator{
 		logger: logrus.StandardLogger(),
@@ -60,7 +77,35 @@ func NewValidator() *Validator {
 	return v
 }
 
-// ValidateStruct validates a struct based on its field tags
+// ValidateStruct validates a struct based on validation tags in its fields.
+// The function uses reflection to inspect struct fields and apply validation
+// rules specified in the "validate" tag.
+//
+// Supported validation rules:
+//   - required: Field must not be empty
+//   - email: Field must be a valid email address
+//   - url: Field must be a valid URL
+//   - ip/ipv4/ipv6: Field must be a valid IP address
+//   - uuid: Field must be a valid UUID
+//   - min=N: Field must have minimum length/value of N
+//   - max=N: Field must have maximum length/value of N
+//   - len=N: Field must have exact length/value of N
+//   - oneof=val1,val2,...: Field must be one of the specified values
+//   - eqfield=fieldName: Field must equal another field in the struct
+//
+// Example struct:
+//
+//	type User struct {
+//		Email string `validate:"required,email"`
+//		Age   int    `validate:"min=18,max=120"`
+//	}
+//
+// Parameters:
+//   - s: The struct to validate (can be a pointer or value)
+//
+// Returns:
+//   - nil if all validations pass
+//   - An error describing the first validation failure
 func (v *Validator) ValidateStruct(s interface{}) error {
 	val := reflect.ValueOf(s)
 	if val.Kind() == reflect.Ptr {
@@ -221,7 +266,23 @@ func (v *Validator) ValidateStruct(s interface{}) error {
 	return nil
 }
 
-// ValidateRequest validates an HTTP request based on the provided rules
+// ValidateRequest validates form data from an HTTP request based on provided rules.
+// The function parses the form data (if not already parsed) and validates each
+// field according to the rules map.
+//
+// Rules format: "rule1|rule2:param1,param2|rule3"
+// Example: "required|email|min:10|max:100"
+//
+// Parameters:
+//   - r: The HTTP request containing form data
+//   - rules: A map of field names to validation rules
+//
+// Returns:
+//   - nil if all validations pass
+//   - An error describing the first validation failure
+//
+// Note: This function handles eqfield validation separately as it requires
+// access to other fields in the request.
 func (v *Validator) ValidateRequest(r *http.Request, rules map[string]string) error {
 	// Parse form data if not already parsed
 	if r.Form == nil {
@@ -230,7 +291,15 @@ func (v *Validator) ValidateRequest(r *http.Request, rules map[string]string) er
 		}
 	}
 
-	// Validate each field based on the rules
+	// First pass: validate eqfield rules that depend on other fields
+	for field, rule := range rules {
+		value := r.FormValue(field)
+		if err := v.validateFieldWithRequest(field, value, rule, r); err != nil {
+			return err
+		}
+	}
+
+	// Second pass: validate all other rules
 	for field, rule := range rules {
 		value := r.FormValue(field)
 		if err := v.validateField(field, value, rule); err != nil {
@@ -241,7 +310,20 @@ func (v *Validator) ValidateRequest(r *http.Request, rules map[string]string) er
 	return nil
 }
 
-// validateField validates a single field based on the provided rules
+// validateField validates a single field value against a set of validation rules.
+// This is an internal helper function used by ValidateRequest.
+//
+// Parameters:
+//   - field: The field name (for error messages)
+//   - value: The field value to validate
+//   - rules: The validation rules to apply (pipe-separated)
+//
+// Returns:
+//   - nil if all validations pass
+//   - An error describing the first validation failure
+//
+// Note: eqfield validation is skipped here and handled separately in
+// validateFieldWithRequest as it requires access to the request.
 func (v *Validator) validateField(field, value, rules string) error {
 	if rules == "" {
 		return nil
@@ -365,14 +447,9 @@ func (v *Validator) validateField(field, value, rules string) error {
 				return fmt.Errorf("field %s must be one of: %s", field, strings.Join(params, ", "))
 			}
 		case "eqfield":
-			if len(params) == 0 {
-				return fmt.Errorf("missing parameter for 'eqfield' validation on field %s", field)
-			}
-			otherField := params[0]
-			otherValue := r.FormValue(otherField)
-			if value != otherValue {
-				return fmt.Errorf("field %s must be equal to field %s", field, otherField)
-			}
+			// eqfield validation requires request context, skip here
+			// It will be handled in validateFieldWithRequest
+			continue
 		default:
 			v.logger.Warnf("unknown validation rule '%s' on field %s", ruleName, field)
 		}
@@ -381,12 +458,109 @@ func (v *Validator) validateField(field, value, rules string) error {
 	return nil
 }
 
-// ValidateJSON validates a JSON request body against the provided struct
+// validateFieldWithRequest validates a single field with access to the HTTP request.
+// This is used for validation rules that need to access other fields from the request,
+// such as eqfield (field equality) validation.
+//
+// Parameters:
+//   - field: The field name (for error messages)
+//   - value: The field value to validate
+//   - rules: The validation rules to apply
+//   - r: The HTTP request containing form data
+//
+// Returns:
+//   - nil if all validations pass
+//   - An error describing the first validation failure
+func (v *Validator) validateFieldWithRequest(field, value, rules string, r *http.Request) error {
+	if rules == "" {
+		return nil
+	}
+
+	ruleList := strings.Split(rules, "|")
+	for _, rule := range ruleList {
+		rule = strings.TrimSpace(rule)
+		if rule == "" {
+			continue
+		}
+
+		// Parse rule and parameters
+		var (
+			ruleName string
+			params   []string
+		)
+
+		if parts := strings.SplitN(rule, ":", 2); len(parts) == 2 {
+			ruleName = strings.ToLower(strings.TrimSpace(parts[0]))
+			params = strings.Split(parts[1], ",")
+			// Trim whitespace from parameters
+			for i := range params {
+				params[i] = strings.TrimSpace(params[i])
+			}
+		} else {
+			ruleName = strings.ToLower(strings.TrimSpace(rule))
+		}
+
+		// Apply validation rule that requires request context
+		switch ruleName {
+		case "eqfield":
+			if len(params) == 0 {
+				return fmt.Errorf("missing parameter for 'eqfield' validation on field %s", field)
+			}
+			otherField := params[0]
+			otherValue := r.FormValue(otherField)
+			if value != otherValue {
+				return fmt.Errorf("field %s must be equal to field %s", field, otherField)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ValidateJSON validates a JSON request body against the provided struct.
+// The function reads the request body, unmarshals it into the destination struct,
+// and then validates the struct using ValidateStruct.
+//
+// Security: This function enforces a maximum request body size (10MB) to prevent
+// DoS attacks through large request bodies. The request body is restored after
+// reading, so it can be read again if needed.
+//
+// Parameters:
+//   - r: The HTTP request containing JSON data
+//   - dest: A pointer to the struct to unmarshal and validate
+//
+// Returns:
+//   - nil if JSON parsing and validation succeed
+//   - An error if JSON parsing fails, validation fails, or body size exceeds limit
+//
+// Example:
+//
+//	type User struct {
+//		Email string `validate:"required,email"`
+//		Name  string `validate:"required,min=3"`
+//	}
+//
+//	var user User
+//	if err := validator.ValidateJSON(r, &user); err != nil {
+//		// Handle error
+//	}
 func (v *Validator) ValidateJSON(r *http.Request, dest interface{}) error {
-	// Read the request body
-	body, err := io.ReadAll(r.Body)
+	// Security: Limit request body size to prevent DoS attacks
+	// 10MB is a reasonable limit for most JSON API requests
+	const maxRequestBodySize = 10 * 1024 * 1024 // 10MB
+	
+	// Limit the request body size to prevent DoS attacks
+	limitedReader := io.LimitReader(r.Body, maxRequestBodySize+1)
+	
+	// Read the request body with size limit
+	body, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return fmt.Errorf("failed to read request body: %v", err)
+	}
+	
+	// Check if body exceeded the size limit
+	if len(body) > maxRequestBodySize {
+		return fmt.Errorf("request body too large: maximum size is %d bytes", maxRequestBodySize)
 	}
 
 	// Restore the request body for potential further processing
@@ -401,7 +575,22 @@ func (v *Validator) ValidateJSON(r *http.Request, dest interface{}) error {
 	return v.ValidateStruct(dest)
 }
 
-// ValidateFile validates an uploaded file
+// ValidateFile validates an uploaded file to ensure it meets size and type requirements.
+// This helps prevent security issues like file upload attacks and resource exhaustion.
+//
+// Parameters:
+//   - fileHeader: The multipart file header from the request
+//   - maxSize: Maximum allowed file size in bytes
+//   - allowedTypes: List of allowed MIME types (empty slice = all types allowed)
+//
+// Returns:
+//   - nil if the file is valid
+//   - An error if the file exceeds size limit or has an invalid type
+//
+// Security: This function helps prevent:
+//   - File upload attacks (malicious files)
+//   - Resource exhaustion (large files)
+//   - Type confusion attacks (wrong file types)
 func (v *Validator) ValidateFile(fileHeader *multipart.FileHeader, maxSize int64, allowedTypes []string) error {
 	// Check file size
 	if fileHeader.Size > maxSize {
@@ -426,7 +615,21 @@ func (v *Validator) ValidateFile(fileHeader *multipart.FileHeader, maxSize int64
 	return nil
 }
 
-// ValidateTLSConfig validates a TLS configuration
+// ValidateTLSConfig validates a TLS configuration to ensure it meets security requirements.
+// This helps prevent insecure TLS configurations that could lead to security vulnerabilities.
+//
+// Parameters:
+//   - config: The TLS configuration to validate
+//
+// Returns:
+//   - nil if the configuration is valid
+//   - An error if the configuration is invalid or insecure
+//
+// Validation checks:
+//   - Minimum TLS version is 1.2 or higher
+//   - At least one cipher suite is specified
+//   - Certificate or certificate provider is configured
+//   - Client certificate verification is properly configured (if required)
 func (v *Validator) ValidateTLSConfig(config *tls.Config) error {
 	if config == nil {
 		return fmt.Errorf("TLS configuration is required")
@@ -455,7 +658,26 @@ func (v *Validator) ValidateTLSConfig(config *tls.Config) error {
 	return nil
 }
 
-// ValidateCertificate validates an X.509 certificate
+// ValidateCertificate validates an X.509 certificate to ensure it is valid and
+// appropriate for use. This helps prevent security issues from expired or
+// invalid certificates.
+//
+// Parameters:
+//   - cert: The X.509 certificate to validate
+//   - domain: The domain name the certificate should be valid for (optional)
+//   - currentTime: The current time for expiration checks
+//
+// Returns:
+//   - nil if the certificate is valid
+//   - An error if the certificate is expired, not yet valid, invalid for the domain,
+//     or missing required key usage
+//
+// Validation checks:
+//   - Certificate is not expired
+//   - Certificate is not valid yet (not before check)
+//   - Certificate is valid for the specified domain (if provided)
+//   - Certificate has digital signature key usage
+//   - Certificate has extended key usage specified
 func (v *Validator) ValidateCertificate(cert *x509.Certificate, domain string, currentTime time.Time) error {
 	// Check if the certificate is expired
 	if currentTime.Before(cert.NotBefore) {
@@ -725,21 +947,82 @@ func (v *Validator) equalsField(field1, field2 reflect.Value, field1Name, field2
 }
 
 // SanitizeInput removes potentially dangerous characters from the input string
+// to prevent XSS (Cross-Site Scripting) attacks. This function provides basic
+// XSS protection by removing HTML/script tags and escaping special characters.
+//
+// Parameters:
+//   - input: The string to sanitize
+//
+// Returns:
+//   - A sanitized string safe for display in HTML contexts
+//
+// Security features:
+//   - Removes HTML and script tags
+//   - Removes script and style tag contents
+//   - Removes javascript: and data: URLs
+//   - Escapes HTML entities (&, <, >, ", ', `, \)
+//   - Removes null bytes and control characters
+//
+// Note: This provides basic protection. For production use, consider using
+// a dedicated HTML sanitization library for more comprehensive protection.
 func (v *Validator) SanitizeInput(input string) string {
-	// Remove any HTML/script tags
-	re := regexp.MustCompile(`<[^>]*>`)
-	sanitized := re.ReplaceAllString(input, "")
+	if input == "" {
+		return input
+	}
+
+	// Remove any HTML/script tags and their content
+	// This regex matches < followed by any characters until >
+	htmlTagRegex := regexp.MustCompile(`<[^>]*>`)
+	sanitized := htmlTagRegex.ReplaceAllString(input, "")
 	
-	// Escape special characters
+	// Remove script and style tags with their content (more comprehensive)
+	scriptRegex := regexp.MustCompile(`(?i)<script[^>]*>.*?</script>`)
+	sanitized = scriptRegex.ReplaceAllString(sanitized, "")
+	
+	styleRegex := regexp.MustCompile(`(?i)<style[^>]*>.*?</style>`)
+	sanitized = styleRegex.ReplaceAllString(sanitized, "")
+	
+	// Remove javascript: and data: URLs
+	jsUrlRegex := regexp.MustCompile(`(?i)javascript:`)
+	sanitized = jsUrlRegex.ReplaceAllString(sanitized, "")
+	
+	dataUrlRegex := regexp.MustCompile(`(?i)data:`)
+	sanitized = dataUrlRegex.ReplaceAllString(sanitized, "")
+	
+	// Escape special characters to prevent XSS
+	sanitized = strings.ReplaceAll(sanitized, "&", "&amp;")
+	sanitized = strings.ReplaceAll(sanitized, "<", "&lt;")
+	sanitized = strings.ReplaceAll(sanitized, ">", "&gt;")
 	sanitized = strings.ReplaceAll(sanitized, "\"", "&quot;")
 	sanitized = strings.ReplaceAll(sanitized, "'", "&#39;")
 	sanitized = strings.ReplaceAll(sanitized, "`", "&#96;")
 	sanitized = strings.ReplaceAll(sanitized, "\\", "&#92;")
 	
+	// Remove null bytes and control characters
+	nullByteRegex := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+	sanitized = nullByteRegex.ReplaceAllString(sanitized, "")
+	
 	return sanitized
 }
 
-// SanitizeURL ensures a URL is safe and well-formed
+// SanitizeURL ensures a URL is safe and well-formed by validating and sanitizing it.
+// This helps prevent security issues like open redirect attacks and protocol confusion.
+//
+// Parameters:
+//   - rawURL: The raw URL string to sanitize
+//
+// Returns:
+//   - A sanitized URL string if valid
+//   - An error if the URL is invalid or uses an unsafe scheme
+//
+// Security features:
+//   - Only allows http and https schemes
+//   - Removes user info (username/password) from URL
+//   - Removes fragment (#) from URL
+//   - Validates URL format
+//
+// Note: This function helps prevent open redirect attacks by only allowing
+// safe URL schemes. User info and fragments are removed for security.
 func (v *Validator) SanitizeURL(rawURL string) (string, error) {
 	if rawURL == "" {
 		return "", nil

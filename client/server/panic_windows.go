@@ -38,7 +38,9 @@ func handlePanicLog() error {
 		return fmt.Errorf("enforce permission on panic log file: %w", err)
 	}
 
-	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	// Security: Use 0640 permissions (owner read/write, group read, others no access)
+	// Panic logs may contain sensitive information and should not be world-readable
+	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0640)
 	if err != nil {
 		return fmt.Errorf("open panic log file: %w", err)
 	}

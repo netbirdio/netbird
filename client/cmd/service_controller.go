@@ -52,10 +52,18 @@ func (p *program) Start(svc service.Service) error {
 		return fmt.Errorf("listen daemon interface: %w", err)
 	}
 	go func() {
-		defer listen.Close()
+		defer func() {
+			if err := listen.Close(); err != nil {
+				log.Errorf("failed to close listener: %v", err)
+			}
+		}()
 
 		if split[0] == "unix" {
-			if err := os.Chmod(split[1], 0666); err != nil {
+			// Security: Use 0660 permissions (owner read/write, group read/write, others no access)
+			// This is more secure than 0666 (world-readable/writable) while still allowing
+			// group members (like the netbird group) to access the socket
+			// Note: 0666 was used for compatibility, but 0660 is more secure
+			if err := os.Chmod(split[1], 0660); err != nil {
 				log.Errorf("failed setting daemon permissions: %v", split[1])
 				return
 			}

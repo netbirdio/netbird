@@ -9,6 +9,19 @@ import (
 	"errors"
 )
 
+// WARNING: This hardcoded IV is a security vulnerability and should NOT be used for new code.
+// It is only kept for backward compatibility with legacy encrypted data.
+// The LegacyEncrypt/LegacyDecrypt functions use this IV, which makes encryption deterministic
+// and vulnerable to attacks. New code MUST use the Encrypt/Decrypt functions which use
+// AES-GCM with random nonces.
+//
+// SECURITY NOTE: Using a hardcoded IV with CBC mode is insecure because:
+// 1. The same plaintext encrypted with the same key will produce the same ciphertext
+// 2. This allows pattern analysis and chosen-plaintext attacks
+// 3. The IV should be random and unique for each encryption operation
+//
+// The new Encrypt/Decrypt functions use AES-GCM which generates a random nonce for each
+// encryption, making it secure. Legacy functions are kept only for decrypting old data.
 var iv = []byte{10, 22, 13, 79, 05, 8, 52, 91, 87, 98, 88, 98, 35, 25, 13, 05}
 
 type FieldEncrypt struct {
@@ -50,6 +63,15 @@ func NewFieldEncrypt(key string) (*FieldEncrypt, error) {
 	return ec, nil
 }
 
+// LegacyEncrypt encrypts using AES-CBC with a hardcoded IV.
+// WARNING: This function is INSECURE and should only be used for backward compatibility.
+// The hardcoded IV makes encryption deterministic and vulnerable to attacks.
+// Use Encrypt() instead, which uses AES-GCM with random nonces.
+//
+// Security issues:
+// - Hardcoded IV makes same plaintext produce same ciphertext
+// - Vulnerable to pattern analysis and chosen-plaintext attacks
+// - Should only be used to decrypt existing legacy data
 func (ec *FieldEncrypt) LegacyEncrypt(payload string) string {
 	plainText := pkcs5Padding([]byte(payload))
 	cipherText := make([]byte, len(plainText))
@@ -58,7 +80,15 @@ func (ec *FieldEncrypt) LegacyEncrypt(payload string) string {
 	return base64.StdEncoding.EncodeToString(cipherText)
 }
 
-// Encrypt encrypts plaintext using AES-GCM
+// Encrypt encrypts plaintext using AES-GCM with a random nonce.
+// This is the secure method and should be used for all new encryptions.
+// Each encryption uses a unique random nonce, making it secure against
+// pattern analysis and chosen-plaintext attacks.
+//
+// Security features:
+// - Uses AES-GCM (authenticated encryption)
+// - Random nonce for each encryption (stored with ciphertext)
+// - Provides authentication in addition to confidentiality
 func (ec *FieldEncrypt) Encrypt(payload string) (string, error) {
 	plaintext := []byte(payload)
 	nonceSize := ec.gcm.NonceSize()

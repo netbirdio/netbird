@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -408,28 +409,63 @@ func (s *GRPCServer) acquirePeerLockByUID(ctx context.Context, uniqueID string) 
 	return unlock
 }
 
-// maps internal internalStatus.Error to gRPC status.Error
+// mapError maps internal status.Error to gRPC status.Error.
+// Security: This function sanitizes error messages to prevent information leakage.
+// Internal error details are logged but sanitized before being sent to clients.
 func mapError(ctx context.Context, err error) error {
 	if e, ok := internalStatus.FromError(err); ok {
+		// Sanitize error message to prevent information leakage
+		sanitizedMsg := sanitizeGRPCErrorMessage(e.Message)
+		
 		switch e.Type() {
 		case internalStatus.PermissionDenied:
-			return status.Error(codes.PermissionDenied, e.Message)
+			return status.Error(codes.PermissionDenied, sanitizedMsg)
 		case internalStatus.Unauthorized:
-			return status.Error(codes.PermissionDenied, e.Message)
+			return status.Error(codes.PermissionDenied, sanitizedMsg)
 		case internalStatus.Unauthenticated:
-			return status.Error(codes.PermissionDenied, e.Message)
+			return status.Error(codes.PermissionDenied, sanitizedMsg)
 		case internalStatus.PreconditionFailed:
-			return status.Error(codes.FailedPrecondition, e.Message)
+			return status.Error(codes.FailedPrecondition, sanitizedMsg)
 		case internalStatus.NotFound:
-			return status.Error(codes.NotFound, e.Message)
+			return status.Error(codes.NotFound, sanitizedMsg)
 		default:
+			// For unknown error types, return generic message
+			return status.Errorf(codes.Internal, "failed handling request")
 		}
 	}
 	if errors.Is(err, internalStatus.ErrPeerAlreadyLoggedIn) {
-		return status.Error(codes.PermissionDenied, internalStatus.ErrPeerAlreadyLoggedIn.Error())
+		// Use generic message to prevent information leakage
+		return status.Error(codes.PermissionDenied, "peer already logged in")
 	}
+	// Log full error for debugging (server-side only)
 	log.WithContext(ctx).Errorf("got an unhandled error: %s", err)
+	// Return generic message to prevent information disclosure
 	return status.Errorf(codes.Internal, "failed handling request")
+}
+
+// sanitizeGRPCErrorMessage removes potentially sensitive information from gRPC error messages.
+// This prevents path disclosure, stack traces, and other internal information from
+// being exposed to clients.
+func sanitizeGRPCErrorMessage(msg string) string {
+	// Remove file paths
+	pathRegex := regexp.MustCompile(`(/[^\s]+|\\[^\s]+|C:\\[^\s]+)`)
+	msg = pathRegex.ReplaceAllString(msg, "[path]")
+	
+	// Remove stack traces
+	stackRegex := regexp.MustCompile(`(?m)^\s+at\s+.*$|goroutine\s+\d+|panic:|runtime\.`)
+	msg = stackRegex.ReplaceAllString(msg, "")
+	
+	// Remove database-related details
+	dbRegex := regexp.MustCompile(`(database|table|column|constraint|foreign key|primary key|index)[\s:]+[^\s]+`)
+	msg = dbRegex.ReplaceAllString(msg, "[database detail]")
+	
+	// Limit message length to prevent DoS
+	const maxErrorMsgLength = 200
+	if len(msg) > maxErrorMsgLength {
+		msg = msg[:maxErrorMsgLength] + "..."
+	}
+	
+	return strings.TrimSpace(msg)
 }
 
 func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.PeerSystemMeta {

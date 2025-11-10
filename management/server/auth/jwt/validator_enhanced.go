@@ -148,21 +148,24 @@ func (v *EnhancedValidator) getKeyFunc(ctx context.Context) jwt.Keyfunc {
 	}
 }
 
-// refreshKeys fetches the latest keys from the keys location
+// refreshKeys fetches the latest keys from the keys location.
+// This function is thread-safe and uses proper timeout handling.
 func (v *EnhancedValidator) refreshKeys(ctx context.Context) error {
 	v.lock.Lock()
 	defer v.lock.Unlock()
 
+	// Create request with context for cancellation support
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.keysLocation, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add cache control headers to prevent caching
+	// Add cache control headers to prevent caching of sensitive key material
 	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Expires", "0")
 
+	// Client has timeout set in NewEnhancedValidator (10 seconds)
 	resp, err := v.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to fetch keys: %w", err)

@@ -109,17 +109,34 @@ func writeJson(ctx context.Context, file string, obj interface{}, configDir stri
 	return writeBytes(ctx, file, err, configDir, configFileName, bs)
 }
 
+// writeBytes writes bytes to a file using atomic write (temp file + rename) for safety.
+// Security features:
+// - Creates temp file with secure permissions (0600)
+// - Uses atomic rename to prevent partial writes
+// - Cleans up temp file on error
+// - Respects context cancellation
+// - Validates context before and after operations
 func writeBytes(ctx context.Context, file string, err error, configDir string, configFileName string, bs []byte) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("write bytes start: %w", ctx.Err())
 	}
 
+	// Create temporary file with secure permissions (0600 = owner read/write only)
+	// This prevents other users from reading sensitive configuration data
 	tempFile, err := os.CreateTemp(configDir, ".*"+configFileName)
 	if err != nil {
 		return fmt.Errorf("create temp: %w", err)
 	}
 
 	tempFileName := tempFile.Name()
+	
+	// Set secure permissions on temp file (owner read/write only)
+	// This is critical for security as temp files may contain sensitive data
+	if err := os.Chmod(tempFileName, 0600); err != nil {
+		_ = tempFile.Close()
+		_ = os.Remove(tempFileName)
+		return fmt.Errorf("set temp file permissions: %w", err)
+	}
 
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := tempFile.SetDeadline(deadline); err != nil && !errors.Is(err, os.ErrNoDeadline) {
@@ -156,9 +173,13 @@ func writeBytes(ctx context.Context, file string, err error, configDir string, c
 	return nil
 }
 
+// openOrCreateFile opens an existing file or creates a new one with secure permissions.
+// Security: New files are created with 0640 permissions (owner read/write, group read only).
+// This prevents unauthorized access while allowing group members to read if needed.
 func openOrCreateFile(file string) (*os.File, error) {
 	s, err := os.Stat(file)
 	if err == nil {
+		// File exists - open with existing permissions
 		return os.OpenFile(file, os.O_WRONLY, s.Mode())
 	}
 
@@ -166,11 +187,13 @@ func openOrCreateFile(file string) (*os.File, error) {
 		return nil, err
 	}
 
+	// File doesn't exist - create with secure permissions
+	// 0640 = owner read/write, group read, others no access
 	targetFile, err := os.Create(file)
 	if err != nil {
 		return nil, err
 	}
-	//no:lint
+	// Set secure permissions: owner read/write, group read only
 	err = targetFile.Chmod(0640)
 	if err != nil {
 		_ = targetFile.Close()
@@ -304,12 +327,16 @@ func CopyFileContents(src, dst string) (err error) {
 	return
 }
 
+// prepareConfigFileDir prepares the directory for a config file.
+// Security: Creates directory with 0750 permissions (owner read/write/execute, group read/execute, others no access).
+// This ensures that only the owner and group can access the directory.
 func prepareConfigFileDir(file string) (string, string, error) {
 	configDir, configFileName := filepath.Split(file)
 	if configDir == "" {
 		return filepath.Dir(file), configFileName, nil
 	}
 
+	// Create directory with secure permissions: 0750 = owner rwx, group rx, others no access
 	err := os.MkdirAll(configDir, 0750)
 	if err != nil {
 		return "", "", err
