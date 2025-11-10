@@ -28,7 +28,7 @@ var createRevocationListCmd = &cobra.Command{
 	Short:        "Create a new revocation list signed by the private root key",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return handleCreateRevocationList(revocationListFile, privateRootKeyFile)
+		return handleCreateRevocationList(cmd, revocationListFile, privateRootKeyFile)
 	},
 }
 
@@ -37,7 +37,7 @@ var extendRevocationListCmd = &cobra.Command{
 	Short:        "Extend an existing revocation list with a given key ID",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return handleExtendRevocationList(keyID, revocationListFile, privateRootKeyFile)
+		return handleExtendRevocationList(cmd, keyID, revocationListFile, privateRootKeyFile)
 	},
 }
 
@@ -46,7 +46,7 @@ var verifyRevocationListCmd = &cobra.Command{
 	Short:        "Verify a revocation list signature using the public root key",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return handleVerifyRevocationList(revocationListFile, signatureFile, publicRootKeyFile)
+		return handleVerifyRevocationList(cmd, revocationListFile, signatureFile, publicRootKeyFile)
 	},
 }
 
@@ -93,7 +93,7 @@ func init() {
 	}
 }
 
-func handleCreateRevocationList(revocationListFile string, privateRootKeyFile string) error {
+func handleCreateRevocationList(cmd *cobra.Command, revocationListFile string, privateRootKeyFile string) error {
 	privKeyPEM, err := os.ReadFile(privateRootKeyFile)
 	if err != nil {
 		return fmt.Errorf("failed to read private root key file: %w", err)
@@ -113,11 +113,11 @@ func handleCreateRevocationList(revocationListFile string, privateRootKeyFile st
 		return fmt.Errorf("failed to write output files: %w", err)
 	}
 
-	fmt.Println("✅ Revocation list created successfully")
+	cmd.Println("✅ Revocation list created successfully")
 	return nil
 }
 
-func handleExtendRevocationList(keyID, revocationListFile, privateRootKeyFile string) error {
+func handleExtendRevocationList(cmd *cobra.Command, keyID, revocationListFile, privateRootKeyFile string) error {
 	privKeyPEM, err := os.ReadFile(privateRootKeyFile)
 	if err != nil {
 		return fmt.Errorf("failed to read private root key file: %w", err)
@@ -152,11 +152,11 @@ func handleExtendRevocationList(keyID, revocationListFile, privateRootKeyFile st
 		return fmt.Errorf("failed to write output files: %w", err)
 	}
 
-	fmt.Println("✅ Revocation list extended successfully")
+	cmd.Println("✅ Revocation list extended successfully")
 	return nil
 }
 
-func handleVerifyRevocationList(revocationListFile, signatureFile, publicRootKeyFile string) error {
+func handleVerifyRevocationList(cmd *cobra.Command, revocationListFile, signatureFile, publicRootKeyFile string) error {
 	// Read revocation list file
 	rlBytes, err := os.ReadFile(revocationListFile)
 	if err != nil {
@@ -194,15 +194,15 @@ func handleVerifyRevocationList(revocationListFile, signatureFile, publicRootKey
 	}
 
 	// Display results
-	fmt.Println("✅ Revocation list signature is valid")
-	fmt.Printf("Last Updated: %s\n", rl.LastUpdated.Format(time.RFC3339))
-	fmt.Printf("Expires At: %s\n", rl.ExpiresAt.Format(time.RFC3339))
-	fmt.Printf("Number of revoked keys: %d\n", len(rl.Revoked))
+	cmd.Println("✅ Revocation list signature is valid")
+	cmd.Printf("Last Updated: %s\n", rl.LastUpdated.Format(time.RFC3339))
+	cmd.Printf("Expires At: %s\n", rl.ExpiresAt.Format(time.RFC3339))
+	cmd.Printf("Number of revoked keys: %d\n", len(rl.Revoked))
 
 	if len(rl.Revoked) > 0 {
-		fmt.Println("\nRevoked Keys:")
+		cmd.Println("\nRevoked Keys:")
 		for keyID, revokedTime := range rl.Revoked {
-			fmt.Printf("  - %s (revoked at: %s)\n", keyID, revokedTime.Format(time.RFC3339))
+			cmd.Printf("  - %s (revoked at: %s)\n", keyID, revokedTime.Format(time.RFC3339))
 		}
 	}
 

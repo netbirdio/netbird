@@ -28,7 +28,7 @@ var createRootKeyCmd = &cobra.Command{
 		}
 
 		// Run main logic
-		if err := handleGenerateRootKey(privKeyFile, pubKeyFile, rootExpiration); err != nil {
+		if err := handleGenerateRootKey(cmd, privKeyFile, pubKeyFile, rootExpiration); err != nil {
 			return fmt.Errorf("failed to generate root key: %w", err)
 		}
 		return nil
@@ -52,7 +52,7 @@ func init() {
 	}
 }
 
-func handleGenerateRootKey(privKeyFile, pubKeyFile string, expiration time.Duration) error {
+func handleGenerateRootKey(cmd *cobra.Command, privKeyFile, pubKeyFile string, expiration time.Duration) error {
 	rk, privPEM, pubPEM, err := reposign.GenerateRootKey(expiration)
 	if err != nil {
 		return fmt.Errorf("generate root key: %w", err)
@@ -68,7 +68,7 @@ func handleGenerateRootKey(privKeyFile, pubKeyFile string, expiration time.Durat
 		return fmt.Errorf("write public key file (%s): %w", pubKeyFile, err)
 	}
 
-	fmt.Printf("%s\n\n", rk.String())
-	fmt.Printf("✅ Root key pair generated successfully.\n")
+	cmd.Printf("%s\n\n", rk.String())
+	cmd.Printf("✅ Root key pair generated successfully.\n")
 	return nil
 }

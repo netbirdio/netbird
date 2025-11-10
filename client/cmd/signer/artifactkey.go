@@ -32,7 +32,7 @@ The artifact key will be used to sign software artifacts/updates.`,
 			return fmt.Errorf("--expiration must be a positive duration (e.g., 720h, 365d, 8760h)")
 		}
 
-		if err := handleCreateArtifactKey(createArtifactKeyRootPrivKeyFile, createArtifactKeyPrivKeyFile, createArtifactKeyPubKeyFile, createArtifactKeyExpiration); err != nil {
+		if err := handleCreateArtifactKey(cmd, createArtifactKeyRootPrivKeyFile, createArtifactKeyPrivKeyFile, createArtifactKeyPubKeyFile, createArtifactKeyExpiration); err != nil {
 			return fmt.Errorf("failed to create artifact key: %w", err)
 		}
 		return nil
@@ -49,7 +49,7 @@ This command is typically used to distribute or authorize a set of valid artifac
 			return fmt.Errorf("at least one --artifact-pub-key-file must be provided")
 		}
 
-		if err := handleBundlePubKeys(bundlePubKeysRootPrivKeyFile, bundlePubKeysPubKeyFiles, bundlePubKeysFile); err != nil {
+		if err := handleBundlePubKeys(cmd, bundlePubKeysRootPrivKeyFile, bundlePubKeysPubKeyFiles, bundlePubKeysFile); err != nil {
 			return fmt.Errorf("failed to bundle public keys: %w", err)
 		}
 		return nil
@@ -94,8 +94,8 @@ func init() {
 	}
 }
 
-func handleCreateArtifactKey(rootPrivKeyFile, artifactPrivKeyFile, artifactPubKeyFile string, expiration time.Duration) error {
-	fmt.Println("🔑 Creating new artifact signing key...")
+func handleCreateArtifactKey(cmd *cobra.Command, rootPrivKeyFile, artifactPrivKeyFile, artifactPubKeyFile string, expiration time.Duration) error {
+	cmd.Println("🔑 Creating new artifact signing key...")
 
 	privKeyPEM, err := os.ReadFile(rootPrivKeyFile)
 	if err != nil {
@@ -125,13 +125,13 @@ func handleCreateArtifactKey(rootPrivKeyFile, artifactPrivKeyFile, artifactPubKe
 		return fmt.Errorf("write signature file (%s): %w", signatureFile, err)
 	}
 
-	fmt.Printf("✅ Artifact key created successfully.\n")
-	fmt.Printf("%s\n", artifactKey.String())
+	cmd.Printf("✅ Artifact key created successfully.\n")
+	cmd.Printf("%s\n", artifactKey.String())
 	return nil
 }
 
-func handleBundlePubKeys(rootPrivKeyFile string, artifactPubKeyFiles []string, bundlePubKeysFile string) error {
-	fmt.Println("📦 Bundling public keys into signed package...")
+func handleBundlePubKeys(cmd *cobra.Command, rootPrivKeyFile string, artifactPubKeyFiles []string, bundlePubKeysFile string) error {
+	cmd.Println("📦 Bundling public keys into signed package...")
 
 	privKeyPEM, err := os.ReadFile(rootPrivKeyFile)
 	if err != nil {
@@ -171,6 +171,6 @@ func handleBundlePubKeys(rootPrivKeyFile string, artifactPubKeyFiles []string, b
 		return fmt.Errorf("write signature file (%s): %w", signatureFile, err)
 	}
 
-	fmt.Printf("✅ Bundle created with %d public keys.\n", len(artifactPubKeyFiles))
+	cmd.Printf("✅ Bundle created with %d public keys.\n", len(artifactPubKeyFiles))
 	return nil
 }

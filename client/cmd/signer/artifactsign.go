@@ -25,7 +25,7 @@ var signArtifactCmd = &cobra.Command{
 This command produces a detached signature that can be verified using the corresponding artifact public key.`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := handleSignArtifact(signArtifactRootPrivKeyFile, signArtifactArtifactFile); err != nil {
+		if err := handleSignArtifact(cmd, signArtifactRootPrivKeyFile, signArtifactArtifactFile); err != nil {
 			return fmt.Errorf("failed to sign artifact: %w", err)
 		}
 		return nil
@@ -38,7 +38,7 @@ var verifyArtifactCmd = &cobra.Command{
 	Long:         `Verify a software artifact signature using the artifact's public key.`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := handleVerifyArtifact(verifyArtifactPubKeyFile, verifyArtifactFile, verifyArtifactSignatureFile); err != nil {
+		if err := handleVerifyArtifact(cmd, verifyArtifactPubKeyFile, verifyArtifactFile, verifyArtifactSignatureFile); err != nil {
 			return fmt.Errorf("failed to verify artifact: %w", err)
 		}
 		return nil
@@ -75,8 +75,8 @@ func init() {
 	}
 }
 
-func handleSignArtifact(privKeyFile, artifactFile string) error {
-	fmt.Println("🖋️  Signing artifact...")
+func handleSignArtifact(cmd *cobra.Command, privKeyFile, artifactFile string) error {
+	cmd.Println("🖋️  Signing artifact...")
 
 	privKeyPEM, err := os.ReadFile(privKeyFile)
 	if err != nil {
@@ -103,13 +103,13 @@ func handleSignArtifact(privKeyFile, artifactFile string) error {
 		return fmt.Errorf("write signature file (%s): %w", sigFile, err)
 	}
 
-	fmt.Printf("✅ Artifact signed successfully.\n")
-	fmt.Printf("Signature file: %s\n", sigFile)
+	cmd.Printf("✅ Artifact signed successfully.\n")
+	cmd.Printf("Signature file: %s\n", sigFile)
 	return nil
 }
 
-func handleVerifyArtifact(pubKeyFile, artifactFile, signatureFile string) error {
-	fmt.Println("🔍 Verifying artifact...")
+func handleVerifyArtifact(cmd *cobra.Command, pubKeyFile, artifactFile, signatureFile string) error {
+	cmd.Println("🔍 Verifying artifact...")
 
 	// Read artifact public key
 	pubKeyPEM, err := os.ReadFile(pubKeyFile)
@@ -144,9 +144,9 @@ func handleVerifyArtifact(pubKeyFile, artifactFile, signatureFile string) error 
 		return fmt.Errorf("artifact verification failed: %w", err)
 	}
 
-	fmt.Println("✅ Artifact signature is valid")
-	fmt.Printf("Artifact: %s\n", artifactFile)
-	fmt.Printf("Signed by key: %s\n", signature.KeyID)
-	fmt.Printf("Signature timestamp: %s\n", signature.Timestamp.Format("2006-01-02 15:04:05 MST"))
+	cmd.Println("✅ Artifact signature is valid")
+	cmd.Printf("Artifact: %s\n", artifactFile)
+	cmd.Printf("Signed by key: %s\n", signature.KeyID)
+	cmd.Printf("Signature timestamp: %s\n", signature.Timestamp.Format("2006-01-02 15:04:05 MST"))
 	return nil
 }
