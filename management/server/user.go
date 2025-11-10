@@ -965,7 +965,7 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if err != nil {
 		return err
 	}
-	dnsDomain := am.GetDNSDomain(settings)
+	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
 	var peerIDs []string
 	for _, peer := range peers {
@@ -992,15 +992,13 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
 		)
 
-		if am.experimentalNetworkMap(accountID) {
-			am.updatePeerInNetworkMapCache(peer.AccountID, peer)
-		}
+		am.networkMapController.OnPeerUpdated(accountID, peer)
 	}
 
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
-		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
+		am.networkMapController.DisconnectPeers(ctx, peerIDs)
 		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 	return nil

@@ -1,4 +1,4 @@
-package server
+package grpc
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -37,7 +38,7 @@ type TimeBasedAuthSecretsManager struct {
 	relayCfg        *nbconfig.Relay
 	turnHmacToken   *auth.TimedHMAC
 	relayHmacToken  *authv2.Generator
-	updateManager   *PeersUpdateManager
+	updateManager   network_map.PeersUpdateManager
 	settingsManager settings.Manager
 	groupsManager   groups.Manager
 	turnCancelMap   map[string]chan struct{}
@@ -46,7 +47,7 @@ type TimeBasedAuthSecretsManager struct {
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager) *TimeBasedAuthSecretsManager {
 	mgr := &TimeBasedAuthSecretsManager{
 		updateManager:   updateManager,
 		turnCfg:         turnCfg,
@@ -227,7 +228,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewTURNAndRelayTokens(ctx context.Cont
 	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending new TURN credentials to peer %s", peerID)
-	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
+	m.updateManager.SendUpdate(ctx, peerID, &network_map.UpdateMessage{Update: update})
 }
 
 func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, accountID, peerID string) {
@@ -251,7 +252,7 @@ func (m *TimeBasedAuthSecretsManager) pushNewRelayTokens(ctx context.Context, ac
 	m.extendNetbirdConfig(ctx, peerID, accountID, update)
 
 	log.WithContext(ctx).Debugf("sending new relay credentials to peer %s", peerID)
-	m.updateManager.SendUpdate(ctx, peerID, &UpdateMessage{Update: update})
+	m.updateManager.SendUpdate(ctx, peerID, &network_map.UpdateMessage{Update: update})
 }
 
 func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, peerID, accountID string, update *proto.SyncResponse) {

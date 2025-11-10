@@ -1,10 +1,11 @@
-package server
+package update_channel
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -24,7 +25,7 @@ func TestCreateChannel(t *testing.T) {
 func TestSendUpdate(t *testing.T) {
 	peer := "test-sendupdate"
 	peersUpdater := NewPeersUpdateManager(nil)
-	update1 := &UpdateMessage{Update: &proto.SyncResponse{
+	update1 := &network_map.UpdateMessage{Update: &proto.SyncResponse{
 		NetworkMap: &proto.NetworkMap{
 			Serial: 0,
 		},
@@ -44,7 +45,7 @@ func TestSendUpdate(t *testing.T) {
 		peersUpdater.SendUpdate(context.Background(), peer, update1)
 	}
 
-	update2 := &UpdateMessage{Update: &proto.SyncResponse{
+	update2 := &network_map.UpdateMessage{Update: &proto.SyncResponse{
 		NetworkMap: &proto.NetworkMap{
 			Serial: 10,
 		},

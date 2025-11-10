@@ -1,4 +1,4 @@
-package server
+package update_channel
 
 import (
 	"context"
@@ -7,19 +7,15 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 const channelBufferSize = 100
 
-type UpdateMessage struct {
-	Update *proto.SyncResponse
-}
-
 type PeersUpdateManager struct {
 	// peerChannels is an update channel indexed by Peer.ID
-	peerChannels map[string]chan *UpdateMessage
+	peerChannels map[string]chan *network_map.UpdateMessage
 	// channelsMux keeps the mutex to access peerChannels
 	channelsMux *sync.RWMutex
 	// metrics provides method to collect application metrics
@@ -29,14 +25,14 @@ type PeersUpdateManager struct {
 // NewPeersUpdateManager returns a new instance of PeersUpdateManager
 func NewPeersUpdateManager(metrics telemetry.AppMetrics) *PeersUpdateManager {
 	return &PeersUpdateManager{
-		peerChannels: make(map[string]chan *UpdateMessage),
+		peerChannels: make(map[string]chan *network_map.UpdateMessage),
 		channelsMux:  &sync.RWMutex{},
 		metrics:      metrics,
 	}
 }
 
 // SendUpdate sends update message to the peer's channel
-func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, update *UpdateMessage) {
+func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, update *network_map.UpdateMessage) {
 	start := time.Now()
 	var found, dropped bool
 
@@ -64,7 +60,7 @@ func (p *PeersUpdateManager) SendUpdate(ctx context.Context, peerID string, upda
 }
 
 // CreateChannel creates a go channel for a given peer used to deliver updates relevant to the peer.
-func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) chan *UpdateMessage {
+func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) chan *network_map.UpdateMessage {
 	start := time.Now()
 
 	closed := false
@@ -83,7 +79,7 @@ func (p *PeersUpdateManager) CreateChannel(ctx context.Context, peerID string) c
 		close(channel)
 	}
 	// mbragin: todo shouldn't it be more? or configurable?
-	channel := make(chan *UpdateMessage, channelBufferSize)
+	channel := make(chan *network_map.UpdateMessage, channelBufferSize)
 	p.peerChannels[peerID] = channel
 
 	log.WithContext(ctx).Debugf("opened updates channel for a peer %s", peerID)
@@ -173,4 +169,8 @@ func (p *PeersUpdateManager) HasChannel(peerID string) bool {
 	_, ok := p.peerChannels[peerID]
 
 	return ok
+}
+
+func (p *PeersUpdateManager) CountStreams() int {
+	return len(p.peerChannels)
 }
