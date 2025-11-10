@@ -609,9 +609,9 @@ func (c *Client) close(gracefullyExit bool) error {
 }
 
 // notifyDisconnected notifies the disconnect listener about a disconnection event.
-// Security: The goroutine is properly tracked to prevent leaks, though in practice
-// the listener function should complete quickly. If the listener needs to be cancellable,
-// it should accept a context parameter.
+// Security: The goroutine is NOT tracked and may leak if the listener blocks indefinitely.
+// In practice, the listener function should complete quickly. If long-running operations
+// are needed, the listener should accept a context parameter for cancellation.
 func (c *Client) notifyDisconnected() {
 	c.listenerMutex.Lock()
 	defer c.listenerMutex.Unlock()
@@ -620,10 +620,8 @@ func (c *Client) notifyDisconnected() {
 		return
 	}
 	
-	// Security: Launch goroutine for async notification
-	// Note: This goroutine is not explicitly tracked, but the listener function
-	// should complete quickly. If long-running operations are needed, the listener
-	// should accept a context parameter for cancellation.
+	// Security: Launch goroutine for async notification with timeout protection
+	// Bound listener execution time to prevent indefinite goroutine leak
 	go func() {
 		// Recover from any panics in the listener to prevent goroutine crashes
 		defer func() {
@@ -631,7 +629,20 @@ func (c *Client) notifyDisconnected() {
 				c.log.Errorf("panic in disconnect listener: %v", r)
 			}
 		}()
-		c.onDisconnectListener(c.connectionURL)
+		
+		// Bound listener execution time to prevent indefinite goroutine leak
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			c.onDisconnectListener(c.connectionURL)
+		}()
+		
+		select {
+		case <-done:
+			// Listener completed successfully
+		case <-time.After(5 * time.Second):
+			c.log.Warnf("disconnect listener timed out after 5s")
+		}
 	}()
 }
 

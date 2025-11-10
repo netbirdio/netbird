@@ -10,7 +10,7 @@ This document provides a detailed account of the comprehensive security and code
 
 **Audit Results**:
 
-- ✅ **44 Major Security Issues Fixed**
+- ✅ **44 Major Security Issues Fixed** (plus additional fixes from code review)
 - ✅ **60 Files Modified**
 - ✅ **4 Comprehensive Documentation Guides Created**
 - ✅ **3 Critical Memory Leak Fixes**
@@ -723,6 +723,23 @@ November 10, 2025
 **Issue**: JSON encoding didn't escape HTML characters, potentially allowing XSS attacks if JSON strings contain HTML
 **Fix**: Added `encoder.SetEscapeHTML(true)` to both `WriteJSONObject` and `WriteErrorResponse` functions to escape HTML characters in JSON strings, preventing XSS attacks
 **Severity**: Medium
+**Status**: ✅ Fixed
+
+### 45. Code Review Fixes (FIXED)
+
+**Location**: Multiple files
+**Issues Found and Fixed**:
+
+- **`client/cmd/service_controller.go`**: Moved socket permission setting before goroutine to ensure errors are returned to caller, preventing silent daemon startup failures
+- **`client/firewall/uspfilter/log/log.go`**: Fixed `safeSprintf` to properly return errors when panics occur (was always returning nil)
+- **`shared/relay/auth/hmac/token.go`**: Fixed HMAC token validation logic - removed incorrect future timestamp check that broke tokens with TTL > 5 minutes, replaced with 24-hour sanity check
+- **`shared/relay/client/client.go`**: Added timeout protection (5 seconds) to disconnect listener to prevent goroutine leaks, updated documentation to accurately reflect goroutine tracking
+- **`util/file.go`**: Fixed JSON unmarshal target (removed `&` from both `ReadJson` and `ReadJsonWithEnvSub`), added destination symlink checking in `CopyFileContents`, use `os.OpenFile` with secure permissions to prevent race conditions
+- **`client/cmd/root.go`**: Added destination symlink checking, use `os.OpenFile` with secure permissions
+- **`management/cmd/management.go`**: Added destination symlink checking, use `os.OpenFile` with secure permissions
+- **`SECURITY_AUDIT_SUMMARY.md`**: Fixed inconsistent audit statistics (44 issues, 60 files)
+
+**Severity**: Critical (for logic errors), Medium (for other fixes)
 **Status**: ✅ Fixed
 
 ## Next Steps

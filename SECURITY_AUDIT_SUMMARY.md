@@ -199,8 +199,8 @@ The codebase now complies with:
 
 The NetBird codebase has been thoroughly audited and hardened with:
 
-- **27 security issues fixed**
-- **49 files modified** with security improvements
+- **44 security issues fixed**
+- **60 files modified** with security improvements
 - **Comprehensive documentation** created
 - **Human-readable code** with extensive comments
 - **Rock-solid security** with latest security measures

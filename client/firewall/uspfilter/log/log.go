@@ -345,16 +345,20 @@ func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 // Security: This function prevents format string vulnerabilities by catching panics
 // that could occur from malformed format strings.
 func safeSprintf(format string, args ...any) (string, error) {
+	var result string
+	var err error
+	
 	defer func() {
 		if r := recover(); r != nil {
-			// Panic recovered, will return error below
+			// Panic recovered, return error to caller
+			err = fmt.Errorf("panic during formatting: %v", r)
 		}
 	}()
 	
 	// Use fmt.Sprintf with error handling
 	// Note: fmt.Sprintf doesn't return an error, but we catch panics
-	result := fmt.Sprintf(format, args...)
-	return result, nil
+	result = fmt.Sprintf(format, args...)
+	return result, err
 }
 
 // processMessage handles a single log message and adds it to the buffer

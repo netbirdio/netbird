@@ -298,7 +298,10 @@ func handleRebrand(cmd *cobra.Command) error {
 }
 
 // cpFile copies a file from src to dst.
-// Security: This function validates that the source file is not a symlink to prevent symlink attacks.
+// Security: This function validates that both source and destination files are not symlinks
+// to prevent symlink attacks. Note: There is still a TOCTOU (Time-Of-Check-Time-Of-Use)
+// race condition between the symlink check and file open, but this provides defense-in-depth.
+// For complete protection, use O_NOFOLLOW flag (requires platform-specific code).
 func cpFile(src, dst string) error {
 	// Security: Check if source is a symlink to prevent symlink attacks
 	srcInfo, err := os.Lstat(src)
@@ -314,13 +317,29 @@ func cpFile(src, dst string) error {
 		return fmt.Errorf("source is not a regular file")
 	}
 	
+	// Security: Check if destination is a symlink or non-regular file before creating
+	// This prevents symlink attacks where the destination is swapped to a symlink
+	dstInfo, statErr := os.Lstat(dst)
+	if statErr == nil {
+		if dstInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("destination file is a symlink, refusing to copy for security")
+		}
+		if !dstInfo.Mode().IsRegular() {
+			return fmt.Errorf("destination is not a regular file")
+		}
+	} else if !os.IsNotExist(statErr) {
+		return fmt.Errorf("failed to stat destination file: %w", statErr)
+	}
+	
 	srcfd, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
 	defer srcfd.Close()
 
-	dstfd, err := os.Create(dst)
+	// Security: Create file with secure permissions (0640) from the start
+	// This prevents a race condition where permissions might be set incorrectly
+	dstfd, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
@@ -330,11 +349,8 @@ func cpFile(src, dst string) error {
 		return fmt.Errorf("failed to copy file contents: %w", err)
 	}
 	
-	// Security: Use secure permissions instead of copying source permissions
-	// 0640 = owner read/write, group read, others no access
-	if err := os.Chmod(dst, 0640); err != nil {
-		return fmt.Errorf("failed to set file permissions: %w", err)
-	}
+	// Note: File permissions are already set to 0640 via os.OpenFile above
+	// No need to call Chmod again, which could introduce a race condition
 	
 	return nil
 }

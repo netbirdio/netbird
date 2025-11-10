@@ -242,7 +242,7 @@ func ReadJson(file string, res interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("config file too large: maximum size is %d bytes", maxConfigFileSize)
 	}
 
-	err = json.Unmarshal(bs, &res)
+	err = json.Unmarshal(bs, res)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
@@ -323,7 +323,7 @@ func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("error executing template: %v", err)
 	}
 
-	err = json.Unmarshal(output.Bytes(), &res)
+	err = json.Unmarshal(output.Bytes(), res)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing Json file after template was executed, err: %v", err)
 	}
@@ -379,7 +379,23 @@ func CopyFileContents(src, dst string) (err error) {
 	}
 	defer in.Close()
 	
-	out, err := os.Create(dst)
+	// Security: Check if destination is a symlink or non-regular file before creating
+	// This prevents symlink attacks where the destination is swapped to a symlink
+	dstInfo, statErr := os.Lstat(dst)
+	if statErr == nil {
+		if dstInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("destination file is a symlink, refusing to copy for security")
+		}
+		if !dstInfo.Mode().IsRegular() {
+			return fmt.Errorf("destination is not a regular file")
+		}
+	} else if !os.IsNotExist(statErr) {
+		return fmt.Errorf("failed to stat destination file: %w", statErr)
+	}
+	
+	// Security: Create file with secure permissions (0640) from the start
+	// This prevents a race condition where permissions might be set incorrectly
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
@@ -390,10 +406,8 @@ func CopyFileContents(src, dst string) (err error) {
 		}
 	}()
 	
-	// Security: Set secure permissions on destination file (0640 = owner read/write, group read)
-	if err := os.Chmod(dst, 0640); err != nil {
-		return fmt.Errorf("failed to set file permissions: %w", err)
-	}
+	// Note: File permissions are already set to 0640 via os.OpenFile above
+	// No need to call Chmod again, which could introduce a race condition
 	
 	if _, err = io.Copy(out, in); err != nil {
 		return fmt.Errorf("failed to copy file contents: %w", err)

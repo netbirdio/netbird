@@ -94,19 +94,25 @@ func (m *TimedHMAC) Validate(algo func() hash.Hash, token Token) error {
 		return fmt.Errorf("invalid payload: %w", err)
 	}
 
-	// Security: Validate timestamp is reasonable (not too far in the past or future)
+	// Security: Validate timestamp is reasonable (not too far in the past)
 	// This prevents issues with clock skew and potential replay attacks
+	// Note: The token payload represents the expiry time (now + timeToLive),
+	// so we only check if it has expired, not if it's too far in the future
 	now := time.Now().Unix()
 	const maxClockSkew = 300 // 5 minutes in seconds
 	
+	// Check if token has expired (with clock skew tolerance)
 	if timeAuthInt < now-maxClockSkew {
 		return fmt.Errorf("expired token")
 	}
 	
-	// Security: Reject tokens with timestamps too far in the future
-	// This prevents potential issues with clock manipulation
-	if timeAuthInt > now+maxClockSkew {
-		return fmt.Errorf("invalid token: timestamp too far in the future")
+	// Sanity check: reject tokens with expiry more than 24 hours in future
+	// This detects clock manipulation while allowing normal TTL values
+	// Note: This is a sanity check, not a security requirement, as tokens
+	// with longer TTLs are valid and expected
+	const maxTTL = 86400 // 24 hours in seconds
+	if timeAuthInt > now+maxTTL {
+		return fmt.Errorf("invalid token: expiry time exceeds maximum allowed TTL")
 	}
 
 	return nil
