@@ -107,10 +107,23 @@ func NewServer(
 
 	syncLim := int32(defaultSyncLim)
 	if syncLimStr := os.Getenv(envConcurrentSyncs); syncLimStr != "" {
+		// Security: Validate and sanitize environment variable value
+		// Limit the maximum concurrent syncs to prevent resource exhaustion
+		const maxSyncLim = 1000 // Reasonable upper limit
+		const minSyncLim = 1    // Minimum value
+		
 		syncLimParsed, err := strconv.Atoi(syncLimStr)
 		if err != nil {
 			log.Errorf("invalid value for %s: %v using %d", envConcurrentSyncs, err, defaultSyncLim)
 		} else {
+			// Security: Validate the parsed value is within acceptable bounds
+			if syncLimParsed < minSyncLim {
+				log.Warnf("value for %s (%d) is below minimum (%d), using minimum", envConcurrentSyncs, syncLimParsed, minSyncLim)
+				syncLimParsed = minSyncLim
+			} else if syncLimParsed > maxSyncLim {
+				log.Warnf("value for %s (%d) exceeds maximum (%d), using maximum", envConcurrentSyncs, syncLimParsed, maxSyncLim)
+				syncLimParsed = maxSyncLim
+			}
 			//nolint:gosec
 			syncLim = int32(syncLimParsed)
 		}

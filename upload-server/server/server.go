@@ -3,8 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,12 +25,21 @@ type Server struct {
 	srv *http.Server
 }
 
+// NewServer creates a new upload server instance.
+// Security: This function validates environment variables and server configuration
+// to ensure secure defaults and prevent misconfiguration.
 func NewServer() *Server {
 	address := os.Getenv("SERVER_ADDRESS")
 	if address == "" {
 		log.Infof("SERVER_ADDRESS environment variable was not set, using 0.0.0.0:8080")
 		address = "0.0.0.0:8080"
+	} else {
+		// Security: Validate the address format
+		if _, _, err := net.SplitHostPort(address); err != nil {
+			log.Fatalf("invalid SERVER_ADDRESS format: %v, must be in format host:port", err)
+		}
 	}
+	
 	mux := http.NewServeMux()
 	err := configureMux(mux)
 	if err != nil {
@@ -66,10 +78,34 @@ func configureMux(mux *http.ServeMux) error {
 	}
 }
 
+// getObjectKey extracts and validates the object key from the request.
+// Security: This function validates the ID parameter to prevent injection attacks
+// and ensures the generated object key is safe.
 func getObjectKey(w http.ResponseWriter, r *http.Request) string {
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		http.Error(w, "id query param required", http.StatusBadRequest)
+		return ""
+	}
+
+	// Security: Validate ID length to prevent DoS
+	const maxIDLength = 256
+	if len(id) > maxIDLength {
+		http.Error(w, "id query param too long", http.StatusBadRequest)
+		return ""
+	}
+	
+	// Security: Validate ID doesn't contain dangerous characters
+	// This prevents path traversal and injection attacks
+	if strings.Contains(id, "..") || strings.Contains(id, "/") || strings.Contains(id, "\\") {
+		http.Error(w, "invalid id query param", http.StatusBadRequest)
+		return ""
+	}
+	
+	// Security: Validate ID format (alphanumeric, dash, underscore only)
+	idRegex := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	if !idRegex.MatchString(id) {
+		http.Error(w, "invalid id query param format", http.StatusBadRequest)
 		return ""
 	}
 

@@ -75,7 +75,18 @@ func NewAPIHandler(
 			if err != nil {
 				log.Warnf("parsing %s env var: %v, using default %d", rateLimitingRPMKey, err, rpm)
 			} else {
-				rpm = value
+				// Security: Validate and sanitize RPM value to prevent resource exhaustion
+				const minRPM = 1
+				const maxRPM = 10000
+				if value < minRPM {
+					log.Warnf("value for %s (%d) is below minimum (%d), using minimum", rateLimitingRPMKey, value, minRPM)
+					rpm = minRPM
+				} else if value > maxRPM {
+					log.Warnf("value for %s (%d) exceeds maximum (%d), using maximum", rateLimitingRPMKey, value, maxRPM)
+					rpm = maxRPM
+				} else {
+					rpm = value
+				}
 			}
 		}
 
@@ -85,7 +96,18 @@ func NewAPIHandler(
 			if err != nil {
 				log.Warnf("parsing %s env var: %v, using default %d", rateLimitingBurstKey, err, burst)
 			} else {
-				burst = value
+				// Security: Validate and sanitize burst value to prevent resource exhaustion
+				const minBurst = 1
+				const maxBurst = 100000
+				if value < minBurst {
+					log.Warnf("value for %s (%d) is below minimum (%d), using minimum", rateLimitingBurstKey, value, minBurst)
+					burst = minBurst
+				} else if value > maxBurst {
+					log.Warnf("value for %s (%d) exceeds maximum (%d), using maximum", rateLimitingBurstKey, value, maxBurst)
+					burst = maxBurst
+				} else {
+					burst = value
+				}
 			}
 		}
 

@@ -304,9 +304,88 @@ The audit covered:
   **Severity**: Medium
   **Status**: ✅ Fixed
 
-### 11. Cryptographic Security Issues
+### 11. Environment Variable Validation (FIXED)
 
-#### 6.1 Hardcoded IV in Legacy Encryption (DOCUMENTED)
+**Location**: `management/server/grpcserver.go`, `upload-server/server/server.go`, `util/file.go`
+**Issue**: Environment variables used without validation, allowing potential DoS or misconfiguration
+**Fix**: Added validation for:
+
+- Concurrent syncs limit (min/max bounds)
+- Server address format validation
+- Config file size limits
+- Environment variable parsing with edge case handling
+  **Severity**: Medium
+  **Status**: ✅ Fixed
+
+### 12. Array/Slice Bounds Checking (FIXED)
+
+**Location**: `client/iface/freebsd/iface.go`, `pkg/security/audit.go`
+**Issue**: Array/slice access without bounds checking could cause panics
+**Fix**: Added bounds checking before array/slice access
+**Severity**: Medium
+**Status**: ✅ Fixed
+
+### 13. URL and Path Validation (FIXED)
+
+**Location**: `upload-server/server/server.go`, `upload-server/server/local.go`, `client/cmd/service_controller.go`
+**Issue**: URLs and paths not validated, allowing potential manipulation attacks
+**Fix**: Added comprehensive validation:
+
+- Object key validation (length, format, dangerous characters)
+- URL format validation
+- Path validation with absolute path checking
+- Query parameter validation
+  **Severity**: High
+  **Status**: ✅ Fixed
+
+### 14. HMAC Token Validation (FIXED)
+
+**Location**: `shared/relay/auth/hmac/token.go`
+**Issue**: Token validation missing clock skew protection and payload validation
+**Fix**: Added:
+
+- Clock skew protection (5 minutes tolerance)
+- Payload format validation
+- Token structure validation
+- Future timestamp rejection
+  **Severity**: Medium
+  **Status**: ✅ Fixed
+
+### 15. Authorization Header Validation (FIXED)
+
+**Location**: `management/server/http/middleware/auth_middleware.go`
+**Issue**: Authorization header parsing could panic if header was empty or malformed
+**Fix**: Added validation to check for empty authorization header and validate array bounds before accessing elements
+**Severity**: Medium
+**Status**: ✅ Fixed
+
+### 16. Rate Limiting Configuration Validation (FIXED)
+
+**Location**: `management/server/http/handler.go`
+**Issue**: Rate limiting configuration values (RPM and burst) not validated, allowing potential resource exhaustion
+**Fix**: Added bounds checking for RPM (1-10000) and burst (1-100000) values
+**Severity**: Medium
+**Status**: ✅ Fixed
+
+### 17. Goroutine Leak in Read Timeout (FIXED)
+
+**Location**: `shared/relay/client/client.go`
+**Issue**: Potential goroutine leak if context times out before read completes
+**Fix**: Added proper cleanup to ensure goroutine completes even on timeout
+**Severity**: Low
+**Status**: ✅ Fixed
+
+### 18. Encryption/Decryption Documentation (FIXED)
+
+**Location**: `encryption/encryption.go`
+**Issue**: Missing security documentation for encryption/decryption functions
+**Fix**: Added comprehensive documentation explaining nonce handling and security properties
+**Severity**: Low
+**Status**: ✅ Fixed
+
+### 19. Cryptographic Security Issues
+
+#### 19.1 Hardcoded IV in Legacy Encryption (DOCUMENTED)
 
 **Location**: `management/server/activity/store/crypt.go`
 **Issue**: Hardcoded IV used in legacy CBC encryption, making it deterministic and vulnerable
@@ -361,6 +440,13 @@ The project is now more secure, maintainable, and production-ready.
 23. `client/internal/debug/debug.go` - Secure debug bundle permissions
 24. `pkg/security/validation.go` - Input size limits for JSON validation
 25. `upload-server/server/local.go` - Path traversal protection, size limits
+26. `upload-server/server/server.go` - URL validation, query parameter validation
+27. `shared/relay/auth/hmac/token.go` - Clock skew protection, token validation
+28. `client/iface/freebsd/iface.go` - Array bounds checking
+29. `management/server/http/middleware/auth_middleware.go` - Authorization header validation
+30. `management/server/http/handler.go` - Rate limiting configuration validation
+31. `shared/relay/client/client.go` - Goroutine leak prevention in read timeout
+32. `encryption/encryption.go` - Security documentation
 
 ## Audit Date
 

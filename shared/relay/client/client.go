@@ -626,6 +626,9 @@ func (c *Client) writeCloseMsg() {
 	}
 }
 
+// readWithTimeout performs a read operation with a timeout.
+// Security: This function ensures the goroutine is properly cleaned up even if the context times out.
+// The goroutine will complete its read operation, but the result will be discarded if the timeout occurs.
 func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, serverResponseTimeout)
 	defer cancel()
@@ -636,13 +639,26 @@ func (c *Client) readWithTimeout(ctx context.Context, buf []byte) (int, error) {
 		err error
 	)
 
+	// Security: Use a goroutine with proper cleanup to prevent leaks
+	// The goroutine will complete even if context times out, but result is discarded
 	go func() {
+		defer func() {
+			// Ensure channel is always closed to prevent goroutine leak
+			select {
+			case <-readDone:
+				// Already closed
+			default:
+				close(readDone)
+			}
+		}()
 		n, err = c.relayConn.Read(buf)
-		close(readDone)
 	}()
 
 	select {
 	case <-ctx.Done():
+		// Context timed out - wait for goroutine to finish to prevent leak
+		// The result will be discarded, but we ensure cleanup
+		<-readDone
 		return 0, fmt.Errorf("read operation timed out")
 	case <-readDone:
 		return n, err

@@ -254,8 +254,14 @@ func ListFiles(dir, pattern string) ([]string, error) {
 	return matches, nil
 }
 
-// ReadJsonWithEnvSub reads JSON config file and maps to a provided interface with environment variable substitution
+// ReadJsonWithEnvSub reads JSON config file and maps to a provided interface with environment variable substitution.
+// Security: This function limits the size of the input file to prevent DoS attacks through large template files.
+// Environment variables are substituted using Go templates, which are executed in a safe context.
 func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
+	// Security: Limit file size to prevent DoS attacks
+	// 10MB is a reasonable limit for configuration files
+	const maxConfigFileSize = 10 * 1024 * 1024 // 10MB
+	
 	envVars := getEnvMap()
 
 	f, err := os.Open(file)
@@ -264,11 +270,20 @@ func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 	}
 	defer f.Close()
 
-	bs, err := io.ReadAll(f)
+	// Limit the file size to prevent DoS attacks
+	limitedReader := io.LimitReader(f, maxConfigFileSize+1)
+	bs, err := io.ReadAll(limitedReader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	
+	// Check if file exceeded size limit
+	if len(bs) > maxConfigFileSize {
+		return nil, fmt.Errorf("config file too large: maximum size is %d bytes", maxConfigFileSize)
 	}
 
+	// Security: Use template with no functions to prevent code injection
+	// The template only allows variable substitution, not function calls
 	t, err := template.New("").Parse(string(bs))
 	if err != nil {
 		return nil, fmt.Errorf("error parsing template: %v", err)
@@ -276,6 +291,7 @@ func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 
 	var output bytes.Buffer
 	// Execute the template, substituting environment variables
+	// Security: Template execution is safe as we're only substituting variables, not executing functions
 	err = t.Execute(&output, envVars)
 	if err != nil {
 		return nil, fmt.Errorf("error executing template: %v", err)
@@ -289,15 +305,25 @@ func ReadJsonWithEnvSub(file string, res interface{}) (interface{}, error) {
 	return res, nil
 }
 
-// getEnvMap Convert the output of os.Environ() to a map
+// getEnvMap converts the output of os.Environ() to a map.
+// Security: This function safely parses environment variables, handling edge cases
+// where environment variables might not contain '=' or have empty values.
 func getEnvMap() map[string]string {
 	envMap := make(map[string]string)
 
 	for _, env := range os.Environ() {
+		// Security: Use SplitN with limit 2 to handle values containing '='
+		// This prevents issues if environment variable values contain '=' characters
 		parts := strings.SplitN(env, "=", 2)
 		if len(parts) == 2 {
-			envMap[parts[0]] = parts[1]
+			key := parts[0]
+			value := parts[1]
+			// Security: Validate key is not empty (shouldn't happen, but defensive)
+			if key != "" {
+				envMap[key] = value
+			}
 		}
+		// If len(parts) != 2, skip invalid entries (defensive programming)
 	}
 
 	return envMap

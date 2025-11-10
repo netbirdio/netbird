@@ -631,6 +631,8 @@ func getResourceFromPath(path string) string {
 // This is a helper function used by the audit logger to identify which specific
 // resource was accessed. It parses the URL path to extract the resource ID.
 //
+// Security: This function safely handles edge cases and validates path structure.
+//
 // Example paths:
 //   - "/api/users/123" -> "123"
 //   - "/api/tokens/abc-def" -> "abc-def"
@@ -638,11 +640,20 @@ func getResourceFromPath(path string) string {
 //
 // Returns the resource ID if found, otherwise returns an empty string.
 func getResourceIDFromPath(path string) string {
+	// Security: Validate path is not empty
+	if path == "" {
+		return ""
+	}
+	
 	// Remove leading and trailing slashes
 	path = strings.Trim(path, "/")
+	if path == "" {
+		return ""
+	}
 
 	// Split into parts
 	parts := strings.Split(path, "/")
+	// Security: Validate we have at least 2 parts (resource type and ID)
 	if len(parts) < 2 {
 		return ""
 	}
@@ -650,6 +661,7 @@ func getResourceIDFromPath(path string) string {
 	// The ID is typically the second part of the path
 	// Check if it looks like an ID (not a path segment like "new", "edit", etc.)
 	id := parts[1]
+	// Security: Validate ID is not empty and doesn't contain query parameters
 	if len(id) == 0 || strings.ContainsAny(id, "?&=") || id == "new" || id == "edit" || id == "delete" {
 		return ""
 	}

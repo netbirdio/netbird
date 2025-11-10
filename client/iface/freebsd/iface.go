@@ -52,6 +52,10 @@ func parseIfconfigOutput(output []byte) (*iface, error) {
 						break
 					}
 				}
+				// Security: Validate mtuIndex+1 is within bounds to prevent panic
+				if mtuIndex+1 >= len(parts) {
+					return nil, fmt.Errorf("failed to parse MTU: index out of bounds")
+				}
 				mtu = parts[mtuIndex+1]
 			}
 		}

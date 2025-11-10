@@ -74,11 +74,37 @@ func (l *local) handlerGetUploadURL(w http.ResponseWriter, r *http.Request) {
 	respondGetRequest(w, uploadURL, objectKey)
 }
 
+// getUploadURL constructs the upload URL for a given object key.
+// Security: This function validates the object key and URL construction to prevent
+// URL manipulation attacks and ensure safe URL generation.
 func (l *local) getUploadURL(objectKey string) (string, error) {
+	// Security: Validate object key is not empty
+	if objectKey == "" {
+		return "", fmt.Errorf("object key cannot be empty")
+	}
+	
+	// Security: Validate object key length to prevent DoS
+	const maxObjectKeyLength = 1024
+	if len(objectKey) > maxObjectKeyLength {
+		return "", fmt.Errorf("object key too long: maximum length is %d characters", maxObjectKeyLength)
+	}
+	
+	// Security: Validate object key doesn't contain dangerous characters
+	// This prevents URL manipulation attacks
+	if strings.Contains(objectKey, "..") || strings.Contains(objectKey, "//") {
+		return "", fmt.Errorf("invalid object key: contains dangerous characters")
+	}
+	
 	parsedUploadURL, err := url.Parse(l.url)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse upload URL: %w", err)
 	}
+	
+	// Security: Validate the parsed URL is valid
+	if parsedUploadURL.Scheme == "" {
+		return "", fmt.Errorf("invalid upload URL: missing scheme")
+	}
+	
 	newURL := parsedUploadURL.JoinPath(parsedUploadURL.Path, putURLPath, objectKey)
 	return newURL.String(), nil
 }

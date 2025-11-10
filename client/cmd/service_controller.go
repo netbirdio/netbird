@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,22 +33,48 @@ func (p *program) Start(svc service.Service) error {
 	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
 	p.serv = grpc.NewServer()
 
-	split := strings.Split(daemonAddr, "://")
-	switch split[0] {
+	// Security: Validate daemon address format before splitting
+	// This prevents potential issues with malformed addresses
+	if !strings.Contains(daemonAddr, "://") {
+		return fmt.Errorf("invalid daemon address format: missing protocol separator")
+	}
+	
+	split := strings.SplitN(daemonAddr, "://", 2)
+	if len(split) != 2 {
+		return fmt.Errorf("invalid daemon address format: %s", daemonAddr)
+	}
+	
+	protocol := split[0]
+	address := split[1]
+	
+	// Security: Validate address is not empty
+	if address == "" {
+		return fmt.Errorf("invalid daemon address: address cannot be empty")
+	}
+	
+	switch protocol {
 	case "unix":
+		// Security: Validate Unix socket path
+		if !filepath.IsAbs(address) {
+			return fmt.Errorf("invalid Unix socket path: must be absolute path")
+		}
 		// cleanup failed close
-		stat, err := os.Stat(split[1])
+		stat, err := os.Stat(address)
 		if err == nil && !stat.IsDir() {
-			if err := os.Remove(split[1]); err != nil {
+			if err := os.Remove(address); err != nil {
 				log.Debugf("remove socket file: %v", err)
 			}
 		}
 	case "tcp":
+		// Security: Validate TCP address format
+		if _, _, err := net.SplitHostPort(address); err != nil {
+			return fmt.Errorf("invalid TCP address format: %w", err)
+		}
 	default:
-		return fmt.Errorf("unsupported daemon address protocol: %v", split[0])
+		return fmt.Errorf("unsupported daemon address protocol: %s", protocol)
 	}
 
-	listen, err := net.Listen(split[0], split[1])
+	listen, err := net.Listen(protocol, address)
 	if err != nil {
 		return fmt.Errorf("listen daemon interface: %w", err)
 	}
@@ -58,13 +85,13 @@ func (p *program) Start(svc service.Service) error {
 			}
 		}()
 
-		if split[0] == "unix" {
+		if protocol == "unix" {
 			// Security: Use 0660 permissions (owner read/write, group read/write, others no access)
 			// This is more secure than 0666 (world-readable/writable) while still allowing
 			// group members (like the netbird group) to access the socket
 			// Note: 0666 was used for compatibility, but 0660 is more secure
-			if err := os.Chmod(split[1], 0660); err != nil {
-				log.Errorf("failed setting daemon permissions: %v", split[1])
+			if err := os.Chmod(address, 0660); err != nil {
+				log.Errorf("failed setting daemon permissions: %v", address)
 				return
 			}
 		}
@@ -79,7 +106,7 @@ func (p *program) Start(svc service.Service) error {
 		p.serverInstance = serverInstance
 		p.serverInstanceMu.Unlock()
 
-		log.Printf("started daemon server: %v", split[1])
+		log.Printf("started daemon server: %v", address)
 		if err := p.serv.Serve(listen); err != nil {
 			log.Errorf("failed to serve daemon requests: %v", err)
 		}

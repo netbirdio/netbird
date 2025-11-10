@@ -61,7 +61,19 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 			return
 		}
 
-		auth := strings.Split(r.Header.Get("Authorization"), " ")
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "no valid authentication provided"), w)
+			return
+		}
+		
+		auth := strings.Split(authHeader, " ")
+		// Security: Validate auth array has at least one element to prevent panic
+		if len(auth) == 0 || auth[0] == "" {
+			util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "invalid authorization header format"), w)
+			return
+		}
+		
 		authType := strings.ToLower(auth[0])
 
 		// fallback to token when receive pat as bearer
