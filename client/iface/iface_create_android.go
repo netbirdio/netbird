@@ -6,7 +6,7 @@ import (
 
 // CreateOnAndroid creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
-// todo: review does this function really necessary ir can we merge it with iOS
+// todo: review does this function really necessary or can we merge it with iOS
 func (w *WGIface) CreateOnAndroid(routes []string, dns string, searchDomains []string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -25,5 +25,7 @@ func (w *WGIface) Create() error {
 }
 
 func (w *WGIface) RenewTun(fd int) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return w.tun.RenewTun(fd)
 }
