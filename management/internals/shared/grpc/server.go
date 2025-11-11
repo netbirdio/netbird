@@ -57,13 +57,12 @@ type Server struct {
 	settingsManager settings.Manager
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	peersUpdateManager network_map.PeersUpdateManager
-	config             *nbconfig.Config
-	secretsManager     SecretsManager
-	appMetrics         telemetry.AppMetrics
-	ephemeralManager   ephemeral.Manager
-	peerLocks          sync.Map
-	authManager        auth.Manager
+	config           *nbconfig.Config
+	secretsManager   SecretsManager
+	appMetrics       telemetry.AppMetrics
+	ephemeralManager ephemeral.Manager
+	peerLocks        sync.Map
+	authManager      auth.Manager
 
 	logBlockedPeers          bool
 	blockPeersWithSameConfig bool
@@ -82,7 +81,6 @@ func NewServer(
 	config *nbconfig.Config,
 	accountManager account.Manager,
 	settingsManager settings.Manager,
-	peersUpdateManager network_map.PeersUpdateManager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
 	ephemeralManager ephemeral.Manager,
@@ -98,7 +96,7 @@ func NewServer(
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
 		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
-			return int64(peersUpdateManager.CountStreams())
+			return int64(networkMapController.CountStreams())
 		})
 		if err != nil {
 			return nil, err
@@ -120,9 +118,7 @@ func NewServer(
 	}
 
 	return &Server{
-		wgKey: key,
-		// peerKey -> event channel
-		peersUpdateManager:       peersUpdateManager,
+		wgKey:                    key,
 		accountManager:           accountManager,
 		settingsManager:          settingsManager,
 		config:                   config,
@@ -269,7 +265,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	updates := s.peersUpdateManager.CreateChannel(ctx, peer.ID)
+	updates := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
 
 	s.ephemeralManager.OnPeerConnected(ctx, peer)
 
@@ -348,7 +344,7 @@ func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer 
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to disconnect peer %s properly: %v", peer.Key, err)
 	}
-	s.peersUpdateManager.CloseChannel(ctx, peer.ID)
+	s.networkMapController.OnPeerDisconnected(ctx, accountID, peer.ID)
 	s.secretsManager.CancelRefresh(peer.ID)
 	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 

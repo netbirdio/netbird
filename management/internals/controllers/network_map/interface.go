@@ -28,12 +28,13 @@ type Controller interface {
 	GetDNSDomain(settings *types.Settings) string
 	StartWarmup(context.Context)
 	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
+	CountStreams() int
 
-	DeletePeer(ctx context.Context, accountId string, peerId string) error
-
-	OnPeerUpdated(accountId string, peer *nbpeer.Peer)
+	OnPeerUpdated(ctx context.Context, accountId string, peer *nbpeer.Peer) error
 	OnPeerAdded(ctx context.Context, accountID string, peerID string) error
 	OnPeerDeleted(ctx context.Context, accountID string, peerID string) error
-	DisconnectPeers(ctx context.Context, peerIDs []string)
+	DisconnectPeers(ctx context.Context, accountId string, peerIDs []string)
 	IsConnected(peerID string) bool
+	OnPeerConnected(ctx context.Context, accountID string, peerID string) chan *UpdateMessage
+	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)
 }

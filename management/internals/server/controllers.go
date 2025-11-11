@@ -70,7 +70,7 @@ func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 
 func (s *BaseServer) NetworkMapController() network_map.Controller {
 	return Create(s, func() *nmapcontroller.Controller {
-		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.dnsDomain, s.ProxyController())
+		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.ProxyController())
 	})
 }
 
@@ -78,4 +78,8 @@ func (s *BaseServer) AccountRequestBuffer() *server.AccountRequestBuffer {
 	return Create(s, func() *server.AccountRequestBuffer {
 		return server.NewAccountRequestBuffer(context.Background(), s.Store())
 	})
+}
+
+func (s *BaseServer) DNSDomain() string {
+	return s.dnsDomain
 }
