@@ -181,7 +181,7 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) e
 
 			postureChecks, err := c.getPeerPostureChecks(account, p.ID)
 			if err != nil {
-				log.WithContext(ctx).Debugf("failed to get posture checks for peer %s: %v", peer.ID, err)
+				log.WithContext(ctx).Debugf("failed to get posture checks for peer %s: %v", p.ID, err)
 				return
 			}
 
@@ -234,7 +234,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {
-		return fmt.Errorf("peer %s doesn't exists in account %s", peerId, accountId)
+		return fmt.Errorf("failed to get validated peers: %v", err)
 	}
 
 	dnsCache := &cache.DNSConfigCache{}
@@ -553,7 +553,7 @@ func (c *Controller) StartWarmup(ctx context.Context) {
 			log.WithContext(ctx).Infof("set peer update buffer interval to %dms", interval)
 		}()
 	}
-	c.updateAccountPeersBufferInterval.Store(initialInterval)
+	c.updateAccountPeersBufferInterval.Store(int64(time.Duration(initialInterval) * time.Millisecond))
 	log.WithContext(ctx).Infof("set peer update buffer interval to %dms", initialInterval)
 
 }

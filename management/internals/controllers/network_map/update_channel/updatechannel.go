@@ -172,5 +172,7 @@ func (p *PeersUpdateManager) HasChannel(peerID string) bool {
 }
 
 func (p *PeersUpdateManager) CountStreams() int {
+	p.channelsMux.RLock()
+	defer p.channelsMux.RUnlock()
 	return len(p.peerChannels)
 }
