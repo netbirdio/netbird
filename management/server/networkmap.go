@@ -12,8 +12,8 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -41,11 +41,14 @@ func (am *DefaultAccountManager) getPeerNetworkMapExp(
 		}
 	}
 
-	expMap := account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
 	legacyMap := account.GetPeerNetworkMap(ctx, peerId, customZone, validatedPeers, resourcePolicies, routers, nil)
-	am.compareAndSaveNetworkMaps(ctx, accountId, peerId, expMap, legacyMap)
 
-	return expMap
+	go func() {
+		expMap := account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
+		am.compareAndSaveNetworkMaps(ctx, accountId, peerId, expMap, legacyMap)
+	}()
+
+	return legacyMap
 }
 
 func (am *DefaultAccountManager) compareAndSaveNetworkMaps(ctx context.Context, accountId, peerId string, expMap, legacyMap *types.NetworkMap) {
