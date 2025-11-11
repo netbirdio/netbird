@@ -1365,3 +1365,5 @@ func (m *Manager) hasMatchingNetstackService(d *decoder) bool {
 
 	return exists
 }
+
+// dummy commit to check cache in CI
