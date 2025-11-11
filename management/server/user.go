@@ -1113,6 +1113,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 	var addPeerRemovedEvents []func()
 	var updateAccountPeers bool
+	var userPeers []*nbpeer.Peer
 	var targetUser *types.User
 	var err error
 
@@ -1122,7 +1123,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			return fmt.Errorf("failed to get user to delete: %w", err)
 		}
 
-		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, targetUserInfo.ID)
+		userPeers, err = transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, targetUserInfo.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get user peers: %w", err)
 		}
@@ -1143,6 +1144,17 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	})
 	if err != nil {
 		return false, err
+	}
+
+	for _, peer := range userPeers {
+		err = am.networkMapController.DeletePeer(ctx, accountID, peer.ID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to delete peer %s from network map: %v", peer.ID, err)
+		}
+
+		if err := am.networkMapController.OnPeerDeleted(ctx, accountID, peer.ID); err != nil {
+			log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", peer.ID, err)
+		}
 	}
 
 	for _, addPeerRemovedEvent := range addPeerRemovedEvents {
