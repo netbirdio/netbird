@@ -54,37 +54,21 @@ func (rh *ResultHandler) GetErrorResultReason() string {
 	return ""
 }
 
-// Write writes the update result to a file for the UI to read
-func (rh *ResultHandler) Write(result Result) error {
-	log.Infof("write out installer result to: %s", rh.resultFile)
-	// Ensure directory exists
-	dir := filepath.Dir(rh.resultFile)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		log.Errorf("failed to create directory %s: %v", dir, err)
-		return err
+func (rh *ResultHandler) WriteSuccess() error {
+	result := Result{
+		Success:    true,
+		ExecutedAt: time.Now(),
 	}
+	return rh.write(result)
+}
 
-	data, err := json.Marshal(result)
-	if err != nil {
-		return err
+func (rh *ResultHandler) WriteErr(errReason error) error {
+	result := Result{
+		Success:    false,
+		Error:      errReason.Error(),
+		ExecutedAt: time.Now(),
 	}
-
-	// Write to a temporary file first, then rename for atomic operation
-	tmpPath := rh.resultFile + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
-		log.Errorf("failed to create temp file: %s", err)
-		return err
-	}
-
-	// Atomic rename
-	if err := os.Rename(tmpPath, rh.resultFile); err != nil {
-		if cleanupErr := os.Remove(tmpPath); cleanupErr != nil {
-			log.Warnf("Failed to remove temp result file: %v", err)
-		}
-		return err
-	}
-
-	return nil
+	return rh.write(result)
 }
 
 func (rh *ResultHandler) Watch(ctx context.Context) (Result, error) {
@@ -175,6 +159,39 @@ func (rh *ResultHandler) handleWatchEvent(event fsnotify.Event) (Result, bool) {
 	}
 
 	return Result{}, false
+}
+
+// Write writes the update result to a file for the UI to read
+func (rh *ResultHandler) write(result Result) error {
+	log.Infof("write out installer result to: %s", rh.resultFile)
+	// Ensure directory exists
+	dir := filepath.Dir(rh.resultFile)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Errorf("failed to create directory %s: %v", dir, err)
+		return err
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+
+	// Write to a temporary file first, then rename for atomic operation
+	tmpPath := rh.resultFile + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+		log.Errorf("failed to create temp file: %s", err)
+		return err
+	}
+
+	// Atomic rename
+	if err := os.Rename(tmpPath, rh.resultFile); err != nil {
+		if cleanupErr := os.Remove(tmpPath); cleanupErr != nil {
+			log.Warnf("Failed to remove temp result file: %v", err)
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (rh *ResultHandler) cleanup() error {

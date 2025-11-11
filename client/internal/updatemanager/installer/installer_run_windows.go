@@ -50,16 +50,14 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 			log.Errorf("failed to start UI: %v", err)
 		}
 
-		result := Result{
-			Success:    resultErr == nil,
-			ExecutedAt: time.Now(),
-		}
-		if resultErr != nil {
-			result.Error = resultErr.Error()
-		}
-
 		log.Infof("write out result")
-		if err := resultHandler.Write(result); err != nil {
+		var err error
+		if resultErr == nil {
+			err = resultHandler.WriteSuccess()
+		} else {
+			err = resultHandler.WriteErr(resultErr)
+		}
+		if err != nil {
 			log.Errorf("failed to write update result: %v", err)
 		}
 	}()

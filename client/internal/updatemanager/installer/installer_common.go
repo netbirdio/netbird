@@ -40,7 +40,17 @@ func NewWithDir(tempDir string) *Installer {
 
 // RunInstallation starts the updater process to run the installation
 // This will run by the original service process
-func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) error {
+func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) (err error) {
+	resultHandler := NewResultHandler(u.tempDir)
+
+	defer func() {
+		if err != nil {
+			if writeErr := resultHandler.WriteErr(err); writeErr != nil {
+				log.Errorf("failed to write error result: %v", writeErr)
+			}
+		}
+	}()
+
 	if err := validateTargetVersion(targetVersion); err != nil {
 		return err
 	}

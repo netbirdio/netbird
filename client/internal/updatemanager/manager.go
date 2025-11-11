@@ -296,13 +296,6 @@ func (m *Manager) handleUpdate(ctx context.Context) {
 			fmt.Sprintf("Auto-update failed: %v", err),
 			nil,
 		)
-		m.statusRecorder.PublishEvent(
-			cProto.SystemEvent_INFO,
-			cProto.SystemEvent_SYSTEM,
-			"",
-			"",
-			map[string]string{"progress_window": "hide"},
-		)
 	}
 }
 

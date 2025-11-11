@@ -966,7 +966,6 @@ func (s *serviceClient) onTrayReady() {
 	})
 	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
 		// todo use new Category
-		log.Infof("--- on new event: %v", event)
 		if windowAction, ok := event.Metadata["progress_window"]; ok {
 			targetVersion, ok := event.Metadata["version"]
 			if !ok {
@@ -982,13 +981,6 @@ func (s *serviceClient) onTrayReady() {
 				subCtx, cancel := context.WithCancel(s.ctx)
 				go s.eventHandler.runSelfCommand(subCtx, "update", "--update-version", targetVersion)
 				s.updateContextCancel = cancel
-			}
-			if windowAction == "hide" {
-				log.Debugf("Inside hide")
-				if s.updateContextCancel != nil {
-					s.updateContextCancel()
-					s.updateContextCancel = nil
-				}
 			}
 		}
 	})
