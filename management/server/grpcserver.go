@@ -1064,6 +1064,12 @@ func (s *GRPCServer) Logout(ctx context.Context, req *proto.EncryptedMessage) (*
 		userID = activity.SystemInitiator
 	}
 
+	// if peer is ephemeral, we need to set it to false to prevent adding it to ephemeral deletion queue
+	if peer.Ephemeral {
+		peer.Ephemeral = false
+	}
+	s.cancelPeerRoutines(ctx, peer.AccountID, peer)
+
 	if err = s.accountManager.DeletePeer(ctx, peer.AccountID, peer.ID, userID); err != nil {
 		log.WithContext(ctx).Errorf("failed to logout peer %s: %v", peerKey.String(), err)
 		return nil, mapError(ctx, err)
