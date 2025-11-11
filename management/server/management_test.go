@@ -238,6 +238,7 @@ func startServer(
 		&manager.EphemeralManager{},
 		nil,
 		server.MockIntegratedValidator{},
+		networkMapController,
 	)
 	if err != nil {
 		t.Fatalf("failed creating management server: %v", err)

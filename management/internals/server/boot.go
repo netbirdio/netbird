@@ -145,7 +145,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 
 		gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-		srv, err := nbgrpc.NewServer(s.config, s.AccountManager(), s.SettingsManager(), s.PeersUpdateManager(), s.SecretsManager(), s.Metrics(), s.EphemeralManager(), s.AuthManager(), s.IntegratedValidator())
+		srv, err := nbgrpc.NewServer(s.config, s.AccountManager(), s.SettingsManager(), s.PeersUpdateManager(), s.SecretsManager(), s.Metrics(), s.EphemeralManager(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController())
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
 		}

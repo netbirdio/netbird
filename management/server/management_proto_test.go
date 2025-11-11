@@ -375,7 +375,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	secretsManager := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 
 	ephemeralMgr := manager.NewEphemeralManager(store, accountManager)
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, updateManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{})
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, updateManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{}, networkMapController)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}

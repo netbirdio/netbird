@@ -88,6 +88,7 @@ func NewServer(
 	ephemeralManager ephemeral.Manager,
 	authManager auth.Manager,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
+	networkMapController network_map.Controller,
 ) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -132,6 +133,9 @@ func NewServer(
 		logBlockedPeers:          logBlockedPeers,
 		blockPeersWithSameConfig: blockPeersWithSameConfig,
 		integratedPeerValidator:  integratedPeerValidator,
+		networkMapController:     networkMapController,
+
+		loginFilter: newLoginFilter(),
 
 		syncLim: syncLim,
 	}, nil
