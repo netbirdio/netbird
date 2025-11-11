@@ -22,6 +22,8 @@ type PeersUpdateManager struct {
 	metrics telemetry.AppMetrics
 }
 
+var _ network_map.PeersUpdateManager = (*PeersUpdateManager)(nil)
+
 // NewPeersUpdateManager returns a new instance of PeersUpdateManager
 func NewPeersUpdateManager(metrics telemetry.AppMetrics) *PeersUpdateManager {
 	return &PeersUpdateManager{

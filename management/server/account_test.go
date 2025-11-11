@@ -1357,6 +1357,9 @@ func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 		return
 	}
 
+	// We need to sleep to wait for the buffer peer update
+	time.Sleep(300 * time.Millisecond)
+
 	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	defer updateManager.CloseChannel(context.Background(), peer1.ID)
 
@@ -1371,11 +1374,6 @@ func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 			t.Errorf("mismatch peers count: 1 expected, got %v", len(networkMap.RemotePeers))
 		}
 	}()
-
-	if os.Getenv(network_map.EnvNewNetworkMapBuilder) == "true" {
-		// drain channel
-		<-updMsg
-	}
 
 	if err := manager.DeletePeer(context.Background(), account.Id, peer3.ID, userID); err != nil {
 		t.Errorf("delete peer: %v", err)
