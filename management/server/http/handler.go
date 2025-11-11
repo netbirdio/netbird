@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
 
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 
 	"github.com/netbirdio/netbird/management/server/auth"
@@ -61,6 +62,7 @@ func NewAPIHandler(
 	authManager auth.Manager,
 	appMetrics telemetry.AppMetrics,
 	integratedValidator integrated_validator.IntegratedValidator,
+	proxyController port_forwarding.Controller,
 	permissionsManager permissions.Manager,
 	peersManager nbpeers.Manager,
 	settingsManager settings.Manager,
@@ -115,7 +117,7 @@ func NewAPIHandler(
 
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, nil, settingsManager); err != nil {
+	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController, settingsManager); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
