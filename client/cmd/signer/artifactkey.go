@@ -95,7 +95,7 @@ func init() {
 }
 
 func handleCreateArtifactKey(cmd *cobra.Command, rootPrivKeyFile, artifactPrivKeyFile, artifactPubKeyFile string, expiration time.Duration) error {
-	cmd.Println("🔑 Creating new artifact signing key...")
+	cmd.Println("Creating new artifact signing key...")
 
 	privKeyPEM, err := os.ReadFile(rootPrivKeyFile)
 	if err != nil {

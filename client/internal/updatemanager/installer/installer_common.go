@@ -17,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/updatemanager/downloader"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/reposign"
 )
 
 type Installer struct {
@@ -49,12 +50,24 @@ func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) e
 	}
 
 	var installerFile string
+	// Download files only when not using any third-party store
 	if installerType := typeOfInstaller(ctx); installerType.Downloadable() {
 		log.Infof("download installer")
 		var err error
 		installerFile, err = u.downloadInstaller(ctx, installerType, targetVersion)
 		if err != nil {
 			log.Errorf("failed to download installer: %v", err)
+			return err
+		}
+
+		artifactVerify, err := reposign.NewArtifactVerify(DefaultBaseURL, DefaultArtifactBaseURL)
+		if err != nil {
+			log.Errorf("failed to create artifact verify: %v", err)
+			return err
+		}
+
+		if err := artifactVerify.Verify(ctx, targetVersion, installerFile); err != nil {
+			log.Errorf("artifact verification error: %v", err)
 			return err
 		}
 	}

@@ -2,7 +2,6 @@ package reposign
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"net/url"
 	"os"
@@ -15,21 +14,15 @@ import (
 )
 
 const (
-	DefaultBaseURL         = "http://127.0.0.1:1234"
-	DefaultArtifactBaseURL = "https://github.com/netbirdio/netbird/releases/download/"
-
-	artifactPubKeysFileName    = "artifact-key.pub"
-	artifactPubKeysSigFileName = "artifact-key.pub.sig"
-	revocationFileName         = "revocation.list"
-	revocationSignFileName     = "revocation.list.sig"
+	artifactPubKeysFileName    = "artifact-key-pub.pem"
+	artifactPubKeysSigFileName = "artifact-key-pub.pem.sig"
+	revocationFileName         = "revocation-list.json"
+	revocationSignFileName     = "revocation-list.json.sig"
 
 	keySizeLimit    = 5 * 1024 * 1024 //5MB
 	signatureLimit  = 1024
 	revocationLimit = 10 * 1024 * 1024
 )
-
-//go:embed certs
-var embeddedCerts embed.FS
 
 type ArtifactVerify struct {
 	rootKeys         []PublicKey
@@ -151,7 +144,7 @@ func (a *ArtifactVerify) loadArtifactKeys(ctx context.Context) ([]PublicKey, err
 
 func (a *ArtifactVerify) loadArtifactSignature(ctx context.Context, version string, artifactFile string) (*Signature, error) {
 	artifactFile = filepath.Base(artifactFile)
-	downloadURL := a.artifactsBaseURL.JoinPath(version, artifactFile+".sig").String()
+	downloadURL := a.artifactsBaseURL.JoinPath("v"+version, artifactFile+".sig").String()
 	data, err := downloader.DownloadToMemory(ctx, downloadURL, signatureLimit)
 	if err != nil {
 		log.Debugf("failed to download artifact signature: %s", err)
@@ -169,7 +162,7 @@ func (a *ArtifactVerify) loadArtifactSignature(ctx context.Context, version stri
 }
 
 func loadEmbeddedPublicKeys() ([]PublicKey, error) {
-	files, err := embeddedCerts.ReadDir("certs")
+	files, err := embeddedCerts.ReadDir(embeddedCertsDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read embedded certs: %w", err)
 	}
@@ -180,7 +173,7 @@ func loadEmbeddedPublicKeys() ([]PublicKey, error) {
 			continue
 		}
 
-		data, err := embeddedCerts.ReadFile("certs/" + file.Name())
+		data, err := embeddedCerts.ReadFile(embeddedCertsDir + "/" + file.Name())
 		if err != nil {
 			return nil, fmt.Errorf("failed to read cert file %s: %w", file.Name(), err)
 		}
