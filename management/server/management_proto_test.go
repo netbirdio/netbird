@@ -365,7 +365,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted")
 	accountManager, err := BuildManager(ctx, store, networkMapController, nil, "",
-		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+		eventStore, nil, false, MockIntegratedValidator{}, metrics, settingsMockManager, permissionsManager, false)
 
 	if err != nil {
 		cleanup()

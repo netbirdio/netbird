@@ -218,7 +218,6 @@ func startServer(
 		false,
 		server.MockIntegratedValidator{},
 		metrics,
-		port_forwarding.NewControllerMock(),
 		settingsMockManager,
 		permissionsManager,
 		false)
