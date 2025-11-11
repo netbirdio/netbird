@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -56,7 +57,7 @@ func (i *iFaceMock) IsUserspaceBind() bool { return false }
 func TestNftablesManager(t *testing.T) {
 
 	// just check on the local interface
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 	time.Sleep(time.Second * 3)
@@ -168,7 +169,7 @@ func TestNftablesManager(t *testing.T) {
 func TestNftablesManagerRuleOrder(t *testing.T) {
 	// This test verifies rule insertion order in nftables peer ACLs
 	// We add accept rule first, then deny rule to test ordering behavior
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 
@@ -264,7 +265,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
-			manager, err := Create(mock)
+			manager, err := Create(mock, iface.DefaultMTU)
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))
 			time.Sleep(time.Second * 3)
@@ -348,7 +349,7 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	stdout, stderr := runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)
 
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "failed to create manager")
 	require.NoError(t, manager.Init(nil))
 
