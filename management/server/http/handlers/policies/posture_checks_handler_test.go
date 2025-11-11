@@ -16,9 +16,9 @@ import (
 
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
-	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -45,7 +45,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *postureChecksH
 				testPostureChecks[postureChecks.ID] = postureChecks
 
 				if err := postureChecks.Validate(); err != nil {
-					return nil, status.Errorf(status.InvalidArgument, err.Error()) //nolint
+					return nil, status.Errorf(status.InvalidArgument, "%v", err.Error()) //nolint
 				}
 
 				return postureChecks, nil

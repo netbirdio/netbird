@@ -795,7 +795,7 @@ func (m *Manager) recalculateTCPChecksum(packetData []byte, d *decoder, tcpHeade
 	pseudoSum += uint32(d.ip4.Protocol)
 	pseudoSum += uint32(tcpLength)
 
-	var sum uint32 = pseudoSum
+	var sum = pseudoSum
 	for i := 0; i < tcpLength-1; i += 2 {
 		sum += uint32(tcpLayer[i])<<8 | uint32(tcpLayer[i+1])
 	}
