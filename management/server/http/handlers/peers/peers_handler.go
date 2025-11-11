@@ -30,6 +30,7 @@ type Handler struct {
 
 func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller) {
 	peersHandler := NewHandler(accountManager, networkMapController)
+	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}/accessible-peers", peersHandler.GetAccessiblePeers).Methods("GET", "OPTIONS")
