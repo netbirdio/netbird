@@ -1092,17 +1092,17 @@ func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accoun
 // UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
-	am.networkMapController.UpdateAccountPeers(ctx, accountID)
+	_ = am.networkMapController.UpdateAccountPeers(ctx, accountID)
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
-	am.networkMapController.BufferUpdateAccountPeers(ctx, accountID)
+	_ = am.networkMapController.BufferUpdateAccountPeers(ctx, accountID)
 }
 
 // UpdateAccountPeer updates a single peer that belongs to an account.
 // Should be called when changes need to be synced to a specific peer only.
 func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountId string, peerId string) {
-	am.networkMapController.UpdateAccountPeer(ctx, accountId, peerId)
+	_ = am.networkMapController.UpdateAccountPeer(ctx, accountId, peerId)
 }
 
 // getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.

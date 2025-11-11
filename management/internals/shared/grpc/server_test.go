@@ -72,7 +72,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			mgmtServer := &GRPCServer{
+			mgmtServer := &Server{
 				wgKey: testingServerKey,
 				config: &config.Config{
 					DeviceAuthorizationFlow: testCase.inputFlow,

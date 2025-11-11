@@ -51,8 +51,8 @@ const (
 	defaultSyncLim = 1000
 )
 
-// GRPCServer an instance of a Management gRPC API server
-type GRPCServer struct {
+// Server an instance of a Management gRPC API server
+type Server struct {
 	accountManager  account.Manager
 	settingsManager settings.Manager
 	wgKey           wgtypes.Key
@@ -89,7 +89,7 @@ func NewServer(
 	authManager auth.Manager,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	networkMapController network_map.Controller,
-) (*GRPCServer, error) {
+) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func NewServer(
 		}
 	}
 
-	return &GRPCServer{
+	return &Server{
 		wgKey: key,
 		// peerKey -> event channel
 		peersUpdateManager:       peersUpdateManager,
@@ -141,7 +141,7 @@ func NewServer(
 	}, nil
 }
 
-func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
+func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
 	ip := ""
 	p, ok := peer.FromContext(ctx)
 	if ok {
@@ -178,7 +178,7 @@ func getRealIP(ctx context.Context) net.IP {
 
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
-func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
+func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
 	if s.syncSem.Load() >= s.syncLim {
 		return status.Errorf(codes.ResourceExhausted, "too many concurrent sync requests, please try again later")
 	}
@@ -288,7 +288,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 }
 
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
-func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
 	for {
 		select {
@@ -322,7 +322,7 @@ func (s *GRPCServer) handleUpdates(ctx context.Context, accountID string, peerKe
 
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
-func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
+func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
 	if err != nil {
 		s.cancelPeerRoutines(ctx, accountID, peer)
@@ -340,7 +340,7 @@ func (s *GRPCServer) sendUpdate(ctx context.Context, accountID string, peerKey w
 	return nil
 }
 
-func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
+func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer) {
 	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
 	defer unlock()
 
@@ -355,7 +355,7 @@ func (s *GRPCServer) cancelPeerRoutines(ctx context.Context, accountID string, p
 	log.WithContext(ctx).Tracef("peer %s has been disconnected", peer.Key)
 }
 
-func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string, error) {
+func (s *Server) validateToken(ctx context.Context, jwtToken string) (string, error) {
 	if s.authManager == nil {
 		return "", status.Errorf(codes.Internal, "missing auth manager")
 	}
@@ -389,7 +389,7 @@ func (s *GRPCServer) validateToken(ctx context.Context, jwtToken string) (string
 	return userAuth.UserId, nil
 }
 
-func (s *GRPCServer) acquirePeerLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
+func (s *Server) acquirePeerLockByUID(ctx context.Context, uniqueID string) (unlock func()) {
 	log.WithContext(ctx).Tracef("acquiring peer lock for ID %s", uniqueID)
 
 	start := time.Now()
@@ -497,7 +497,7 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 	}
 }
 
-func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, error) {
+func (s *Server) parseRequest(ctx context.Context, req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, error) {
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		log.WithContext(ctx).Warnf("error while parsing peer's WireGuard public key %s.", req.WgPubKey)
@@ -516,7 +516,7 @@ func (s *GRPCServer) parseRequest(ctx context.Context, req *proto.EncryptedMessa
 // In case it is, the login is successful
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
-func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	reqStart := time.Now()
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
@@ -627,7 +627,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	}, nil
 }
 
-func (s *GRPCServer) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
+func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
 	var relayToken *Token
 	var err error
 	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
@@ -658,7 +658,7 @@ func (s *GRPCServer) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer
 //
 // The user ID can be empty if the token is not provided, which is acceptable if the peer is already
 // registered or if it uses a setup key to register.
-func (s *GRPCServer) processJwtToken(ctx context.Context, loginReq *proto.LoginRequest, peerKey wgtypes.Key) (string, error) {
+func (s *Server) processJwtToken(ctx context.Context, loginReq *proto.LoginRequest, peerKey wgtypes.Key) (string, error) {
 	userID := ""
 	if loginReq.GetJwtToken() != "" {
 		var err error
@@ -679,12 +679,12 @@ func (s *GRPCServer) processJwtToken(ctx context.Context, loginReq *proto.LoginR
 }
 
 // IsHealthy indicates whether the service is healthy
-func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty, error) {
+func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty, error) {
 	return &proto.Empty{}, nil
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer, dnsFwdPort int64) error {
+func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, networkMap *types.NetworkMap, postureChecks []*posture.Checks, srv proto.ManagementService_SyncServer, dnsFwdPort int64) error {
 	var err error
 
 	var turnToken *Token
@@ -738,7 +738,7 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 // GetDeviceAuthorizationFlow returns a device authorization flow information
 // This is used for initiating an Oauth 2 device authorization grant flow
 // which will be used by our clients to Login
-func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.WithContext(ctx).Tracef("GetDeviceAuthorizationFlow request for pubKey: %s", req.WgPubKey)
 	start := time.Now()
 	defer func() {
@@ -796,7 +796,7 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 // GetPKCEAuthorizationFlow returns a pkce authorization flow information
 // This is used for initiating an Oauth 2 pkce authorization grant flow
 // which will be used by our clients to Login
-func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.WithContext(ctx).Tracef("GetPKCEAuthorizationFlow request for pubKey: %s", req.WgPubKey)
 	start := time.Now()
 	defer func() {
@@ -851,7 +851,7 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.En
 
 // SyncMeta endpoint is used to synchronize peer's system metadata and notifies the connected,
 // peer's under the same account of any updates.
-func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
+func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
 	realIP := getRealIP(ctx)
 	log.WithContext(ctx).Debugf("Sync meta request from peer [%s] [%s]", req.WgPubKey, realIP.String())
 
@@ -876,7 +876,7 @@ func (s *GRPCServer) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) 
 	return &proto.Empty{}, nil
 }
 
-func (s *GRPCServer) Logout(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
+func (s *Server) Logout(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
 	log.WithContext(ctx).Debugf("Logout request from peer [%s]", req.WgPubKey)
 	start := time.Now()
 

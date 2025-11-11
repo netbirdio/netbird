@@ -18,10 +18,7 @@ import (
 
 const (
 	dnsForwarderPort = nbdns.ForwarderServerPort
-	oldForwarderPort = nbdns.ForwarderClientPort
 )
-
-const dnsForwarderPortMinVersion = "v0.59.0"
 
 // GetDNSSettings validates a user role and returns the DNS settings for the provided account ID
 func (am *DefaultAccountManager) GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error) {

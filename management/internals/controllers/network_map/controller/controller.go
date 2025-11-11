@@ -199,11 +199,7 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) e
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 			start = time.Now()
 
-			// proxyNetworkMap, ok := proxyNetworkMaps[p.ID]
-			// if ok {
-			// 	remotePeerNetworkMap.Merge(proxyNetworkMap)
-			// }
-			c.metrics.CountMergeNetworkMapDuration(time.Since(start))
+			// TODO: Proxy map
 
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
@@ -254,12 +250,6 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return fmt.Errorf("failed to get posture checks for peer %s: %v", peerId, err)
 	}
 
-	// proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, accountId, peerId, account.Peers)
-	// if err != nil {
-	// 	log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
-	// 	return
-	// }
-
 	var remotePeerNetworkMap *types.NetworkMap
 
 	if c.experimentalNetworkMap(accountId) {
@@ -268,10 +258,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics)
 	}
 
-	// proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
-	// if ok {
-	// 	remotePeerNetworkMap.Merge(proxyNetworkMap)
-	// }
+	// TODO: Proxy map
 
 	extraSettings, err := c.settingsManager.GetExtraSettings(ctx, peer.AccountID)
 	if err != nil {
@@ -308,14 +295,14 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 
 	go func() {
 		defer b.mu.Unlock()
-		c.UpdateAccountPeers(ctx, accountID)
+		_ = c.UpdateAccountPeers(ctx, accountID)
 		if !b.update.Load() {
 			return
 		}
 		b.update.Store(false)
 		if b.next == nil {
 			b.next = time.AfterFunc(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
-				c.UpdateAccountPeers(ctx, accountID)
+				_ = c.UpdateAccountPeers(ctx, accountID)
 			})
 			return
 		}
@@ -397,12 +384,6 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 
 	customZone := account.GetPeersCustomZone(ctx, c.GetDNSDomain(account.Settings))
 
-	// proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
-	// if err != nil {
-	// 	log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
-	// 	return nil, nil, nil, err
-	// }
-
 	var networkMap *types.NetworkMap
 
 	if c.experimentalNetworkMap(accountID) {
@@ -411,10 +392,7 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), c.accountManagerMetrics)
 	}
 
-	// proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
-	// if ok {
-	// 	networkMap.Merge(proxyNetworkMap)
-	// }
+	// TODO: Proxy map
 
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 
