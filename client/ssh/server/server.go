@@ -128,6 +128,8 @@ type Server struct {
 	jwtValidator *jwt.Validator
 	jwtExtractor *jwt.ClaimsExtractor
 	jwtConfig    *JWTConfig
+
+	suSupportsPty bool
 }
 
 type JWTConfig struct {
@@ -170,6 +172,8 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 	if s.sshServer != nil {
 		return errors.New("SSH server is already running")
 	}
+
+	s.suSupportsPty = s.detectSuPtySupport(ctx)
 
 	ln, addrDesc, err := s.createListener(ctx, addr)
 	if err != nil {

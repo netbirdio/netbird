@@ -516,14 +516,11 @@ func (pd *PrivilegeDropper) authenticateDomainUser(username, domain, fullUsernam
 
 // CreateWindowsProcessAsUser creates a process as user with safe argument passing (for SFTP and executables)
 func (pd *PrivilegeDropper) CreateWindowsProcessAsUser(ctx context.Context, executablePath string, args []string, username, domain, workingDir string) (*exec.Cmd, error) {
-	fullUsername := buildUserCpn(username, domain)
-
 	token, err := pd.createToken(username, domain)
 	if err != nil {
 		return nil, fmt.Errorf("user authentication: %w", err)
 	}
 
-	log.Debugf("using S4U authentication for user %s", fullUsername)
 	defer func() {
 		if err := windows.CloseHandle(token); err != nil {
 			log.Debugf("close impersonation token error: %v", err)
