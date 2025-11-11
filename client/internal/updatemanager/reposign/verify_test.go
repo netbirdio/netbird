@@ -108,9 +108,9 @@ func TestArtifactVerify_FullWorkflow(t *testing.T) {
 			_, _ = w.Write(artifactKeysBundle)
 		case "/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
-		case "/artifacts/1.0.0/test-artifact.bin":
+		case "/artifacts/v1.0.0/test-artifact.bin":
 			_, _ = w.Write(artifactData)
-		case "/artifacts/1.0.0/test-artifact.bin.sig":
+		case "/artifacts/v1.0.0/test-artifact.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)
@@ -204,7 +204,7 @@ func TestArtifactVerify_MissingArtifactFile(t *testing.T) {
 			_, _ = w.Write(artifactKeysBundle)
 		case "/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
-		case "/artifacts/1.0.0/missing.bin.sig":
+		case "/artifacts/v1.0.0/missing.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)
@@ -328,7 +328,7 @@ func TestArtifactVerify_WithRevocation(t *testing.T) {
 			_, _ = w.Write(artifactKeysBundle)
 		case "/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
-		case "/artifacts/1.0.0/test.bin.sig":
+		case "/artifacts/v1.0.0/test.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)
@@ -402,7 +402,7 @@ func TestArtifactVerify_ValidWithSecondKey(t *testing.T) {
 			_, _ = w.Write(artifactKeysBundle)
 		case "/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
-		case "/artifacts/1.0.0/test.bin.sig":
+		case "/artifacts/v1.0.0/test.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)
@@ -465,7 +465,7 @@ func TestArtifactVerify_TamperedArtifact(t *testing.T) {
 			_, _ = w.Write(artifactKeysBundle)
 		case "/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
-		case "/artifacts/1.0.0/test.bin.sig":
+		case "/artifacts/v1.0.0/test.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)

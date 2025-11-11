@@ -438,12 +438,9 @@ func TestRootKey_FullWorkflow(t *testing.T) {
 	artifactPubKey, _, err := parsePublicKey(artifactPubPEM, tagArtifactPublic)
 	require.NoError(t, err)
 
-	artifactPubJSON, err := json.Marshal(artifactPubKey)
-	require.NoError(t, err)
-
-	// Reconstruct message
-	msg := make([]byte, 0, len(artifactPubJSON)+8)
-	msg = append(msg, artifactPubJSON...)
+	// Reconstruct message - SignArtifactKey signs the PEM, not the JSON
+	msg := make([]byte, 0, len(artifactPubPEM)+8)
+	msg = append(msg, artifactPubPEM...)
 	msg = binary.LittleEndian.AppendUint64(msg, uint64(sig.Timestamp.Unix()))
 
 	// Verify with root public key
