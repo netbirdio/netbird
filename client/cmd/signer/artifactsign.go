@@ -16,6 +16,11 @@ var (
 	verifyArtifactPubKeyFile    string
 	verifyArtifactFile          string
 	verifyArtifactSignatureFile string
+
+	verifyArtifactKeyPubKeyFile     string
+	verifyArtifactKeyRootPubKeyFile string
+	verifyArtifactKeySignatureFile  string
+	verifyArtifactKeyRevocationFile string
 )
 
 var signArtifactCmd = &cobra.Command{
@@ -45,9 +50,24 @@ var verifyArtifactCmd = &cobra.Command{
 	},
 }
 
+var verifyArtifactKeyCmd = &cobra.Command{
+	Use:   "verify-artifact-key",
+	Short: "Verify an artifact public key was signed by a root key",
+	Long: `Verify that an artifact public key (or bundle) was properly signed by a root key.
+This validates the chain of trust from the root key to the artifact key.`,
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := handleVerifyArtifactKey(cmd, verifyArtifactKeyPubKeyFile, verifyArtifactKeyRootPubKeyFile, verifyArtifactKeySignatureFile, verifyArtifactKeyRevocationFile); err != nil {
+			return fmt.Errorf("failed to verify artifact key: %w", err)
+		}
+		return nil
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(signArtifactCmd)
 	rootCmd.AddCommand(verifyArtifactCmd)
+	rootCmd.AddCommand(verifyArtifactKeyCmd)
 
 	signArtifactCmd.Flags().StringVar(&signArtifactRootPrivKeyFile, "artifact-key-file", "", "Path to the artifact private key file used for signing")
 	signArtifactCmd.Flags().StringVar(&signArtifactArtifactFile, "artifact-file", "", "Path to the artifact to be signed")
@@ -71,6 +91,21 @@ func init() {
 		panic(fmt.Errorf("mark artifact-file as required: %w", err))
 	}
 	if err := verifyArtifactCmd.MarkFlagRequired("signature-file"); err != nil {
+		panic(fmt.Errorf("mark signature-file as required: %w", err))
+	}
+
+	verifyArtifactKeyCmd.Flags().StringVar(&verifyArtifactKeyPubKeyFile, "artifact-key-file", "", "Path to the artifact public key file or bundle")
+	verifyArtifactKeyCmd.Flags().StringVar(&verifyArtifactKeyRootPubKeyFile, "root-key-file", "", "Path to the root public key file or bundle")
+	verifyArtifactKeyCmd.Flags().StringVar(&verifyArtifactKeySignatureFile, "signature-file", "", "Path to the signature file")
+	verifyArtifactKeyCmd.Flags().StringVar(&verifyArtifactKeyRevocationFile, "revocation-file", "", "Path to the revocation list file (optional)")
+
+	if err := verifyArtifactKeyCmd.MarkFlagRequired("artifact-key-file"); err != nil {
+		panic(fmt.Errorf("mark artifact-key-file as required: %w", err))
+	}
+	if err := verifyArtifactKeyCmd.MarkFlagRequired("root-key-file"); err != nil {
+		panic(fmt.Errorf("mark root-key-file as required: %w", err))
+	}
+	if err := verifyArtifactKeyCmd.MarkFlagRequired("signature-file"); err != nil {
 		panic(fmt.Errorf("mark signature-file as required: %w", err))
 	}
 }
@@ -149,4 +184,80 @@ func handleVerifyArtifact(cmd *cobra.Command, pubKeyFile, artifactFile, signatur
 	cmd.Printf("Signed by key: %s\n", signature.KeyID)
 	cmd.Printf("Signature timestamp: %s\n", signature.Timestamp.Format("2006-01-02 15:04:05 MST"))
 	return nil
+}
+
+func handleVerifyArtifactKey(cmd *cobra.Command, artifactKeyFile, rootKeyFile, signatureFile, revocationFile string) error {
+	cmd.Println("🔍 Verifying artifact key...")
+
+	// Read artifact key data
+	artifactKeyData, err := os.ReadFile(artifactKeyFile)
+	if err != nil {
+		return fmt.Errorf("read artifact key file: %w", err)
+	}
+
+	// Read root public key(s)
+	rootKeyData, err := os.ReadFile(rootKeyFile)
+	if err != nil {
+		return fmt.Errorf("read root key file: %w", err)
+	}
+
+	rootPublicKeys, err := parseRootPublicKeys(rootKeyData)
+	if err != nil {
+		return fmt.Errorf("failed to parse root public key(s): %w", err)
+	}
+
+	// Read signature
+	sigBytes, err := os.ReadFile(signatureFile)
+	if err != nil {
+		return fmt.Errorf("read signature file: %w", err)
+	}
+
+	signature, err := reposign.ParseSignature(sigBytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse signature: %w", err)
+	}
+
+	// Read optional revocation list
+	var revocationList *reposign.RevocationList
+	if revocationFile != "" {
+		revData, err := os.ReadFile(revocationFile)
+		if err != nil {
+			return fmt.Errorf("read revocation file: %w", err)
+		}
+
+		revocationList, err = reposign.ParseRevocationList(revData)
+		if err != nil {
+			return fmt.Errorf("failed to parse revocation list: %w", err)
+		}
+	}
+
+	// Validate artifact key(s)
+	validKeys, err := reposign.ValidateArtifactKeys(rootPublicKeys, artifactKeyData, *signature, revocationList)
+	if err != nil {
+		return fmt.Errorf("artifact key verification failed: %w", err)
+	}
+
+	cmd.Println("✅ Artifact key(s) verified successfully")
+	cmd.Printf("Signed by root key: %s\n", signature.KeyID)
+	cmd.Printf("Signature timestamp: %s\n", signature.Timestamp.Format("2006-01-02 15:04:05 MST"))
+	cmd.Printf("\nValid artifact keys (%d):\n", len(validKeys))
+	for i, key := range validKeys {
+		cmd.Printf("  [%d] Key ID: %s\n", i+1, key.Metadata.ID)
+		cmd.Printf("      Created: %s\n", key.Metadata.CreatedAt.Format("2006-01-02 15:04:05 MST"))
+		if !key.Metadata.ExpiresAt.IsZero() {
+			cmd.Printf("      Expires: %s\n", key.Metadata.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
+		} else {
+			cmd.Printf("      Expires: Never\n")
+		}
+	}
+	return nil
+}
+
+// parseRootPublicKeys parses a root public key from PEM data
+func parseRootPublicKeys(data []byte) ([]reposign.PublicKey, error) {
+	key, err := reposign.ParseRootPublicKey(data)
+	if err != nil {
+		return nil, err
+	}
+	return []reposign.PublicKey{key}, nil
 }

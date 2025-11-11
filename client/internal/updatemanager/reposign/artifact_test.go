@@ -339,6 +339,43 @@ func TestBundleArtifactKeys_Empty(t *testing.T) {
 
 // Test ValidateArtifactKeys
 
+func TestSingleValidateArtifactKey_Valid(t *testing.T) {
+	// Create root key
+	rootPub, rootPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	rootKey := &RootKey{
+		PrivateKey{
+			Key: rootPriv,
+			Metadata: KeyMetadata{
+				ID:        computeKeyID(rootPub),
+				CreatedAt: time.Now().UTC(),
+			},
+		},
+	}
+
+	rootKeys := []PublicKey{
+		{
+			Key: rootPub,
+			Metadata: KeyMetadata{
+				ID:        computeKeyID(rootPub),
+				CreatedAt: time.Now().UTC(),
+			},
+		},
+	}
+
+	// Generate artifact key
+	_, _, pubPEM, sigData, err := GenerateArtifactKey(rootKey, 30*24*time.Hour)
+	require.NoError(t, err)
+
+	sig, _ := ParseSignature(sigData)
+
+	// Validate
+	validKeys, err := ValidateArtifactKeys(rootKeys, pubPEM, *sig, nil)
+	require.NoError(t, err)
+	assert.Len(t, validKeys, 1)
+}
+
 func TestValidateArtifactKeys_Valid(t *testing.T) {
 	// Create root key
 	rootPub, rootPriv, err := ed25519.GenerateKey(rand.Reader)

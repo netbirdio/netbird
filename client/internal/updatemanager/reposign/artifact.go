@@ -109,7 +109,7 @@ func GenerateArtifactKey(rootKey *RootKey, expiration time.Duration) (*ArtifactK
 	})
 
 	// Sign the public key with the root key
-	signature, err := SignArtifactKey(*rootKey, pubJSON)
+	signature, err := SignArtifactKey(*rootKey, pubPEM)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to sign artifact key: %w", err)
 	}
