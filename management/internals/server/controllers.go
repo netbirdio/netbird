@@ -13,7 +13,6 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
-	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 )
@@ -35,12 +34,6 @@ func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValida
 			log.Errorf("failed to create integrated peer validator: %v", err)
 		}
 		return integratedPeerValidator
-	})
-}
-
-func (s *BaseServer) ProxyController() port_forwarding.Controller {
-	return Create(s, func() port_forwarding.Controller {
-		return integrations.NewController(s.Store())
 	})
 }
 
