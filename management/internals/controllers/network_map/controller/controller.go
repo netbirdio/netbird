@@ -197,7 +197,6 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) e
 			}
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
-			start = time.Now()
 
 			// TODO: Proxy map
 
