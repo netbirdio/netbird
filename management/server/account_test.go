@@ -1372,6 +1372,9 @@ func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 		}
 	}()
 
+	// drain channel
+	<-updMsg
+
 	if err := manager.DeletePeer(context.Background(), account.Id, peer3.ID, userID); err != nil {
 		t.Errorf("delete peer: %v", err)
 		return
