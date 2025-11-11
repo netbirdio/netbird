@@ -94,7 +94,7 @@ func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) e
 	}
 
 	if installerFile != "" {
-		args = append(args, "--installer-file", filepath.Join(u.tempDir, installerFile))
+		args = append(args, "--installer-file", installerFile)
 	}
 
 	updateCmd := exec.Command(updaterPath, args...)
@@ -180,12 +180,13 @@ func (u *Installer) downloadInstaller(ctx context.Context, installerType Type, t
 		return "", fmt.Errorf("invalid file URL: %s", fileURL)
 	}
 
-	if err := downloader.DownloadToFile(ctx, fileURL, filepath.Join(u.tempDir, fileName)); err != nil {
+	outputFilePath := filepath.Join(u.tempDir, fileName)
+	if err := downloader.DownloadToFile(ctx, fileURL, outputFilePath); err != nil {
 		return "", err
 	}
 
 	success = true
-	return fileName, nil
+	return outputFilePath, nil
 }
 
 func (u *Installer) TempDir() string {
