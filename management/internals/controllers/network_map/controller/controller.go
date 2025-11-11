@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -48,6 +49,8 @@ type Controller struct {
 
 	requestBuffer account.RequestBuffer
 
+	proxyController port_forwarding.Controller
+
 	integratedPeerValidator integrated_validator.IntegratedValidator
 
 	holder *types.Holder
@@ -64,7 +67,7 @@ type bufferUpdate struct {
 
 var _ network_map.Controller = (*Controller)(nil)
 
-func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string) *Controller {
+func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string, proxyController port_forwarding.Controller) *Controller {
 	nMetrics, err := newMetrics(metrics.UpdateChannelMetrics())
 	if err != nil {
 		log.Fatal(fmt.Errorf("error creating metrics: %w", err))
@@ -91,6 +94,8 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		integratedPeerValidator: integratedPeerValidator,
 		settingsManager:         settingsManager,
 		dnsDomain:               dnsDomain,
+
+		proxyController: proxyController,
 
 		holder:               types.NewHolder(),
 		expNewNetworkMap:     newNetworkMapBuilder,
@@ -152,11 +157,11 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) e
 		c.initNetworkMapBuilderIfNeeded(account, approvedPeersMap)
 	}
 
-	// proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMapsAll(ctx, accountID, account.Peers)
-	// if err != nil {
-	// 	log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
-	// 	return
-	// }
+	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMapsAll(ctx, accountID, account.Peers)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return fmt.Errorf("failed to get proxy network maps: %v", err)
+	}
 
 	extraSetting, err := c.settingsManager.GetExtraSettings(ctx, accountID)
 	if err != nil {
@@ -198,7 +203,10 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) e
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
-			// TODO: Proxy map
+			proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+			if ok {
+				remotePeerNetworkMap.Merge(proxyNetworkMap)
+			}
 
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
@@ -249,6 +257,12 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return fmt.Errorf("failed to get posture checks for peer %s: %v", peerId, err)
 	}
 
+	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return err
+	}
+
 	var remotePeerNetworkMap *types.NetworkMap
 
 	if c.experimentalNetworkMap(accountId) {
@@ -257,7 +271,10 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		remotePeerNetworkMap = account.GetPeerNetworkMap(ctx, peerId, customZone, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics)
 	}
 
-	// TODO: Proxy map
+	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	if ok {
+		remotePeerNetworkMap.Merge(proxyNetworkMap)
+	}
 
 	extraSettings, err := c.settingsManager.GetExtraSettings(ctx, peer.AccountID)
 	if err != nil {
@@ -383,6 +400,12 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 
 	customZone := account.GetPeersCustomZone(ctx, c.GetDNSDomain(account.Settings))
 
+	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return nil, nil, nil, 0, err
+	}
+
 	var networkMap *types.NetworkMap
 
 	if c.experimentalNetworkMap(accountID) {
@@ -391,7 +414,10 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, approvedPeersMap, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), c.accountManagerMetrics)
 	}
 
-	// TODO: Proxy map
+	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	if ok {
+		networkMap.Merge(proxyNetworkMap)
+	}
 
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 
@@ -685,11 +711,11 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 	}
 	customZone := account.GetPeersCustomZone(ctx, c.GetDNSDomain(account.Settings))
 
-	// proxyNetworkMaps, err := am.proxyController.GetProxyNetworkMaps(ctx, account.Id, peerID, account.Peers)
-	// if err != nil {
-	// 	log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
-	// 	return nil, err
-	// }
+	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peerID, account.Peers)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return nil, err
+	}
 
 	var networkMap *types.NetworkMap
 
@@ -699,10 +725,10 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 		networkMap = account.GetPeerNetworkMap(ctx, peer.ID, customZone, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)
 	}
 
-	// proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
-	// if ok {
-	// 	networkMap.Merge(proxyNetworkMap)
-	// }
+	proxyNetworkMap, ok := proxyNetworkMaps[peer.ID]
+	if ok {
+		networkMap.Merge(proxyNetworkMap)
+	}
 
 	return networkMap, nil
 }
