@@ -231,6 +231,10 @@ var overview = OutputOverview{
 	Networks: []string{
 		"10.10.0.0/24",
 	},
+	SSHServerState: SSHServerStateOutput{
+		Enabled:  false,
+		Sessions: []SSHSessionOutput{},
+	},
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
@@ -385,7 +389,11 @@ func TestParsingToJSON(t *testing.T) {
           ],
           "events": [],
           "lazyConnectionEnabled": false,
-		  "profileName":""
+		  "profileName":"",
+		  "sshServer":{
+		    "enabled":false,
+			"sessions":[]
+		  }
         }`
 	// @formatter:on
 
@@ -488,6 +496,9 @@ dnsServers:
 events: []
 lazyConnectionEnabled: false
 profileName: ""
+sshServer:
+    enabled: false
+    sessions: []
 `
 
 	assert.Equal(t, expectedYAML, yaml)
@@ -554,6 +565,7 @@ NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
+SSH Server: Disabled
 Networks: 10.10.0.0/24
 Forwarding rules: 0
 Peers count: 2/2 Connected
@@ -563,7 +575,7 @@ Peers count: 2/2 Connected
 }
 
 func TestParsingToShortVersion(t *testing.T) {
-	shortVersion := ParseGeneralSummary(overview, false, false, false)
+	shortVersion := ParseGeneralSummary(overview, false, false, false, false)
 
 	expectedString := fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
 Daemon version: 0.14.1
@@ -578,6 +590,7 @@ NetBird IP: 192.168.178.100/16
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
+SSH Server: Disabled
 Networks: 10.10.0.0/24
 Forwarding rules: 0
 Peers count: 2/2 Connected

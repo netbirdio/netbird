@@ -17,6 +17,7 @@ import (
 	gojwt "github.com/golang-jwt/jwt/v5"
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
+	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
@@ -105,12 +106,20 @@ type sshConnectionState struct {
 	remoteAddr           string
 }
 
+type authKey string
+
+func newAuthKey(username string, remoteAddr net.Addr) authKey {
+	return authKey(fmt.Sprintf("%s@%s", username, remoteAddr.String()))
+}
+
 type Server struct {
-	sshServer      *ssh.Server
-	mu             sync.RWMutex
-	hostKeyPEM     []byte
-	sessions       map[SessionKey]ssh.Session
-	sessionCancels map[ConnectionKey]context.CancelFunc
+	sshServer       *ssh.Server
+	mu              sync.RWMutex
+	hostKeyPEM      []byte
+	sessions        map[SessionKey]ssh.Session
+	sessionCancels  map[ConnectionKey]context.CancelFunc
+	sessionJWTUsers map[SessionKey]string
+	pendingAuthJWT  map[authKey]string
 
 	allowLocalPortForwarding  bool
 	allowRemotePortForwarding bool
@@ -148,6 +157,14 @@ type Config struct {
 	HostKeyPEM []byte
 }
 
+// SessionInfo contains information about an active SSH session
+type SessionInfo struct {
+	Username      string
+	RemoteAddress string
+	Command       string
+	JWTUsername   string
+}
+
 // New creates an SSH server instance with the provided host key and optional JWT configuration
 // If jwtConfig is nil, JWT authentication is disabled
 func New(config *Config) *Server {
@@ -155,6 +172,8 @@ func New(config *Config) *Server {
 		mu:                     sync.RWMutex{},
 		hostKeyPEM:             config.HostKeyPEM,
 		sessions:               make(map[SessionKey]ssh.Session),
+		sessionJWTUsers:        make(map[SessionKey]string),
+		pendingAuthJWT:         make(map[authKey]string),
 		remoteForwardListeners: make(map[ForwardKey]net.Listener),
 		sshConnections:         make(map[*cryptossh.ServerConn]*sshConnectionState),
 		jwtEnabled:             config.JWT != nil,
@@ -190,7 +209,7 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 	log.Infof("SSH server started on %s", addrDesc)
 
 	go func() {
-		if err := sshServer.Serve(ln); !isShutdownError(err) {
+		if err := sshServer.Serve(ln); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
 			log.Errorf("SSH server error: %v", err)
 		}
 	}()
@@ -233,13 +252,56 @@ func (s *Server) Stop() error {
 		return nil
 	}
 
-	if err := s.sshServer.Close(); err != nil && !isShutdownError(err) {
-		return fmt.Errorf("shutdown SSH server: %w", err)
+	if err := s.sshServer.Close(); err != nil {
+		log.Debugf("close SSH server: %v", err)
 	}
 
 	s.sshServer = nil
 
+	maps.Clear(s.sessions)
+	maps.Clear(s.sessionJWTUsers)
+	maps.Clear(s.pendingAuthJWT)
+	maps.Clear(s.sshConnections)
+
+	for _, cancelFunc := range s.sessionCancels {
+		cancelFunc()
+	}
+	maps.Clear(s.sessionCancels)
+
+	for _, listener := range s.remoteForwardListeners {
+		if err := listener.Close(); err != nil {
+			log.Debugf("close remote forward listener: %v", err)
+		}
+	}
+	maps.Clear(s.remoteForwardListeners)
+
 	return nil
+}
+
+// GetStatus returns the current status of the SSH server and active sessions
+func (s *Server) GetStatus() (enabled bool, sessions []SessionInfo) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	enabled = s.sshServer != nil
+
+	for sessionKey, session := range s.sessions {
+		cmd := "<interactive shell>"
+		if len(session.Command()) > 0 {
+			cmd = safeLogCommand(session.Command())
+		}
+
+		jwtUsername := s.sessionJWTUsers[sessionKey]
+
+		sessions = append(sessions, SessionInfo{
+			Username:      session.User(),
+			RemoteAddress: session.RemoteAddr().String(),
+			Command:       cmd,
+			JWTUsername:   jwtUsername,
+		})
+	}
+
+	return enabled, sessions
 }
 
 // SetNetstackNet sets the netstack network for userspace networking
@@ -446,6 +508,11 @@ func (s *Server) passwordHandler(ctx ssh.Context, password string) bool {
 		return false
 	}
 
+	key := newAuthKey(ctx.User(), ctx.RemoteAddr())
+	s.mu.Lock()
+	s.pendingAuthJWT[key] = userAuth.UserId
+	s.mu.Unlock()
+
 	log.Infof("JWT authentication successful for user %s (JWT user ID: %s) from %s", ctx.User(), userAuth.UserId, ctx.RemoteAddr())
 	return true
 }
@@ -539,19 +606,6 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 
 	log.Infof("SSH connection from NetBird peer %s allowed", tcpAddr)
 	return conn
-}
-
-func isShutdownError(err error) bool {
-	if errors.Is(err, net.ErrClosed) {
-		return true
-	}
-
-	var opErr *net.OpError
-	if errors.As(err, &opErr) && opErr.Op == "accept" {
-		return true
-	}
-
-	return false
 }
 
 func (s *Server) createSSHServer(addr net.Addr) (*ssh.Server, error) {
