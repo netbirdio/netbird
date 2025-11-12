@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -137,7 +138,7 @@ func validateAndBuildBundleParams(req api.WorkloadRequest, workload *Workload) e
 		return fmt.Errorf("invalid parameters for bundle job")
 	}
 	// validate bundle_for_time <= 5 minutes if BundleFor is enabled
-	if bundle.Parameters.BundleFor && bundle.Parameters.BundleForTime < 1 || bundle.Parameters.BundleForTime > 5 {
+	if bundle.Parameters.BundleFor && (bundle.Parameters.BundleForTime < 1 || bundle.Parameters.BundleForTime > 5) {
 		return fmt.Errorf("bundle_for_time must be between 1 and 5, got %d", bundle.Parameters.BundleForTime)
 	}
 	// validate log-file-count ≥ 1 and ≤ 1000
