@@ -7,8 +7,10 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	pb "github.com/golang/protobuf/proto" // nolint
@@ -44,6 +46,9 @@ import (
 const (
 	envLogBlockedPeers = "NB_LOG_BLOCKED_PEERS"
 	envBlockPeers      = "NB_BLOCK_SAME_PEERS"
+	envConcurrentSyncs = "NB_MAX_CONCURRENT_SYNCS"
+
+	defaultSyncLim = 1000
 )
 
 // GRPCServer an instance of a Management gRPC API server
@@ -63,6 +68,9 @@ type GRPCServer struct {
 	logBlockedPeers          bool
 	blockPeersWithSameConfig bool
 	integratedPeerValidator  integrated_validator.IntegratedValidator
+
+	syncSem atomic.Int32
+	syncLim int32
 }
 
 // NewServer creates a new Management server
@@ -96,6 +104,17 @@ func NewServer(
 	logBlockedPeers := strings.ToLower(os.Getenv(envLogBlockedPeers)) == "true"
 	blockPeersWithSameConfig := strings.ToLower(os.Getenv(envBlockPeers)) == "true"
 
+	syncLim := int32(defaultSyncLim)
+	if syncLimStr := os.Getenv(envConcurrentSyncs); syncLimStr != "" {
+		syncLimParsed, err := strconv.Atoi(syncLimStr)
+		if err != nil {
+			log.Errorf("invalid value for %s: %v using %d", envConcurrentSyncs, err, defaultSyncLim)
+		} else {
+			//nolint:gosec
+			syncLim = int32(syncLimParsed)
+		}
+	}
+
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
@@ -110,6 +129,8 @@ func NewServer(
 		logBlockedPeers:          logBlockedPeers,
 		blockPeersWithSameConfig: blockPeersWithSameConfig,
 		integratedPeerValidator:  integratedPeerValidator,
+
+		syncLim: syncLim,
 	}, nil
 }
 
@@ -151,6 +172,11 @@ func getRealIP(ctx context.Context) net.IP {
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
+	if s.syncSem.Load() >= s.syncLim {
+		return status.Errorf(codes.ResourceExhausted, "too many concurrent sync requests, please try again later")
+	}
+	s.syncSem.Add(1)
+
 	reqStart := time.Now()
 
 	ctx := srv.Context()
@@ -158,6 +184,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	syncReq := &proto.SyncRequest{}
 	peerKey, err := s.parseRequest(ctx, req, syncReq)
 	if err != nil {
+		s.syncSem.Add(-1)
 		return err
 	}
 	realIP := getRealIP(ctx)
@@ -172,6 +199,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 			log.WithContext(ctx).Warnf("peer %s with meta hash %d is blocked from syncing", peerKey.String(), metahashed)
 		}
 		if s.blockPeersWithSameConfig {
+			s.syncSem.Add(-1)
 			return mapError(ctx, internalStatus.ErrPeerAlreadyLoggedIn)
 		}
 	}
@@ -183,26 +211,33 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 
-	unlock := s.acquirePeerLockByUID(ctx, peerKey.String())
-	defer func() {
-		if unlock != nil {
-			unlock()
-		}
-	}()
-
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
 	if err != nil {
 		// nolint:staticcheck
 		ctx = context.WithValue(ctx, nbContext.AccountIDKey, "UNKNOWN")
 		log.WithContext(ctx).Tracef("peer %s is not registered", peerKey.String())
 		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
+			s.syncSem.Add(-1)
 			return status.Errorf(codes.PermissionDenied, "peer is not registered")
 		}
+		s.syncSem.Add(-1)
 		return err
 	}
 
+	log.WithContext(ctx).Debugf("Sync: GetAccountIDForPeerKey since start %v", time.Since(reqStart))
+
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
+
+	start := time.Now()
+	unlock := s.acquirePeerLockByUID(ctx, peerKey.String())
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
+	log.WithContext(ctx).Tracef("acquired peer lock for peer %s took %v", peerKey.String(), time.Since(start))
+	log.WithContext(ctx).Debugf("Sync: acquirePeerLockByUID since start %v", time.Since(reqStart))
 
 	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
@@ -213,20 +248,31 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	peer, netMap, postureChecks, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
+		s.syncSem.Add(-1)
 		return mapError(ctx, err)
 	}
+
+	log.WithContext(ctx).Debugf("Sync: SyncAndMarkPeer since start %v", time.Since(reqStart))
 
 	err = s.sendInitialSync(ctx, peerKey, peer, netMap, postureChecks, srv)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
+		s.syncSem.Add(-1)
 		return err
 	}
+	log.WithContext(ctx).Debugf("Sync: sendInitialSync since start %v", time.Since(reqStart))
 
 	updates := s.peersUpdateManager.CreateChannel(ctx, peer.ID)
 
+	log.WithContext(ctx).Debugf("Sync: CreateChannel since start %v", time.Since(reqStart))
+
 	s.ephemeralManager.OnPeerConnected(ctx, peer)
 
+	log.WithContext(ctx).Debugf("Sync: OnPeerConnected since start %v", time.Since(reqStart))
+
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
+
+	log.WithContext(ctx).Debugf("Sync: SetupRefresh since start %v", time.Since(reqStart))
 
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
@@ -236,6 +282,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	unlock = nil
 
 	log.WithContext(ctx).Debugf("Sync: took %v", time.Since(reqStart))
+
+	s.syncSem.Add(-1)
 
 	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv)
 }
@@ -509,9 +557,15 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	//nolint
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
 
+	log.WithContext(ctx).Debugf("Login: GetAccountIDForPeerKey since start %v", time.Since(reqStart))
+
 	defer func() {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart), accountID)
+		}
+		took := time.Since(reqStart)
+		if took > 7*time.Second {
+			log.WithContext(ctx).Debugf("Login: took %v", time.Since(reqStart))
 		}
 	}()
 
@@ -546,9 +600,12 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, mapError(ctx, err)
 	}
 
+	log.WithContext(ctx).Debugf("Login: LoginPeer since start %v", time.Since(reqStart))
+
 	// if the login request contains setup key then it is a registration request
 	if loginReq.GetSetupKey() != "" {
 		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
+		log.WithContext(ctx).Debugf("Login: OnPeerDisconnected since start %v", time.Since(reqStart))
 	}
 
 	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
@@ -556,6 +613,8 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		log.WithContext(ctx).Warnf("failed preparing login response for peer %s: %s", peerKey, err)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
+
+	log.WithContext(ctx).Debugf("Login: prepareLoginResponse since start %v", time.Since(reqStart))
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -826,10 +885,12 @@ func (s *GRPCServer) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, p
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
+	sendStart := time.Now()
 	err = srv.Send(&proto.EncryptedMessage{
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
 	})
+	log.WithContext(ctx).Debugf("sendInitialSync: sending response took %s", time.Since(sendStart))
 
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed sending SyncResponse %v", err)

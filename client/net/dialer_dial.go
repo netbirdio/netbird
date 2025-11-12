@@ -30,6 +30,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 
 	conn, err := d.Dialer.DialContext(ctx, network, address)
 	if err != nil {
+		cleanupConnID(connID)
 		return nil, fmt.Errorf("d.Dialer.DialContext: %w", err)
 	}
 
@@ -64,7 +65,7 @@ func callDialerHooks(ctx context.Context, connID hooks.ConnectionID, address str
 
 	ips, err := resolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return fmt.Errorf("failed to resolve address %s: %w", address, err)
+		return fmt.Errorf("resolve address %s: %w", address, err)
 	}
 
 	log.Debugf("Dialer resolved IPs for %s: %v", address, ips)

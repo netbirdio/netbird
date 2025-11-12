@@ -168,6 +168,15 @@ func TestPeer_SessionExpired(t *testing.T) {
 }
 
 func TestAccountManager_GetNetworkMap(t *testing.T) {
+	testGetNetworkMapGeneral(t)
+}
+
+func TestAccountManager_GetNetworkMap_Experimental(t *testing.T) {
+	t.Setenv(envNewNetworkMapBuilder, "true")
+	testGetNetworkMapGeneral(t)
+}
+
+func testGetNetworkMapGeneral(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -1003,7 +1012,16 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 	}
 }
 
+func TestUpdateAccountPeers_Experimental(t *testing.T) {
+	t.Setenv(envNewNetworkMapBuilder, "true")
+	testUpdateAccountPeers(t)
+}
+
 func TestUpdateAccountPeers(t *testing.T) {
+	testUpdateAccountPeers(t)
+}
+
+func testUpdateAccountPeers(t *testing.T) {
 	testCases := []struct {
 		name   string
 		peers  int
@@ -1043,8 +1061,8 @@ func TestUpdateAccountPeers(t *testing.T) {
 			for _, channel := range peerChannels {
 				update := <-channel
 				assert.Nil(t, update.Update.NetbirdConfig)
-				assert.Equal(t, tc.peers, len(update.NetworkMap.Peers))
-				assert.Equal(t, tc.peers*2, len(update.NetworkMap.FirewallRules))
+				assert.Equal(t, tc.peers, len(update.Update.NetworkMap.RemotePeers))
+				assert.Equal(t, tc.peers*2, len(update.Update.NetworkMap.FirewallRules))
 			}
 		})
 	}
@@ -1161,7 +1179,7 @@ func TestToSyncResponse(t *testing.T) {
 	}
 	dnsCache := &DNSConfigCache{}
 	accountSettings := &types.Settings{RoutingPeerDNSResolutionEnabled: true}
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{}, dnsForwarderPort)
+	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{}, int64(dnsForwarderPort))
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1548,6 +1566,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 }
 
 func Test_LoginPeer(t *testing.T) {
+	t.Setenv(envNewNetworkMapBuilder, "true")
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}

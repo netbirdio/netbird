@@ -30,17 +30,20 @@ const (
 
 	chainPOSTROUTING        = "POSTROUTING"
 	chainPREROUTING         = "PREROUTING"
+	chainFORWARD            = "FORWARD"
 	chainRTNAT              = "NETBIRD-RT-NAT"
 	chainRTFWDIN            = "NETBIRD-RT-FWD-IN"
 	chainRTFWDOUT           = "NETBIRD-RT-FWD-OUT"
 	chainRTPRE              = "NETBIRD-RT-PRE"
 	chainRTRDR              = "NETBIRD-RT-RDR"
+	chainRTMSSCLAMP         = "NETBIRD-RT-MSSCLAMP"
 	routingFinalForwardJump = "ACCEPT"
 	routingFinalNatJump     = "MASQUERADE"
 
 	jumpManglePre  = "jump-mangle-pre"
 	jumpNatPre     = "jump-nat-pre"
 	jumpNatPost    = "jump-nat-post"
+	jumpMSSClamp   = "jump-mss-clamp"
 	markManglePre  = "mark-mangle-pre"
 	markManglePost = "mark-mangle-post"
 	matchSet       = "--match-set"
@@ -48,6 +51,9 @@ const (
 	dnatSuffix = "_dnat"
 	snatSuffix = "_snat"
 	fwdSuffix  = "_fwd"
+
+	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
+	ipTCPHeaderMinSize = 40
 )
 
 type ruleInfo struct {
@@ -77,16 +83,18 @@ type router struct {
 	ipsetCounter     *ipsetCounter
 	wgIface          iFaceMapper
 	legacyManagement bool
+	mtu              uint16
 
 	stateManager *statemanager.Manager
 	ipFwdState   *ipfwdstate.IPForwardingState
 }
 
-func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router, error) {
+func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint16) (*router, error) {
 	r := &router{
 		iptablesClient: iptablesClient,
 		rules:          make(map[string][]string),
 		wgIface:        wgIface,
+		mtu:            mtu,
 		ipFwdState:     ipfwdstate.NewIPForwardingState(),
 	}
 
@@ -392,6 +400,7 @@ func (r *router) cleanUpDefaultForwardRules() error {
 		{chainRTPRE, tableMangle},
 		{chainRTNAT, tableNat},
 		{chainRTRDR, tableNat},
+		{chainRTMSSCLAMP, tableMangle},
 	} {
 		ok, err := r.iptablesClient.ChainExists(chainInfo.table, chainInfo.chain)
 		if err != nil {
@@ -416,6 +425,7 @@ func (r *router) createContainers() error {
 		{chainRTPRE, tableMangle},
 		{chainRTNAT, tableNat},
 		{chainRTRDR, tableNat},
+		{chainRTMSSCLAMP, tableMangle},
 	} {
 		if err := r.iptablesClient.NewChain(chainInfo.table, chainInfo.chain); err != nil {
 			return fmt.Errorf("create chain %s in table %s: %w", chainInfo.chain, chainInfo.table, err)
@@ -436,6 +446,10 @@ func (r *router) createContainers() error {
 
 	if err := r.addJumpRules(); err != nil {
 		return fmt.Errorf("add jump rules: %w", err)
+	}
+
+	if err := r.addMSSClampingRules(); err != nil {
+		log.Errorf("failed to add MSS clamping rules: %s", err)
 	}
 
 	return nil
@@ -518,6 +532,35 @@ func (r *router) addPostroutingRules() error {
 	return nil
 }
 
+// addMSSClampingRules adds MSS clamping rules to prevent fragmentation for forwarded traffic.
+// TODO: Add IPv6 support
+func (r *router) addMSSClampingRules() error {
+	mss := r.mtu - ipTCPHeaderMinSize
+
+	// Add jump rule from FORWARD chain in mangle table to our custom chain
+	jumpRule := []string{
+		"-j", chainRTMSSCLAMP,
+	}
+	if err := r.iptablesClient.Insert(tableMangle, chainFORWARD, 1, jumpRule...); err != nil {
+		return fmt.Errorf("add jump to MSS clamp chain: %w", err)
+	}
+	r.rules[jumpMSSClamp] = jumpRule
+
+	ruleOut := []string{
+		"-o", r.wgIface.Name(),
+		"-p", "tcp",
+		"--tcp-flags", "SYN,RST", "SYN",
+		"-j", "TCPMSS",
+		"--set-mss", fmt.Sprintf("%d", mss),
+	}
+	if err := r.iptablesClient.Append(tableMangle, chainRTMSSCLAMP, ruleOut...); err != nil {
+		return fmt.Errorf("add outbound MSS clamp rule: %w", err)
+	}
+	r.rules["mss-clamp-out"] = ruleOut
+
+	return nil
+}
+
 func (r *router) insertEstablishedRule(chain string) error {
 	establishedRule := getConntrackEstablished()
 
@@ -558,7 +601,7 @@ func (r *router) addJumpRules() error {
 }
 
 func (r *router) cleanJumpRules() error {
-	for _, ruleKey := range []string{jumpNatPost, jumpManglePre, jumpNatPre} {
+	for _, ruleKey := range []string{jumpNatPost, jumpManglePre, jumpNatPre, jumpMSSClamp} {
 		if rule, exists := r.rules[ruleKey]; exists {
 			var table, chain string
 			switch ruleKey {
@@ -571,6 +614,9 @@ func (r *router) cleanJumpRules() error {
 			case jumpNatPre:
 				table = tableNat
 				chain = chainPREROUTING
+			case jumpMSSClamp:
+				table = tableMangle
+				chain = chainFORWARD
 			default:
 				return fmt.Errorf("unknown jump rule: %s", ruleKey)
 			}
@@ -878,6 +924,54 @@ func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
+func (r *router) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	ruleID := fmt.Sprintf("inbound-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if _, exists := r.rules[ruleID]; exists {
+		return nil
+	}
+
+	dnatRule := []string{
+		"-i", r.wgIface.Name(),
+		"-p", strings.ToLower(string(protocol)),
+		"--dport", strconv.Itoa(int(sourcePort)),
+		"-d", localAddr.String(),
+		"-m", "addrtype", "--dst-type", "LOCAL",
+		"-j", "DNAT",
+		"--to-destination", ":" + strconv.Itoa(int(targetPort)),
+	}
+
+	ruleInfo := ruleInfo{
+		table: tableNat,
+		chain: chainRTRDR,
+		rule:  dnatRule,
+	}
+
+	if err := r.iptablesClient.Append(ruleInfo.table, ruleInfo.chain, ruleInfo.rule...); err != nil {
+		return fmt.Errorf("add inbound DNAT rule: %w", err)
+	}
+	r.rules[ruleID] = ruleInfo.rule
+
+	r.updateState()
+	return nil
+}
+
+// RemoveInboundDNAT removes an inbound DNAT rule.
+func (r *router) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	ruleID := fmt.Sprintf("inbound-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if dnatRule, exists := r.rules[ruleID]; exists {
+		if err := r.iptablesClient.Delete(tableNat, chainRTRDR, dnatRule...); err != nil {
+			return fmt.Errorf("delete inbound DNAT rule: %w", err)
+		}
+		delete(r.rules, ruleID)
+	}
+
+	r.updateState()
+	return nil
 }
 
 func applyPort(flag string, port *firewall.Port) []string {

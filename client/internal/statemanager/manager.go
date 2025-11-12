@@ -295,7 +295,7 @@ func (m *Manager) loadStateFile(deleteCorrupt bool) (map[string]json.RawMessage,
 	data, err := os.ReadFile(m.filePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			log.Debug("state file does not exist")
+			log.Debugf("state file %s does not exist", m.filePath)
 			return nil, nil // nolint:nilnil
 		}
 		return nil, fmt.Errorf("read state file: %w", err)
