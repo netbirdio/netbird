@@ -2065,7 +2065,7 @@ func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, us
 		if err != nil {
 			return err
 		}
-		err = am.networkMapController.OnPeerUpdated(ctx, peer.AccountID, peer)
+		err = am.networkMapController.OnPeersUpdated(ctx, peer.AccountID, []string{peerID})
 		if err != nil {
 			return fmt.Errorf("notify network map controller of peer update: %w", err)
 		}

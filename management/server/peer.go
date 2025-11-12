@@ -136,7 +136,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 	}
 
 	if expired {
-		err = am.networkMapController.OnPeerUpdated(ctx, accountID, peer)
+		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
 		if err != nil {
 			return fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
@@ -312,7 +312,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 		}
 	}
 
-	err = am.networkMapController.OnPeerUpdated(ctx, accountID, peer)
+	err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
 	if err != nil {
 		return nil, fmt.Errorf("notify network map controller of peer update: %w", err)
 	}
@@ -371,7 +371,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		storeEvent()
 	}
 
-	if err := am.networkMapController.OnPeerDeleted(ctx, accountID, peerID); err != nil {
+	if err := am.networkMapController.OnPeersDeleted(ctx, accountID, []string{peerID}); err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peer %s from network map: %v", peerID, err)
 	}
 
@@ -646,11 +646,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
-	if err := am.networkMapController.OnPeerAdded(ctx, accountID, newPeer.ID); err != nil {
+	if err := am.networkMapController.OnPeersAdded(ctx, accountID, []string{newPeer.ID}); err != nil {
 		log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
 	}
-
-	am.BufferUpdateAccountPeers(ctx, accountID)
 
 	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, false, accountID, newPeer)
 	return p, nmap, pc, err
@@ -732,7 +730,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 	}
 
 	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
-		err = am.networkMapController.OnPeerUpdated(ctx, accountID, peer)
+		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
 		if err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
@@ -863,7 +861,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	log.WithContext(ctx).Debugf("LoginPeer: transaction took %v", time.Since(startTransaction))
 
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
-		err = am.networkMapController.OnPeerUpdated(ctx, accountID, peer)
+		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("notify network map controller of peer update: %w", err)
 		}

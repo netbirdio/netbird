@@ -640,9 +640,17 @@ func isPeerInPolicySourceGroups(account *types.Account, peerID string, policy *t
 	return false, nil
 }
 
-func (c *Controller) OnPeerUpdated(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
-	c.UpdatePeerInNetworkMapCache(accountID, peer)
-	err := c.BufferUpdateAccountPeers(ctx, accountID)
+func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerIDs []string) error {
+	peers, err := c.repo.GetPeersByIDs(ctx, accountID, peerIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get peers by ids: %w", err)
+	}
+
+	for _, peer := range peers {
+		c.UpdatePeerInNetworkMapCache(accountID, peer)
+	}
+
+	err = c.BufferUpdateAccountPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to buffer update account peers for peer update in account %s: %v", accountID, err)
 	}
@@ -650,19 +658,27 @@ func (c *Controller) OnPeerUpdated(ctx context.Context, accountID string, peer *
 	return nil
 }
 
-func (c *Controller) OnPeerAdded(ctx context.Context, accountID string, peerID string) error {
-	if c.experimentalNetworkMap(accountID) {
-		account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return err
-		}
+func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error {
+	for _, peerID := range peerIDs {
+		if c.experimentalNetworkMap(accountID) {
+			account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+			if err != nil {
+				return err
+			}
 
-		return c.onPeerAddedUpdNetworkMapCache(account, peerID)
+			return c.onPeerAddedUpdNetworkMapCache(account, peerID)
+		}
 	}
+
+	err := c.BufferUpdateAccountPeers(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to buffer update account peers for peer update in account %s: %v", accountID, err)
+	}
+
 	return nil
 }
 
-func (c *Controller) OnPeerDeleted(ctx context.Context, accountID string, peerID string) error {
+func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error {
 	network, err := c.repo.GetAccountNetwork(ctx, accountID)
 	if err != nil {
 		return err
@@ -674,30 +690,37 @@ func (c *Controller) OnPeerDeleted(ctx context.Context, accountID string, peerID
 	}
 
 	dnsFwdPort := computeForwarderPort(peers, network_map.DnsForwarderPortMinVersion)
-	c.peersUpdateManager.SendUpdate(ctx, peerID, &network_map.UpdateMessage{
-		Update: &proto.SyncResponse{
-			RemotePeers:        []*proto.RemotePeerConfig{},
-			RemotePeersIsEmpty: true,
-			NetworkMap: &proto.NetworkMap{
-				Serial:               network.CurrentSerial(),
-				RemotePeers:          []*proto.RemotePeerConfig{},
-				RemotePeersIsEmpty:   true,
-				FirewallRules:        []*proto.FirewallRule{},
-				FirewallRulesIsEmpty: true,
-				DNSConfig: &proto.DNSConfig{
-					ForwarderPort: dnsFwdPort,
+	for _, peerID := range peerIDs {
+		c.peersUpdateManager.SendUpdate(ctx, peerID, &network_map.UpdateMessage{
+			Update: &proto.SyncResponse{
+				RemotePeers:        []*proto.RemotePeerConfig{},
+				RemotePeersIsEmpty: true,
+				NetworkMap: &proto.NetworkMap{
+					Serial:               network.CurrentSerial(),
+					RemotePeers:          []*proto.RemotePeerConfig{},
+					RemotePeersIsEmpty:   true,
+					FirewallRules:        []*proto.FirewallRule{},
+					FirewallRulesIsEmpty: true,
+					DNSConfig: &proto.DNSConfig{
+						ForwarderPort: dnsFwdPort,
+					},
 				},
 			},
-		},
-	})
-	c.peersUpdateManager.CloseChannel(ctx, peerID)
+		})
+		c.peersUpdateManager.CloseChannel(ctx, peerID)
 
-	if c.experimentalNetworkMap(accountID) {
-		account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return err
+		if c.experimentalNetworkMap(accountID) {
+			account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+			if err != nil {
+				log.WithContext(ctx).Errorf("failed to get account %s: %v", accountID, err)
+				continue
+			}
+			err = c.onPeerDeletedUpdNetworkMapCache(account, peerID)
+			if err != nil {
+				log.WithContext(ctx).Errorf("failed to update network map cache for deleted peer %s in account %s: %v", peerID, accountID, err)
+				continue
+			}
 		}
-		return c.onPeerDeletedUpdNetworkMapCache(account, peerID)
 	}
 
 	err = c.BufferUpdateAccountPeers(ctx, accountID)
