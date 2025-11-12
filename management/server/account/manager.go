@@ -131,4 +131,5 @@ type Manager interface {
 	GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
 	SetEphemeralManager(em ephemeral.Manager)
 	AllowSync(string, uint64) bool
+	RecalculateNetworkMapCache(ctx context.Context, accountId string) error
 }

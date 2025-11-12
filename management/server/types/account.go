@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -87,6 +88,13 @@ type Account struct {
 	NetworkRouters   []*routerTypes.NetworkRouter     `gorm:"foreignKey:AccountID;references:id"`
 	NetworkResources []*resourceTypes.NetworkResource `gorm:"foreignKey:AccountID;references:id"`
 	Onboarding       AccountOnboarding                `gorm:"foreignKey:AccountID;references:id;constraint:OnDelete:CASCADE"`
+
+	NetworkMapCache *NetworkMapBuilder `gorm:"-"`
+	nmapInitOnce    *sync.Once         `gorm:"-"`
+}
+
+func (a *Account) InitOnce() {
+	a.nmapInitOnce = &sync.Once{}
 }
 
 // this class is used by gorm only
@@ -257,7 +265,6 @@ func (a *Account) GetPeerNetworkMap(
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
-
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{
@@ -890,6 +897,8 @@ func (a *Account) Copy() *Account {
 		NetworkRouters:         networkRouters,
 		NetworkResources:       networkResources,
 		Onboarding:             a.Onboarding,
+		NetworkMapCache:        a.NetworkMapCache,
+		nmapInitOnce:           a.nmapInitOnce,
 	}
 }
 
@@ -1049,14 +1058,7 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 	rules := make([]*FirewallRule, 0)
 	peers := make([]*nbpeer.Peer, 0)
 
-	all, err := a.GetGroupAll()
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get group all: %v", err)
-		all = &Group{}
-	}
-
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
-			isAll := (len(all.Peers) - 1) == len(groupPeers)
 			for _, peer := range groupPeers {
 				if peer == nil {
 					continue
@@ -1073,10 +1075,6 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 					Direction: direction,
 					Action:    string(rule.Action),
 					Protocol:  string(rule.Protocol),
-				}
-
-				if isAll {
-					fr.PeerIP = "0.0.0.0"
 				}
 
 				ruleID := rule.ID + fr.PeerIP + strconv.Itoa(direction) +

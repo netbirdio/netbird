@@ -128,6 +128,7 @@ type MockAccountManager struct {
 	AllowSyncFunc                func(string, uint64) bool
 	UpdateAccountPeersFunc       func(ctx context.Context, accountID string)
 	BufferUpdateAccountPeersFunc func(ctx context.Context, accountID string)
+	RecalculateNetworkMapCacheFunc func(ctx context.Context, accountId string) error
 	CreatePeerJobFunc            func(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
 	GetAllPeerJobsFunc           func(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
 	GetPeerJobByIDFunc           func(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
@@ -1008,4 +1009,11 @@ func (am *MockAccountManager) AllowSync(key string, hash uint64) bool {
 		return am.AllowSyncFunc(key, hash)
 	}
 	return true
+}
+
+func (am *MockAccountManager) RecalculateNetworkMapCache(ctx context.Context, accountID string) error {
+	if am.RecalculateNetworkMapCacheFunc != nil {
+		return am.RecalculateNetworkMapCacheFunc(ctx, accountID)
+	}
+	return nil
 }
