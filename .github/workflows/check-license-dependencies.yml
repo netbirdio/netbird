@@ -5,10 +5,12 @@ on:
     branches: [ main ]
     paths:
       - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/check-license-dependencies.yml'
   pull_request:
     paths:
       - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/check-license-dependencies.yml'
 
 jobs:
