@@ -50,6 +50,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
@@ -75,6 +76,7 @@ const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
 	connInitLimit            = 200
+	disableAutoUpdate        = "disabled"
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -201,6 +203,9 @@ type Engine struct {
 	connSemaphore       *semaphoregroup.SemaphoreGroup
 	flowManager         nftypes.FlowManager
 
+	// auto-update
+	updateManager *updatemanager.UpdateManager
+
 	// WireGuard interface monitor
 	wgIfaceMonitor *WGIfaceMonitor
 
@@ -310,6 +315,10 @@ func (e *Engine) Stop() error {
 
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
+	}
+
+	if e.updateManager != nil {
+		e.updateManager.Stop()
 	}
 
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
@@ -532,6 +541,19 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	return nil
 }
 
+func (e *Engine) InitialUpdateHandling(autoUpdateSettings *mgmProto.AutoUpdateSettings) {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	if e.updateManager == nil {
+		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
+	}
+
+	e.updateManager.CheckUpdateSuccess(e.ctx)
+
+	e.handleAutoUpdateVersion(autoUpdateSettings, true)
+}
+
 func (e *Engine) createFirewall() error {
 	if e.config.DisableFirewall {
 		log.Infof("firewall is disabled")
@@ -746,10 +768,44 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 	return nil
 }
 
+func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdateSettings, initialCheck bool) {
+	if autoUpdateSettings == nil {
+		return
+	}
+
+	disabled := autoUpdateSettings.Version == disableAutoUpdate
+
+	// Stop and cleanup if disabled
+	if e.updateManager != nil && disabled {
+		log.Infof("auto-update is disabled, stopping update manager")
+		e.updateManager.Stop()
+		e.updateManager = nil
+		return
+	}
+
+	// Skip check unless AlwaysUpdate is enabled or this is the initial check at startup
+	if !autoUpdateSettings.AlwaysUpdate && !initialCheck {
+		log.Debugf("skipping auto-update check, AlwaysUpdate is false and this is not the initial check")
+		return
+	}
+
+	// Start manager if needed
+	if e.updateManager == nil {
+		log.Infof("starting auto-update manager")
+		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
+	}
+	e.updateManager.Start(e.ctx)
+	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)
+	e.updateManager.SetVersion(autoUpdateSettings.Version)
+}
+
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
+	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
+		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate, false)
+	}
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()
 		err := e.updateTURNs(wCfg.GetTurns())

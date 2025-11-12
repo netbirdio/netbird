@@ -280,6 +280,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return wrapErr(err)
 		}
 
+		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
+			c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
+		}
+
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 
