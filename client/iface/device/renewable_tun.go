@@ -49,6 +49,11 @@ func (c *closeAwareDevice) redirectEvents(out chan tun.Event) {
 				if !ok {
 					return
 				}
+
+				if ev == tun.EventDown {
+					continue
+				}
+
 				select {
 				case out <- ev:
 				case <-c.closeEventCh:
