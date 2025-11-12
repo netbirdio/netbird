@@ -180,7 +180,7 @@ func (c *GrpcClient) handleJobStream(
 	// Main loop: receive, process, respond
 	for {
 		jobReq, err := c.receiveJobRequest(ctx, stream, serverPubKey)
-		if err != nil && err != io.EOF {
+		if err != nil {
 			c.notifyDisconnected(err)
 			s, _ := gstatus.FromError(err)
 			switch s.Code() {
@@ -309,7 +309,7 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 	// blocking until error
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
-	if err != nil && err != io.EOF {
+	if err != nil {
 		c.notifyDisconnected(err)
 		s, _ := gstatus.FromError(err)
 		switch s.Code() {
