@@ -707,7 +707,10 @@ func (c *Controller) OnPeerAdded(ctx context.Context, accountID string, peerID s
 			return err
 		}
 
-		return c.onPeerAddedUpdNetworkMapCache(account, peerID)
+		err = c.onPeerAddedUpdNetworkMapCache(account, peerID)
+		if err != nil {
+			return err
+		}
 	}
 	return c.bufferSendUpdateAccountPeers(ctx, accountID)
 }
@@ -718,7 +721,10 @@ func (c *Controller) OnPeerDeleted(ctx context.Context, accountID string, peerID
 		if err != nil {
 			return err
 		}
-		return c.onPeerDeletedUpdNetworkMapCache(account, peerID)
+		err = c.onPeerDeletedUpdNetworkMapCache(account, peerID)
+		if err != nil {
+			return err
+		}
 	}
 
 	return c.bufferSendUpdateAccountPeers(ctx, accountID)
