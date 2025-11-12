@@ -41,15 +41,15 @@ import (
 )
 
 const (
-	storeSqliteFileName         = "store.db"
-	idQueryCondition            = "id = ?"
-	keyQueryCondition           = "key = ?"
-	mysqlKeyQueryCondition      = "`key` = ?"
-	accountAndIDQueryCondition  = "account_id = ? and id = ?"
+	storeSqliteFileName            = "store.db"
+	idQueryCondition               = "id = ?"
+	keyQueryCondition              = "key = ?"
+	mysqlKeyQueryCondition         = "`key` = ?"
+	accountAndIDQueryCondition     = "account_id = ? and id = ?"
 	accountAndPeerIDQueryCondition = "account_id = ? and peer_id = ?"
-	accountAndIDsQueryCondition = "account_id = ? AND id IN ?"
-	accountIDCondition          = "account_id = ?"
-	peerNotFoundFMT             = "peer %s not found"
+	accountAndIDsQueryCondition    = "account_id = ? AND id IN ?"
+	accountIDCondition             = "account_id = ?"
+	peerNotFoundFMT                = "peer %s not found"
 
 	pgMaxConnections    = 30
 	pgMinConnections    = 1
@@ -161,7 +161,7 @@ func (s *SqlStore) MarkPendingJobsAsFailed(ctx context.Context, accountID, peerI
 	now := time.Now().UTC()
 	result := s.db.
 		Model(&types.Job{}).
-		Where(accountAndPeerIDQueryCondition+"AND status = ?", accountID, peerID, types.JobStatusPending).
+		Where(accountAndPeerIDQueryCondition+" AND status = ?", accountID, peerID, types.JobStatusPending).
 		Updates(types.Job{
 			Status:       types.JobStatusFailed,
 			FailedReason: reason,
