@@ -268,7 +268,7 @@ func (r *RenewableTUN) AddDevice(device tun.Device) {
 	}
 
 	cad := newClosableDevice(device)
-	cad.redirectEvents(r.events)
+
 	r.devices = []*closeAwareDevice{cad}
 	r.cond.Broadcast()
 	r.mu.Unlock()
@@ -278,6 +278,8 @@ func (r *RenewableTUN) AddDevice(device tun.Device) {
 			log.Debugf("error closing last device: %v", err)
 		}
 	}
+
+	cad.redirectEvents(r.events)
 }
 
 func (r *RenewableTUN) waitForDevice() bool {
