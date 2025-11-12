@@ -18,6 +18,11 @@ const (
 )
 
 func (u *UpdateManager) triggerUpdate(ctx context.Context, targetVersion string) error {
+	// Use test function if set (for testing only)
+	if u.updateFunc != nil {
+		return u.updateFunc(ctx, targetVersion)
+	}
+
 	cmd := exec.CommandContext(ctx, "pkgutil", "--pkg-info", "io.netbird.client")
 	outBytes, err := cmd.Output()
 	if err != nil && cmd.ProcessState.ExitCode() == 1 {
