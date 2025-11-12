@@ -440,8 +440,12 @@ func (s *serviceClient) collectDebugData(
 
 	var postUpStatusOutput string
 	if postUpStatus != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(postUpStatus, params.anonymize, "", nil, nil, nil, "", profName)
-		postUpStatusOutput = nbstatus.ParseToFullDetailSummary(overview)
+		if full := postUpStatus.GetFullStatus(); full != nil {
+			overview := nbstatus.ConvertToStatusOutputOverview(full, params.anonymize, postUpStatus.GetDaemonVersion(), "", nil, nil, nil, "", profName)
+			postUpStatusOutput = nbstatus.ParseToFullDetailSummary(overview)
+		} else {
+			log.Warn("debug bundle: daemon response missing FullStatus after post-up")
+		}
 	}
 	headerPostUp := fmt.Sprintf("----- NetBird post-up - Timestamp: %s", time.Now().Format(time.RFC3339))
 	statusOutput := fmt.Sprintf("%s\n%s", headerPostUp, postUpStatusOutput)
@@ -457,8 +461,12 @@ func (s *serviceClient) collectDebugData(
 
 	var preDownStatusOutput string
 	if preDownStatus != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(preDownStatus, params.anonymize, "", nil, nil, nil, "", profName)
-		preDownStatusOutput = nbstatus.ParseToFullDetailSummary(overview)
+		if full := preDownStatus.GetFullStatus(); full != nil {
+			overview := nbstatus.ConvertToStatusOutputOverview(full, params.anonymize, preDownStatus.GetDaemonVersion(), "", nil, nil, nil, "", profName)
+			preDownStatusOutput = nbstatus.ParseToFullDetailSummary(overview)
+		} else {
+			log.Warn("debug bundle: daemon response missing FullStatus after pre-down")
+		}
 	}
 	headerPreDown := fmt.Sprintf("----- NetBird pre-down - Timestamp: %s - Duration: %s",
 		time.Now().Format(time.RFC3339), params.duration)
@@ -594,7 +602,7 @@ func (s *serviceClient) createDebugBundle(anonymize bool, systemInfo bool, uploa
 
 	var statusOutput string
 	if statusResp != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anonymize, "", nil, nil, nil, "", profName)
+		overview := nbstatus.ConvertToStatusOutputOverview(statusResp.GetFullStatus(), anonymize, statusResp.GetDaemonVersion(), "", nil, nil, nil, "", profName)
 		statusOutput = nbstatus.ParseToFullDetailSummary(overview)
 	}
 

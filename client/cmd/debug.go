@@ -314,7 +314,7 @@ func getStatusOutput(cmd *cobra.Command, anon bool) string {
 		}
 
 		statusOutputString = nbstatus.ParseToFullDetailSummary(
-			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", profName),
+			nbstatus.ConvertToStatusOutputOverview(statusResp.GetFullStatus(), anon, statusResp.GetDaemonVersion(), "", nil, nil, nil, "", profName),
 		)
 	}
 	return statusOutputString
@@ -378,7 +378,7 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 			InternalConfig: config,
 			StatusRecorder: recorder,
 			SyncResponse:   syncResponse,
-			LogFile:        logFilePath,
+			LogPath:        logFilePath,
 		},
 		debug.BundleConfig{
 			IncludeSystemInfo: true,
