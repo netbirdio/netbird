@@ -3,10 +3,17 @@ name: Check License Dependencies
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'go.mod'
+      - '.github/workflows/check-license-dependencies.yml'
   pull_request:
+    paths:
+      - 'go.mod'
+      - '.github/workflows/check-license-dependencies.yml'
 
 jobs:
-  check-dependencies:
+  check-internal-dependencies:
+    name: Check Internal AGPL Dependencies
     runs-on: ubuntu-latest
 
     steps:
@@ -33,9 +40,52 @@ jobs:
         if [ $FOUND_ISSUES -eq 1 ]; then
           echo ""
           echo "❌ Found dependencies on management/, signal/, or relay/ packages"
-          echo "These packages will change license and should not be imported by client or shared code"
+          echo "These packages are licensed under AGPLv3 and must not be imported by BSD-licensed code"
           exit 1
         else
           echo ""
-          echo "✅ All license dependencies are clean"
+          echo "✅ All internal license dependencies are clean"
         fi
+
+  check-external-licenses:
+    name: Check External GPL/AGPL Licenses
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+        cache: true
+
+    - name: Install go-licenses
+      run: go install github.com/google/go-licenses@latest
+
+    - name: Check for GPL/AGPL licensed dependencies
+      run: |
+        echo "Checking for GPL/AGPL/LGPL licensed dependencies..."
+        echo ""
+
+        # Check all Go packages for copyleft licenses
+        COPYLEFT_DEPS=$(go-licenses report ./... 2>/dev/null | grep -E 'GPL|AGPL|LGPL' || true)
+
+        if [ -n "$COPYLEFT_DEPS" ]; then
+          echo "❌ Found copyleft licensed dependencies:"
+          echo "$COPYLEFT_DEPS"
+          echo ""
+          echo "Note: MPL-2.0 is weak copyleft and compatible with BSD."
+          echo "GPL/AGPL/LGPL licenses are NOT compatible with BSD-3-Clause."
+
+          # Filter out MPL-2.0 (which is compatible) and check for incompatible licenses
+          INCOMPATIBLE=$(echo "$COPYLEFT_DEPS" | grep -E 'GPL-[0-9]|AGPL-[0-9]|LGPL-[0-9]' || true)
+          if [ -n "$INCOMPATIBLE" ]; then
+            echo ""
+            echo "❌ INCOMPATIBLE licenses found:"
+            echo "$INCOMPATIBLE"
+            exit 1
+          fi
+        fi
+
+        echo "✅ All external license dependencies are compatible with BSD-3-Clause"
