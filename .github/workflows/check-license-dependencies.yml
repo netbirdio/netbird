@@ -74,18 +74,33 @@ jobs:
         COPYLEFT_DEPS=$(go-licenses report ./... 2>/dev/null | grep -E 'GPL|AGPL|LGPL' | grep -v 'github.com/netbirdio/netbird/' || true)
 
         if [ -n "$COPYLEFT_DEPS" ]; then
-          echo "❌ Found copyleft licensed dependencies:"
+          echo "Found copyleft licensed dependencies:"
           echo "$COPYLEFT_DEPS"
           echo ""
-          echo "Note: MPL-2.0 is weak copyleft and compatible with BSD."
-          echo "GPL/AGPL/LGPL licenses are NOT compatible with BSD-3-Clause."
 
-          # Filter out MPL-2.0 (which is compatible) and check for incompatible licenses
-          INCOMPATIBLE=$(echo "$COPYLEFT_DEPS" | grep -E 'GPL-[0-9]|AGPL-[0-9]|LGPL-[0-9]' || true)
+          # Filter out dependencies that are only pulled in by internal AGPL packages
+          INCOMPATIBLE=""
+          while IFS=',' read -r package url license; do
+            if echo "$license" | grep -qE 'GPL-[0-9]|AGPL-[0-9]|LGPL-[0-9]'; then
+              # Find ALL packages that import this GPL package using go list
+              IMPORTERS=$(go list -json -deps ./... 2>/dev/null | jq -r "select(.Imports[]? == \"$package\") | .ImportPath")
+
+              # Check if any importer is NOT in management/signal/relay
+              BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\)" | head -1)
+
+              if [ -n "$BSD_IMPORTER" ]; then
+                echo "❌ $package ($license) is imported by BSD-licensed code: $BSD_IMPORTER"
+                INCOMPATIBLE="${INCOMPATIBLE}${package},${url},${license}\n"
+              else
+                echo "✓ $package ($license) is only used by internal AGPL packages - OK"
+              fi
+            fi
+          done <<< "$COPYLEFT_DEPS"
+
           if [ -n "$INCOMPATIBLE" ]; then
             echo ""
-            echo "❌ INCOMPATIBLE licenses found:"
-            echo "$INCOMPATIBLE"
+            echo "❌ INCOMPATIBLE licenses found that are used by BSD-licensed code:"
+            echo -e "$INCOMPATIBLE"
             exit 1
           fi
         fi
