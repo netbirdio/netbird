@@ -9,9 +9,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updatemanager/reposign"
 )
 
+const (
+	envArtifactPrivateKey = "NB_ARTIFACT_PRIV_KEY"
+)
+
 var (
-	signArtifactRootPrivKeyFile string
-	signArtifactArtifactFile    string
+	signArtifactPrivKeyFile  string
+	signArtifactArtifactFile string
 
 	verifyArtifactPubKeyFile    string
 	verifyArtifactFile          string
@@ -30,7 +34,7 @@ var signArtifactCmd = &cobra.Command{
 This command produces a detached signature that can be verified using the corresponding artifact public key.`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := handleSignArtifact(cmd, signArtifactRootPrivKeyFile, signArtifactArtifactFile); err != nil {
+		if err := handleSignArtifact(cmd, signArtifactPrivKeyFile, signArtifactArtifactFile); err != nil {
 			return fmt.Errorf("failed to sign artifact: %w", err)
 		}
 		return nil
@@ -69,13 +73,10 @@ func init() {
 	rootCmd.AddCommand(verifyArtifactCmd)
 	rootCmd.AddCommand(verifyArtifactKeyCmd)
 
-	signArtifactCmd.Flags().StringVar(&signArtifactRootPrivKeyFile, "artifact-key-file", "", "Path to the artifact private key file used for signing")
+	signArtifactCmd.Flags().StringVar(&signArtifactPrivKeyFile, "artifact-key-file", "", fmt.Sprintf("Path to the artifact private key file used for signing (or set %s env var)", envArtifactPrivateKey))
 	signArtifactCmd.Flags().StringVar(&signArtifactArtifactFile, "artifact-file", "", "Path to the artifact to be signed")
 
-	// Enforce required flags and panic if registration fails
-	if err := signArtifactCmd.MarkFlagRequired("artifact-key-file"); err != nil {
-		panic(fmt.Errorf("mark artifact-key-file as required: %w", err))
-	}
+	// artifact-file is required, but artifact-key-file can come from env var
 	if err := signArtifactCmd.MarkFlagRequired("artifact-file"); err != nil {
 		panic(fmt.Errorf("mark artifact-file as required: %w", err))
 	}
@@ -113,9 +114,21 @@ func init() {
 func handleSignArtifact(cmd *cobra.Command, privKeyFile, artifactFile string) error {
 	cmd.Println("🖋️  Signing artifact...")
 
-	privKeyPEM, err := os.ReadFile(privKeyFile)
-	if err != nil {
-		return fmt.Errorf("read private key file: %w", err)
+	// Load private key from env var or file
+	var privKeyPEM []byte
+	var err error
+
+	if envKey := os.Getenv(envArtifactPrivateKey); envKey != "" {
+		// Use key from environment variable
+		privKeyPEM = []byte(envKey)
+	} else if privKeyFile != "" {
+		// Fall back to file
+		privKeyPEM, err = os.ReadFile(privKeyFile)
+		if err != nil {
+			return fmt.Errorf("read private key file: %w", err)
+		}
+	} else {
+		return fmt.Errorf("artifact private key must be provided via %s environment variable or --artifact-key-file flag", envArtifactPrivateKey)
 	}
 
 	privateKey, err := reposign.ParseArtifactKey(privKeyPEM)
