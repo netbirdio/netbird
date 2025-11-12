@@ -43,6 +43,7 @@ type Controller struct {
 	settingsManager       settings.Manager
 
 	accountUpdateLocks               sync.Map
+	sendAccountUpdateLocks           sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
 	dnsDomain string
@@ -115,13 +116,7 @@ func (c *Controller) CountStreams() int {
 	return c.peersUpdateManager.CountStreams()
 }
 
-// UpdatePeers updates all peers that belong to an account.
-// Should be called when changes have to be synced to peers.
-func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) error {
-	if err := c.RecalculateNetworkMapCache(ctx, accountID); err != nil {
-		return fmt.Errorf("recalculate network map cache: %v", err)
-	}
-
+func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID string) error {
 	log.WithContext(ctx).Tracef("updating peers for account %s from %s", accountID, util.GetCallerName())
 	var (
 		account *types.Account
@@ -237,6 +232,50 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) e
 	return nil
 }
 
+func (c *Controller) bufferSendUpdateAccountPeers(ctx context.Context, accountID string) error {
+	log.WithContext(ctx).Tracef("buffer sending update peers for account %s from %s", accountID, util.GetCallerName())
+
+	bufUpd, _ := c.sendAccountUpdateLocks.LoadOrStore(accountID, &bufferUpdate{})
+	b := bufUpd.(*bufferUpdate)
+
+	if !b.mu.TryLock() {
+		b.update.Store(true)
+		return nil
+	}
+
+	if b.next != nil {
+		b.next.Stop()
+	}
+
+	go func() {
+		defer b.mu.Unlock()
+		_ = c.sendUpdateAccountPeers(ctx, accountID)
+		if !b.update.Load() {
+			return
+		}
+		b.update.Store(false)
+		if b.next == nil {
+			b.next = time.AfterFunc(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
+				_ = c.sendUpdateAccountPeers(ctx, accountID)
+			})
+			return
+		}
+		b.next.Reset(time.Duration(c.updateAccountPeersBufferInterval.Load()))
+	}()
+
+	return nil
+}
+
+// UpdatePeers updates all peers that belong to an account.
+// Should be called when changes have to be synced to peers.
+func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) error {
+	if err := c.RecalculateNetworkMapCache(ctx, accountID); err != nil {
+		return fmt.Errorf("recalculate network map cache: %v", err)
+	}
+
+	return c.sendUpdateAccountPeers(ctx, accountID)
+}
+
 func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error {
 	if !c.peersUpdateManager.HasChannel(peerId) {
 		return fmt.Errorf("peer %s doesn't have a channel, skipping network map update", peerId)
@@ -303,10 +342,6 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 }
 
 func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID string) error {
-	if err := c.RecalculateNetworkMapCache(ctx, accountID); err != nil {
-		return err
-	}
-
 	log.WithContext(ctx).Tracef("buffer updating peers for account %s from %s", accountID, util.GetCallerName())
 
 	bufUpd, _ := c.accountUpdateLocks.LoadOrStore(accountID, &bufferUpdate{})
@@ -650,7 +685,7 @@ func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerI
 		c.UpdatePeerInNetworkMapCache(accountID, peer)
 	}
 
-	err = c.BufferUpdateAccountPeers(ctx, accountID)
+	err = c.bufferSendUpdateAccountPeers(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to buffer update account peers for peer update in account %s: %v", accountID, err)
 	}
@@ -666,16 +701,12 @@ func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs
 				return err
 			}
 
-			return c.onPeerAddedUpdNetworkMapCache(account, peerID)
+		err = c.onPeerAddedUpdNetworkMapCache(account, peerID)
+		if err != nil {
+			return err
 		}
 	}
-
-	err := c.BufferUpdateAccountPeers(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("failed to buffer update account peers for peer update in account %s: %v", accountID, err)
-	}
-
-	return nil
+	return c.bufferSendUpdateAccountPeers(ctx, accountID)
 }
 
 func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error {
@@ -721,14 +752,13 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 				continue
 			}
 		}
+		err = c.onPeerDeletedUpdNetworkMapCache(account, peerID)
+		if err != nil {
+			return err
+		}
 	}
 
-	err = c.BufferUpdateAccountPeers(ctx, accountID)
-	if err != nil {
-		return fmt.Errorf("failed to buffer update account peers for peer update in account %s: %v", accountID, err)
-	}
-
-	return nil
+	return c.bufferSendUpdateAccountPeers(ctx, accountID)
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)

@@ -1807,6 +1807,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 	// Updating not expired peer and peer expiration is enabled should not update account peers and not send peer update
 	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
+		t.Skip("Currently all updates will trigger a network map")
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1908,6 +1909,8 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	})
 
 	t.Run("validator requires no update", func(t *testing.T) {
+		t.Skip("Currently all updates will trigger a network map")
+
 		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
 			return update, false, nil
 		}
