@@ -58,7 +58,6 @@ func (c *closeAwareDevice) redirectEvents(out chan tun.Event) {
 				case out <- ev:
 				case <-c.closeEventCh:
 					return
-				default:
 				}
 			case <-c.closeEventCh:
 				return
