@@ -125,13 +125,13 @@ type MockAccountManager struct {
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 
-	AllowSyncFunc                func(string, uint64) bool
-	UpdateAccountPeersFunc       func(ctx context.Context, accountID string)
-	BufferUpdateAccountPeersFunc func(ctx context.Context, accountID string)
+	AllowSyncFunc                  func(string, uint64) bool
+	UpdateAccountPeersFunc         func(ctx context.Context, accountID string)
+	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string)
 	RecalculateNetworkMapCacheFunc func(ctx context.Context, accountId string) error
-	CreatePeerJobFunc            func(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
-	GetAllPeerJobsFunc           func(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
-	GetPeerJobByIDFunc           func(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
+	CreatePeerJobFunc              func(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
+	GetAllPeerJobsFunc             func(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
+	GetPeerJobByIDFunc             func(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
 }
 
 func (am *MockAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
@@ -142,13 +142,13 @@ func (am *MockAccountManager) CreatePeerJob(ctx context.Context, accountID, peer
 }
 
 func (am *MockAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
-	if am.CreatePeerJobFunc != nil {
+	if am.GetAllPeerJobs != nil {
 		return am.GetAllPeerJobsFunc(ctx, accountID, userID, peerID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllJobs is not implemented")
 }
 func (am *MockAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
-	if am.CreatePeerJobFunc != nil {
+	if am.GetPeerJobByID != nil {
 		return am.GetPeerJobByIDFunc(ctx, accountID, userID, peerID, jobID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateJob is not implemented")
