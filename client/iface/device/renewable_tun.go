@@ -261,13 +261,14 @@ func (r *RenewableTUN) BatchSize() int {
 }
 
 func (r *RenewableTUN) AddDevice(device tun.Device) {
+	r.mu.Lock()
 	if r.closed.Load() {
+		r.mu.Unlock()
 		_ = device.Close()
 		return
 	}
 
 	var toClose *closeAwareDevice
-	r.mu.Lock()
 	if len(r.devices) > 0 {
 		toClose = r.devices[len(r.devices)-1]
 	}
