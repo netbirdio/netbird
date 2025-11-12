@@ -44,7 +44,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
-	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -204,7 +203,7 @@ type Engine struct {
 	flowManager         nftypes.FlowManager
 
 	// auto-update
-	updateManager *updatemanager.UpdateManager
+	updateManager *updatemanager.Manager
 
 	// WireGuard interface monitor
 	wgIfaceMonitor *WGIfaceMonitor
@@ -226,17 +225,7 @@ type localIpUpdater interface {
 }
 
 // NewEngine creates a new Connection Engine with probes attached
-func NewEngine(
-	clientCtx context.Context,
-	clientCancel context.CancelFunc,
-	signalClient signal.Client,
-	mgmClient mgm.Client,
-	relayManager *relayClient.Manager,
-	config *EngineConfig,
-	mobileDep MobileDependency,
-	statusRecorder *peer.Status,
-	checks []*mgmProto.Checks,
-) *Engine {
+func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, stateManager *statemanager.Manager) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -253,26 +242,11 @@ func NewEngine(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
+		stateManager:   stateManager,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 	}
-
-	sm := profilemanager.NewServiceManager("")
-
-	path := sm.GetStatePath()
-	if runtime.GOOS == "ios" {
-		if !fileExists(mobileDep.StateFilePath) {
-			err := createFile(mobileDep.StateFilePath)
-			if err != nil {
-				log.Errorf("failed to create state file: %v", err)
-				// we are not exiting as we can run without the state manager
-			}
-		}
-
-		path = mobileDep.StateFilePath
-	}
-	engine.stateManager = statemanager.New(path)
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
@@ -545,12 +519,6 @@ func (e *Engine) InitialUpdateHandling(autoUpdateSettings *mgmProto.AutoUpdateSe
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if e.updateManager == nil {
-		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
-	}
-
-	e.updateManager.CheckUpdateSuccess(e.ctx)
-
 	e.handleAutoUpdateVersion(autoUpdateSettings, true)
 }
 
@@ -792,7 +760,7 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	// Start manager if needed
 	if e.updateManager == nil {
 		log.Infof("starting auto-update manager")
-		e.updateManager = updatemanager.NewUpdateManager(e.statusRecorder, e.stateManager)
+		e.updateManager = updatemanager.NewManager(e.statusRecorder, e.stateManager)
 	}
 	e.updateManager.Start(e.ctx)
 	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)

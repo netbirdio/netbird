@@ -24,7 +24,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/updatemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
@@ -39,11 +42,13 @@ import (
 )
 
 type ConnectClient struct {
-	ctx            context.Context
-	config         *profilemanager.Config
-	statusRecorder *peer.Status
-	engine         *Engine
-	engineMutex    sync.Mutex
+	ctx                 context.Context
+	config              *profilemanager.Config
+	statusRecorder      *peer.Status
+	doInitialAutoUpdate bool
+
+	engine      *Engine
+	engineMutex sync.Mutex
 
 	persistSyncResponse bool
 }
@@ -52,13 +57,15 @@ func NewConnectClient(
 	ctx context.Context,
 	config *profilemanager.Config,
 	statusRecorder *peer.Status,
+	doInitalAutoUpdate bool,
 
 ) *ConnectClient {
 	return &ConnectClient{
-		ctx:            ctx,
-		config:         config,
-		statusRecorder: statusRecorder,
-		engineMutex:    sync.Mutex{},
+		ctx:                 ctx,
+		config:              config,
+		statusRecorder:      statusRecorder,
+		doInitialAutoUpdate: doInitalAutoUpdate,
+		engineMutex:         sync.Mutex{},
 	}
 }
 
@@ -158,6 +165,30 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	publicSSHKey, err := ssh.GeneratePublicKey([]byte(c.config.SSHKey))
 	if err != nil {
 		return err
+	}
+
+	sm := profilemanager.NewServiceManager("")
+
+	path := sm.GetStatePath()
+	if runtime.GOOS == "ios" {
+		if !fileExists(mobileDependency.StateFilePath) {
+			err := createFile(mobileDependency.StateFilePath)
+			if err != nil {
+				log.Errorf("failed to create state file: %v", err)
+				// we are not exiting as we can run without the state manager
+			}
+		}
+
+		path = mobileDependency.StateFilePath
+	}
+	stateManager := statemanager.New(path)
+
+	updateManager := updatemanager.NewManager(c.statusRecorder, stateManager)
+	updateManager.CheckUpdateSuccess(c.ctx)
+
+	inst := installer.New()
+	if err := inst.CleanUpInstallerFiles(); err != nil {
+		log.Errorf("failed to clean up temporary installer file: %v", err)
 	}
 
 	defer c.statusRecorder.ClientStop()
@@ -271,7 +302,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
+		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, stateManager)
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
@@ -281,7 +312,12 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		if loginResp.PeerConfig != nil && loginResp.PeerConfig.AutoUpdate != nil {
-			c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
+			// AutoUpdate will be true when the user click on "Connect" menu on the UI
+			if c.doInitialAutoUpdate {
+				log.Infof("start engine by ui, run auto-update check")
+				c.engine.InitialUpdateHandling(loginResp.PeerConfig.AutoUpdate)
+				c.doInitialAutoUpdate = false
+			}
 		}
 
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())

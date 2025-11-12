@@ -3,17 +3,19 @@ package updatemanager
 import (
 	"context"
 	"fmt"
-	v "github.com/hashicorp/go-version"
-	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"path"
 	"testing"
 	"time"
+
+	v "github.com/hashicorp/go-version"
+
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-func (u *UpdateManager) WithCustomVersionUpdate(versionUpdate UpdateInterface) *UpdateManager {
-	u.update = versionUpdate
-	return u
+func (m *Manager) WithCustomVersionUpdate(versionUpdate UpdateInterface) *Manager {
+	m.update = versionUpdate
+	return m
 }
 
 type versionUpdateMock struct {
@@ -67,11 +69,11 @@ func Test_LatestVersion(t *testing.T) {
 	for idx, c := range testMatrix {
 		mockUpdate := &versionUpdateMock{latestVersion: c.initialLatestVersion}
 		tmpFile := path.Join(t.TempDir(), fmt.Sprintf("update-test-%d.json", idx))
-		m := NewUpdateManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(mockUpdate)
+		m := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(mockUpdate)
 
 		targetVersionChan := make(chan string, 1)
 
-		m.updateFunc = func(ctx context.Context, targetVersion string) error {
+		m.triggerUpdateFn = func(ctx context.Context, targetVersion string) error {
 			targetVersionChan <- targetVersion
 			return nil
 		}
@@ -180,10 +182,10 @@ func Test_HandleUpdate(t *testing.T) {
 	}
 	for idx, c := range testMatrix {
 		tmpFile := path.Join(t.TempDir(), fmt.Sprintf("update-test-%d.json", idx))
-		m := NewUpdateManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(&versionUpdateMock{latestVersion: c.latestVersion})
+		m := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(&versionUpdateMock{latestVersion: c.latestVersion})
 		targetVersionChan := make(chan string, 1)
 
-		m.updateFunc = func(ctx context.Context, targetVersion string) error {
+		m.triggerUpdateFn = func(ctx context.Context, targetVersion string) error {
 			targetVersionChan <- targetVersion
 			return nil
 		}

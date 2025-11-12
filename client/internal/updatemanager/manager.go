@@ -2,12 +2,8 @@ package updatemanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -25,6 +22,8 @@ const (
 	// this version will be ignored
 	developmentVersion = "development"
 )
+
+var errNoUpdateState = errors.New("no update state found")
 
 type UpdateInterface interface {
 	StopWatch()
@@ -43,7 +42,7 @@ func (u UpdateState) Name() string {
 	return "autoUpdate"
 }
 
-type UpdateManager struct {
+type Manager struct {
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
 
@@ -61,10 +60,12 @@ type UpdateManager struct {
 
 	// updateMutex protect update and expectedVersion fields
 	updateMutex sync.Mutex
+
+	triggerUpdateFn func(context.Context, string) error
 }
 
-func NewUpdateManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *UpdateManager {
-	manager := &UpdateManager{
+func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
+	manager := &Manager{
 		statusRecorder: statusRecorder,
 		stateManager:   stateManager,
 		mgmUpdateChan:  make(chan struct{}, 1),
@@ -72,128 +73,160 @@ func NewUpdateManager(statusRecorder *peer.Status, stateManager *statemanager.Ma
 		currentVersion: version.NetbirdVersion(),
 		update:         version.NewUpdate("nb/client"),
 	}
+	manager.triggerUpdateFn = manager.triggerUpdate
 
 	return manager
 }
 
-// CheckUpdateSuccess checks if the update was successful. It works without to start the update manager.
-func (u *UpdateManager) CheckUpdateSuccess(ctx context.Context) {
-	u.updateStateManager(ctx)
-	return
-}
+// CheckUpdateSuccess checks if the update was successful and send a notification.
+// It works without to start the update manager.
+func (m *Manager) CheckUpdateSuccess(ctx context.Context) {
+	reason := m.lastResultErrReason()
+	if reason != "" {
+		m.statusRecorder.PublishEvent(
+			cProto.SystemEvent_ERROR,
+			cProto.SystemEvent_SYSTEM,
+			"Auto-update failed",
+			fmt.Sprintf("Auto-update failed: %s", reason),
+			nil,
+		)
+	}
 
-func (u *UpdateManager) Start(ctx context.Context) {
-	if u.cancel != nil {
-		log.Errorf("UpdateManager already started")
+	updateState, err := m.loadAndDeleteUpdateState(ctx)
+	if err != nil {
+		if errors.Is(err, errNoUpdateState) {
+			return
+		}
+		log.Errorf("failed to load update state: %v", err)
 		return
 	}
 
-	u.update.SetDaemonVersion(u.currentVersion)
-	u.update.SetOnUpdateListener(func() {
+	log.Debugf("auto-update state loaded, %v", *updateState)
+
+	if updateState.TargetVersion == m.currentVersion {
+		m.statusRecorder.PublishEvent(
+			cProto.SystemEvent_INFO,
+			cProto.SystemEvent_SYSTEM,
+			"Auto-update completed",
+			fmt.Sprintf("Your NetBird Client was auto-updated to version %s", m.currentVersion),
+			nil,
+		)
+		return
+	}
+}
+
+func (m *Manager) Start(ctx context.Context) {
+	if m.cancel != nil {
+		log.Errorf("Manager already started")
+		return
+	}
+
+	m.update.SetDaemonVersion(m.currentVersion)
+	m.update.SetOnUpdateListener(func() {
 		select {
-		case u.updateChannel <- struct{}{}:
+		case m.updateChannel <- struct{}{}:
 		default:
 		}
 	})
-	go u.update.StartFetcher()
+	go m.update.StartFetcher()
 
 	ctx, cancel := context.WithCancel(ctx)
-	u.cancel = cancel
+	m.cancel = cancel
 
-	u.wg.Add(1)
-	go u.updateLoop(ctx)
+	m.wg.Add(1)
+	go m.updateLoop(ctx)
 }
 
-func (u *UpdateManager) SetVersion(expectedVersion string) {
+func (m *Manager) SetVersion(expectedVersion string) {
 	log.Infof("set expected agent version for upgrade: %s", expectedVersion)
-	if u.cancel == nil {
-		log.Errorf("UpdateManager not started")
+	if m.cancel == nil {
+		log.Errorf("Manager not started")
 		return
 	}
 
-	u.updateMutex.Lock()
-	defer u.updateMutex.Unlock()
+	m.updateMutex.Lock()
+	defer m.updateMutex.Unlock()
 	if expectedVersion == latestVersion {
-		u.updateToLatestVersion = true
-		u.expectedVersion = nil
+		m.updateToLatestVersion = true
+		m.expectedVersion = nil
 	} else {
 		expectedSemVer, err := v.NewVersion(expectedVersion)
 		if err != nil {
 			log.Errorf("Error parsing version: %v", err)
 			return
 		}
-		if u.expectedVersion != nil && u.expectedVersion.Equal(expectedSemVer) {
+		if m.expectedVersion != nil && m.expectedVersion.Equal(expectedSemVer) {
 			return
 		}
-		u.expectedVersion = expectedSemVer
-		u.updateToLatestVersion = false
+		m.expectedVersion = expectedSemVer
+		m.updateToLatestVersion = false
 	}
 
 	select {
-	case u.mgmUpdateChan <- struct{}{}:
+	case m.mgmUpdateChan <- struct{}{}:
 	default:
 	}
 }
 
-func (u *UpdateManager) Stop() {
-	if u.cancel == nil {
+func (m *Manager) Stop() {
+	if m.cancel == nil {
 		return
 	}
 
-	u.cancel()
-	u.updateMutex.Lock()
-	if u.update != nil {
-		u.update.StopWatch()
-		u.update = nil
+	m.cancel()
+	m.updateMutex.Lock()
+	if m.update != nil {
+		m.update.StopWatch()
+		m.update = nil
 	}
-	u.updateMutex.Unlock()
+	m.updateMutex.Unlock()
 
-	u.wg.Wait()
+	m.wg.Wait()
 }
 
-func (u *UpdateManager) onContextCancel() {
-	if u.cancel == nil {
+func (m *Manager) onContextCancel() {
+	if m.cancel == nil {
 		return
 	}
 
-	u.updateMutex.Lock()
-	defer u.updateMutex.Unlock()
-	if u.update != nil {
-		u.update.StopWatch()
-		u.update = nil
+	m.updateMutex.Lock()
+	defer m.updateMutex.Unlock()
+	if m.update != nil {
+		m.update.StopWatch()
+		m.update = nil
 	}
 }
 
-func (u *UpdateManager) updateLoop(ctx context.Context) {
-	defer u.wg.Done()
+func (m *Manager) updateLoop(ctx context.Context) {
+	defer m.wg.Done()
 
 	for {
 		select {
 		case <-ctx.Done():
-			u.onContextCancel()
+			m.onContextCancel()
 			return
-		case <-u.mgmUpdateChan:
-		case <-u.updateChannel:
+		case <-m.mgmUpdateChan:
+		case <-m.updateChannel:
 			log.Infof("fetched new version info")
 		}
 
-		u.handleUpdate(ctx)
+		m.handleUpdate(ctx)
 	}
 }
 
-func (u *UpdateManager) handleUpdate(ctx context.Context) {
+func (m *Manager) handleUpdate(ctx context.Context) {
 	var updateVersion *v.Version
 
-	u.updateMutex.Lock()
-	if u.update == nil {
-		u.updateMutex.Unlock()
+	m.updateMutex.Lock()
+	if m.update == nil {
+		m.updateMutex.Unlock()
 		return
 	}
 
-	expectedVersion := u.expectedVersion
-	useLatest := u.updateToLatestVersion
-	curLatestVersion := u.update.LatestVersion()
-	u.updateMutex.Unlock()
+	expectedVersion := m.expectedVersion
+	useLatest := m.updateToLatestVersion
+	curLatestVersion := m.update.LatestVersion()
+	m.updateMutex.Unlock()
 
 	switch {
 	// Resolve "latest" to actual version
@@ -211,176 +244,122 @@ func (u *UpdateManager) handleUpdate(ctx context.Context) {
 		return
 	}
 
-	log.Debugf("checking update option, current version: %s, target version: %s", u.currentVersion, updateVersion)
-	if !u.shouldUpdate(updateVersion) {
+	log.Debugf("checking update option, current version: %s, target version: %s", m.currentVersion, updateVersion)
+	if !m.shouldUpdate(updateVersion) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
+	// todo: review the usage of this context
+	/*
+		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
 
-	u.lastTrigger = time.Now()
-	log.Debugf("Auto-update triggered, current version: %s, target version: %s", u.currentVersion, updateVersion)
-	u.statusRecorder.PublishEvent(
-		cProto.SystemEvent_INFO,
+	*/
+
+	m.lastTrigger = time.Now()
+	log.Infof("Auto-update triggered, current version: %s, target version: %s", m.currentVersion, updateVersion)
+	m.statusRecorder.PublishEvent(
+		cProto.SystemEvent_CRITICAL,
 		cProto.SystemEvent_SYSTEM,
 		"Automatically updating client",
 		"Your client version is older than auto-update version set in Management, updating client now.",
 		nil,
 	)
 
-	u.statusRecorder.PublishEvent(
-		cProto.SystemEvent_INFO,
+	m.statusRecorder.PublishEvent(
+		cProto.SystemEvent_CRITICAL,
 		cProto.SystemEvent_SYSTEM,
 		"",
 		"",
-		map[string]string{"progress_window": "show"},
+		map[string]string{"progress_window": "show", "version": updateVersion.String()},
 	)
 
 	updateState := UpdateState{
-		PreUpdateVersion: u.currentVersion,
+		PreUpdateVersion: m.currentVersion,
 		TargetVersion:    updateVersion.String(),
 	}
 
-	if err := u.stateManager.UpdateState(updateState); err != nil {
+	if err := m.stateManager.UpdateState(updateState); err != nil {
 		log.Warnf("failed to update state: %v", err)
 	} else {
-		if err = u.stateManager.PersistState(ctx); err != nil {
+		if err = m.stateManager.PersistState(ctx); err != nil {
 			log.Warnf("failed to persist state: %v", err)
 		}
 	}
 
-	if err := u.triggerUpdate(ctx, updateVersion.String()); err != nil {
+	if err := m.triggerUpdateFn(ctx, updateVersion.String()); err != nil {
 		log.Errorf("Error triggering auto-update: %v", err)
-		u.statusRecorder.PublishEvent(
+		m.statusRecorder.PublishEvent(
 			cProto.SystemEvent_ERROR,
 			cProto.SystemEvent_SYSTEM,
 			"Auto-update failed",
 			fmt.Sprintf("Auto-update failed: %v", err),
 			nil,
 		)
-		u.statusRecorder.PublishEvent(
-			cProto.SystemEvent_INFO,
-			cProto.SystemEvent_SYSTEM,
-			"",
-			"",
-			map[string]string{"progress_window": "hide"},
-		)
 	}
 }
 
-func (u *UpdateManager) updateStateManager(ctx context.Context) {
+// loadAndDeleteUpdateState loads the update state, deletes it from storage, and returns it.
+// Returns nil if no state exists.
+func (m *Manager) loadAndDeleteUpdateState(ctx context.Context) (*UpdateState, error) {
 	stateType := &UpdateState{}
 
-	u.stateManager.RegisterState(stateType)
-	if err := u.stateManager.LoadState(stateType); err != nil {
-		log.Errorf("failed to load state: %v", err)
-		return
+	m.stateManager.RegisterState(stateType)
+	if err := m.stateManager.LoadState(stateType); err != nil {
+		return nil, fmt.Errorf("load state: %w", err)
 	}
-	state := u.stateManager.GetState(stateType)
+
+	state := m.stateManager.GetState(stateType)
 	if state == nil {
-		return
+		return nil, errNoUpdateState
 	}
 
 	updateState, ok := state.(*UpdateState)
 	if !ok {
-		log.Errorf("failed to cast state to UpdateState")
-		return
+		return nil, fmt.Errorf("failed to cast state to UpdateState")
 	}
-	log.Debugf("autoUpdate state loaded, %v", *updateState)
-	if updateState.TargetVersion == u.currentVersion {
-		log.Infof("published notification event")
-		u.statusRecorder.PublishEvent(
-			cProto.SystemEvent_INFO,
-			cProto.SystemEvent_SYSTEM,
-			"Auto-update completed",
-			fmt.Sprintf("Your NetBird Client was auto-updated to version %s", u.currentVersion),
-			nil,
-		)
+
+	if err := m.stateManager.DeleteState(updateState); err != nil {
+		return nil, fmt.Errorf("delete state: %w", err)
 	}
-	if err := u.stateManager.DeleteState(updateState); err != nil {
-		log.Errorf("failed to delete state: %v", err)
-	} else if err = u.stateManager.PersistState(ctx); err != nil {
-		log.Errorf("failed to persist state: %v", err)
+
+	if err := m.stateManager.PersistState(ctx); err != nil {
+		return nil, fmt.Errorf("persist state: %w", err)
 	}
+
+	return updateState, nil
 }
 
-func (u *UpdateManager) shouldUpdate(updateVersion *v.Version) bool {
-	if u.currentVersion == developmentVersion {
+func (m *Manager) shouldUpdate(updateVersion *v.Version) bool {
+	if m.currentVersion == developmentVersion {
 		log.Debugf("skipping auto-update, running development version")
 		return false
 	}
-	currentVersion, err := v.NewVersion(u.currentVersion)
+	currentVersion, err := v.NewVersion(m.currentVersion)
 	if err != nil {
-		log.Errorf("error checking for update, error parsing version `%s`: %v", u.currentVersion, err)
+		log.Errorf("error checking for update, error parsing version `%s`: %v", m.currentVersion, err)
 		return false
 	}
 	if currentVersion.GreaterThanOrEqual(updateVersion) {
-		log.Infof("current version (%s) is equal to or higher than auto-update version (%s)", u.currentVersion, updateVersion)
+		log.Infof("current version (%s) is equal to or higher than auto-update version (%s)", m.currentVersion, updateVersion)
 		return false
 	}
 
-	if time.Since(u.lastTrigger) < 5*time.Minute {
-		log.Debugf("skipping auto-update, last update was %s ago", time.Since(u.lastTrigger))
+	if time.Since(m.lastTrigger) < 5*time.Minute {
+		log.Debugf("skipping auto-update, last update was %s ago", time.Since(m.lastTrigger))
 		return false
 	}
 
 	return true
 }
 
-func downloadFileToTemporaryDir(ctx context.Context, fileURL string) (string, error) { //nolint:unused
-	tempDir, err := os.MkdirTemp("", "netbird-installer-*")
-	if err != nil {
-		return "", fmt.Errorf("error creating temporary directory: %w", err)
-	}
+func (m *Manager) lastResultErrReason() string {
+	inst := installer.New()
+	result := installer.NewResultHandler(inst.TempDir())
+	return result.GetErrorResultReason()
+}
 
-	// Clean up temp directory on error
-	var success bool
-	defer func() {
-		if !success {
-			if err := os.RemoveAll(tempDir); err != nil {
-				log.Errorf("error cleaning up temporary directory: %v", err)
-			}
-		}
-	}()
-
-	fileNameParts := strings.Split(fileURL, "/")
-	out, err := os.Create(filepath.Join(tempDir, fileNameParts[len(fileNameParts)-1]))
-	if err != nil {
-		return "", fmt.Errorf("error creating temporary file: %w", err)
-	}
-	defer func() {
-		if err := out.Close(); err != nil {
-			log.Errorf("error closing temporary file: %v", err)
-		}
-	}()
-
-	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("error creating file download request: %w", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("error downloading file: %w", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			log.Errorf("Error closing response body: %v", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Errorf("error downloading update file, received status code: %d", resp.StatusCode)
-		return "", fmt.Errorf("error downloading file, received status code: %d", resp.StatusCode)
-	}
-
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error downloading file: %w", err)
-	}
-
-	log.Infof("downloaded update file to %s", out.Name())
-
-	success = true // Mark success to prevent cleanup
-	return out.Name(), nil
+func (m *Manager) triggerUpdate(ctx context.Context, targetVersion string) error {
+	inst := installer.New()
+	return inst.RunInstallation(ctx, targetVersion)
 }
