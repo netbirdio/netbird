@@ -701,9 +701,10 @@ func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs
 				return err
 			}
 
-		err = c.onPeerAddedUpdNetworkMapCache(account, peerID)
-		if err != nil {
-			return err
+			err = c.onPeerAddedUpdNetworkMapCache(account, peerID)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return c.bufferSendUpdateAccountPeers(ctx, accountID)
@@ -751,10 +752,6 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 				log.WithContext(ctx).Errorf("failed to update network map cache for deleted peer %s in account %s: %v", peerID, accountID, err)
 				continue
 			}
-		}
-		err = c.onPeerDeletedUpdNetworkMapCache(account, peerID)
-		if err != nil {
-			return err
 		}
 	}
 
