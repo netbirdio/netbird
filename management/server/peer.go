@@ -137,9 +137,6 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 
 	if expired {
 		am.networkMapController.OnPeerUpdated(accountID, peer)
-		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
-		// the expired one. Here we notify them that connection is now allowed again.
-		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -195,7 +192,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 	var peer *nbpeer.Peer
 	var settings *types.Settings
 	var peerGroupList []string
-	var requiresPeerUpdates bool
 	var peerLabelChanged bool
 	var sshChanged bool
 	var loginExpirationChanged bool
@@ -220,7 +216,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 		dnsDomain = am.networkMapController.GetDNSDomain(settings)
 
-		update, requiresPeerUpdates, err = am.integratedPeerValidator.ValidatePeer(ctx, update, peer, userID, accountID, dnsDomain, peerGroupList, settings.Extra)
+		update, _, err = am.integratedPeerValidator.ValidatePeer(ctx, update, peer, userID, accountID, dnsDomain, peerGroupList, settings.Extra)
 		if err != nil {
 			return err
 		}
@@ -315,12 +311,6 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 	am.networkMapController.OnPeerUpdated(accountID, peer)
 
-	if peerLabelChanged || requiresPeerUpdates {
-		am.UpdateAccountPeers(ctx, accountID)
-	} else if sshChanged {
-		am.UpdateAccountPeer(ctx, accountID, peer.ID)
-	}
-
 	return peer, nil
 }
 
@@ -382,10 +372,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 
 	if err := am.networkMapController.OnPeerDeleted(ctx, accountID, peerID); err != nil {
 		log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", peerID, err)
-	}
-
-	if userID != activity.SystemInitiator {
-		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -663,8 +649,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
 	}
 
-	am.BufferUpdateAccountPeers(ctx, accountID)
-
 	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, false, accountID, newPeer)
 	return p, nmap, pc, err
 }
@@ -746,7 +730,6 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 
 	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
 		am.networkMapController.OnPeerUpdated(accountID, peer)
-		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 
 	return am.networkMapController.GetValidatedPeerWithMap(ctx, peerNotValid, accountID, peer)
@@ -875,9 +858,6 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		am.networkMapController.OnPeerUpdated(accountID, peer)
-		startBuffer := time.Now()
-		am.BufferUpdateAccountPeers(ctx, accountID)
-		log.WithContext(ctx).Debugf("LoginPeer: BufferUpdateAccountPeers took %v", time.Since(startBuffer))
 	}
 
 	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, isRequiresApproval, accountID, peer)

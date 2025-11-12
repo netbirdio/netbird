@@ -999,7 +999,6 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		// this will trigger peer disconnect from the management service
 		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
 		am.networkMapController.DisconnectPeers(ctx, peerIDs)
-		am.BufferUpdateAccountPeers(ctx, accountID)
 	}
 	return nil
 }
