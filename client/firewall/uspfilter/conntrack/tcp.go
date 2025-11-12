@@ -157,7 +157,7 @@ func NewTCPTracker(timeout time.Duration, logger *nblog.Logger, flowLogger nftyp
 	return tracker
 }
 
-func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, direction nftypes.Direction, size int) (ConnKey, bool) {
+func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, direction nftypes.Direction, size int) (ConnKey, uint16, bool) {
 	key := ConnKey{
 		SrcIP:   srcIP,
 		DstIP:   dstIP,
@@ -171,28 +171,30 @@ func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 
 	if exists {
 		t.updateState(key, conn, flags, direction, size)
-		return key, true
+		return key, uint16(conn.DNATOrigPort.Load()), true
 	}
 
-	return key, false
+	return key, 0, false
 }
 
-// TrackOutbound records an outbound TCP connection
-func (t *TCPTracker) TrackOutbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, size int) {
-	if _, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags, nftypes.Egress, size); !exists {
-		// if (inverted direction) conn is not tracked, track this direction
-		t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress, nil, size)
+// TrackOutbound records an outbound TCP connection and returns the original port if DNAT reversal is needed
+func (t *TCPTracker) TrackOutbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, size int) uint16 {
+	if _, origPort, exists := t.updateIfExists(dstIP, srcIP, dstPort, srcPort, flags, nftypes.Egress, size); exists {
+		return origPort
 	}
+	// if (inverted direction) conn is not tracked, track this direction
+	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Egress, nil, size, 0)
+	return 0
 }
 
 // TrackInbound processes an inbound TCP packet and updates connection state
-func (t *TCPTracker) TrackInbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, ruleID []byte, size int) {
-	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress, ruleID, size)
+func (t *TCPTracker) TrackInbound(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, ruleID []byte, size int, dnatOrigPort uint16) {
+	t.track(srcIP, dstIP, srcPort, dstPort, flags, nftypes.Ingress, ruleID, size, dnatOrigPort)
 }
 
 // track is the common implementation for tracking both inbound and outbound connections
-func (t *TCPTracker) track(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, direction nftypes.Direction, ruleID []byte, size int) {
-	key, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags, direction, size)
+func (t *TCPTracker) track(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, flags uint8, direction nftypes.Direction, ruleID []byte, size int, origPort uint16) {
+	key, _, exists := t.updateIfExists(srcIP, dstIP, srcPort, dstPort, flags, direction, size)
 	if exists || flags&TCPSyn == 0 {
 		return
 	}
@@ -210,8 +212,13 @@ func (t *TCPTracker) track(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, fla
 
 	conn.tombstone.Store(false)
 	conn.state.Store(int32(TCPStateNew))
+	conn.DNATOrigPort.Store(uint32(origPort))
 
-	t.logger.Trace2("New %s TCP connection: %s", direction, key)
+	if origPort != 0 {
+		t.logger.Trace4("New %s TCP connection: %s (port DNAT %d -> %d)", direction, key, origPort, dstPort)
+	} else {
+		t.logger.Trace2("New %s TCP connection: %s", direction, key)
+	}
 	t.updateState(key, conn, flags, direction, size)
 
 	t.mutex.Lock()
@@ -447,6 +454,21 @@ func (t *TCPTracker) cleanup() {
 			}
 		}
 	}
+}
+
+// GetConnection safely retrieves a connection state
+func (t *TCPTracker) GetConnection(srcIP netip.Addr, srcPort uint16, dstIP netip.Addr, dstPort uint16) (*TCPConnTrack, bool) {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+
+	key := ConnKey{
+		SrcIP:   srcIP,
+		DstIP:   dstIP,
+		SrcPort: srcPort,
+		DstPort: dstPort,
+	}
+	conn, exists := t.connections[key]
+	return conn, exists
 }
 
 // Close stops the cleanup routine and releases resources

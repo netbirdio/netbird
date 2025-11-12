@@ -484,7 +484,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient)
+		hint := ""
+		if msg.Hint != nil {
+			hint = *msg.Hint
+		}
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, hint)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
@@ -1063,10 +1067,7 @@ func (s *Server) Status(
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
 	if msg.GetFullPeerStatus {
-		if msg.ShouldRunProbes {
-			s.runProbes()
-		}
-
+		s.runProbes(msg.ShouldRunProbes)
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
@@ -1076,7 +1077,7 @@ func (s *Server) Status(
 	return &statusResponse, nil
 }
 
-func (s *Server) runProbes() {
+func (s *Server) runProbes(waitForProbeResult bool) {
 	if s.connectClient == nil {
 		return
 	}
@@ -1087,7 +1088,7 @@ func (s *Server) runProbes() {
 	}
 
 	if time.Since(s.lastProbe) > probeThreshold {
-		if engine.RunHealthProbes() {
+		if engine.RunHealthProbes(waitForProbeResult) {
 			s.lastProbe = time.Now()
 		}
 	}

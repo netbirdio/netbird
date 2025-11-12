@@ -50,6 +50,8 @@ type logMessage struct {
 	arg4   any
 	arg5   any
 	arg6   any
+	arg7   any
+	arg8   any
 }
 
 // Logger is a high-performance, non-blocking logger
@@ -93,7 +95,6 @@ func (l *Logger) SetLevel(level Level) {
 	l.level.Store(uint32(level))
 	log.Debugf("Set uspfilter logger loglevel to %v", levelStrings[level])
 }
-
 
 func (l *Logger) Error(format string) {
 	if l.level.Load() >= uint32(LevelError) {
@@ -185,6 +186,15 @@ func (l *Logger) Debug2(format string, arg1, arg2 any) {
 	}
 }
 
+func (l *Logger) Debug3(format string, arg1, arg2, arg3 any) {
+	if l.level.Load() >= uint32(LevelDebug) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelDebug, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		default:
+		}
+	}
+}
+
 func (l *Logger) Trace1(format string, arg1 any) {
 	if l.level.Load() >= uint32(LevelTrace) {
 		select {
@@ -239,6 +249,16 @@ func (l *Logger) Trace6(format string, arg1, arg2, arg3, arg4, arg5, arg6 any) {
 	}
 }
 
+// Trace8 logs a trace message with 8 arguments (8 placeholder in format string)
+func (l *Logger) Trace8(format string, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5, arg6: arg6, arg7: arg7, arg8: arg8}:
+		default:
+		}
+	}
+}
+
 func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 	*buf = (*buf)[:0]
 	*buf = time.Now().AppendFormat(*buf, "2006-01-02T15:04:05-07:00")
@@ -260,6 +280,12 @@ func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 						argCount++
 						if msg.arg6 != nil {
 							argCount++
+							if msg.arg7 != nil {
+								argCount++
+								if msg.arg8 != nil {
+									argCount++
+								}
+							}
 						}
 					}
 				}
@@ -283,6 +309,10 @@ func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5)
 	case 6:
 		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6)
+	case 7:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7)
+	case 8:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7, msg.arg8)
 	}
 
 	*buf = append(*buf, formatted...)

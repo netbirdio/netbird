@@ -18,7 +18,7 @@ import (
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
-func WithCustomDialer(tlsEnabled bool, component string) grpc.DialOption {
+func WithCustomDialer(_ bool, _ string) grpc.DialOption {
 	return grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 		if runtime.GOOS == "linux" {
 			currentUser, err := user.Current()
@@ -36,7 +36,6 @@ func WithCustomDialer(tlsEnabled bool, component string) grpc.DialOption {
 
 		conn, err := nbnet.NewDialer().DialContext(ctx, "tcp", addr)
 		if err != nil {
-			log.Errorf("Failed to dial: %s", err)
 			return nil, fmt.Errorf("nbnet.NewDialer().DialContext: %w", err)
 		}
 		return conn, nil

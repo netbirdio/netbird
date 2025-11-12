@@ -279,8 +279,10 @@ type LoginRequest struct {
 	ProfileName           *string `protobuf:"bytes,30,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
 	Username              *string `protobuf:"bytes,31,opt,name=username,proto3,oneof" json:"username,omitempty"`
 	Mtu                   *int64  `protobuf:"varint,32,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// hint is used to pre-fill the email/username field during SSO authentication
+	Hint          *string `protobuf:"bytes,33,opt,name=hint,proto3,oneof" json:"hint,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LoginRequest) Reset() {
@@ -536,6 +538,13 @@ func (x *LoginRequest) GetMtu() int64 {
 		return *x.Mtu
 	}
 	return 0
+}
+
+func (x *LoginRequest) GetHint() string {
+	if x != nil && x.Hint != nil {
+		return *x.Hint
+	}
+	return ""
 }
 
 type LoginResponse struct {
@@ -4704,7 +4713,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\xc3\x0e\n" +
+	"\fEmptyRequest\"\xe5\x0e\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -4741,7 +4750,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\rblock_inbound\x18\x1d \x01(\bH\x10R\fblockInbound\x88\x01\x01\x12%\n" +
 	"\vprofileName\x18\x1e \x01(\tH\x11R\vprofileName\x88\x01\x01\x12\x1f\n" +
 	"\busername\x18\x1f \x01(\tH\x12R\busername\x88\x01\x01\x12\x15\n" +
-	"\x03mtu\x18  \x01(\x03H\x13R\x03mtu\x88\x01\x01B\x13\n" +
+	"\x03mtu\x18  \x01(\x03H\x13R\x03mtu\x88\x01\x01\x12\x17\n" +
+	"\x04hint\x18! \x01(\tH\x14R\x04hint\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -4761,7 +4771,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0e_block_inboundB\x0e\n" +
 	"\f_profileNameB\v\n" +
 	"\t_usernameB\x06\n" +
-	"\x04_mtu\"\xb5\x01\n" +
+	"\x04_mtuB\a\n" +
+	"\x05_hint\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +

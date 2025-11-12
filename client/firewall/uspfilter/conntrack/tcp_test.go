@@ -603,7 +603,7 @@ func TestTCPInboundInitiatedConnection(t *testing.T) {
 	serverPort := uint16(80)
 
 	// 1. Client sends SYN (we receive it as inbound)
-	tracker.TrackInbound(clientIP, serverIP, clientPort, serverPort, TCPSyn, nil, 100)
+	tracker.TrackInbound(clientIP, serverIP, clientPort, serverPort, TCPSyn, nil, 100, 0)
 
 	key := ConnKey{
 		SrcIP:   clientIP,
@@ -623,12 +623,12 @@ func TestTCPInboundInitiatedConnection(t *testing.T) {
 	tracker.TrackOutbound(serverIP, clientIP, serverPort, clientPort, TCPSyn|TCPAck, 100)
 
 	// 3. Client sends ACK to complete handshake
-	tracker.TrackInbound(clientIP, serverIP, clientPort, serverPort, TCPAck, nil, 100)
+	tracker.TrackInbound(clientIP, serverIP, clientPort, serverPort, TCPAck, nil, 100, 0)
 	require.Equal(t, TCPStateEstablished, conn.GetState(), "Connection should be ESTABLISHED after handshake completion")
 
 	// 4. Test data transfer
 	// Client sends data
-	tracker.TrackInbound(clientIP, serverIP, clientPort, serverPort, TCPPush|TCPAck, nil, 1000)
+	tracker.TrackInbound(clientIP, serverIP, clientPort, serverPort, TCPPush|TCPAck, nil, 1000, 0)
 
 	// Server sends ACK for data
 	tracker.TrackOutbound(serverIP, clientIP, serverPort, clientPort, TCPAck, 100)
@@ -637,7 +637,7 @@ func TestTCPInboundInitiatedConnection(t *testing.T) {
 	tracker.TrackOutbound(serverIP, clientIP, serverPort, clientPort, TCPPush|TCPAck, 1500)
 
 	// Client sends ACK for data
-	tracker.TrackInbound(clientIP, serverIP, clientPort, serverPort, TCPAck, nil, 100)
+	tracker.TrackInbound(clientIP, serverIP, clientPort, serverPort, TCPAck, nil, 100, 0)
 
 	// Verify state and counters
 	require.Equal(t, TCPStateEstablished, conn.GetState())
