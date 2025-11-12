@@ -138,7 +138,7 @@ func (am *MockAccountManager) CreatePeerJob(ctx context.Context, accountID, peer
 	if am.CreatePeerJobFunc != nil {
 		return am.CreatePeerJobFunc(ctx, accountID, peerID, userID, job)
 	}
-	return status.Errorf(codes.Unimplemented, "method CreateJob is not implemented")
+	return status.Errorf(codes.Unimplemented, "method CreatePeerJob is not implemented")
 }
 
 func (am *MockAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
@@ -151,7 +151,7 @@ func (am *MockAccountManager) GetPeerJobByID(ctx context.Context, accountID, use
 	if am.GetPeerJobByID != nil {
 		return am.GetPeerJobByIDFunc(ctx, accountID, userID, peerID, jobID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method CreateJob is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeerJobByID is not implemented")
 }
 
 func (am *MockAccountManager) CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error {
