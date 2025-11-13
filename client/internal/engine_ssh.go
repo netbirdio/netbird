@@ -235,7 +235,17 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 
 	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
 		server.SetNetstackNet(netstackNet)
+	}
 
+	e.configureSSHServer(server)
+
+	if err := server.Start(e.ctx, listenAddr); err != nil {
+		return fmt.Errorf("start SSH server: %w", err)
+	}
+
+	e.sshServer = server
+
+	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
 		if registrar, ok := e.firewall.(interface {
 			RegisterNetstackService(protocol nftypes.Protocol, port uint16)
 		}); ok {
@@ -244,15 +254,8 @@ func (e *Engine) startSSHServer(jwtConfig *sshserver.JWTConfig) error {
 		}
 	}
 
-	e.configureSSHServer(server)
-	e.sshServer = server
-
 	if err := e.setupSSHPortRedirection(); err != nil {
 		log.Warnf("failed to setup SSH port redirection: %v", err)
-	}
-
-	if err := server.Start(e.ctx, listenAddr); err != nil {
-		return fmt.Errorf("start SSH server: %w", err)
 	}
 
 	return nil

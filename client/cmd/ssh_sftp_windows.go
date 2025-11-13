@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"strings"
 
 	"github.com/pkg/sftp"
 	log "github.com/sirupsen/logrus"
@@ -51,7 +52,7 @@ func sftpMainDirect(cmd *cobra.Command) error {
 		if windowsDomain != "" {
 			expectedUsername = fmt.Sprintf(`%s\%s`, windowsDomain, windowsUsername)
 		}
-		if currentUser.Username != expectedUsername && currentUser.Username != windowsUsername {
+		if !strings.EqualFold(currentUser.Username, expectedUsername) && !strings.EqualFold(currentUser.Username, windowsUsername) {
 			cmd.PrintErrf("user switching failed\n")
 			os.Exit(sshserver.ExitCodeValidationFail)
 		}

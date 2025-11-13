@@ -511,7 +511,7 @@ func (c *Client) LocalPortForward(ctx context.Context, localAddr, remoteAddr str
 
 	go func() {
 		defer func() {
-			if err := localListener.Close(); err != nil {
+			if err := localListener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 				log.Debugf("local listener close error: %v", err)
 			}
 		}()
@@ -529,6 +529,9 @@ func (c *Client) LocalPortForward(ctx context.Context, localAddr, remoteAddr str
 	}()
 
 	<-ctx.Done()
+	if err := localListener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		log.Debugf("local listener close error: %v", err)
+	}
 	return ctx.Err()
 }
 

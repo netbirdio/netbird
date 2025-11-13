@@ -3945,17 +3945,17 @@ type SetConfigRequest struct {
 	ExtraIFaceBlacklist   []string `protobuf:"bytes,24,rep,name=extraIFaceBlacklist,proto3" json:"extraIFaceBlacklist,omitempty"`
 	DnsLabels             []string `protobuf:"bytes,25,rep,name=dns_labels,json=dnsLabels,proto3" json:"dns_labels,omitempty"`
 	// cleanDNSLabels clean map list of DNS labels.
-	CleanDNSLabels             bool                 `protobuf:"varint,26,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
-	DnsRouteInterval           *durationpb.Duration `protobuf:"bytes,27,opt,name=dnsRouteInterval,proto3,oneof" json:"dnsRouteInterval,omitempty"`
-	Mtu                        *int64               `protobuf:"varint,28,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
-	EnableSSHRoot              *bool                `protobuf:"varint,29,opt,name=enableSSHRoot,proto3,oneof" json:"enableSSHRoot,omitempty"`
-	EnableSSHSFTP              *bool                `protobuf:"varint,30,opt,name=enableSSHSFTP,proto3,oneof" json:"enableSSHSFTP,omitempty"`
-	EnableSSHLocalPortForward  *bool                `protobuf:"varint,31,opt,name=enableSSHLocalPortForward,proto3,oneof" json:"enableSSHLocalPortForward,omitempty"`
-	EnableSSHRemotePortForward *bool                `protobuf:"varint,32,opt,name=enableSSHRemotePortForward,proto3,oneof" json:"enableSSHRemotePortForward,omitempty"`
-	DisableSSHAuth             *bool                `protobuf:"varint,33,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
-	SshJWTCacheTTL             *int32               `protobuf:"varint,34,opt,name=sshJWTCacheTTL,proto3,oneof" json:"sshJWTCacheTTL,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	CleanDNSLabels                bool                 `protobuf:"varint,26,opt,name=cleanDNSLabels,proto3" json:"cleanDNSLabels,omitempty"`
+	DnsRouteInterval              *durationpb.Duration `protobuf:"bytes,27,opt,name=dnsRouteInterval,proto3,oneof" json:"dnsRouteInterval,omitempty"`
+	Mtu                           *int64               `protobuf:"varint,28,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
+	EnableSSHRoot                 *bool                `protobuf:"varint,29,opt,name=enableSSHRoot,proto3,oneof" json:"enableSSHRoot,omitempty"`
+	EnableSSHSFTP                 *bool                `protobuf:"varint,30,opt,name=enableSSHSFTP,proto3,oneof" json:"enableSSHSFTP,omitempty"`
+	EnableSSHLocalPortForwarding  *bool                `protobuf:"varint,31,opt,name=enableSSHLocalPortForwarding,proto3,oneof" json:"enableSSHLocalPortForwarding,omitempty"`
+	EnableSSHRemotePortForwarding *bool                `protobuf:"varint,32,opt,name=enableSSHRemotePortForwarding,proto3,oneof" json:"enableSSHRemotePortForwarding,omitempty"`
+	DisableSSHAuth                *bool                `protobuf:"varint,33,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
+	SshJWTCacheTTL                *int32               `protobuf:"varint,34,opt,name=sshJWTCacheTTL,proto3,oneof" json:"sshJWTCacheTTL,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *SetConfigRequest) Reset() {
@@ -4198,16 +4198,16 @@ func (x *SetConfigRequest) GetEnableSSHSFTP() bool {
 	return false
 }
 
-func (x *SetConfigRequest) GetEnableSSHLocalPortForward() bool {
-	if x != nil && x.EnableSSHLocalPortForward != nil {
-		return *x.EnableSSHLocalPortForward
+func (x *SetConfigRequest) GetEnableSSHLocalPortForwarding() bool {
+	if x != nil && x.EnableSSHLocalPortForwarding != nil {
+		return *x.EnableSSHLocalPortForwarding
 	}
 	return false
 }
 
-func (x *SetConfigRequest) GetEnableSSHRemotePortForward() bool {
-	if x != nil && x.EnableSSHRemotePortForward != nil {
-		return *x.EnableSSHRemotePortForward
+func (x *SetConfigRequest) GetEnableSSHRemotePortForwarding() bool {
+	if x != nil && x.EnableSSHRemotePortForwarding != nil {
+		return *x.EnableSSHRemotePortForwarding
 	}
 	return false
 }
@@ -5631,7 +5631,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"\x17\n" +
-	"\x15SwitchProfileResponse\"\xcd\x10\n" +
+	"\x15SwitchProfileResponse\"\xdf\x10\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -5666,9 +5666,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\x10dnsRouteInterval\x18\x1b \x01(\v2\x19.google.protobuf.DurationH\x10R\x10dnsRouteInterval\x88\x01\x01\x12\x15\n" +
 	"\x03mtu\x18\x1c \x01(\x03H\x11R\x03mtu\x88\x01\x01\x12)\n" +
 	"\renableSSHRoot\x18\x1d \x01(\bH\x12R\renableSSHRoot\x88\x01\x01\x12)\n" +
-	"\renableSSHSFTP\x18\x1e \x01(\bH\x13R\renableSSHSFTP\x88\x01\x01\x12A\n" +
-	"\x19enableSSHLocalPortForward\x18\x1f \x01(\bH\x14R\x19enableSSHLocalPortForward\x88\x01\x01\x12C\n" +
-	"\x1aenableSSHRemotePortForward\x18  \x01(\bH\x15R\x1aenableSSHRemotePortForward\x88\x01\x01\x12+\n" +
+	"\renableSSHSFTP\x18\x1e \x01(\bH\x13R\renableSSHSFTP\x88\x01\x01\x12G\n" +
+	"\x1cenableSSHLocalPortForwarding\x18\x1f \x01(\bH\x14R\x1cenableSSHLocalPortForwarding\x88\x01\x01\x12I\n" +
+	"\x1denableSSHRemotePortForwarding\x18  \x01(\bH\x15R\x1denableSSHRemotePortForwarding\x88\x01\x01\x12+\n" +
 	"\x0edisableSSHAuth\x18! \x01(\bH\x16R\x0edisableSSHAuth\x88\x01\x01\x12+\n" +
 	"\x0esshJWTCacheTTL\x18\" \x01(\x05H\x17R\x0esshJWTCacheTTL\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
@@ -5690,9 +5690,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\x11_dnsRouteIntervalB\x06\n" +
 	"\x04_mtuB\x10\n" +
 	"\x0e_enableSSHRootB\x10\n" +
-	"\x0e_enableSSHSFTPB\x1c\n" +
-	"\x1a_enableSSHLocalPortForwardB\x1d\n" +
-	"\x1b_enableSSHRemotePortForwardB\x11\n" +
+	"\x0e_enableSSHSFTPB\x1f\n" +
+	"\x1d_enableSSHLocalPortForwardingB \n" +
+	"\x1e_enableSSHRemotePortForwardingB\x11\n" +
 	"\x0f_disableSSHAuthB\x11\n" +
 	"\x0f_sshJWTCacheTTL\"\x13\n" +
 	"\x11SetConfigResponse\"Q\n" +

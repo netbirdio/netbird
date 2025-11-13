@@ -37,13 +37,18 @@ func (c *jwtCache) store(token string, maxAge time.Duration) {
 
 	c.expiresAt = time.Now().Add(maxAge)
 
-	c.timer = time.AfterFunc(maxAge, func() {
+	var timer *time.Timer
+	timer = time.AfterFunc(maxAge, func() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
+		if c.timer != timer {
+			return
+		}
 		c.cleanup()
 		c.timer = nil
 		log.Debugf("JWT token cache expired after %v, securely wiped from memory", maxAge)
 	})
+	c.timer = timer
 }
 
 func (c *jwtCache) get() (string, bool) {
@@ -70,4 +75,5 @@ func (c *jwtCache) cleanup() {
 	if c.enclave != nil {
 		c.enclave = nil
 	}
+	c.expiresAt = time.Time{}
 }

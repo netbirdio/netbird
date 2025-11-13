@@ -99,12 +99,17 @@ func getShellFromPasswd(userID string) string {
 
 // prepareUserEnv prepares environment variables for user execution
 func prepareUserEnv(user *user.User, shell string) []string {
+	pathValue := "/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
+	if runtime.GOOS == "windows" {
+		pathValue = `C:\Windows\System32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0`
+	}
+
 	return []string{
 		fmt.Sprint("SHELL=" + shell),
 		fmt.Sprint("USER=" + user.Username),
 		fmt.Sprint("LOGNAME=" + user.Username),
 		fmt.Sprint("HOME=" + user.HomeDir),
-		"PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games",
+		"PATH=" + pathValue,
 	}
 }
 

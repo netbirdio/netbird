@@ -362,10 +362,10 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.EnableSSHSFTP = &enableSSHSFTP
 	}
 	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
-		req.EnableSSHLocalPortForward = &enableSSHLocalPortForward
+		req.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
 	}
 	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
-		req.EnableSSHRemotePortForward = &enableSSHRemotePortForward
+		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
 	}
 	if cmd.Flag(disableSSHAuthFlag).Changed {
 		req.DisableSSHAuth = &disableSSHAuth

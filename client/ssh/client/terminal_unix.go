@@ -28,6 +28,13 @@ func (c *Client) setupTerminalMode(ctx context.Context, session *ssh.Session) er
 		return c.setupNonTerminalMode(ctx, session)
 	}
 
+	if err := c.setupTerminal(session, fd); err != nil {
+		if restoreErr := term.Restore(fd, state); restoreErr != nil {
+			log.Debugf("restore terminal state: %v", restoreErr)
+		}
+		return err
+	}
+
 	c.terminalState = state
 	c.terminalFd = fd
 
@@ -57,7 +64,7 @@ func (c *Client) setupTerminalMode(ctx context.Context, session *ssh.Session) er
 		}
 	}()
 
-	return c.setupTerminal(session, fd)
+	return nil
 }
 
 func (c *Client) setupNonTerminalMode(_ context.Context, session *ssh.Session) error {

@@ -104,7 +104,14 @@ func (c *Client) setupTerminalMode(_ context.Context, session *ssh.Session) erro
 		ssh.VREPRINT:      18, // Ctrl+R
 	}
 
-	return session.RequestPty("xterm-256color", h, w, modes)
+	if err := session.RequestPty("xterm-256color", h, w, modes); err != nil {
+		if restoreErr := c.restoreWindowsConsoleState(); restoreErr != nil {
+			log.Debugf("restore Windows console state: %v", restoreErr)
+		}
+		return fmt.Errorf("request pty: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) saveWindowsConsoleState() error {

@@ -381,8 +381,8 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.BlockInbound = msg.BlockInbound
 	config.EnableSSHRoot = msg.EnableSSHRoot
 	config.EnableSSHSFTP = msg.EnableSSHSFTP
-	config.EnableSSHLocalPortForwarding = msg.EnableSSHLocalPortForward
-	config.EnableSSHRemotePortForwarding = msg.EnableSSHRemotePortForward
+	config.EnableSSHLocalPortForwarding = msg.EnableSSHLocalPortForwarding
+	config.EnableSSHRemotePortForwarding = msg.EnableSSHRemotePortForwarding
 	if msg.DisableSSHAuth != nil {
 		config.DisableSSHAuth = msg.DisableSSHAuth
 	}
@@ -1377,33 +1377,33 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	blockLANAccess := cfg.BlockLANAccess
 
 	enableSSHRoot := false
-	if s.config.EnableSSHRoot != nil {
-		enableSSHRoot = *s.config.EnableSSHRoot
+	if cfg.EnableSSHRoot != nil {
+		enableSSHRoot = *cfg.EnableSSHRoot
 	}
 
 	enableSSHSFTP := false
-	if s.config.EnableSSHSFTP != nil {
-		enableSSHSFTP = *s.config.EnableSSHSFTP
+	if cfg.EnableSSHSFTP != nil {
+		enableSSHSFTP = *cfg.EnableSSHSFTP
 	}
 
 	enableSSHLocalPortForwarding := false
-	if s.config.EnableSSHLocalPortForwarding != nil {
-		enableSSHLocalPortForwarding = *s.config.EnableSSHLocalPortForwarding
+	if cfg.EnableSSHLocalPortForwarding != nil {
+		enableSSHLocalPortForwarding = *cfg.EnableSSHLocalPortForwarding
 	}
 
 	enableSSHRemotePortForwarding := false
-	if s.config.EnableSSHRemotePortForwarding != nil {
-		enableSSHRemotePortForwarding = *s.config.EnableSSHRemotePortForwarding
+	if cfg.EnableSSHRemotePortForwarding != nil {
+		enableSSHRemotePortForwarding = *cfg.EnableSSHRemotePortForwarding
 	}
 
 	disableSSHAuth := false
-	if s.config.DisableSSHAuth != nil {
-		disableSSHAuth = *s.config.DisableSSHAuth
+	if cfg.DisableSSHAuth != nil {
+		disableSSHAuth = *cfg.DisableSSHAuth
 	}
 
 	sshJWTCacheTTL := int32(0)
-	if s.config.SSHJWTCacheTTL != nil {
-		sshJWTCacheTTL = int32(*s.config.SSHJWTCacheTTL)
+	if cfg.SSHJWTCacheTTL != nil {
+		sshJWTCacheTTL = int32(*cfg.SSHJWTCacheTTL)
 	}
 
 	return &proto.GetConfigResponse{

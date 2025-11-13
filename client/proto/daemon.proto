@@ -640,8 +640,8 @@ message SetConfigRequest {
 
   optional bool enableSSHRoot = 29;
   optional bool enableSSHSFTP = 30;
-  optional bool enableSSHLocalPortForward = 31;
-  optional bool enableSSHRemotePortForward = 32;
+  optional bool enableSSHLocalPortForwarding = 31;
+  optional bool enableSSHRemotePortForwarding = 32;
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
 }

@@ -602,8 +602,8 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 
 	req.EnableSSHRoot = &s.sEnableSSHRoot.Checked
 	req.EnableSSHSFTP = &s.sEnableSSHSFTP.Checked
-	req.EnableSSHLocalPortForward = &s.sEnableSSHLocalPortForward.Checked
-	req.EnableSSHRemotePortForward = &s.sEnableSSHRemotePortForward.Checked
+	req.EnableSSHLocalPortForwarding = &s.sEnableSSHLocalPortForward.Checked
+	req.EnableSSHRemotePortForwarding = &s.sEnableSSHRemotePortForward.Checked
 	req.DisableSSHAuth = &s.sDisableSSHAuth.Checked
 
 	sshJWTCacheTTLText := strings.TrimSpace(s.iSSHJWTCacheTTL.Text)

@@ -137,10 +137,10 @@ func TestSSHClient_ConnectionHandling(t *testing.T) {
 	const numClients = 3
 	clients := make([]*Client, numClients)
 
+	currentUser := testutil.GetTestUsername(t)
 	for i := 0; i < numClients; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		currentUser := testutil.GetTestUsername(t)
-		client, err := Dial(ctx, serverAddr, fmt.Sprintf("%s-%d", currentUser, i), DialOptions{
+		client, err := Dial(ctx, serverAddr, currentUser, DialOptions{
 			InsecureSkipVerify: true,
 		})
 		cancel()

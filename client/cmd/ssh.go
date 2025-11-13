@@ -151,10 +151,10 @@ func sshFn(cmd *cobra.Command, args []string) error {
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	sshctx, cancel := context.WithCancel(ctx)
 
+	errCh := make(chan error, 1)
 	go func() {
 		if err := runSSH(sshctx, host, cmd); err != nil {
-			cmd.Printf("Error: %v\n", err)
-			os.Exit(1)
+			errCh <- err
 		}
 		cancel()
 	}()
@@ -162,6 +162,10 @@ func sshFn(cmd *cobra.Command, args []string) error {
 	select {
 	case <-sig:
 		cancel()
+		<-sshctx.Done()
+		return nil
+	case err := <-errCh:
+		return err
 	case <-sshctx.Done():
 	}
 
