@@ -141,7 +141,7 @@ func executeConPtyWithConfig(commandLine string, config ExecutionConfig) error {
 		log.Debugf("close output write handle: %v", err)
 	}
 
-	return bridgeConPtyIO(ctx, hPty, inputWrite, outputRead, session, session, pi.Process)
+	return bridgeConPtyIO(ctx, hPty, inputWrite, outputRead, session, session, session, pi.Process)
 }
 
 // createConPtyPipes creates input/output pipes for ConPty.
@@ -323,8 +323,13 @@ func duplicateToPrimaryToken(token windows.Handle) (windows.Handle, error) {
 	return primaryToken, nil
 }
 
+// SessionExiter provides the Exit method for reporting process exit status.
+type SessionExiter interface {
+	Exit(code int) error
+}
+
 // bridgeConPtyIO handles I/O bridging between ConPty and readers/writers.
-func bridgeConPtyIO(ctx context.Context, hPty, inputWrite, outputRead windows.Handle, reader io.ReadCloser, writer io.Writer, process windows.Handle) error {
+func bridgeConPtyIO(ctx context.Context, hPty, inputWrite, outputRead windows.Handle, reader io.ReadCloser, writer io.Writer, session SessionExiter, process windows.Handle) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -335,6 +340,15 @@ func bridgeConPtyIO(ctx context.Context, hPty, inputWrite, outputRead windows.Ha
 	processErr := waitForProcess(ctx, process)
 	if processErr != nil {
 		return processErr
+	}
+
+	var exitCode uint32
+	if err := windows.GetExitCodeProcess(process, &exitCode); err != nil {
+		log.Debugf("get exit code: %v", err)
+	} else {
+		if err := session.Exit(int(exitCode)); err != nil {
+			log.Debugf("report exit code: %v", err)
+		}
 	}
 
 	// Clean up in the original order after process completes

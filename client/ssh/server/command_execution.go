@@ -23,7 +23,7 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 
 	logger.Infof("executing %s: %s", commandType, safeLogCommand(session.Command()))
 
-	execCmd, err := s.createCommand(privilegeResult, session, hasPty)
+	execCmd, cleanup, err := s.createCommand(privilegeResult, session, hasPty)
 	if err != nil {
 		logger.Errorf("%s creation failed: %v", commandType, err)
 
@@ -43,11 +43,13 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 	}
 
 	if !hasPty {
-		if s.executeCommand(logger, session, execCmd) {
+		if s.executeCommand(logger, session, execCmd, cleanup) {
 			logger.Debugf("%s execution completed", commandType)
 		}
 		return
 	}
+
+	defer cleanup()
 
 	ptyReq, _, _ := session.Pty()
 	if s.executeCommandWithPty(logger, session, execCmd, privilegeResult, ptyReq, winCh) {
@@ -55,38 +57,45 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 	}
 }
 
-func (s *Server) createCommand(privilegeResult PrivilegeCheckResult, session ssh.Session, hasPty bool) (*exec.Cmd, error) {
+func (s *Server) createCommand(privilegeResult PrivilegeCheckResult, session ssh.Session, hasPty bool) (*exec.Cmd, func(), error) {
 	localUser := privilegeResult.User
 
 	// If PTY requested but su doesn't support --pty, skip su and use executor
 	// This ensures PTY functionality is provided (executor runs within our allocated PTY)
 	if hasPty && !s.suSupportsPty {
 		log.Debugf("PTY requested but su doesn't support --pty, using executor for PTY functionality")
-		cmd, err := s.createExecutorCommand(session, localUser, hasPty)
+		cmd, cleanup, err := s.createExecutorCommand(session, localUser, hasPty)
 		if err != nil {
-			return nil, fmt.Errorf("create command with privileges: %w", err)
+			return nil, nil, fmt.Errorf("create command with privileges: %w", err)
 		}
 		cmd.Env = s.prepareCommandEnv(localUser, session)
-		return cmd, nil
+		return cmd, cleanup, nil
 	}
 
 	// Try su first for system integration (PAM/audit) when privileged
 	cmd, err := s.createSuCommand(session, localUser, hasPty)
 	if err != nil || privilegeResult.UsedFallback {
 		log.Debugf("su command failed, falling back to executor: %v", err)
-		cmd, err = s.createExecutorCommand(session, localUser, hasPty)
+		cmd, cleanup, err := s.createExecutorCommand(session, localUser, hasPty)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create command with privileges: %w", err)
+		}
+		cmd.Env = s.prepareCommandEnv(localUser, session)
+		return cmd, cleanup, nil
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("create command with privileges: %w", err)
+		return nil, nil, fmt.Errorf("create command with privileges: %w", err)
 	}
 
 	cmd.Env = s.prepareCommandEnv(localUser, session)
-	return cmd, nil
+	return cmd, func() {}, nil
 }
 
 // executeCommand executes the command and handles I/O and exit codes
-func (s *Server) executeCommand(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd) bool {
+func (s *Server) executeCommand(logger *log.Entry, session ssh.Session, execCmd *exec.Cmd, cleanup func()) bool {
+	defer cleanup()
+
 	s.setupProcessGroup(execCmd)
 
 	stdinPipe, err := execCmd.StdinPipe()

@@ -86,20 +86,22 @@ func validateUsernameFormat(username string) error {
 	return nil
 }
 
-// createExecutorCommand creates a command using Windows executor for privilege dropping
-func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
+// createExecutorCommand creates a command using Windows executor for privilege dropping.
+// Returns the command and a cleanup function that must be called after starting the process.
+func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, func(), error) {
 	log.Debugf("creating Windows executor command for user %s (Pty: %v)", localUser.Username, hasPty)
 
 	username, _ := s.parseUsername(localUser.Username)
 	if err := validateUsername(username); err != nil {
-		return nil, fmt.Errorf("invalid username: %w", err)
+		return nil, nil, fmt.Errorf("invalid username: %w", err)
 	}
 
 	return s.createUserSwitchCommand(localUser, session, hasPty)
 }
 
-// createUserSwitchCommand creates a command with Windows user switching
-func (s *Server) createUserSwitchCommand(localUser *user.User, session ssh.Session, interactive bool) (*exec.Cmd, error) {
+// createUserSwitchCommand creates a command with Windows user switching.
+// Returns the command and a cleanup function that must be called after starting the process.
+func (s *Server) createUserSwitchCommand(localUser *user.User, session ssh.Session, interactive bool) (*exec.Cmd, func(), error) {
 	username, domain := s.parseUsername(localUser.Username)
 
 	shell := getUserShell(localUser.Uid)
@@ -120,7 +122,20 @@ func (s *Server) createUserSwitchCommand(localUser *user.User, session ssh.Sessi
 	}
 
 	dropper := NewPrivilegeDropper()
-	return dropper.CreateWindowsExecutorCommand(session.Context(), config)
+	cmd, token, err := dropper.CreateWindowsExecutorCommand(session.Context(), config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cleanup := func() {
+		if token != 0 {
+			if err := windows.CloseHandle(windows.Handle(token)); err != nil {
+				log.Debugf("close primary token: %v", err)
+			}
+		}
+	}
+
+	return cmd, cleanup, nil
 }
 
 // parseUsername extracts username and domain from a Windows username

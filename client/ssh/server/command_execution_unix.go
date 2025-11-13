@@ -301,9 +301,29 @@ func (s *Server) killProcessGroup(cmd *exec.Cmd) {
 	pgid := cmd.Process.Pid
 
 	if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
-		logger.Debugf("kill process group SIGTERM failed: %v", err)
-		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
-			logger.Debugf("kill process group SIGKILL failed: %v", err)
+		logger.Debugf("kill process group SIGTERM: %v", err)
+		return
+	}
+
+	const gracePeriod = 500 * time.Millisecond
+	const checkInterval = 50 * time.Millisecond
+
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	timeout := time.After(gracePeriod)
+
+	for {
+		select {
+		case <-timeout:
+			if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
+				logger.Debugf("kill process group SIGKILL: %v", err)
+			}
+			return
+		case <-ticker.C:
+			if err := syscall.Kill(-pgid, 0); err != nil {
+				return
+			}
 		}
 	}
 }

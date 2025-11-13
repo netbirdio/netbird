@@ -364,9 +364,12 @@ func TestSSHServerStartStopCycle(t *testing.T) {
 				return
 			}
 
-			started <- actualAddr
 			addrPort, _ := netip.ParseAddrPort(actualAddr)
-			errChan <- server.Start(context.Background(), addrPort)
+			if err := server.Start(context.Background(), addrPort); err != nil {
+				errChan <- err
+				return
+			}
+			started <- actualAddr
 		}()
 
 		select {

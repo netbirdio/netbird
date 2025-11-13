@@ -228,6 +228,7 @@ func TestWindowsHandleReader(t *testing.T) {
 	if err := windows.CloseHandle(writeHandle); err != nil {
 		t.Fatalf("Should close write handle: %v", err)
 	}
+	writeHandle = windows.InvalidHandle
 
 	// Test reading
 	reader := &windowsHandleReader{handle: readHandle}

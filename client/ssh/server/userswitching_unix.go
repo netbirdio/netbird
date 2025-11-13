@@ -152,17 +152,18 @@ func (s *Server) getSupplementaryGroups(username string) ([]uint32, error) {
 	return groups, nil
 }
 
-// createExecutorCommand creates a command that spawns netbird ssh exec for privilege dropping
-func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, error) {
+// createExecutorCommand creates a command that spawns netbird ssh exec for privilege dropping.
+// Returns the command and a cleanup function (no-op on Unix).
+func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, func(), error) {
 	log.Debugf("creating executor command for user %s (Pty: %v)", localUser.Username, hasPty)
 
 	if err := validateUsername(localUser.Username); err != nil {
-		return nil, fmt.Errorf("invalid username: %w", err)
+		return nil, nil, fmt.Errorf("invalid username: %w", err)
 	}
 
 	uid, gid, groups, err := s.parseUserCredentials(localUser)
 	if err != nil {
-		return nil, fmt.Errorf("parse user credentials: %w", err)
+		return nil, nil, fmt.Errorf("parse user credentials: %w", err)
 	}
 	privilegeDropper := NewPrivilegeDropper()
 	config := ExecutorConfig{
@@ -175,7 +176,8 @@ func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User
 		PTY:        hasPty,
 	}
 
-	return privilegeDropper.CreateExecutorCommand(session.Context(), config)
+	cmd, err := privilegeDropper.CreateExecutorCommand(session.Context(), config)
+	return cmd, func() {}, err
 }
 
 // enableUserSwitching is a no-op on Unix systems

@@ -499,11 +499,15 @@ func (s *serviceClient) saveSettings() {
 	}
 
 	iMngURL := strings.TrimSpace(s.iMngURL.Text)
-	defer s.wSettings.Close()
 
 	if s.hasSettingsChanged(iMngURL, port, mtu) {
-		s.applySettingsChanges(iMngURL, port, mtu)
+		if err := s.applySettingsChanges(iMngURL, port, mtu); err != nil {
+			dialog.ShowError(err, s.wSettings)
+			return
+		}
 	}
+
+	s.wSettings.Close()
 }
 
 func (s *serviceClient) validateSettings() error {
@@ -551,20 +555,21 @@ func (s *serviceClient) hasSettingsChanged(iMngURL string, port, mtu int64) bool
 		s.hasSSHChanges()
 }
 
-func (s *serviceClient) applySettingsChanges(iMngURL string, port, mtu int64) {
+func (s *serviceClient) applySettingsChanges(iMngURL string, port, mtu int64) error {
 	s.managementURL = iMngURL
 	s.preSharedKey = s.iPreSharedKey.Text
 	s.mtu = uint16(mtu)
 
 	req, err := s.buildSetConfigRequest(iMngURL, port, mtu)
 	if err != nil {
-		log.Errorf("build config request: %v", err)
-		return
+		return fmt.Errorf("build config request: %w", err)
 	}
 
 	if err := s.sendConfigUpdate(req); err != nil {
-		dialog.ShowError(fmt.Errorf("Failed to set configuration: %v", err), s.wSettings)
+		return fmt.Errorf("set configuration: %w", err)
 	}
+
+	return nil
 }
 
 func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (*proto.SetConfigRequest, error) {

@@ -61,12 +61,14 @@ const (
 	convertDomainError   = "convert domain to UTF16: %w"
 )
 
-func (pd *PrivilegeDropper) CreateWindowsExecutorCommand(ctx context.Context, config WindowsExecutorConfig) (*exec.Cmd, error) {
+// CreateWindowsExecutorCommand creates a Windows command with privilege dropping.
+// The caller must close the returned token handle after starting the process.
+func (pd *PrivilegeDropper) CreateWindowsExecutorCommand(ctx context.Context, config WindowsExecutorConfig) (*exec.Cmd, windows.Token, error) {
 	if config.Username == "" {
-		return nil, errors.New("username cannot be empty")
+		return nil, 0, errors.New("username cannot be empty")
 	}
 	if config.Shell == "" {
-		return nil, errors.New("shell cannot be empty")
+		return nil, 0, errors.New("shell cannot be empty")
 	}
 
 	shell := config.Shell
@@ -80,13 +82,13 @@ func (pd *PrivilegeDropper) CreateWindowsExecutorCommand(ctx context.Context, co
 
 	log.Tracef("creating Windows direct shell command: %s %v", shellArgs[0], shellArgs)
 
-	cmd, err := pd.CreateWindowsProcessAsUser(
+	cmd, token, err := pd.CreateWindowsProcessAsUser(
 		ctx, shellArgs[0], shellArgs, config.Username, config.Domain, config.WorkingDir)
 	if err != nil {
-		return nil, fmt.Errorf("create Windows process as user: %w", err)
+		return nil, 0, fmt.Errorf("create Windows process as user: %w", err)
 	}
 
-	return cmd, nil
+	return cmd, token, nil
 }
 
 const (
@@ -514,28 +516,34 @@ func (pd *PrivilegeDropper) authenticateDomainUser(username, domain, fullUsernam
 	return token, nil
 }
 
-// CreateWindowsProcessAsUser creates a process as user with safe argument passing (for SFTP and executables)
-func (pd *PrivilegeDropper) CreateWindowsProcessAsUser(ctx context.Context, executablePath string, args []string, username, domain, workingDir string) (*exec.Cmd, error) {
+// CreateWindowsProcessAsUser creates a process as user with safe argument passing (for SFTP and executables).
+// The caller must close the returned token handle after starting the process.
+func (pd *PrivilegeDropper) CreateWindowsProcessAsUser(ctx context.Context, executablePath string, args []string, username, domain, workingDir string) (*exec.Cmd, windows.Token, error) {
 	token, err := pd.createToken(username, domain)
 	if err != nil {
-		return nil, fmt.Errorf("user authentication: %w", err)
+		return nil, 0, fmt.Errorf("user authentication: %w", err)
 	}
 
 	defer func() {
 		if err := windows.CloseHandle(token); err != nil {
-			log.Debugf("close impersonation token error: %v", err)
+			log.Debugf("close impersonation token: %v", err)
 		}
 	}()
 
-	return pd.createProcessWithToken(ctx, windows.Token(token), executablePath, args, workingDir)
+	cmd, primaryToken, err := pd.createProcessWithToken(ctx, windows.Token(token), executablePath, args, workingDir)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return cmd, primaryToken, nil
 }
 
-// createProcessWithToken creates process with the specified token and executable path
-func (pd *PrivilegeDropper) createProcessWithToken(ctx context.Context, sourceToken windows.Token, executablePath string, args []string, workingDir string) (*exec.Cmd, error) {
+// createProcessWithToken creates process with the specified token and executable path.
+// The caller must close the returned token handle after starting the process.
+func (pd *PrivilegeDropper) createProcessWithToken(ctx context.Context, sourceToken windows.Token, executablePath string, args []string, workingDir string) (*exec.Cmd, windows.Token, error) {
 	cmd := exec.CommandContext(ctx, executablePath, args[1:]...)
 	cmd.Dir = workingDir
 
-	// Duplicate the token to create a primary token that can be used to start a new process
 	var primaryToken windows.Token
 	err := windows.DuplicateTokenEx(
 		sourceToken,
@@ -546,14 +554,14 @@ func (pd *PrivilegeDropper) createProcessWithToken(ctx context.Context, sourceTo
 		&primaryToken,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("duplicate token to primary token: %w", err)
+		return nil, 0, fmt.Errorf("duplicate token to primary token: %w", err)
 	}
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Token: syscall.Token(primaryToken),
 	}
 
-	return cmd, nil
+	return cmd, primaryToken, nil
 }
 
 // createSuCommand creates a command using su -l -c for privilege switching (Windows stub)

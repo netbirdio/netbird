@@ -20,8 +20,8 @@ func (s *Server) createSuCommand(_ ssh.Session, _ *user.User, _ bool) (*exec.Cmd
 }
 
 // createExecutorCommand is not supported on JS/WASM
-func (s *Server) createExecutorCommand(_ ssh.Session, _ *user.User, _ bool) (*exec.Cmd, error) {
-	return nil, errNotSupported
+func (s *Server) createExecutorCommand(_ ssh.Session, _ *user.User, _ bool) (*exec.Cmd, func(), error) {
+	return nil, nil, errNotSupported
 }
 
 // prepareCommandEnv is not supported on JS/WASM
