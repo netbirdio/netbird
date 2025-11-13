@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -41,6 +42,7 @@ type Controller struct {
 	accountManagerMetrics *telemetry.AccountManagerMetrics
 	peersUpdateManager    network_map.PeersUpdateManager
 	settingsManager       settings.Manager
+	EphemeralPeersManager ephemeral.Manager
 
 	accountUpdateLocks               sync.Map
 	sendAccountUpdateLocks           sync.Map
@@ -68,7 +70,7 @@ type bufferUpdate struct {
 
 var _ network_map.Controller = (*Controller)(nil)
 
-func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string, proxyController port_forwarding.Controller) *Controller {
+func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string, proxyController port_forwarding.Controller, ephemeralPeersManager ephemeral.Manager) *Controller {
 	nMetrics, err := newMetrics(metrics.UpdateChannelMetrics())
 	if err != nil {
 		log.Fatal(fmt.Errorf("error creating metrics: %w", err))
@@ -96,7 +98,8 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		settingsManager:         settingsManager,
 		dnsDomain:               dnsDomain,
 
-		proxyController: proxyController,
+		proxyController:       proxyController,
+		EphemeralPeersManager: ephemeralPeersManager,
 
 		holder:               types.NewHolder(),
 		expNewNetworkMap:     newNetworkMapBuilder,
@@ -105,11 +108,24 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 }
 
 func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peerID string) chan *network_map.UpdateMessage {
+	peer, err := c.repo.GetPeerByID(ctx, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer %s: %v", peerID, err)
+	} else {
+		c.EphemeralPeersManager.OnPeerConnected(ctx, peer)
+	}
+
 	return c.peersUpdateManager.CreateChannel(ctx, peerID)
 }
 
 func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, peerID string) {
 	c.peersUpdateManager.CloseChannel(ctx, peerID)
+	peer, err := c.repo.GetPeerByID(ctx, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer %s: %v", peerID, err)
+		return
+	}
+	c.EphemeralPeersManager.OnPeerDisconnected(ctx, peer)
 }
 
 func (c *Controller) CountStreams() int {

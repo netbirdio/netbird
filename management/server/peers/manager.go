@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -19,11 +21,17 @@ type Manager interface {
 	GetPeerAccountID(ctx context.Context, peerID string) (string, error)
 	GetAllPeers(ctx context.Context, accountID, userID string) ([]*peer.Peer, error)
 	GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error)
+	DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string) error
+	SetNetworkMapController(networkMapController network_map.Controller)
+	SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator)
 }
 
 type managerImpl struct {
-	store              store.Store
-	permissionsManager permissions.Manager
+	store                   store.Store
+	permissionsManager      permissions.Manager
+	integratedPeerValidator integrated_validator.IntegratedValidator
+
+	networkMapController network_map.Controller
 }
 
 func NewManager(store store.Store, permissionsManager permissions.Manager) Manager {
@@ -31,6 +39,14 @@ func NewManager(store store.Store, permissionsManager permissions.Manager) Manag
 		store:              store,
 		permissionsManager: permissionsManager,
 	}
+}
+
+func (m *managerImpl) SetNetworkMapController(networkMapController network_map.Controller) {
+	m.networkMapController = networkMapController
+}
+
+func (m *managerImpl) SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator) {
+	m.integratedPeerValidator = integratedPeerValidator
 }
 
 func (m *managerImpl) GetPeer(ctx context.Context, accountID, userID, peerID string) (*peer.Peer, error) {
@@ -65,4 +81,60 @@ func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (stri
 
 func (m *managerImpl) GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error) {
 	return m.store.GetPeersByGroupIDs(ctx, accountID, groupsIDs)
+}
+
+func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string) error {
+	// var peerDeletedEvents []func()
+
+	settings, err := m.store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return err
+	}
+	// dnsDomain := m.networkMapController.GetDNSDomain(settings)
+
+	for _, peerID := range peerIDs {
+		err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+			if err := transaction.RemovePeerFromAllGroups(ctx, peerID); err != nil {
+				return fmt.Errorf("failed to remove peer %s from groups", peerID)
+			}
+
+			if err := m.integratedPeerValidator.PeerDeleted(ctx, accountID, peerID, settings.Extra); err != nil {
+				return err
+			}
+
+			peerPolicyRules, err := transaction.GetPolicyRulesByResourceID(ctx, store.LockingStrengthNone, accountID, peerID)
+			if err != nil {
+				return err
+			}
+			for _, rule := range peerPolicyRules {
+				// policy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, rule.PolicyID)
+				// if err != nil {
+				// 	return err
+				// }
+
+				err = transaction.DeletePolicy(ctx, accountID, rule.PolicyID)
+				if err != nil {
+					return err
+				}
+
+				// peerDeletedEvents = append(peerDeletedEvents, func() {
+				// 	am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
+				// })
+			}
+
+			if err = transaction.DeletePeer(ctx, accountID, peerID); err != nil {
+				return err
+			}
+			// peerDeletedEvents = append(peerDeletedEvents, func() {
+			// 	am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
+			// })
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

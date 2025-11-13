@@ -584,11 +584,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 				return fmt.Errorf("failed adding peer to All group: %w", err)
 			}
 
-			if temporary {
-				// we are running the on disconnect handler so that it is considered not connected as we are adding the peer manually
-				am.ephemeralManager.OnPeerDisconnected(ctx, newPeer)
-			}
-
 			if addedByUser {
 				err := transaction.SaveUserLastLogin(ctx, accountID, userID, newPeer.GetLastLogin())
 				if err != nil {

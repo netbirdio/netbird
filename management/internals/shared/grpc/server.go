@@ -24,7 +24,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -57,12 +56,11 @@ type Server struct {
 	settingsManager settings.Manager
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	config           *nbconfig.Config
-	secretsManager   SecretsManager
-	appMetrics       telemetry.AppMetrics
-	ephemeralManager ephemeral.Manager
-	peerLocks        sync.Map
-	authManager      auth.Manager
+	config         *nbconfig.Config
+	secretsManager SecretsManager
+	appMetrics     telemetry.AppMetrics
+	peerLocks      sync.Map
+	authManager    auth.Manager
 
 	logBlockedPeers          bool
 	blockPeersWithSameConfig bool
@@ -83,7 +81,6 @@ func NewServer(
 	settingsManager settings.Manager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
-	ephemeralManager ephemeral.Manager,
 	authManager auth.Manager,
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	networkMapController network_map.Controller,
@@ -125,7 +122,6 @@ func NewServer(
 		secretsManager:           secretsManager,
 		authManager:              authManager,
 		appMetrics:               appMetrics,
-		ephemeralManager:         ephemeralManager,
 		logBlockedPeers:          logBlockedPeers,
 		blockPeersWithSameConfig: blockPeersWithSameConfig,
 		integratedPeerValidator:  integratedPeerValidator,
@@ -267,8 +263,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	updates := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
 
-	s.ephemeralManager.OnPeerConnected(ctx, peer)
-
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
 
 	if s.appMetrics != nil {
@@ -346,7 +340,6 @@ func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer 
 	}
 	s.networkMapController.OnPeerDisconnected(ctx, accountID, peer.ID)
 	s.secretsManager.CancelRefresh(peer.ID)
-	s.ephemeralManager.OnPeerDisconnected(ctx, peer)
 
 	log.WithContext(ctx).Tracef("peer %s has been disconnected", peer.Key)
 }
@@ -596,12 +589,6 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}
 
 	log.WithContext(ctx).Debugf("Login: LoginPeer since start %v", time.Since(reqStart))
-
-	// if the login request contains setup key then it is a registration request
-	if loginReq.GetSetupKey() != "" {
-		s.ephemeralManager.OnPeerDisconnected(ctx, peer)
-		log.WithContext(ctx).Debugf("Login: OnPeerDisconnected since start %v", time.Since(reqStart))
-	}
 
 	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
 	if err != nil {

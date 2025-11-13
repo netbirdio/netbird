@@ -7,9 +7,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
@@ -36,8 +36,8 @@ type ephemeralPeer struct {
 // EphemeralManager keep a list of ephemeral peers. After ephemeralLifeTime inactivity the peer will be deleted
 // automatically. Inactivity means the peer disconnected from the Management server.
 type EphemeralManager struct {
-	store          store.Store
-	accountManager nbAccount.Manager
+	store        store.Store
+	peersManager peers.Manager
 
 	headPeer  *ephemeralPeer
 	tailPeer  *ephemeralPeer
@@ -49,10 +49,10 @@ type EphemeralManager struct {
 }
 
 // NewEphemeralManager instantiate new EphemeralManager
-func NewEphemeralManager(store store.Store, accountManager nbAccount.Manager) *EphemeralManager {
+func NewEphemeralManager(store store.Store, peersManager peers.Manager) *EphemeralManager {
 	return &EphemeralManager{
-		store:          store,
-		accountManager: accountManager,
+		store:        store,
+		peersManager: peersManager,
 
 		lifeTime:      ephemeralLifeTime,
 		cleanupWindow: cleanupWindow,
@@ -180,19 +180,17 @@ func (e *EphemeralManager) cleanup(ctx context.Context) {
 
 	e.peersLock.Unlock()
 
-	bufferAccountCall := make(map[string]struct{})
-
+	peerIDsPerAccount := make(map[string][]string)
 	for id, p := range deletePeers {
-		log.WithContext(ctx).Debugf("delete ephemeral peer: %s", id)
-		err := e.accountManager.DeletePeer(ctx, p.accountID, id, activity.SystemInitiator)
+		peerIDsPerAccount[p.accountID] = append(peerIDsPerAccount[p.accountID], id)
+	}
+
+	for accountID, peerIDs := range peerIDsPerAccount {
+		log.WithContext(ctx).Debugf("delete ephemeral peers for account: %s", accountID)
+		err := e.peersManager.DeletePeers(ctx, accountID, peerIDs, activity.SystemInitiator)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to delete ephemeral peer: %s", err)
-		} else {
-			bufferAccountCall[p.accountID] = struct{}{}
 		}
-	}
-	for accountID := range bufferAccountCall {
-		e.accountManager.BufferUpdateAccountPeers(ctx, accountID)
 	}
 }
 

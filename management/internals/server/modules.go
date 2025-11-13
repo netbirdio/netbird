@@ -60,7 +60,12 @@ func (s *BaseServer) SettingsManager() settings.Manager {
 
 func (s *BaseServer) PeersManager() peers.Manager {
 	return Create(s, func() peers.Manager {
-		return peers.NewManager(s.Store(), s.PermissionsManager())
+		manager := peers.NewManager(s.Store(), s.PermissionsManager())
+		s.AfterInit(func(s *BaseServer) {
+			manager.SetNetworkMapController(s.NetworkMapController())
+			manager.SetIntegratedPeerValidator(s.IntegratedValidator())
+		})
+		return manager
 	})
 }
 
@@ -70,10 +75,6 @@ func (s *BaseServer) AccountManager() account.Manager {
 		if err != nil {
 			log.Fatalf("failed to create account manager: %v", err)
 		}
-
-		s.AfterInit(func(s *BaseServer) {
-			accountManager.SetEphemeralManager(s.EphemeralManager())
-		})
 		return accountManager
 	})
 }
