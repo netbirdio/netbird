@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"slices"
-	"syscall"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/uuid"
@@ -110,7 +109,7 @@ func (m *aclManager) AddPeerFiltering(
 		}
 
 		if err := m.flushIPSet(ipsetName); err != nil {
-			if errors.Is(err, syscall.ENOENT) {
+			if errors.Is(err, ipset.ErrSetNotExist) {
 				log.Debugf("flush ipset %s before use: %v", ipsetName, err)
 			} else {
 				log.Errorf("flush ipset %s before use: %v", ipsetName, err)
@@ -210,7 +209,7 @@ func (m *aclManager) DeletePeerRule(rule firewall.Rule) error {
 
 	if shouldDestroyIpset {
 		if err := m.destroyIPSet(r.ipsetName); err != nil {
-			if errors.Is(err, syscall.EBUSY) || errors.Is(err, syscall.ENOENT) {
+			if errors.Is(err, ipset.ErrBusy) || errors.Is(err, ipset.ErrSetNotExist) {
 				log.Debugf("destroy empty ipset: %v", err)
 			} else {
 				log.Errorf("destroy empty ipset: %v", err)
@@ -277,14 +276,14 @@ func (m *aclManager) cleanChains() error {
 
 	for _, ipsetName := range m.ipsetStore.ipsetNames() {
 		if err := m.flushIPSet(ipsetName); err != nil {
-			if errors.Is(err, syscall.ENOENT) {
+			if errors.Is(err, ipset.ErrSetNotExist) {
 				log.Debugf("flush ipset %q during reset: %v", ipsetName, err)
 			} else {
 				log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
 			}
 		}
 		if err := m.destroyIPSet(ipsetName); err != nil {
-			if errors.Is(err, syscall.EBUSY) || errors.Is(err, syscall.ENOENT) {
+			if errors.Is(err, ipset.ErrBusy) || errors.Is(err, ipset.ErrSetNotExist) {
 				log.Debugf("destroy ipset %q during reset: %v", ipsetName, err)
 			} else {
 				log.Errorf("destroy ipset %q during reset: %v", ipsetName, err)
