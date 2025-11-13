@@ -1,6 +1,7 @@
 package ice
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -49,13 +50,13 @@ func (a *ThreadSafeAgent) Close() error {
 	return err
 }
 
-func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ThreadSafeAgent, error) {
+func NewAgent(ctx context.Context, iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ThreadSafeAgent, error) {
 	iceKeepAlive := iceKeepAlive()
 	iceDisconnectedTimeout := iceDisconnectedTimeout()
 	iceFailedTimeout := iceFailedTimeout()
 	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
-	transportNet, err := newStdNet(iFaceDiscover, config.InterfaceBlackList)
+	transportNet, err := newStdNet(ctx, iFaceDiscover, config.InterfaceBlackList)
 	if err != nil {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
