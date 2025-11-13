@@ -511,7 +511,7 @@ func (c *Controller) compareAndSaveNetworkMaps(ctx context.Context, accountId, p
 		return
 	}
 
-	if len(expBytes) == len(legacyBytes) || math.Abs(float64(len(expBytes)-len(legacyBytes))) > 5 {
+	if len(expBytes) == len(legacyBytes) || math.Abs(float64(len(expBytes)-len(legacyBytes))) < 5 {
 		log.WithContext(ctx).Debugf("network maps are equal for peer %s in account %s (size: %d bytes)", peerId, accountId, len(expBytes))
 		return
 	}
