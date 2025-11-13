@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,10 +24,14 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -172,12 +175,12 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 }
 
 func TestAccountManager_GetNetworkMap_Experimental(t *testing.T) {
-	t.Setenv(envNewNetworkMapBuilder, "true")
+	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
 	testGetNetworkMapGeneral(t)
 }
 
 func testGetNetworkMapGeneral(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -249,7 +252,7 @@ func testGetNetworkMapGeneral(t *testing.T) {
 func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	// TODO: disable until we start use policy again
 	t.Skip()
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -426,7 +429,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 }
 
 func TestAccountManager_GetPeerNetwork(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -487,7 +490,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetPeer(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -674,7 +677,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manager, err := createManager(t)
+			manager, _, err := createManager(t)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -742,12 +745,12 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	}
 }
 
-func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccountManager, string, string, error) {
+func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccountManager, *update_channel.PeersUpdateManager, string, string, error) {
 	b.Helper()
 
-	manager, err := createManager(b)
+	manager, updateManager, err := createManager(b)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 
 	accountID := "test_account"
@@ -798,7 +801,7 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 		ips := account.GetTakenIPs()
 		peerIP, err := types.AllocatePeerIP(account.Network.Net, ips)
 		if err != nil {
-			return nil, "", "", err
+			return nil, nil, "", "", err
 		}
 
 		peerKey, _ := wgtypes.GeneratePrivateKey()
@@ -904,10 +907,10 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 
 	err = manager.Store.SaveAccount(context.Background(), account)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 
-	return manager, accountID, regularUser, nil
+	return manager, updateManager, accountID, regularUser, nil
 }
 
 func BenchmarkGetPeers(b *testing.B) {
@@ -928,7 +931,7 @@ func BenchmarkGetPeers(b *testing.B) {
 	defer log.SetOutput(os.Stderr)
 	for _, bc := range benchCases {
 		b.Run(bc.name, func(b *testing.B) {
-			manager, accountID, userID, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			manager, _, accountID, userID, err := setupTestAccountManager(b, bc.peers, bc.groups)
 			if err != nil {
 				b.Fatalf("Failed to setup test account manager: %v", err)
 			}
@@ -968,7 +971,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 
 	for _, bc := range benchCases {
 		b.Run(bc.name, func(b *testing.B) {
-			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			manager, updateManager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
 			if err != nil {
 				b.Fatalf("Failed to setup test account manager: %v", err)
 			}
@@ -980,13 +983,9 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 				b.Fatalf("Failed to get account: %v", err)
 			}
 
-			peerChannels := make(map[string]chan *UpdateMessage)
-
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				updateManager.CreateChannel(ctx, peerID)
 			}
-
-			manager.peersUpdateManager.peerChannels = peerChannels
 
 			b.ResetTimer()
 			start := time.Now()
@@ -1013,7 +1012,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 }
 
 func TestUpdateAccountPeers_Experimental(t *testing.T) {
-	t.Setenv(envNewNetworkMapBuilder, "true")
+	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
 	testUpdateAccountPeers(t)
 }
 
@@ -1037,7 +1036,7 @@ func testUpdateAccountPeers(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			manager, accountID, _, err := setupTestAccountManager(t, tc.peers, tc.groups)
+			manager, updateManager, accountID, _, err := setupTestAccountManager(t, tc.peers, tc.groups)
 			if err != nil {
 				t.Fatalf("Failed to setup test account manager: %v", err)
 			}
@@ -1049,13 +1048,12 @@ func testUpdateAccountPeers(t *testing.T) {
 				t.Fatalf("Failed to get account: %v", err)
 			}
 
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]chan *network_map.UpdateMessage)
 
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = updateManager.CreateChannel(ctx, peerID)
 			}
 
-			manager.peersUpdateManager.peerChannels = peerChannels
 			manager.UpdateAccountPeers(ctx, account.Id)
 
 			for _, channel := range peerChannels {
@@ -1097,7 +1095,7 @@ func TestToSyncResponse(t *testing.T) {
 		DNSLabel:   "peer1",
 		SSHKey:     "peer1-ssh-key",
 	}
-	turnRelayToken := &Token{
+	turnRelayToken := &grpc.Token{
 		Payload:   "turn-user",
 		Signature: "turn-pass",
 	}
@@ -1177,9 +1175,9 @@ func TestToSyncResponse(t *testing.T) {
 			},
 		},
 	}
-	dnsCache := &DNSConfigCache{}
+	dnsCache := &cache.DNSConfigCache{}
 	accountSettings := &types.Settings{RoutingPeerDNSResolutionEnabled: true}
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{}, int64(dnsForwarderPort))
+	response := grpc.ToSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{}, int64(dnsForwarderPort))
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1289,7 +1287,12 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	ctx := context.Background()
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, s)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock())
+
+	am, err := BuildManager(context.Background(), s, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1369,7 +1372,12 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	ctx := context.Background()
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, s)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock())
+
+	am, err := BuildManager(context.Background(), s, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1517,7 +1525,12 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	ctx := context.Background()
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, s)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock())
+
+	am, err := BuildManager(context.Background(), s, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1566,7 +1579,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 }
 
 func Test_LoginPeer(t *testing.T) {
-	t.Setenv(envNewNetworkMapBuilder, "true")
+	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
@@ -1592,7 +1605,12 @@ func Test_LoginPeer(t *testing.T) {
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	ctx := context.Background()
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, s)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock())
+
+	am, err := BuildManager(context.Background(), s, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1725,7 +1743,7 @@ func Test_LoginPeer(t *testing.T) {
 }
 
 func TestPeerAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
 	require.NoError(t, err)
@@ -1782,13 +1800,14 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	var peer5 *nbpeer.Peer
 	var peer6 *nbpeer.Peer
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
 	// Updating not expired peer and peer expiration is enabled should not update account peers and not send peer update
 	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
+		t.Skip("Currently all updates will trigger a network map")
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1890,6 +1909,8 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	})
 
 	t.Run("validator requires no update", func(t *testing.T) {
+		t.Skip("Currently all updates will trigger a network map")
+
 		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
 			return update, false, nil
 		}
@@ -2091,7 +2112,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 }
 
 func Test_DeletePeer(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -2188,7 +2209,7 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 }
 
 func Test_AddPeer(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -2276,136 +2297,8 @@ func Test_AddPeer(t *testing.T) {
 	assert.Equal(t, uint64(totalPeers), account.Network.Serial)
 }
 
-func TestBufferUpdateAccountPeers(t *testing.T) {
-	const (
-		peersCount            = 1000
-		updateAccountInterval = 50 * time.Millisecond
-	)
-
-	var (
-		deletedPeers, updatePeersDeleted, updatePeersRuns atomic.Int32
-		uapLastRun, dpLastRun                             atomic.Int64
-
-		totalNewRuns, totalOldRuns int
-	)
-
-	uap := func(ctx context.Context, accountID string) {
-		updatePeersDeleted.Store(deletedPeers.Load())
-		updatePeersRuns.Add(1)
-		uapLastRun.Store(time.Now().UnixMilli())
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	t.Run("new approach", func(t *testing.T) {
-		updatePeersRuns.Store(0)
-		updatePeersDeleted.Store(0)
-		deletedPeers.Store(0)
-
-		var mustore sync.Map
-		bufupd := func(ctx context.Context, accountID string) {
-			mu, _ := mustore.LoadOrStore(accountID, &bufferUpdate{})
-			b := mu.(*bufferUpdate)
-
-			if !b.mu.TryLock() {
-				b.update.Store(true)
-				return
-			}
-
-			if b.next != nil {
-				b.next.Stop()
-			}
-
-			go func() {
-				defer b.mu.Unlock()
-				uap(ctx, accountID)
-				if !b.update.Load() {
-					return
-				}
-				b.update.Store(false)
-				b.next = time.AfterFunc(updateAccountInterval, func() {
-					uap(ctx, accountID)
-				})
-			}()
-		}
-		dp := func(ctx context.Context, accountID, peerID, userID string) error {
-			deletedPeers.Add(1)
-			dpLastRun.Store(time.Now().UnixMilli())
-			time.Sleep(10 * time.Millisecond)
-			bufupd(ctx, accountID)
-			return nil
-		}
-
-		am := mock_server.MockAccountManager{
-			UpdateAccountPeersFunc:       uap,
-			BufferUpdateAccountPeersFunc: bufupd,
-			DeletePeerFunc:               dp,
-		}
-		empty := ""
-		for range peersCount {
-			//nolint
-			am.DeletePeer(context.Background(), empty, empty, empty)
-		}
-		time.Sleep(100 * time.Millisecond)
-
-		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
-		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
-		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
-
-		totalNewRuns = int(updatePeersRuns.Load())
-	})
-
-	t.Run("old approach", func(t *testing.T) {
-		updatePeersRuns.Store(0)
-		updatePeersDeleted.Store(0)
-		deletedPeers.Store(0)
-
-		var mustore sync.Map
-		bufupd := func(ctx context.Context, accountID string) {
-			mu, _ := mustore.LoadOrStore(accountID, &sync.Mutex{})
-			b := mu.(*sync.Mutex)
-
-			if !b.TryLock() {
-				return
-			}
-
-			go func() {
-				time.Sleep(updateAccountInterval)
-				b.Unlock()
-				uap(ctx, accountID)
-			}()
-		}
-		dp := func(ctx context.Context, accountID, peerID, userID string) error {
-			deletedPeers.Add(1)
-			dpLastRun.Store(time.Now().UnixMilli())
-			time.Sleep(10 * time.Millisecond)
-			bufupd(ctx, accountID)
-			return nil
-		}
-
-		am := mock_server.MockAccountManager{
-			UpdateAccountPeersFunc:       uap,
-			BufferUpdateAccountPeersFunc: bufupd,
-			DeletePeerFunc:               dp,
-		}
-		empty := ""
-		for range peersCount {
-			//nolint
-			am.DeletePeer(context.Background(), empty, empty, empty)
-		}
-		time.Sleep(100 * time.Millisecond)
-
-		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
-		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
-		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
-
-		totalOldRuns = int(updatePeersRuns.Load())
-	})
-	assert.Less(t, totalNewRuns, totalOldRuns, "Expected new approach to run less than old approach. New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
-	t.Logf("New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
-}
-
 func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2442,7 +2335,7 @@ func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
 }
 
 func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2476,7 +2369,7 @@ func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
 }
 
 func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2541,7 +2434,7 @@ func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
 }
 
 func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}

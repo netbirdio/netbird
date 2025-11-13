@@ -6,6 +6,10 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	nmapcontroller "github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
@@ -14,9 +18,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 )
 
-func (s *BaseServer) PeersUpdateManager() *server.PeersUpdateManager {
-	return Create(s, func() *server.PeersUpdateManager {
-		return server.NewPeersUpdateManager(s.Metrics())
+func (s *BaseServer) PeersUpdateManager() network_map.PeersUpdateManager {
+	return Create(s, func() *update_channel.PeersUpdateManager {
+		return update_channel.NewPeersUpdateManager(s.Metrics())
 	})
 }
 
@@ -40,9 +44,9 @@ func (s *BaseServer) ProxyController() port_forwarding.Controller {
 	})
 }
 
-func (s *BaseServer) SecretsManager() *server.TimeBasedAuthSecretsManager {
-	return Create(s, func() *server.TimeBasedAuthSecretsManager {
-		return server.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.config.TURNConfig, s.config.Relay, s.SettingsManager(), s.GroupsManager())
+func (s *BaseServer) SecretsManager() *grpc.TimeBasedAuthSecretsManager {
+	return Create(s, func() *grpc.TimeBasedAuthSecretsManager {
+		return grpc.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.config.TURNConfig, s.config.Relay, s.SettingsManager(), s.GroupsManager())
 	})
 }
 
@@ -61,5 +65,17 @@ func (s *BaseServer) AuthManager() auth.Manager {
 func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 	return Create(s, func() ephemeral.Manager {
 		return manager.NewEphemeralManager(s.Store(), s.AccountManager())
+	})
+}
+
+func (s *BaseServer) NetworkMapController() network_map.Controller {
+	return Create(s, func() *nmapcontroller.Controller {
+		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.dnsDomain, s.ProxyController())
+	})
+}
+
+func (s *BaseServer) AccountRequestBuffer() *server.AccountRequestBuffer {
+	return Create(s, func() *server.AccountRequestBuffer {
+		return server.NewAccountRequestBuffer(context.Background(), s.Store())
 	})
 }

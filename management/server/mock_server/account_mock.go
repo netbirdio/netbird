@@ -38,7 +38,7 @@ type MockAccountManager struct {
 	ListUsersFunc                         func(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, connected bool, realIP net.IP) error
-	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
 	GetPeerNetworkFunc                    func(ctx context.Context, peerKey string) (*types.Network, error)
@@ -94,7 +94,7 @@ type MockAccountManager struct {
 	GetPeerFunc                           func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc             func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
 	LoginPeerFunc                         func(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
-	SyncPeerFunc                          func(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	SyncPeerFunc                          func(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
 	InviteUserFunc                        func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
 	ApproveUserFunc                       func(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error)
 	RejectUserFunc                        func(ctx context.Context, accountID, initiatorUserID, targetUserID string) error
@@ -178,11 +178,11 @@ func (am *MockAccountManager) DeleteSetupKey(ctx context.Context, accountID, use
 	return status.Errorf(codes.Unimplemented, "method DeleteSetupKey is not implemented")
 }
 
-func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
 	if am.SyncAndMarkPeerFunc != nil {
 		return am.SyncAndMarkPeerFunc(ctx, accountID, peerPubKey, meta, realIP)
 	}
-	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
+	return nil, nil, nil, 0, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
 func (am *MockAccountManager) OnPeerDisconnected(_ context.Context, accountID string, peerPubKey string) error {
@@ -747,11 +747,11 @@ func (am *MockAccountManager) LoginPeer(ctx context.Context, login types.PeerLog
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface
-func (am *MockAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) {
+func (am *MockAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
 	if am.SyncPeerFunc != nil {
 		return am.SyncPeerFunc(ctx, sync, accountID)
 	}
-	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method SyncPeer is not implemented")
+	return nil, nil, nil, 0, status.Errorf(codes.Unimplemented, "method SyncPeer is not implemented")
 }
 
 // GetAllConnectedPeers mocks GetAllConnectedPeers of the AccountManager interface
