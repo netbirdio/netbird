@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/netbirdio/netbird/client/internal"
 	sshclient "github.com/netbirdio/netbird/client/ssh/client"
@@ -547,6 +548,12 @@ func executeSSHCommand(ctx context.Context, c *sshclient.Client, command string)
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil
 		}
+
+		var exitErr *ssh.ExitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.ExitStatus())
+		}
+
 		return fmt.Errorf("execute command: %w", err)
 	}
 	return nil

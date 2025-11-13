@@ -147,6 +147,7 @@ func (p *SSHProxy) handleSSHSession(ctx context.Context, session ssh.Session, jw
 	if len(session.Command()) > 0 {
 		if err := serverSession.Run(strings.Join(session.Command(), " ")); err != nil {
 			log.Debugf("run command: %v", err)
+			p.handleProxyExitCode(session, err)
 		}
 		return
 	}
@@ -157,6 +158,16 @@ func (p *SSHProxy) handleSSHSession(ctx context.Context, session ssh.Session, jw
 	}
 	if err := serverSession.Wait(); err != nil {
 		log.Debugf("session wait: %v", err)
+		p.handleProxyExitCode(session, err)
+	}
+}
+
+func (p *SSHProxy) handleProxyExitCode(session ssh.Session, err error) {
+	var exitErr *cryptossh.ExitError
+	if errors.As(err, &exitErr) {
+		if exitErr := session.Exit(exitErr.ExitStatus()); exitErr != nil {
+			log.Debugf("set exit status: %v", exitErr)
+		}
 	}
 }
 

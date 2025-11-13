@@ -215,7 +215,7 @@ func (c *Client) ExecuteCommandWithPTY(ctx context.Context, command string) erro
 	}
 }
 
-// handleCommandError processes command execution errors, treating exit codes as normal
+// handleCommandError processes command execution errors
 func (c *Client) handleCommandError(err error) error {
 	if err == nil {
 		return nil
@@ -223,11 +223,11 @@ func (c *Client) handleCommandError(err error) error {
 
 	var e *ssh.ExitError
 	var em *ssh.ExitMissingError
-	if !errors.As(err, &e) && !errors.As(err, &em) {
-		return fmt.Errorf("execute command: %w", err)
+	if errors.As(err, &e) || errors.As(err, &em) {
+		return err
 	}
 
-	return nil
+	return fmt.Errorf("execute command: %w", err)
 }
 
 // setupContextCancellation sets up context cancellation for a session
