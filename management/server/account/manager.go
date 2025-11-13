@@ -89,7 +89,6 @@ type Manager interface {
 	SaveNameServerGroup(ctx context.Context, accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
 	DeleteNameServerGroup(ctx context.Context, accountID, nsGroupID, userID string) error
 	ListNameServerGroups(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
-	GetDNSDomain(settings *types.Settings) string
 	StoreEvent(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
 	GetEvents(ctx context.Context, accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error)
@@ -97,10 +96,8 @@ type Manager interface {
 	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
 	UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
-	LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                // used by peer gRPC API
-	SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error) // used by peer gRPC API
-	GetAllConnectedPeers() (map[string]struct{}, error)
-	HasConnectedChannel(peerID string) bool
+	LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                       // used by peer gRPC API
+	SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) // used by peer gRPC API
 	GetExternalCacheManager() ExternalCacheManager
 	GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
 	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, create bool) (*posture.Checks, error)
@@ -110,7 +107,7 @@ type Manager interface {
 	UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)
 	GetValidatedPeers(ctx context.Context, accountID string) (map[string]struct{}, map[string]string, error)
-	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error
 	SyncPeerMeta(ctx context.Context, peerPubKey string, meta nbpeer.PeerSystemMeta) error
 	FindExistingPostureCheck(accountID string, checks *posture.ChecksDefinition) (*posture.Checks, error)
@@ -127,6 +124,4 @@ type Manager interface {
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
 	SetEphemeralManager(em ephemeral.Manager)
-	AllowSync(string, uint64) bool
-	RecalculateNetworkMapCache(ctx context.Context, accountId string) error
 }
