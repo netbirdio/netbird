@@ -10,7 +10,7 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/hashicorp/go-multierror"
-	"github.com/nadoo/ipset"
+	ipset "github.com/lrh3321/ipset-go"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -106,10 +106,6 @@ func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint1
 			return r.deleteIpSet(name)
 		},
 	)
-
-	if err := ipset.Init(); err != nil {
-		return nil, fmt.Errorf("init ipset: %w", err)
-	}
 
 	return r, nil
 }
@@ -232,12 +228,12 @@ func (r *router) findSets(rule []string) []string {
 }
 
 func (r *router) createIpSet(setName string, sources []netip.Prefix) error {
-	if err := ipset.Create(setName, ipset.OptTimeout(0)); err != nil {
+	if err := r.createIPSet(setName); err != nil {
 		return fmt.Errorf("create set %s: %w", setName, err)
 	}
 
 	for _, prefix := range sources {
-		if err := ipset.AddPrefix(setName, prefix); err != nil {
+		if err := r.addPrefixToIPSet(setName, prefix); err != nil {
 			return fmt.Errorf("add element to set %s: %w", setName, err)
 		}
 	}
@@ -246,7 +242,7 @@ func (r *router) createIpSet(setName string, sources []netip.Prefix) error {
 }
 
 func (r *router) deleteIpSet(setName string) error {
-	if err := ipset.Destroy(setName); err != nil {
+	if err := r.destroyIPSet(setName); err != nil {
 		return fmt.Errorf("destroy set %s: %w", setName, err)
 	}
 
@@ -915,8 +911,8 @@ func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 			log.Tracef("skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
 			continue
 		}
-		if err := ipset.AddPrefix(set.HashedName(), prefix); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("increment ipset counter: %w", err))
+		if err := r.addPrefixToIPSet(set.HashedName(), prefix); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add prefix to ipset: %w", err))
 		}
 	}
 	if merr == nil {
@@ -992,4 +988,38 @@ func applyPort(flag string, port *firewall.Port) []string {
 	}
 
 	return []string{flag, strconv.Itoa(int(port.Values[0]))}
+}
+
+func (r *router) createIPSet(name string) error {
+	opts := ipset.CreateOptions{
+		Replace: true,
+	}
+
+	if err := ipset.Create(name, ipset.TypeHashNet, opts); err != nil {
+		return fmt.Errorf("create ipset %s: %w", name, err)
+	}
+
+	log.Debugf("created ipset %s with type hash:net", name)
+	return nil
+}
+
+func (r *router) addPrefixToIPSet(name string, prefix netip.Prefix) error {
+	addr := prefix.Addr()
+	ip := addr.AsSlice()
+
+	entry := &ipset.Entry{
+		IP:      ip,
+		CIDR:    uint8(prefix.Bits()),
+		Replace: true,
+	}
+
+	if err := ipset.Add(name, entry); err != nil {
+		return fmt.Errorf("add prefix to ipset %s: %w", name, err)
+	}
+
+	return nil
+}
+
+func (r *router) destroyIPSet(name string) error {
+	return ipset.Destroy(name)
 }
