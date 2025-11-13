@@ -87,6 +87,9 @@ func (n *Net) resolveAddr(network, address string) (netip.AddrPort, error) {
 	if err != nil {
 		return netip.AddrPort{}, fmt.Errorf("invalid port: %w", err)
 	}
+	if port < 0 || port > 65535 {
+		return netip.AddrPort{}, fmt.Errorf("invalid port: %d", port)
+	}
 
 	ipNet := "ip"
 	switch network {
@@ -94,6 +97,14 @@ func (n *Net) resolveAddr(network, address string) (netip.AddrPort, error) {
 		ipNet = "ip4"
 	case "tcp6", "udp6":
 		ipNet = "ip6"
+	}
+
+	if host == "" {
+		addr := netip.IPv4Unspecified()
+		if ipNet == "ip6" {
+			addr = netip.IPv6Unspecified()
+		}
+		return netip.AddrPortFrom(addr, uint16(port)), nil
 	}
 
 	ctx, cancel := context.WithTimeout(n.ctx, dnsResolveTimeout)
