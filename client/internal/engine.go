@@ -1841,14 +1841,14 @@ func (e *Engine) GetWgAddr() netip.Addr {
 
 func (e *Engine) RenewTun(fd int) error {
 	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
+	wgInterface := e.wgInterface
+	e.syncMsgMux.Unlock()
 
-	// We must be sure we do not modify the e.wgInterface when run this function.
-	if e.wgInterface == nil {
+	if wgInterface == nil {
 		return fmt.Errorf("wireguard interface not initialized")
 	}
 
-	return e.wgInterface.RenewTun(fd)
+	return wgInterface.RenewTun(fd)
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag
