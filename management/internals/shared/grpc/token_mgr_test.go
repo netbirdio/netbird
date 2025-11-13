@@ -1,4 +1,4 @@
-package server
+package grpc
 
 import (
 	"context"
@@ -13,6 +13,8 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -31,7 +33,7 @@ var TurnTestHost = &config.Host{
 func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager(nil)
+	peersManager := update_channel.NewPeersUpdateManager(nil)
 
 	rc := &config.Relay{
 		Addresses:      []string{"localhost:0"},
@@ -80,7 +82,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: 2 * time.Second}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager(nil)
+	peersManager := update_channel.NewPeersUpdateManager(nil)
 	peer := "some_peer"
 	updateChannel := peersManager.CreateChannel(context.Background(), peer)
 
@@ -116,7 +118,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 		t.Errorf("expecting peer to be present in the relay cancel map, got not present")
 	}
 
-	var updates []*UpdateMessage
+	var updates []*network_map.UpdateMessage
 
 loop:
 	for timeout := time.After(5 * time.Second); ; {
@@ -185,7 +187,7 @@ loop:
 func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
 	secret := "some_secret"
-	peersManager := NewPeersUpdateManager(nil)
+	peersManager := update_channel.NewPeersUpdateManager(nil)
 	peer := "some_peer"
 
 	rc := &config.Relay{

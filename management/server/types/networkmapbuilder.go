@@ -257,8 +257,6 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *nbpeer.Peer,
 	validatedPeersMap map[string]struct{},
 ) ([]*nbpeer.Peer, []*FirewallRule) {
-	ctx := context.Background()
-
 	peerID := peer.ID
 
 	peerGroups := b.cache.peerToGroups[peerID]
@@ -275,9 +273,6 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 	for _, group := range peerGroups {
 		policies := b.cache.groupToPolicies[group]
 		for _, policy := range policies {
-			if isValid := account.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID); !isValid {
-				continue
-			}
 			rules := b.cache.policyToRules[policy.ID]
 			for _, rule := range rules {
 				var sourcePeers, destinationPeers []*nbpeer.Peer
