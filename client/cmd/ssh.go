@@ -388,24 +388,24 @@ func createSSHFlagSet() (*flag.FlagSet, *sshFlags) {
 	flags := &sshFlags{}
 
 	fs.IntVar(&flags.Port, "p", sshserver.DefaultSSHPort, "SSH port")
-	fs.Int("port", sshserver.DefaultSSHPort, "SSH port")
+	fs.IntVar(&flags.Port, "port", sshserver.DefaultSSHPort, "SSH port")
 	fs.StringVar(&flags.Username, "u", "", sshUsernameDesc)
-	fs.String("user", "", sshUsernameDesc)
+	fs.StringVar(&flags.Username, "user", "", sshUsernameDesc)
 	fs.StringVar(&flags.Login, "login", "", sshUsernameDesc+" (alias for --user)")
 	fs.BoolVar(&flags.RequestPTY, "t", false, "Force pseudo-terminal allocation")
-	fs.Bool("tty", false, "Force pseudo-terminal allocation")
+	fs.BoolVar(&flags.RequestPTY, "tty", false, "Force pseudo-terminal allocation")
 
 	fs.BoolVar(&flags.StrictHostKeyChecking, "strict-host-key-checking", true, "Enable strict host key checking")
 	fs.StringVar(&flags.KnownHostsFile, "o", "", "Path to known_hosts file")
-	fs.String("known-hosts", "", "Path to known_hosts file")
+	fs.StringVar(&flags.KnownHostsFile, "known-hosts", "", "Path to known_hosts file")
 	fs.StringVar(&flags.IdentityFile, "i", "", "Path to SSH private key file")
-	fs.String("identity", "", "Path to SSH private key file")
+	fs.StringVar(&flags.IdentityFile, "identity", "", "Path to SSH private key file")
 	fs.BoolVar(&flags.SkipCachedToken, "no-cache", false, "Skip cached JWT token and force fresh authentication")
 
 	fs.StringVar(&flags.ConfigPath, "c", defaultConfigPath, "Netbird config file location")
-	fs.String("config", defaultConfigPath, "Netbird config file location")
+	fs.StringVar(&flags.ConfigPath, "config", defaultConfigPath, "Netbird config file location")
 	fs.StringVar(&flags.LogLevel, "l", defaultLogLevel, "sets Netbird log level")
-	fs.String("log-level", defaultLogLevel, "sets Netbird log level")
+	fs.StringVar(&flags.LogLevel, "log-level", defaultLogLevel, "sets Netbird log level")
 
 	return fs, flags
 }
