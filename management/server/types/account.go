@@ -265,10 +265,6 @@ func (a *Account) GetPeerNetworkMap(
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("GetPeerNetworkMap: took %s", time.Since(start))
-	}()
-
 	peer := a.Peers[peerID]
 	if peer == nil {
 		return &NetworkMap{

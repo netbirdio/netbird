@@ -1161,7 +1161,7 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1333,7 +1333,7 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 
 func TestUserAccountPeersUpdate(t *testing.T) {
 	// account groups propagation is enabled
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
@@ -1357,9 +1357,9 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	require.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
 	// Creating a new regular user should not update account peers and not send peer update
@@ -1468,9 +1468,9 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	peer4UpdMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer4.ID)
+	peer4UpdMsg := updateManager.CreateChannel(context.Background(), peer4.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer4.ID)
+		updateManager.CloseChannel(context.Background(), peer4.ID)
 	})
 
 	// deleting user with linked peers should update account peers and send peer update
@@ -1748,7 +1748,7 @@ func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
 }
 
 func TestApproveUser(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1807,7 +1807,7 @@ func TestApproveUser(t *testing.T) {
 }
 
 func TestRejectUser(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -37,7 +39,7 @@ const (
 	serviceUser = "service_user"
 )
 
-func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
+func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 
 	peersMap := make(map[string]*nbpeer.Peer)
 	for _, peer := range peers {
@@ -99,6 +101,22 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 			Serial: 51,
 		},
 	}
+
+	ctrl := gomock.NewController(t)
+
+	networkMapController := network_map.NewMockController(ctrl)
+	networkMapController.EXPECT().
+		GetDNSDomain(gomock.Any()).
+		Return("domain").
+		AnyTimes()
+	networkMapController.EXPECT().
+		IsConnected(noUpdateChannelTestPeerID).
+		Return(false).
+		AnyTimes()
+	networkMapController.EXPECT().
+		IsConnected(gomock.Any()).
+		Return(true).
+		AnyTimes()
 
 	return &Handler{
 		accountManager: &mock_server.MockAccountManager{
@@ -188,6 +206,7 @@ func initTestMetaData(peers ...*nbpeer.Peer) *Handler {
 				return account.Settings, nil
 			},
 		},
+		networkMapController: networkMapController,
 	}
 }
 
@@ -271,7 +290,7 @@ func TestGetPeers(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 
-	p := initTestMetaData(peer, peer1)
+	p := initTestMetaData(t, peer, peer1)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -375,7 +394,7 @@ func TestGetAccessiblePeers(t *testing.T) {
 		UserID:                 regularUser,
 	}
 
-	p := initTestMetaData(peer1, peer2, peer3)
+	p := initTestMetaData(t, peer1, peer2, peer3)
 
 	tt := []struct {
 		name           string
@@ -478,7 +497,7 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 		},
 	}
 
-	p := initTestMetaData(testPeer)
+	p := initTestMetaData(t, testPeer)
 
 	tt := []struct {
 		name           string

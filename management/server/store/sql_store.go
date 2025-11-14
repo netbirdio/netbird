@@ -311,10 +311,6 @@ func (s *SqlStore) GetInstallationID() string {
 }
 
 func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("SavePeer: took %s", time.Since(start))
-	}()
 	// To maintain data integrity, we create a copy of the peer's to prevent unintended updates to other fields.
 	peerCopy := peer.Copy()
 	peerCopy.AccountID = accountID
@@ -2156,10 +2152,6 @@ func (s *SqlStore) GetPeerLabelsInAccount(ctx context.Context, lockStrength Lock
 }
 
 func (s *SqlStore) GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.Network, error) {
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("GetAccountNetwork: took %s", time.Since(start))
-	}()
 	ctx, cancel := getDebuggingCtx(ctx)
 	defer cancel()
 
@@ -2201,11 +2193,6 @@ func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength Locking
 }
 
 func (s *SqlStore) GetAccountSettings(ctx context.Context, lockStrength LockingStrength, accountID string) (*types.Settings, error) {
-	start := time.Now()
-	defer func() {
-		log.WithContext(ctx).Debugf("getAccountSettings: took %s", time.Since(start))
-	}()
-
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -2926,6 +2913,23 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 	tx := s.db.Begin()
 	if tx.Error != nil {
 		return tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			panic(r)
+		}
+	}()
+
+	if s.storeEngine == types.PostgresStoreEngine {
+		if err := tx.Exec("SET LOCAL statement_timeout = '1min'").Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to set statement timeout: %w", err)
+		}
+		if err := tx.Exec("SET LOCAL lock_timeout = '1min'").Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to set lock timeout: %w", err)
+		}
 	}
 
 	// For MySQL, disable FK checks within this transaction to avoid deadlocks
