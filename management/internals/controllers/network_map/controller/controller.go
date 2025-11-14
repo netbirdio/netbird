@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -511,10 +510,10 @@ func (c *Controller) compareAndSaveNetworkMaps(ctx context.Context, accountId, p
 		return
 	}
 
-	if len(expBytes) == len(legacyBytes) || math.Abs(float64(len(expBytes)-len(legacyBytes))) < 5 {
-		log.WithContext(ctx).Debugf("network maps are equal for peer %s in account %s (size: %d bytes)", peerId, accountId, len(expBytes))
-		return
-	}
+	// if len(expBytes) == len(legacyBytes) || math.Abs(float64(len(expBytes)-len(legacyBytes))) < 5 {
+	// 	log.WithContext(ctx).Debugf("network maps are equal for peer %s in account %s (size: %d bytes)", peerId, accountId, len(expBytes))
+	// 	return
+	// }
 
 	timestamp := time.Now().UnixMicro()
 	baseDir := filepath.Join("debug_networkmaps", accountId, peerId)
@@ -524,19 +523,19 @@ func (c *Controller) compareAndSaveNetworkMaps(ctx context.Context, accountId, p
 		return
 	}
 
-	expFile := filepath.Join(baseDir, fmt.Sprintf("exp_networkmap_%d.json", timestamp))
+	expFile := filepath.Join(baseDir, fmt.Sprintf("exp_networkmap_%d_%d.json", expMap.Network.Serial, timestamp))
 	if err := os.WriteFile(expFile, expBytes, 0o644); err != nil {
 		log.WithContext(ctx).Warnf("failed to write experimental network map to %s: %v", expFile, err)
 		return
 	}
 
-	legacyFile := filepath.Join(baseDir, fmt.Sprintf("legacy_networkmap_%d.json", timestamp))
+	legacyFile := filepath.Join(baseDir, fmt.Sprintf("legacy_networkmap_%d_%d.json", legacyMap.Network.Serial, timestamp))
 	if err := os.WriteFile(legacyFile, legacyBytes, 0o644); err != nil {
 		log.WithContext(ctx).Warnf("failed to write legacy network map to %s: %v", legacyFile, err)
 		return
 	}
 
-	log.WithContext(ctx).Infof("network maps differ for peer %s in account %s - saved to %s (exp: %d bytes, legacy: %d bytes)", peerId, accountId, baseDir, len(expBytes), len(legacyBytes))
+	// log.WithContext(ctx).Infof("network maps differ for peer %s in account %s - saved to %s (exp: %d bytes, legacy: %d bytes)", peerId, accountId, baseDir, len(expBytes), len(legacyBytes))
 }
 
 func (c *Controller) onPeerAddedUpdNetworkMapCache(account *types.Account, peerId string) error {
