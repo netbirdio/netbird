@@ -857,12 +857,20 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	ctrl := gomock.NewController(t)
+	networkMapControllerMock := network_map.NewMockController(ctrl)
+	networkMapControllerMock.EXPECT().
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
 		Store:                   store,
 		eventStore:              &activity.InMemoryEventStore{},
 		integratedPeerValidator: MockIntegratedValidator{},
 		permissionsManager:      permissionsManager,
+		networkMapController:    networkMapControllerMock,
 	}
 
 	testCases := []struct {
