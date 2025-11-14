@@ -486,15 +486,18 @@ func (c *Controller) getPeerNetworkMapExp(
 			Network: &types.Network{},
 		}
 	}
+	if peerId != "cvj7n0rl0ubs73epnv00" && peerId != "d08cjrrl0ubs73cg7mng" && peerId != "d2qte4jl0ubs738s24ug" {
+		return account.GetPeerNetworkMap(ctx, peerId, customZone, validatedPeers, resourcePolicies, routers, nil)
+	}
 
-	legacyMap := account.GetPeerNetworkMap(ctx, peerId, customZone, validatedPeers, resourcePolicies, routers, nil)
+	expMap := account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
 
 	go func() {
-		expMap := account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
+		legacyMap := account.GetPeerNetworkMap(ctx, peerId, customZone, validatedPeers, resourcePolicies, routers, nil)
 		c.compareAndSaveNetworkMaps(ctx, accountId, peerId, expMap, legacyMap)
 	}()
 
-	return legacyMap
+	return expMap
 }
 
 func (c *Controller) compareAndSaveNetworkMaps(ctx context.Context, accountId, peerId string, expMap, legacyMap *types.NetworkMap) {
