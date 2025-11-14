@@ -237,13 +237,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, len(peers))
 	respBody := make([]*api.PeerBatch, 0, len(peers))
 	for _, peer := range peers {
-		peerToReturn, err := h.checkPeerStatus(peer)
-		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
-		}
-
-		respBody = append(respBody, toPeerListItemResponse(peerToReturn, grpsInfoMap[peer.ID], dnsDomain, 0))
+		respBody = append(respBody, toPeerListItemResponse(peer, grpsInfoMap[peer.ID], dnsDomain, 0))
 	}
 
 	validPeersMap, invalidPeersMap, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)

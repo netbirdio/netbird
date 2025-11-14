@@ -9,6 +9,9 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	network_map "github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	account "github.com/netbirdio/netbird/management/server/account"
+	integrated_validator "github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	peer "github.com/netbirdio/netbird/management/server/peer"
 )
 
@@ -33,6 +36,20 @@ func NewMockManager(ctrl *gomock.Controller) *MockManager {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
+}
+
+// DeletePeers mocks base method.
+func (m *MockManager) DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePeers", ctx, accountID, peerIDs, userID, checkConnected)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePeers indicates an expected call of DeletePeers.
+func (mr *MockManagerMockRecorder) DeletePeers(ctx, accountID, peerIDs, userID, checkConnected interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePeers", reflect.TypeOf((*MockManager)(nil).DeletePeers), ctx, accountID, peerIDs, userID, checkConnected)
 }
 
 // GetAllPeers mocks base method.
@@ -93,4 +110,40 @@ func (m *MockManager) GetPeersByGroupIDs(ctx context.Context, accountID string, 
 func (mr *MockManagerMockRecorder) GetPeersByGroupIDs(ctx, accountID, groupsIDs interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeersByGroupIDs", reflect.TypeOf((*MockManager)(nil).GetPeersByGroupIDs), ctx, accountID, groupsIDs)
+}
+
+// SetAccountManager mocks base method.
+func (m *MockManager) SetAccountManager(accountManager account.Manager) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetAccountManager", accountManager)
+}
+
+// SetAccountManager indicates an expected call of SetAccountManager.
+func (mr *MockManagerMockRecorder) SetAccountManager(accountManager interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetAccountManager", reflect.TypeOf((*MockManager)(nil).SetAccountManager), accountManager)
+}
+
+// SetIntegratedPeerValidator mocks base method.
+func (m *MockManager) SetIntegratedPeerValidator(integratedPeerValidator integrated_validator.IntegratedValidator) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetIntegratedPeerValidator", integratedPeerValidator)
+}
+
+// SetIntegratedPeerValidator indicates an expected call of SetIntegratedPeerValidator.
+func (mr *MockManagerMockRecorder) SetIntegratedPeerValidator(integratedPeerValidator interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIntegratedPeerValidator", reflect.TypeOf((*MockManager)(nil).SetIntegratedPeerValidator), integratedPeerValidator)
+}
+
+// SetNetworkMapController mocks base method.
+func (m *MockManager) SetNetworkMapController(networkMapController network_map.Controller) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetNetworkMapController", networkMapController)
+}
+
+// SetNetworkMapController indicates an expected call of SetNetworkMapController.
+func (mr *MockManagerMockRecorder) SetNetworkMapController(networkMapController interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNetworkMapController", reflect.TypeOf((*MockManager)(nil).SetNetworkMapController), networkMapController)
 }

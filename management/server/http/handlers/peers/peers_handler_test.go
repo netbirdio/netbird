@@ -335,8 +335,6 @@ func TestGetPeers(t *testing.T) {
 				for _, peer := range respBody {
 					if peer.Id == testPeerID {
 						got = peer
-					} else {
-						assert.Equal(t, peer.Connected, false)
 					}
 				}
 
@@ -350,14 +348,14 @@ func TestGetPeers(t *testing.T) {
 
 			t.Log(got)
 
-			assert.Equal(t, got.Name, tc.expectedPeer.Name)
-			assert.Equal(t, got.Version, tc.expectedPeer.Meta.WtVersion)
-			assert.Equal(t, got.Ip, tc.expectedPeer.IP.String())
-			assert.Equal(t, got.Os, "OS core")
-			assert.Equal(t, got.LoginExpirationEnabled, tc.expectedPeer.LoginExpirationEnabled)
-			assert.Equal(t, got.SshEnabled, tc.expectedPeer.SSHEnabled)
-			assert.Equal(t, got.Connected, tc.expectedPeer.Status.Connected)
-			assert.Equal(t, got.SerialNumber, tc.expectedPeer.Meta.SystemSerialNumber)
+			assert.Equal(t, tc.expectedPeer.Name, got.Name)
+			assert.Equal(t, tc.expectedPeer.Meta.WtVersion, got.Version)
+			assert.Equal(t, tc.expectedPeer.IP.String(), got.Ip)
+			assert.Equal(t, "OS core", got.Os)
+			assert.Equal(t, tc.expectedPeer.LoginExpirationEnabled, got.LoginExpirationEnabled)
+			assert.Equal(t, tc.expectedPeer.SSHEnabled, got.SshEnabled)
+			assert.Equal(t, tc.expectedPeer.Status.Connected, got.Connected)
+			assert.Equal(t, tc.expectedPeer.Meta.SystemSerialNumber, got.SerialNumber)
 		})
 	}
 }

@@ -9,13 +9,13 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nmapcontroller "github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
+	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 )
 
 func (s *BaseServer) PeersUpdateManager() network_map.PeersUpdateManager {
@@ -64,13 +64,13 @@ func (s *BaseServer) AuthManager() auth.Manager {
 
 func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 	return Create(s, func() ephemeral.Manager {
-		return manager.NewEphemeralManager(s.Store(), s.AccountManager())
+		return manager.NewEphemeralManager(s.Store(), s.PeersManager())
 	})
 }
 
 func (s *BaseServer) NetworkMapController() network_map.Controller {
 	return Create(s, func() *nmapcontroller.Controller {
-		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.dnsDomain, s.ProxyController())
+		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.ProxyController(), s.EphemeralManager())
 	})
 }
 
@@ -78,4 +78,8 @@ func (s *BaseServer) AccountRequestBuffer() *server.AccountRequestBuffer {
 	return Create(s, func() *server.AccountRequestBuffer {
 		return server.NewAccountRequestBuffer(context.Background(), s.Store())
 	})
+}
+
+func (s *BaseServer) DNSDomain() string {
+	return s.dnsDomain
 }

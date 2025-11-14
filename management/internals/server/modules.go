@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -14,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
-	"github.com/netbirdio/netbird/management/server/peers"
+
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -60,7 +61,13 @@ func (s *BaseServer) SettingsManager() settings.Manager {
 
 func (s *BaseServer) PeersManager() peers.Manager {
 	return Create(s, func() peers.Manager {
-		return peers.NewManager(s.Store(), s.PermissionsManager())
+		manager := peers.NewManager(s.Store(), s.PermissionsManager())
+		s.AfterInit(func(s *BaseServer) {
+			manager.SetNetworkMapController(s.NetworkMapController())
+			manager.SetIntegratedPeerValidator(s.IntegratedValidator())
+			manager.SetAccountManager(s.AccountManager())
+		})
+		return manager
 	})
 }
 
@@ -70,10 +77,6 @@ func (s *BaseServer) AccountManager() account.Manager {
 		if err != nil {
 			log.Fatalf("failed to create account manager: %v", err)
 		}
-
-		s.AfterInit(func(s *BaseServer) {
-			accountManager.SetEphemeralManager(s.EphemeralManager())
-		})
 		return accountManager
 	})
 }

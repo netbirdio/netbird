@@ -7,10 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -91,17 +94,27 @@ func TestNewManager(t *testing.T) {
 	}
 
 	store := &MockStore{}
-	am := MockAccountManager{
-		store: store,
-	}
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
 
 	numberOfPeers := 5
 	numberOfEphemeralPeers := 3
 	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
 
-	mgr := NewEphemeralManager(store, &am)
+	// Expect DeletePeers to be called for ephemeral peers
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), true).
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+			for _, peerID := range peerIDs {
+				delete(store.account.Peers, peerID)
+			}
+			return nil
+		}).
+		AnyTimes()
+
+	mgr := NewEphemeralManager(store, peersManager)
 	mgr.loadEphemeralPeers(context.Background())
-	startTime = startTime.Add(ephemeralLifeTime + 1)
+	startTime = startTime.Add(ephemeral.EphemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
 
 	if len(store.account.Peers) != numberOfPeers {
@@ -119,19 +132,29 @@ func TestNewManagerPeerConnected(t *testing.T) {
 	}
 
 	store := &MockStore{}
-	am := MockAccountManager{
-		store: store,
-	}
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
 
 	numberOfPeers := 5
 	numberOfEphemeralPeers := 3
 	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
 
-	mgr := NewEphemeralManager(store, &am)
+	// Expect DeletePeers to be called for ephemeral peers (except the connected one)
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), true).
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+			for _, peerID := range peerIDs {
+				delete(store.account.Peers, peerID)
+			}
+			return nil
+		}).
+		AnyTimes()
+
+	mgr := NewEphemeralManager(store, peersManager)
 	mgr.loadEphemeralPeers(context.Background())
 	mgr.OnPeerConnected(context.Background(), store.account.Peers["ephemeral_peer_0"])
 
-	startTime = startTime.Add(ephemeralLifeTime + 1)
+	startTime = startTime.Add(ephemeral.EphemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
 
 	expected := numberOfPeers + 1
@@ -150,15 +173,25 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 	}
 
 	store := &MockStore{}
-	am := MockAccountManager{
-		store: store,
-	}
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
 
 	numberOfPeers := 5
 	numberOfEphemeralPeers := 3
 	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
 
-	mgr := NewEphemeralManager(store, &am)
+	// Expect DeletePeers to be called for the one disconnected peer
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), true).
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+			for _, peerID := range peerIDs {
+				delete(store.account.Peers, peerID)
+			}
+			return nil
+		}).
+		AnyTimes()
+
+	mgr := NewEphemeralManager(store, peersManager)
 	mgr.loadEphemeralPeers(context.Background())
 	for _, v := range store.account.Peers {
 		mgr.OnPeerConnected(context.Background(), v)
@@ -166,7 +199,7 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 	}
 	mgr.OnPeerDisconnected(context.Background(), store.account.Peers["ephemeral_peer_0"])
 
-	startTime = startTime.Add(ephemeralLifeTime + 1)
+	startTime = startTime.Add(ephemeral.EphemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
 
 	expected := numberOfPeers + numberOfEphemeralPeers - 1
@@ -181,25 +214,63 @@ func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 		testLifeTime      = 1 * time.Second
 		testCleanupWindow = 100 * time.Millisecond
 	)
+
+	t.Cleanup(func() {
+		timeNow = time.Now
+	})
+	startTime := time.Now()
+	timeNow = func() time.Time {
+		return startTime
+	}
+
 	mockStore := &MockStore{}
+	account := newAccountWithId(context.Background(), "account", "", "", false)
+	mockStore.account = account
+
+	wg := &sync.WaitGroup{}
+	wg.Add(ephemeralPeers)
 	mockAM := &MockAccountManager{
 		store: mockStore,
+		wg:    wg,
 	}
-	mockAM.wg = &sync.WaitGroup{}
-	mockAM.wg.Add(ephemeralPeers)
-	mgr := NewEphemeralManager(mockStore, mockAM)
+
+	ctrl := gomock.NewController(t)
+	peersManager := peers.NewMockManager(ctrl)
+
+	// Set up expectation that DeletePeers will be called once with all peer IDs
+	peersManager.EXPECT().
+		DeletePeers(gomock.Any(), account.Id, gomock.Any(), gomock.Any(), true).
+		DoAndReturn(func(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
+			// Simulate the actual deletion behavior
+			for _, peerID := range peerIDs {
+				err := mockAM.DeletePeer(ctx, accountID, peerID, userID)
+				if err != nil {
+					return err
+				}
+			}
+			mockAM.BufferUpdateAccountPeers(ctx, accountID)
+			return nil
+		}).
+		Times(1)
+
+	mgr := NewEphemeralManager(mockStore, peersManager)
 	mgr.lifeTime = testLifeTime
 	mgr.cleanupWindow = testCleanupWindow
 
-	account := newAccountWithId(context.Background(), "account", "", "", false)
-	mockStore.account = account
+	// Add peers and disconnect them at slightly different times (within cleanup window)
 	for i := range ephemeralPeers {
 		p := &nbpeer.Peer{ID: fmt.Sprintf("peer-%d", i), AccountID: account.Id, Ephemeral: true}
 		mockStore.account.Peers[p.ID] = p
-		time.Sleep(testCleanupWindow / ephemeralPeers)
 		mgr.OnPeerDisconnected(context.Background(), p)
+		startTime = startTime.Add(testCleanupWindow / (ephemeralPeers * 2))
 	}
-	mockAM.wg.Wait()
+
+	// Advance time past the lifetime to trigger cleanup
+	startTime = startTime.Add(testLifeTime + testCleanupWindow)
+
+	// Wait for all deletions to complete
+	wg.Wait()
+
 	assert.Len(t, mockStore.account.Peers, 0, "all ephemeral peers should be cleaned up after the lifetime")
 	assert.Equal(t, 1, mockAM.GetBufferUpdateCalls(account.Id), "buffer update should be called once")
 	assert.Equal(t, ephemeralPeers, mockAM.GetDeletePeerCalls(), "should have deleted all peers")
