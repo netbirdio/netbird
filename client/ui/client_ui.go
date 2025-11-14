@@ -318,7 +318,8 @@ type serviceClient struct {
 	logFile              string
 	wLoginURL            fyne.Window
 
-	connectCancel context.CancelFunc
+	connectCancel    context.CancelFunc
+	updateStatusChan chan struct{}
 }
 
 type menuHandler struct {
@@ -354,6 +355,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
 		update:               version.NewUpdate("nb/client-ui"),
+		updateStatusChan:     make(chan struct{}, 1),
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -984,6 +986,36 @@ func (s *serviceClient) setConnectingStatus() {
 	s.mExitNode.Disable()
 }
 
+func (s *serviceClient) statusUpdateLoop() {
+	s.getSrvConfig()
+	time.Sleep(100 * time.Millisecond)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.updateStatusChan:
+		case <-ticker.C:
+		}
+
+		err := s.updateStatus()
+		if err != nil {
+			log.Errorf("error while updating status: %v", err)
+		}
+
+		s.checkAndUpdateFeatures()
+	}
+}
+
+func (s *serviceClient) triggerStatusUpdate() {
+	select {
+	case s.updateStatusChan <- struct{}{}:
+	default:
+	}
+}
+
 func (s *serviceClient) onTrayReady() {
 	systray.SetTemplateIcon(iconDisconnectedMacOS, s.icDisconnected)
 	systray.SetTooltip("NetBird")
@@ -1076,21 +1108,7 @@ func (s *serviceClient) onTrayReady() {
 	go s.updateExitNodes()
 
 	s.update.SetOnUpdateListener(s.onUpdateAvailable)
-	go func() {
-		s.getSrvConfig()
-		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
-		for {
-			err := s.updateStatus()
-			if err != nil {
-				log.Errorf("error while updating status: %v", err)
-			}
-
-			// Check features periodically to handle daemon restarts
-			s.checkAndUpdateFeatures()
-
-			time.Sleep(2 * time.Second)
-		}
-	}()
+	go s.statusUpdateLoop()
 
 	s.eventManager = event.NewManager(s.app, s.addr)
 	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
