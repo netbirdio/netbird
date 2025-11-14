@@ -268,6 +268,11 @@ func (s *Server) prepareCommandEnv(localUser *user.User, session ssh.Session) []
 }
 
 func (s *Server) handlePty(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, winCh <-chan ssh.Window) bool {
+	if privilegeResult.User == nil {
+		logger.Errorf("no user in privilege result")
+		return false
+	}
+
 	cmd := session.Command()
 	shell := getUserShell(privilegeResult.User.Uid)
 
@@ -395,6 +400,11 @@ func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, e
 // executeConPtyCommand executes a command using ConPty (common for interactive and command execution)
 func (s *Server) executeConPtyCommand(logger *log.Entry, session ssh.Session, privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, command string) bool {
 	localUser := privilegeResult.User
+	if localUser == nil {
+		logger.Errorf("no user in privilege result")
+		return false
+	}
+
 	username, domain := s.parseUsername(localUser.Username)
 	shell := getUserShell(localUser.Uid)
 

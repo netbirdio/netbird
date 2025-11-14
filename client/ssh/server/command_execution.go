@@ -59,6 +59,9 @@ func (s *Server) handleCommand(logger *log.Entry, session ssh.Session, privilege
 
 func (s *Server) createCommand(privilegeResult PrivilegeCheckResult, session ssh.Session, hasPty bool) (*exec.Cmd, func(), error) {
 	localUser := privilegeResult.User
+	if localUser == nil {
+		return nil, nil, errors.New("no user in privilege result")
+	}
 
 	// If PTY requested but su doesn't support --pty, skip su and use executor
 	// This ensures PTY functionality is provided (executor runs within our allocated PTY)

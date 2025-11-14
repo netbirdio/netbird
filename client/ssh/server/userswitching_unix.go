@@ -188,6 +188,9 @@ func enableUserSwitching() error {
 // createPtyCommand creates the exec.Cmd for Pty execution respecting privilege check results
 func (s *Server) createPtyCommand(privilegeResult PrivilegeCheckResult, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
 	localUser := privilegeResult.User
+	if localUser == nil {
+		return nil, errors.New("no user in privilege result")
+	}
 
 	if privilegeResult.UsedFallback {
 		return s.createDirectPtyCommand(session, localUser, ptyReq), nil
