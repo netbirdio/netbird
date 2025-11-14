@@ -1225,7 +1225,7 @@ func (am *DefaultAccountManager) GetAccountOnboarding(ctx context.Context, accou
 
 	onboarding, err := am.Store.GetAccountOnboarding(ctx, accountID)
 	if err != nil && err.Error() != status.NewAccountOnboardingNotFoundError(accountID).Error() {
-		log.Errorf("failed to get account onboarding for accountssssssss %s: %v", accountID, err)
+		log.Errorf("failed to get account onboarding for account %s: %v", accountID, err)
 		return nil, err
 	}
 
