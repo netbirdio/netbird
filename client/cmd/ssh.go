@@ -426,6 +426,9 @@ func validateSSHArgsWithoutFlagParsing(_ *cobra.Command, args []string) error {
 	fs, flags := createSSHFlagSet()
 
 	if err := fs.Parse(filteredArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 
