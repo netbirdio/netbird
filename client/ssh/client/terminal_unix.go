@@ -21,7 +21,7 @@ func (c *Client) setupTerminalMode(ctx context.Context, session *ssh.Session) er
 		return c.setupNonTerminalMode(ctx, session)
 	}
 
-	fd := int(os.Stdout.Fd())
+	fd := int(os.Stdin.Fd())
 
 	state, err := term.MakeRaw(fd)
 	if err != nil {

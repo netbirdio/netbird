@@ -55,6 +55,7 @@ const (
 
 const (
 	censoredPreSharedKey = "**********"
+	maxSSHJWTCacheTTL    = 86_400 // 24 hours in seconds
 )
 
 func main() {
@@ -524,6 +525,9 @@ func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
 	if err != nil {
 		return 0, 0, errors.New("Invalid interface port")
 	}
+	if port < 1 || port > 65535 {
+		return 0, 0, errors.New("Invalid interface port: out of range 1-65535")
+	}
 
 	var mtu int64
 	mtuText := strings.TrimSpace(s.iMTU.Text)
@@ -617,8 +621,8 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 		if err != nil {
 			return nil, errors.New("Invalid SSH JWT Cache TTL value")
 		}
-		if sshJWTCacheTTL < 0 {
-			return nil, errors.New("SSH JWT Cache TTL must be 0 or positive")
+		if sshJWTCacheTTL < 0 || sshJWTCacheTTL > maxSSHJWTCacheTTL {
+			return nil, fmt.Errorf("SSH JWT Cache TTL must be between 0 and %d seconds", maxSSHJWTCacheTTL)
 		}
 		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
@@ -717,9 +721,11 @@ func (s *serviceClient) getSSHForm() *widget.Form {
 func (s *serviceClient) hasSSHChanges() bool {
 	currentSSHJWTCacheTTL := 0
 	if text := strings.TrimSpace(s.iSSHJWTCacheTTL.Text); text != "" {
-		if val, err := strconv.Atoi(text); err == nil {
-			currentSSHJWTCacheTTL = val
+		val, err := strconv.Atoi(text)
+		if err != nil {
+			return true
 		}
+		currentSSHJWTCacheTTL = val
 	}
 
 	return s.enableSSHRoot != s.sEnableSSHRoot.Checked ||

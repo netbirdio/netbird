@@ -108,7 +108,7 @@ func (s *Server) executeCommand(logger *log.Entry, session ssh.Session, execCmd 
 	}
 
 	execCmd.Stdout = session
-	execCmd.Stderr = session
+	execCmd.Stderr = session.Stderr()
 
 	if execCmd.Dir != "" {
 		if _, err := os.Stat(execCmd.Dir); err != nil {

@@ -282,6 +282,12 @@ type DialOptions struct {
 
 // Dial connects to the given ssh server with specified options
 func Dial(ctx context.Context, addr, user string, opts DialOptions) (*Client, error) {
+	daemonAddr := opts.DaemonAddr
+	if daemonAddr == "" {
+		daemonAddr = getDefaultDaemonAddr()
+	}
+	opts.DaemonAddr = daemonAddr
+
 	hostKeyCallback, err := createHostKeyCallback(opts)
 	if err != nil {
 		return nil, fmt.Errorf("create host key callback: %w", err)
@@ -299,11 +305,6 @@ func Dial(ctx context.Context, addr, user string, opts DialOptions) (*Client, er
 			return nil, fmt.Errorf("create SSH key auth: %w", err)
 		}
 		config.Auth = append(config.Auth, authMethod)
-	}
-
-	daemonAddr := opts.DaemonAddr
-	if daemonAddr == "" {
-		daemonAddr = getDefaultDaemonAddr()
 	}
 
 	return dialWithJWT(ctx, "tcp", addr, config, daemonAddr, opts.SkipCachedToken)
@@ -467,7 +468,7 @@ func tryKnownHostsVerification(hostname string, remote net.Addr, key ssh.PublicK
 			return nil
 		}
 	}
-	return fmt.Errorf("host key verification failed: key not found in NetBird daemon or any known_hosts file")
+	return fmt.Errorf("host key verification failed: key for %s not found in any known_hosts file", hostname)
 }
 
 func getKnownHostsFilesList(knownHostsFile string) []string {

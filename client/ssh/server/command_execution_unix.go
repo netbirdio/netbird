@@ -88,7 +88,7 @@ func (s *Server) createSuCommand(session ssh.Session, localUser *user.User, hasP
 	}
 
 	args := []string{"-l"}
-	if hasPty {
+	if hasPty && s.suSupportsPty {
 		args = append(args, "--pty")
 	}
 	args = append(args, localUser.Username, "-c", command)

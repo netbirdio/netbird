@@ -39,6 +39,7 @@ type SSHProxy struct {
 	targetHost   string
 	targetPort   int
 	stderr       io.Writer
+	conn         *grpc.ClientConn
 	daemonClient proto.DaemonServiceClient
 }
 
@@ -54,8 +55,16 @@ func New(daemonAddr, targetHost string, targetPort int, stderr io.Writer) (*SSHP
 		targetHost:   targetHost,
 		targetPort:   targetPort,
 		stderr:       stderr,
+		conn:         grpcConn,
 		daemonClient: proto.NewDaemonServiceClient(grpcConn),
 	}, nil
+}
+
+func (p *SSHProxy) Close() error {
+	if p.conn != nil {
+		return p.conn.Close()
+	}
+	return nil
 }
 
 func (p *SSHProxy) Connect(ctx context.Context) error {

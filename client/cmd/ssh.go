@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 
@@ -748,6 +749,11 @@ func sshProxyFn(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create SSH proxy: %w", err)
 	}
+	defer func() {
+		if err := proxy.Close(); err != nil {
+			log.Debugf("close SSH proxy: %v", err)
+		}
+	}()
 
 	if err := proxy.Connect(cmd.Context()); err != nil {
 		return fmt.Errorf("SSH proxy: %w", err)

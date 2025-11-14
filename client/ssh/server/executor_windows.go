@@ -344,7 +344,7 @@ func prepareDomainS4ULogon(username, domain string) (unsafe.Pointer, uintptr, er
 
 	upnOffset := structSize
 	upnBuffer := (*uint16)(unsafe.Pointer(uintptr(logonInfo) + upnOffset))
-	copy((*[512]uint16)(unsafe.Pointer(upnBuffer))[:len(upnUtf16)], upnUtf16)
+	copy((*[1025]uint16)(unsafe.Pointer(upnBuffer))[:len(upnUtf16)], upnUtf16)
 
 	s4uLogon.ClientUpn = unicodeString{
 		Length:        uint16((len(upnUtf16) - 1) * 2),
