@@ -892,20 +892,7 @@ func (s *serviceClient) updateStatus() error {
 
 		switch {
 		case status.Status == string(internal.StatusConnected):
-			s.connected = true
-			s.sendNotification = true
-			if s.isUpdateIconActive {
-				systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
-			} else {
-				systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
-			}
-			systray.SetTooltip("NetBird (Connected)")
-			s.mStatus.SetTitle("Connected")
-			s.mStatus.SetIcon(s.icConnectedDot)
-			s.mUp.Disable()
-			s.mDown.Enable()
-			s.mNetworks.Enable()
-			go s.updateExitNodes()
+			s.setConnectedStatus()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
 			s.setConnectingStatus()
@@ -966,6 +953,23 @@ func (s *serviceClient) setDisconnectedStatus() {
 	s.mUp.Enable()
 	s.mNetworks.Disable()
 	s.mExitNode.Disable()
+	go s.updateExitNodes()
+}
+
+func (s *serviceClient) setConnectedStatus() {
+	s.connected = true
+	s.sendNotification = true
+	if s.isUpdateIconActive {
+		systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
+	} else {
+		systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
+	}
+	systray.SetTooltip("NetBird (Connected)")
+	s.mStatus.SetTitle("Connected")
+	s.mStatus.SetIcon(s.icConnectedDot)
+	s.mUp.Disable()
+	s.mDown.Enable()
+	s.mNetworks.Enable()
 	go s.updateExitNodes()
 }
 
