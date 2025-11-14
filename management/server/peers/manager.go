@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -100,13 +101,14 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 	dnsDomain := m.networkMapController.GetDNSDomain(settings)
 
 	for _, peerID := range peerIDs {
+		var eventsToStore []func()
 		err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 			if err != nil {
 				return err
 			}
 
-			if checkConnected && (peer.Status.Connected || peer.Status.LastSeen.After(time.Now().Add(-time.Minute*10))) {
+			if checkConnected && (peer.Status.Connected || peer.Status.LastSeen.After(time.Now().Add(-(ephemeral.EphemeralLifeTime - 10*time.Second)))) {
 				return nil
 			}
 
@@ -133,20 +135,26 @@ func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs
 					return err
 				}
 
-				m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
-
+				eventsToStore = append(eventsToStore, func() {
+					m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
+				})
 			}
 
 			if err = transaction.DeletePeer(ctx, accountID, peerID); err != nil {
 				return err
 			}
 
-			m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
+			eventsToStore = append(eventsToStore, func() {
+				m.accountManager.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
+			})
 
 			return nil
 		})
 		if err != nil {
 			return err
+		}
+		for _, event := range eventsToStore {
+			event()
 		}
 	}
 

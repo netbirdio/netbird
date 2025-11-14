@@ -101,7 +101,7 @@ func TestNewManager(t *testing.T) {
 
 	mgr := NewEphemeralManager(store, &am)
 	mgr.loadEphemeralPeers(context.Background())
-	startTime = startTime.Add(ephemeralLifeTime + 1)
+	startTime = startTime.Add(EphemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
 
 	if len(store.account.Peers) != numberOfPeers {
@@ -131,7 +131,7 @@ func TestNewManagerPeerConnected(t *testing.T) {
 	mgr.loadEphemeralPeers(context.Background())
 	mgr.OnPeerConnected(context.Background(), store.account.Peers["ephemeral_peer_0"])
 
-	startTime = startTime.Add(ephemeralLifeTime + 1)
+	startTime = startTime.Add(EphemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
 
 	expected := numberOfPeers + 1
@@ -166,7 +166,7 @@ func TestNewManagerPeerDisconnected(t *testing.T) {
 	}
 	mgr.OnPeerDisconnected(context.Background(), store.account.Peers["ephemeral_peer_0"])
 
-	startTime = startTime.Add(ephemeralLifeTime + 1)
+	startTime = startTime.Add(EphemeralLifeTime + 1)
 	mgr.cleanup(context.Background())
 
 	expected := numberOfPeers + numberOfEphemeralPeers - 1

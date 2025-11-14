@@ -10,11 +10,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/peers"
+	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/store"
 )
 
 const (
-	ephemeralLifeTime = 10 * time.Minute
 	// cleanupWindow is the time window to wait after nearest peer deadline to start the cleanup procedure.
 	cleanupWindow = 1 * time.Minute
 )
@@ -33,7 +33,7 @@ type ephemeralPeer struct {
 // todo: consider to remove peer from ephemeral list when the peer has been deleted via API. If we do not do it
 // in worst case we will get invalid error message in this manager.
 
-// EphemeralManager keep a list of ephemeral peers. After ephemeralLifeTime inactivity the peer will be deleted
+// EphemeralManager keep a list of ephemeral peers. After EphemeralLifeTime inactivity the peer will be deleted
 // automatically. Inactivity means the peer disconnected from the Management server.
 type EphemeralManager struct {
 	store        store.Store
@@ -54,7 +54,7 @@ func NewEphemeralManager(store store.Store, peersManager peers.Manager) *Ephemer
 		store:        store,
 		peersManager: peersManager,
 
-		lifeTime:      ephemeralLifeTime,
+		lifeTime:      ephemeral.EphemeralLifeTime,
 		cleanupWindow: cleanupWindow,
 	}
 }
@@ -106,7 +106,7 @@ func (e *EphemeralManager) OnPeerConnected(ctx context.Context, peer *nbpeer.Pee
 }
 
 // OnPeerDisconnected add the peer to the linked list of ephemeral peers. Because of the peer
-// is inactive it will be deleted after the ephemeralLifeTime period.
+// is inactive it will be deleted after the EphemeralLifeTime period.
 func (e *EphemeralManager) OnPeerDisconnected(ctx context.Context, peer *nbpeer.Peer) {
 	if !peer.Ephemeral {
 		return
