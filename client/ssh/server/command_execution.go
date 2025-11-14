@@ -84,10 +84,6 @@ func (s *Server) createCommand(privilegeResult PrivilegeCheckResult, session ssh
 		return cmd, cleanup, nil
 	}
 
-	if err != nil {
-		return nil, nil, fmt.Errorf("create command with privileges: %w", err)
-	}
-
 	cmd.Env = s.prepareCommandEnv(localUser, session)
 	return cmd, func() {}, nil
 }
