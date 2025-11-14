@@ -14,7 +14,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
-	"github.com/pion/transport/v3/stdnet"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -774,7 +774,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				MTU:          iface.DefaultMTU,
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 			engine.ctx = ctx
-			newNet, err := stdnet.NewNet()
+			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -977,7 +977,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
 			engine.ctx = ctx
 
-			newNet, err := stdnet.NewNet()
+			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}

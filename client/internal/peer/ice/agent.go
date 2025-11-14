@@ -1,6 +1,7 @@
 package ice
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -22,6 +23,8 @@ const (
 	iceFailedTimeoutDefault       = 6 * time.Second
 	// iceRelayAcceptanceMinWaitDefault is the same as in the Pion ICE package
 	iceRelayAcceptanceMinWaitDefault = 2 * time.Second
+	// iceAgentCloseTimeout is the maximum time to wait for ICE agent close to complete
+	iceAgentCloseTimeout = 3 * time.Second
 )
 
 type ThreadSafeAgent struct {
@@ -32,18 +35,28 @@ type ThreadSafeAgent struct {
 func (a *ThreadSafeAgent) Close() error {
 	var err error
 	a.once.Do(func() {
-		err = a.Agent.Close()
+		done := make(chan error, 1)
+		go func() {
+			done <- a.Agent.Close()
+		}()
+
+		select {
+		case err = <-done:
+		case <-time.After(iceAgentCloseTimeout):
+			log.Warnf("ICE agent close timed out after %v, proceeding with cleanup", iceAgentCloseTimeout)
+			err = nil
+		}
 	})
 	return err
 }
 
-func NewAgent(iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ThreadSafeAgent, error) {
+func NewAgent(ctx context.Context, iFaceDiscover stdnet.ExternalIFaceDiscover, config Config, candidateTypes []ice.CandidateType, ufrag string, pwd string) (*ThreadSafeAgent, error) {
 	iceKeepAlive := iceKeepAlive()
 	iceDisconnectedTimeout := iceDisconnectedTimeout()
 	iceFailedTimeout := iceFailedTimeout()
 	iceRelayAcceptanceMinWait := iceRelayAcceptanceMinWait()
 
-	transportNet, err := newStdNet(iFaceDiscover, config.InterfaceBlackList)
+	transportNet, err := newStdNet(ctx, iFaceDiscover, config.InterfaceBlackList)
 	if err != nil {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
