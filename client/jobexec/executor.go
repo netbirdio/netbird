@@ -18,6 +18,7 @@ func NewExecutor() *Executor {
 }
 
 func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.GeneratorDependencies, params debug.BundleConfig, mgmURL string) (string, error) {
+	log.Infof("execute debug bundle generation")
 	bundleGenerator := debug.NewBundleGenerator(debugBundleDependencies, params)
 
 	path, err := bundleGenerator.Generate()
@@ -31,5 +32,6 @@ func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}
 
+	log.Infof("debug bundle has been generated well")
 	return key, nil
 }

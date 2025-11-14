@@ -1041,6 +1041,7 @@ func (e *Engine) receiveJobEvents() {
 }
 
 func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
+	log.Infof("handle remote debug bundle request: %s", params.String())
 	syncResponse, err := e.GetLatestSyncResponse()
 	if err != nil {
 		return nil, fmt.Errorf("get latest sync response: %w", err)
