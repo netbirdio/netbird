@@ -209,6 +209,7 @@ func startServer(
 
 	accountManager, err := server.BuildManager(
 		context.Background(),
+		nil,
 		str,
 		networkMapController,
 		nil,

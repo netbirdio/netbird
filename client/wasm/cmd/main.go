@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	netbird "github.com/netbirdio/netbird/client/embed"
+	sshdetection "github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/client/wasm/internal/http"
 	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
@@ -125,10 +126,15 @@ func createSSHMethod(client *netbird.Client) js.Func {
 			username = args[2].String()
 		}
 
+		var jwtToken string
+		if len(args) > 3 && !args[3].IsNull() && !args[3].IsUndefined() {
+			jwtToken = args[3].String()
+		}
+
 		return createPromise(func(resolve, reject js.Value) {
 			sshClient := ssh.NewClient(client)
 
-			if err := sshClient.Connect(host, port, username); err != nil {
+			if err := sshClient.Connect(host, port, username, jwtToken); err != nil {
 				reject.Invoke(err.Error())
 				return
 			}
@@ -191,12 +197,43 @@ func createPromise(handler func(resolve, reject js.Value)) js.Value {
 	}))
 }
 
+// createDetectSSHServerMethod creates the SSH server detection method
+func createDetectSSHServerMethod(client *netbird.Client) js.Func {
+	return js.FuncOf(func(this js.Value, args []js.Value) any {
+		if len(args) < 2 {
+			return js.ValueOf("error: requires host and port")
+		}
+
+		host := args[0].String()
+		port := args[1].Int()
+
+		return createPromise(func(resolve, reject js.Value) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			serverType, err := detectSSHServerType(ctx, client, host, port)
+			if err != nil {
+				reject.Invoke(err.Error())
+				return
+			}
+
+			resolve.Invoke(js.ValueOf(serverType.RequiresJWT()))
+		})
+	})
+}
+
+// detectSSHServerType detects SSH server type using NetBird network connection
+func detectSSHServerType(ctx context.Context, client *netbird.Client, host string, port int) (sshdetection.ServerType, error) {
+	return sshdetection.DetectSSHServerType(ctx, client, host, port)
+}
+
 // createClientObject wraps the NetBird client in a JavaScript object
 func createClientObject(client *netbird.Client) js.Value {
 	obj := make(map[string]interface{})
 
 	obj["start"] = createStartMethod(client)
 	obj["stop"] = createStopMethod(client)
+	obj["detectSSHServerType"] = createDetectSSHServerMethod(client)
 	obj["createSSHConnection"] = createSSHMethod(client)
 	obj["proxyRequest"] = createProxyRequestMethod(client)
 	obj["createRDPProxy"] = createRDPProxyMethod(client)

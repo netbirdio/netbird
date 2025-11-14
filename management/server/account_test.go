@@ -28,7 +28,6 @@ import (
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
@@ -45,6 +44,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/auth"
 )
 
 func verifyCanAddPeerToAccount(t *testing.T, manager nbAccount.Manager, account *types.Account, userID string) {
@@ -445,7 +445,7 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
-	type initUserParams nbcontext.UserAuth
+	type initUserParams auth.UserAuth
 
 	var (
 		publicDomain  = "public.com"
@@ -468,7 +468,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 
 	testCases := []struct {
 		name                        string
-		inputClaims                 nbcontext.UserAuth
+		inputClaims                 auth.UserAuth
 		inputInitUserParams         initUserParams
 		inputUpdateAttrs            bool
 		inputUpdateClaimAccount     bool
@@ -483,7 +483,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 	}{
 		{
 			name: "New User With Public Domain",
-			inputClaims: nbcontext.UserAuth{
+			inputClaims: auth.UserAuth{
 				Domain:         publicDomain,
 				UserId:         "pub-domain-user",
 				DomainCategory: types.PublicCategory,
@@ -500,7 +500,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 		},
 		{
 			name: "New User With Unknown Domain",
-			inputClaims: nbcontext.UserAuth{
+			inputClaims: auth.UserAuth{
 				Domain:         unknownDomain,
 				UserId:         "unknown-domain-user",
 				DomainCategory: types.UnknownCategory,
@@ -517,7 +517,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 		},
 		{
 			name: "New User With Private Domain",
-			inputClaims: nbcontext.UserAuth{
+			inputClaims: auth.UserAuth{
 				Domain:         privateDomain,
 				UserId:         "pvt-domain-user",
 				DomainCategory: types.PrivateCategory,
@@ -534,7 +534,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 		},
 		{
 			name: "New Regular User With Existing Private Domain",
-			inputClaims: nbcontext.UserAuth{
+			inputClaims: auth.UserAuth{
 				Domain:         privateDomain,
 				UserId:         "new-pvt-domain-user",
 				DomainCategory: types.PrivateCategory,
@@ -552,7 +552,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 		},
 		{
 			name: "Existing User With Existing Reclassified Private Domain",
-			inputClaims: nbcontext.UserAuth{
+			inputClaims: auth.UserAuth{
 				Domain:         defaultInitAccount.Domain,
 				UserId:         defaultInitAccount.UserId,
 				DomainCategory: types.PrivateCategory,
@@ -569,7 +569,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 		},
 		{
 			name: "Existing Account Id With Existing Reclassified Private Domain",
-			inputClaims: nbcontext.UserAuth{
+			inputClaims: auth.UserAuth{
 				Domain:         defaultInitAccount.Domain,
 				UserId:         defaultInitAccount.UserId,
 				DomainCategory: types.PrivateCategory,
@@ -587,7 +587,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 		},
 		{
 			name: "User With Private Category And Empty Domain",
-			inputClaims: nbcontext.UserAuth{
+			inputClaims: auth.UserAuth{
 				Domain:         "",
 				UserId:         "pvt-domain-user",
 				DomainCategory: types.PrivateCategory,
@@ -616,7 +616,7 @@ func TestDefaultAccountManager_GetAccountIDFromToken(t *testing.T) {
 			require.NoError(t, err, "get init account failed")
 
 			if testCase.inputUpdateAttrs {
-				err = manager.updateAccountDomainAttributesIfNotUpToDate(context.Background(), initAccount.Id, nbcontext.UserAuth{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain, DomainCategory: testCase.inputInitUserParams.DomainCategory}, true)
+				err = manager.updateAccountDomainAttributesIfNotUpToDate(context.Background(), initAccount.Id, auth.UserAuth{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain, DomainCategory: testCase.inputInitUserParams.DomainCategory}, true)
 				require.NoError(t, err, "update init user failed")
 			}
 
@@ -656,7 +656,7 @@ func TestDefaultAccountManager_SyncUserJWTGroups(t *testing.T) {
 	// it is important to set the id as it help to avoid creating additional account with empty Id and re-pointing indices to it
 	initAccount, err := manager.Store.GetAccount(context.Background(), accountID)
 	require.NoError(t, err, "get init account failed")
-	claims := nbcontext.UserAuth{
+	claims := auth.UserAuth{
 		AccountId:      accountID, // is empty as it is based on accountID right after initialization of initAccount
 		Domain:         domain,
 		UserId:         userId,
@@ -915,13 +915,13 @@ func TestAccountManager_DeleteAccount(t *testing.T) {
 }
 
 func BenchmarkTest_GetAccountWithclaims(b *testing.B) {
-	claims := nbcontext.UserAuth{
+	claims := auth.UserAuth{
 		Domain:         "example.com",
 		UserId:         "pvt-domain-user",
 		DomainCategory: types.PrivateCategory,
 	}
 
-	publicClaims := nbcontext.UserAuth{
+	publicClaims := auth.UserAuth{
 		Domain:         "test.com",
 		UserId:         "public-domain-user",
 		DomainCategory: types.PublicCategory,
@@ -2709,7 +2709,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	assert.NoError(t, manager.Store.SaveAccount(context.Background(), account), "unable to save account")
 
 	t.Run("skip sync for token auth type", func(t *testing.T) {
-		claims := nbcontext.UserAuth{
+		claims := auth.UserAuth{
 			UserId:    "user1",
 			AccountId: "accountID",
 			Groups:    []string{"group3"},
@@ -2724,7 +2724,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	})
 
 	t.Run("empty jwt groups", func(t *testing.T) {
-		claims := nbcontext.UserAuth{
+		claims := auth.UserAuth{
 			UserId:    "user1",
 			AccountId: "accountID",
 			Groups:    []string{},
@@ -2738,7 +2738,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	})
 
 	t.Run("jwt match existing api group", func(t *testing.T) {
-		claims := nbcontext.UserAuth{
+		claims := auth.UserAuth{
 			UserId:    "user1",
 			AccountId: "accountID",
 			Groups:    []string{"group1"},
@@ -2759,7 +2759,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 		account.Users["user1"].AutoGroups = []string{"group1"}
 		assert.NoError(t, manager.Store.SaveUser(context.Background(), account.Users["user1"]))
 
-		claims := nbcontext.UserAuth{
+		claims := auth.UserAuth{
 			UserId:    "user1",
 			AccountId: "accountID",
 			Groups:    []string{"group1"},
@@ -2777,7 +2777,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	})
 
 	t.Run("add jwt group", func(t *testing.T) {
-		claims := nbcontext.UserAuth{
+		claims := auth.UserAuth{
 			UserId:    "user1",
 			AccountId: "accountID",
 			Groups:    []string{"group1", "group2"},
@@ -2791,7 +2791,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	})
 
 	t.Run("existed group not update", func(t *testing.T) {
-		claims := nbcontext.UserAuth{
+		claims := auth.UserAuth{
 			UserId:    "user1",
 			AccountId: "accountID",
 			Groups:    []string{"group2"},
@@ -2805,7 +2805,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	})
 
 	t.Run("add new group", func(t *testing.T) {
-		claims := nbcontext.UserAuth{
+		claims := auth.UserAuth{
 			UserId:    "user2",
 			AccountId: "accountID",
 			Groups:    []string{"group1", "group3"},
@@ -2823,7 +2823,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	})
 
 	t.Run("remove all JWT groups when list is empty", func(t *testing.T) {
-		claims := nbcontext.UserAuth{
+		claims := auth.UserAuth{
 			UserId:    "user1",
 			AccountId: "accountID",
 			Groups:    []string{},
@@ -2838,7 +2838,7 @@ func TestAccount_SetJWTGroups(t *testing.T) {
 	})
 
 	t.Run("remove all JWT groups when claim does not exist", func(t *testing.T) {
-		claims := nbcontext.UserAuth{
+		claims := auth.UserAuth{
 			UserId:    "user2",
 			AccountId: "accountID",
 			Groups:    []string{},
@@ -2959,7 +2959,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock())
-	manager, err := BuildManager(ctx, store, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	manager, err := BuildManager(ctx, nil, store, networkMapController, nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3692,7 +3692,7 @@ func TestAddNewUserToDomainAccountWithApproval(t *testing.T) {
 
 	// Test adding new user to existing account with approval required
 	newUserID := "new-user-id"
-	userAuth := nbcontext.UserAuth{
+	userAuth := auth.UserAuth{
 		UserId:         newUserID,
 		Domain:         "example.com",
 		DomainCategory: types.PrivateCategory,
@@ -3722,7 +3722,7 @@ func TestAddNewUserToDomainAccountWithoutApproval(t *testing.T) {
 	}
 
 	// Create a domain-based account without user approval
-	ownerUserAuth := nbcontext.UserAuth{
+	ownerUserAuth := auth.UserAuth{
 		UserId:         "owner-user",
 		Domain:         "example.com",
 		DomainCategory: types.PrivateCategory,
@@ -3741,7 +3741,7 @@ func TestAddNewUserToDomainAccountWithoutApproval(t *testing.T) {
 
 	// Test adding new user to existing account without approval required
 	newUserID := "new-user-id"
-	userAuth := nbcontext.UserAuth{
+	userAuth := auth.UserAuth{
 		UserId:         newUserID,
 		Domain:         "example.com",
 		DomainCategory: types.PrivateCategory,

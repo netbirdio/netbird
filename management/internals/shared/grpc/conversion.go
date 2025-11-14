@@ -3,6 +3,8 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -81,12 +83,21 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	return nbConfig
 }
 
-func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings) *proto.PeerConfig {
+func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, config *nbconfig.Config) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
 	fqdn := peer.FQDN(dnsName)
+
+	sshConfig := &proto.SSHConfig{
+		SshEnabled: peer.SSHEnabled,
+	}
+
+	if peer.SSHEnabled {
+		sshConfig.JwtConfig = buildJWTConfig(config)
+	}
+
 	return &proto.PeerConfig{
-		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
-		SshConfig:                       &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
+		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask),
+		SshConfig:                       sshConfig,
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
 		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
@@ -95,7 +106,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 
 func ToSyncResponse(ctx context.Context, config *nbconfig.Config, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
 	response := &proto.SyncResponse{
-		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings),
+		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, config),
 		NetworkMap: &proto.NetworkMap{
 			Serial:    networkMap.Network.CurrentSerial(),
 			Routes:    toProtocolRoutes(networkMap.Routes),
@@ -349,4 +360,52 @@ func convertToProtoNameServerGroup(nsGroup *nbdns.NameServerGroup) *proto.NameSe
 		})
 	}
 	return protoGroup
+}
+
+// buildJWTConfig constructs JWT configuration for SSH servers from management server config
+func buildJWTConfig(config *nbconfig.Config) *proto.JWTConfig {
+	if config == nil {
+		return nil
+	}
+
+	if config.HttpConfig == nil || config.HttpConfig.AuthAudience == "" {
+		return nil
+	}
+
+	issuer := strings.TrimSpace(config.HttpConfig.AuthIssuer)
+	if issuer == "" {
+		if config.DeviceAuthorizationFlow != nil {
+			if d := deriveIssuerFromTokenEndpoint(config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint); d != "" {
+				issuer = d
+			}
+		}
+	}
+	if issuer == "" {
+		return nil
+	}
+
+	keysLocation := strings.TrimSpace(config.HttpConfig.AuthKeysLocation)
+	if keysLocation == "" {
+		keysLocation = strings.TrimSuffix(issuer, "/") + "/.well-known/jwks.json"
+	}
+
+	return &proto.JWTConfig{
+		Issuer:       issuer,
+		Audience:     config.HttpConfig.AuthAudience,
+		KeysLocation: keysLocation,
+	}
+}
+
+// deriveIssuerFromTokenEndpoint extracts the issuer URL from a token endpoint
+func deriveIssuerFromTokenEndpoint(tokenEndpoint string) string {
+	if tokenEndpoint == "" {
+		return ""
+	}
+
+	u, err := url.Parse(tokenEndpoint)
+	if err != nil {
+		return ""
+	}
+
+	return fmt.Sprintf("%s://%s/", u.Scheme, u.Host)
 }
