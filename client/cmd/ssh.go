@@ -555,6 +555,12 @@ func executeSSHCommand(ctx context.Context, c *sshclient.Client, command string)
 			os.Exit(exitErr.ExitStatus())
 		}
 
+		var exitMissingErr *ssh.ExitMissingError
+		if errors.As(err, &exitMissingErr) {
+			log.Debugf("Remote command exited without exit status: %v", err)
+			return nil
+		}
+
 		return fmt.Errorf("execute command: %w", err)
 	}
 	return nil
@@ -566,6 +572,13 @@ func openSSHTerminal(ctx context.Context, c *sshclient.Client) error {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil
 		}
+
+		var exitMissingErr *ssh.ExitMissingError
+		if errors.As(err, &exitMissingErr) {
+			log.Debugf("Remote terminal exited without exit status: %v", err)
+			return nil
+		}
+
 		return fmt.Errorf("open terminal: %w", err)
 	}
 	return nil
