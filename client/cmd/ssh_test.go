@@ -667,3 +667,51 @@ func TestSSHCommand_ParameterIsolation(t *testing.T) {
 		})
 	}
 }
+
+func TestSSHCommand_InvalidFlagRejection(t *testing.T) {
+	// Test that invalid flags are properly rejected and not misinterpreted as hostnames
+	tests := []struct {
+		name        string
+		args        []string
+		description string
+	}{
+		{
+			name:        "invalid long flag before hostname",
+			args:        []string{"--invalid-flag", "hostname"},
+			description: "Invalid flag should return parse error, not treat flag as hostname",
+		},
+		{
+			name:        "invalid short flag before hostname",
+			args:        []string{"-x", "hostname"},
+			description: "Invalid short flag should return parse error",
+		},
+		{
+			name:        "invalid flag with value before hostname",
+			args:        []string{"--invalid-option=value", "hostname"},
+			description: "Invalid flag with value should return parse error",
+		},
+		{
+			name:        "typo in known flag",
+			args:        []string{"--por", "2222", "hostname"},
+			description: "Typo in flag name should return parse error (not silently ignored)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset global variables
+			host = ""
+			username = ""
+			port = 22
+			command = ""
+
+			err := validateSSHArgsWithoutFlagParsing(sshCmd, tt.args)
+
+			// Should return an error for invalid flags
+			assert.Error(t, err, tt.description)
+
+			// Should not have set host to the invalid flag
+			assert.NotEqual(t, tt.args[0], host, "Invalid flag should not be interpreted as hostname")
+		})
+	}
+}

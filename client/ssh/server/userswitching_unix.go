@@ -158,7 +158,7 @@ func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User
 	log.Debugf("creating executor command for user %s (Pty: %v)", localUser.Username, hasPty)
 
 	if err := validateUsername(localUser.Username); err != nil {
-		return nil, nil, fmt.Errorf("invalid username: %w", err)
+		return nil, nil, fmt.Errorf("invalid username %q: %w", localUser.Username, err)
 	}
 
 	uid, gid, groups, err := s.parseUserCredentials(localUser)

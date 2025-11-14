@@ -165,7 +165,7 @@ func (s *Server) resolveRequestedUser(requestedUsername string) (*user.User, err
 	}
 
 	if err := validateUsername(requestedUsername); err != nil {
-		return nil, fmt.Errorf("invalid username: %w", err)
+		return nil, fmt.Errorf("invalid username %q: %w", requestedUsername, err)
 	}
 
 	u, err := lookupUser(requestedUsername)

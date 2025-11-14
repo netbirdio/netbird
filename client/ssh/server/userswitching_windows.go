@@ -93,7 +93,7 @@ func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User
 
 	username, _ := s.parseUsername(localUser.Username)
 	if err := validateUsername(username); err != nil {
-		return nil, nil, fmt.Errorf("invalid username: %w", err)
+		return nil, nil, fmt.Errorf("invalid username %q: %w", username, err)
 	}
 
 	return s.createUserSwitchCommand(localUser, session, hasPty)
