@@ -64,6 +64,7 @@ func (s *BaseServer) PeersManager() peers.Manager {
 		s.AfterInit(func(s *BaseServer) {
 			manager.SetNetworkMapController(s.NetworkMapController())
 			manager.SetIntegratedPeerValidator(s.IntegratedValidator())
+			manager.SetAccountManager(s.AccountManager())
 		})
 		return manager
 	})
