@@ -258,6 +258,7 @@ jobs:
         run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           go test ${{ matrix.raceFlag }} \
+            -tags devcert \
             -exec 'sudo' \
             -timeout 10m ./relay/... ./shared/relay/...
 

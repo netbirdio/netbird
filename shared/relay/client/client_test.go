@@ -312,7 +312,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 	clientAlice := NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
-		t.Errorf("failed to connect to server: %s", err)
+		t.Fatalf("failed to connect to server: %s", err)
 	}
 	_, err = clientAlice.OpenConn(ctx, "bob")
 	if err == nil {
@@ -364,7 +364,7 @@ func TestBindReconnect(t *testing.T) {
 	clientBob := NewClient(serverURL, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = clientBob.Connect(ctx)
 	if err != nil {
-		t.Errorf("failed to connect to server: %s", err)
+		t.Fatalf("failed to connect to server: %s", err)
 	}
 
 	_, err = clientAlice.OpenConn(ctx, "bob")
@@ -374,7 +374,7 @@ func TestBindReconnect(t *testing.T) {
 
 	chBob, err := clientBob.OpenConn(ctx, "alice")
 	if err != nil {
-		t.Errorf("failed to bind channel: %s", err)
+		t.Fatalf("failed to bind channel: %s", err)
 	}
 
 	log.Infof("closing client Alice")
@@ -386,12 +386,12 @@ func TestBindReconnect(t *testing.T) {
 	clientAlice = NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
-		t.Errorf("failed to connect to server: %s", err)
+		t.Fatalf("failed to connect to server: %s", err)
 	}
 
 	chAlice, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
-		t.Errorf("failed to bind channel: %s", err)
+		t.Fatalf("failed to bind channel: %s", err)
 	}
 
 	testString := "hello alice, I am bob"
@@ -402,7 +402,7 @@ func TestBindReconnect(t *testing.T) {
 
 	chBob, err = clientBob.OpenConn(ctx, "alice")
 	if err != nil {
-		t.Errorf("failed to bind channel: %s", err)
+		t.Fatalf("failed to bind channel: %s", err)
 	}
 
 	_, err = chBob.Write([]byte(testString))
@@ -558,18 +558,18 @@ func TestCloseConn(t *testing.T) {
 	bob := NewClient(serverURL, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = bob.Connect(ctx)
 	if err != nil {
-		t.Errorf("failed to connect to server: %s", err)
+		t.Fatalf("failed to connect to server: %s", err)
 	}
 
 	clientAlice := NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
-		t.Errorf("failed to connect to server: %s", err)
+		t.Fatalf("failed to connect to server: %s", err)
 	}
 
 	conn, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
-		t.Errorf("failed to bind channel: %s", err)
+		t.Fatalf("failed to bind channel: %s", err)
 	}
 
 	log.Infof("closing connection")
@@ -631,7 +631,7 @@ func TestCloseRelayConn(t *testing.T) {
 
 	conn, err := clientAlice.OpenConn(ctx, "bob")
 	if err != nil {
-		t.Errorf("failed to bind channel: %s", err)
+		t.Fatalf("failed to bind channel: %s", err)
 	}
 
 	_ = clientAlice.relayConn.Close()
