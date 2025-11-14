@@ -24,3 +24,7 @@ func (w *WGIface) Create() error {
 func (w *WGIface) CreateOnAndroid([]string, string, []string) error {
 	return fmt.Errorf("this function has not implemented on non mobile")
 }
+
+func (w *WGIface) RenewTun(fd int) error {
+	return fmt.Errorf("this function has not been implemented on non-android")
+}

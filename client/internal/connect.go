@@ -74,6 +74,7 @@ func (c *ConnectClient) RunOnAndroid(
 	networkChangeListener listener.NetworkChangeListener,
 	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
+	stateFilePath string,
 ) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
@@ -82,6 +83,7 @@ func (c *ConnectClient) RunOnAndroid(
 		NetworkChangeListener: networkChangeListener,
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
+		StateFilePath:         stateFilePath,
 	}
 	return c.run(mobileDependency, nil)
 }
