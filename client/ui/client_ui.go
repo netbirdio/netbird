@@ -729,7 +729,7 @@ func (s *serviceClient) getSSHForm() *widget.Form {
 }
 
 func (s *serviceClient) hasSSHChanges() bool {
-	currentSSHJWTCacheTTL := 0
+	currentSSHJWTCacheTTL := s.sshJWTCacheTTL
 	if text := strings.TrimSpace(s.iSSHJWTCacheTTL.Text); text != "" {
 		val, err := strconv.Atoi(text)
 		if err != nil {
