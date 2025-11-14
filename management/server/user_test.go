@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"go.uber.org/mock/gomock"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -739,11 +741,18 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
+	ctrl := gomock.NewController(t)
+	networkMapControllerMock := network_map.NewMockController(ctrl)
+	networkMapControllerMock.EXPECT().
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil)
+
 	permissionsManager := permissions.NewManager(store)
 	am := DefaultAccountManager{
-		Store:              store,
-		eventStore:         &activity.InMemoryEventStore{},
-		permissionsManager: permissionsManager,
+		Store:                store,
+		eventStore:           &activity.InMemoryEventStore{},
+		permissionsManager:   permissionsManager,
+		networkMapController: networkMapControllerMock,
 	}
 
 	testCases := []struct {

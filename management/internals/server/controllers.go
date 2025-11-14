@@ -9,13 +9,13 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nmapcontroller "github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
+	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 )
 
 func (s *BaseServer) PeersUpdateManager() network_map.PeersUpdateManager {
