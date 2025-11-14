@@ -372,20 +372,19 @@ func buildJWTConfig(config *nbconfig.Config) *proto.JWTConfig {
 		return nil
 	}
 
-	var tokenEndpoint string
-	if config.DeviceAuthorizationFlow != nil {
-		tokenEndpoint = config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint
-	}
-
-	issuer := deriveIssuerFromTokenEndpoint(tokenEndpoint)
-	if issuer == "" && config.HttpConfig.AuthIssuer != "" {
-		issuer = config.HttpConfig.AuthIssuer
+	issuer := strings.TrimSpace(config.HttpConfig.AuthIssuer)
+	if issuer == "" {
+		if config.DeviceAuthorizationFlow != nil {
+			if d := deriveIssuerFromTokenEndpoint(config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint); d != "" {
+				issuer = d
+			}
+		}
 	}
 	if issuer == "" {
 		return nil
 	}
 
-	keysLocation := config.HttpConfig.AuthKeysLocation
+	keysLocation := strings.TrimSpace(config.HttpConfig.AuthKeysLocation)
 	if keysLocation == "" {
 		keysLocation = strings.TrimSuffix(issuer, "/") + "/.well-known/jwks.json"
 	}
