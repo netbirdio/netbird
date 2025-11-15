@@ -14,10 +14,15 @@ import (
 	relayAuth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 )
 
-var (
-	relayCleanupInterval = 60 * time.Second
-	keepUnusedServerTime = 5 * time.Second
+const (
+	defaultRelayCleanupInterval = 60 * time.Second
+	defaultKeepUnusedServerTime = 5 * time.Second
+	defaultMTU                  = 1280
+	minMTU                      = 1280
+	maxMTU                      = 65535
+)
 
+var (
 	ErrRelayClientNotConnected = fmt.Errorf("relay client not connected")
 )
 
@@ -64,13 +69,54 @@ type Manager struct {
 	onReconnectedListenerFn func()
 	listenerLock            sync.Mutex
 
-	mtu uint16
+	cleanupInterval  time.Duration
+	unusedServerTime time.Duration
+	mtu              uint16
+}
+
+// ManagerOpts contains optional configuration for Manager
+type ManagerOpts struct {
+	// CleanupInterval is the interval for cleaning up unused relay connections.
+	// If zero, defaults to defaultRelayCleanupInterval.
+	CleanupInterval time.Duration
+	// UnusedServerTime is the time to wait before closing unused relay connections.
+	// If zero, defaults to defaultKeepUnusedServerTime.
+	UnusedServerTime time.Duration
+	// MTU is the maximum transmission unit for relay connections.
+	// If zero, defaults to defaultMTU (1280).
+	// Must be between minMTU (1280) and maxMTU (65535).
+	MTU uint16
 }
 
 // NewManager creates a new manager instance.
 // The serverURL address can be empty. In this case, the manager will not serve.
-func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uint16) *Manager {
+// Optional parameters can be configured using ManagerOpts. Pass nil to use default values.
+func NewManager(ctx context.Context, serverURLs []string, peerID string, opts *ManagerOpts) *Manager {
 	tokenStore := &relayAuth.TokenStore{}
+
+	cleanupInterval := defaultRelayCleanupInterval
+	unusedServerTime := defaultKeepUnusedServerTime
+	mtu := uint16(defaultMTU)
+
+	if opts != nil {
+		if opts.CleanupInterval > 0 {
+			cleanupInterval = opts.CleanupInterval
+		}
+		if opts.UnusedServerTime > 0 {
+			unusedServerTime = opts.UnusedServerTime
+		}
+		if opts.MTU > 0 {
+			if opts.MTU < minMTU {
+				log.Warnf("MTU %d is below minimum %d, using minimum", opts.MTU, minMTU)
+				mtu = minMTU
+			} else if opts.MTU > maxMTU {
+				log.Warnf("MTU %d exceeds maximum %d, using maximum", opts.MTU, maxMTU)
+				mtu = maxMTU
+			} else {
+				mtu = opts.MTU
+			}
+		}
+	}
 
 	m := &Manager{
 		ctx:        ctx,
@@ -85,6 +131,8 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		},
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]*list.List),
+		cleanupInterval:         cleanupInterval,
+		unusedServerTime:        unusedServerTime,
 	}
 	m.serverPicker.ServerURLs.Store(serverURLs)
 	m.reconnectGuard = NewGuard(m.serverPicker)
@@ -334,7 +382,7 @@ func (m *Manager) isForeignServer(address string) (bool, error) {
 }
 
 func (m *Manager) startCleanupLoop() {
-	ticker := time.NewTicker(relayCleanupInterval)
+	ticker := time.NewTicker(m.cleanupInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -359,7 +407,7 @@ func (m *Manager) cleanUpUnusedRelays() {
 			continue
 		}
 
-		if time.Since(rt.created) <= keepUnusedServerTime {
+		if time.Since(rt.created) <= m.unusedServerTime {
 			rt.Unlock()
 			continue
 		}
