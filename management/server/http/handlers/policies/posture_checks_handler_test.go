@@ -45,7 +45,7 @@ func initPostureChecksTestData(postureChecks ...*posture.Checks) *postureChecksH
 				testPostureChecks[postureChecks.ID] = postureChecks
 
 				if err := postureChecks.Validate(); err != nil {
-					return nil, status.Errorf(status.InvalidArgument, err.Error()) //nolint
+					return nil, status.Errorf(status.InvalidArgument, "%s", err.Error())
 				}
 
 				return postureChecks, nil
