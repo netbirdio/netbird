@@ -197,7 +197,7 @@ func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.Add
 		timeoutMsg += " " + peerInfo
 	}
 	timeoutMsg += fmt.Sprintf(" - error: %v", err)
-	logger.Warnf(timeoutMsg)
+	logger.Warn(timeoutMsg)
 }
 
 func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, t time.Duration, logger *log.Entry) bool {
