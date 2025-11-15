@@ -44,8 +44,6 @@ func (f *Forwarder) handleICMP(id stack.TransportEndpointID, pkt *stack.PacketBu
 		f.logger.Debug1("forwarder: Failed to close ICMP socket: %v", err)
 	}
 
-	f.logger.Trace3("forwarder: Forwarded ICMP packet %v type %v code %v",
-		epID(id), icmpHdr.Type(), icmpHdr.Code())
 	return true
 }
 
@@ -118,11 +116,8 @@ func (f *Forwarder) handleICMPViaSocket(flowID uuid.UUID, id stack.TransportEndp
 	txBytes := f.handleEchoResponse(conn, id)
 	rtt := time.Since(sendTime).Round(10 * time.Microsecond)
 
-	f.logger.Trace2("forwarder: Forwarded ICMP echo reply for %v (rtt=%v, raw socket)",
-		epID(id), rtt)
-
-	f.logger.Trace3("forwarder: Forwarded ICMP echo reply %v type %v code %v",
-		epID(id), icmpHdr.Type(), icmpHdr.Code())
+	f.logger.Trace4("forwarder: Forwarded ICMP echo reply %v type %v code %v (rtt=%v, raw socket)",
+		epID(id), icmpHdr.Type(), icmpHdr.Code(), rtt)
 
 	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), uint64(rxBytes), uint64(txBytes))
 }
@@ -203,13 +198,13 @@ func (f *Forwarder) handleICMPViaPing(flowID uuid.UUID, id stack.TransportEndpoi
 	}
 	rtt := time.Since(pingStart).Round(10 * time.Microsecond)
 
+	f.logger.Trace3("forwarder: Forwarded ICMP echo request %v type %v code %v",
+		epID(id), icmpHdr.Type(), icmpHdr.Code())
+
 	txBytes := f.synthesizeEchoReply(id, icmpData)
 
-	f.logger.Trace2("forwarder: Forwarded ICMP echo reply for %v (rtt=%v, ping binary)",
-		epID(id), rtt)
-
-	f.logger.Trace3("forwarder: Forwarded ICMP echo reply %v type %v code %v",
-		epID(id), icmpHdr.Type(), icmpHdr.Code())
+	f.logger.Trace4("forwarder: Forwarded ICMP echo reply %v type %v code %v (rtt=%v, ping binary)",
+		epID(id), icmpHdr.Type(), icmpHdr.Code(), rtt)
 
 	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, uint8(icmpHdr.Type()), uint8(icmpHdr.Code()), uint64(rxBytes), uint64(txBytes))
 }
