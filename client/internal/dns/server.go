@@ -344,7 +344,14 @@ func (s *DefaultServer) disableDNS() error {
 		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
 	}
 
-	if err := s.hostManager.restoreHostDNS(); err != nil {
+	var err error
+	if mgr, ok := s.hostManager.(hostManagerWithShutdown); ok {
+		err = mgr.restoreHostDNSWithKill(true)
+	} else {
+		err = s.hostManager.restoreHostDNS()
+	}
+
+	if err != nil {
 		log.Errorf("failed to restore host DNS settings: %v", err)
 	} else if err := s.stateManager.DeleteState(&ShutdownState{}); err != nil {
 		log.Errorf("failed to delete shutdown dns state: %v", err)

@@ -292,20 +292,11 @@ func (e *Engine) Stop() error {
 	}
 	log.Info("Network monitor: stopped")
 
-	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
-	e.stopDNSServer()
-
 	if e.ingressGatewayMgr != nil {
 		if err := e.ingressGatewayMgr.Close(); err != nil {
 			log.Warnf("failed to cleanup forward rules: %v", err)
 		}
 		e.ingressGatewayMgr = nil
-	}
-
-	e.stopDNSForwarder()
-
-	if e.routeManager != nil {
-		e.routeManager.Stop(e.stateManager)
 	}
 
 	if e.srWatcher != nil {
@@ -319,6 +310,16 @@ func (e *Engine) Stop() error {
 	if err := e.removeAllPeers(); err != nil {
 		return fmt.Errorf("failed to remove all peers: %s", err)
 	}
+
+	if e.routeManager != nil {
+		e.routeManager.Stop(e.stateManager)
+	}
+
+	e.stopDNSForwarder()
+
+	// stop/restore DNS after peers are closed but before interface goes down
+	// so dbus and friends don't complain because of a missing interface
+	e.stopDNSServer()
 
 	if e.cancel != nil {
 		e.cancel()

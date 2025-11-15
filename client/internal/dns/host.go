@@ -23,6 +23,11 @@ type hostManager interface {
 	string() string
 }
 
+type hostManagerWithShutdown interface {
+	hostManager
+	restoreHostDNSWithKill(forceKill bool) error
+}
+
 type SystemDNSSettings struct {
 	Domains    []string
 	ServerIP   netip.Addr
