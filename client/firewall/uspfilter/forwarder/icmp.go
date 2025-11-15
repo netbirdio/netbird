@@ -239,7 +239,7 @@ func (f *Forwarder) synthesizeEchoReply(id stack.TransportEndpointID, icmpData [
 	replyICMPHdr := header.ICMPv4(replyICMP)
 	replyICMPHdr.SetType(header.ICMPv4EchoReply)
 	replyICMPHdr.SetChecksum(0)
-	replyICMPHdr.SetChecksum(^header.ICMPv4Checksum(replyICMPHdr, 0))
+	replyICMPHdr.SetChecksum(header.ICMPv4Checksum(replyICMPHdr, 0))
 
 	return f.injectICMPReply(id, replyICMP)
 }
