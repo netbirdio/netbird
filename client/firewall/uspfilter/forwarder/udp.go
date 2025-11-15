@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"sync"
@@ -349,7 +350,7 @@ func (c *udpPacketConn) copy(ctx context.Context, dst net.Conn, src net.Conn, bu
 }
 
 func isClosedError(err error) bool {
-	return errors.Is(err, net.ErrClosed) || errors.Is(err, context.Canceled)
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF)
 }
 
 func isTimeout(err error) bool {
