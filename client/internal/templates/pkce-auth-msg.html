@@ -20,7 +20,7 @@
 
         <!-- Logo -->
         <div class="mx-auto w-52 mb-10 h-[23px]">
-            <svg width="133" height="23" viewBox="0 0 133 23" fill="none" xmlns="http://www.w3.org/2000/svg" class="mx-auto" role="img" aria-label="NetBird">
+            <svg width="133" height="23" viewBox="0 0 133 23" fill="none" xmlns="http://www.w3.org/2000/svg" class="mx-auto" aria-label="NetBird">
                 <g clip-path="url(#clip0_0_3)">
                     <path d="M46.9438 7.5013C48.1229 8.64688 48.7082 10.3025 48.7082 12.4683V21.6663H46.1411V12.8362C46.1411 11.2809 45.7481 10.0851 44.9704 9.26566C44.1928 8.43783 43.1308 8.0281 41.7846 8.0281C40.4383 8.0281 39.3345 8.45455 38.5234 9.30747C37.7123 10.1604 37.3109 11.4063 37.3109 13.0369V21.6663H34.7188V6.06305H37.3109V8.28732C37.821 7.49294 38.5234 6.87416 39.4014 6.43934C40.2878 6.00452 41.2578 5.78711 42.3197 5.78711C44.2179 5.78711 45.7565 6.36408 46.9355 7.50966L46.9438 7.5013Z" fill="#F2F2F2"/>
                     <path d="M67.1048 14.8344H54.6288C54.7208 16.373 55.2476 17.5771 56.2092 18.4384C57.1708 19.2997 58.3331 19.7345 59.6961 19.7345C60.8166 19.7345 61.7531 19.4753 62.4973 18.9485C63.2499 18.4301 63.7767 17.7277 64.0777 16.858H66.8706C66.4525 18.3548 65.6163 19.5756 64.3621 20.5205C63.1078 21.4571 61.5525 21.9337 59.6878 21.9337C58.2077 21.9337 56.8865 21.5992 55.7159 20.9386C54.5452 20.278 53.6337 19.3331 52.9648 18.1039C52.2958 16.8831 51.9697 15.4616 51.9697 13.8477C51.9697 12.2339 52.2958 10.8207 52.9397 9.60825C53.5836 8.39578 54.495 7.45924 55.6573 6.80702C56.828 6.15479 58.1659 5.82031 59.6878 5.82031C61.2096 5.82031 62.4806 6.14643 63.6178 6.79029C64.7551 7.43416 65.6331 8.32052 66.2518 9.44938C66.8706 10.5782 67.18 11.8576 67.18 13.2791C67.18 13.7725 67.1549 14.2909 67.0964 14.8428L67.1048 14.8344ZM63.8603 10.1769C63.4255 9.4661 62.8318 8.92258 62.0793 8.55465C61.3267 8.18673 60.4989 8.00277 59.5874 8.00277C58.2746 8.00277 57.1625 8.42086 56.2427 9.25705C55.3228 10.0932 54.796 11.2472 54.6623 12.7356H64.5126C64.5126 11.7489 64.2952 10.896 63.8603 10.1852V10.1769Z" fill="#F2F2F2"/>
@@ -57,7 +57,7 @@
                 {{ if .Error }}
                 <!-- Error Icon -->
                 <div class="flex justify-center mb-6">
-                    <svg height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Login failed">
+                    <svg height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="Login failed">
                         <circle cx="50" cy="50" fill="none" r="45" stroke="#f87171" stroke-width="3"/>
                         <path d="M30 30 L70 70 M30 70 L70 30" fill="none" stroke="#f87171" stroke-width="3"/>
                     </svg>
@@ -70,12 +70,13 @@
                 {{ else }}
                 <!-- Success Icon -->
                 <div class="flex justify-center mb-6">
-                    <svg height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Login successful">
+                    <svg height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="Login successful">
                         <circle cx="50" cy="50" fill="none" r="45" stroke="#5cb85c" stroke-width="3"/>
                         <path d="M30 50 L45 65 L70 35" fill="none" stroke="#5cb85c" stroke-width="5"/>
                     </svg>
                 </div>
 
+                <!-- Success Message -->
                 <!-- Success Message -->
                 <div class="text-center text-base text-nb-gray-300/80 tracking-wide font-light mt-8">
                     Your device is now registered and logged in to NetBird. You can now close this window.
