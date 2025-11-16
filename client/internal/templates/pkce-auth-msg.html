@@ -46,7 +46,7 @@
                 </div>
 
                 <!-- Error Message -->
-                <div class="text-red-400 bg-red-800/20 border border-red-800/50 rounded-lg px-4 py-3 whitespace-break-spaces mb-3 text-center">
+                <div class="text-red-400 bg-red-800/20 border border-red-800/50 rounded-lg px-4 py-3 mb-3 text-center">
                     {{ .Error }}
                 </div>
                 {{ else }}
@@ -59,10 +59,8 @@
                 </div>
 
                 <!-- Success Message -->
-                <div class="text-center text-lg text-nb-gray-300/80 tracking-wide font-light mt-8">
-                    Your device is now registered and logged in to NetBird.
-                    <br><br>
-                    You can now close this window.
+                <div class="text-center text-m text-nb-gray-300/80 tracking-wide font-light mt-8">
+                    Your device is now registered and logged in to NetBird. You can now close this window.
                 </div>
                 {{ end }}
 
