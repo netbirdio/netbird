@@ -1243,6 +1243,13 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 			}
 		}
 	}
+	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+		_, distPeer := distributionPeers[rule.SourceResource.ID]
+		_, valid := validatedPeersMap[rule.SourceResource.ID]
+		if distPeer && valid && a.validatePostureChecksOnPeer(context.Background(), postureChecks, rule.SourceResource.ID) {
+			distPeersWithPolicy[rule.SourceResource.ID] = struct{}{}
+		}
+	}
 
 	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
@@ -1622,7 +1629,7 @@ func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group, router
 			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
 				sourcePeers[rule.SourceResource.ID] = struct{}{}
 			}
-			if (rule.SourceResource.Type == ResourceTypeHost || rule.SourceResource.Type == ResourceTypeDomain || rule.SourceResource.Type == ResourceTypeSubnet || rule.SourceResource.Type == ResourceTypePeer) && rule.SourceResource.ID != "" {
+			if (rule.SourceResource.Type == ResourceTypeHost || rule.SourceResource.Type == ResourceTypeDomain || rule.SourceResource.Type == ResourceTypeSubnet) && rule.SourceResource.ID != "" {
 				if resource, ok := resources[rule.SourceResource.ID]; ok {
 					if networkRouters, exists := routers[resource.NetworkID]; exists {
 						for _, router := range networkRouters {
