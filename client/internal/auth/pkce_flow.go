@@ -234,7 +234,7 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 	}
 
 	if err := isValidAccessToken(tokenInfo.GetTokenToUse(), audience); err != nil {
-		return TokenInfo{}, fmt.Errorf("authentication failed: invalid access token - %v", err)
+		return TokenInfo{}, fmt.Errorf("authentication failed: invalid access token - %w", err)
 	}
 
 	email, err := parseEmailFromIDToken(tokenInfo.IDToken)
