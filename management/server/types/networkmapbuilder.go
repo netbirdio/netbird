@@ -22,10 +22,11 @@ import (
 )
 
 const (
-	allPeers = "0.0.0.0"
-	fw       = "fw:"
-	rfw      = "route-fw:"
-	nr       = "network-resource-"
+	allPeers      = "0.0.0.0"
+	allWildcard   = "0.0.0.0/0"
+	v6AllWildcard = "::/0"
+	fw            = "fw:"
+	rfw           = "route-fw:"
 )
 
 type NetworkMapCache struct {
@@ -1640,6 +1641,10 @@ func (b *NetworkMapBuilder) updateRouteFirewallRules(routesView *PeerRoutesView,
 			}
 
 			if string(rule.RouteID) == update.RuleID {
+				if hasWildcard := slices.Contains(rule.SourceRanges, allWildcard) || slices.Contains(rule.SourceRanges, v6AllWildcard); hasWildcard {
+					break
+				}
+
 				sourceIP := update.AddSourceIP
 
 				if strings.Contains(sourceIP, ":") {
