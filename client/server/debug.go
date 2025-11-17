@@ -33,7 +33,6 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),
-			ClientStatus:      req.GetStatus(),
 			IncludeSystemInfo: req.GetSystemInfo(),
 			LogFileCount:      req.GetLogFileCount(),
 		},

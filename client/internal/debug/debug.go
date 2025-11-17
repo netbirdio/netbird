@@ -27,8 +27,10 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -221,7 +223,6 @@ type BundleGenerator struct {
 	logPath        string
 
 	anonymize         bool
-	clientStatus      string
 	includeSystemInfo bool
 	logFileCount      uint32
 
@@ -230,7 +231,6 @@ type BundleGenerator struct {
 
 type BundleConfig struct {
 	Anonymize         bool
-	ClientStatus      string
 	IncludeSystemInfo bool
 	LogFileCount      uint32
 }
@@ -258,7 +258,6 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		logPath:        deps.LogPath,
 
 		anonymize:         cfg.Anonymize,
-		clientStatus:      cfg.ClientStatus,
 		includeSystemInfo: cfg.IncludeSystemInfo,
 		logFileCount:      logFileCount,
 	}
@@ -302,13 +301,6 @@ func (g *BundleGenerator) createArchive() error {
 
 	if err := g.addStatus(); err != nil {
 		return fmt.Errorf("add status: %w", err)
-	}
-
-	if g.statusRecorder != nil {
-		status := g.statusRecorder.GetFullStatus()
-		seedFromStatus(g.anonymizer, &status)
-	} else {
-		log.Debugf("no status recorder available for seeding")
 	}
 
 	if err := g.addConfig(); err != nil {
@@ -388,11 +380,26 @@ func (g *BundleGenerator) addReadme() error {
 }
 
 func (g *BundleGenerator) addStatus() error {
-	if status := g.clientStatus; status != "" {
-		statusReader := strings.NewReader(status)
+	if g.statusRecorder != nil {
+		pm := profilemanager.NewProfileManager()
+		var profName string
+		if activeProf, err := pm.GetActiveProfile(); err == nil {
+			profName = activeProf.Name
+		}
+
+		fullStatus := g.statusRecorder.GetFullStatus()
+		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
+		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
+		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, g.anonymize, version.NetbirdVersion(), "", nil, nil, nil, "", profName)
+		statusOutput := nbstatus.ParseToFullDetailSummary(overview)
+
+		statusReader := strings.NewReader(statusOutput)
 		if err := g.addFileToZip(statusReader, "status.txt"); err != nil {
 			return fmt.Errorf("add status file to zip: %w", err)
 		}
+		seedFromStatus(g.anonymizer, &fullStatus)
+	} else {
+		log.Debugf("no status recorder available for seeding")
 	}
 	return nil
 }

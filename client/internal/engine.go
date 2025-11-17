@@ -57,7 +57,6 @@ import (
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
-	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
@@ -68,7 +67,6 @@ import (
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
-	"github.com/netbirdio/netbird/version"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -1051,12 +1049,6 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		return nil, errors.New("sync response is not available")
 	}
 
-	// convert fullStatus to statusOutput
-	fullStatus := e.statusRecorder.GetFullStatus()
-	protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
-	overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, params.Anonymize, version.NetbirdVersion(), "", nil, nil, nil, "", "")
-	statusOutput := nbstatus.ParseToFullDetailSummary(overview)
-
 	bundleDeps := debug.GeneratorDependencies{
 		InternalConfig: e.config.ProfileConfig,
 		StatusRecorder: e.statusRecorder,
@@ -1066,7 +1058,6 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 
 	bundleJobParams := debug.BundleConfig{
 		Anonymize:         params.Anonymize,
-		ClientStatus:      statusOutput,
 		IncludeSystemInfo: true,
 		LogFileCount:      uint32(params.LogFileCount),
 	}

@@ -21,9 +21,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/ingressgw"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-	"github.com/netbirdio/netbird/route"
 )
 
 const eventQueueSize = 10

@@ -15,13 +15,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 
+	"golang.org/x/exp/maps"
+
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	probeRelay "github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/version"
-	"golang.org/x/exp/maps"
 )
 
 type PeerStateDetailOutput struct {
@@ -835,4 +836,3 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 		}
 	}
 }
-
