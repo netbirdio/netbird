@@ -170,12 +170,12 @@ func (j *Job) ApplyResponse(resp *proto.JobResponse) error {
 		j.Status = JobStatusSucceeded
 	case proto.JobStatus_failed:
 		j.Status = JobStatusFailed
+		if len(resp.Reason) > 0 {
+			j.FailedReason = fmt.Sprintf("Client error: '%v'", resp.Reason)
+		}
+		return nil
 	default:
-		j.Status = JobStatusPending
-	}
-
-	if len(resp.Reason) > 0 {
-		j.FailedReason = string(resp.Reason)
+		return fmt.Errorf("unexpected job status: %v", resp.Status)
 	}
 
 	// Handle workload results (oneof)

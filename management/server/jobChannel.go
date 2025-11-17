@@ -6,11 +6,12 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
-	log "github.com/sirupsen/logrus"
 )
 
 const jobChannelBuffer = 100
@@ -97,6 +98,7 @@ func (jm *JobManager) HandleResponse(ctx context.Context, resp *proto.JobRespons
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
+	// todo: validate job ID and would be nice to use uuid text marshal instead of string
 	jobID := string(resp.ID)
 
 	event, ok := jm.pending[jobID]
