@@ -469,17 +469,6 @@ func (c *Controller) initNetworkMapBuilderIfNeeded(account *types.Account, valid
 	account.InitNetworkMapBuilderIfNeeded(validatedPeers)
 }
 
-var filter = map[string]struct{}{
-	"cvj7n0rl0ubs73epnv00": struct{}{},
-	"d08cjrrl0ubs73cg7mng": struct{}{},
-	"d2qte4jl0ubs738s24ug": struct{}{},
-	"cvlo8fjl0ubs73clbhtg": struct{}{},
-	"d3knp53l0ubs738a3n6g": struct{}{},
-	"d184fkbl0ubs73f279q0": struct{}{},
-	"d1h9jtrl0ubs73fpjg10": struct{}{},
-	"d182c4bl0ubs73f26se0": struct{}{},
-}
-
 func (c *Controller) getPeerNetworkMapExp(
 	ctx context.Context,
 	accountId string,
@@ -496,9 +485,6 @@ func (c *Controller) getPeerNetworkMapExp(
 		return &types.NetworkMap{
 			Network: &types.Network{},
 		}
-	}
-	if _, ok := filter[peerId]; !ok {
-		return account.GetPeerNetworkMap(ctx, peerId, customZone, validatedPeers, resourcePolicies, routers, nil)
 	}
 
 	expMap := account.GetPeerNetworkMapExp(ctx, peerId, customZone, validatedPeers, metrics)
