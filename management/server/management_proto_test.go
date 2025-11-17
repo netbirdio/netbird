@@ -364,7 +364,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock())
-	accountManager, err := BuildManager(ctx, store, networkMapController, nil, "",
+	accountManager, err := BuildManager(ctx, nil, store, networkMapController, nil, "",
 		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 
 	if err != nil {
