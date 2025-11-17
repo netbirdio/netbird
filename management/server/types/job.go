@@ -171,7 +171,7 @@ func (j *Job) ApplyResponse(resp *proto.JobResponse) error {
 	case proto.JobStatus_failed:
 		j.Status = JobStatusFailed
 		if len(resp.Reason) > 0 {
-			j.FailedReason = fmt.Sprintf("Client error: '%v'", resp.Reason)
+			j.FailedReason = fmt.Sprintf("Client error: '%s'", resp.Reason)
 		}
 		return nil
 	default:
