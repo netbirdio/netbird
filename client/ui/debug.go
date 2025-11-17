@@ -289,6 +289,8 @@ func (s *serviceClient) handleRunForDuration(
 		return
 	}
 
+	defer s.restoreServiceState(conn, initialState)
+
 	if err := s.collectDebugData(conn, initialState, params, progressUI); err != nil {
 		handleError(progressUI, err.Error())
 		return
@@ -298,8 +300,6 @@ func (s *serviceClient) handleRunForDuration(
 		handleError(progressUI, err.Error())
 		return
 	}
-
-	s.restoreServiceState(conn, initialState)
 
 	progressUI.statusLabel.SetText("Bundle created successfully")
 }
