@@ -48,7 +48,7 @@ func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.
 
 	key, err := debug.UploadDebugBundle(ctx, types.DefaultBundleURL, mgmURL, path)
 	if err != nil {
-		log.Errorf("failed to upload debug bundle to %v", err)
+		log.Errorf("failed to upload debug bundle: %v", err)
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}
 
