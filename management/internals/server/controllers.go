@@ -19,7 +19,7 @@ import (
 )
 
 func (s *BaseServer) PeersUpdateManager() network_map.PeersUpdateManager {
-	return Create(s, func() *update_channel.PeersUpdateManager {
+	return Create(s, func() network_map.PeersUpdateManager {
 		return update_channel.NewPeersUpdateManager(s.Metrics())
 	})
 }
@@ -69,7 +69,7 @@ func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 }
 
 func (s *BaseServer) NetworkMapController() network_map.Controller {
-	return Create(s, func() *nmapcontroller.Controller {
+	return Create(s, func() network_map.Controller {
 		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.ProxyController(), s.EphemeralManager())
 	})
 }
