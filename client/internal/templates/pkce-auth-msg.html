@@ -45,6 +45,24 @@
             <!-- Message Card -->
             <div class="nb-card">
 
+                {{ if .Error }}
+                <!-- Error Icon -->
+                <div class="flex justify-center mb-6">
+                    <svg height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="Login failed">
+                        <circle cx="50" cy="50" fill="none" r="45" stroke="#f87171" stroke-width="3"/>
+                        <path d="M30 30 L70 70 M30 70 L70 30" fill="none" stroke="#f87171" stroke-width="3"/>
+                    </svg>
+                </div>
+                {{ else }}
+                <!-- Success Icon -->
+                <div class="flex justify-center mb-6">
+                    <svg height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="Login successful">
+                        <circle cx="50" cy="50" fill="none" r="45" stroke="#5cb85c" stroke-width="3"/>
+                        <path d="M30 50 L45 65 L70 35" fill="none" stroke="#5cb85c" stroke-width="5"/>
+                    </svg>
+                </div>
+                {{ end }}
+
                 <!-- Header -->
                 <div class="flex flex-col items-center justify-center relative">
                     {{ if .Error }}
@@ -54,31 +72,14 @@
                     {{ end }}
                 </div>
 
-                {{ if .Error }}
-                <!-- Error Icon -->
-                <div class="flex justify-center mb-6">
-                    <svg height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="Login failed">
-                        <circle cx="50" cy="50" fill="none" r="45" stroke="#f87171" stroke-width="3"/>
-                        <path d="M30 30 L70 70 M30 70 L70 30" fill="none" stroke="#f87171" stroke-width="3"/>
-                    </svg>
-                </div>
-
                 <!-- Error Message -->
+                {{ if .Error }}
                 <div class="text-red-400 bg-red-800/20 border border-red-800/50 rounded-lg px-4 py-3 mb-3 text-center">
                     {{ .Error }}
                 </div>
                 {{ else }}
-                <!-- Success Icon -->
-                <div class="flex justify-center mb-6">
-                    <svg height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="Login successful">
-                        <circle cx="50" cy="50" fill="none" r="45" stroke="#5cb85c" stroke-width="3"/>
-                        <path d="M30 50 L45 65 L70 35" fill="none" stroke="#5cb85c" stroke-width="5"/>
-                    </svg>
-                </div>
-
                 <!-- Success Message -->
-                <!-- Success Message -->
-                <div class="text-center text-base text-nb-gray-300/80 tracking-wide font-light mt-8">
+                <div class="text-center text-base text-nb-gray-300/80 tracking-wide font-light">
                     Your device is now registered and logged in to NetBird. You can now close this window.
                 </div>
                 {{ end }}
