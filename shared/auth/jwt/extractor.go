@@ -8,7 +8,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	log "github.com/sirupsen/logrus"
 
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
 )
 
 const (
@@ -87,9 +87,10 @@ func (c ClaimsExtractor) audienceClaim(claimName string) string {
 	return url
 }
 
-func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (nbcontext.UserAuth, error) {
+// ToUserAuth extracts user authentication information from a JWT token
+func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (auth.UserAuth, error) {
 	claims := token.Claims.(jwt.MapClaims)
-	userAuth := nbcontext.UserAuth{}
+	userAuth := auth.UserAuth{}
 
 	userID, ok := claims[c.userIDClaim].(string)
 	if !ok {
@@ -122,6 +123,7 @@ func (c *ClaimsExtractor) ToUserAuth(token *jwt.Token) (nbcontext.UserAuth, erro
 	return userAuth, nil
 }
 
+// ToGroups extracts group information from a JWT token
 func (c *ClaimsExtractor) ToGroups(token *jwt.Token, claimName string) []string {
 	claims := token.Claims.(jwt.MapClaims)
 	userJWTGroups := make([]string, 0)
