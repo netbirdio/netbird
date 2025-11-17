@@ -50,25 +50,11 @@ const (
 	rateLimitingRPMKey     = "NB_API_RATE_LIMITING_RPM"
 )
 
-// NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(
-	ctx context.Context,
-	accountManager account.Manager,
-	networksManager nbnetworks.Manager,
-	resourceManager resources.Manager,
-	routerManager routers.Manager,
-	groupsManager nbgroups.Manager,
-	LocationManager geolocation.Geolocation,
+func NewRouter(
 	authManager auth.Manager,
 	appMetrics telemetry.AppMetrics,
-	integratedValidator integrated_validator.IntegratedValidator,
-	proxyController port_forwarding.Controller,
-	permissionsManager permissions.Manager,
-	peersManager nbpeers.Manager,
-	settingsManager settings.Manager,
-	networkMapController network_map.Controller,
-) (http.Handler, error) {
-
+	accountManager account.Manager,
+) *mux.Router {
 	var rateLimitingConfig *middleware.RateLimiterConfig
 	if os.Getenv(rateLimitingEnabledKey) == "true" {
 		rpm := 6
@@ -112,10 +98,31 @@ func NewAPIHandler(
 	rootRouter := mux.NewRouter()
 	metricsMiddleware := appMetrics.HTTPMiddleware()
 
-	prefix := apiPrefix
-	router := rootRouter.PathPrefix(prefix).Subrouter()
-
+	router := rootRouter.PathPrefix(apiPrefix).Subrouter()
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
+	return router
+}
+
+// NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
+func NewAPIHandler(
+	ctx context.Context,
+	accountManager account.Manager,
+	networksManager nbnetworks.Manager,
+	resourceManager resources.Manager,
+	routerManager routers.Manager,
+	groupsManager nbgroups.Manager,
+	LocationManager geolocation.Geolocation,
+	router *mux.Router,
+	appMetrics telemetry.AppMetrics,
+	integratedValidator integrated_validator.IntegratedValidator,
+	proxyController port_forwarding.Controller,
+	permissionsManager permissions.Manager,
+	peersManager nbpeers.Manager,
+	settingsManager settings.Manager,
+	networkMapController network_map.Controller,
+) (http.Handler, error) {
+
+	prefix := apiPrefix
 
 	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController, settingsManager); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
@@ -134,5 +141,5 @@ func NewAPIHandler(
 	events.AddEndpoints(accountManager, router)
 	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
 
-	return rootRouter, nil
+	return router, nil
 }
