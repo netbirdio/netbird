@@ -1619,7 +1619,10 @@ func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group, router
 					sourcePeers[peer] = struct{}{}
 				}
 			}
-			if (rule.SourceResource.Type == ResourceTypeHost || rule.SourceResource.Type == ResourceTypeDomain || rule.SourceResource.Type == ResourceTypeSubnet) && rule.SourceResource.ID != "" {
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				sourcePeers[rule.SourceResource.ID] = struct{}{}
+			}
+			if (rule.SourceResource.Type == ResourceTypeHost || rule.SourceResource.Type == ResourceTypeDomain || rule.SourceResource.Type == ResourceTypeSubnet || rule.SourceResource.Type == ResourceTypePeer) && rule.SourceResource.ID != "" {
 				if resource, ok := resources[rule.SourceResource.ID]; ok {
 					if networkRouters, exists := routers[resource.NetworkID]; exists {
 						for _, router := range networkRouters {
