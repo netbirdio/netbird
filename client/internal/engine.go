@@ -1016,6 +1016,7 @@ func (e *Engine) receiveJobEvents() {
 			case *mgmProto.JobRequest_Bundle:
 				bundleResult, err := e.handleBundle(params.Bundle)
 				if err != nil {
+					log.Errorf("handling bundle: %v", err)
 					resp.Reason = []byte(err.Error())
 					return &resp
 				}
@@ -1043,11 +1044,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 	log.Infof("handle remote debug bundle request: %s", params.String())
 	syncResponse, err := e.GetLatestSyncResponse()
 	if err != nil {
-		return nil, fmt.Errorf("get latest sync response: %w", err)
-	}
-
-	if syncResponse == nil {
-		return nil, errors.New("sync response is not available")
+		log.Warnf("get latest sync response: %v", err)
 	}
 
 	bundleDeps := debug.GeneratorDependencies{
