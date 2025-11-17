@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/upload-server/types"
+)
+
+const (
+	MaxBundleWaitTime = 60 * time.Minute // maximum wait time for bundle generation (1 hour)
 )
 
 var (
@@ -22,8 +27,18 @@ func NewExecutor() *Executor {
 	return &Executor{}
 }
 
-func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.GeneratorDependencies, params debug.BundleConfig, mgmURL string) (string, error) {
+func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.GeneratorDependencies, params debug.BundleConfig, waitForDuration time.Duration, mgmURL string) (string, error) {
+	if waitForDuration > MaxBundleWaitTime {
+		log.Warnf("bundle wait time %v exceeds maximum %v, capping to maximum", waitFor, MaxBundleWaitTime)
+		waitForDuration = MaxBundleWaitTime
+	}
+
+	if waitForDuration > 0 {
+		waitFor(ctx, waitForDuration)
+	}
+
 	log.Infof("execute debug bundle generation")
+
 	bundleGenerator := debug.NewBundleGenerator(debugBundleDependencies, params)
 
 	path, err := bundleGenerator.Generate()
@@ -39,4 +54,13 @@ func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.
 
 	log.Infof("debug bundle has been generated well")
 	return key, nil
+}
+
+func waitFor(ctx context.Context, duration time.Duration) {
+	log.Infof("wait for %v minutes before executing debug bundle", duration.Minutes())
+	select {
+	case <-time.After(duration):
+	case <-ctx.Done():
+		log.Infof("wait cancelled: %v", ctx.Err())
+	}
 }

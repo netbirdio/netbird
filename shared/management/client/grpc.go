@@ -204,7 +204,7 @@ func (c *GrpcClient) handleJobStream(
 			continue
 		}
 
-		log.WithContext(ctx).Infof("Received a new job from the management server (ID: %s)", jobReq.ID)
+		log.WithContext(ctx).Infof("received a new job from the management server (ID: %s)", jobReq.ID)
 		jobResp := c.processJobRequest(ctx, jobReq, msgHandler)
 		if err := c.sendJobResponse(ctx, stream, serverPubKey, jobResp); err != nil {
 			return err
