@@ -2,12 +2,17 @@ package jobexec
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/upload-server/types"
+)
+
+var (
+	ErrJobNotImplemented = errors.New("job not implemented")
 )
 
 type Executor struct {

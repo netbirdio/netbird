@@ -1023,7 +1023,8 @@ func (e *Engine) receiveJobEvents() {
 				resp.WorkloadResults = bundleResult
 				return &resp
 			default:
-				return nil
+				resp.Reason = []byte(jobexec.ErrJobNotImplemented.Error())
+				return &resp
 			}
 		})
 		if err != nil {
