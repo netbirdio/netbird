@@ -151,7 +151,7 @@ func (s *SqlStore) CompletePeerJob(ctx context.Context, job *types.Job) error {
 
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to update job in store: %s", result.Error)
-		return status.Errorf(status.Internal, "failed to create job in store")
+		return status.Errorf(status.Internal, "failed to update job in store")
 	}
 	return nil
 }
