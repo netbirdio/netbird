@@ -504,7 +504,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		if msg.Hint != nil {
 			hint = *msg.Hint
 		}
-		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, hint)
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config, msg.IsUnixDesktopClient, false, hint)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			return nil, err
@@ -1235,7 +1235,7 @@ func (s *Server) RequestJWTAuth(
 	}
 
 	isDesktop := isUnixRunningDesktop()
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, false, hint)
 	if err != nil {
 		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
 	}
