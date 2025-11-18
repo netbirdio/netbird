@@ -469,7 +469,7 @@ func (s *Server) sendJob(ctx context.Context, accountID string, peerKey wgtypes.
 		s.jobManager.CloseChannel(ctx, accountID, peer.ID)
 		return status.Errorf(codes.Internal, "failed sending job message")
 	}
-	log.WithContext(ctx).Debugf("sent an job to peer %s", peerKey.String())
+	log.WithContext(ctx).Debugf("sent a job to peer: %s", peerKey.String())
 	return nil
 }
 
