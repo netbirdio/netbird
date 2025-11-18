@@ -1,8 +1,11 @@
 #!/bin/sh
 
+set -e
+set -u
+
 # Check if netbird-ui is running
-pid="$(pgrep -x -f /usr/bin/netbird-ui)"
-if [[ "${pid}" ]]
+pid="$(pgrep -x -f /usr/bin/netbird-ui || true)"
+if [ -n "${pid}" ]
 then
   uid="$(cat /proc/"${pid}"/loginuid)"
   username="$(id -nu "${uid}")"
