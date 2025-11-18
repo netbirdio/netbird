@@ -169,7 +169,7 @@ func (c *GrpcClient) handleJobStream(
 
 	stream, err := c.realClient.Job(ctx)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to open job stream: %v", err)
+		log.Errorf("failed to open job stream: %v", err)
 		return err
 	}
 
@@ -178,7 +178,7 @@ func (c *GrpcClient) handleJobStream(
 		return err
 	}
 
-	log.WithContext(ctx).Debug("job stream handshake sent successfully")
+	log.Debug("job stream handshake sent successfully")
 
 	// Main loop: receive, process, respond
 	for {
@@ -203,11 +203,11 @@ func (c *GrpcClient) handleJobStream(
 		}
 
 		if jobReq == nil || len(jobReq.ID) == 0 {
-			log.WithContext(ctx).Debug("received unknown or empty job request, skipping")
+			log.Debug("received unknown or empty job request, skipping")
 			continue
 		}
 
-		log.WithContext(ctx).Infof("received a new job from the management server (ID: %s)", jobReq.ID)
+		log.Infof("received a new job from the management server (ID: %s)", jobReq.ID)
 		jobResp := c.processJobRequest(ctx, jobReq, msgHandler)
 		if err := c.sendJobResponse(ctx, stream, serverPubKey, jobResp); err != nil {
 			return err
@@ -222,7 +222,7 @@ func (c *GrpcClient) sendHandshake(ctx context.Context, stream proto.ManagementS
 	}
 	encHello, err := encryption.EncryptMessage(serverPubKey, c.key, handshakeReq)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to encrypt handshake message: %v", err)
+		log.Errorf("failed to encrypt handshake message: %v", err)
 		return err
 	}
 	return stream.Send(&proto.EncryptedMessage{
@@ -244,7 +244,7 @@ func (c *GrpcClient) receiveJobRequest(
 
 	jobReq := &proto.JobRequest{}
 	if err := encryption.DecryptMessage(serverPubKey, c.key, encryptedMsg.Body, jobReq); err != nil {
-		log.WithContext(ctx).Warnf("failed to decrypt job request: %v", err)
+		log.Warnf("failed to decrypt job request: %v", err)
 		return nil, err
 	}
 
@@ -264,7 +264,7 @@ func (c *GrpcClient) processJobRequest(
 			Status: proto.JobStatus_failed,
 			Reason: []byte("handler returned nil response"),
 		}
-		log.WithContext(ctx).Warnf("job handler returned nil for job %s", string(jobReq.ID))
+		log.Warnf("job handler returned nil for job %s", string(jobReq.ID))
 	}
 	return jobResp
 }
@@ -278,7 +278,7 @@ func (c *GrpcClient) sendJobResponse(
 ) error {
 	encResp, err := encryption.EncryptMessage(serverPubKey, c.key, resp)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to encrypt job response for job %s: %v", string(resp.ID), err)
+		log.Errorf("failed to encrypt job response for job %s: %v", string(resp.ID), err)
 		return err
 	}
 
@@ -286,11 +286,11 @@ func (c *GrpcClient) sendJobResponse(
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     encResp,
 	}); err != nil {
-		log.WithContext(ctx).Errorf("failed to send job response for job %s: %v", string(resp.ID), err)
+		log.Errorf("failed to send job response for job %s: %v", string(resp.ID), err)
 		return err
 	}
 
-	log.WithContext(ctx).Infof("job response sent for job %s (status: %s)", string(resp.ID), resp.Status.String())
+	log.Infof("job response sent for job %s (status: %s)", string(resp.ID), resp.Status.String())
 	return nil
 }
 
