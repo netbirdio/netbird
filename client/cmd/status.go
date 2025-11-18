@@ -109,7 +109,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	case yamlFlag:
 		statusOutputString, err = nbstatus.ParseToYAML(outputInformationHolder)
 	default:
-		statusOutputString = nbstatus.ParseGeneralSummary(outputInformationHolder, false, false, false)
+		statusOutputString = nbstatus.ParseGeneralSummary(outputInformationHolder, false, false, false, false)
 	}
 
 	if err != nil {

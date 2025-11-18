@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -23,11 +24,12 @@ import (
 
 // Handler is a handler that returns peers of the account
 type Handler struct {
-	accountManager account.Manager
+	accountManager       account.Manager
+	networkMapController network_map.Controller
 }
 
-func AddEndpoints(accountManager account.Manager, router *mux.Router) {
-	peersHandler := NewHandler(accountManager)
+func AddEndpoints(accountManager account.Manager, router *mux.Router, networkMapController network_map.Controller) {
+	peersHandler := NewHandler(accountManager, networkMapController)
 	router.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	router.HandleFunc("/peers/{peerId}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
@@ -39,9 +41,10 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router) {
 }
 
 // NewHandler creates a new peers Handler
-func NewHandler(accountManager account.Manager) *Handler {
+func NewHandler(accountManager account.Manager, networkMapController network_map.Controller) *Handler {
 	return &Handler{
-		accountManager: accountManager,
+		accountManager:       accountManager,
+		networkMapController: networkMapController,
 	}
 }
 
@@ -143,7 +146,7 @@ func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
 	if peer.Status.Connected {
 		// Although we have online status in store we do not yet have an updated channel so have to show it as disconnected
 		// This may happen after server restart when not all peers are yet connected
-		if !h.accountManager.HasConnectedChannel(peer.ID) {
+		if !h.networkMapController.IsConnected(peer.ID) {
 			peerToReturn.Status.Connected = false
 		}
 	}
@@ -169,7 +172,7 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 		return
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain(settings)
+	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
 	grps, _ := h.accountManager.GetPeerGroups(ctx, accountID, peerID)
 	grpsInfoMap := groups.ToGroupsInfoMap(grps, 0)
@@ -235,7 +238,7 @@ func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID stri
 		util.WriteError(ctx, err, w)
 		return
 	}
-	dnsDomain := h.accountManager.GetDNSDomain(settings)
+	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
 	peerGroups, err := h.accountManager.GetPeerGroups(ctx, accountID, peer.ID)
 	if err != nil {
@@ -323,7 +326,7 @@ func (h *Handler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
-	dnsDomain := h.accountManager.GetDNSDomain(settings)
+	dnsDomain := h.networkMapController.GetDNSDomain(settings)
 
 	grps, _ := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 
@@ -413,7 +416,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain(account.Settings)
+	dnsDomain := h.networkMapController.GetDNSDomain(account.Settings)
 
 	customZone := account.GetPeersCustomZone(r.Context(), dnsDomain)
 	netMap := account.GetPeerNetworkMap(r.Context(), peerID, customZone, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil)

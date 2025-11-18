@@ -22,10 +22,11 @@ import (
 )
 
 const (
-	allPeers = "0.0.0.0"
-	fw       = "fw:"
-	rfw      = "route-fw:"
-	nr       = "network-resource-"
+	allPeers      = "0.0.0.0"
+	allWildcard   = "0.0.0.0/0"
+	v6AllWildcard = "::/0"
+	fw            = "fw:"
+	rfw           = "route-fw:"
 )
 
 type NetworkMapCache struct {
@@ -257,8 +258,6 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *nbpeer.Peer,
 	validatedPeersMap map[string]struct{},
 ) ([]*nbpeer.Peer, []*FirewallRule) {
-	ctx := context.Background()
-
 	peerID := peer.ID
 
 	peerGroups := b.cache.peerToGroups[peerID]
@@ -275,9 +274,6 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 	for _, group := range peerGroups {
 		policies := b.cache.groupToPolicies[group]
 		for _, policy := range policies {
-			if isValid := account.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID); !isValid {
-				continue
-			}
 			rules := b.cache.policyToRules[policy.ID]
 			for _, rule := range rules {
 				var sourcePeers, destinationPeers []*nbpeer.Peer
@@ -1645,6 +1641,10 @@ func (b *NetworkMapBuilder) updateRouteFirewallRules(routesView *PeerRoutesView,
 			}
 
 			if string(rule.RouteID) == update.RuleID {
+				if hasWildcard := slices.Contains(rule.SourceRanges, allWildcard) || slices.Contains(rule.SourceRanges, v6AllWildcard); hasWildcard {
+					break
+				}
+
 				sourceIP := update.AddSourceIP
 
 				if strings.Contains(sourceIP, ":") {

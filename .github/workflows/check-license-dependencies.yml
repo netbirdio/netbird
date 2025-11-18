@@ -3,39 +3,108 @@ name: Check License Dependencies
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/check-license-dependencies.yml'
   pull_request:
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/check-license-dependencies.yml'
 
 jobs:
-  check-dependencies:
+  check-internal-dependencies:
+    name: Check Internal AGPL Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for problematic license dependencies
+        run: |
+          echo "Checking for dependencies on management/, signal/, and relay/ packages..."
+          echo ""
+
+          # Find all directories except the problematic ones and system dirs
+          FOUND_ISSUES=0
+          while IFS= read -r dir; do
+            echo "=== Checking $dir ==="
+            # Search for problematic imports, excluding test files
+            RESULTS=$(grep -r "github.com/netbirdio/netbird/\(management\|signal\|relay\)" "$dir" --include="*.go" 2>/dev/null | grep -v "_test.go" | grep -v "test_" | grep -v "/test/" || true)
+            if [ -n "$RESULTS" ]; then
+              echo "❌ Found problematic dependencies:"
+              echo "$RESULTS"
+              FOUND_ISSUES=1
+            else
+              echo "✓ No problematic dependencies found"
+            fi
+          done < <(find . -maxdepth 1 -type d -not -name "." -not -name "management" -not -name "signal" -not -name "relay" -not -name ".git*" | sort)
+
+          echo ""
+          if [ $FOUND_ISSUES -eq 1 ]; then
+            echo "❌ Found dependencies on management/, signal/, or relay/ packages"
+            echo "These packages are licensed under AGPLv3 and must not be imported by BSD-licensed code"
+            exit 1
+          else
+            echo ""
+            echo "✅ All internal license dependencies are clean"
+          fi
+
+  check-external-licenses:
+    name: Check External GPL/AGPL Licenses
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Check for problematic license dependencies
-      run: |
-        echo "Checking for dependencies on management/, signal/, and relay/ packages..."
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+        cache: true
 
-        # Find all directories except the problematic ones and system dirs
-        FOUND_ISSUES=0
-        find . -maxdepth 1 -type d -not -name "." -not -name "management" -not -name "signal" -not -name "relay" -not -name ".git*" | sort | while read dir; do
-          echo "=== Checking $dir ==="
-          # Search for problematic imports, excluding test files
-          RESULTS=$(grep -r "github.com/netbirdio/netbird/\(management\|signal\|relay\)" "$dir" --include="*.go" | grep -v "_test.go" | grep -v "test_" | grep -v "/test/" || true)
-          if [ ! -z "$RESULTS" ]; then
-            echo "❌ Found problematic dependencies:"
-            echo "$RESULTS"
-            FOUND_ISSUES=1
-          else
-            echo "✓ No problematic dependencies found"
+    - name: Install go-licenses
+      run: go install github.com/google/go-licenses@v1.6.0
+
+    - name: Check for GPL/AGPL licensed dependencies
+      run: |
+        echo "Checking for GPL/AGPL/LGPL licensed dependencies..."
+        echo ""
+
+        # Check all Go packages for copyleft licenses, excluding internal netbird packages
+        COPYLEFT_DEPS=$(go-licenses report ./... 2>/dev/null | grep -E 'GPL|AGPL|LGPL' | grep -v 'github.com/netbirdio/netbird/' || true)
+
+        if [ -n "$COPYLEFT_DEPS" ]; then
+          echo "Found copyleft licensed dependencies:"
+          echo "$COPYLEFT_DEPS"
+          echo ""
+
+          # Filter out dependencies that are only pulled in by internal AGPL packages
+          INCOMPATIBLE=""
+          while IFS=',' read -r package url license; do
+            if echo "$license" | grep -qE 'GPL-[0-9]|AGPL-[0-9]|LGPL-[0-9]'; then
+              # Find ALL packages that import this GPL package using go list
+              IMPORTERS=$(go list -json -deps ./... 2>/dev/null | jq -r "select(.Imports[]? == \"$package\") | .ImportPath")
+
+              # Check if any importer is NOT in management/signal/relay
+              BSD_IMPORTER=$(echo "$IMPORTERS" | grep -v "github.com/netbirdio/netbird/\(management\|signal\|relay\)" | head -1)
+
+              if [ -n "$BSD_IMPORTER" ]; then
+                echo "❌ $package ($license) is imported by BSD-licensed code: $BSD_IMPORTER"
+                INCOMPATIBLE="${INCOMPATIBLE}${package},${url},${license}\n"
+              else
+                echo "✓ $package ($license) is only used by internal AGPL packages - OK"
+              fi
+            fi
+          done <<< "$COPYLEFT_DEPS"
+
+          if [ -n "$INCOMPATIBLE" ]; then
+            echo ""
+            echo "❌ INCOMPATIBLE licenses found that are used by BSD-licensed code:"
+            echo -e "$INCOMPATIBLE"
+            exit 1
           fi
-        done
-        if [ $FOUND_ISSUES -eq 1 ]; then
-          echo ""
-          echo "❌ Found dependencies on management/, signal/, or relay/ packages"
-          echo "These packages will change license and should not be imported by client or shared code"
-          exit 1
-        else
-          echo ""
-          echo "✅ All license dependencies are clean"
         fi
+
+        echo "✅ All external license dependencies are compatible with BSD-3-Clause"

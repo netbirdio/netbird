@@ -20,11 +20,15 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -176,8 +180,7 @@ func startServer(
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 
-	peersUpdateManager := server.NewPeersUpdateManager(nil)
-	jobManager := server.NewJobManager(nil, str)
+	jobManager := job.NewJobManager(nil, str)
 	eventStore := &activity.InMemoryEventStore{}
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
@@ -200,14 +203,20 @@ func startServer(
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(str)
+
+	ctx := context.Background()
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := server.NewAccountRequestBuffer(ctx, str)
+	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock())
+
 	accountManager, err := server.BuildManager(
 		context.Background(),
+		nil,
 		str,
-		peersUpdateManager,
+		networkMapController,
 		jobManager,
 		nil,
 		"",
-		"netbird.selfhosted",
 		eventStore,
 		nil,
 		false,
@@ -222,19 +231,19 @@ func startServer(
 	}
 
 	groupsManager := groups.NewManager(str, permissionsManager, accountManager)
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
-	mgmtServer, err := server.NewServer(
-		context.Background(),
+	secretsManager := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	mgmtServer, err := nbgrpc.NewServer(
 		config,
 		accountManager,
 		settingsMockManager,
-		peersUpdateManager,
+		updateManager,
 		jobManager,
 		secretsManager,
 		nil,
 		&manager.EphemeralManager{},
 		nil,
 		server.MockIntegratedValidator{},
+		networkMapController,
 	)
 	if err != nil {
 		t.Fatalf("failed creating management server: %v", err)

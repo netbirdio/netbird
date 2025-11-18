@@ -11,8 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -785,7 +788,13 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 		AnyTimes()
 
 	permissionsManager := permissions.NewManager(store)
-	return BuildManager(context.Background(), store, NewPeersUpdateManager(nil), NewJobManager(nil, store), nil, "", "netbird.selfhosted", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+
+	ctx := context.Background()
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, store)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock())
+
+	return BuildManager(context.Background(), nil, store, networkMapController, job.NewJobManager(nil, store), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 }
 
 func createNSStore(t *testing.T) (store.Store, error) {
@@ -975,7 +984,7 @@ func TestValidateDomain(t *testing.T) {
 }
 
 func TestNameServerAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	var newNameServerGroupA *nbdns.NameServerGroup
 	var newNameServerGroupB *nbdns.NameServerGroup
@@ -994,9 +1003,9 @@ func TestNameServerAccountPeersUpdate(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
 	// Creating a nameserver group with a distribution group no peers should not update account peers

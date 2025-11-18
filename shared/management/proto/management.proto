@@ -185,6 +185,12 @@ message Flags {
   bool blockInbound = 9;
 
   bool lazyConnectionEnabled = 10;
+
+  bool enableSSHRoot = 11;
+  bool enableSSHSFTP = 12;
+  bool enableSSHLocalPortForwarding = 13;
+  bool enableSSHRemotePortForwarding = 14;
+  bool disableSSHAuth = 15;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -241,6 +247,8 @@ message NetbirdConfig {
   RelayConfig relay = 4;
 
   FlowConfig flow = 5;
+
+  JWTConfig jwt = 6;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
@@ -277,6 +285,14 @@ message FlowConfig {
   bool exitNodeCollection = 7;
   // dnsCollection determines if DNS event collection should be enabled
   bool dnsCollection = 8;
+}
+
+// JWTConfig represents JWT authentication configuration
+message JWTConfig {
+  string issuer = 1;
+  string audience = 2;
+  string keysLocation = 3;
+  int64 maxTokenAge = 4;
 }
 
 // ProtectedHostConfig is similar to HostConfig but has additional user and password
@@ -374,6 +390,8 @@ message SSHConfig {
   // sshPubKey is a SSH public key of a peer to be added to authorized_hosts.
   // This property should be ignore if SSHConfig comes from PeerConfig.
   bytes sshPubKey = 2;
+
+  JWTConfig jwtConfig = 3;
 }
 
 // DeviceAuthorizationFlowRequest empty struct for future expansion
