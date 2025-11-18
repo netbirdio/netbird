@@ -1227,6 +1227,7 @@ func TestToSyncResponse(t *testing.T) {
 	assert.Equal(t, "route1", response.NetworkMap.Routes[0].NetID)
 	// assert network map DNSConfig
 	assert.Equal(t, true, response.NetworkMap.DNSConfig.ServiceEnable)
+	//nolint
 	assert.Equal(t, int64(dnsForwarderPort), response.NetworkMap.DNSConfig.ForwarderPort)
 	assert.Equal(t, 1, len(response.NetworkMap.DNSConfig.CustomZones))
 	assert.Equal(t, 2, len(response.NetworkMap.DNSConfig.NameServerGroups))
