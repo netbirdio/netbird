@@ -287,7 +287,7 @@ func (c *GrpcClient) sendJobResponse(
 		return err
 	}
 
-	log.WithContext(ctx).Infof("Job %s completed successfully", resp.ID)
+	log.WithContext(ctx).Infof("job response sent for job %s (status: %s)", string(resp.ID), resp.Status.String())
 	return nil
 }
 
