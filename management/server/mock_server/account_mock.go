@@ -2,10 +2,11 @@ package mock_server
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/shared/auth"
 	"net"
 	"net/netip"
 	"time"
+
+	"github.com/netbirdio/netbird/shared/auth"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -142,13 +143,13 @@ func (am *MockAccountManager) CreatePeerJob(ctx context.Context, accountID, peer
 }
 
 func (am *MockAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
-	if am.GetAllPeerJobs != nil {
+	if am.GetAllPeerJobsFunc != nil {
 		return am.GetAllPeerJobsFunc(ctx, accountID, userID, peerID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAllJobs is not implemented")
 }
 func (am *MockAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
-	if am.GetPeerJobByID != nil {
+	if am.GetPeerJobByIDFunc != nil {
 		return am.GetPeerJobByIDFunc(ctx, accountID, userID, peerID, jobID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerJobByID is not implemented")
