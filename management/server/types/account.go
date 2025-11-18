@@ -1242,6 +1242,13 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 			}
 		}
 	}
+	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+		_, distPeer := distributionPeers[rule.SourceResource.ID]
+		_, valid := validatedPeersMap[rule.SourceResource.ID]
+		if distPeer && valid && a.validatePostureChecksOnPeer(context.Background(), postureChecks, rule.SourceResource.ID) {
+			distPeersWithPolicy[rule.SourceResource.ID] = struct{}{}
+		}
+	}
 
 	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
@@ -1586,6 +1593,10 @@ func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[st
 				for _, peer := range group.Peers {
 					sourcePeers[peer] = struct{}{}
 				}
+			}
+
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				sourcePeers[rule.SourceResource.ID] = struct{}{}
 			}
 		}
 	}
