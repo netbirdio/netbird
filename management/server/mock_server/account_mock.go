@@ -146,7 +146,7 @@ func (am *MockAccountManager) GetAllPeerJobs(ctx context.Context, accountID, use
 	if am.GetAllPeerJobsFunc != nil {
 		return am.GetAllPeerJobsFunc(ctx, accountID, userID, peerID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetAllJobs is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllPeerJobs is not implemented")
 }
 func (am *MockAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
 	if am.GetPeerJobByIDFunc != nil {
