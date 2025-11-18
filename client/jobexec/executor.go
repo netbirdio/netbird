@@ -29,7 +29,7 @@ func NewExecutor() *Executor {
 
 func (e *Executor) BundleJob(ctx context.Context, debugBundleDependencies debug.GeneratorDependencies, params debug.BundleConfig, waitForDuration time.Duration, mgmURL string) (string, error) {
 	if waitForDuration > MaxBundleWaitTime {
-		log.Warnf("bundle wait time %v exceeds maximum %v, capping to maximum", waitFor, MaxBundleWaitTime)
+		log.Warnf("bundle wait time %v exceeds maximum %v, capping to maximum", waitForDuration, MaxBundleWaitTime)
 		waitForDuration = MaxBundleWaitTime
 	}
 
