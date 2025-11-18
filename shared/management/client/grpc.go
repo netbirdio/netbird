@@ -164,6 +164,9 @@ func (c *GrpcClient) handleJobStream(
 	serverPubKey wgtypes.Key,
 	msgHandler func(msg *proto.JobRequest) *proto.JobResponse,
 ) error {
+	ctx, cancelStream := context.WithCancel(ctx)
+	defer cancelStream()
+
 	stream, err := c.realClient.Job(ctx)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to open job stream: %v", err)
