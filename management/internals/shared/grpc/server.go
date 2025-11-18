@@ -60,7 +60,7 @@ type Server struct {
 	wgKey           wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peersUpdateManager network_map.PeersUpdateManager
-	jobManager         *job.JobManager
+	jobManager         *job.Manager
 	config             *nbconfig.Config
 	secretsManager     SecretsManager
 	appMetrics         telemetry.AppMetrics
@@ -86,7 +86,7 @@ func NewServer(
 	accountManager account.Manager,
 	settingsManager settings.Manager,
 	peersUpdateManager network_map.PeersUpdateManager,
-	jobManager *job.JobManager,
+	jobManager *job.Manager,
 	secretsManager SecretsManager,
 	appMetrics telemetry.AppMetrics,
 	ephemeralManager ephemeral.Manager,
@@ -376,7 +376,7 @@ func (s *Server) sendJobsLoop(
 	accountID string,
 	peerKey wgtypes.Key,
 	peer *nbpeer.Peer,
-	updates <-chan *job.JobEvent,
+	updates <-chan *job.Event,
 	srv proto.ManagementService_JobServer,
 ) error {
 	for {
@@ -454,7 +454,7 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 
 // sendJob encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
-func (s *Server) sendJob(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, job *job.JobEvent, srv proto.ManagementService_JobServer) error {
+func (s *Server) sendJob(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, job *job.Event, srv proto.ManagementService_JobServer) error {
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, job.Request)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to encrypt job for peer %s: %v", peerKey.String(), err)

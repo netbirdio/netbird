@@ -16,26 +16,26 @@ import (
 
 const jobChannelBuffer = 100
 
-type JobEvent struct {
+type Event struct {
 	PeerID   string
 	Request  *proto.JobRequest
 	Response *proto.JobResponse
 }
 
-type JobManager struct {
+type Manager struct {
 	mu           *sync.RWMutex
-	jobChannels  map[string]chan *JobEvent // per-peer job streams
-	pending      map[string]*JobEvent      // jobID → event
+	jobChannels  map[string]chan *Event // per-peer job streams
+	pending      map[string]*Event      // jobID → event
 	responseWait time.Duration
 	metrics      telemetry.AppMetrics
 	Store        store.Store
 }
 
-func NewJobManager(metrics telemetry.AppMetrics, store store.Store) *JobManager {
+func NewJobManager(metrics telemetry.AppMetrics, store store.Store) *Manager {
 
-	return &JobManager{
-		jobChannels:  make(map[string]chan *JobEvent),
-		pending:      make(map[string]*JobEvent),
+	return &Manager{
+		jobChannels:  make(map[string]chan *Event),
+		pending:      make(map[string]*Event),
 		responseWait: 5 * time.Minute,
 		metrics:      metrics,
 		mu:           &sync.RWMutex{},
@@ -44,7 +44,7 @@ func NewJobManager(metrics telemetry.AppMetrics, store store.Store) *JobManager 
 }
 
 // CreateJobChannel creates or replaces a channel for a peer
-func (jm *JobManager) CreateJobChannel(ctx context.Context, accountID, peerID string) chan *JobEvent {
+func (jm *Manager) CreateJobChannel(ctx context.Context, accountID, peerID string) chan *Event {
 	// all pending jobs stored in db for this peer should be failed
 	if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, "Pending job cleanup: marked as failed automatically due to being stuck too long"); err != nil {
 		log.WithContext(ctx).Error(err.Error())
@@ -58,13 +58,13 @@ func (jm *JobManager) CreateJobChannel(ctx context.Context, accountID, peerID st
 		delete(jm.jobChannels, peerID)
 	}
 
-	ch := make(chan *JobEvent, jobChannelBuffer)
+	ch := make(chan *Event, jobChannelBuffer)
 	jm.jobChannels[peerID] = ch
 	return ch
 }
 
 // SendJob sends a job to a peer and tracks it as pending
-func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req *proto.JobRequest) error {
+func (jm *Manager) SendJob(ctx context.Context, accountID, peerID string, req *proto.JobRequest) error {
 	jm.mu.RLock()
 	ch, ok := jm.jobChannels[peerID]
 	jm.mu.RUnlock()
@@ -72,7 +72,7 @@ func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req
 		return fmt.Errorf("peer %s has no channel", peerID)
 	}
 
-	event := &JobEvent{
+	event := &Event{
 		PeerID:  peerID,
 		Request: req,
 	}
@@ -94,7 +94,7 @@ func (jm *JobManager) SendJob(ctx context.Context, accountID, peerID string, req
 }
 
 // HandleResponse marks a job as finished and moves it to completed
-func (jm *JobManager) HandleResponse(ctx context.Context, resp *proto.JobResponse) error {
+func (jm *Manager) HandleResponse(ctx context.Context, resp *proto.JobResponse) error {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -120,7 +120,7 @@ func (jm *JobManager) HandleResponse(ctx context.Context, resp *proto.JobRespons
 }
 
 // CloseChannel closes a peer’s channel and cleans up its jobs
-func (jm *JobManager) CloseChannel(ctx context.Context, accountID, peerID string) {
+func (jm *Manager) CloseChannel(ctx context.Context, accountID, peerID string) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -142,7 +142,7 @@ func (jm *JobManager) CloseChannel(ctx context.Context, accountID, peerID string
 }
 
 // cleanup removes a pending job safely
-func (jm *JobManager) cleanup(ctx context.Context, accountID, jobID string, reason string) {
+func (jm *Manager) cleanup(ctx context.Context, accountID, jobID string, reason string) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -154,7 +154,7 @@ func (jm *JobManager) cleanup(ctx context.Context, accountID, jobID string, reas
 	}
 }
 
-func (jm *JobManager) IsPeerConnected(peerID string) bool {
+func (jm *Manager) IsPeerConnected(peerID string) bool {
 	jm.mu.RLock()
 	defer jm.mu.RUnlock()
 
@@ -162,7 +162,7 @@ func (jm *JobManager) IsPeerConnected(peerID string) bool {
 	return ok
 }
 
-func (jm *JobManager) IsPeerHasPendingJobs(peerID string) bool {
+func (jm *Manager) IsPeerHasPendingJobs(peerID string) bool {
 	jm.mu.RLock()
 	defer jm.mu.RUnlock()
 

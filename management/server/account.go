@@ -72,7 +72,7 @@ type DefaultAccountManager struct {
 	// cacheLoading keeps the accountIDs that are currently reloading. The accountID has to be removed once cache has been reloaded
 	cacheLoading         map[string]chan struct{}
 	networkMapController network_map.Controller
-	jobManager           *job.JobManager
+	jobManager           *job.Manager
 	idpManager           idp.Manager
 	cacheManager         *nbcache.AccountUserDataCache
 	externalCacheManager nbcache.UserDataCache
@@ -182,7 +182,7 @@ func BuildManager(
 	config *nbconfig.Config,
 	store store.Store,
 	networkMapController network_map.Controller,
-	jobManager *job.JobManager,
+	jobManager *job.Manager,
 	idpManager idp.Manager,
 	singleAccountModeDomain string,
 	eventStore activity.Store,
