@@ -208,8 +208,6 @@ message NetbirdConfig {
   RelayConfig relay = 4;
 
   FlowConfig flow = 5;
-
-  JWTConfig jwt = 6;
 }
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)

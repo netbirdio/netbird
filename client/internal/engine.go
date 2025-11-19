@@ -1192,6 +1192,7 @@ func toRouteDomains(myPubKey string, routes []*route.Route) []*dnsfwd.ForwarderE
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns.Config {
+	//nolint
 	forwarderPort := uint16(protoDNSConfig.GetForwarderPort())
 	if forwarderPort == 0 {
 		forwarderPort = nbdns.ForwarderClientPort
