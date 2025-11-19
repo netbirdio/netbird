@@ -339,6 +339,9 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	}
 
 	// check if already has pending jobs
+	// todo: The job checks here are not protected. The user can run this function from multiple threads,
+	// and each thread can think there is no job yet. This means entries in the pending job map will be overwritten,
+	// and only one will be kept, but potentially another one will overwrite it in the queue.
 	if am.jobManager.IsPeerHasPendingJobs(peerID) {
 		return status.Errorf(status.BadRequest, "peer already has pending job")
 	}

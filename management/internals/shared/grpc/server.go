@@ -371,31 +371,26 @@ func (s *Server) startResponseReceiver(ctx context.Context, srv proto.Management
 	}()
 }
 
-func (s *Server) sendJobsLoop(
-	ctx context.Context,
-	accountID string,
-	peerKey wgtypes.Key,
-	peer *nbpeer.Peer,
-	updates <-chan *job.Event,
-	srv proto.ManagementService_JobServer,
-) error {
+func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates *job.Channel, srv proto.ManagementService_JobServer) error {
+	// todo figure out better error handling strategy
+	defer s.jobManager.CloseChannel(ctx, accountID, peer.ID)
+
 	for {
-		select {
-		case job, open := <-updates:
-			if !open {
+		event, err := updates.Event(ctx)
+		if err != nil {
+			if errors.Is(err, job.ErrJobChannelClosed) {
 				log.WithContext(ctx).Debugf("jobs channel for peer %s was closed", peerKey.String())
-				s.jobManager.CloseChannel(ctx, accountID, peer.ID)
 				return nil
 			}
-			if err := s.sendJob(ctx, accountID, peerKey, peer, job, srv); err != nil {
-				s.jobManager.CloseChannel(ctx, accountID, peer.ID)
-				log.WithContext(ctx).Warnf("send job failed: %v", err)
-			}
-		case <-ctx.Done():
+
 			// happens when connection drops, e.g. client disconnects
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
-			s.jobManager.CloseChannel(ctx, accountID, peer.ID)
 			return ctx.Err()
+		}
+
+		if err := s.sendJob(ctx, peerKey, event, srv); err != nil {
+			log.WithContext(ctx).Warnf("send job failed: %v", err)
+			return nil
 		}
 	}
 }
@@ -454,11 +449,10 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 
 // sendJob encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
-func (s *Server) sendJob(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, job *job.Event, srv proto.ManagementService_JobServer) error {
+func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Event, srv proto.ManagementService_JobServer) error {
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, job.Request)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to encrypt job for peer %s: %v", peerKey.String(), err)
-		s.jobManager.CloseChannel(ctx, accountID, peer.ID)
 		return status.Errorf(codes.Internal, "failed processing job message")
 	}
 	err = srv.Send(&proto.EncryptedMessage{
@@ -466,7 +460,6 @@ func (s *Server) sendJob(ctx context.Context, accountID string, peerKey wgtypes.
 		Body:     encryptedResp,
 	})
 	if err != nil {
-		s.jobManager.CloseChannel(ctx, accountID, peer.ID)
 		return status.Errorf(codes.Internal, "failed sending job message")
 	}
 	log.WithContext(ctx).Debugf("sent a job to peer: %s", peerKey.String())
