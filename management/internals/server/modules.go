@@ -23,12 +23,12 @@ import (
 
 func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 	return Create(s, func() geolocation.Geolocation {
-		geo, err := geolocation.NewGeolocation(context.Background(), s.config.Datadir, !s.disableGeoliteUpdate)
+		geo, err := geolocation.NewGeolocation(context.Background(), s.Config.Datadir, !s.disableGeoliteUpdate)
 		if err != nil {
 			log.Fatalf("could not initialize geolocation service: %v", err)
 		}
 
-		log.Infof("geolocation service has been initialized from %s", s.config.Datadir)
+		log.Infof("geolocation service has been initialized from %s", s.Config.Datadir)
 
 		return geo
 	})
@@ -73,7 +73,7 @@ func (s *BaseServer) PeersManager() peers.Manager {
 
 func (s *BaseServer) AccountManager() account.Manager {
 	return Create(s, func() account.Manager {
-		accountManager, err := server.BuildManager(context.Background(), s.config, s.Store(), s.NetworkMapController(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.ProxyController(), s.SettingsManager(), s.PermissionsManager(), s.config.DisableDefaultPolicy)
+		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.ProxyController(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy)
 		if err != nil {
 			log.Fatalf("failed to create account manager: %v", err)
 		}
@@ -85,8 +85,8 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
-		if s.config.IdpManagerConfig != nil {
-			idpManager, err = idp.NewManager(context.Background(), *s.config.IdpManagerConfig, s.Metrics())
+		if s.Config.IdpManagerConfig != nil {
+			idpManager, err = idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
 			if err != nil {
 				log.Fatalf("failed to create IDP manager: %v", err)
 			}

@@ -46,19 +46,19 @@ func (s *BaseServer) ProxyController() port_forwarding.Controller {
 
 func (s *BaseServer) SecretsManager() *grpc.TimeBasedAuthSecretsManager {
 	return Create(s, func() *grpc.TimeBasedAuthSecretsManager {
-		return grpc.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.config.TURNConfig, s.config.Relay, s.SettingsManager(), s.GroupsManager())
+		return grpc.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.Config.TURNConfig, s.Config.Relay, s.SettingsManager(), s.GroupsManager())
 	})
 }
 
 func (s *BaseServer) AuthManager() auth.Manager {
 	return Create(s, func() auth.Manager {
 		return auth.NewManager(s.Store(),
-			s.config.HttpConfig.AuthIssuer,
-			s.config.HttpConfig.AuthAudience,
-			s.config.HttpConfig.AuthKeysLocation,
-			s.config.HttpConfig.AuthUserIDClaim,
-			s.config.GetAuthAudiences(),
-			s.config.HttpConfig.IdpSignKeyRefreshEnabled)
+			s.Config.HttpConfig.AuthIssuer,
+			s.Config.HttpConfig.AuthAudience,
+			s.Config.HttpConfig.AuthKeysLocation,
+			s.Config.HttpConfig.AuthUserIDClaim,
+			s.Config.GetAuthAudiences(),
+			s.Config.HttpConfig.IdpSignKeyRefreshEnabled)
 	})
 }
 
@@ -70,7 +70,7 @@ func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 
 func (s *BaseServer) NetworkMapController() network_map.Controller {
 	return Create(s, func() network_map.Controller {
-		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.ProxyController(), s.EphemeralManager(), s.config)
+		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.ProxyController(), s.EphemeralManager(), s.Config)
 	})
 }
 

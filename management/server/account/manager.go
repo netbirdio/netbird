@@ -123,5 +123,4 @@ type Manager interface {
 	UpdateToPrimaryAccount(ctx context.Context, accountId string) error
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error)
-	SetEphemeralManager(em ephemeral.Manager)
 }
