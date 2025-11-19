@@ -1687,29 +1687,29 @@ func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer
 	}
 
 	if shouldCheckRulesForNativeSSH(features.nativeSSH, rule, peer) {
-		addNativeSSHRule(base, expanded)
+		expanded = addNativeSSHRule(base, expanded)
 	}
 
 	return expanded
 }
 
-func addNativeSSHRule(base FirewallRule, expanded []*FirewallRule) {
+func addNativeSSHRule(base FirewallRule, expanded []*FirewallRule) []*FirewallRule {
 	shouldAdd := false
 	for _, fr := range expanded {
 		if isPortInRule("22022", 22022, fr) {
-			return
+			return expanded
 		}
 		if isPortInRule("22", 22, fr) {
 			shouldAdd = true
 		}
 	}
 	if !shouldAdd {
-		return
+		return expanded
 	}
 
 	fr := base
 	fr.Port = "22022"
-	expanded = append(expanded, &fr)
+	return append(expanded, &fr)
 }
 
 func isPortInRule(portString string, portInt uint16, rule *FirewallRule) bool {
