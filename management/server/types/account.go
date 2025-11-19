@@ -42,6 +42,11 @@ const (
 	firewallRuleMinPortRangesVer = "0.48.0"
 	// firewallRuleMinNativeSSHVer defines the minimum peer version that supports native SSH features in the firewall rules.
 	firewallRuleMinNativeSSHVer = "0.60.0"
+
+	// nativeSSHPortString defines the default port number as a string used for native SSH connections; this port is used by clients when hijacking ssh connections.
+	nativeSSHPortString = "22022"
+	// defaultSSHPortString defines the standard SSH port number as a string, commonly used for default SSH connections.
+	defaultSSHPortString = "22"
 )
 
 type supportedFeatures struct {
@@ -1693,13 +1698,14 @@ func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer
 	return expanded
 }
 
+// addNativeSSHRule adds a native SSH rule (port 22022) to the expanded rules if the base rule has port 22 configured.
 func addNativeSSHRule(base FirewallRule, expanded []*FirewallRule) []*FirewallRule {
 	shouldAdd := false
 	for _, fr := range expanded {
-		if isPortInRule("22022", 22022, fr) {
+		if isPortInRule(nativeSSHPortString, 22022, fr) {
 			return expanded
 		}
-		if isPortInRule("22", 22, fr) {
+		if isPortInRule(defaultSSHPortString, 22, fr) {
 			shouldAdd = true
 		}
 	}
@@ -1708,7 +1714,7 @@ func addNativeSSHRule(base FirewallRule, expanded []*FirewallRule) []*FirewallRu
 	}
 
 	fr := base
-	fr.Port = "22022"
+	fr.Port = nativeSSHPortString
 	return append(expanded, &fr)
 }
 
@@ -1716,6 +1722,9 @@ func isPortInRule(portString string, portInt uint16, rule *FirewallRule) bool {
 	return rule.Port == portString || (rule.PortRange.Start <= portInt && portInt <= rule.PortRange.End)
 }
 
+// shouldCheckRulesForNativeSSH determines whether specific policy rules should be checked for native SSH support.
+// While users can add the nativeSSHPortString, we look for cases when they used port 22 and based on SSH enabled
+// in both management and client, we indicate to add the native port.
 func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *nbpeer.Peer) bool {
 	return supportsNative && peer.SSHEnabled && peer.Meta.Flags.ServerSSHAllowed && rule.Protocol == PolicyRuleProtocolTCP
 }
