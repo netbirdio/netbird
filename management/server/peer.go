@@ -399,7 +399,7 @@ func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, 
 	}
 
 	if peerAccountID != accountID {
-		return []*types.Job{}, nil
+		return nil, status.NewPeerNotPartOfAccountError()
 	}
 
 	accountJobs, err := am.Store.GetPeerJobs(ctx, accountID, peerID)
@@ -426,7 +426,7 @@ func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, 
 	}
 
 	if peerAccountID != accountID {
-		return &types.Job{}, nil
+		return nil, status.NewPeerNotPartOfAccountError()
 	}
 
 	job, err := am.Store.GetPeerJobByID(ctx, accountID, jobID)
