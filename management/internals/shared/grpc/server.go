@@ -459,7 +459,7 @@ func (s *Server) sendJob(ctx context.Context, accountID string, peerKey wgtypes.
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to encrypt job for peer %s: %v", peerKey.String(), err)
 		s.jobManager.CloseChannel(ctx, accountID, peer.ID)
-		return nil
+		return status.Errorf(codes.Internal, "failed processing job message")
 	}
 	err = srv.Send(&proto.EncryptedMessage{
 		WgPubKey: s.wgKey.PublicKey().String(),
