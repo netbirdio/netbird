@@ -55,6 +55,7 @@ const (
 
 const (
 	censoredPreSharedKey = "**********"
+	maxSSHJWTCacheTTL    = 86_400 // 24 hours in seconds
 )
 
 func main() {
@@ -265,25 +266,38 @@ type serviceClient struct {
 	iMTU           *widget.Entry
 
 	// switch elements for settings form
-	sRosenpassPermissive *widget.Check
-	sNetworkMonitor      *widget.Check
-	sDisableDNS          *widget.Check
-	sDisableClientRoutes *widget.Check
-	sDisableServerRoutes *widget.Check
-	sBlockLANAccess      *widget.Check
+	sRosenpassPermissive        *widget.Check
+	sNetworkMonitor             *widget.Check
+	sDisableDNS                 *widget.Check
+	sDisableClientRoutes        *widget.Check
+	sDisableServerRoutes        *widget.Check
+	sBlockLANAccess             *widget.Check
+	sEnableSSHRoot              *widget.Check
+	sEnableSSHSFTP              *widget.Check
+	sEnableSSHLocalPortForward  *widget.Check
+	sEnableSSHRemotePortForward *widget.Check
+	sDisableSSHAuth             *widget.Check
+	iSSHJWTCacheTTL             *widget.Entry
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
-	managementURL       string
-	preSharedKey        string
-	RosenpassPermissive bool
-	interfaceName       string
-	interfacePort       int
-	mtu                 uint16
-	networkMonitor      bool
-	disableDNS          bool
-	disableClientRoutes bool
-	disableServerRoutes bool
-	blockLANAccess      bool
+	managementURL string
+	preSharedKey  string
+
+	RosenpassPermissive        bool
+	interfaceName              string
+	interfacePort              int
+	mtu                        uint16
+	networkMonitor             bool
+	disableDNS                 bool
+	disableClientRoutes        bool
+	disableServerRoutes        bool
+	blockLANAccess             bool
+	enableSSHRoot              bool
+	enableSSHSFTP              bool
+	enableSSHLocalPortForward  bool
+	enableSSHRemotePortForward bool
+	disableSSHAuth             bool
+	sshJWTCacheTTL             int
 
 	connected            bool
 	update               *version.Update
@@ -435,18 +449,22 @@ func (s *serviceClient) showSettingsUI() {
 	s.sDisableClientRoutes = widget.NewCheck("This peer won't route traffic to other peers", nil)
 	s.sDisableServerRoutes = widget.NewCheck("This peer won't act as router for others", nil)
 	s.sBlockLANAccess = widget.NewCheck("Blocks local network access when used as exit node", nil)
+	s.sEnableSSHRoot = widget.NewCheck("Enable SSH Root Login", nil)
+	s.sEnableSSHSFTP = widget.NewCheck("Enable SSH SFTP", nil)
+	s.sEnableSSHLocalPortForward = widget.NewCheck("Enable SSH Local Port Forwarding", nil)
+	s.sEnableSSHRemotePortForward = widget.NewCheck("Enable SSH Remote Port Forwarding", nil)
+	s.sDisableSSHAuth = widget.NewCheck("Disable SSH Authentication", nil)
+	s.iSSHJWTCacheTTL = widget.NewEntry()
 
 	s.wSettings.SetContent(s.getSettingsForm())
-	s.wSettings.Resize(fyne.NewSize(600, 500))
+	s.wSettings.Resize(fyne.NewSize(600, 400))
 	s.wSettings.SetFixedSize(true)
 
 	s.getSrvConfig()
 	s.wSettings.Show()
 }
 
-// getSettingsForm to embed it into settings window.
-func (s *serviceClient) getSettingsForm() *widget.Form {
-
+func (s *serviceClient) getConnectionForm() *widget.Form {
 	var activeProfName string
 	activeProf, err := s.profileManager.GetActiveProfile()
 	if err != nil {
@@ -457,151 +475,275 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 	return &widget.Form{
 		Items: []*widget.FormItem{
 			{Text: "Profile", Widget: widget.NewLabel(activeProfName)},
+			{Text: "Management URL", Widget: s.iMngURL},
+			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
 			{Text: "Interface Port", Widget: s.iInterfacePort},
 			{Text: "MTU", Widget: s.iMTU},
-			{Text: "Management URL", Widget: s.iMngURL},
-			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Log File", Widget: s.iLogFile},
+		},
+	}
+}
+
+func (s *serviceClient) saveSettings() {
+	// Check if update settings are disabled by daemon
+	features, err := s.getFeatures()
+	if err != nil {
+		log.Errorf("failed to get features from daemon: %v", err)
+		// Continue with default behavior if features can't be retrieved
+	} else if features != nil && features.DisableUpdateSettings {
+		log.Warn("Configuration updates are disabled by daemon")
+		dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
+		return
+	}
+
+	if err := s.validateSettings(); err != nil {
+		dialog.ShowError(err, s.wSettings)
+		return
+	}
+
+	port, mtu, err := s.parseNumericSettings()
+	if err != nil {
+		dialog.ShowError(err, s.wSettings)
+		return
+	}
+
+	iMngURL := strings.TrimSpace(s.iMngURL.Text)
+
+	if s.hasSettingsChanged(iMngURL, port, mtu) {
+		if err := s.applySettingsChanges(iMngURL, port, mtu); err != nil {
+			dialog.ShowError(err, s.wSettings)
+			return
+		}
+	}
+
+	s.wSettings.Close()
+}
+
+func (s *serviceClient) validateSettings() error {
+	if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
+		if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
+			return fmt.Errorf("Invalid Pre-shared Key Value")
+		}
+	}
+	return nil
+}
+
+func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
+	port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
+	if err != nil {
+		return 0, 0, errors.New("Invalid interface port")
+	}
+	if port < 1 || port > 65535 {
+		return 0, 0, errors.New("Invalid interface port: out of range 1-65535")
+	}
+
+	var mtu int64
+	mtuText := strings.TrimSpace(s.iMTU.Text)
+	if mtuText != "" {
+		mtu, err = strconv.ParseInt(mtuText, 10, 64)
+		if err != nil {
+			return 0, 0, errors.New("Invalid MTU value")
+		}
+		if mtu < iface.MinMTU || mtu > iface.MaxMTU {
+			return 0, 0, fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU)
+		}
+	}
+
+	return port, mtu, nil
+}
+
+func (s *serviceClient) hasSettingsChanged(iMngURL string, port, mtu int64) bool {
+	return s.managementURL != iMngURL ||
+		s.preSharedKey != s.iPreSharedKey.Text ||
+		s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
+		s.interfaceName != s.iInterfaceName.Text ||
+		s.interfacePort != int(port) ||
+		s.mtu != uint16(mtu) ||
+		s.networkMonitor != s.sNetworkMonitor.Checked ||
+		s.disableDNS != s.sDisableDNS.Checked ||
+		s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
+		s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
+		s.blockLANAccess != s.sBlockLANAccess.Checked ||
+		s.hasSSHChanges()
+}
+
+func (s *serviceClient) applySettingsChanges(iMngURL string, port, mtu int64) error {
+	s.managementURL = iMngURL
+	s.preSharedKey = s.iPreSharedKey.Text
+	s.mtu = uint16(mtu)
+
+	req, err := s.buildSetConfigRequest(iMngURL, port, mtu)
+	if err != nil {
+		return fmt.Errorf("build config request: %w", err)
+	}
+
+	if err := s.sendConfigUpdate(req); err != nil {
+		return fmt.Errorf("set configuration: %w", err)
+	}
+
+	return nil
+}
+
+func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (*proto.SetConfigRequest, error) {
+	currUser, err := user.Current()
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+
+	activeProf, err := s.profileManager.GetActiveProfile()
+	if err != nil {
+		return nil, fmt.Errorf("get active profile: %w", err)
+	}
+
+	req := &proto.SetConfigRequest{
+		ProfileName: activeProf.Name,
+		Username:    currUser.Username,
+	}
+
+	if iMngURL != "" {
+		req.ManagementUrl = iMngURL
+	}
+
+	req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
+	req.InterfaceName = &s.iInterfaceName.Text
+	req.WireguardPort = &port
+	if mtu > 0 {
+		req.Mtu = &mtu
+	}
+
+	req.NetworkMonitor = &s.sNetworkMonitor.Checked
+	req.DisableDns = &s.sDisableDNS.Checked
+	req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
+	req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
+	req.BlockLanAccess = &s.sBlockLANAccess.Checked
+
+	req.EnableSSHRoot = &s.sEnableSSHRoot.Checked
+	req.EnableSSHSFTP = &s.sEnableSSHSFTP.Checked
+	req.EnableSSHLocalPortForwarding = &s.sEnableSSHLocalPortForward.Checked
+	req.EnableSSHRemotePortForwarding = &s.sEnableSSHRemotePortForward.Checked
+	req.DisableSSHAuth = &s.sDisableSSHAuth.Checked
+
+	sshJWTCacheTTLText := strings.TrimSpace(s.iSSHJWTCacheTTL.Text)
+	if sshJWTCacheTTLText != "" {
+		sshJWTCacheTTL, err := strconv.ParseInt(sshJWTCacheTTLText, 10, 32)
+		if err != nil {
+			return nil, errors.New("Invalid SSH JWT Cache TTL value")
+		}
+		if sshJWTCacheTTL < 0 || sshJWTCacheTTL > maxSSHJWTCacheTTL {
+			return nil, fmt.Errorf("SSH JWT Cache TTL must be between 0 and %d seconds", maxSSHJWTCacheTTL)
+		}
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
+	}
+
+	if s.iPreSharedKey.Text != censoredPreSharedKey {
+		req.OptionalPreSharedKey = &s.iPreSharedKey.Text
+	}
+
+	return req, nil
+}
+
+func (s *serviceClient) sendConfigUpdate(req *proto.SetConfigRequest) error {
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		return fmt.Errorf("get client: %w", err)
+	}
+
+	_, err = conn.SetConfig(s.ctx, req)
+	if err != nil {
+		return fmt.Errorf("set config: %w", err)
+	}
+
+	// Reconnect if connected to apply the new settings
+	go func() {
+		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		if err != nil {
+			log.Errorf("get service status: %v", err)
+			return
+		}
+		if status.Status == string(internal.StatusConnected) {
+			// run down & up
+			_, err = conn.Down(s.ctx, &proto.DownRequest{})
+			if err != nil {
+				log.Errorf("down service: %v", err)
+			}
+
+			_, err = conn.Up(s.ctx, &proto.UpRequest{})
+			if err != nil {
+				log.Errorf("up service: %v", err)
+				return
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (s *serviceClient) getSettingsForm() fyne.CanvasObject {
+	connectionForm := s.getConnectionForm()
+	networkForm := s.getNetworkForm()
+	sshForm := s.getSSHForm()
+	tabs := container.NewAppTabs(
+		container.NewTabItem("Connection", connectionForm),
+		container.NewTabItem("Network", networkForm),
+		container.NewTabItem("SSH", sshForm),
+	)
+	saveButton := widget.NewButtonWithIcon("Save", theme.ConfirmIcon(), s.saveSettings)
+	saveButton.Importance = widget.HighImportance
+	cancelButton := widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
+		s.wSettings.Close()
+	})
+	buttonContainer := container.NewHBox(
+		layout.NewSpacer(),
+		cancelButton,
+		saveButton,
+	)
+	return container.NewBorder(nil, buttonContainer, nil, nil, tabs)
+}
+
+func (s *serviceClient) getNetworkForm() *widget.Form {
+	return &widget.Form{
+		Items: []*widget.FormItem{
 			{Text: "Network Monitor", Widget: s.sNetworkMonitor},
 			{Text: "Disable DNS", Widget: s.sDisableDNS},
 			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
 			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
 			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
 		},
-		SubmitText: "Save",
-		OnSubmit: func() {
-			// Check if update settings are disabled by daemon
-			features, err := s.getFeatures()
-			if err != nil {
-				log.Errorf("failed to get features from daemon: %v", err)
-				// Continue with default behavior if features can't be retrieved
-			} else if features != nil && features.DisableUpdateSettings {
-				log.Warn("Configuration updates are disabled by daemon")
-				dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
-				return
-			}
+	}
+}
 
-			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
-				// validate preSharedKey if it added
-				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
-					dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
-					return
-				}
-			}
-
-			port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
-			if err != nil {
-				dialog.ShowError(errors.New("Invalid interface port"), s.wSettings)
-				return
-			}
-
-			var mtu int64
-			mtuText := strings.TrimSpace(s.iMTU.Text)
-			if mtuText != "" {
-				var err error
-				mtu, err = strconv.ParseInt(mtuText, 10, 64)
-				if err != nil {
-					dialog.ShowError(errors.New("Invalid MTU value"), s.wSettings)
-					return
-				}
-				if mtu < iface.MinMTU || mtu > iface.MaxMTU {
-					dialog.ShowError(fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU), s.wSettings)
-					return
-				}
-			}
-
-			iMngURL := strings.TrimSpace(s.iMngURL.Text)
-
-			defer s.wSettings.Close()
-
-			// Check if any settings have changed
-			if s.managementURL != iMngURL || s.preSharedKey != s.iPreSharedKey.Text ||
-				s.RosenpassPermissive != s.sRosenpassPermissive.Checked ||
-				s.interfaceName != s.iInterfaceName.Text || s.interfacePort != int(port) ||
-				s.mtu != uint16(mtu) ||
-				s.networkMonitor != s.sNetworkMonitor.Checked ||
-				s.disableDNS != s.sDisableDNS.Checked ||
-				s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
-				s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
-				s.blockLANAccess != s.sBlockLANAccess.Checked {
-
-				s.managementURL = iMngURL
-				s.preSharedKey = s.iPreSharedKey.Text
-				s.mtu = uint16(mtu)
-
-				currUser, err := user.Current()
-				if err != nil {
-					log.Errorf("get current user: %v", err)
-					return
-				}
-
-				var req proto.SetConfigRequest
-				req.ProfileName = activeProf.Name
-				req.Username = currUser.Username
-
-				if iMngURL != "" {
-					req.ManagementUrl = iMngURL
-				}
-
-				req.RosenpassPermissive = &s.sRosenpassPermissive.Checked
-				req.InterfaceName = &s.iInterfaceName.Text
-				req.WireguardPort = &port
-				if mtu > 0 {
-					req.Mtu = &mtu
-				}
-				req.NetworkMonitor = &s.sNetworkMonitor.Checked
-				req.DisableDns = &s.sDisableDNS.Checked
-				req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
-				req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
-				req.BlockLanAccess = &s.sBlockLANAccess.Checked
-
-				if s.iPreSharedKey.Text != censoredPreSharedKey {
-					req.OptionalPreSharedKey = &s.iPreSharedKey.Text
-				}
-
-				conn, err := s.getSrvClient(failFastTimeout)
-				if err != nil {
-					log.Errorf("get client: %v", err)
-					dialog.ShowError(fmt.Errorf("Failed to connect to the service: %v", err), s.wSettings)
-					return
-				}
-				_, err = conn.SetConfig(s.ctx, &req)
-				if err != nil {
-					log.Errorf("set config: %v", err)
-					dialog.ShowError(fmt.Errorf("Failed to set configuration: %v", err), s.wSettings)
-					return
-				}
-
-				go func() {
-					status, err := conn.Status(s.ctx, &proto.StatusRequest{})
-					if err != nil {
-						log.Errorf("get service status: %v", err)
-						dialog.ShowError(fmt.Errorf("Failed to get service status: %v", err), s.wSettings)
-						return
-					}
-					if status.Status == string(internal.StatusConnected) {
-						// run down & up
-						_, err = conn.Down(s.ctx, &proto.DownRequest{})
-						if err != nil {
-							log.Errorf("down service: %v", err)
-						}
-
-						_, err = conn.Up(s.ctx, &proto.UpRequest{})
-						if err != nil {
-							log.Errorf("up service: %v", err)
-							dialog.ShowError(fmt.Errorf("Failed to reconnect: %v", err), s.wSettings)
-							return
-						}
-					}
-				}()
-			}
-		},
-		OnCancel: func() {
-			s.wSettings.Close()
+func (s *serviceClient) getSSHForm() *widget.Form {
+	return &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Enable SSH Root Login", Widget: s.sEnableSSHRoot},
+			{Text: "Enable SSH SFTP", Widget: s.sEnableSSHSFTP},
+			{Text: "Enable SSH Local Port Forwarding", Widget: s.sEnableSSHLocalPortForward},
+			{Text: "Enable SSH Remote Port Forwarding", Widget: s.sEnableSSHRemotePortForward},
+			{Text: "Disable SSH Authentication", Widget: s.sDisableSSHAuth},
+			{Text: "JWT Cache TTL (seconds, 0=disabled)", Widget: s.iSSHJWTCacheTTL},
 		},
 	}
+}
+
+func (s *serviceClient) hasSSHChanges() bool {
+	currentSSHJWTCacheTTL := s.sshJWTCacheTTL
+	if text := strings.TrimSpace(s.iSSHJWTCacheTTL.Text); text != "" {
+		val, err := strconv.Atoi(text)
+		if err != nil {
+			return true
+		}
+		currentSSHJWTCacheTTL = val
+	}
+
+	return s.enableSSHRoot != s.sEnableSSHRoot.Checked ||
+		s.enableSSHSFTP != s.sEnableSSHSFTP.Checked ||
+		s.enableSSHLocalPortForward != s.sEnableSSHLocalPortForward.Checked ||
+		s.enableSSHRemotePortForward != s.sEnableSSHRemotePortForward.Checked ||
+		s.disableSSHAuth != s.sDisableSSHAuth.Checked ||
+		s.sshJWTCacheTTL != currentSSHJWTCacheTTL
 }
 
 func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginResponse, error) {
@@ -1123,6 +1265,25 @@ func (s *serviceClient) getSrvConfig() {
 	s.disableServerRoutes = cfg.DisableServerRoutes
 	s.blockLANAccess = cfg.BlockLANAccess
 
+	if cfg.EnableSSHRoot != nil {
+		s.enableSSHRoot = *cfg.EnableSSHRoot
+	}
+	if cfg.EnableSSHSFTP != nil {
+		s.enableSSHSFTP = *cfg.EnableSSHSFTP
+	}
+	if cfg.EnableSSHLocalPortForwarding != nil {
+		s.enableSSHLocalPortForward = *cfg.EnableSSHLocalPortForwarding
+	}
+	if cfg.EnableSSHRemotePortForwarding != nil {
+		s.enableSSHRemotePortForward = *cfg.EnableSSHRemotePortForwarding
+	}
+	if cfg.DisableSSHAuth != nil {
+		s.disableSSHAuth = *cfg.DisableSSHAuth
+	}
+	if cfg.SSHJWTCacheTTL != nil {
+		s.sshJWTCacheTTL = *cfg.SSHJWTCacheTTL
+	}
+
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
@@ -1143,6 +1304,24 @@ func (s *serviceClient) getSrvConfig() {
 		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
 		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
 		s.sBlockLANAccess.SetChecked(cfg.BlockLANAccess)
+		if cfg.EnableSSHRoot != nil {
+			s.sEnableSSHRoot.SetChecked(*cfg.EnableSSHRoot)
+		}
+		if cfg.EnableSSHSFTP != nil {
+			s.sEnableSSHSFTP.SetChecked(*cfg.EnableSSHSFTP)
+		}
+		if cfg.EnableSSHLocalPortForwarding != nil {
+			s.sEnableSSHLocalPortForward.SetChecked(*cfg.EnableSSHLocalPortForwarding)
+		}
+		if cfg.EnableSSHRemotePortForwarding != nil {
+			s.sEnableSSHRemotePortForward.SetChecked(*cfg.EnableSSHRemotePortForwarding)
+		}
+		if cfg.DisableSSHAuth != nil {
+			s.sDisableSSHAuth.SetChecked(*cfg.DisableSSHAuth)
+		}
+		if cfg.SSHJWTCacheTTL != nil {
+			s.iSSHJWTCacheTTL.SetText(strconv.Itoa(*cfg.SSHJWTCacheTTL))
+		}
 	}
 
 	if s.mNotifications == nil {
@@ -1212,6 +1391,15 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.DisableClientRoutes = cfg.DisableClientRoutes
 	config.DisableServerRoutes = cfg.DisableServerRoutes
 	config.BlockLANAccess = cfg.BlockLanAccess
+
+	config.EnableSSHRoot = &cfg.EnableSSHRoot
+	config.EnableSSHSFTP = &cfg.EnableSSHSFTP
+	config.EnableSSHLocalPortForwarding = &cfg.EnableSSHLocalPortForwarding
+	config.EnableSSHRemotePortForwarding = &cfg.EnableSSHRemotePortForwarding
+	config.DisableSSHAuth = &cfg.DisableSSHAuth
+
+	ttl := int(cfg.SshJWTCacheTTL)
+	config.SSHJWTCacheTTL = &ttl
 
 	return &config
 }

@@ -13,12 +13,12 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/status"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -983,7 +983,7 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 		permissionsManager: permissionsManager,
 	}
 
-	claims := nbcontext.UserAuth{
+	claims := auth.UserAuth{
 		UserId:    mockUserID,
 		AccountId: mockAccountID,
 	}
@@ -1590,33 +1590,33 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 
 	tt := []struct {
 		name           string
-		userAuth       nbcontext.UserAuth
+		userAuth       auth.UserAuth
 		expectedErr    error
 		expectedResult *users.UserInfoWithPermissions
 	}{
 		{
 			name:        "not found",
-			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "not-found"},
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "not-found"},
 			expectedErr: status.NewUserNotFoundError("not-found"),
 		},
 		{
 			name:        "not part of account",
-			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "account2Owner"},
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "account2Owner"},
 			expectedErr: status.NewUserNotPartOfAccountError(),
 		},
 		{
 			name:        "blocked",
-			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "blocked-user"},
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "blocked-user"},
 			expectedErr: status.NewUserBlockedError(),
 		},
 		{
 			name:        "service user",
-			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "service-user"},
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "service-user"},
 			expectedErr: status.NewPermissionDeniedError(),
 		},
 		{
 			name:     "owner user",
-			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "account1Owner"},
+			userAuth: auth.UserAuth{AccountId: account1.Id, UserId: "account1Owner"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "account1Owner",
@@ -1636,7 +1636,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		},
 		{
 			name:     "regular user",
-			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "regular-user"},
+			userAuth: auth.UserAuth{AccountId: account1.Id, UserId: "regular-user"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "regular-user",
@@ -1655,7 +1655,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		},
 		{
 			name:     "admin user",
-			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "admin-user"},
+			userAuth: auth.UserAuth{AccountId: account1.Id, UserId: "admin-user"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "admin-user",
@@ -1674,7 +1674,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		},
 		{
 			name:     "settings blocked regular user",
-			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user"},
+			userAuth: auth.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "settings-blocked-user",
@@ -1695,7 +1695,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 
 		{
 			name:     "settings blocked regular user child account",
-			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user", IsChild: true},
+			userAuth: auth.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user", IsChild: true},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "settings-blocked-user",
@@ -1715,7 +1715,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		},
 		{
 			name:     "settings blocked owner user",
-			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "account2Owner"},
+			userAuth: auth.UserAuth{AccountId: account2.Id, UserId: "account2Owner"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "account2Owner",

@@ -21,6 +21,7 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 
 	"github.com/stretchr/testify/assert"
@@ -296,7 +297,7 @@ func TestGetPeers(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "admin_user",
 				Domain:    "hotmail.com",
 				AccountId: "test_id",
@@ -442,7 +443,7 @@ func TestGetAccessiblePeers(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/peers/%s/accessible-peers", tc.peerID), nil)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    tc.callerUserID,
 				Domain:    "hotmail.com",
 				AccountId: "test_id",
@@ -525,7 +526,7 @@ func TestPeersHandlerUpdatePeerIP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/peers/%s", tc.peerID), bytes.NewBuffer([]byte(tc.requestBody)))
 			req.Header.Set("Content-Type", "application/json")
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    tc.callerUserID,
 				Domain:    "hotmail.com",
 				AccountId: "test_id",

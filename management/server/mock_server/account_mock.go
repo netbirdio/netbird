@@ -2,6 +2,7 @@ package mock_server
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/shared/auth"
 	"net"
 	"net/netip"
 	"time"
@@ -12,7 +13,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -33,7 +33,7 @@ type MockAccountManager struct {
 	GetSetupKeyFunc                       func(ctx context.Context, accountID, userID, keyID string) (*types.SetupKey, error)
 	AccountExistsFunc                     func(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserIdFunc              func(ctx context.Context, userId, domain string) (string, error)
-	GetUserFromUserAuthFunc               func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
+	GetUserFromUserAuthFunc               func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsersFunc                         func(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, connected bool, realIP net.IP) error
@@ -83,7 +83,7 @@ type MockAccountManager struct {
 	DeleteNameServerGroupFunc             func(ctx context.Context, accountID, nsGroupID, userID string) error
 	ListNameServerGroupsFunc              func(ctx context.Context, accountID string, userID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                        func(ctx context.Context, accountID, userID string, key *types.UserInfo) (*types.UserInfo, error)
-	GetAccountIDFromUserAuthFunc          func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
+	GetAccountIDFromUserAuthFunc          func(ctx context.Context, userAuth auth.UserAuth) (string, string, error)
 	DeleteAccountFunc                     func(ctx context.Context, accountID, userID string) error
 	GetDNSDomainFunc                      func(settings *types.Settings) string
 	StoreEventFunc                        func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any)
@@ -118,7 +118,7 @@ type MockAccountManager struct {
 	GetStoreFunc                          func() store.Store
 	UpdateToPrimaryAccountFunc            func(ctx context.Context, accountId string) error
 	GetOwnerInfoFunc                      func(ctx context.Context, accountID string) (*types.UserInfo, error)
-	GetCurrentUserInfoFunc                func(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
+	GetCurrentUserInfoFunc                func(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error)
 	GetAccountMetaFunc                    func(ctx context.Context, accountID, userID string) (*types.AccountMeta, error)
 	GetAccountOnboardingFunc              func(ctx context.Context, accountID, userID string) (*types.AccountOnboarding, error)
 	UpdateAccountOnboardingFunc           func(ctx context.Context, accountID, userID string, onboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
@@ -469,7 +469,7 @@ func (am *MockAccountManager) UpdatePeerMeta(ctx context.Context, peerID string,
 }
 
 // GetUser mock implementation of GetUser from server.AccountManager interface
-func (am *MockAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+func (am *MockAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error) {
 	if am.GetUserFromUserAuthFunc != nil {
 		return am.GetUserFromUserAuthFunc(ctx, userAuth)
 	}
@@ -674,7 +674,7 @@ func (am *MockAccountManager) CreateUser(ctx context.Context, accountID, userID 
 	return nil, status.Errorf(codes.Unimplemented, "method CreateUser is not implemented")
 }
 
-func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+func (am *MockAccountManager) GetAccountIDFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (string, string, error) {
 	if am.GetAccountIDFromUserAuthFunc != nil {
 		return am.GetAccountIDFromUserAuthFunc(ctx, userAuth)
 	}
@@ -936,7 +936,7 @@ func (am *MockAccountManager) BuildUserInfosForAccount(ctx context.Context, acco
 	return nil, status.Errorf(codes.Unimplemented, "method BuildUserInfosForAccount is not implemented")
 }
 
-func (am *MockAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error {
+func (am *MockAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error {
 	return status.Errorf(codes.Unimplemented, "method SyncUserJWTGroups is not implemented")
 }
 
@@ -968,7 +968,7 @@ func (am *MockAccountManager) GetOwnerInfo(ctx context.Context, accountId string
 	return nil, status.Errorf(codes.Unimplemented, "method GetOwnerInfo is not implemented")
 }
 
-func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
+func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error) {
 	if am.GetCurrentUserInfoFunc != nil {
 		return am.GetCurrentUserInfoFunc(ctx, userAuth)
 	}

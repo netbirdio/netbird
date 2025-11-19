@@ -6,10 +6,11 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/netbirdio/netbird/shared/auth"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -44,10 +45,10 @@ type Manager interface {
 	GetAccountOnboarding(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error)
 	AccountExists(ctx context.Context, accountID string) (bool, error)
 	GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error)
-	GetAccountIDFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error)
+	GetAccountIDFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (string, string, error)
 	DeleteAccount(ctx context.Context, accountID, userID string) error
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
-	GetUserFromUserAuth(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error)
+	GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsers(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
 	MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string) error
@@ -116,10 +117,11 @@ type Manager interface {
 	UpdateAccountPeers(ctx context.Context, accountID string)
 	BufferUpdateAccountPeers(ctx context.Context, accountID string)
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
-	SyncUserJWTGroups(ctx context.Context, userAuth nbcontext.UserAuth) error
+	SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error
 	GetStore() store.Store
 	GetOrCreateAccountByPrivateDomain(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 	UpdateToPrimaryAccount(ctx context.Context, accountId string) error
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
-	GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error)
+	GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error)
+	SetEphemeralManager(em ephemeral.Manager)
 }

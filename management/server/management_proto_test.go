@@ -366,8 +366,8 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	ephemeralMgr := manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager))
 
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeralMgr)
-	accountManager, err := BuildManager(ctx, store, networkMapController, nil, "",
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeralMgr, config)
+	accountManager, err := BuildManager(ctx, nil, store, networkMapController, nil, "",
 		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 
 	if err != nil {
