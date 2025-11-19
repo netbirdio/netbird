@@ -340,7 +340,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 
 	// check if already has pending jobs
 	if am.jobManager.IsPeerHasPendingJobs(peerID) {
-		return status.Errorf(status.BadRequest, "peer already hase pending job")
+		return status.Errorf(status.BadRequest, "peer already has pending job")
 	}
 
 	jobStream, err := job.ToStreamJobRequest()
