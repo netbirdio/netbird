@@ -1657,7 +1657,7 @@ func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 
 // expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules
 func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
-	features := peerSupportsPortRanges(peer.Meta.WtVersion)
+	features := peerSupportedFirewallFeatures(peer.Meta.WtVersion)
 
 	var expanded []*FirewallRule
 
@@ -1720,18 +1720,23 @@ func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *n
 	return supportsNative && peer.SSHEnabled && peer.Meta.Flags.ServerSSHAllowed && rule.Protocol == PolicyRuleProtocolTCP
 }
 
-// peerSupportsPortRanges checks if the peer version supports port ranges.
-func peerSupportsPortRanges(peerVer string) supportedFeatures {
+// peerSupportedFirewallFeatures checks if the peer version supports port ranges.
+func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
 	if strings.Contains(peerVer, "dev") {
 		return supportedFeatures{true, true}
 	}
 
 	var features supportedFeatures
 
-	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
-	features.portRanges = err == nil && meetMinVer
-	meetMinVer, err = posture.MeetsMinVersion(firewallRuleMinNativeSSHVer, peerVer)
+	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinNativeSSHVer, peerVer)
 	features.nativeSSH = err == nil && meetMinVer
+
+	if features.nativeSSH {
+		features.portRanges = true
+	} else {
+		meetMinVer, err = posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
+		features.portRanges = err == nil && meetMinVer
+	}
 
 	return features
 }
