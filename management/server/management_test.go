@@ -205,7 +205,7 @@ func startServer(
 	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := server.NewAccountRequestBuffer(ctx, str)
-	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock())
+	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), config)
 
 	accountManager, err := server.BuildManager(
 		context.Background(),
