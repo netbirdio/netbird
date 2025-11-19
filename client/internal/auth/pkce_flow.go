@@ -109,6 +109,9 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 			params = append(params, oauth2.SetAuthURLParam("max_age", "0"))
 		}
 	}
+	if p.providerConfig.LoginHint != "" {
+		params = append(params, oauth2.SetAuthURLParam("login_hint", p.providerConfig.LoginHint))
+	}
 
 	authURL := p.oAuthConfig.AuthCodeURL(state, params...)
 
@@ -189,17 +192,20 @@ func (p *PKCEAuthorizationFlow) handleRequest(req *http.Request) (*oauth2.Token,
 
 	if authError := query.Get(queryError); authError != "" {
 		authErrorDesc := query.Get(queryErrorDesc)
-		return nil, fmt.Errorf("%s.%s", authError, authErrorDesc)
+		if authErrorDesc != "" {
+			return nil, fmt.Errorf("authentication failed: %s", authErrorDesc)
+		}
+		return nil, fmt.Errorf("authentication failed: %s", authError)
 	}
 
 	// Prevent timing attacks on the state
 	if state := query.Get(queryState); subtle.ConstantTimeCompare([]byte(p.state), []byte(state)) == 0 {
-		return nil, fmt.Errorf("invalid state")
+		return nil, fmt.Errorf("authentication failed: Invalid state")
 	}
 
 	code := query.Get(queryCode)
 	if code == "" {
-		return nil, fmt.Errorf("missing code")
+		return nil, fmt.Errorf("authentication failed: missing code")
 	}
 
 	return p.oAuthConfig.Exchange(
@@ -228,7 +234,7 @@ func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo,
 	}
 
 	if err := isValidAccessToken(tokenInfo.GetTokenToUse(), audience); err != nil {
-		return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
+		return TokenInfo{}, fmt.Errorf("authentication failed: invalid access token - %w", err)
 	}
 
 	email, err := parseEmailFromIDToken(tokenInfo.IDToken)

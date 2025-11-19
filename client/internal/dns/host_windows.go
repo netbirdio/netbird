@@ -17,6 +17,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/winregistry"
 )
 
 var (
@@ -178,13 +179,7 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	}
 
-	if err := stateManager.UpdateState(&ShutdownState{
-		Guid:           r.guid,
-		GPO:            r.gpo,
-		NRPTEntryCount: r.nrptEntryCount,
-	}); err != nil {
-		log.Errorf("failed to update shutdown state: %s", err)
-	}
+	r.updateState(stateManager)
 
 	var searchDomains, matchDomains []string
 	for _, dConf := range config.Domains {
@@ -197,6 +192,10 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain, "."))
 	}
 
+	if err := r.removeDNSMatchPolicies(); err != nil {
+		log.Errorf("cleanup old dns match policies: %s", err)
+	}
+
 	if len(matchDomains) != 0 {
 		count, err := r.addDNSMatchPolicy(matchDomains, config.ServerIP)
 		if err != nil {
@@ -204,19 +203,10 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		}
 		r.nrptEntryCount = count
 	} else {
-		if err := r.removeDNSMatchPolicies(); err != nil {
-			return fmt.Errorf("remove dns match policies: %w", err)
-		}
 		r.nrptEntryCount = 0
 	}
 
-	if err := stateManager.UpdateState(&ShutdownState{
-		Guid:           r.guid,
-		GPO:            r.gpo,
-		NRPTEntryCount: r.nrptEntryCount,
-	}); err != nil {
-		log.Errorf("failed to update shutdown state: %s", err)
-	}
+	r.updateState(stateManager)
 
 	if err := r.updateSearchDomains(searchDomains); err != nil {
 		return fmt.Errorf("update search domains: %w", err)
@@ -225,6 +215,16 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 	go r.flushDNSCache()
 
 	return nil
+}
+
+func (r *registryConfigurator) updateState(stateManager *statemanager.Manager) {
+	if err := stateManager.UpdateState(&ShutdownState{
+		Guid:           r.guid,
+		GPO:            r.gpo,
+		NRPTEntryCount: r.nrptEntryCount,
+	}); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
+	}
 }
 
 func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
@@ -273,9 +273,9 @@ func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []s
 		return fmt.Errorf("remove existing dns policy: %w", err)
 	}
 
-	regKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, policyPath, registry.SET_VALUE)
+	regKey, _, err := winregistry.CreateVolatileKey(registry.LOCAL_MACHINE, policyPath, registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("create registry key HKEY_LOCAL_MACHINE\\%s: %w", policyPath, err)
+		return fmt.Errorf("create volatile registry key HKEY_LOCAL_MACHINE\\%s: %w", policyPath, err)
 	}
 	defer closer(regKey)
 

@@ -16,25 +16,33 @@ type PacketStage int
 
 const (
 	StageReceived PacketStage = iota
+	StageInboundPortDNAT
+	StageInbound1to1NAT
 	StageConntrack
 	StagePeerACL
 	StageRouting
 	StageRouteACL
 	StageForwarding
 	StageCompleted
+	StageOutbound1to1NAT
+	StageOutboundPortReverse
 )
 
 const msgProcessingCompleted = "Processing completed"
 
 func (s PacketStage) String() string {
 	return map[PacketStage]string{
-		StageReceived:   "Received",
-		StageConntrack:  "Connection Tracking",
-		StagePeerACL:    "Peer ACL",
-		StageRouting:    "Routing",
-		StageRouteACL:   "Route ACL",
-		StageForwarding: "Forwarding",
-		StageCompleted:  "Completed",
+		StageReceived:            "Received",
+		StageInboundPortDNAT:     "Inbound Port DNAT",
+		StageInbound1to1NAT:      "Inbound 1:1 NAT",
+		StageConntrack:           "Connection Tracking",
+		StagePeerACL:             "Peer ACL",
+		StageRouting:             "Routing",
+		StageRouteACL:            "Route ACL",
+		StageForwarding:          "Forwarding",
+		StageCompleted:           "Completed",
+		StageOutbound1to1NAT:     "Outbound 1:1 NAT",
+		StageOutboundPortReverse: "Outbound DNAT Reverse",
 	}[s]
 }
 
@@ -261,6 +269,10 @@ func (m *Manager) TracePacket(packetData []byte, direction fw.RuleDirection) *Pa
 }
 
 func (m *Manager) traceInbound(packetData []byte, trace *PacketTrace, d *decoder, srcIP netip.Addr, dstIP netip.Addr) *PacketTrace {
+	if m.handleInboundDNAT(trace, packetData, d, &srcIP, &dstIP) {
+		return trace
+	}
+
 	if m.stateful && m.handleConntrackState(trace, d, srcIP, dstIP) {
 		return trace
 	}
@@ -400,7 +412,16 @@ func (m *Manager) addForwardingResult(trace *PacketTrace, action, remoteAddr str
 }
 
 func (m *Manager) traceOutbound(packetData []byte, trace *PacketTrace) *PacketTrace {
-	// will create or update the connection state
+	d := m.decoders.Get().(*decoder)
+	defer m.decoders.Put(d)
+
+	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+		trace.AddResult(StageCompleted, "Packet dropped - decode error", false)
+		return trace
+	}
+
+	m.handleOutboundDNAT(trace, packetData, d)
+
 	dropped := m.filterOutbound(packetData, 0)
 	if dropped {
 		trace.AddResult(StageCompleted, "Packet dropped by outgoing hook", false)
@@ -408,4 +429,200 @@ func (m *Manager) traceOutbound(packetData []byte, trace *PacketTrace) *PacketTr
 		trace.AddResult(StageCompleted, "Packet allowed (outgoing)", true)
 	}
 	return trace
+}
+
+func (m *Manager) handleInboundDNAT(trace *PacketTrace, packetData []byte, d *decoder, srcIP, dstIP *netip.Addr) bool {
+	portDNATApplied := m.traceInboundPortDNAT(trace, packetData, d)
+	if portDNATApplied {
+		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+			trace.AddResult(StageInboundPortDNAT, "Failed to re-decode after port DNAT", false)
+			return true
+		}
+		*srcIP, *dstIP = m.extractIPs(d)
+		trace.DestinationPort = m.getDestPort(d)
+	}
+
+	nat1to1Applied := m.traceInbound1to1NAT(trace, packetData, d)
+	if nat1to1Applied {
+		if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
+			trace.AddResult(StageInbound1to1NAT, "Failed to re-decode after 1:1 NAT", false)
+			return true
+		}
+		*srcIP, *dstIP = m.extractIPs(d)
+	}
+
+	return false
+}
+
+func (m *Manager) traceInboundPortDNAT(trace *PacketTrace, packetData []byte, d *decoder) bool {
+	if !m.portDNATEnabled.Load() {
+		trace.AddResult(StageInboundPortDNAT, "Port DNAT not enabled", true)
+		return false
+	}
+
+	if len(packetData) < 20 || d.decoded[0] != layers.LayerTypeIPv4 {
+		trace.AddResult(StageInboundPortDNAT, "Not IPv4, skipping port DNAT", true)
+		return false
+	}
+
+	if len(d.decoded) < 2 {
+		trace.AddResult(StageInboundPortDNAT, "No transport layer, skipping port DNAT", true)
+		return false
+	}
+
+	protocol := d.decoded[1]
+	if protocol != layers.LayerTypeTCP && protocol != layers.LayerTypeUDP {
+		trace.AddResult(StageInboundPortDNAT, "Not TCP/UDP, skipping port DNAT", true)
+		return false
+	}
+
+	srcIP := netip.AddrFrom4([4]byte{packetData[12], packetData[13], packetData[14], packetData[15]})
+	dstIP := netip.AddrFrom4([4]byte{packetData[16], packetData[17], packetData[18], packetData[19]})
+	var originalPort uint16
+	if protocol == layers.LayerTypeTCP {
+		originalPort = uint16(d.tcp.DstPort)
+	} else {
+		originalPort = uint16(d.udp.DstPort)
+	}
+
+	translated := m.translateInboundPortDNAT(packetData, d, srcIP, dstIP)
+	if translated {
+		ipHeaderLen := int((packetData[0] & 0x0F) * 4)
+		translatedPort := uint16(packetData[ipHeaderLen+2])<<8 | uint16(packetData[ipHeaderLen+3])
+
+		protoStr := "TCP"
+		if protocol == layers.LayerTypeUDP {
+			protoStr = "UDP"
+		}
+		msg := fmt.Sprintf("%s port DNAT applied: %s:%d -> %s:%d", protoStr, dstIP, originalPort, dstIP, translatedPort)
+		trace.AddResult(StageInboundPortDNAT, msg, true)
+		return true
+	}
+
+	trace.AddResult(StageInboundPortDNAT, "No matching port DNAT rule", true)
+	return false
+}
+
+func (m *Manager) traceInbound1to1NAT(trace *PacketTrace, packetData []byte, d *decoder) bool {
+	if !m.dnatEnabled.Load() {
+		trace.AddResult(StageInbound1to1NAT, "1:1 NAT not enabled", true)
+		return false
+	}
+
+	srcIP := netip.AddrFrom4([4]byte{packetData[12], packetData[13], packetData[14], packetData[15]})
+
+	translated := m.translateInboundReverse(packetData, d)
+	if translated {
+		m.dnatMutex.RLock()
+		translatedIP, exists := m.dnatBiMap.getOriginal(srcIP)
+		m.dnatMutex.RUnlock()
+
+		if exists {
+			msg := fmt.Sprintf("1:1 NAT reverse applied: %s -> %s", srcIP, translatedIP)
+			trace.AddResult(StageInbound1to1NAT, msg, true)
+			return true
+		}
+	}
+
+	trace.AddResult(StageInbound1to1NAT, "No matching 1:1 NAT rule", true)
+	return false
+}
+
+func (m *Manager) handleOutboundDNAT(trace *PacketTrace, packetData []byte, d *decoder) {
+	m.traceOutbound1to1NAT(trace, packetData, d)
+	m.traceOutboundPortReverse(trace, packetData, d)
+}
+
+func (m *Manager) traceOutbound1to1NAT(trace *PacketTrace, packetData []byte, d *decoder) bool {
+	if !m.dnatEnabled.Load() {
+		trace.AddResult(StageOutbound1to1NAT, "1:1 NAT not enabled", true)
+		return false
+	}
+
+	dstIP := netip.AddrFrom4([4]byte{packetData[16], packetData[17], packetData[18], packetData[19]})
+
+	translated := m.translateOutboundDNAT(packetData, d)
+	if translated {
+		m.dnatMutex.RLock()
+		translatedIP, exists := m.dnatMappings[dstIP]
+		m.dnatMutex.RUnlock()
+
+		if exists {
+			msg := fmt.Sprintf("1:1 NAT applied: %s -> %s", dstIP, translatedIP)
+			trace.AddResult(StageOutbound1to1NAT, msg, true)
+			return true
+		}
+	}
+
+	trace.AddResult(StageOutbound1to1NAT, "No matching 1:1 NAT rule", true)
+	return false
+}
+
+func (m *Manager) traceOutboundPortReverse(trace *PacketTrace, packetData []byte, d *decoder) bool {
+	if !m.portDNATEnabled.Load() {
+		trace.AddResult(StageOutboundPortReverse, "Port DNAT not enabled", true)
+		return false
+	}
+
+	if len(packetData) < 20 || d.decoded[0] != layers.LayerTypeIPv4 {
+		trace.AddResult(StageOutboundPortReverse, "Not IPv4, skipping port reverse", true)
+		return false
+	}
+
+	if len(d.decoded) < 2 {
+		trace.AddResult(StageOutboundPortReverse, "No transport layer, skipping port reverse", true)
+		return false
+	}
+
+	srcIP := netip.AddrFrom4([4]byte{packetData[12], packetData[13], packetData[14], packetData[15]})
+	dstIP := netip.AddrFrom4([4]byte{packetData[16], packetData[17], packetData[18], packetData[19]})
+
+	var origPort uint16
+	transport := d.decoded[1]
+	switch transport {
+	case layers.LayerTypeTCP:
+		srcPort := uint16(d.tcp.SrcPort)
+		dstPort := uint16(d.tcp.DstPort)
+		conn, exists := m.tcpTracker.GetConnection(dstIP, dstPort, srcIP, srcPort)
+		if exists {
+			origPort = uint16(conn.DNATOrigPort.Load())
+		}
+		if origPort != 0 {
+			msg := fmt.Sprintf("TCP DNAT reverse (tracked connection): %s:%d -> %s:%d", srcIP, srcPort, srcIP, origPort)
+			trace.AddResult(StageOutboundPortReverse, msg, true)
+			return true
+		}
+	case layers.LayerTypeUDP:
+		srcPort := uint16(d.udp.SrcPort)
+		dstPort := uint16(d.udp.DstPort)
+		conn, exists := m.udpTracker.GetConnection(dstIP, dstPort, srcIP, srcPort)
+		if exists {
+			origPort = uint16(conn.DNATOrigPort.Load())
+		}
+		if origPort != 0 {
+			msg := fmt.Sprintf("UDP DNAT reverse (tracked connection): %s:%d -> %s:%d", srcIP, srcPort, srcIP, origPort)
+			trace.AddResult(StageOutboundPortReverse, msg, true)
+			return true
+		}
+	default:
+		trace.AddResult(StageOutboundPortReverse, "Not TCP/UDP, skipping port reverse", true)
+		return false
+	}
+
+	trace.AddResult(StageOutboundPortReverse, "No tracked connection for DNAT reverse", true)
+	return false
+}
+
+func (m *Manager) getDestPort(d *decoder) uint16 {
+	if len(d.decoded) < 2 {
+		return 0
+	}
+	switch d.decoded[1] {
+	case layers.LayerTypeTCP:
+		return uint16(d.tcp.DstPort)
+	case layers.LayerTypeUDP:
+		return uint16(d.udp.DstPort)
+	default:
+		return 0
+	}
 }

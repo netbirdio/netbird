@@ -20,8 +20,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -228,7 +228,7 @@ func (c *Client) LoginForMobile() string {
 		ConfigPath: c.cfgFile,
 	})
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, "")
 	if err != nil {
 		return err.Error()
 	}
