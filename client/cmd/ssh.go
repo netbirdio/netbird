@@ -811,9 +811,11 @@ func sshDetectFn(cmd *cobra.Command, args []string) error {
 	serverType, err := detection.DetectSSHServerType(ctx, dialer, host, port)
 	if err != nil {
 		log.Debugf("SSH server detection failed: %v", err)
+		cancel()
 		os.Exit(detection.ServerTypeRegular.ExitCode())
 	}
 
+	cancel()
 	os.Exit(serverType.ExitCode())
 	return nil
 }
