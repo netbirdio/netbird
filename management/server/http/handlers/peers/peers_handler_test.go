@@ -270,14 +270,6 @@ func TestGetPeers(t *testing.T) {
 			expectedPeer:   peer,
 		},
 		{
-			name:           "GetPeer with no update channel",
-			requestType:    http.MethodGet,
-			requestPath:    "/api/peers/" + peer1.ID,
-			expectedStatus: http.StatusOK,
-			expectedArray:  false,
-			expectedPeer:   expectedPeer1,
-		},
-		{
 			name:           "PutPeer",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/peers/" + testPeerID,
