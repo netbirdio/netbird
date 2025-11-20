@@ -672,7 +672,7 @@ func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.Log
 	return nil
 }
 
-func (s *serviceClient) menuUpClick(ctx context.Context) error {
+func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
@@ -695,7 +695,7 @@ func (s *serviceClient) menuUpClick(ctx context.Context) error {
 	}
 
 	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
-		AutoUpdate: protobuf.Bool(true),
+		AutoUpdate: protobuf.Bool(wannaAutoUpdate),
 	}); err != nil {
 		return fmt.Errorf("start connection: %w", err)
 	}
