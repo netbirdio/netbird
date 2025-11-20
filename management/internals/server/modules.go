@@ -6,6 +6,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -17,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/users"
 )
 
@@ -113,5 +116,19 @@ func (s *BaseServer) RoutesManager() routers.Manager {
 func (s *BaseServer) NetworksManager() networks.Manager {
 	return Create(s, func() networks.Manager {
 		return networks.NewManager(s.Store(), s.PermissionsManager(), s.ResourcesManager(), s.RoutesManager(), s.AccountManager())
+	})
+}
+
+func (s *BaseServer) ZonesManager() zones.Manager {
+	return Create(s, func() zones.Manager {
+		sqlStore, ok := s.Store().(*store.SqlStore)
+		if !ok {
+			log.Fatalln("zones manager requires SqlStore")
+		}
+
+		return zonesManager.NewManager(zonesManager.NewRepository(sqlStore), s.AccountManager())
+		//s.AfterInit(func(s *BaseServer) {
+		//	// TODO: register zones manager endpoints
+		//})
 	})
 }
