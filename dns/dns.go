@@ -45,6 +45,8 @@ type CustomZone struct {
 	Domain string
 	// Records custom zone records
 	Records []SimpleRecord
+	// SearchDomainDisabled indicates whether to add match domains to search domains list or not
+	SearchDomainDisabled bool
 }
 
 // SimpleRecord provides a simple DNS record specification for CNAME, A and AAAA records

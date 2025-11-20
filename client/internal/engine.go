@@ -1207,7 +1207,8 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns
 
 	for _, zone := range protoDNSConfig.GetCustomZones() {
 		dnsZone := nbdns.CustomZone{
-			Domain: zone.GetDomain(),
+			Domain:               zone.GetDomain(),
+			SearchDomainDisabled: zone.GetSearchDomainDisabled(),
 		}
 		for _, record := range zone.Records {
 			dnsRecord := nbdns.SimpleRecord{

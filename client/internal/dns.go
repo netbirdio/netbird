@@ -106,8 +106,9 @@ func addReverseZone(config *nbdns.Config, network netip.Prefix) {
 	records := collectPTRRecords(config, network)
 
 	reverseZone := nbdns.CustomZone{
-		Domain:  zoneName,
-		Records: records,
+		Domain:               zoneName,
+		Records:              records,
+		SearchDomainDisabled: true,
 	}
 
 	config.CustomZones = append(config.CustomZones, reverseZone)
