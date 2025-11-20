@@ -7,9 +7,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "mycli",
+	Use:   "signer",
 	Short: "A CLI tool for managing cryptographic keys and artifacts",
-	Long: `mycli is a command-line tool that helps you manage
+	Long: `signer is a command-line tool that helps you manage
 root keys, artifact keys, and revocation lists securely.`,
 }
 
