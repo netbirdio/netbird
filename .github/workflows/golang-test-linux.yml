@@ -30,7 +30,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Get Go environment
@@ -109,7 +109,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Checkout code
@@ -154,7 +154,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Checkout code
@@ -223,7 +223,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Checkout code
@@ -273,7 +273,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Checkout code
@@ -324,7 +324,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Checkout code
@@ -411,7 +411,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Checkout code
@@ -500,7 +500,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Checkout code
@@ -564,7 +564,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Checkout code
