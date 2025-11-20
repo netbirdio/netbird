@@ -45,19 +45,6 @@ func NewHandler(accountManager account.Manager, networkMapController network_map
 	}
 }
 
-func (h *Handler) checkPeerStatus(peer *nbpeer.Peer) (*nbpeer.Peer, error) {
-	peerToReturn := peer.Copy()
-	if peer.Status.Connected {
-		// Although we have online status in store we do not yet have an updated channel so have to show it as disconnected
-		// This may happen after server restart when not all peers are yet connected
-		if !h.networkMapController.IsConnected(peer.ID) {
-			peerToReturn.Status.Connected = false
-		}
-	}
-
-	return peerToReturn, nil
-}
-
 func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string, w http.ResponseWriter) {
 	peer, err := h.accountManager.GetPeer(ctx, accountID, peerID, userID)
 	if err != nil {
@@ -65,11 +52,6 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 		return
 	}
 
-	peerToReturn, err := h.checkPeerStatus(peer)
-	if err != nil {
-		util.WriteError(ctx, err, w)
-		return
-	}
 	settings, err := h.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
 	if err != nil {
 		util.WriteError(ctx, err, w)
@@ -91,7 +73,7 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
 	_, valid := validPeers[peer.ID]
 	reason := invalidPeers[peer.ID]
 
-	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peerToReturn, grpsInfoMap[peerID], dnsDomain, valid, reason))
+	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
 }
 
 func (h *Handler) updatePeer(ctx context.Context, accountID, userID, peerID string, w http.ResponseWriter, r *http.Request) {
