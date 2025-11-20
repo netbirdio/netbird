@@ -805,7 +805,6 @@ func sshDetectFn(cmd *cobra.Command, args []string) error {
 	}
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), detection.DefaultTimeout)
-	defer cancel()
 
 	dialer := &net.Dialer{}
 	serverType, err := detection.DetectSSHServerType(ctx, dialer, host, port)
