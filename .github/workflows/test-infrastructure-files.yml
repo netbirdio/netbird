@@ -67,6 +67,9 @@ jobs:
       - name: Install curl
         run: sudo apt-get install -y curl
 
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
@@ -79,9 +82,6 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Setup MySQL privileges
         if: matrix.store == 'mysql'
