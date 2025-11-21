@@ -105,8 +105,8 @@ require (
 	go.uber.org/zap v1.27.0
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
-	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a
-	golang.org/x/mod v0.29.0
+	golang.org/x/mobile v0.0.0-20251113184115-a159579294ab
+	golang.org/x/mod v0.30.0
 	golang.org/x/net v0.47.0
 	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sync v0.18.0
@@ -251,9 +251,9 @@ require (
 	go.opentelemetry.io/otel/sdk v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/image v0.24.0 // indirect
+	golang.org/x/image v0.33.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
-	golang.org/x/tools v0.38.0 // indirect
+	golang.org/x/tools v0.39.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
