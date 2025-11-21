@@ -27,6 +27,27 @@ func (a *GroupsAPI) List(ctx context.Context) ([]api.Group, error) {
 	return ret, err
 }
 
+// GetByName get group by name
+// See more: https://docs.netbird.io/api/resources/groups#list-all-groups
+func (a *GroupsAPI) GetByName(ctx context.Context, groupName string) (*api.Group, error) {
+	params := map[string]string{"name": groupName}
+	resp, err := a.c.NewRequest(ctx, "GET", "/api/groups", nil, params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	ret, err := parseResponse[[]api.Group](resp)
+	if err != nil {
+		return nil, err
+	}
+	if len(ret) == 0 {
+		return nil, nil
+	}
+	return &ret[0], nil
+}
+
 // Get get group info
 // See more: https://docs.netbird.io/api/resources/groups#retrieve-a-group
 func (a *GroupsAPI) Get(ctx context.Context, groupID string) (*api.Group, error) {
