@@ -34,7 +34,6 @@ type Controller interface {
 	OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error
 	OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error
 	DisconnectPeers(ctx context.Context, accountId string, peerIDs []string)
-	IsConnected(peerID string) bool
-	OnPeerConnected(ctx context.Context, accountID string, peerID string) chan *UpdateMessage
+	OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *UpdateMessage, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)
 }

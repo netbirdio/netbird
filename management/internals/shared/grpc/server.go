@@ -261,7 +261,13 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	updates := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
+	updates, err := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("error while notify peer connected for %s: %v", peerKey.String(), err)
+		s.syncSem.Add(-1)
+		s.cancelPeerRoutines(ctx, accountID, peer)
+		return err
+	}
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
 

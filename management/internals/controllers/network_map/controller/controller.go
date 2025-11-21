@@ -110,15 +110,15 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 	}
 }
 
-func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peerID string) chan *network_map.UpdateMessage {
+func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *network_map.UpdateMessage, error) {
 	peer, err := c.repo.GetPeerByID(ctx, accountID, peerID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get peer %s: %v", peerID, err)
-	} else {
-		c.EphemeralPeersManager.OnPeerConnected(ctx, peer)
+		return nil, fmt.Errorf("failed to get peer %s: %v", peerID, err)
 	}
 
-	return c.peersUpdateManager.CreateChannel(ctx, peerID)
+	c.EphemeralPeersManager.OnPeerConnected(ctx, peer)
+
+	return c.peersUpdateManager.CreateChannel(ctx, peerID), nil
 }
 
 func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, peerID string) {
@@ -824,8 +824,4 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 
 func (c *Controller) DisconnectPeers(ctx context.Context, accountId string, peerIDs []string) {
 	c.peersUpdateManager.CloseChannels(ctx, peerIDs)
-}
-
-func (c *Controller) IsConnected(peerID string) bool {
-	return c.peersUpdateManager.HasChannel(peerID)
 }
