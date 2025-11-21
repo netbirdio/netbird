@@ -5,6 +5,8 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -30,6 +32,8 @@ func NewResolver() *net.Resolver {
 			return &net.Resolver{
 				PreferGo: true,
 			}
+		default:
+			log.Debugf("Invalid %s value: %s, using platform defaults", EnvResolver, resolver)
 		}
 	}
 
