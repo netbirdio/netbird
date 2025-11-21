@@ -29,7 +29,9 @@ func WithCustomDialer(_ bool, _ string) grpc.DialOption {
 			// the custom dialer requires root permissions which are not required for use cases run as non-root
 			if currentUser.Uid != "0" {
 				log.Debug("Not running as root, using standard dialer")
-				dialer := &net.Dialer{}
+				dialer := &net.Dialer{
+					Resolver: nbnet.NewResolver(),
+				}
 				return dialer.DialContext(ctx, "tcp", addr)
 			}
 		}
