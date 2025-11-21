@@ -72,6 +72,11 @@ func IsSystemAccount(username string) bool {
 			return true
 		}
 	}
+
+	if strings.HasSuffix(username, "$") {
+		return true
+	}
+
 	return false
 }
 
