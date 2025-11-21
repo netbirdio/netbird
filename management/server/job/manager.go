@@ -14,8 +14,6 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
-const jobChannelBuffer = 100
-
 type Event struct {
 	PeerID   string
 	Request  *proto.JobRequest
@@ -24,8 +22,8 @@ type Event struct {
 
 type Manager struct {
 	mu           *sync.RWMutex
-	jobChannels  map[string]chan *Event // per-peer job streams
-	pending      map[string]*Event      // jobID → event
+	jobChannels  map[string]*Channel // per-peer job streams
+	pending      map[string]*Event   // jobID → event
 	responseWait time.Duration
 	metrics      telemetry.AppMetrics
 	Store        store.Store
@@ -34,7 +32,7 @@ type Manager struct {
 func NewJobManager(metrics telemetry.AppMetrics, store store.Store) *Manager {
 
 	return &Manager{
-		jobChannels:  make(map[string]chan *Event),
+		jobChannels:  make(map[string]*Channel),
 		pending:      make(map[string]*Event),
 		responseWait: 5 * time.Minute,
 		metrics:      metrics,
@@ -44,7 +42,7 @@ func NewJobManager(metrics telemetry.AppMetrics, store store.Store) *Manager {
 }
 
 // CreateJobChannel creates or replaces a channel for a peer
-func (jm *Manager) CreateJobChannel(ctx context.Context, accountID, peerID string) chan *Event {
+func (jm *Manager) CreateJobChannel(ctx context.Context, accountID, peerID string) *Channel {
 	// all pending jobs stored in db for this peer should be failed
 	if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, "Pending job cleanup: marked as failed automatically due to being stuck too long"); err != nil {
 		log.WithContext(ctx).Error(err.Error())
@@ -54,11 +52,11 @@ func (jm *Manager) CreateJobChannel(ctx context.Context, accountID, peerID strin
 	defer jm.mu.Unlock()
 
 	if ch, ok := jm.jobChannels[peerID]; ok {
-		close(ch)
+		ch.Close()
 		delete(jm.jobChannels, peerID)
 	}
 
-	ch := make(chan *Event, jobChannelBuffer)
+	ch := NewChannel()
 	jm.jobChannels[peerID] = ch
 	return ch
 }
@@ -81,15 +79,11 @@ func (jm *Manager) SendJob(ctx context.Context, accountID, peerID string, req *p
 	jm.pending[string(req.ID)] = event
 	jm.mu.Unlock()
 
-	select {
-	case ch <- event:
-	case <-time.After(jm.responseWait):
-		jm.cleanup(ctx, accountID, string(req.ID), "timed out")
-		return fmt.Errorf("job %s timed out", req.ID)
-	case <-ctx.Done():
-		jm.cleanup(ctx, accountID, string(req.ID), ctx.Err().Error())
-		return ctx.Err()
+	if err := ch.AddEvent(ctx, jm.responseWait, event); err != nil {
+		jm.cleanup(ctx, accountID, string(req.ID), err.Error())
+		return err
 	}
+
 	return nil
 }
 
@@ -101,16 +95,19 @@ func (jm *Manager) HandleResponse(ctx context.Context, resp *proto.JobResponse) 
 	// todo: validate job ID and would be nice to use uuid text marshal instead of string
 	jobID := string(resp.ID)
 
+	// todo: in this map has jobs for all peers in any account. Consider to validate the jobID association for the peer
 	event, ok := jm.pending[jobID]
 	if !ok {
 		return fmt.Errorf("job %s not found", jobID)
 	}
 	var job types.Job
+	// todo: ApplyResponse should be static. Any member value is unusable in this way
 	if err := job.ApplyResponse(resp); err != nil {
 		return fmt.Errorf("invalid job response: %v", err)
 	}
 	//update or create the store for job response
 	err := jm.Store.CompletePeerJob(ctx, &job)
+	// todo incorrect error handling. Why do we touch event if we drop it the next step?
 	if err == nil {
 		event.Response = resp
 	}
@@ -125,8 +122,7 @@ func (jm *Manager) CloseChannel(ctx context.Context, accountID, peerID string) {
 	defer jm.mu.Unlock()
 
 	if ch, ok := jm.jobChannels[peerID]; ok {
-		close(ch)
-		jm.jobChannels[peerID] = nil
+		ch.Close()
 		delete(jm.jobChannels, peerID)
 	}
 
