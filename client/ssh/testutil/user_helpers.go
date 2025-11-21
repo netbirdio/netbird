@@ -73,11 +73,7 @@ func IsSystemAccount(username string) bool {
 		}
 	}
 
-	if strings.HasSuffix(username, "$") {
-		return true
-	}
-
-	return false
+	return strings.HasSuffix(username, "$")
 }
 
 // RegisterTestUserCleanup registers a test user for cleanup
