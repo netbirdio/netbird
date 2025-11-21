@@ -189,12 +189,7 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 
 	hostLine := strings.Join(deduplicatedPatterns, " ")
 	config := fmt.Sprintf("Host %s\n", hostLine)
-
-	if runtime.GOOS == "windows" {
-		config += fmt.Sprintf("    Match exec \"%s ssh detect %%h %%p\"\n", execPath)
-	} else {
-		config += fmt.Sprintf("    Match exec \"%s ssh detect %%h %%p 2>/dev/null\"\n", execPath)
-	}
+	config += fmt.Sprintf("    Match exec \"%s ssh detect %%h %%p\"\n", execPath)
 	config += "        PreferredAuthentications password,publickey,keyboard-interactive\n"
 	config += "        PasswordAuthentication yes\n"
 	config += "        PubkeyAuthentication yes\n"

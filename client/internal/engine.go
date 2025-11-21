@@ -257,7 +257,7 @@ func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signa
 	sm := profilemanager.NewServiceManager("")
 
 	path := sm.GetStatePath()
-	if runtime.GOOS == "ios" {
+	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
 			if err != nil {
@@ -1916,6 +1916,18 @@ func (e *Engine) GetWgAddr() netip.Addr {
 		return netip.Addr{}
 	}
 	return e.wgInterface.Address().IP
+}
+
+func (e *Engine) RenewTun(fd int) error {
+	e.syncMsgMux.Lock()
+	wgInterface := e.wgInterface
+	e.syncMsgMux.Unlock()
+
+	if wgInterface == nil {
+		return fmt.Errorf("wireguard interface not initialized")
+	}
+
+	return wgInterface.RenewTun(fd)
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag

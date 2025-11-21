@@ -343,10 +343,13 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 		return nil, fmt.Errorf("parse port %s: %w", portStr, err)
 	}
 
-	dialer := &net.Dialer{Timeout: detection.Timeout}
-	serverType, err := detection.DetectSSHServerType(ctx, dialer, host, port)
+	detectionCtx, cancel := context.WithTimeout(ctx, config.Timeout)
+	defer cancel()
+
+	dialer := &net.Dialer{}
+	serverType, err := detection.DetectSSHServerType(detectionCtx, dialer, host, port)
 	if err != nil {
-		return nil, fmt.Errorf("SSH server detection failed: %w", err)
+		return nil, fmt.Errorf("SSH server detection: %w", err)
 	}
 
 	if !serverType.RequiresJWT() {

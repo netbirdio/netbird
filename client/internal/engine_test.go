@@ -111,6 +111,10 @@ type MockWGIface struct {
 	LastActivitiesFunc         func() map[string]monotime.Time
 }
 
+func (m *MockWGIface) RenewTun(_ int) error {
+	return nil
+}
+
 func (m *MockWGIface) RemoveEndpointAddress(_ string) error {
 	return nil
 }
