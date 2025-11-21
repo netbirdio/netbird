@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -338,6 +339,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		t.Fatal(err)
 	}
 
+	jobManager := job.NewJobManager(nil, store)
 	eventStore := &activity.InMemoryEventStore{}
 
 	ctx := context.WithValue(context.Background(), hook.ExecutionContextKey, hook.SystemSource) //nolint:staticcheck
@@ -364,7 +366,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), config)
-	accountManager, err := BuildManager(ctx, nil, store, networkMapController, nil, "",
+	accountManager, err := BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "",
 		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 
 	if err != nil {
@@ -375,7 +377,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	secretsManager := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 
 	ephemeralMgr := manager.NewEphemeralManager(store, accountManager)
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, updateManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{}, networkMapController)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, updateManager, jobManager, secretsManager, nil, ephemeralMgr, nil, MockIntegratedValidator{}, networkMapController)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
