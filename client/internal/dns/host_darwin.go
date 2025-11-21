@@ -204,26 +204,13 @@ func (s *systemConfigurator) recordSystemDNSSettings(force bool) error {
 	return nil
 }
 
-func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
-	primaryServiceKey, _, err := s.getPrimaryService()
-	if err != nil || primaryServiceKey == "" {
-		return SystemDNSSettings{}, fmt.Errorf("couldn't find the primary service key: %w", err)
-	}
-	dnsServiceKey := getKeyWithInput(primaryServiceStateKeyFormat, primaryServiceKey)
-	line := buildCommandLine("show", dnsServiceKey, "")
-	stdinCommands := wrapCommand(line)
-
-	b, err := runSystemConfigCommand(stdinCommands)
-	if err != nil {
-		return SystemDNSSettings{}, fmt.Errorf("sending the command: %w", err)
-	}
-
+func parseSystemConfigOutput(output []byte) (SystemDNSSettings, error) {
 	var dnsSettings SystemDNSSettings
 	localDomainsMap := make(map[string]struct{})
 	inSearchDomainsArray := false
 	inServerAddressesArray := false
 
-	scanner := bufio.NewScanner(bytes.NewReader(b))
+	scanner := bufio.NewScanner(bytes.NewReader(output))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		switch {
@@ -264,10 +251,26 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 		return dnsSettings, err
 	}
 
-	// default to 53 port
 	dnsSettings.ServerPort = DefaultPort
 
 	return dnsSettings, nil
+}
+
+func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
+	primaryServiceKey, _, err := s.getPrimaryService()
+	if err != nil || primaryServiceKey == "" {
+		return SystemDNSSettings{}, fmt.Errorf("couldn't find the primary service key: %w", err)
+	}
+	dnsServiceKey := getKeyWithInput(primaryServiceStateKeyFormat, primaryServiceKey)
+	line := buildCommandLine("show", dnsServiceKey, "")
+	stdinCommands := wrapCommand(line)
+
+	b, err := runSystemConfigCommand(stdinCommands)
+	if err != nil {
+		return SystemDNSSettings{}, fmt.Errorf("sending the command: %w", err)
+	}
+
+	return parseSystemConfigOutput(b)
 }
 
 func (s *systemConfigurator) addSearchDomains(key, domains string, ips []netip.Addr, port int) error {
