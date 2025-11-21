@@ -78,7 +78,7 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 					return &types.Group{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI}, nil
 				}
 
-				return nil, fmt.Errorf("unknown group name")
+				return nil, status.Errorf(status.NotFound, "unknown group name")
 			},
 			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				return maps.Values(TestPeers), nil
@@ -330,7 +330,7 @@ func TestGetAllGroups(t *testing.T) {
 			expectedBody:   false,
 			requestType:    http.MethodGet,
 			requestPath:    "/api/groups?name=NonExistent",
-			expectedStatus: http.StatusInternalServerError,
+			expectedStatus: http.StatusNotFound,
 		},
 	}
 
