@@ -1209,6 +1209,7 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns
 		dnsZone := nbdns.CustomZone{
 			Domain:               zone.GetDomain(),
 			SearchDomainDisabled: zone.GetSearchDomainDisabled(),
+			SkipPTRProcess:       zone.GetSkipPTRProcess(),
 		}
 		for _, record := range zone.Records {
 			dnsRecord := nbdns.SimpleRecord{
