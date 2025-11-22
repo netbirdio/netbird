@@ -30,7 +30,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
           cache: false
 
       - name: Get Go environment
@@ -106,14 +106,14 @@ jobs:
         arch: [ '386','amd64' ]
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
           cache: false
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Get Go environment
         run: |
@@ -151,14 +151,14 @@ jobs:
     needs: [ build-cache ]
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
           cache: false
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Get Go environment
         id: go-env
@@ -200,7 +200,7 @@ jobs:
             -e GOCACHE=${CONTAINER_GOCACHE} \
             -e GOMODCACHE=${CONTAINER_GOMODCACHE} \
             -e CONTAINER=${CONTAINER} \
-            golang:1.23-alpine \
+            golang:1.24-alpine \
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
@@ -220,14 +220,14 @@ jobs:
             raceFlag: "-race"
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
           cache: false
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Install dependencies
         if: steps.cache.outputs.cache-hit != 'true'
@@ -270,14 +270,14 @@ jobs:
         arch: [ '386','amd64' ]
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
           cache: false
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Install dependencies
         if: steps.cache.outputs.cache-hit != 'true'
@@ -321,14 +321,14 @@ jobs:
         store: [ 'sqlite', 'postgres', 'mysql' ]
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
           cache: false
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Get Go environment
         run: |
@@ -408,14 +408,15 @@ jobs:
             -v $PWD/prometheus.yml:/etc/prometheus/prometheus.yml \
             -p 9090:9090 \
             prom/prometheus
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.23.x"
-          cache: false
 
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: false
 
       - name: Get Go environment
         run: |
@@ -497,14 +498,14 @@ jobs:
             -p 9090:9090 \
             prom/prometheus
 
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
           cache: false
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Get Go environment
         run: |
@@ -561,14 +562,14 @@ jobs:
         store: [ 'sqlite', 'postgres']
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
           cache: false
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Get Go environment
         run: |
