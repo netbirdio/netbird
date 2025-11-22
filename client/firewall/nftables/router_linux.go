@@ -91,11 +91,7 @@ func newRouter(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) (*rou
 	var err error
 	r.filterTable, err = r.loadFilterTable()
 	if err != nil {
-		if errors.Is(err, errFilterTableNotFound) {
-			log.Warnf("table 'filter' not found for forward rules")
-		} else {
-			return nil, fmt.Errorf("load filter table: %w", err)
-		}
+		log.Warnf("failed to load filter table, skipping accept rules: %v", err)
 	}
 
 	return r, nil
@@ -175,7 +171,7 @@ func (r *router) removeNatPreroutingRules() error {
 func (r *router) loadFilterTable() (*nftables.Table, error) {
 	tables, err := r.conn.ListTablesOfFamily(nftables.TableFamilyIPv4)
 	if err != nil {
-		return nil, fmt.Errorf("unable to list tables: %v", err)
+		return nil, fmt.Errorf("list tables: %w", err)
 	}
 
 	for _, table := range tables {
