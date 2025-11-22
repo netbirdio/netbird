@@ -754,8 +754,6 @@ func (r *router) addPostroutingRules() {
 		Chain: r.chains[chainNameRoutingNat],
 		Exprs: exprs2,
 	})
-
-	return
 }
 
 // addMSSClampingRules adds MSS clamping rules to prevent fragmentation for forwarded traffic.
