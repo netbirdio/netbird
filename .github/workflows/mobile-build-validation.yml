@@ -20,7 +20,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -39,7 +39,7 @@ jobs:
       - name: Setup NDK
         run: /usr/local/lib/android/sdk/cmdline-tools/7.0/bin/sdkmanager --install "ndk;23.1.7779620"
       - name: install gomobile
-        run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20240404231514-09dbf07665ed
+        run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20251113184115-a159579294ab
       - name: gomobile init
         run: gomobile init
       - name: build android netbird lib
@@ -56,9 +56,9 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
       - name: install gomobile
-        run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20240404231514-09dbf07665ed
+        run: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20251113184115-a159579294ab
       - name: gomobile init
         run: gomobile init
       - name: build iOS netbird lib
