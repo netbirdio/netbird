@@ -19,7 +19,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
-	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/users"
 )
 
@@ -121,12 +120,7 @@ func (s *BaseServer) NetworksManager() networks.Manager {
 
 func (s *BaseServer) ZonesManager() zones.Manager {
 	return Create(s, func() zones.Manager {
-		sqlStore, ok := s.Store().(*store.SqlStore)
-		if !ok {
-			log.Fatalln("zones manager requires SqlStore")
-		}
-
-		return zonesManager.NewManager(zonesManager.NewRepository(sqlStore), s.AccountManager())
+		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
 		//s.AfterInit(func(s *BaseServer) {
 		//	// TODO: register zones manager endpoints
 		//})

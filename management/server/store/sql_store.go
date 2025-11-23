@@ -27,6 +27,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -113,6 +114,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&types.Account{}, &types.Policy{}, &types.PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
+		&zones.Zone{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -4123,4 +4125,74 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 	}
 
 	return peers, nil
+}
+
+func (s *SqlStore) CreateZone(ctx context.Context, zone *zones.Zone) error {
+	result := s.db.Create(zone)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to create to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to create zone to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateZone(ctx context.Context, zone *zones.Zone) error {
+	result := s.db.Select("*").Save(zone)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update zone to store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update zone to store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) DeleteZone(ctx context.Context, accountID, zoneID string) error {
+	result := s.db.Delete(&zones.Zone{}, accountAndIDQueryCondition, accountID, zoneID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete zone from store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to delete zone from store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewZoneNotFoundError(zoneID)
+	}
+
+	return nil
+}
+
+func (s *SqlStore) GetZoneByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) (*zones.Zone, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var zone *zones.Zone
+	result := tx.Take(&zone, accountAndIDQueryCondition, accountID, zoneID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.NewZoneNotFoundError(zoneID)
+		}
+
+		log.WithContext(ctx).Errorf("failed to get zone from store: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zone from store")
+	}
+
+	return zone, nil
+}
+
+func (s *SqlStore) GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var zones []*zones.Zone
+	result := tx.Find(&zones, accountIDCondition, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to get zones from the store: %s", result.Error)
+		return nil, status.Errorf(status.Internal, "failed to get zones from store")
+	}
+
+	return zones, nil
 }
