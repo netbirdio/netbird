@@ -28,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
+	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -179,6 +180,7 @@ func startServer(
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 
+	jobManager := job.NewJobManager(nil, str)
 	eventStore := &activity.InMemoryEventStore{}
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
@@ -212,6 +214,7 @@ func startServer(
 		nil,
 		str,
 		networkMapController,
+		jobManager,
 		nil,
 		"",
 		eventStore,
@@ -234,6 +237,7 @@ func startServer(
 		accountManager,
 		settingsMockManager,
 		updateManager,
+		jobManager,
 		secretsManager,
 		nil,
 		&manager.EphemeralManager{},

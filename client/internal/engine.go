@@ -31,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
 	"github.com/netbirdio/netbird/client/internal/dnsfwd"
@@ -48,6 +49,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -132,6 +134,11 @@ type EngineConfig struct {
 	LazyConnectionEnabled bool
 
 	MTU uint16
+
+	// for debug bundle generation
+	ProfileConfig *profilemanager.Config
+
+	LogPath string
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -195,7 +202,8 @@ type Engine struct {
 	stateManager *statemanager.Manager
 	srWatcher    *guard.SRWatcher
 
-	// Sync response persistence
+	// Sync response persistence (protected by syncRespMux)
+	syncRespMux         sync.RWMutex
 	persistSyncResponse bool
 	latestSyncResponse  *mgmProto.SyncResponse
 	connSemaphore       *semaphoregroup.SemaphoreGroup
@@ -208,6 +216,9 @@ type Engine struct {
 	shutdownWg sync.WaitGroup
 
 	probeStunTurn *relay.StunTurnProbe
+
+	jobExecutor   *jobexec.Executor
+	jobExecutorWG sync.WaitGroup
 }
 
 // Peer is an instance of the Connection Peer
@@ -221,17 +232,7 @@ type localIpUpdater interface {
 }
 
 // NewEngine creates a new Connection Engine with probes attached
-func NewEngine(
-	clientCtx context.Context,
-	clientCancel context.CancelFunc,
-	signalClient signal.Client,
-	mgmClient mgm.Client,
-	relayManager *relayClient.Manager,
-	config *EngineConfig,
-	mobileDep MobileDependency,
-	statusRecorder *peer.Status,
-	checks []*mgmProto.Checks,
-) *Engine {
+func NewEngine(clientCtx context.Context, clientCancel context.CancelFunc, signalClient signal.Client, mgmClient mgm.Client, relayManager *relayClient.Manager, config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status, checks []*mgmProto.Checks, c *profilemanager.Config) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
 		clientCancel:   clientCancel,
@@ -250,6 +251,7 @@ func NewEngine(
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
+		jobExecutor:    jobexec.NewExecutor(),
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -329,6 +331,8 @@ func (e *Engine) Stop() error {
 	if e.cancel != nil {
 		e.cancel()
 	}
+
+	e.jobExecutorWG.Wait() // block until job goroutines finish
 
 	e.close()
 
@@ -516,6 +520,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
+	e.receiveJobEvents()
 
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
@@ -793,9 +798,18 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return nil
 	}
 
+	// Persist sync response under the dedicated lock (syncRespMux), not under syncMsgMux.
+	// Read the storage-enabled flag under the syncRespMux too.
+	e.syncRespMux.RLock()
+	enabled := e.persistSyncResponse
+	e.syncRespMux.RUnlock()
+
 	// Store sync response if persistence is enabled
-	if e.persistSyncResponse {
+	if enabled {
+		e.syncRespMux.Lock()
 		e.latestSyncResponse = update
+		e.syncRespMux.Unlock()
+
 		log.Debugf("sync response persisted with serial %d", nm.GetSerial())
 	}
 
@@ -924,6 +938,77 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	e.statusRecorder.UpdateLocalPeerState(state)
 
 	return nil
+}
+func (e *Engine) receiveJobEvents() {
+	e.jobExecutorWG.Add(1)
+	go func() {
+		defer e.jobExecutorWG.Done()
+		err := e.mgmClient.Job(e.ctx, func(msg *mgmProto.JobRequest) *mgmProto.JobResponse {
+			resp := mgmProto.JobResponse{
+				ID:     msg.ID,
+				Status: mgmProto.JobStatus_failed,
+			}
+			switch params := msg.WorkloadParameters.(type) {
+			case *mgmProto.JobRequest_Bundle:
+				bundleResult, err := e.handleBundle(params.Bundle)
+				if err != nil {
+					log.Errorf("handling bundle: %v", err)
+					resp.Reason = []byte(err.Error())
+					return &resp
+				}
+				resp.Status = mgmProto.JobStatus_succeeded
+				resp.WorkloadResults = bundleResult
+				return &resp
+			default:
+				resp.Reason = []byte(jobexec.ErrJobNotImplemented.Error())
+				return &resp
+			}
+		})
+		if err != nil {
+			// happens if management is unavailable for a long time.
+			// We want to cancel the operation of the whole client
+			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
+			e.clientCancel()
+			return
+		}
+		log.Info("stopped receiving jobs from Management Service")
+	}()
+	log.Info("connecting to Management Service jobs stream")
+}
+
+func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobResponse_Bundle, error) {
+	log.Infof("handle remote debug bundle request: %s", params.String())
+	syncResponse, err := e.GetLatestSyncResponse()
+	if err != nil {
+		log.Warnf("get latest sync response: %v", err)
+	}
+
+	bundleDeps := debug.GeneratorDependencies{
+		InternalConfig: e.config.ProfileConfig,
+		StatusRecorder: e.statusRecorder,
+		SyncResponse:   syncResponse,
+		LogPath:        e.config.LogPath,
+	}
+
+	bundleJobParams := debug.BundleConfig{
+		Anonymize:         params.Anonymize,
+		IncludeSystemInfo: true,
+		LogFileCount:      uint32(params.LogFileCount),
+	}
+
+	waitFor := time.Duration(params.BundleForTime) * time.Minute
+
+	uploadKey, err := e.jobExecutor.BundleJob(e.ctx, bundleDeps, bundleJobParams, waitFor, e.config.ProfileConfig.ManagementURL.String())
+	if err != nil {
+		return nil, err
+	}
+
+	response := &mgmProto.JobResponse_Bundle{
+		Bundle: &mgmProto.BundleResult{
+			UploadKey: uploadKey,
+		},
+	}
+	return response, nil
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
@@ -1786,8 +1871,8 @@ func (e *Engine) stopDNSServer() {
 
 // SetSyncResponsePersistence enables or disables sync response persistence
 func (e *Engine) SetSyncResponsePersistence(enabled bool) {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
+	e.syncRespMux.Lock()
+	defer e.syncRespMux.Unlock()
 
 	if enabled == e.persistSyncResponse {
 		return
@@ -1802,20 +1887,22 @@ func (e *Engine) SetSyncResponsePersistence(enabled bool) {
 
 // GetLatestSyncResponse returns the stored sync response if persistence is enabled
 func (e *Engine) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
+	e.syncRespMux.RLock()
+	enabled := e.persistSyncResponse
+	latest := e.latestSyncResponse
+	e.syncRespMux.RUnlock()
 
-	if !e.persistSyncResponse {
+	if !enabled {
 		return nil, errors.New("sync response persistence is disabled")
 	}
 
-	if e.latestSyncResponse == nil {
+	if latest == nil {
 		//nolint:nilnil
 		return nil, nil
 	}
 
-	log.Debugf("Retrieving latest sync response with size %d bytes", proto.Size(e.latestSyncResponse))
-	sr, ok := proto.Clone(e.latestSyncResponse).(*mgmProto.SyncResponse)
+	log.Debugf("Retrieving latest sync response with size %d bytes", proto.Size(latest))
+	sr, ok := proto.Clone(latest).(*mgmProto.SyncResponse)
 	if !ok {
 		return nil, fmt.Errorf("failed to clone sync response")
 	}
