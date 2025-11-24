@@ -41,8 +41,8 @@ export class DaemonClient {
   private protoPath: string;
 
   constructor(private address: string) {
-    // Path to proto file via symlink: dist/electron/grpc -> ../../../proto/daemon.proto
-    this.protoPath = path.join(__dirname, '../../../proto/daemon.proto');
+    // Path to proto file: dist/electron/grpc/client.js -> ../../proto/daemon.proto
+    this.protoPath = path.join(__dirname, '../../proto/daemon.proto');
     this.initializeClient();
   }
 

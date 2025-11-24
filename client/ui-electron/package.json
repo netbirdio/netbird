@@ -9,7 +9,7 @@
     "dev": "concurrently -k \"npm run dev:react\" \"npm run dev:electron\"",
     "dev:react": "vite --port 5173",
     "dev:electron": "tsc -p tsconfig.electron.json && electron .",
-    "build": "vite build && tsc -p tsconfig.electron.json --noCheck",
+    "build": "vite build && tsc -p tsconfig.electron.json --noCheck && mkdir -p dist/proto && cp -r proto/* dist/proto/",
     "build:strict": "tsc && vite build && tsc -p tsconfig.electron.json",
     "build:linux": "npm run build && electron-builder --linux",
     "build:all": "npm run build && electron-builder -mwl",
@@ -54,7 +54,12 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*"
+      "dist/**/*",
+      "assets/**/*"
+    ],
+    "asarUnpack": [
+      "dist/proto/**/*",
+      "assets/**/*"
     ],
     "linux": {
       "target": [
@@ -62,7 +67,7 @@
         "deb"
       ],
       "category": "Network",
-      "icon": "assets/icon.png"
+      "icon": "assets/icons"
     },
     "mac": {
       "target": "dmg",
