@@ -303,7 +303,7 @@ NRPT_Next:
     IntOp $0 $0 + 1
     Goto NRPT_Loop
 
-NRPT_Done:
+NRPT_Done: ;
 DetailPrint "NRPT cleanup completed."
 DetailPrint "Restarting DNS Client service..."
 nsExec::ExecToLog "sc stop Dnscache"
