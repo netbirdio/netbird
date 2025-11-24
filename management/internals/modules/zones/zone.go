@@ -9,7 +9,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
-var domainRegex = regexp.MustCompile(`^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
+var DomainRegex = regexp.MustCompile(`^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 
 type Zone struct {
 	ID                 string `gorm:"primaryKey"`
@@ -65,8 +65,8 @@ func (z *Zone) Validate() error {
 		return errors.New("zone name exceeds maximum length of 255 characters")
 	}
 
-	if !domainRegex.MatchString(z.Domain) {
-		return errors.New("zone domain has invalid format")
+	if !DomainRegex.MatchString(z.Domain) {
+		return errors.New("invalid zone domain format")
 	}
 
 	if len(z.DistributionGroups) == 0 {

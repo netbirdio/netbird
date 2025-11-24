@@ -3,7 +3,9 @@ package manager
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -61,12 +63,20 @@ func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneI
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	if err = m.validateRecordConflicts(ctx, accountID, zoneID, record.Name, record.Type, record.Content, ""); err != nil {
-		return nil, err
-	}
+	var zone *zones.Zone
 
 	record = records.NewRecord(accountID, zoneID, record.Name, record.Type, record.Content, record.TTL)
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		zone, err = transaction.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
+		if err != nil {
+			return fmt.Errorf("failed to get zone: %w", err)
+		}
+
+		err = validateRecordConflicts(ctx, transaction, zone, record)
+		if err != nil {
+			return err
+		}
+
 		if err = transaction.CreateDNSRecord(ctx, record); err != nil {
 			return fmt.Errorf("failed to create dns record: %w", err)
 		}
@@ -82,7 +92,7 @@ func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneI
 		return nil, err
 	}
 
-	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordCreated, record.EventMeta())
+	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordCreated, record.EventMeta(zone))
 
 	return record, nil
 }
@@ -96,23 +106,33 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	record, err := m.store.GetDNSRecordByID(ctx, store.LockingStrengthUpdate, accountID, zoneID, updatedRecord.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	if record.Name != updatedRecord.Name || record.Type != updatedRecord.Type || record.Content != updatedRecord.Content {
-		if err = m.validateRecordConflicts(ctx, accountID, zoneID, updatedRecord.Name, updatedRecord.Type, updatedRecord.Content, record.ID); err != nil {
-			return nil, err
-		}
-	}
-
-	record.Name = updatedRecord.Name
-	record.Type = updatedRecord.Type
-	record.Content = updatedRecord.Content
-	record.TTL = updatedRecord.TTL
+	var zone *zones.Zone
+	var record *records.Record
 
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		zone, err = transaction.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
+		if err != nil {
+			return fmt.Errorf("failed to get zone: %w", err)
+		}
+
+		record, err = m.store.GetDNSRecordByID(ctx, store.LockingStrengthUpdate, accountID, zoneID, updatedRecord.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get record: %w", err)
+		}
+
+		hasChanges := record.Name != updatedRecord.Name || record.Type != updatedRecord.Type || record.Content != updatedRecord.Content
+
+		record.Name = updatedRecord.Name
+		record.Type = updatedRecord.Type
+		record.Content = updatedRecord.Content
+		record.TTL = updatedRecord.TTL
+
+		if hasChanges {
+			if err = validateRecordConflicts(ctx, transaction, zone, record); err != nil {
+				return err
+			}
+		}
+
 		if err = transaction.UpdateDNSRecord(ctx, record); err != nil {
 			return fmt.Errorf("failed to update dns record: %w", err)
 		}
@@ -128,7 +148,7 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 		return nil, err
 	}
 
-	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordUpdated, record.EventMeta())
+	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordUpdated, record.EventMeta(zone))
 
 	go m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -144,21 +164,24 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 		return status.NewPermissionDeniedError()
 	}
 
-	record, err := m.store.GetDNSRecordByID(ctx, store.LockingStrengthUpdate, accountID, zoneID, recordID)
-	if err != nil {
-		return err
-	}
+	var record *records.Record
+	var zone *zones.Zone
 
-	var eventsToStore []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		zone, err = transaction.GetZoneByID(ctx, store.LockingStrengthUpdate, accountID, zoneID)
+		if err != nil {
+			return fmt.Errorf("failed to get zone: %w", err)
+		}
+
+		record, err = m.store.GetDNSRecordByID(ctx, store.LockingStrengthUpdate, accountID, zoneID, recordID)
+		if err != nil {
+			return fmt.Errorf("failed to get record: %w", err)
+		}
+
 		err = transaction.DeleteDNSRecord(ctx, accountID, recordID)
 		if err != nil {
 			return fmt.Errorf("failed to delete dns record: %w", err)
 		}
-
-		eventsToStore = append(eventsToStore, func() {
-			m.accountManager.StoreEvent(ctx, userID, recordID, accountID, activity.DNSRecordDeleted, record.EventMeta())
-		})
 
 		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
@@ -171,34 +194,36 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 		return err
 	}
 
-	for _, event := range eventsToStore {
-		event()
-	}
+	m.accountManager.StoreEvent(ctx, userID, recordID, accountID, activity.DNSRecordDeleted, record.EventMeta(zone))
 
 	go m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return nil
 }
 
-// validateRecordConflicts checks for duplicate records and CNAME conflicts.
-func (m *managerImpl) validateRecordConflicts(ctx context.Context, accountID, zoneID, name string, recordType records.RecordType, content, excludeRecordID string) error {
-	existingRecords, err := m.store.GetZoneDNSRecordsByName(ctx, store.LockingStrengthNone, accountID, zoneID, name)
+// validateRecordConflicts checks for duplicate records and CNAME conflicts
+func validateRecordConflicts(ctx context.Context, transaction store.Store, zone *zones.Zone, record *records.Record) error {
+	if !strings.HasSuffix(record.Name, zone.Domain) {
+		return status.Errorf(status.InvalidArgument, "record name does not belong to zone")
+	}
+
+	existingRecords, err := transaction.GetZoneDNSRecordsByName(ctx, store.LockingStrengthNone, zone.AccountID, zone.ID, record.Name)
 	if err != nil {
 		return fmt.Errorf("failed to check existing records: %w", err)
 	}
 
 	for _, existing := range existingRecords {
-		if existing.ID == excludeRecordID {
+		if existing.ID == record.ID {
 			continue
 		}
 
-		if existing.Type == recordType && existing.Content == content {
+		if existing.Type == record.Type && existing.Content == record.Content {
 			return status.Errorf(status.AlreadyExists, "identical record already exists")
 		}
 
-		if recordType == records.RecordTypeCNAME || existing.Type == records.RecordTypeCNAME {
+		if record.Type == records.RecordTypeCNAME || existing.Type == records.RecordTypeCNAME {
 			return status.Errorf(status.InvalidArgument,
-				"An A, AAAA, or CNAME record with name %s already exists", name)
+				"An A, AAAA, or CNAME record with name %s already exists", record.Name)
 		}
 	}
 

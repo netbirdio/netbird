@@ -6,10 +6,10 @@ import (
 
 	"github.com/rs/xid"
 
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
-// RecordType represents DNS record types
 type RecordType string
 
 const (
@@ -62,8 +62,9 @@ func (r *Record) Validate() error {
 	if r.Name == "" {
 		return errors.New("record name is required")
 	}
-	if len(r.Name) > 255 {
-		return errors.New("record name exceeds maximum length of 255 characters")
+
+	if !zones.DomainRegex.MatchString(r.Name) {
+		return errors.New("invalid record name format")
 	}
 
 	if r.Type == "" {
@@ -80,8 +81,8 @@ func (r *Record) Validate() error {
 			return err
 		}
 	case RecordTypeCNAME:
-		if err := validateCNAME(r.Content); err != nil {
-			return err
+		if !zones.DomainRegex.MatchString(r.Content) {
+			return errors.New("invalid CNAME record format")
 		}
 	default:
 		return errors.New("invalid record type, must be A, AAAA, or CNAME")
@@ -94,42 +95,35 @@ func (r *Record) Validate() error {
 	return nil
 }
 
-func (r *Record) EventMeta() map[string]any {
+func (r *Record) EventMeta(zone *zones.Zone) map[string]any {
 	return map[string]any{
-		"name":    r.Name,
-		"type":    string(r.Type),
-		"content": r.Content,
+		"name":      r.Name,
+		"type":      string(r.Type),
+		"content":   r.Content,
+		"ttl":       r.TTL,
+		"zone_id":   zone.ID,
+		"zone_name": zone.Name,
 	}
 }
 
 func validateIPv4(content string) error {
 	if content == "" {
-		return errors.New("A record content is required")
+		return errors.New("A record is required")
 	}
 	ip := net.ParseIP(content)
 	if ip == nil || ip.To4() == nil {
-		return errors.New("A record content must be a valid IPv4 address")
+		return errors.New("A record must be a valid IPv4 address")
 	}
 	return nil
 }
 
 func validateIPv6(content string) error {
 	if content == "" {
-		return errors.New("AAAA record content is required")
+		return errors.New("AAAA record is required")
 	}
 	ip := net.ParseIP(content)
-	if ip == nil || ip.To4() != nil {
-		return errors.New("AAAA record content must be a valid IPv6 address")
-	}
-	return nil
-}
-
-func validateCNAME(content string) error {
-	if content == "" {
-		return errors.New("CNAME record content is required")
-	}
-	if len(content) > 253 {
-		return errors.New("CNAME content exceeds maximum length of 253 characters")
+	if ip == nil || ip.To16() == nil {
+		return errors.New("AAAA record must be a valid IPv6 address")
 	}
 	return nil
 }

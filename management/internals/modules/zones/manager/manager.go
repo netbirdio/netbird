@@ -141,21 +141,35 @@ func (m *managerImpl) DeleteZone(ctx context.Context, accountID, userID, zoneID 
 
 	var eventsToStore []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		// TODO: get zone records and delete
+		records, err := transaction.GetZoneDNSRecords(ctx, store.LockingStrengthNone, accountID, zoneID)
+		if err != nil {
+			return fmt.Errorf("failed to get records: %w", err)
+		}
+
+		err = transaction.DeleteZoneDNSRecords(ctx, accountID, zoneID)
+		if err != nil {
+			return fmt.Errorf("failed to delete zone dns records: %w", err)
+		}
 
 		err = transaction.DeleteZone(ctx, accountID, zoneID)
 		if err != nil {
 			return fmt.Errorf("failed to delete zone: %w", err)
 		}
 
-		eventsToStore = append(eventsToStore, func() {
-			m.accountManager.StoreEvent(ctx, userID, zoneID, accountID, activity.DNSZoneDeleted, zone.EventMeta())
-		})
-
 		err = transaction.IncrementNetworkSerial(ctx, accountID)
 		if err != nil {
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
+
+		for _, record := range records {
+			eventsToStore = append(eventsToStore, func() {
+				m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordDeleted, record.EventMeta(zone))
+			})
+		}
+
+		eventsToStore = append(eventsToStore, func() {
+			m.accountManager.StoreEvent(ctx, userID, zoneID, accountID, activity.DNSZoneDeleted, zone.EventMeta())
+		})
 
 		return nil
 	})
