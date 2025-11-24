@@ -285,27 +285,29 @@ ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 DetailPrint "Removing autostart registry entry if exists..."
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
-; Clean up DNS policies/NRPT entries
-DetailPrint "Cleaning up DNS policies and NRPT entries..."
-nsExec::ExecToLog 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "& {
-    $basePath = \"HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Dnscache\\Parameters\\DnsPolicyConfig\";
-    if (Test-Path $basePath) {
-        $keys = Get-ChildItem -Path $basePath -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match \"^(?i)netbird\" };
-        if ($keys) {
-            foreach ($key in $keys) {
-                Write-Host \"Removing NRPT key: $($key.PSChildName)\" -ForegroundColor Yellow;
-                try { Remove-Item -Path $key.PSPath -Recurse -Force -ErrorAction Stop }
-                catch { Write-Warning \"Failed to remove $($key.PSChildName): $_\" }
-            }
-            Write-Host \"All matching Netbird keys removed. Restarting DNS Client service...\" -ForegroundColor Green;
-            Restart-Service Dnscache -Force
-        } else {
-            Write-Host \"No Netbird-related keys found.\" -ForegroundColor Cyan
-        }
-    } else {
-        Write-Warning \"DnsPolicyConfig path not found. Nothing to remove.\"
-    }
-}"'
+; Cleanup leftover DNS and NRPT entries
+DetailPrint "Cleaning NRPT DNS keys..."
+StrCpy $0 0
+NRPT_Loop:
+    EnumRegKey $1 HKLM "SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig" $0
+    IfErrors NRPT_Done
+
+    ; Check if key starts with "netbird"
+    StrCpy $2 $1 7
+    StrCmp $2 "netbird" 0 NRPT_Next
+
+    DetailPrint "Deleting NRPT key: $1"
+    DeleteRegKey HKLM "SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\$1"
+
+NRPT_Next:
+    IntOp $0 $0 + 1
+    Goto NRPT_Loop
+
+NRPT_Done:
+DetailPrint "NRPT cleanup completed."
+DetailPrint "Restarting DNS Client service..."
+nsExec::ExecToLog "sc stop Dnscache"
+nsExec::ExecToLog "sc start Dnscache"
 
 ; Handle data deletion based on checkbox
 DetailPrint "Checking if user requested data deletion..."
