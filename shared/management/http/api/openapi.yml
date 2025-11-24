@@ -1753,6 +1753,53 @@ components:
             - id
             - enabled
         - $ref: '#/components/schemas/ZoneRequest'
+    DNSRecordType:
+      type: string
+      description: DNS record type
+      enum:
+        - A
+        - AAAA
+        - CNAME
+      example: A
+    DNSRecordRequest:
+      type: object
+      properties:
+        name:
+          description: DNS record name
+          type: string
+          maxLength: 255
+          minLength: 1
+          example: www
+        type:
+          $ref: '#/components/schemas/DNSRecordType'
+        content:
+          description: DNS record content (IP address for A/AAAA, domain for CNAME)
+          type: string
+          maxLength: 255
+          minLength: 1
+          example: 192.168.1.1
+        ttl:
+          description: Time to live in seconds
+          type: integer
+          minimum: 0
+          example: 300
+      required:
+        - name
+        - type
+        - content
+        - ttl
+    DNSRecord:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: DNS record ID
+              type: string
+              example: ch8i4ug6lnn4g9hqv7m0
+          required:
+            - id
+            - enabled
+        - $ref: '#/components/schemas/DNSRecordRequest'
     Event:
       type: object
       properties:
@@ -4683,6 +4730,197 @@ paths:
       responses:
         '200':
           description: Zone deletion successful
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}/records:
+    get:
+      summary: List all DNS Records
+      description: Returns a list of all DNS records in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      responses:
+        '200':
+          description: A JSON Array of DNS Records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DNSRecord'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a DNS Record
+      description: Creates a new DNS record in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+      requestBody:
+        description: A DNS record object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DNSRecordRequest'
+      responses:
+        '200':
+          description: A JSON Object of the created DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/zones/{zoneId}/records/{recordId}:
+    get:
+      summary: Retrieve a DNS Record
+      description: Returns information about a specific DNS record
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      responses:
+        '200':
+          description: A JSON Object of a DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update a DNS Record
+      description: Updates a DNS record in a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      requestBody:
+        description: A DNS record object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DNSRecordRequest'
+      responses:
+        '200':
+          description: A JSON Object of the updated DNS Record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSRecord'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a DNS Record
+      description: Deletes a DNS record from a zone
+      tags: [ DNS Zones ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: zoneId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a zone
+          example: chacbco6lnnbn6cg5s91
+        - in: path
+          name: recordId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a DNS record
+          example: chacbco6lnnbn6cg5s92
+      responses:
+        '200':
+          description: Record deletion successful
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

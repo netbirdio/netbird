@@ -12,6 +12,13 @@ const (
 	TokenAuthScopes  = "TokenAuth.Scopes"
 )
 
+// Defines values for DNSRecordType.
+const (
+	DNSRecordTypeA     DNSRecordType = "A"
+	DNSRecordTypeAAAA  DNSRecordType = "AAAA"
+	DNSRecordTypeCNAME DNSRecordType = "CNAME"
+)
+
 // Defines values for EventActivityCode.
 const (
 	EventActivityCodeAccountCreate                            EventActivityCode = "account.create"
@@ -406,6 +413,42 @@ type CreateSetupKeyRequest struct {
 	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
 	UsageLimit int `json:"usage_limit"`
 }
+
+// DNSRecord defines model for DNSRecord.
+type DNSRecord struct {
+	// Content DNS record content (IP address for A/AAAA, domain for CNAME)
+	Content string `json:"content"`
+
+	// Id DNS record ID
+	Id string `json:"id"`
+
+	// Name DNS record name
+	Name string `json:"name"`
+
+	// Ttl Time to live in seconds
+	Ttl int `json:"ttl"`
+
+	// Type DNS record type
+	Type DNSRecordType `json:"type"`
+}
+
+// DNSRecordRequest defines model for DNSRecordRequest.
+type DNSRecordRequest struct {
+	// Content DNS record content (IP address for A/AAAA, domain for CNAME)
+	Content string `json:"content"`
+
+	// Name DNS record name
+	Name string `json:"name"`
+
+	// Ttl Time to live in seconds
+	Ttl int `json:"ttl"`
+
+	// Type DNS record type
+	Type DNSRecordType `json:"type"`
+}
+
+// DNSRecordType DNS record type
+type DNSRecordType string
 
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
@@ -1985,6 +2028,12 @@ type PostApiDnsZonesJSONRequestBody = ZoneRequest
 
 // PutApiDnsZonesZoneIdJSONRequestBody defines body for PutApiDnsZonesZoneId for application/json ContentType.
 type PutApiDnsZonesZoneIdJSONRequestBody = ZoneRequest
+
+// PostApiDnsZonesZoneIdRecordsJSONRequestBody defines body for PostApiDnsZonesZoneIdRecords for application/json ContentType.
+type PostApiDnsZonesZoneIdRecordsJSONRequestBody = DNSRecordRequest
+
+// PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody defines body for PutApiDnsZonesZoneIdRecordsRecordId for application/json ContentType.
+type PutApiDnsZonesZoneIdRecordsRecordIdJSONRequestBody = DNSRecordRequest
 
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody = GroupRequest

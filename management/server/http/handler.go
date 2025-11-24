@@ -16,6 +16,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
+	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
 
@@ -68,6 +70,7 @@ func NewAPIHandler(
 	peersManager nbpeers.Manager,
 	settingsManager settings.Manager,
 	zManager zones.Manager,
+	rManager records.Manager,
 	networkMapController network_map.Controller,
 ) (http.Handler, error) {
 
@@ -136,6 +139,7 @@ func NewAPIHandler(
 	events.AddEndpoints(accountManager, router)
 	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
 	zonesManager.RegisterEndpoints(router, zManager)
+	recordsManager.RegisterEndpoints(router, rManager)
 
 	return rootRouter, nil
 }

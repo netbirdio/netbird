@@ -8,6 +8,8 @@ import (
 	"github.com/netbirdio/management-integrations/integrations"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
+	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -121,8 +123,11 @@ func (s *BaseServer) NetworksManager() networks.Manager {
 func (s *BaseServer) ZonesManager() zones.Manager {
 	return Create(s, func() zones.Manager {
 		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
-		//s.AfterInit(func(s *BaseServer) {
-		//	// TODO: register zones manager endpoints
-		//})
+	})
+}
+
+func (s *BaseServer) RecordsManager() records.Manager {
+	return Create(s, func() records.Manager {
+		return recordsManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
 	})
 }

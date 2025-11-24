@@ -257,3 +257,8 @@ func NewRouteNotFoundError(routeID string) error {
 func NewZoneNotFoundError(zoneID string) error {
 	return Errorf(NotFound, "zone: %s not found", zoneID)
 }
+
+// NewDNSRecordNotFoundError creates a new Error with NotFound type for a missing dns record.
+func NewDNSRecordNotFoundError(recordID string) error {
+	return Errorf(NotFound, "dns record: %s not found", recordID)
+}
