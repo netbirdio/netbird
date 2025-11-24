@@ -298,6 +298,7 @@ NRPT_Loop:
 
     DetailPrint "Deleting NRPT key: $1"
     DeleteRegKey HKLM "SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\$1"
+    Goto NRPT_Loop
 
 NRPT_Next:
     IntOp $0 $0 + 1
@@ -307,6 +308,7 @@ NRPT_Done: ;
 DetailPrint "NRPT cleanup completed."
 DetailPrint "Restarting DNS Client service..."
 nsExec::ExecToLog "sc stop Dnscache"
+Sleep 2000
 nsExec::ExecToLog "sc start Dnscache"
 
 ; Handle data deletion based on checkbox
