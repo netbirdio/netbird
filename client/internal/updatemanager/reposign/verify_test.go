@@ -24,16 +24,14 @@ func TestArtifactVerify_Construction(t *testing.T) {
 	rootPubKey, _, err := parsePublicKey(rootPubPEM, tagRootPublic)
 	require.NoError(t, err)
 
-	keysBaseURL := "http://localhost:8080/keys"
-	artifactsBaseURL := "http://localhost:8080/artifacts"
+	keysBaseURL := "http://localhost:8080/artifact-signatures"
 
-	av, err := newArtifactVerify(keysBaseURL, artifactsBaseURL, []PublicKey{rootPubKey})
+	av, err := newArtifactVerify(keysBaseURL, []PublicKey{rootPubKey})
 	require.NoError(t, err)
 
 	assert.NotNil(t, av)
 	assert.NotEmpty(t, av.rootKeys)
 	assert.Equal(t, keysBaseURL, av.keysBaseURL.String())
-	assert.Equal(t, artifactsBaseURL, av.artifactsBaseURL.String())
 
 	// Verify root key structure
 	assert.NotEmpty(t, av.rootKeys[0].Key)
@@ -53,10 +51,9 @@ func TestArtifactVerify_MultipleRootKeys(t *testing.T) {
 	rootPubKey2, _, err := parsePublicKey(rootPubPEM2, tagRootPublic)
 	require.NoError(t, err)
 
-	keysBaseURL := "http://localhost:8080/keys"
-	artifactsBaseURL := "http://localhost:8080/artifacts"
+	keysBaseURL := "http://localhost:8080/artifact-signatures"
 
-	av, err := newArtifactVerify(keysBaseURL, artifactsBaseURL, []PublicKey{rootPubKey1, rootPubKey2})
+	av, err := newArtifactVerify(keysBaseURL, []PublicKey{rootPubKey1, rootPubKey2})
 	assert.NoError(t, err)
 	assert.Len(t, av.rootKeys, 2)
 	assert.NotEqual(t, rootKey1.Metadata.ID, rootKey2.Metadata.ID)
@@ -100,17 +97,17 @@ func TestArtifactVerify_FullWorkflow(t *testing.T) {
 	// Step 7: Setup mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/keys/" + revocationFileName:
+		case "/artifact-signatures/keys/" + revocationFileName:
 			_, _ = w.Write(revocationData)
-		case "/keys/" + revocationSignFileName:
+		case "/artifact-signatures/keys/" + revocationSignFileName:
 			_, _ = w.Write(revocationSig)
-		case "/keys/" + artifactPubKeysFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysFileName:
 			_, _ = w.Write(artifactKeysBundle)
-		case "/keys/" + artifactPubKeysSigFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
 		case "/artifacts/v1.0.0/test-artifact.bin":
 			_, _ = w.Write(artifactData)
-		case "/artifacts/v1.0.0/test-artifact.bin.sig":
+		case "/artifact-signatures/tag/v1.0.0/test-artifact.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)
@@ -124,7 +121,7 @@ func TestArtifactVerify_FullWorkflow(t *testing.T) {
 		Metadata: rootKey.Metadata,
 	}
 
-	av, err := newArtifactVerify(server.URL+"/keys", server.URL+"/artifacts", []PublicKey{rootPubKey})
+	av, err := newArtifactVerify(server.URL+"/artifact-signatures", []PublicKey{rootPubKey})
 	require.NoError(t, err)
 
 	// Step 9: Verify artifact
@@ -142,7 +139,7 @@ func TestArtifactVerify_InvalidRevocationList(t *testing.T) {
 	// Setup server with invalid revocation list
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/keys/" + revocationFileName:
+		case "/artifact-signatures/keys/" + revocationFileName:
 			_, _ = w.Write([]byte("invalid data"))
 		default:
 			http.NotFound(w, r)
@@ -158,7 +155,7 @@ func TestArtifactVerify_InvalidRevocationList(t *testing.T) {
 		Metadata: rootKey.Metadata,
 	}
 
-	av, err := newArtifactVerify(server.URL+"/keys", server.URL+"/artifacts", []PublicKey{rootPubKey})
+	av, err := newArtifactVerify(server.URL+"/artifact-signatures", []PublicKey{rootPubKey})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -196,15 +193,15 @@ func TestArtifactVerify_MissingArtifactFile(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/keys/" + revocationFileName:
+		case "/artifact-signatures/keys/" + revocationFileName:
 			_, _ = w.Write(revocationData)
-		case "/keys/" + revocationSignFileName:
+		case "/artifact-signatures/keys/" + revocationSignFileName:
 			_, _ = w.Write(revocationSig)
-		case "/keys/" + artifactPubKeysFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysFileName:
 			_, _ = w.Write(artifactKeysBundle)
-		case "/keys/" + artifactPubKeysSigFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
-		case "/artifacts/v1.0.0/missing.bin.sig":
+		case "/artifact-signatures/tag/v1.0.0/missing.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)
@@ -212,7 +209,7 @@ func TestArtifactVerify_MissingArtifactFile(t *testing.T) {
 	}))
 	defer server.Close()
 
-	av, err := newArtifactVerify(server.URL+"/keys", server.URL+"/artifacts", []PublicKey{rootPubKey})
+	av, err := newArtifactVerify(server.URL+"/artifact-signatures", []PublicKey{rootPubKey})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -235,7 +232,7 @@ func TestArtifactVerify_ServerUnavailable(t *testing.T) {
 	}
 
 	// Use URL that doesn't exist
-	av, err := newArtifactVerify("http://localhost:19999/keys", "http://localhost:19999/artifacts", []PublicKey{rootPubKey})
+	av, err := newArtifactVerify("http://localhost:19999/keys", []PublicKey{rootPubKey})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -266,7 +263,7 @@ func TestArtifactVerify_ContextCancellation(t *testing.T) {
 		Metadata: rootKey.Metadata,
 	}
 
-	av, err := newArtifactVerify(server.URL+"/keys", server.URL+"/artifacts", []PublicKey{rootPubKey})
+	av, err := newArtifactVerify(server.URL, []PublicKey{rootPubKey})
 	require.NoError(t, err)
 
 	// Create context that cancels quickly
@@ -320,15 +317,15 @@ func TestArtifactVerify_WithRevocation(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/keys/" + revocationFileName:
+		case "/artifact-signatures/keys/" + revocationFileName:
 			_, _ = w.Write(revocationData)
-		case "/keys/" + revocationSignFileName:
+		case "/artifact-signatures/keys/" + revocationSignFileName:
 			_, _ = w.Write(revocationSig)
-		case "/keys/" + artifactPubKeysFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysFileName:
 			_, _ = w.Write(artifactKeysBundle)
-		case "/keys/" + artifactPubKeysSigFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
-		case "/artifacts/v1.0.0/test.bin.sig":
+		case "/artifact-signatures/tag/v1.0.0/test.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)
@@ -341,7 +338,7 @@ func TestArtifactVerify_WithRevocation(t *testing.T) {
 		Metadata: rootKey.Metadata,
 	}
 
-	av, err := newArtifactVerify(server.URL+"/keys", server.URL+"/artifacts", []PublicKey{rootPubKey})
+	av, err := newArtifactVerify(server.URL+"/artifact-signatures", []PublicKey{rootPubKey})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -394,15 +391,15 @@ func TestArtifactVerify_ValidWithSecondKey(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/keys/" + revocationFileName:
+		case "/artifact-signatures/keys/" + revocationFileName:
 			_, _ = w.Write(revocationData)
-		case "/keys/" + revocationSignFileName:
+		case "/artifact-signatures/keys/" + revocationSignFileName:
 			_, _ = w.Write(revocationSig)
-		case "/keys/" + artifactPubKeysFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysFileName:
 			_, _ = w.Write(artifactKeysBundle)
-		case "/keys/" + artifactPubKeysSigFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
-		case "/artifacts/v1.0.0/test.bin.sig":
+		case "/artifact-signatures/tag/v1.0.0/test.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)
@@ -415,7 +412,7 @@ func TestArtifactVerify_ValidWithSecondKey(t *testing.T) {
 		Metadata: rootKey.Metadata,
 	}
 
-	av, err := newArtifactVerify(server.URL+"/keys", server.URL+"/artifacts", []PublicKey{rootPubKey})
+	av, err := newArtifactVerify(server.URL+"/artifact-signatures", []PublicKey{rootPubKey})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -457,15 +454,15 @@ func TestArtifactVerify_TamperedArtifact(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/keys/" + revocationFileName:
+		case "/artifact-signatures/keys/" + revocationFileName:
 			_, _ = w.Write(revocationData)
-		case "/keys/" + revocationSignFileName:
+		case "/artifact-signatures/keys/" + revocationSignFileName:
 			_, _ = w.Write(revocationSig)
-		case "/keys/" + artifactPubKeysFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysFileName:
 			_, _ = w.Write(artifactKeysBundle)
-		case "/keys/" + artifactPubKeysSigFileName:
+		case "/artifact-signatures/keys/" + artifactPubKeysSigFileName:
 			_, _ = w.Write(artifactKeysSig)
-		case "/artifacts/v1.0.0/test.bin.sig":
+		case "/artifact-signatures/tag/v1.0.0/test.bin.sig":
 			_, _ = w.Write(artifactSigData)
 		default:
 			http.NotFound(w, r)
@@ -478,7 +475,7 @@ func TestArtifactVerify_TamperedArtifact(t *testing.T) {
 		Metadata: rootKey.Metadata,
 	}
 
-	av, err := newArtifactVerify(server.URL+"/keys", server.URL+"/artifacts", []PublicKey{rootPubKey})
+	av, err := newArtifactVerify(server.URL+"/artifact-signatures", []PublicKey{rootPubKey})
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -492,46 +489,35 @@ func TestArtifactVerify_TamperedArtifact(t *testing.T) {
 
 func TestArtifactVerify_URLParsing(t *testing.T) {
 	tests := []struct {
-		name             string
-		keysBaseURL      string
-		artifactsBaseURL string
-		expectError      bool
+		name        string
+		keysBaseURL string
+		expectError bool
 	}{
 		{
-			name:             "Valid HTTP URLs",
-			keysBaseURL:      "http://example.com/keys",
-			artifactsBaseURL: "http://example.com/artifacts",
-			expectError:      false,
+			name:        "Valid HTTP URL",
+			keysBaseURL: "http://example.com/artifact-signatures",
+			expectError: false,
 		},
 		{
-			name:             "Valid HTTPS URLs",
-			keysBaseURL:      "https://example.com/keys",
-			artifactsBaseURL: "https://example.com/artifacts",
-			expectError:      false,
+			name:        "Valid HTTPS URL",
+			keysBaseURL: "https://example.com/artifact-signatures",
+			expectError: false,
 		},
 		{
-			name:             "URLs with ports",
-			keysBaseURL:      "http://localhost:8080/keys",
-			artifactsBaseURL: "http://localhost:9090/artifacts",
-			expectError:      false,
+			name:        "URL with port",
+			keysBaseURL: "http://localhost:8080/artifact-signatures",
+			expectError: false,
 		},
 		{
-			name:             "Invalid keys URL",
-			keysBaseURL:      "://invalid",
-			artifactsBaseURL: "http://example.com",
-			expectError:      true,
-		},
-		{
-			name:             "Invalid artifacts URL",
-			keysBaseURL:      "http://example.com",
-			artifactsBaseURL: "://invalid",
-			expectError:      true,
+			name:        "Invalid URL",
+			keysBaseURL: "://invalid",
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newArtifactVerify(tt.keysBaseURL, tt.artifactsBaseURL, nil)
+			_, err := newArtifactVerify(tt.keysBaseURL, nil)
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {

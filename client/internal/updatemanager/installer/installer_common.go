@@ -70,7 +70,7 @@ func (u *Installer) RunInstallation(ctx context.Context, targetVersion string) (
 			return err
 		}
 
-		artifactVerify, err := reposign.NewArtifactVerify(DefaultBaseURL, DefaultArtifactBaseURL)
+		artifactVerify, err := reposign.NewArtifactVerify(DefaultSigningKeysBaseURL)
 		if err != nil {
 			log.Errorf("failed to create artifact verify: %v", err)
 			return err

@@ -25,37 +25,30 @@ const (
 )
 
 type ArtifactVerify struct {
-	rootKeys         []PublicKey
-	keysBaseURL      *url.URL
-	artifactsBaseURL *url.URL
+	rootKeys    []PublicKey
+	keysBaseURL *url.URL
 
 	revocationList *RevocationList
 }
 
-func NewArtifactVerify(keysBaseURL, artifactsBaseURL string) (*ArtifactVerify, error) {
+func NewArtifactVerify(keysBaseURL string) (*ArtifactVerify, error) {
 	allKeys, err := loadEmbeddedPublicKeys()
 	if err != nil {
 		return nil, err
 	}
 
-	return newArtifactVerify(keysBaseURL, artifactsBaseURL, allKeys)
+	return newArtifactVerify(keysBaseURL, allKeys)
 }
 
-func newArtifactVerify(keysBaseURL, artifactsBaseURL string, allKeys []PublicKey) (*ArtifactVerify, error) {
+func newArtifactVerify(keysBaseURL string, allKeys []PublicKey) (*ArtifactVerify, error) {
 	ku, err := url.Parse(keysBaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid keys base URL %q: %v", keysBaseURL, err)
 	}
 
-	au, err := url.Parse(artifactsBaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid artifacts base URL %q: %v", artifactsBaseURL, err)
-	}
-
 	a := &ArtifactVerify{
-		rootKeys:         allKeys,
-		keysBaseURL:      ku,
-		artifactsBaseURL: au,
+		rootKeys:    allKeys,
+		keysBaseURL: ku,
 	}
 	return a, nil
 }
@@ -93,14 +86,14 @@ func (a *ArtifactVerify) Verify(ctx context.Context, version string, artifactFil
 }
 
 func (a *ArtifactVerify) loadRevocationList(ctx context.Context) (*RevocationList, error) {
-	downloadURL := a.keysBaseURL.JoinPath(revocationFileName).String()
+	downloadURL := a.keysBaseURL.JoinPath("keys", revocationFileName).String()
 	data, err := downloader.DownloadToMemory(ctx, downloadURL, revocationLimit)
 	if err != nil {
 		log.Debugf("failed to download revocation list for: %s", err)
 		return nil, err
 	}
 
-	downloadURL = a.keysBaseURL.JoinPath(revocationSignFileName).String()
+	downloadURL = a.keysBaseURL.JoinPath("keys", revocationSignFileName).String()
 	sigData, err := downloader.DownloadToMemory(ctx, downloadURL, signatureLimit)
 	if err != nil {
 		log.Debugf("failed to download revocation list for: %s", err)
@@ -117,7 +110,7 @@ func (a *ArtifactVerify) loadRevocationList(ctx context.Context) (*RevocationLis
 }
 
 func (a *ArtifactVerify) loadArtifactKeys(ctx context.Context) ([]PublicKey, error) {
-	downloadURL := a.keysBaseURL.JoinPath(artifactPubKeysFileName).String()
+	downloadURL := a.keysBaseURL.JoinPath("keys", artifactPubKeysFileName).String()
 	log.Debugf("starting downloading artifact keys from: %s", downloadURL)
 	data, err := downloader.DownloadToMemory(ctx, downloadURL, keySizeLimit)
 	if err != nil {
@@ -125,7 +118,7 @@ func (a *ArtifactVerify) loadArtifactKeys(ctx context.Context) ([]PublicKey, err
 		return nil, err
 	}
 
-	downloadURL = a.keysBaseURL.JoinPath(artifactPubKeysSigFileName).String()
+	downloadURL = a.keysBaseURL.JoinPath("keys", artifactPubKeysSigFileName).String()
 	log.Debugf("start downloading signature of artifact pub key from: %s", downloadURL)
 	sigData, err := downloader.DownloadToMemory(ctx, downloadURL, signatureLimit)
 	if err != nil {
@@ -144,7 +137,7 @@ func (a *ArtifactVerify) loadArtifactKeys(ctx context.Context) ([]PublicKey, err
 
 func (a *ArtifactVerify) loadArtifactSignature(ctx context.Context, version string, artifactFile string) (*Signature, error) {
 	artifactFile = filepath.Base(artifactFile)
-	downloadURL := a.artifactsBaseURL.JoinPath("v"+version, artifactFile+".sig").String()
+	downloadURL := a.keysBaseURL.JoinPath("tag", "v"+version, artifactFile+".sig").String()
 	data, err := downloader.DownloadToMemory(ctx, downloadURL, signatureLimit)
 	if err != nil {
 		log.Debugf("failed to download artifact signature: %s", err)
