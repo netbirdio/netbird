@@ -868,34 +868,7 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	}
 	e.checks = checks
 
-	info, err := system.GetInfoWithChecks(e.ctx, checks)
-	if err != nil {
-		log.Warnf("failed to get system info with checks: %v", err)
-		info = system.GetInfo(e.ctx)
-	}
-	info.SetFlags(
-		e.config.RosenpassEnabled,
-		e.config.RosenpassPermissive,
-		&e.config.ServerSSHAllowed,
-		e.config.DisableClientRoutes,
-		e.config.DisableServerRoutes,
-		e.config.DisableDNS,
-		e.config.DisableFirewall,
-		e.config.BlockLANAccess,
-		e.config.BlockInbound,
-		e.config.LazyConnectionEnabled,
-		e.config.EnableSSHRoot,
-		e.config.EnableSSHSFTP,
-		e.config.EnableSSHLocalPortForwarding,
-		e.config.EnableSSHRemotePortForwarding,
-		e.config.DisableSSHAuth,
-	)
-
-	if err := e.mgmClient.SyncMeta(info); err != nil {
-		log.Errorf("could not sync meta: error %s", err)
-		return err
-	}
-	return nil
+	return e.syncSystemMeta(checks)
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
@@ -1749,9 +1722,47 @@ func (e *Engine) startNetworkMonitor() {
 			return
 		}
 
+		if err := e.syncSystemMeta(e.checks); err != nil {
+			log.Warnf("failed to sync system meta on network change: %v", err)
+		}
 		log.Infof("Network monitor: detected network change, triggering client restart")
 		e.triggerClientRestart()
 	}()
+}
+
+func (e *Engine) syncSystemMeta(checks []*mgmProto.Checks) error {
+	if e.mgmClient == nil {
+		return nil
+	}
+
+	info, err := system.GetInfoWithChecks(e.ctx, checks)
+	if err != nil {
+		log.Warnf("failed to get system info with checks: %v", err)
+		info = system.GetInfo(e.ctx)
+	}
+	info.SetFlags(
+		e.config.RosenpassEnabled,
+		e.config.RosenpassPermissive,
+		&e.config.ServerSSHAllowed,
+		e.config.DisableClientRoutes,
+		e.config.DisableServerRoutes,
+		e.config.DisableDNS,
+		e.config.DisableFirewall,
+		e.config.BlockLANAccess,
+		e.config.BlockInbound,
+		e.config.LazyConnectionEnabled,
+		e.config.EnableSSHRoot,
+		e.config.EnableSSHSFTP,
+		e.config.EnableSSHLocalPortForwarding,
+		e.config.EnableSSHRemotePortForwarding,
+		e.config.DisableSSHAuth,
+	)
+
+	if err := e.mgmClient.SyncMeta(info); err != nil {
+		log.Errorf("could not sync meta: error %s", err)
+		return err
+	}
+	return nil
 }
 
 func (e *Engine) addrViaRoutes(addr netip.Addr) (bool, netip.Prefix, error) {
