@@ -44,9 +44,11 @@ const (
 
 	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
 	ipTCPHeaderMinSize = 40
-)
 
-const refreshRulesMapError = "refresh rules map: %w"
+	// maxPrefixesSet 3277 prefixes start to fail, taking some margin
+	maxPrefixesSet       = 3000
+	refreshRulesMapError = "refresh rules map: %w"
+)
 
 var (
 	errFilterTableNotFound = fmt.Errorf("'filter' table not found")
@@ -346,26 +348,11 @@ func (r *router) AddRouteFiltering(
 	}
 
 	chain := r.chains[chainNameRoutingFw]
-	var exprs []expr.Any
 
-	var source firewall.Network
-	switch {
-	case len(sources) == 1 && sources[0].Bits() == 0:
-		// If it's 0.0.0.0/0, we don't need to add any source matching
-	case len(sources) == 1:
-		// If there's only one source, we can use it directly
-		source.Prefix = sources[0]
-	default:
-		// If there are multiple sources, use a set
-		source.Set = firewall.NewPrefixSet(sources)
-	}
-
-	sourceExp, err := r.applyNetwork(source, sources, true)
+	exprs, err := r.applySources(sources)
 	if err != nil {
-		return nil, fmt.Errorf("apply source: %w", err)
+		return nil, fmt.Errorf("apply sources (%d): %w", len(sources), err)
 	}
-	exprs = append(exprs, sourceExp...)
-
 	destExp, err := r.applyNetwork(destination, nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("apply destination: %w", err)
@@ -423,6 +410,42 @@ func (r *router) AddRouteFiltering(
 	log.Debugf("added route rule: sources=%v, destination=%v, proto=%v, sPort=%v, dPort=%v, action=%v", sources, destination, proto, sPort, dPort, action)
 
 	return ruleKey, nil
+}
+
+func (r *router) applySources(sources []netip.Prefix) ([]expr.Any, error) {
+	var source firewall.Network
+	if len(sources) == 0 {
+		return nil, nil
+	}
+	if len(sources) == 1 {
+		if sources[0].Bits() == 0 {
+			// If it's 0.0.0.0/0, we don't need to add any source matching
+			return nil, nil
+		} else { // If there's only one source, we can use it directly
+			source.Prefix = sources[0]
+		}
+		return r.applyNetwork(source, sources, true)
+	}
+	// If there are multiple sources, use a set
+	var exprs []expr.Any
+
+	var subEnd int
+	for subStart := 0; subStart < len(sources); subStart += maxPrefixesSet {
+		subEnd += maxPrefixesSet
+		if subEnd > len(sources) {
+			subEnd = len(sources)
+		}
+		subSources := sources[subStart:subEnd]
+		source.Set = firewall.NewPrefixSet(subSources)
+
+		sourceExp, err := r.applyNetwork(source, subSources, true)
+		if err != nil {
+			return nil, fmt.Errorf("apply source: %w (prefixes %d)", err, len(subSources))
+		}
+		exprs = append(exprs, sourceExp...)
+	}
+
+	return exprs, nil
 }
 
 func (r *router) getIpSet(set firewall.Set, prefixes []netip.Prefix, isSource bool) ([]expr.Any, error) {
