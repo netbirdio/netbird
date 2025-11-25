@@ -3,7 +3,9 @@ package networkmonitor
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -21,20 +23,17 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 		}
 	}()
 
-	interfaceMonitor, err := systemops.NewInterfaceMonitor(ctx)
-	if err != nil {
-		return fmt.Errorf("create interface monitor: %w", err)
-	}
-	defer func() {
-		if err := interfaceMonitor.Stop(); err != nil {
-			log.Errorf("Network monitor: failed to stop interface monitor: %v", err)
-		}
-	}()
+	downCheck := time.NewTicker(time.Second)
+	defer downCheck.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-downCheck.C:
+			if interfaceDown(nexthopv4) || interfaceDown(nexthopv6) {
+				return nil
+			}
 		case route := <-routeMonitor.RouteUpdates():
 			if route.Destination.Bits() != 0 {
 				continue
@@ -99,20 +98,20 @@ func isSoftInterface(name string) bool {
 	return strings.Contains(strings.ToLower(name), "isatap") || strings.Contains(strings.ToLower(name), "teredo")
 }
 
-func defaultInterfaceDown(update systemops.InterfaceUpdate, nexthopv4, nexthopv6 systemops.Nexthop) bool {
-	if update.Interface == nil {
+func interfaceDown(nexthop systemops.Nexthop) bool {
+	if nexthop.Intf == nil {
 		return false
 	}
 
-	for _, nexthop := range []systemops.Nexthop{nexthopv4, nexthopv6} {
-		if nexthop.Intf == nil {
-			continue
-		}
+	intf, err := net.InterfaceByIndex(nexthop.Intf.Index)
+	if err != nil {
+		log.Infof("Network monitor: default route interface %d unavailable: %v", nexthop.Intf.Index, err)
+		return true
+	}
 
-		if nexthop.Intf.Index == update.Interface.Index && !update.Connected {
-			log.Infof("Network monitor: default route interface %s (index %d) is disconnected", update.Interface.Name, update.Interface.Index)
-			return true
-		}
+	if intf.Flags&net.FlagUp == 0 {
+		log.Infof("Network monitor: default route interface %s (index %d) is down", intf.Name, intf.Index)
+		return true
 	}
 
 	return false
