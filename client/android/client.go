@@ -92,7 +92,7 @@ func NewClient(platformFiles PlatformFiles, androidSDKVersion int, deviceName st
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
+func (c *Client) Run(urlOpener URLOpener, isAndroidTV bool, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
 	exportEnvList(envList)
 	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
@@ -115,7 +115,7 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 	c.ctxCancelLock.Unlock()
 
 	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.login(urlOpener)
+	err = auth.login(urlOpener, isAndroidTV)
 	if err != nil {
 		return err
 	}
