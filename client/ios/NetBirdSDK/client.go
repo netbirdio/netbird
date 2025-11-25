@@ -228,7 +228,7 @@ func (c *Client) LoginForMobile() string {
 		ConfigPath: c.cfgFile,
 	})
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, "")
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "")
 	if err != nil {
 		return err.Error()
 	}
