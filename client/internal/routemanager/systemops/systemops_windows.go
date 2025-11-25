@@ -165,7 +165,6 @@ type MIB_IPINTERFACE_ROW struct {
 var (
 	modiphlpapi                     = windows.NewLazyDLL("iphlpapi.dll")
 	procNotifyRouteChange2          = modiphlpapi.NewProc("NotifyRouteChange2")
-	procNotifyIpInterfaceChange     = modiphlpapi.NewProc("NotifyIpInterfaceChange")
 	procCancelMibChangeNotify2      = modiphlpapi.NewProc("CancelMibChangeNotify2")
 	procCreateIpForwardEntry2       = modiphlpapi.NewProc("CreateIpForwardEntry2")
 	procDeleteIpForwardEntry2       = modiphlpapi.NewProc("DeleteIpForwardEntry2")
@@ -422,39 +421,6 @@ func NewRouteMonitor(ctx context.Context) (*RouteMonitor, error) {
 	return rm, nil
 }
 
-// InterfaceUpdate describes a link state change notification.
-type InterfaceUpdate struct {
-	Interface *net.Interface
-	Connected bool
-}
-
-// InterfaceMonitor watches Windows interface state updates.
-type InterfaceMonitor struct {
-	updates chan InterfaceUpdate
-	done    chan struct{}
-	handle  windows.Handle
-}
-
-// NewInterfaceMonitor creates and starts a new InterfaceMonitor.
-// It returns a pointer to the InterfaceMonitor and an error if the monitor couldn't be started.
-func NewInterfaceMonitor(ctx context.Context) (*InterfaceMonitor, error) {
-	im := &InterfaceMonitor{
-		updates: make(chan InterfaceUpdate, 5),
-		done:    make(chan struct{}),
-	}
-
-	if err := im.start(ctx); err != nil {
-		return nil, err
-	}
-
-	return im, nil
-}
-
-// InterfaceUpdates returns a channel for consuming interface state changes.
-func (im *InterfaceMonitor) InterfaceUpdates() <-chan InterfaceUpdate {
-	return im.updates
-}
-
 func (rm *RouteMonitor) start(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -487,38 +453,6 @@ func (rm *RouteMonitor) start(ctx context.Context) error {
 	}
 
 	rm.handle = handle
-
-	return nil
-}
-
-func (im *InterfaceMonitor) start(ctx context.Context) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	callbackPtr := windows.NewCallback(func(callerContext uintptr, row *MIB_IPINTERFACE_ROW, notificationType MIB_NOTIFICATION_TYPE) uintptr {
-		if ctx.Err() != nil {
-			return 0
-		}
-
-		update := im.parseUpdate(row, notificationType)
-
-		select {
-		case <-im.done:
-			return 0
-		case im.updates <- update:
-		default:
-			log.Warn("Interface update channel is full, dropping update")
-		}
-		return 0
-	})
-
-	var handle windows.Handle
-	if err := notifyIpInterfaceChange(windows.AF_UNSPEC, callbackPtr, 0, false, &handle); err != nil {
-		return fmt.Errorf("NotifyIpInterfaceChange failed: %w", err)
-	}
-
-	im.handle = handle
 
 	return nil
 }
@@ -572,30 +506,6 @@ func (rm *RouteMonitor) parseUpdate(row *MIB_IPFORWARD_ROW2, notificationType MI
 	return update, nil
 }
 
-func (im *InterfaceMonitor) parseUpdate(row *MIB_IPINTERFACE_ROW, notificationType MIB_NOTIFICATION_TYPE) InterfaceUpdate {
-	idx := int(row.InterfaceIndex)
-
-	update := InterfaceUpdate{
-		Connected: row.Connected != 0,
-	}
-
-	if idx != 0 {
-		intf, err := net.InterfaceByIndex(idx)
-		if err != nil {
-			log.Warnf("failed to get interface name for index %d: %v", idx, err)
-			update.Interface = &net.Interface{Index: idx}
-		} else {
-			update.Interface = intf
-		}
-	}
-
-	if notificationType == MibDeleteInstance {
-		update.Connected = false
-	}
-
-	return update
-}
-
 // Stop stops the RouteMonitor.
 func (rm *RouteMonitor) Stop() error {
 	if rm.handle != 0 {
@@ -612,19 +522,6 @@ func (rm *RouteMonitor) Stop() error {
 // RouteUpdates returns a channel that receives RouteUpdate messages.
 func (rm *RouteMonitor) RouteUpdates() <-chan RouteUpdate {
 	return rm.updates
-}
-
-// Stop stops the InterfaceMonitor.
-func (im *InterfaceMonitor) Stop() error {
-	if im.handle != 0 {
-		if err := cancelMibChangeNotify2(im.handle); err != nil {
-			return fmt.Errorf("CancelMibChangeNotify2 failed: %w", err)
-		}
-		im.handle = 0
-	}
-	close(im.done)
-	close(im.updates)
-	return nil
 }
 
 func notifyRouteChange2(family uint32, callback uintptr, callerContext uintptr, initialNotification bool, handle *windows.Handle) error {
@@ -647,30 +544,6 @@ func notifyRouteChange2(family uint32, callback uintptr, callerContext uintptr, 
 		}
 		return syscall.EINVAL
 	}
-	return nil
-}
-
-func notifyIpInterfaceChange(family uint16, callback, callerContext uintptr, initialNotification bool, handle *windows.Handle) error {
-	var initNotif uintptr
-	if initialNotification {
-		initNotif = 1
-	}
-
-	r1, _, e1 := syscall.SyscallN(
-		procNotifyIpInterfaceChange.Addr(),
-		uintptr(family),
-		callback,
-		callerContext,
-		initNotif,
-		uintptr(unsafe.Pointer(handle)),
-	)
-	if r1 != 0 {
-		if e1 != 0 {
-			return e1
-		}
-		return syscall.EINVAL
-	}
-
 	return nil
 }
 
