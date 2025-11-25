@@ -93,9 +93,6 @@ service DaemonService {
 
   // WaitJWTToken waits for JWT authentication completion
   rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
-
-  // NotifySleep notifies the daemon about system sleep event
-  rpc NotifySleep(NotifySleepRequest) returns (NotifySleepResponse) {}
 }
 
 
@@ -758,10 +755,3 @@ message WaitJWTTokenResponse {
   // expiration time in seconds
   int64 expiresIn = 3;
 }
-
-// NotifySleepRequest for notifying about system sleep event
-message NotifySleepRequest {
-}
-
-// NotifySleepResponse is empty as no data needs to be returned
-message NotifySleepResponse {}

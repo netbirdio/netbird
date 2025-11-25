@@ -1,7 +1,14 @@
 package sleep
 
+var (
+	EventTypeSleep  EventType = 0
+	EventTypeWakeUp EventType = 1
+)
+
+type EventType int
+
 type detector interface {
-	Register(callback func()) error
+	Register(callback func(eventType EventType)) error
 	Deregister() error
 }
 
@@ -20,7 +27,7 @@ func New() (*Service, error) {
 	}, nil
 }
 
-func (s *Service) Register(callback func()) error {
+func (s *Service) Register(callback func(eventType EventType)) error {
 	return s.detector.Register(callback)
 }
 

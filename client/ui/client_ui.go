@@ -1171,12 +1171,7 @@ func (s *serviceClient) startSleepListener() {
 		return
 	}
 
-	callback := func() {
-		log.Info("system sleep event detected, notifying daemon")
-		s.notifySleepToDaemon()
-	}
-
-	if err := sleepService.Register(callback); err != nil {
+	if err := sleepService.Register(s.handleSleepEvents); err != nil {
 		log.Errorf("failed to start sleep detection: %v", err)
 		return
 	}
@@ -1193,23 +1188,33 @@ func (s *serviceClient) startSleepListener() {
 	}()
 }
 
-// notifySleepToDaemon sends a sleep notification to the daemon via gRPC
-func (s *serviceClient) notifySleepToDaemon() {
+// handleSleepEvents sends a sleep notification to the daemon via gRPC
+func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
 	conn, err := s.getSrvClient(0)
 	if err != nil {
 		log.Errorf("failed to get daemon client for sleep notification: %v", err)
 		return
 	}
 
-	req := &proto.NotifySleepRequest{}
-
-	_, err = conn.NotifySleep(s.ctx, req)
-	if err != nil {
-		log.Errorf("failed to notify daemon about sleep event: %v", err)
+	switch event {
+	case sleep.EventTypeWakeUp:
+		log.Infof("handle wakeup event: %v", event)
+		_, err = conn.Up(s.ctx, &proto.UpRequest{})
+		if err != nil {
+			log.Errorf("up service: %v", err)
+			return
+		}
 		return
+	case sleep.EventTypeSleep:
+		log.Infof("handle sleep event: %v", event)
+		_, err = conn.Down(s.ctx, &proto.DownRequest{})
+		if err != nil {
+			log.Errorf("down service: %v", err)
+			return
+		}
 	}
 
-	log.Info("successfully notified daemon about sleep event")
+	log.Info("successfully notified daemon about sleep/wakeup event")
 }
 
 // setSettingsEnabled enables or disables the settings menu based on the provided state

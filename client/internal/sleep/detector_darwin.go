@@ -9,10 +9,15 @@ package sleep
 #include <CoreFoundation/CoreFoundation.h>
 
 extern void sleepCallbackBridge();
+extern void poweredOnCallbackBridge();
+extern void suspendedCallbackBridge();
+extern void resumedCallbackBridge();
+
 
 // C global variables for IOKit state
 static IONotificationPortRef g_notifyPortRef = NULL;
 static io_object_t g_notifierObject = 0;
+static io_object_t g_generalInterestNotifier = 0;
 static io_connect_t g_rootPort = 0;
 static CFRunLoopRef g_runLoop = NULL;
 
@@ -21,6 +26,15 @@ static void sleepCallback(void* refCon, io_service_t service, natural_t messageT
 		case kIOMessageSystemWillSleep:
 			sleepCallbackBridge();
 			IOAllowPowerChange(g_rootPort, (long)messageArgument);
+			break;
+        case kIOMessageSystemHasPoweredOn:
+          	poweredOnCallbackBridge();
+          	break;
+        case kIOMessageServiceIsSuspended:
+			suspendedCallbackBridge();
+			break;
+		case kIOMessageServiceIsResumed:
+			resumedCallbackBridge();
 			break;
 		default:
 			break;
@@ -83,18 +97,39 @@ var (
 
 //export sleepCallbackBridge
 func sleepCallbackBridge() {
-	log.Info("sleep event triggered")
+	log.Info("sleepCallbackBridge event triggered")
 
 	serviceRegistryMu.Lock()
 	defer serviceRegistryMu.Unlock()
 
 	for svc := range serviceRegistry {
-		svc.triggerSleepCallback()
+		svc.triggerCallback(EventTypeSleep)
+	}
+}
+
+//export resumedCallbackBridge
+func resumedCallbackBridge() {
+	log.Info("resumedCallbackBridge event triggered")
+}
+
+//export suspendedCallbackBridge
+func suspendedCallbackBridge() {
+	log.Info("suspendedCallbackBridge event triggered")
+}
+
+//export poweredOnCallbackBridge
+func poweredOnCallbackBridge() {
+	log.Info("poweredOnCallbackBridge event triggered")
+	serviceRegistryMu.Lock()
+	defer serviceRegistryMu.Unlock()
+
+	for svc := range serviceRegistry {
+		svc.triggerCallback(EventTypeWakeUp)
 	}
 }
 
 type Detector struct {
-	callback func()
+	callback func(event EventType)
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
@@ -103,7 +138,7 @@ func NewDetector() (*Detector, error) {
 	return &Detector{}, nil
 }
 
-func (d *Detector) Register(callback func()) error {
+func (d *Detector) Register(callback func(event EventType)) error {
 	serviceRegistryMu.Lock()
 	defer serviceRegistryMu.Unlock()
 
@@ -161,16 +196,16 @@ func (d *Detector) Deregister() error {
 	return nil
 }
 
-func (d *Detector) triggerSleepCallback() {
+func (d *Detector) triggerCallback(event EventType) {
 	doneChan := make(chan struct{})
 
 	timeout := time.NewTimer(500 * time.Millisecond)
 	defer timeout.Stop()
 
 	cb := d.callback
-	go func(callback func()) {
+	go func(callback func(event EventType)) {
 		log.Info("sleep detection event fired")
-		callback()
+		callback(event)
 		close(doneChan)
 	}(cb)
 
