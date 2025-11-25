@@ -87,11 +87,12 @@ func (m *localIPManager) processIP(ip netip.Addr, bitmap *[256]*ipv4LowBitmap, i
 }
 
 func (m *localIPManager) processInterface(iface net.Interface, bitmap *[256]*ipv4LowBitmap, ipv4Set map[netip.Addr]struct{}, ipv4Addresses *[]netip.Addr) {
-	addrs, err := iface.Addrs()
 	if iface.Flags&net.FlagUp == 0 {
 		log.Debugf("skipping interface %s: interface is down", iface.Name)
 		return
-		}
+	}
+
+	addrs, err := iface.Addrs()
 	if err != nil {
 		log.Debugf("get addresses for interface %s failed: %v", iface.Name, err)
 		return

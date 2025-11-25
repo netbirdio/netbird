@@ -21,6 +21,16 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 		}
 	}()
 
+	interfaceMonitor, err := systemops.NewInterfaceMonitor(ctx)
+	if err != nil {
+		return fmt.Errorf("create interface monitor: %w", err)
+	}
+	defer func() {
+		if err := interfaceMonitor.Stop(); err != nil {
+			log.Errorf("Network monitor: failed to stop interface monitor: %v", err)
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -31,6 +41,10 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 			}
 
 			if routeChanged(route, nexthopv4, nexthopv6) {
+				return nil
+			}
+		case update := <-interfaceMonitor.InterfaceUpdates():
+			if defaultInterfaceDown(update, nexthopv4, nexthopv6) {
 				return nil
 			}
 		}
@@ -83,4 +97,23 @@ func handleRouteDeleted(route systemops.RouteUpdate, nexthop systemops.Nexthop) 
 
 func isSoftInterface(name string) bool {
 	return strings.Contains(strings.ToLower(name), "isatap") || strings.Contains(strings.ToLower(name), "teredo")
+}
+
+func defaultInterfaceDown(update systemops.InterfaceUpdate, nexthopv4, nexthopv6 systemops.Nexthop) bool {
+	if update.Interface == nil {
+		return false
+	}
+
+	for _, nexthop := range []systemops.Nexthop{nexthopv4, nexthopv6} {
+		if nexthop.Intf == nil {
+			continue
+		}
+
+		if nexthop.Intf.Index == update.Interface.Index && !update.Connected {
+			log.Infof("Network monitor: default route interface %s (index %d) is disconnected", update.Interface.Name, update.Interface.Index)
+			return true
+		}
+	}
+
+	return false
 }
