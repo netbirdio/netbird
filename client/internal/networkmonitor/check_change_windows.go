@@ -3,7 +3,9 @@ package networkmonitor
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -21,10 +23,17 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 		}
 	}()
 
+	downCheck := time.NewTicker(time.Second)
+	defer downCheck.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-downCheck.C:
+			if interfaceDown(nexthopv4) || interfaceDown(nexthopv6) {
+				return nil
+			}
 		case route := <-routeMonitor.RouteUpdates():
 			if route.Destination.Bits() != 0 {
 				continue
@@ -83,4 +92,23 @@ func handleRouteDeleted(route systemops.RouteUpdate, nexthop systemops.Nexthop) 
 
 func isSoftInterface(name string) bool {
 	return strings.Contains(strings.ToLower(name), "isatap") || strings.Contains(strings.ToLower(name), "teredo")
+}
+
+func interfaceDown(nexthop systemops.Nexthop) bool {
+	if nexthop.Intf == nil {
+		return false
+	}
+
+	intf, err := net.InterfaceByIndex(nexthop.Intf.Index)
+	if err != nil {
+		log.Infof("Network monitor: default route interface %d unavailable: %v", nexthop.Intf.Index, err)
+		return true
+	}
+
+	if intf.Flags&net.FlagUp == 0 {
+		log.Infof("Network monitor: default route interface %s (index %d) is down", intf.Name, intf.Index)
+		return true
+	}
+
+	return false
 }
