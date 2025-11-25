@@ -1,13 +1,8 @@
 package sleep
 
-import (
-	"context"
-)
-
 type detector interface {
-	Register() error
+	Register(callback func()) error
 	Deregister() error
-	Listen(ctx context.Context) error
 }
 
 type Service struct {
@@ -25,14 +20,10 @@ func New() (*Service, error) {
 	}, nil
 }
 
-func (s *Service) Register() error {
-	return s.detector.Register()
+func (s *Service) Register(callback func()) error {
+	return s.detector.Register(callback)
 }
 
 func (s *Service) Deregister() error {
 	return s.detector.Deregister()
-}
-
-func (s *Service) Listen(ctx context.Context) error {
-	return s.detector.Listen(ctx)
 }

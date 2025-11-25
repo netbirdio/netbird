@@ -71,6 +71,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -88,21 +89,21 @@ func sleepCallbackBridge() {
 	defer serviceRegistryMu.Unlock()
 
 	for svc := range serviceRegistry {
-		svc.triggerSleepCallbacks()
+		svc.triggerSleepCallback()
 	}
 }
 
 type Detector struct {
-	events chan struct{}
-	ctx    context.Context
-	cancel context.CancelFunc
+	callback func()
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 func NewDetector() (*Detector, error) {
 	return &Detector{}, nil
 }
 
-func (d *Detector) Register() error {
+func (d *Detector) Register(callback func()) error {
 	serviceRegistryMu.Lock()
 	defer serviceRegistryMu.Unlock()
 
@@ -110,8 +111,9 @@ func (d *Detector) Register() error {
 		return fmt.Errorf("detector service already registered")
 	}
 
+	d.callback = callback
+
 	d.ctx, d.cancel = context.WithCancel(context.Background())
-	d.events = make(chan struct{}, 1)
 
 	if len(serviceRegistry) > 0 {
 		serviceRegistry[d] = struct{}{}
@@ -128,7 +130,7 @@ func (d *Detector) Register() error {
 		C.registerNotifications()
 	}()
 
-	log.Info("Sleep detection service started on macOS")
+	log.Info("sleep detection service started on macOS")
 	return nil
 }
 
@@ -139,7 +141,7 @@ func (d *Detector) Deregister() error {
 	defer serviceRegistryMu.Unlock()
 	_, exists := serviceRegistry[d]
 	if !exists {
-		return nil // nothing to do
+		return nil
 	}
 
 	// cancel and remove this detector
@@ -151,8 +153,7 @@ func (d *Detector) Deregister() error {
 		return nil
 	}
 
-	// Last detector removed: stop runloop and deregister from IOKit.
-	log.Info("Sleep detection service stopping (deregister)")
+	log.Info("sleep detection service stopping (deregister)")
 
 	// Deregister IOKit notifications, stop runloop, and free resources
 	C.unregisterNotifications()
@@ -160,21 +161,23 @@ func (d *Detector) Deregister() error {
 	return nil
 }
 
-func (d *Detector) Listen(ctx context.Context) error {
-	select {
-	case <-d.ctx.Done():
-		return d.ctx.Err()
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-d.events:
-		return nil
-	}
-}
+func (d *Detector) triggerSleepCallback() {
+	doneChan := make(chan struct{})
 
-func (d *Detector) triggerSleepCallbacks() {
+	timeout := time.NewTimer(500 * time.Millisecond)
+	defer timeout.Stop()
+
+	cb := d.callback
+	go func(callback func()) {
+		log.Info("sleep detection event fired")
+		callback()
+		close(doneChan)
+	}(cb)
+
 	select {
-	case d.events <- struct{}{}:
+	case <-doneChan:
 	case <-d.ctx.Done():
-	default:
+	case <-timeout.C:
+		log.Warnf("sleep callback timed out")
 	}
 }

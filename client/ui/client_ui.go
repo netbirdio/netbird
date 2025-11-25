@@ -210,10 +210,11 @@ var iconConnectedDot []byte
 var iconDisconnectedDot []byte
 
 type serviceClient struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	addr   string
-	conn   proto.DaemonServiceClient
+	ctx      context.Context
+	cancel   context.CancelFunc
+	addr     string
+	conn     proto.DaemonServiceClient
+	connLock sync.Mutex
 
 	eventHandler *eventHandler
 
@@ -1138,6 +1139,8 @@ func (s *serviceClient) onTrayExit() {
 
 // getSrvClient connection to the service.
 func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {
+	s.connLock.Lock()
+	defer s.connLock.Unlock()
 	if s.conn != nil {
 		return s.conn, nil
 	}
@@ -1165,49 +1168,36 @@ func (s *serviceClient) startSleepListener() {
 	sleepService, err := sleep.New()
 	if err != nil {
 		log.Warnf("%v", err)
+		return
 	}
 
-	if err := sleepService.Register(); err != nil {
+	callback := func() {
+		log.Info("system sleep event detected, notifying daemon")
+		s.notifySleepToDaemon()
+	}
+
+	if err := sleepService.Register(callback); err != nil {
 		log.Errorf("failed to start sleep detection: %v", err)
 		return
 	}
 
 	log.Info("sleep detection service initialized")
 
-	// Start listening for sleep events
+	// Cleanup on context cancellation
 	go func() {
-		defer func() {
-			if err := sleepService.Deregister(); err != nil {
-				log.Errorf("failed to deregister sleep detection: %v", err)
-			}
-		}()
-
-		for {
-			select {
-			case <-s.ctx.Done():
-				log.Info("stopping sleep event listener")
-				return
-			default:
-				if err := sleepService.Listen(s.ctx); err != nil {
-					if errors.Is(err, context.Canceled) {
-						return
-					}
-					log.Errorf("sleep listener error: %v", err)
-					return
-				}
-
-				log.Info("system sleep event detected, notifying daemon")
-				s.notifySleepToDaemon()
-			}
+		<-s.ctx.Done()
+		log.Info("stopping sleep event listener")
+		if err := sleepService.Deregister(); err != nil {
+			log.Errorf("failed to deregister sleep detection: %v", err)
 		}
 	}()
 }
 
 // notifySleepToDaemon sends a sleep notification to the daemon via gRPC
 func (s *serviceClient) notifySleepToDaemon() {
-	conn, err := s.getSrvClient(failFastTimeout)
+	conn, err := s.getSrvClient(0)
 	if err != nil {
-		log.Errorf("Failed to get daemon client for sleep notification: %v", err)
+		log.Errorf("failed to get daemon client for sleep notification: %v", err)
 		return
 	}
 
@@ -1215,11 +1205,11 @@ func (s *serviceClient) notifySleepToDaemon() {
 
 	_, err = conn.NotifySleep(s.ctx, req)
 	if err != nil {
-		log.Errorf("Failed to notify daemon about sleep event: %v", err)
+		log.Errorf("failed to notify daemon about sleep event: %v", err)
 		return
 	}
 
-	log.Info("Successfully notified daemon about sleep event")
+	log.Info("successfully notified daemon about sleep event")
 }
 
 // setSettingsEnabled enables or disables the settings menu based on the provided state
