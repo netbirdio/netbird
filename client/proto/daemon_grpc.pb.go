@@ -70,6 +70,8 @@ type DaemonServiceClient interface {
 	RequestJWTAuth(ctx context.Context, in *RequestJWTAuthRequest, opts ...grpc.CallOption) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(ctx context.Context, in *WaitJWTTokenRequest, opts ...grpc.CallOption) (*WaitJWTTokenResponse, error)
+	// NotifySleep notifies the daemon about system sleep event
+	NotifySleep(ctx context.Context, in *NotifySleepRequest, opts ...grpc.CallOption) (*NotifySleepResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -382,6 +384,15 @@ func (c *daemonServiceClient) WaitJWTToken(ctx context.Context, in *WaitJWTToken
 	return out, nil
 }
 
+func (c *daemonServiceClient) NotifySleep(ctx context.Context, in *NotifySleepRequest, opts ...grpc.CallOption) (*NotifySleepResponse, error) {
+	out := new(NotifySleepResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/NotifySleep", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -438,6 +449,8 @@ type DaemonServiceServer interface {
 	RequestJWTAuth(context.Context, *RequestJWTAuthRequest) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error)
+	// NotifySleep notifies the daemon about system sleep event
+	NotifySleep(context.Context, *NotifySleepRequest) (*NotifySleepResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -537,6 +550,9 @@ func (UnimplementedDaemonServiceServer) RequestJWTAuth(context.Context, *Request
 }
 func (UnimplementedDaemonServiceServer) WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WaitJWTToken not implemented")
+}
+func (UnimplementedDaemonServiceServer) NotifySleep(context.Context, *NotifySleepRequest) (*NotifySleepResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NotifySleep not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -1112,6 +1128,24 @@ func _DaemonService_WaitJWTToken_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_NotifySleep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NotifySleepRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).NotifySleep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/NotifySleep",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).NotifySleep(ctx, req.(*NotifySleepRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1238,6 +1272,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "WaitJWTToken",
 			Handler:    _DaemonService_WaitJWTToken_Handler,
+		},
+		{
+			MethodName: "NotifySleep",
+			Handler:    _DaemonService_NotifySleep_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

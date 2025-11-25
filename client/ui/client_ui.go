@@ -38,6 +38,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/sleep"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
@@ -1098,6 +1099,9 @@ func (s *serviceClient) onTrayReady() {
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
+
+	// Start sleep detection listener
+	go s.startSleepListener()
 }
 
 func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
@@ -1154,6 +1158,68 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
+}
+
+// startSleepListener initializes the sleep detection service and listens for sleep events
+func (s *serviceClient) startSleepListener() {
+	sleepService, err := sleep.New()
+	if err != nil {
+		log.Warnf("%v", err)
+	}
+
+	if err := sleepService.Register(); err != nil {
+		log.Errorf("failed to start sleep detection: %v", err)
+		return
+	}
+
+	log.Info("sleep detection service initialized")
+
+	// Start listening for sleep events
+	go func() {
+		defer func() {
+			if err := sleepService.Deregister(); err != nil {
+				log.Errorf("failed to deregister sleep detection: %v", err)
+			}
+		}()
+
+		for {
+			select {
+			case <-s.ctx.Done():
+				log.Info("stopping sleep event listener")
+				return
+			default:
+				if err := sleepService.Listen(s.ctx); err != nil {
+					if errors.Is(err, context.Canceled) {
+						return
+					}
+					log.Errorf("sleep listener error: %v", err)
+					return
+				}
+
+				log.Info("system sleep event detected, notifying daemon")
+				s.notifySleepToDaemon()
+			}
+		}
+	}()
+}
+
+// notifySleepToDaemon sends a sleep notification to the daemon via gRPC
+func (s *serviceClient) notifySleepToDaemon() {
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		log.Errorf("Failed to get daemon client for sleep notification: %v", err)
+		return
+	}
+
+	req := &proto.NotifySleepRequest{}
+
+	_, err = conn.NotifySleep(s.ctx, req)
+	if err != nil {
+		log.Errorf("Failed to notify daemon about sleep event: %v", err)
+		return
+	}
+
+	log.Info("Successfully notified daemon about sleep event")
 }
 
 // setSettingsEnabled enables or disables the settings menu based on the provided state
