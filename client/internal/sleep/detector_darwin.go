@@ -9,18 +9,60 @@ package sleep
 #include <CoreFoundation/CoreFoundation.h>
 
 extern void sleepCallbackBridge();
-extern io_connect_t getRootPort();
 
-void sleepCallback(void* refCon, io_service_t service, natural_t messageType, void* messageArgument) {
+// C global variables for IOKit state
+static IONotificationPortRef g_notifyPortRef = NULL;
+static io_object_t g_notifierObject = 0;
+static io_connect_t g_rootPort = 0;
+static CFRunLoopRef g_runLoop = NULL;
+
+static void sleepCallback(void* refCon, io_service_t service, natural_t messageType, void* messageArgument) {
 	switch (messageType) {
 		case kIOMessageSystemWillSleep:
 			sleepCallbackBridge();
-			IOAllowPowerChange(getRootPort(), (long)messageArgument);
+			IOAllowPowerChange(g_rootPort, (long)messageArgument);
 			break;
 		default:
 			break;
 	}
 }
+
+static void registerNotifications() {
+	g_rootPort = IORegisterForSystemPower(
+		NULL,
+		&g_notifyPortRef,
+		(IOServiceInterestCallback)sleepCallback,
+		&g_notifierObject
+	);
+
+	if (g_rootPort == 0) {
+		return;
+	}
+
+	CFRunLoopAddSource(CFRunLoopGetCurrent(),
+		IONotificationPortGetRunLoopSource(g_notifyPortRef),
+		kCFRunLoopCommonModes);
+
+	g_runLoop = CFRunLoopGetCurrent();
+	CFRunLoopRun();
+}
+
+static void unregisterNotifications() {
+	CFRunLoopRemoveSource(g_runLoop,
+		IONotificationPortGetRunLoopSource(g_notifyPortRef),
+		kCFRunLoopCommonModes);
+
+	IODeregisterForSystemPower(&g_notifierObject);
+	IOServiceClose(g_rootPort);
+	IONotificationPortDestroy(g_notifyPortRef);
+	CFRunLoopStop(g_runLoop);
+
+	g_notifyPortRef = NULL;
+	g_notifierObject = 0;
+	g_rootPort = 0;
+	g_runLoop = NULL;
+}
+
 */
 import "C"
 
@@ -36,22 +78,7 @@ import (
 var (
 	serviceRegistry   = make(map[*Detector]struct{})
 	serviceRegistryMu sync.Mutex
-
-	// IOKit globals (guard access with serviceRegistryMu)
-	notifyPortRef   C.IONotificationPortRef
-	notifierObject  C.io_object_t
-	rootPort        C.io_connect_t
-	runLoop         C.CFRunLoopRef
-	runLoopSource   C.CFRunLoopSourceRef
-	runLoopAssigned bool
 )
-
-//export getRootPort
-func getRootPort() C.io_connect_t {
-	// rootPort is set under lock in register(); reads here are OK because IO callback runs
-	// on the same OS thread as the run loop; still, we simply return the value.
-	return rootPort
-}
 
 //export sleepCallbackBridge
 func sleepCallbackBridge() {
@@ -93,41 +120,12 @@ func (d *Detector) Register() error {
 
 	serviceRegistry[d] = struct{}{}
 
-	rootPort = C.IORegisterForSystemPower(
-		nil,
-		&notifyPortRef,
-		(C.IOServiceInterestCallback)(C.sleepCallback),
-		&notifierObject,
-	)
-
-	if rootPort == 0 {
-		// cleanup partial registration
-		delete(serviceRegistry, d)
-		d.cancel()
-		return fmt.Errorf("IORegisterForSystemPower failed")
-	}
-
-	runLoopSource = C.IONotificationPortGetRunLoopSource(notifyPortRef)
-	runLoopAssigned = false
-
-	// CFRunLoop must run on a single fixed OS thread.
+	// CFRunLoop must run on a single fixed OS thread
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 
-		// Get the current thread's runloop and add the source there.
-		rl := C.CFRunLoopGetCurrent()
-
-		// Protect globals with the same mutex so unregister() won't race.
-		serviceRegistryMu.Lock()
-		runLoop = rl
-		C.CFRunLoopAddSource(runLoop, runLoopSource, C.kCFRunLoopCommonModes)
-		runLoopAssigned = true
-		serviceRegistryMu.Unlock()
-
-		// Run the loop; this blocks until CFRunLoopStop is called.
-		C.CFRunLoopRun()
-		// When CFRunLoopRun returns, clean up will be performed in Deregister path.
+		C.registerNotifications()
 	}()
 
 	log.Info("Sleep detection service started on macOS")
@@ -156,28 +154,9 @@ func (d *Detector) Deregister() error {
 	// Last detector removed: stop runloop and deregister from IOKit.
 	log.Info("Sleep detection service stopping (deregister)")
 
-	// At this point we hold the lock; we will perform CFRunLoopRemoveSource / CFRunLoopStop
-	// while still holding the lock so the runLoop/runLoopSource won't be modified concurrently.
-	if runLoopAssigned {
-		// Remove source first
-		C.CFRunLoopRemoveSource(runLoop, runLoopSource, C.kCFRunLoopCommonModes)
+	// Deregister IOKit notifications, stop runloop, and free resources
+	C.unregisterNotifications()
 
-		// Stop the run loop running on the locked OS thread.
-		C.CFRunLoopStop(runLoop)
-
-		// Reset run loop globals
-		runLoopAssigned = false
-	}
-
-	// Deregister IOKit notifications and free resources.
-	C.IODeregisterForSystemPower(&notifierObject)
-	C.IOServiceClose(rootPort)
-	C.IONotificationPortDestroy(notifyPortRef)
-
-	// Clear IOKit globals to avoid reuse mistakes
-	rootPort = 0
-	notifyPortRef = nil
-	notifierObject = 0
 	return nil
 }
 
