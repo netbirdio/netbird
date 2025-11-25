@@ -42,6 +42,10 @@ func checkChange(ctx context.Context, nexthopv4, nexthopv6 systemops.Nexthop) er
 			if routeChanged(route, nexthopv4, nexthopv6) {
 				return nil
 			}
+		case update := <-interfaceMonitor.InterfaceUpdates():
+			if defaultInterfaceDown(update, nexthopv4, nexthopv6) {
+				return nil
+			}
 		}
 	}
 }
