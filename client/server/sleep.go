@@ -19,6 +19,6 @@ func (s *Server) NotifySleep(ctx context.Context, req *proto.NotifySleepRequest)
 		return nil, fmt.Errorf("engine not initialized")
 	}
 
-	// todo: stop DNS
+	engine.PrepareSleep()
 	return &proto.NotifySleepResponse{}, nil
 }

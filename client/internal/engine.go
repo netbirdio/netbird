@@ -273,6 +273,26 @@ func NewEngine(
 	return engine
 }
 
+func (e *Engine) PrepareSleep() {
+	if e == nil {
+		return
+	}
+
+	if !e.config.NetworkMonitor {
+		return
+	}
+
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	if e.dnsServer != nil {
+		return
+	}
+
+	log.Infof("clean up DNS before go to sleep")
+	e.stopDNSServer()
+}
+
 func (e *Engine) Stop() error {
 	if e == nil {
 		// this seems to be a very odd case but there was the possibility if the netbird down command comes before the engine is fully started
