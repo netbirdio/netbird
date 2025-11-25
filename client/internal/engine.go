@@ -208,6 +208,10 @@ type Engine struct {
 	shutdownWg sync.WaitGroup
 
 	probeStunTurn *relay.StunTurnProbe
+
+	// skipDNSCleanup is set when restarting due to network monitor to avoid
+	// unnecessary DNS cleanup/restore cycles
+	skipDNSCleanup bool
 }
 
 // Peer is an instance of the Connection Peer
@@ -1752,6 +1756,7 @@ func (e *Engine) startNetworkMonitor() {
 		}
 
 		log.Infof("Network monitor: detected network change, triggering client restart")
+		e.skipDNSCleanup = true
 		e.triggerClientRestart()
 	}()
 }
@@ -1775,6 +1780,13 @@ func (e *Engine) stopDNSServer() {
 	if e.dnsServer == nil {
 		return
 	}
+
+	if e.skipDNSCleanup {
+		log.Info("skipping DNS cleanup due to network monitor restart")
+		e.dnsServer = nil
+		return
+	}
+
 	e.dnsServer.Stop()
 	e.dnsServer = nil
 	err := fmt.Errorf("DNS server stopped")
