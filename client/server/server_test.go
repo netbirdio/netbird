@@ -322,7 +322,10 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 		return nil, "", err
 	}
 
-	secretsManager := nbgrpc.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	if err != nil {
+		return nil, "", err
+	}
 	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, secretsManager, nil, nil, &server.MockIntegratedValidator{}, networkMapController)
 	if err != nil {
 		return nil, "", err

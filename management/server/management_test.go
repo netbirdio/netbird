@@ -229,7 +229,10 @@ func startServer(
 	}
 
 	groupsManager := groups.NewManager(str, permissionsManager, accountManager)
-	secretsManager := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	if err != nil {
+		t.Fatalf("failed creating secrets manager: %v", err)
+	}
 	mgmtServer, err := nbgrpc.NewServer(
 		config,
 		accountManager,

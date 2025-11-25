@@ -123,7 +123,10 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 		t.Fatal(err)
 	}
 
-	secretsManager := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, secretsManager, nil, nil, &mgmt.MockIntegratedValidator{}, networkMapController)
 	if err != nil {
 		t.Fatal(err)
