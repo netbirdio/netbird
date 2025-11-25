@@ -285,10 +285,6 @@ func (e *Engine) PrepareSleep() {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	if e.dnsServer != nil {
-		return
-	}
-
 	log.Infof("clean up DNS before go to sleep")
 	e.stopDNSServer()
 }
