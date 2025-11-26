@@ -109,14 +109,6 @@ func initTestMetaData(t *testing.T, peers ...*nbpeer.Peer) *Handler {
 		GetDNSDomain(gomock.Any()).
 		Return("domain").
 		AnyTimes()
-	networkMapController.EXPECT().
-		IsConnected(noUpdateChannelTestPeerID).
-		Return(false).
-		AnyTimes()
-	networkMapController.EXPECT().
-		IsConnected(gomock.Any()).
-		Return(true).
-		AnyTimes()
 
 	return &Handler{
 		accountManager: &mock_server.MockAccountManager{
