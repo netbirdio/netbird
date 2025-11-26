@@ -25,6 +25,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/sleephandler"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -85,7 +86,11 @@ type Server struct {
 	profilesDisabled       bool
 	updateSettingsDisabled bool
 
-	jwtCache *jwtCache
+	jwtCache     *jwtCache
+	sleepHandler interface {
+		Start(context.Context) error
+		Stop()
+	}
 }
 
 type oauthAuthFlow struct {
@@ -97,7 +102,7 @@ type oauthAuthFlow struct {
 
 // New server instance constructor.
 func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
-	return &Server{
+	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
 		persistSyncResponse:    true,
@@ -107,6 +112,13 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		updateSettingsDisabled: updateSettingsDisabled,
 		jwtCache:               newJWTCache(),
 	}
+
+	s.sleepHandler = sleephandler.New(ctx, sleephandler.SleepCallbacks{
+		OnSleep: s.onSystemSleep,
+		OnWake:  s.onSystemWake,
+	})
+
+	return s
 }
 
 func (s *Server) Start() error {
@@ -180,6 +192,10 @@ func (s *Server) Start() error {
 	if s.sessionWatcher == nil {
 		s.sessionWatcher = internal.NewSessionWatcher(s.rootCtx, s.statusRecorder)
 		s.sessionWatcher.SetOnExpireListener(s.onSessionExpire)
+	}
+
+	if err := s.sleepHandler.Start(s.rootCtx); err != nil {
+		log.Warnf("failed to start sleep handler: %v", err)
 	}
 
 	if config.DisableAutoConnect {
@@ -829,6 +845,15 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	return &proto.DownResponse{}, nil
 }
 
+func (s *Server) Stop() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.sleepHandler != nil {
+		s.sleepHandler.Stop()
+	}
+}
+
 func (s *Server) cleanupConnection() error {
 	s.oauthAuthFlow = oauthAuthFlow{}
 
@@ -850,6 +875,44 @@ func (s *Server) cleanupConnection() error {
 
 	log.Infof("service is down")
 
+	return nil
+}
+
+func (s *Server) onSystemSleep(ctx context.Context) error {
+	log.Infof("system sleep detected, signaling to ConnectClient")
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient != nil {
+		select {
+		case connectClient.SleepChan() <- true:
+			log.Debug("Sleep signal sent to ConnectClient")
+		default:
+			log.Debug("Sleep channel full, signal already pending")
+		}
+	} else {
+		log.Debug("ConnectClient not initialized, ignoring sleep event")
+	}
+	return nil
+}
+
+func (s *Server) onSystemWake(ctx context.Context) error {
+	log.Infof("system wake detected, signaling to ConnectClient")
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if connectClient != nil {
+		select {
+		case connectClient.SleepChan() <- false:
+			log.Debug("Wake signal sent to ConnectClient")
+		default:
+			log.Debug("Wake channel full, signal already pending")
+		}
+	} else {
+		log.Debug("ConnectClient not initialized, ignoring wake event")
+	}
 	return nil
 }
 

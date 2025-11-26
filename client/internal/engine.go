@@ -167,6 +167,9 @@ type Engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// restartChan is used to signal the ConnectClient that a restart is needed
+	restartChan chan struct{}
+
 	wgInterface WGIface
 
 	udpMux *udpmux.UniversalUDPMuxDefault
@@ -231,6 +234,7 @@ func NewEngine(
 	mobileDep MobileDependency,
 	statusRecorder *peer.Status,
 	checks []*mgmProto.Checks,
+	restartChan chan struct{},
 ) *Engine {
 	engine := &Engine{
 		clientCtx:      clientCtx,
@@ -250,6 +254,7 @@ func NewEngine(
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
+		restartChan:    restartChan,
 	}
 
 	sm := profilemanager.NewServiceManager("")
@@ -1714,22 +1719,25 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	return allHealthy
 }
 
-// triggerClientRestart triggers a full client restart by cancelling the client context.
-// Note: This does NOT just restart the engine - it cancels the entire client context,
-// which causes the connect client's retry loop to create a completely new engine.
+// triggerClientRestart signals the ConnectClient that a restart is needed.
+// The ConnectClient will handle the actual restart by cancelling the engine context.
 func (e *Engine) triggerClientRestart() {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-
 	if e.ctx.Err() != nil {
+		log.Debugf("engine context already cancelled, skipping restart trigger")
 		return
 	}
 
-	log.Info("restarting engine")
+	log.Info("network change detected, requesting engine restart")
 	CtxGetState(e.ctx).Set(StatusConnecting)
 	_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
-	log.Infof("cancelling client context, engine will be recreated")
-	e.clientCancel()
+
+	// Non-blocking send to restart channel
+	select {
+	case e.restartChan <- struct{}{}:
+		log.Info("restart request sent to ConnectClient")
+	default:
+		log.Debug("restart already pending")
+	}
 }
 
 func (e *Engine) startNetworkMonitor() {
@@ -1751,7 +1759,7 @@ func (e *Engine) startNetworkMonitor() {
 			return
 		}
 
-		log.Infof("Network monitor: detected network change, triggering client restart")
+		log.Infof("Network monitor: detected network change")
 		e.triggerClientRestart()
 	}()
 }

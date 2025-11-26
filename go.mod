@@ -78,6 +78,7 @@ require (
 	github.com/pion/transport/v3 v3.0.7
 	github.com/pion/turn/v3 v3.0.1
 	github.com/pkg/sftp v1.13.9
+	github.com/prashantgupta24/mac-sleep-notifier v1.0.1
 	github.com/prometheus/client_golang v1.22.0
 	github.com/quic-go/quic-go v0.49.1
 	github.com/redis/go-redis/v9 v9.7.3

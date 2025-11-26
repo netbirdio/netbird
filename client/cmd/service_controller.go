@@ -87,6 +87,7 @@ func (p *program) Stop(srv service.Service) error {
 		if err != nil {
 			log.Errorf("failed to stop daemon: %v", err)
 		}
+		p.serverInstance.Stop()
 	}
 	p.serverInstanceMu.Unlock()
 

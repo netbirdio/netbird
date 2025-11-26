@@ -236,6 +236,7 @@ func TestEngine_SSH(t *testing.T) {
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	restartChan := make(chan struct{}, 1)
 	engine := NewEngine(
 		ctx, cancel,
 		&signal.MockClient{},
@@ -253,6 +254,7 @@ func TestEngine_SSH(t *testing.T) {
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
 		nil,
+		restartChan,
 	)
 
 	engine.dnsServer = &dns.MockServer{
@@ -414,6 +416,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	restartChan := make(chan struct{}, 1)
 	engine := NewEngine(
 		ctx, cancel,
 		&signal.MockClient{},
@@ -428,7 +431,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		},
 		MobileDependency{},
 		peer.NewRecorder("https://mgm"),
-		nil)
+		nil,
+		restartChan)
 
 	wgIface := &MockWGIface{
 		NameFunc: func() string { return "utun102" },
@@ -641,13 +645,14 @@ func TestEngine_Sync(t *testing.T) {
 		return nil
 	}
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	restartChan := make(chan struct{}, 1)
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, relayMgr, &EngineConfig{
 		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
 		MTU:          iface.DefaultMTU,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, restartChan)
 	engine.ctx = ctx
 
 	engine.dnsServer = &dns.MockServer{
@@ -806,13 +811,14 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+			restartChan := make(chan struct{}, 1)
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, restartChan)
 			engine.ctx = ctx
 			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
@@ -1008,13 +1014,14 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+			restartChan := make(chan struct{}, 1)
 			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, restartChan)
 			engine.ctx = ctx
 
 			newNet, err := stdnet.NewNet(context.Background(), nil)
@@ -1540,7 +1547,8 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
+	restartChan := make(chan struct{}, 1)
+	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil, restartChan), nil
 	e.ctx = ctx
 	return e, err
 }

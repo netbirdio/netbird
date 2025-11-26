@@ -45,6 +45,13 @@ type ConnectClient struct {
 	engine         *Engine
 	engineMutex    sync.Mutex
 
+	// restartChan is used by the engine to signal that a restart is needed
+	restartChan chan struct{}
+
+	// sleepChan is used by the sleep handler to signal sleep/wake events
+	// true = system going to sleep, false = system waking up
+	sleepChan chan bool
+
 	persistSyncResponse bool
 }
 
@@ -59,6 +66,8 @@ func NewConnectClient(
 		config:         config,
 		statusRecorder: statusRecorder,
 		engineMutex:    sync.Mutex{},
+		restartChan:    make(chan struct{}, 1),
+		sleepChan:      make(chan bool, 1),
 	}
 }
 
@@ -273,7 +282,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		checks := loginResp.GetChecks()
 
 		c.engineMutex.Lock()
-		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks)
+		c.engine = NewEngine(engineCtx, cancel, signalClient, mgmClient, relayManager, engineConfig, mobileDependency, c.statusRecorder, checks, c.restartChan)
 		c.engine.SetSyncResponsePersistence(c.persistSyncResponse)
 		c.engineMutex.Unlock()
 
@@ -290,7 +299,41 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			runningChan = nil
 		}
 
-		<-engineCtx.Done()
+		// Monitor for engine context cancellation, restart requests, and sleep/wake events
+		select {
+		case <-engineCtx.Done():
+			// Normal shutdown or external cancellation
+		case <-c.restartChan:
+			// Engine requested restart
+			log.Info("Engine requested restart, cancelling context")
+			cancel()
+		case sleeping := <-c.sleepChan:
+			if sleeping {
+				// System going to sleep - stop engine and block until wake
+				log.Info("System sleep detected, stopping engine and waiting for wake")
+				cancel()
+
+				// Block until wake event (false on channel)
+				// This prevents engine from restarting during sleep
+				for {
+					select {
+					case <-engineCtx.Done():
+						// Engine context cancelled, exit sleep wait
+						log.Info("Engine context cancelled during sleep wait")
+						return nil
+					case awake := <-c.sleepChan:
+						if !awake {
+							log.Info("System wake detected, will restart engine")
+							return nil
+						}
+						// Ignore additional sleep signals while already sleeping
+						log.Debug("Ignoring duplicate sleep signal")
+					}
+				}
+			}
+			// If we received false (wake) without being asleep, ignore it
+			log.Debug("Received wake signal while not sleeping, ignoring")
+		}
 
 		c.engineMutex.Lock()
 		engine := c.engine
@@ -394,6 +437,11 @@ func (c *ConnectClient) Stop() error {
 		}
 	}
 	return nil
+}
+
+// SleepChan returns the channel used for sleep/wake notifications
+func (c *ConnectClient) SleepChan() chan bool {
+	return c.sleepChan
 }
 
 // SetSyncResponsePersistence enables or disables sync response persistence.
