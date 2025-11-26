@@ -130,26 +130,13 @@ func (mr *MockControllerMockRecorder) GetValidatedPeerWithMap(ctx, isRequiresApp
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetValidatedPeerWithMap", reflect.TypeOf((*MockController)(nil).GetValidatedPeerWithMap), ctx, isRequiresApproval, accountID, p)
 }
 
-// IsConnected mocks base method.
-func (m *MockController) IsConnected(peerID string) bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsConnected", peerID)
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// IsConnected indicates an expected call of IsConnected.
-func (mr *MockControllerMockRecorder) IsConnected(peerID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsConnected", reflect.TypeOf((*MockController)(nil).IsConnected), peerID)
-}
-
 // OnPeerConnected mocks base method.
-func (m *MockController) OnPeerConnected(ctx context.Context, accountID, peerID string) chan *UpdateMessage {
+func (m *MockController) OnPeerConnected(ctx context.Context, accountID, peerID string) (chan *UpdateMessage, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OnPeerConnected", ctx, accountID, peerID)
 	ret0, _ := ret[0].(chan *UpdateMessage)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // OnPeerConnected indicates an expected call of OnPeerConnected.
