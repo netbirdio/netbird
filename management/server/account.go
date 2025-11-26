@@ -325,6 +325,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			}
 		}
 
+		newSettings.Extra.IntegratedValidatorGroups = oldSettings.Extra.IntegratedValidatorGroups
+		newSettings.Extra.IntegratedValidator = oldSettings.Extra.IntegratedValidator
+
 		if err = transaction.SaveAccountSettings(ctx, accountID, newSettings); err != nil {
 			return err
 		}
