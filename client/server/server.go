@@ -243,6 +243,9 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 		s.mutex.Unlock()
 	}()
 
+	state := internal.CtxGetState(ctx)
+	state.Set(internal.StatusConnecting)
+
 	if s.config.DisableAutoConnect {
 		if err := s.connect(ctx, s.config, s.statusRecorder, runningChan); err != nil {
 			log.Debugf("run client connection exited with error: %v", err)

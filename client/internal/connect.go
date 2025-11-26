@@ -178,8 +178,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return nil
 		}
 
-		state.Set(StatusConnecting)
-
 		engineCtx, cancel := context.WithCancel(c.ctx)
 		defer func() {
 			_, err := state.Status()
