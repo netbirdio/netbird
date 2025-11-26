@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/term"
@@ -26,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -385,18 +384,10 @@ func requestJWTToken(ctx context.Context, daemonAddr string, skipCache, noBrowse
 
 	var browserOpener func(string) error
 	if !noBrowser {
-		browserOpener = openBrowser
+		browserOpener = util.OpenBrowser
 	}
 
 	return nbssh.RequestJWTToken(ctx, client, os.Stdout, os.Stderr, !skipCache, hint, browserOpener)
-}
-
-// openBrowser opens the URL in a browser, respecting the BROWSER environment variable.
-func openBrowser(url string) error {
-	if browser := os.Getenv("BROWSER"); browser != "" {
-		return exec.Command(browser, url).Start()
-	}
-	return open.Run(url)
 }
 
 // verifyHostKeyViaDaemon verifies SSH host key by querying the NetBird daemon

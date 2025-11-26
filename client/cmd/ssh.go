@@ -786,10 +786,12 @@ func sshProxyFn(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid port: %s", portStr)
 	}
 
-	proxyNoBrowser := getBoolEnvOrDefault("NO_BROWSER", false)
+	// Check env var for browser setting since this command is invoked via SSH ProxyCommand
+	// where command-line flags cannot be passed. Default is to open browser.
+	noBrowser := getBoolEnvOrDefault("NO_BROWSER", false)
 	var browserOpener func(string) error
-	if !proxyNoBrowser {
-		browserOpener = openBrowser
+	if !noBrowser {
+		browserOpener = util.OpenBrowser
 	}
 
 	proxy, err := sshproxy.New(daemonAddr, host, port, cmd.ErrOrStderr(), browserOpener)
