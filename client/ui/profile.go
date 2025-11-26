@@ -532,7 +532,6 @@ func (p *profileMenu) refresh() {
 
 					// Handle profile selection
 					if profile.IsActive {
-						log.Infof("--- profile is alread active")
 						log.Infof("Profile '%s' is already active", profile.Name)
 						return
 					}
