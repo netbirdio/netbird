@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
@@ -50,28 +51,21 @@ func (s *systemConfigurator) supportCustomPort() bool {
 }
 
 func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
-	var err error
-
-	if err := stateManager.UpdateState(&ShutdownState{}); err != nil {
-		log.Errorf("failed to update shutdown state: %s", err)
-	}
-
 	var (
 		searchDomains []string
 		matchDomains  []string
 	)
 
-	err = s.recordSystemDNSSettings(true)
-	if err != nil {
+	if err := s.recordSystemDNSSettings(true); err != nil {
 		log.Errorf("unable to update record of System's DNS config: %s", err.Error())
 	}
 
 	if config.RouteAll {
 		searchDomains = append(searchDomains, "\"\"")
-		err = s.addLocalDNS()
-		if err != nil {
-			log.Infof("failed to enable split DNS")
+		if err := s.addLocalDNS(); err != nil {
+			log.Warnf("failed to add local DNS: %v", err)
 		}
+		s.updateState(stateManager)
 	}
 
 	for _, dConf := range config.Domains {
@@ -86,6 +80,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	}
 
 	matchKey := getKeyWithInput(netbirdDNSStateKeyFormat, matchSuffix)
+	var err error
 	if len(matchDomains) != 0 {
 		err = s.addMatchDomains(matchKey, strings.Join(matchDomains, " "), config.ServerIP, config.ServerPort)
 	} else {
@@ -95,6 +90,7 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	if err != nil {
 		return fmt.Errorf("add match domains: %w", err)
 	}
+	s.updateState(stateManager)
 
 	searchKey := getKeyWithInput(netbirdDNSStateKeyFormat, searchSuffix)
 	if len(searchDomains) != 0 {
@@ -106,12 +102,19 @@ func (s *systemConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *
 	if err != nil {
 		return fmt.Errorf("add search domains: %w", err)
 	}
+	s.updateState(stateManager)
 
 	if err := s.flushDNSCache(); err != nil {
 		log.Errorf("failed to flush DNS cache: %v", err)
 	}
 
 	return nil
+}
+
+func (s *systemConfigurator) updateState(stateManager *statemanager.Manager) {
+	if err := stateManager.UpdateState(&ShutdownState{CreatedKeys: maps.Keys(s.createdKeys)}); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
+	}
 }
 
 func (s *systemConfigurator) string() string {
@@ -167,18 +170,20 @@ func (s *systemConfigurator) removeKeyFromSystemConfig(key string) error {
 func (s *systemConfigurator) addLocalDNS() error {
 	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
 		if err := s.recordSystemDNSSettings(true); err != nil {
-			log.Errorf("Unable to get system DNS configuration")
 			return fmt.Errorf("recordSystemDNSSettings(): %w", err)
 		}
 	}
 	localKey := getKeyWithInput(netbirdDNSStateKeyFormat, localSuffix)
-	if s.systemDNSSettings.ServerIP.IsValid() && len(s.systemDNSSettings.Domains) != 0 {
-		err := s.addSearchDomains(localKey, strings.Join(s.systemDNSSettings.Domains, " "), s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort)
-		if err != nil {
-			return fmt.Errorf("couldn't add local network DNS conf: %w", err)
-		}
-	} else {
+	if !s.systemDNSSettings.ServerIP.IsValid() || len(s.systemDNSSettings.Domains) == 0 {
 		log.Info("Not enabling local DNS server")
+		return nil
+	}
+
+	if err := s.addSearchDomains(
+		localKey,
+		strings.Join(s.systemDNSSettings.Domains, " "), s.systemDNSSettings.ServerIP, s.systemDNSSettings.ServerPort,
+	); err != nil {
+		return fmt.Errorf("add search domains: %w", err)
 	}
 
 	return nil

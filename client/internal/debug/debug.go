@@ -44,6 +44,8 @@ interfaces.txt: Anonymized network interface information, if --system-info flag 
 ip_rules.txt: Detailed IP routing rules in tabular format including priority, source, destination, interfaces, table, and action information (Linux only), if --system-info flag was provided.
 iptables.txt: Anonymized iptables rules with packet counters, if --system-info flag was provided.
 nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
+resolv.conf: DNS resolver configuration from /etc/resolv.conf (Unix systems only), if --system-info flag was provided.
+scutil_dns.txt: DNS configuration from scutil --dns (macOS only), if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
@@ -185,6 +187,20 @@ The ip_rules.txt file contains detailed IP routing rule information:
 The table format provides comprehensive visibility into the IP routing decision process, including how traffic is directed to different routing tables based on various criteria. This is valuable for troubleshooting advanced routing configurations and policy-based routing.
 
 For anonymized rules, IP addresses and prefixes are replaced as described above. Interface names are anonymized using string anonymization. Table names, actions, and other non-sensitive information remain unchanged.
+
+DNS Configuration
+The debug bundle includes platform-specific DNS configuration files:
+
+resolv.conf (Unix systems):
+- Contains DNS resolver configuration from /etc/resolv.conf
+- Includes nameserver entries, search domains, and resolver options
+- All IP addresses and domain names are anonymized following the same rules as other files
+
+scutil_dns.txt (macOS only):
+- Contains detailed DNS configuration from scutil --dns
+- Shows DNS configuration for all network interfaces
+- Includes search domains, nameservers, and DNS resolver settings
+- All IP addresses and domain names are anonymized
 `
 
 const (
@@ -365,6 +381,10 @@ func (g *BundleGenerator) addSystemInfo() {
 	if err := g.addFirewallRules(); err != nil {
 		log.Errorf("failed to add firewall rules to debug bundle: %v", err)
 	}
+
+	if err := g.addDNSInfo(); err != nil {
+		log.Errorf("failed to add DNS info to debug bundle: %v", err)
+	}
 }
 
 func (g *BundleGenerator) addReadme() error {
@@ -440,6 +460,18 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("RosenpassPermissive: %v\n", g.internalConfig.RosenpassPermissive))
 	if g.internalConfig.ServerSSHAllowed != nil {
 		configContent.WriteString(fmt.Sprintf("ServerSSHAllowed: %v\n", *g.internalConfig.ServerSSHAllowed))
+	}
+	if g.internalConfig.EnableSSHRoot != nil {
+		configContent.WriteString(fmt.Sprintf("EnableSSHRoot: %v\n", *g.internalConfig.EnableSSHRoot))
+	}
+	if g.internalConfig.EnableSSHSFTP != nil {
+		configContent.WriteString(fmt.Sprintf("EnableSSHSFTP: %v\n", *g.internalConfig.EnableSSHSFTP))
+	}
+	if g.internalConfig.EnableSSHLocalPortForwarding != nil {
+		configContent.WriteString(fmt.Sprintf("EnableSSHLocalPortForwarding: %v\n", *g.internalConfig.EnableSSHLocalPortForwarding))
+	}
+	if g.internalConfig.EnableSSHRemotePortForwarding != nil {
+		configContent.WriteString(fmt.Sprintf("EnableSSHRemotePortForwarding: %v\n", *g.internalConfig.EnableSSHRemotePortForwarding))
 	}
 
 	configContent.WriteString(fmt.Sprintf("DisableClientRoutes: %v\n", g.internalConfig.DisableClientRoutes))

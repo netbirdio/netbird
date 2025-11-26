@@ -335,7 +335,7 @@ func TestUpdateDNSServer(t *testing.T) {
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			privKey, _ := wgtypes.GenerateKey()
-			newNet, err := stdnet.NewNet(nil)
+			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -434,7 +434,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet([]string{"utun2301"})
+	newNet, err := stdnet.NewNet(context.Background(), []string{"utun2301"})
 	if err != nil {
 		t.Errorf("create stdnet: %v", err)
 		return
@@ -915,7 +915,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 	defer t.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
-	newNet, err := stdnet.NewNet([]string{"utun2301"})
+	newNet, err := stdnet.NewNet(context.Background(), []string{"utun2301"})
 	if err != nil {
 		t.Fatalf("create stdnet: %v", err)
 		return nil, err
@@ -944,7 +944,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 		return nil, err
 	}
 
-	pf, err := uspfilter.Create(wgIface, false, flowLogger)
+	pf, err := uspfilter.Create(wgIface, false, flowLogger, iface.DefaultMTU)
 	if err != nil {
 		t.Fatalf("failed to create uspfilter: %v", err)
 		return nil, err

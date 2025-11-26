@@ -19,6 +19,10 @@ const (
 	RootZone = "."
 	// DefaultClass is the class supported by the system
 	DefaultClass = "IN"
+	// ForwarderClientPort is the port clients connect to. DNAT rewrites packets from ForwarderClientPort to ForwarderServerPort.
+	ForwarderClientPort uint16 = 5353
+	// ForwarderServerPort is the port the DNS forwarder actually listens on. Packets to ForwarderClientPort are DNATed here.
+	ForwarderServerPort uint16 = 22054
 )
 
 const invalidHostLabel = "[^a-zA-Z0-9-]+"
@@ -31,6 +35,8 @@ type Config struct {
 	NameServerGroups []*NameServerGroup
 	// CustomZones contains a list of custom zone
 	CustomZones []CustomZone
+	// ForwarderPort is the port clients should connect to on routing peers for DNS forwarding
+	ForwarderPort uint16
 }
 
 // CustomZone represents a custom zone to be resolved by the dns server
@@ -39,6 +45,10 @@ type CustomZone struct {
 	Domain string
 	// Records custom zone records
 	Records []SimpleRecord
+	// SearchDomainDisabled indicates whether to add match domains to a search domains list or not
+	SearchDomainDisabled bool
+	// SkipPTRProcess indicates whether a client should process PTR records from custom zones
+	SkipPTRProcess bool
 }
 
 // SimpleRecord provides a simple DNS record specification for CNAME, A and AAAA records

@@ -16,7 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
-	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -372,101 +371,10 @@ func validateRouteGroups(ctx context.Context, transaction store.Store, accountID
 	return groupsMap, nil
 }
 
-func toProtocolRoute(route *route.Route) *proto.Route {
-	return &proto.Route{
-		ID:            string(route.ID),
-		NetID:         string(route.NetID),
-		Network:       route.Network.String(),
-		Domains:       route.Domains.ToPunycodeList(),
-		NetworkType:   int64(route.NetworkType),
-		Peer:          route.Peer,
-		Metric:        int64(route.Metric),
-		Masquerade:    route.Masquerade,
-		KeepRoute:     route.KeepRoute,
-		SkipAutoApply: route.SkipAutoApply,
-	}
-}
-
-func toProtocolRoutes(routes []*route.Route) []*proto.Route {
-	protoRoutes := make([]*proto.Route, 0, len(routes))
-	for _, r := range routes {
-		protoRoutes = append(protoRoutes, toProtocolRoute(r))
-	}
-	return protoRoutes
-}
-
 // getPlaceholderIP returns a placeholder IP address for the route if domains are used
 func getPlaceholderIP() netip.Prefix {
 	// Using an IP from the documentation range to minimize impact in case older clients try to set a route
 	return netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
-}
-
-func toProtocolRoutesFirewallRules(rules []*types.RouteFirewallRule) []*proto.RouteFirewallRule {
-	result := make([]*proto.RouteFirewallRule, len(rules))
-	for i := range rules {
-		rule := rules[i]
-		result[i] = &proto.RouteFirewallRule{
-			SourceRanges: rule.SourceRanges,
-			Action:       getProtoAction(rule.Action),
-			Destination:  rule.Destination,
-			Protocol:     getProtoProtocol(rule.Protocol),
-			PortInfo:     getProtoPortInfo(rule),
-			IsDynamic:    rule.IsDynamic,
-			Domains:      rule.Domains.ToPunycodeList(),
-			PolicyID:     []byte(rule.PolicyID),
-			RouteID:      string(rule.RouteID),
-		}
-	}
-
-	return result
-}
-
-// getProtoDirection converts the direction to proto.RuleDirection.
-func getProtoDirection(direction int) proto.RuleDirection {
-	if direction == types.FirewallRuleDirectionOUT {
-		return proto.RuleDirection_OUT
-	}
-	return proto.RuleDirection_IN
-}
-
-// getProtoAction converts the action to proto.RuleAction.
-func getProtoAction(action string) proto.RuleAction {
-	if action == string(types.PolicyTrafficActionDrop) {
-		return proto.RuleAction_DROP
-	}
-	return proto.RuleAction_ACCEPT
-}
-
-// getProtoProtocol converts the protocol to proto.RuleProtocol.
-func getProtoProtocol(protocol string) proto.RuleProtocol {
-	switch types.PolicyRuleProtocolType(protocol) {
-	case types.PolicyRuleProtocolALL:
-		return proto.RuleProtocol_ALL
-	case types.PolicyRuleProtocolTCP:
-		return proto.RuleProtocol_TCP
-	case types.PolicyRuleProtocolUDP:
-		return proto.RuleProtocol_UDP
-	case types.PolicyRuleProtocolICMP:
-		return proto.RuleProtocol_ICMP
-	default:
-		return proto.RuleProtocol_UNKNOWN
-	}
-}
-
-// getProtoPortInfo converts the port info to proto.PortInfo.
-func getProtoPortInfo(rule *types.RouteFirewallRule) *proto.PortInfo {
-	var portInfo proto.PortInfo
-	if rule.Port != 0 {
-		portInfo.PortSelection = &proto.PortInfo_Port{Port: uint32(rule.Port)}
-	} else if portRange := rule.PortRange; portRange.Start != 0 && portRange.End != 0 {
-		portInfo.PortSelection = &proto.PortInfo_Range_{
-			Range: &proto.PortInfo_Range{
-				Start: uint32(portRange.Start),
-				End:   uint32(portRange.End),
-			},
-		}
-	}
-	return &portInfo
 }
 
 // areRouteChangesAffectPeers checks if a given route affects peers by determining

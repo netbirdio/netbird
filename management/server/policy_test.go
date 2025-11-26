@@ -266,7 +266,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 		expectedFirewallRules := []*types.FirewallRule{
 			{
-				PeerIP:    "0.0.0.0",
+				PeerIP:    "100.65.14.88",
 				Direction: types.FirewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
@@ -274,7 +274,103 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				PolicyID:  "RuleDefault",
 			},
 			{
-				PeerIP:    "0.0.0.0",
+				PeerIP:    "100.65.14.88",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.62.5",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.62.5",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.254.139",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.254.139",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.32.206",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.32.206",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.250.202",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.250.202",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.13.186",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.13.186",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.29.55",
+				Direction: types.FirewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+				PolicyID:  "RuleDefault",
+			},
+			{
+				PeerIP:    "100.65.29.55",
 				Direction: types.FirewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
@@ -833,10 +929,58 @@ func TestAccount_getPeersByPolicyPostureChecks(t *testing.T) {
 		// We expect a single permissive firewall rule which all outgoing connections
 		peers, firewallRules = account.GetPeerConnectionResources(context.Background(), account.Peers["peerC"], approvedPeers)
 		assert.Len(t, peers, len(account.Groups["GroupSwarm"].Peers))
-		assert.Len(t, firewallRules, 1)
+		assert.Len(t, firewallRules, 7)
 		expectedFirewallRules := []*types.FirewallRule{
 			{
-				PeerIP:    "0.0.0.0",
+				PeerIP:    "100.65.80.39",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+				PolicyID:  "RuleSwarm",
+			},
+			{
+				PeerIP:    "100.65.14.88",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+				PolicyID:  "RuleSwarm",
+			},
+			{
+				PeerIP:    "100.65.62.5",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+				PolicyID:  "RuleSwarm",
+			},
+			{
+				PeerIP:    "100.65.32.206",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+				PolicyID:  "RuleSwarm",
+			},
+			{
+				PeerIP:    "100.65.13.186",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+				PolicyID:  "RuleSwarm",
+			},
+			{
+				PeerIP:    "100.65.29.55",
+				Direction: types.FirewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "tcp",
+				Port:      "80",
+				PolicyID:  "RuleSwarm",
+			},
+			{
+				PeerIP:    "100.65.21.56",
 				Direction: types.FirewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "tcp",
@@ -991,7 +1135,7 @@ func sortFunc() func(a *types.FirewallRule, b *types.FirewallRule) int {
 }
 
 func TestPolicyAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	g := []*types.Group{
 		{
@@ -1020,9 +1164,9 @@ func TestPolicyAccountPeersUpdate(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
 	var policyWithGroupRulesNoPeers *types.Policy

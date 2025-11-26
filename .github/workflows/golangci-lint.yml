@@ -46,7 +46,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version-file: "go.mod"
           cache: false
       - name: Install dependencies
         if: matrix.os == 'ubuntu-latest'

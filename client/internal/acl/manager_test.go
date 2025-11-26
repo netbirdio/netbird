@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
 	"github.com/netbirdio/netbird/client/internal/netflow"
@@ -52,7 +53,7 @@ func TestDefaultManager(t *testing.T) {
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		err = fw.Close(nil)
@@ -170,7 +171,7 @@ func TestDefaultManagerStateless(t *testing.T) {
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		err = fw.Close(nil)
@@ -270,71 +271,4 @@ func TestPortInfoEmpty(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-func TestDefaultManagerEnableSSHRules(t *testing.T) {
-	networkMap := &mgmProto.NetworkMap{
-		PeerConfig: &mgmProto.PeerConfig{
-			SshConfig: &mgmProto.SSHConfig{
-				SshEnabled: true,
-			},
-		},
-		RemotePeers: []*mgmProto.RemotePeerConfig{
-			{AllowedIps: []string{"10.93.0.1"}},
-			{AllowedIps: []string{"10.93.0.2"}},
-			{AllowedIps: []string{"10.93.0.3"}},
-		},
-		FirewallRules: []*mgmProto.FirewallRule{
-			{
-				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_TCP,
-			},
-			{
-				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_TCP,
-			},
-			{
-				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.RuleDirection_OUT,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_UDP,
-			},
-		},
-	}
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
-	ifaceMock.EXPECT().IsUserspaceBind().Return(true).AnyTimes()
-	ifaceMock.EXPECT().SetFilter(gomock.Any())
-	network := netip.MustParsePrefix("172.0.0.1/32")
-
-	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
-	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
-		IP:      network.Addr(),
-		Network: network,
-	}).AnyTimes()
-	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
-
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
-	require.NoError(t, err)
-	defer func() {
-		err = fw.Close(nil)
-		require.NoError(t, err)
-	}()
-
-	acl := NewDefaultManager(fw)
-
-	acl.ApplyFiltering(networkMap, false)
-
-	expectedRules := 3
-	if fw.IsStateful() {
-		expectedRules = 3 // 2 inbound rules + SSH rule
-	}
-	assert.Equal(t, expectedRules, len(acl.peerRulesPairs))
 }
