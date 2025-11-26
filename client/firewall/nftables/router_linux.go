@@ -45,8 +45,8 @@ const (
 	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
 	ipTCPHeaderMinSize = 40
 
-	// maxPrefixesSet 3277 prefixes start to fail, taking some margin
-	maxPrefixesSet       = 3000
+	// maxPrefixesSet 1638 prefixes start to fail, taking some margin
+	maxPrefixesSet       = 1500
 	refreshRulesMapError = "refresh rules map: %w"
 )
 
@@ -348,11 +348,26 @@ func (r *router) AddRouteFiltering(
 	}
 
 	chain := r.chains[chainNameRoutingFw]
+	var exprs []expr.Any
 
-	exprs, err := r.applySources(sources)
-	if err != nil {
-		return nil, fmt.Errorf("apply sources (%d): %w", len(sources), err)
+	var source firewall.Network
+	switch {
+	case len(sources) == 1 && sources[0].Bits() == 0:
+		// If it's 0.0.0.0/0, we don't need to add any source matching
+	case len(sources) == 1:
+		// If there's only one source, we can use it directly
+		source.Prefix = sources[0]
+	default:
+		// If there are multiple sources, use a set
+		source.Set = firewall.NewPrefixSet(sources)
 	}
+
+	sourceExp, err := r.applyNetwork(source, sources, true)
+	if err != nil {
+		return nil, fmt.Errorf("apply source: %w", err)
+	}
+	exprs = append(exprs, sourceExp...)
+
 	destExp, err := r.applyNetwork(destination, nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("apply destination: %w", err)
@@ -412,42 +427,6 @@ func (r *router) AddRouteFiltering(
 	return ruleKey, nil
 }
 
-func (r *router) applySources(sources []netip.Prefix) ([]expr.Any, error) {
-	var source firewall.Network
-	if len(sources) == 0 {
-		return nil, nil
-	}
-	if len(sources) == 1 {
-		if sources[0].Bits() == 0 {
-			// If it's 0.0.0.0/0, we don't need to add any source matching
-			return nil, nil
-		} else { // If there's only one source, we can use it directly
-			source.Prefix = sources[0]
-		}
-		return r.applyNetwork(source, sources, true)
-	}
-	// If there are multiple sources, use a set
-	var exprs []expr.Any
-
-	var subEnd int
-	for subStart := 0; subStart < len(sources); subStart += maxPrefixesSet {
-		subEnd += maxPrefixesSet
-		if subEnd > len(sources) {
-			subEnd = len(sources)
-		}
-		subSources := sources[subStart:subEnd]
-		source.Set = firewall.NewPrefixSet(subSources)
-
-		sourceExp, err := r.applyNetwork(source, subSources, true)
-		if err != nil {
-			return nil, fmt.Errorf("apply source: %w (prefixes %d)", err, len(subSources))
-		}
-		exprs = append(exprs, sourceExp...)
-	}
-
-	return exprs, nil
-}
-
 func (r *router) getIpSet(set firewall.Set, prefixes []netip.Prefix, isSource bool) ([]expr.Any, error) {
 	ref, err := r.ipsetCounter.Increment(set.HashedName(), setInput{
 		set:      set,
@@ -505,16 +484,35 @@ func (r *router) createIpSet(setName string, input setInput) (*nftables.Set, err
 	}
 
 	elements := convertPrefixesToSet(prefixes)
-	if err := r.conn.AddSet(nfset, elements); err != nil {
-		return nil, fmt.Errorf("error adding elements to set %s: %w", setName, err)
-	}
+	nElements := len(elements)
 
+	maxElements := maxPrefixesSet * 2
+	initialElements := elements[:min(maxElements, nElements)]
+
+	if err := r.conn.AddSet(nfset, initialElements); err != nil {
+		return nil, fmt.Errorf("error adding set %s: %w", setName, err)
+	}
 	if err := r.conn.Flush(); err != nil {
 		return nil, fmt.Errorf("flush error: %w", err)
 	}
+	log.Debugf("Created new ipset: %s with %d initial prefixes (total prefixes %d)", setName, len(initialElements)/2, len(prefixes))
 
-	log.Printf("Created new ipset: %s with %d elements", setName, len(elements)/2)
+	var subEnd int
+	for subStart := maxElements; subStart < nElements; subStart += maxElements {
+		subEnd = min(subStart+maxElements, nElements)
+		subElement := elements[subStart:subEnd]
+		nSubPrefixes := len(subElement) / 2
+		log.Tracef("Adding new prefixes (%d) in ipset: %s", nSubPrefixes, setName)
+		if err := r.conn.SetAddElements(nfset, subElement); err != nil {
+			return nil, fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, setName, err)
+		}
+		if err := r.conn.Flush(); err != nil {
+			return nil, fmt.Errorf("flush error: %w", err)
+		}
+		log.Debugf("Added new prefixes (%d) in ipset: %s", nSubPrefixes, setName)
+	}
 
+	log.Infof("Created new ipset: %s with %d prefixes", setName, len(prefixes))
 	return nfset, nil
 }
 
