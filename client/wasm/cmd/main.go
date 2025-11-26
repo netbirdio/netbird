@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	clientStartTimeout = 30 * time.Second
-	clientStopTimeout  = 10 * time.Second
-	defaultLogLevel    = "warn"
+	clientStartTimeout         = 30 * time.Second
+	clientStopTimeout          = 10 * time.Second
+	defaultLogLevel            = "warn"
+	defaultSSHDetectionTimeout = 20 * time.Second
 )
 
 func main() {
@@ -207,11 +208,19 @@ func createDetectSSHServerMethod(client *netbird.Client) js.Func {
 		host := args[0].String()
 		port := args[1].Int()
 
+		timeoutMs := int(defaultSSHDetectionTimeout.Milliseconds())
+		if len(args) >= 3 && !args[2].IsNull() && !args[2].IsUndefined() {
+			timeoutMs = args[2].Int()
+			if timeoutMs <= 0 {
+				return js.ValueOf("error: timeout must be positive")
+			}
+		}
+
 		return createPromise(func(resolve, reject js.Value) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
 			defer cancel()
 
-			serverType, err := detectSSHServerType(ctx, client, host, port)
+			serverType, err := sshdetection.DetectSSHServerType(ctx, client, host, port)
 			if err != nil {
 				reject.Invoke(err.Error())
 				return
@@ -220,11 +229,6 @@ func createDetectSSHServerMethod(client *netbird.Client) js.Func {
 			resolve.Invoke(js.ValueOf(serverType.RequiresJWT()))
 		})
 	})
-}
-
-// detectSSHServerType detects SSH server type using NetBird network connection
-func detectSSHServerType(ctx context.Context, client *netbird.Client, host string, port int) (sshdetection.ServerType, error) {
-	return sshdetection.DetectSSHServerType(ctx, client, host, port)
 }
 
 // createClientObject wraps the NetBird client in a JavaScript object

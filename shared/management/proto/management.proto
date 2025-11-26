@@ -433,6 +433,8 @@ message DNSConfig {
 message CustomZone {
   string Domain = 1;
   repeated SimpleRecord Records = 2;
+  bool SearchDomainDisabled = 3;
+  bool SkipPTRProcess = 4;
 }
 
 // SimpleRecord represents a dns.SimpleRecord

@@ -749,7 +749,9 @@ func sshProxyFn(cmd *cobra.Command, args []string) error {
 	if firstLogFile := util.FindFirstLogPath(logFiles); firstLogFile != "" && firstLogFile != defaultLogFile {
 		logOutput = firstLogFile
 	}
-	if err := util.InitLog(logLevel, logOutput); err != nil {
+
+	proxyLogLevel := getEnvOrDefault("LOG_LEVEL", logLevel)
+	if err := util.InitLog(proxyLogLevel, logOutput); err != nil {
 		return fmt.Errorf("init log: %w", err)
 	}
 
@@ -788,7 +790,8 @@ var sshDetectCmd = &cobra.Command{
 }
 
 func sshDetectFn(cmd *cobra.Command, args []string) error {
-	if err := util.InitLog(logLevel, "console"); err != nil {
+	detectLogLevel := getEnvOrDefault("LOG_LEVEL", logLevel)
+	if err := util.InitLog(detectLogLevel, "console"); err != nil {
 		os.Exit(detection.ServerTypeRegular.ExitCode())
 	}
 
@@ -797,15 +800,21 @@ func sshDetectFn(cmd *cobra.Command, args []string) error {
 
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
+		log.Debugf("invalid port %q: %v", portStr, err)
 		os.Exit(detection.ServerTypeRegular.ExitCode())
 	}
 
-	dialer := &net.Dialer{Timeout: detection.Timeout}
-	serverType, err := detection.DetectSSHServerType(cmd.Context(), dialer, host, port)
+	ctx, cancel := context.WithTimeout(cmd.Context(), detection.DefaultTimeout)
+
+	dialer := &net.Dialer{}
+	serverType, err := detection.DetectSSHServerType(ctx, dialer, host, port)
 	if err != nil {
+		log.Debugf("SSH server detection failed: %v", err)
+		cancel()
 		os.Exit(detection.ServerTypeRegular.ExitCode())
 	}
 
+	cancel()
 	os.Exit(serverType.ExitCode())
 	return nil
 }

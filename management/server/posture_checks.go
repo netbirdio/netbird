@@ -158,7 +158,7 @@ func arePostureCheckChangesAffectPeers(ctx context.Context, transaction store.St
 // validatePostureChecks validates the posture checks.
 func validatePostureChecks(ctx context.Context, transaction store.Store, accountID string, postureChecks *posture.Checks) error {
 	if err := postureChecks.Validate(); err != nil {
-		return status.Errorf(status.InvalidArgument, err.Error()) //nolint
+		return status.Errorf(status.InvalidArgument, "%s", err.Error()) //nolint
 	}
 
 	// If the posture check already has an ID, verify its existence in the store.
