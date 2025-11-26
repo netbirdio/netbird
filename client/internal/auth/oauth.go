@@ -60,38 +60,45 @@ func (t TokenInfo) GetTokenToUse() string {
 	return t.AccessToken
 }
 
+func shouldUseDeviceFlow(force bool, isUnixDesktopClient bool) bool {
+	return force || (runtime.GOOS == "linux" || runtime.GOOS == "freebsd") && !isUnixDesktopClient
+}
+
 // NewOAuthFlow initializes and returns the appropriate OAuth flow based on the management configuration
 //
 // It starts by initializing the PKCE.If this process fails, it resorts to the Device Code Flow,
 // and if that also fails, the authentication process is deemed unsuccessful
 //
 // On Linux distros without desktop environment support, it only tries to initialize the Device Code Flow
-func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesktopClient bool) (OAuthFlow, error) {
-	if (runtime.GOOS == "linux" || runtime.GOOS == "freebsd") && !isUnixDesktopClient {
-		return authenticateWithDeviceCodeFlow(ctx, config)
+// forceDeviceCodeFlow can be used to skip PKCE and go directly to Device Code Flow (e.g., for Android TV)
+func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesktopClient bool, forceDeviceCodeFlow bool, hint string) (OAuthFlow, error) {
+	if shouldUseDeviceFlow(forceDeviceCodeFlow, isUnixDesktopClient) {
+		return authenticateWithDeviceCodeFlow(ctx, config, hint)
 	}
 
-	pkceFlow, err := authenticateWithPKCEFlow(ctx, config)
+	pkceFlow, err := authenticateWithPKCEFlow(ctx, config, hint)
 	if err != nil {
-		// fallback to device code flow
 		log.Debugf("failed to initialize pkce authentication with error: %v\n", err)
 		log.Debug("falling back to device code flow")
-		return authenticateWithDeviceCodeFlow(ctx, config)
+		return authenticateWithDeviceCodeFlow(ctx, config, hint)
 	}
 	return pkceFlow, nil
 }
 
 // authenticateWithPKCEFlow initializes the Proof Key for Code Exchange flow auth flow
-func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config) (OAuthFlow, error) {
+func authenticateWithPKCEFlow(ctx context.Context, config *profilemanager.Config, hint string) (OAuthFlow, error) {
 	pkceFlowInfo, err := internal.GetPKCEAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL, config.ClientCertKeyPair)
 	if err != nil {
 		return nil, fmt.Errorf("getting pkce authorization flow info failed with error: %v", err)
 	}
+
+	pkceFlowInfo.ProviderConfig.LoginHint = hint
+
 	return NewPKCEAuthorizationFlow(pkceFlowInfo.ProviderConfig)
 }
 
 // authenticateWithDeviceCodeFlow initializes the Device Code auth Flow
-func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.Config) (OAuthFlow, error) {
+func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.Config, hint string) (OAuthFlow, error) {
 	deviceFlowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
 	if err != nil {
 		switch s, ok := gstatus.FromError(err); {
@@ -106,6 +113,8 @@ func authenticateWithDeviceCodeFlow(ctx context.Context, config *profilemanager.
 			return nil, fmt.Errorf("getting device authorization flow info failed with error: %v", err)
 		}
 	}
+
+	deviceFlowInfo.ProviderConfig.LoginHint = hint
 
 	return NewDeviceAuthorizationFlow(deviceFlowInfo.ProviderConfig)
 }

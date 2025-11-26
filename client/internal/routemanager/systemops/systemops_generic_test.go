@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/pion/transport/v3/stdnet"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -143,7 +143,7 @@ func TestAddVPNRoute(t *testing.T) {
 
 			wgInterface := createWGInterface(t, fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100+n)
 
-			r := NewSysOps(wgInterface, nil)
+			r := New(wgInterface, nil)
 			advancedRouting := nbnet.AdvancedRouting()
 			err := r.SetupRouting(nil, nil, advancedRouting)
 			require.NoError(t, err)
@@ -342,7 +342,7 @@ func TestAddRouteToNonVPNIntf(t *testing.T) {
 
 			wgInterface := createWGInterface(t, fmt.Sprintf("utun54%d", n), "100.65.75.2/24", 33200+n)
 
-			r := NewSysOps(wgInterface, nil)
+			r := New(wgInterface, nil)
 			advancedRouting := nbnet.AdvancedRouting()
 			err := r.SetupRouting(nil, nil, advancedRouting)
 			require.NoError(t, err)
@@ -436,7 +436,7 @@ func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, listen
 	peerPrivateKey, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
 
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	require.NoError(t, err)
 
 	opts := iface.WGIFaceOpts{
@@ -486,7 +486,7 @@ func setupTestEnv(t *testing.T) {
 		assert.NoError(t, wgInterface.Close())
 	})
 
-	r := NewSysOps(wgInterface, nil)
+	r := New(wgInterface, nil)
 	advancedRouting := nbnet.AdvancedRouting()
 	err := r.SetupRouting(nil, nil, advancedRouting)
 	require.NoError(t, err, "setupRouting should not return err")

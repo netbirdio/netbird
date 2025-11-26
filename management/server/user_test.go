@@ -11,12 +11,12 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/roles"
 	"github.com/netbirdio/netbird/management/server/users"
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/status"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -966,7 +966,7 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 		permissionsManager: permissionsManager,
 	}
 
-	claims := nbcontext.UserAuth{
+	claims := auth.UserAuth{
 		UserId:    mockUserID,
 		AccountId: mockAccountID,
 	}
@@ -1161,7 +1161,7 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 }
 
 func TestDefaultAccountManager_SaveUser(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -1333,7 +1333,7 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 
 func TestUserAccountPeersUpdate(t *testing.T) {
 	// account groups propagation is enabled
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	err := manager.CreateGroup(context.Background(), account.Id, userID, &types.Group{
 		ID:    "groupA",
@@ -1357,9 +1357,9 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 	_, err = manager.SavePolicy(context.Background(), account.Id, userID, policy, true)
 	require.NoError(t, err)
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
 	// Creating a new regular user should not update account peers and not send peer update
@@ -1468,9 +1468,9 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
-	peer4UpdMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer4.ID)
+	peer4UpdMsg := updateManager.CreateChannel(context.Background(), peer4.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer4.ID)
+		updateManager.CloseChannel(context.Background(), peer4.ID)
 	})
 
 	// deleting user with linked peers should update account peers and send peer update
@@ -1573,33 +1573,33 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 
 	tt := []struct {
 		name           string
-		userAuth       nbcontext.UserAuth
+		userAuth       auth.UserAuth
 		expectedErr    error
 		expectedResult *users.UserInfoWithPermissions
 	}{
 		{
 			name:        "not found",
-			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "not-found"},
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "not-found"},
 			expectedErr: status.NewUserNotFoundError("not-found"),
 		},
 		{
 			name:        "not part of account",
-			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "account2Owner"},
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "account2Owner"},
 			expectedErr: status.NewUserNotPartOfAccountError(),
 		},
 		{
 			name:        "blocked",
-			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "blocked-user"},
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "blocked-user"},
 			expectedErr: status.NewUserBlockedError(),
 		},
 		{
 			name:        "service user",
-			userAuth:    nbcontext.UserAuth{AccountId: account1.Id, UserId: "service-user"},
+			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "service-user"},
 			expectedErr: status.NewPermissionDeniedError(),
 		},
 		{
 			name:     "owner user",
-			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "account1Owner"},
+			userAuth: auth.UserAuth{AccountId: account1.Id, UserId: "account1Owner"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "account1Owner",
@@ -1619,7 +1619,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		},
 		{
 			name:     "regular user",
-			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "regular-user"},
+			userAuth: auth.UserAuth{AccountId: account1.Id, UserId: "regular-user"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "regular-user",
@@ -1638,7 +1638,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		},
 		{
 			name:     "admin user",
-			userAuth: nbcontext.UserAuth{AccountId: account1.Id, UserId: "admin-user"},
+			userAuth: auth.UserAuth{AccountId: account1.Id, UserId: "admin-user"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "admin-user",
@@ -1657,7 +1657,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		},
 		{
 			name:     "settings blocked regular user",
-			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user"},
+			userAuth: auth.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "settings-blocked-user",
@@ -1678,7 +1678,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 
 		{
 			name:     "settings blocked regular user child account",
-			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user", IsChild: true},
+			userAuth: auth.UserAuth{AccountId: account2.Id, UserId: "settings-blocked-user", IsChild: true},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "settings-blocked-user",
@@ -1698,7 +1698,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 		},
 		{
 			name:     "settings blocked owner user",
-			userAuth: nbcontext.UserAuth{AccountId: account2.Id, UserId: "account2Owner"},
+			userAuth: auth.UserAuth{AccountId: account2.Id, UserId: "account2Owner"},
 			expectedResult: &users.UserInfoWithPermissions{
 				UserInfo: &types.UserInfo{
 					ID:                   "account2Owner",
@@ -1748,7 +1748,7 @@ func mergeRolePermissions(role roles.RolePermissions) roles.Permissions {
 }
 
 func TestApproveUser(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1807,7 +1807,7 @@ func TestApproveUser(t *testing.T) {
 }
 
 func TestRejectUser(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}

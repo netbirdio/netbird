@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -34,7 +35,6 @@ import (
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -74,6 +74,7 @@ func (c *ConnectClient) RunOnAndroid(
 	networkChangeListener listener.NetworkChangeListener,
 	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
+	stateFilePath string,
 ) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
@@ -82,6 +83,7 @@ func (c *ConnectClient) RunOnAndroid(
 		NetworkChangeListener: networkChangeListener,
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
+		StateFilePath:         stateFilePath,
 	}
 	return c.run(mobileDependency, nil)
 }
@@ -289,15 +291,18 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		<-engineCtx.Done()
+
 		c.engineMutex.Lock()
-		if c.engine != nil && c.engine.wgInterface != nil {
-			log.Infof("ensuring %s is removed, Netbird engine context cancelled", c.engine.wgInterface.Name())
-			if err := c.engine.Stop(); err != nil {
+		engine := c.engine
+		c.engine = nil
+		c.engineMutex.Unlock()
+
+		if engine != nil && engine.wgInterface != nil {
+			log.Infof("ensuring %s is removed, Netbird engine context cancelled", engine.wgInterface.Name())
+			if err := engine.Stop(); err != nil {
 				log.Errorf("Failed to stop engine: %v", err)
 			}
-			c.engine = nil
 		}
-		c.engineMutex.Unlock()
 		c.statusRecorder.ClientTeardown()
 
 		backOff.Reset()
@@ -382,19 +387,12 @@ func (c *ConnectClient) Status() StatusType {
 }
 
 func (c *ConnectClient) Stop() error {
-	if c == nil {
-		return nil
+	engine := c.Engine()
+	if engine != nil {
+		if err := engine.Stop(); err != nil {
+			return fmt.Errorf("stop engine: %w", err)
+		}
 	}
-	c.engineMutex.Lock()
-	defer c.engineMutex.Unlock()
-
-	if c.engine == nil {
-		return nil
-	}
-	if err := c.engine.Stop(); err != nil {
-		return fmt.Errorf("stop engine: %w", err)
-	}
-
 	return nil
 }
 
@@ -420,20 +418,25 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		nm = *config.NetworkMonitor
 	}
 	engineConf := &EngineConfig{
-		WgIfaceName:          config.WgIface,
-		WgAddr:               peerConfig.Address,
-		IFaceBlackList:       config.IFaceBlackList,
-		DisableIPv6Discovery: config.DisableIPv6Discovery,
-		WgPrivateKey:         key,
-		WgPort:               config.WgPort,
-		NetworkMonitor:       nm,
-		SSHKey:               []byte(config.SSHKey),
-		NATExternalIPs:       config.NATExternalIPs,
-		CustomDNSAddress:     config.CustomDNSAddress,
-		RosenpassEnabled:     config.RosenpassEnabled,
-		RosenpassPermissive:  config.RosenpassPermissive,
-		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
-		DNSRouteInterval:     config.DNSRouteInterval,
+		WgIfaceName:                   config.WgIface,
+		WgAddr:                        peerConfig.Address,
+		IFaceBlackList:                config.IFaceBlackList,
+		DisableIPv6Discovery:          config.DisableIPv6Discovery,
+		WgPrivateKey:                  key,
+		WgPort:                        config.WgPort,
+		NetworkMonitor:                nm,
+		SSHKey:                        []byte(config.SSHKey),
+		NATExternalIPs:                config.NATExternalIPs,
+		CustomDNSAddress:              config.CustomDNSAddress,
+		RosenpassEnabled:              config.RosenpassEnabled,
+		RosenpassPermissive:           config.RosenpassPermissive,
+		ServerSSHAllowed:              util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
+		EnableSSHRoot:                 config.EnableSSHRoot,
+		EnableSSHSFTP:                 config.EnableSSHSFTP,
+		EnableSSHLocalPortForwarding:  config.EnableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding: config.EnableSSHRemotePortForwarding,
+		DisableSSHAuth:                config.DisableSSHAuth,
+		DNSRouteInterval:              config.DNSRouteInterval,
 
 		DisableClientRoutes: config.DisableClientRoutes,
 		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
@@ -519,6 +522,11 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.LazyConnectionEnabled,
+		config.EnableSSHRoot,
+		config.EnableSSHSFTP,
+		config.EnableSSHLocalPortForwarding,
+		config.EnableSSHRemotePortForwarding,
+		config.DisableSSHAuth,
 	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {

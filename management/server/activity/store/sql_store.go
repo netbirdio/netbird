@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
@@ -273,15 +274,21 @@ func configureConnectionPool(db *gorm.DB, storeEngine types.Engine) (*gorm.DB, e
 		return nil, err
 	}
 
-	if storeEngine == types.SqliteStoreEngine {
-		sqlDB.SetMaxOpenConns(1)
-	} else {
-		conns, err := strconv.Atoi(os.Getenv(sqlMaxOpenConnsEnv))
-		if err != nil {
-			conns = runtime.NumCPU()
-		}
-		sqlDB.SetMaxOpenConns(conns)
+	conns, err := strconv.Atoi(os.Getenv(sqlMaxOpenConnsEnv))
+	if err != nil {
+		conns = runtime.NumCPU()
 	}
+	if storeEngine == types.SqliteStoreEngine {
+		conns = 1
+	}
+
+	sqlDB.SetMaxOpenConns(conns)
+	sqlDB.SetMaxIdleConns(conns)
+	sqlDB.SetConnMaxLifetime(time.Hour)
+	sqlDB.SetConnMaxIdleTime(3 * time.Minute)
+
+	log.Infof("Set max open db connections to %d, max idle to %d, max lifetime to %v, max idle time to %v",
+		conns, conns, time.Hour, 3*time.Minute)
 
 	return db, nil
 }
