@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -278,6 +279,7 @@ type DialOptions struct {
 	DaemonAddr         string
 	SkipCachedToken    bool
 	InsecureSkipVerify bool
+	NoBrowser          bool
 }
 
 // Dial connects to the given ssh server with specified options
@@ -307,7 +309,7 @@ func Dial(ctx context.Context, addr, user string, opts DialOptions) (*Client, er
 		config.Auth = append(config.Auth, authMethod)
 	}
 
-	return dialWithJWT(ctx, "tcp", addr, config, daemonAddr, opts.SkipCachedToken)
+	return dialWithJWT(ctx, "tcp", addr, config, daemonAddr, opts.SkipCachedToken, opts.NoBrowser)
 }
 
 // dialSSH establishes an SSH connection without JWT authentication
@@ -333,7 +335,7 @@ func dialSSH(ctx context.Context, network, addr string, config *ssh.ClientConfig
 }
 
 // dialWithJWT establishes an SSH connection with optional JWT authentication based on server detection
-func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientConfig, daemonAddr string, skipCache bool) (*Client, error) {
+func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientConfig, daemonAddr string, skipCache, noBrowser bool) (*Client, error) {
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("parse address %s: %w", addr, err)
@@ -359,7 +361,7 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 	jwtCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
 
-	jwtToken, err := requestJWTToken(jwtCtx, daemonAddr, skipCache)
+	jwtToken, err := requestJWTToken(jwtCtx, daemonAddr, skipCache, noBrowser)
 	if err != nil {
 		return nil, fmt.Errorf("request JWT token: %w", err)
 	}
@@ -369,7 +371,7 @@ func dialWithJWT(ctx context.Context, network, addr string, config *ssh.ClientCo
 }
 
 // requestJWTToken requests a JWT token from the NetBird daemon
-func requestJWTToken(ctx context.Context, daemonAddr string, skipCache bool) (string, error) {
+func requestJWTToken(ctx context.Context, daemonAddr string, skipCache, noBrowser bool) (string, error) {
 	hint := profilemanager.GetLoginHint()
 
 	conn, err := connectToDaemon(daemonAddr)
@@ -379,7 +381,13 @@ func requestJWTToken(ctx context.Context, daemonAddr string, skipCache bool) (st
 	defer conn.Close()
 
 	client := proto.NewDaemonServiceClient(conn)
-	return nbssh.RequestJWTToken(ctx, client, os.Stdout, os.Stderr, !skipCache, hint)
+
+	var browserOpener func(string) error
+	if !noBrowser {
+		browserOpener = util.OpenBrowser
+	}
+
+	return nbssh.RequestJWTToken(ctx, client, os.Stdout, os.Stderr, !skipCache, hint, browserOpener)
 }
 
 // verifyHostKeyViaDaemon verifies SSH host key by querying the NetBird daemon
