@@ -35,15 +35,16 @@ const (
 )
 
 type SSHProxy struct {
-	daemonAddr   string
-	targetHost   string
-	targetPort   int
-	stderr       io.Writer
-	conn         *grpc.ClientConn
-	daemonClient proto.DaemonServiceClient
+	daemonAddr    string
+	targetHost    string
+	targetPort    int
+	stderr        io.Writer
+	conn          *grpc.ClientConn
+	daemonClient  proto.DaemonServiceClient
+	browserOpener func(string) error
 }
 
-func New(daemonAddr, targetHost string, targetPort int, stderr io.Writer) (*SSHProxy, error) {
+func New(daemonAddr, targetHost string, targetPort int, stderr io.Writer, browserOpener func(string) error) (*SSHProxy, error) {
 	grpcAddr := strings.TrimPrefix(daemonAddr, "tcp://")
 	grpcConn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -51,12 +52,13 @@ func New(daemonAddr, targetHost string, targetPort int, stderr io.Writer) (*SSHP
 	}
 
 	return &SSHProxy{
-		daemonAddr:   daemonAddr,
-		targetHost:   targetHost,
-		targetPort:   targetPort,
-		stderr:       stderr,
-		conn:         grpcConn,
-		daemonClient: proto.NewDaemonServiceClient(grpcConn),
+		daemonAddr:    daemonAddr,
+		targetHost:    targetHost,
+		targetPort:    targetPort,
+		stderr:        stderr,
+		conn:          grpcConn,
+		daemonClient:  proto.NewDaemonServiceClient(grpcConn),
+		browserOpener: browserOpener,
 	}, nil
 }
 
@@ -70,7 +72,7 @@ func (p *SSHProxy) Close() error {
 func (p *SSHProxy) Connect(ctx context.Context) error {
 	hint := profilemanager.GetLoginHint()
 
-	jwtToken, err := nbssh.RequestJWTToken(ctx, p.daemonClient, nil, p.stderr, true, hint)
+	jwtToken, err := nbssh.RequestJWTToken(ctx, p.daemonClient, nil, p.stderr, true, hint, p.browserOpener)
 	if err != nil {
 		return fmt.Errorf(jwtAuthErrorMsg, err)
 	}
