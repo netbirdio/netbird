@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/netflow"
+	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
@@ -1113,4 +1114,139 @@ func generateTCPPacketWithFlags(tb testing.TB, srcIP, dstIP net.IP, srcPort, dst
 	require.NoError(tb, err)
 
 	return buf.Bytes()
+}
+
+func TestShouldForward(t *testing.T) {
+	// Set up test addresses
+	wgIP := netip.MustParseAddr("100.10.0.1")
+	otherIP := netip.MustParseAddr("100.10.0.2")
+
+	// Create test manager with mock interface
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}
+	// Set the mock to return our test WG IP
+	ifaceMock.AddressFunc = func() wgaddr.Address {
+		return wgaddr.Address{IP: wgIP, Network: netip.PrefixFrom(wgIP, 24)}
+	}
+
+	manager, err := Create(ifaceMock, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, manager.Close(nil))
+	}()
+
+	// Helper to create decoder with TCP packet
+	createTCPDecoder := func(dstPort uint16) *decoder {
+		ipv4 := &layers.IPv4{
+			Version:  4,
+			Protocol: layers.IPProtocolTCP,
+			SrcIP:    net.ParseIP("192.168.1.100"),
+			DstIP:    wgIP.AsSlice(),
+		}
+		tcp := &layers.TCP{
+			SrcPort: 54321,
+			DstPort: layers.TCPPort(dstPort),
+		}
+
+		err := tcp.SetNetworkLayerForChecksum(ipv4)
+		require.NoError(t, err)
+
+		buf := gopacket.NewSerializeBuffer()
+		opts := gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}
+		err = gopacket.SerializeLayers(buf, opts, ipv4, tcp, gopacket.Payload("test"))
+		require.NoError(t, err)
+
+		d := &decoder{
+			decoded: []gopacket.LayerType{},
+		}
+		d.parser = gopacket.NewDecodingLayerParser(
+			layers.LayerTypeIPv4,
+			&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+		)
+		d.parser.IgnoreUnsupported = true
+
+		err = d.parser.DecodeLayers(buf.Bytes(), &d.decoded)
+		require.NoError(t, err)
+
+		return d
+	}
+
+	tests := []struct {
+		name              string
+		localForwarding   bool
+		netstack          bool
+		dstIP             netip.Addr
+		serviceRegistered bool
+		servicePort       uint16
+		expected          bool
+		description       string
+	}{
+		{
+			name:            "no local forwarding",
+			localForwarding: false,
+			netstack:        true,
+			dstIP:           wgIP,
+			expected:        false,
+			description:     "should never forward when local forwarding disabled",
+		},
+		{
+			name:            "traffic to other local interface",
+			localForwarding: true,
+			netstack:        false,
+			dstIP:           otherIP,
+			expected:        true,
+			description:     "should forward traffic to our other local interfaces (not NetBird IP)",
+		},
+		{
+			name:            "traffic to NetBird IP, no netstack",
+			localForwarding: true,
+			netstack:        false,
+			dstIP:           wgIP,
+			expected:        false,
+			description:     "should send to netstack listeners (final return false path)",
+		},
+		{
+			name:            "traffic to our IP, netstack mode, no service",
+			localForwarding: true,
+			netstack:        true,
+			dstIP:           wgIP,
+			expected:        true,
+			description:     "should forward when in netstack mode with no matching service",
+		},
+		{
+			name:              "traffic to our IP, netstack mode, with service",
+			localForwarding:   true,
+			netstack:          true,
+			dstIP:             wgIP,
+			serviceRegistered: true,
+			servicePort:       22,
+			expected:          false,
+			description:       "should send to netstack listeners when service is registered",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Configure manager
+			manager.localForwarding = tt.localForwarding
+			manager.netstack = tt.netstack
+
+			// Register service if needed
+			if tt.serviceRegistered {
+				manager.RegisterNetstackService(nftypes.TCP, tt.servicePort)
+				defer manager.UnregisterNetstackService(nftypes.TCP, tt.servicePort)
+			}
+
+			// Create decoder for the test
+			decoder := createTCPDecoder(tt.servicePort)
+			if !tt.serviceRegistered {
+				decoder = createTCPDecoder(8080) // Use non-registered port
+			}
+
+			// Test the method
+			result := manager.shouldForward(decoder, tt.dstIP)
+			require.Equal(t, tt.expected, result, tt.description)
+		})
+	}
 }

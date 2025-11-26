@@ -355,6 +355,25 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		req.ServerSSHAllowed = &serverSSHAllowed
 	}
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		req.EnableSSHRoot = &enableSSHRoot
+	}
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		req.EnableSSHSFTP = &enableSSHSFTP
+	}
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		req.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		req.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		req.DisableSSHAuth = &disableSSHAuth
+	}
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		req.SshJWTCacheTTL = &sshJWTCacheTTL32
+	}
 	if cmd.Flag(interfaceNameFlag).Changed {
 		if err := parseInterfaceName(interfaceName); err != nil {
 			log.Errorf("parse interface name: %v", err)
@@ -437,6 +456,30 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
+	}
+
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		ic.EnableSSHRoot = &enableSSHRoot
+	}
+
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		ic.EnableSSHSFTP = &enableSSHSFTP
+	}
+
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		ic.DisableSSHAuth = &disableSSHAuth
+	}
+
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		ic.SSHJWTCacheTTL = &sshJWTCacheTTL
 	}
 
 	if cmd.Flag(interfaceNameFlag).Changed {
@@ -537,6 +580,31 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		loginRequest.ServerSSHAllowed = &serverSSHAllowed
+	}
+
+	if cmd.Flag(enableSSHRootFlag).Changed {
+		loginRequest.EnableSSHRoot = &enableSSHRoot
+	}
+
+	if cmd.Flag(enableSSHSFTPFlag).Changed {
+		loginRequest.EnableSSHSFTP = &enableSSHSFTP
+	}
+
+	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
+		loginRequest.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
+	}
+
+	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
+		loginRequest.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
+	}
+
+	if cmd.Flag(disableSSHAuthFlag).Changed {
+		loginRequest.DisableSSHAuth = &disableSSHAuth
+	}
+
+	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
+		sshJWTCacheTTL32 := int32(sshJWTCacheTTL)
+		loginRequest.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
 
 	if cmd.Flag(disableAutoConnectFlag).Changed {

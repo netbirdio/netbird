@@ -60,14 +60,19 @@ func (t TokenInfo) GetTokenToUse() string {
 	return t.AccessToken
 }
 
+func shouldUseDeviceFlow(force bool, isUnixDesktopClient bool) bool {
+	return force || (runtime.GOOS == "linux" || runtime.GOOS == "freebsd") && !isUnixDesktopClient
+}
+
 // NewOAuthFlow initializes and returns the appropriate OAuth flow based on the management configuration
 //
 // It starts by initializing the PKCE.If this process fails, it resorts to the Device Code Flow,
 // and if that also fails, the authentication process is deemed unsuccessful
 //
 // On Linux distros without desktop environment support, it only tries to initialize the Device Code Flow
-func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesktopClient bool, hint string) (OAuthFlow, error) {
-	if (runtime.GOOS == "linux" || runtime.GOOS == "freebsd") && !isUnixDesktopClient {
+// forceDeviceCodeFlow can be used to skip PKCE and go directly to Device Code Flow (e.g., for Android TV)
+func NewOAuthFlow(ctx context.Context, config *profilemanager.Config, isUnixDesktopClient bool, forceDeviceCodeFlow bool, hint string) (OAuthFlow, error) {
+	if shouldUseDeviceFlow(forceDeviceCodeFlow, isUnixDesktopClient) {
 		return authenticateWithDeviceCodeFlow(ctx, config, hint)
 	}
 

@@ -19,35 +19,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Check for problematic license dependencies
-      run: |
-        echo "Checking for dependencies on management/, signal/, and relay/ packages..."
+      - name: Check for problematic license dependencies
+        run: |
+          echo "Checking for dependencies on management/, signal/, and relay/ packages..."
+          echo ""
 
-        # Find all directories except the problematic ones and system dirs
-        FOUND_ISSUES=0
-        find . -maxdepth 1 -type d -not -name "." -not -name "management" -not -name "signal" -not -name "relay" -not -name ".git*" | sort | while read dir; do
-          echo "=== Checking $dir ==="
-          # Search for problematic imports, excluding test files
-          RESULTS=$(grep -r "github.com/netbirdio/netbird/\(management\|signal\|relay\)" "$dir" --include="*.go" | grep -v "_test.go" | grep -v "test_" | grep -v "/test/" || true)
-          if [ ! -z "$RESULTS" ]; then
-            echo "❌ Found problematic dependencies:"
-            echo "$RESULTS"
-            FOUND_ISSUES=1
+          # Find all directories except the problematic ones and system dirs
+          FOUND_ISSUES=0
+          while IFS= read -r dir; do
+            echo "=== Checking $dir ==="
+            # Search for problematic imports, excluding test files
+            RESULTS=$(grep -r "github.com/netbirdio/netbird/\(management\|signal\|relay\)" "$dir" --include="*.go" 2>/dev/null | grep -v "_test.go" | grep -v "test_" | grep -v "/test/" || true)
+            if [ -n "$RESULTS" ]; then
+              echo "❌ Found problematic dependencies:"
+              echo "$RESULTS"
+              FOUND_ISSUES=1
+            else
+              echo "✓ No problematic dependencies found"
+            fi
+          done < <(find . -maxdepth 1 -type d -not -name "." -not -name "management" -not -name "signal" -not -name "relay" -not -name ".git*" | sort)
+
+          echo ""
+          if [ $FOUND_ISSUES -eq 1 ]; then
+            echo "❌ Found dependencies on management/, signal/, or relay/ packages"
+            echo "These packages are licensed under AGPLv3 and must not be imported by BSD-licensed code"
+            exit 1
           else
-            echo "✓ No problematic dependencies found"
+            echo ""
+            echo "✅ All internal license dependencies are clean"
           fi
-        done
-        if [ $FOUND_ISSUES -eq 1 ]; then
-          echo ""
-          echo "❌ Found dependencies on management/, signal/, or relay/ packages"
-          echo "These packages are licensed under AGPLv3 and must not be imported by BSD-licensed code"
-          exit 1
-        else
-          echo ""
-          echo "✅ All internal license dependencies are clean"
-        fi
 
   check-external-licenses:
     name: Check External GPL/AGPL Licenses

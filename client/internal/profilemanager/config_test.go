@@ -193,10 +193,10 @@ func TestWireguardPortZeroExplicit(t *testing.T) {
 
 func TestWireguardPortDefaultVsExplicit(t *testing.T) {
 	tests := []struct {
-		name           string
-		wireguardPort  *int
-		expectedPort   int
-		description    string
+		name          string
+		wireguardPort *int
+		expectedPort  int
+		description   string
 	}{
 		{
 			name:          "no port specified uses default",

@@ -40,7 +40,19 @@ const (
 
 	// firewallRuleMinPortRangesVer defines the minimum peer version that supports port range rules.
 	firewallRuleMinPortRangesVer = "0.48.0"
+	// firewallRuleMinNativeSSHVer defines the minimum peer version that supports native SSH features in the firewall rules.
+	firewallRuleMinNativeSSHVer = "0.60.0"
+
+	// nativeSSHPortString defines the default port number as a string used for native SSH connections; this port is used by clients when hijacking ssh connections.
+	nativeSSHPortString = "22022"
+	// defaultSSHPortString defines the standard SSH port number as a string, commonly used for default SSH connections.
+	defaultSSHPortString = "22"
 )
+
+type supportedFeatures struct {
+	nativeSSH  bool
+	portRanges bool
+}
 
 type LookupMap map[string]struct{}
 
@@ -1242,6 +1254,13 @@ func (a *Account) getRulePeers(rule *PolicyRule, postureChecks []string, peerID 
 			}
 		}
 	}
+	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+		_, distPeer := distributionPeers[rule.SourceResource.ID]
+		_, valid := validatedPeersMap[rule.SourceResource.ID]
+		if distPeer && valid && a.validatePostureChecksOnPeer(context.Background(), postureChecks, rule.SourceResource.ID) {
+			distPeersWithPolicy[rule.SourceResource.ID] = struct{}{}
+		}
+	}
 
 	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
@@ -1587,6 +1606,10 @@ func getPoliciesSourcePeers(policies []*Policy, groups map[string]*Group) map[st
 					sourcePeers[peer] = struct{}{}
 				}
 			}
+
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+				sourcePeers[rule.SourceResource.ID] = struct{}{}
+			}
 		}
 	}
 
@@ -1639,22 +1662,24 @@ func (a *Account) AddAllGroup(disableDefaultPolicy bool) error {
 
 // expandPortsAndRanges expands Ports and PortRanges of a rule into individual firewall rules
 func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer) []*FirewallRule {
+	features := peerSupportedFirewallFeatures(peer.Meta.WtVersion)
+
 	var expanded []*FirewallRule
 
-	if len(rule.Ports) > 0 {
-		for _, port := range rule.Ports {
-			fr := base
-			fr.Port = port
-			expanded = append(expanded, &fr)
-		}
-		return expanded
+	for _, port := range rule.Ports {
+		fr := base
+		fr.Port = port
+		expanded = append(expanded, &fr)
 	}
 
-	supportPortRanges := peerSupportsPortRanges(peer.Meta.WtVersion)
 	for _, portRange := range rule.PortRanges {
+		// prefer PolicyRule.Ports
+		if len(rule.Ports) > 0 {
+			break
+		}
 		fr := base
 
-		if supportPortRanges {
+		if features.portRanges {
 			fr.PortRange = portRange
 		} else {
 			// Peer doesn't support port ranges, only allow single-port ranges
@@ -1666,17 +1691,63 @@ func expandPortsAndRanges(base FirewallRule, rule *PolicyRule, peer *nbpeer.Peer
 		expanded = append(expanded, &fr)
 	}
 
+	if shouldCheckRulesForNativeSSH(features.nativeSSH, rule, peer) {
+		expanded = addNativeSSHRule(base, expanded)
+	}
+
 	return expanded
 }
 
-// peerSupportsPortRanges checks if the peer version supports port ranges.
-func peerSupportsPortRanges(peerVer string) bool {
-	if strings.Contains(peerVer, "dev") {
-		return true
+// addNativeSSHRule adds a native SSH rule (port 22022) to the expanded rules if the base rule has port 22 configured.
+func addNativeSSHRule(base FirewallRule, expanded []*FirewallRule) []*FirewallRule {
+	shouldAdd := false
+	for _, fr := range expanded {
+		if isPortInRule(nativeSSHPortString, 22022, fr) {
+			return expanded
+		}
+		if isPortInRule(defaultSSHPortString, 22, fr) {
+			shouldAdd = true
+		}
+	}
+	if !shouldAdd {
+		return expanded
 	}
 
-	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
-	return err == nil && meetMinVer
+	fr := base
+	fr.Port = nativeSSHPortString
+	return append(expanded, &fr)
+}
+
+func isPortInRule(portString string, portInt uint16, rule *FirewallRule) bool {
+	return rule.Port == portString || (rule.PortRange.Start <= portInt && portInt <= rule.PortRange.End)
+}
+
+// shouldCheckRulesForNativeSSH determines whether specific policy rules should be checked for native SSH support.
+// While users can add the nativeSSHPortString, we look for cases when they used port 22 and based on SSH enabled
+// in both management and client, we indicate to add the native port.
+func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *nbpeer.Peer) bool {
+	return supportsNative && peer.SSHEnabled && peer.Meta.Flags.ServerSSHAllowed && rule.Protocol == PolicyRuleProtocolTCP
+}
+
+// peerSupportedFirewallFeatures checks if the peer version supports port ranges.
+func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
+	if strings.Contains(peerVer, "dev") {
+		return supportedFeatures{true, true}
+	}
+
+	var features supportedFeatures
+
+	meetMinVer, err := posture.MeetsMinVersion(firewallRuleMinNativeSSHVer, peerVer)
+	features.nativeSSH = err == nil && meetMinVer
+
+	if features.nativeSSH {
+		features.portRanges = true
+	} else {
+		meetMinVer, err = posture.MeetsMinVersion(firewallRuleMinPortRangesVer, peerVer)
+		features.portRanges = err == nil && meetMinVer
+	}
+
+	return features
 }
 
 // filterZoneRecordsForPeers filters DNS records to only include peers to connect.

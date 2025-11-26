@@ -1,6 +1,19 @@
 package util
 
-import "os"
+import (
+	"os"
+	"os/exec"
+
+	"github.com/skratchdot/open-golang/open"
+)
+
+// OpenBrowser opens the URL in a browser, respecting the BROWSER environment variable.
+func OpenBrowser(url string) error {
+	if browser := os.Getenv("BROWSER"); browser != "" {
+		return exec.Command(browser, url).Start()
+	}
+	return open.Run(url)
+}
 
 // SliceDiff returns the elements in slice `x` that are not in slice `y`
 func SliceDiff(x, y []string) []string {

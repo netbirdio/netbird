@@ -25,7 +25,7 @@ jobs:
           release: "14.2"
           prepare: |
             pkg install -y curl pkgconf xorg
-            GO_TARBALL="go1.23.12.freebsd-amd64.tar.gz"
+            GO_TARBALL="go1.24.10.freebsd-amd64.tar.gz"
             GO_URL="https://go.dev/dl/$GO_TARBALL"
             curl -vLO "$GO_URL"
             tar -C /usr/local -vxzf "$GO_TARBALL"            
