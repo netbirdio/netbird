@@ -940,6 +940,9 @@ func (e *Engine) updateSelfPeerIP(oldAddr, newAddr string) error {
 
 	log.Infof("peer IP address has changed from %s to %s, updating local WireGuard interface", oldAddr, newAddr)
 
+	// Parse old IP for firewall rule updates (before UpdateAddr changes the interface)
+	oldIP := e.wgInterface.Address().IP
+
 	// Update the WireGuard interface with the new address
 	// The UpdateAddr method handles removing the old address and adding the new one
 	if err := e.wgInterface.UpdateAddr(newAddr); err != nil {
@@ -949,7 +952,56 @@ func (e *Engine) updateSelfPeerIP(oldAddr, newAddr string) error {
 	// Update the engine config to reflect the new address
 	e.config.WgAddr = newAddr
 
+	// Update firewall rules that reference the local IP
+	if err := e.updateFirewallForAddressChange(oldIP); err != nil {
+		log.Warnf("failed to update firewall rules for address change: %v", err)
+	}
+
 	log.Infof("successfully updated local WireGuard IP from %s to %s", oldAddr, newAddr)
+
+	return nil
+}
+
+// updateFirewallForAddressChange updates firewall rules when the local IP address changes.
+// This includes SSH port redirection and local IP bitmap updates.
+func (e *Engine) updateFirewallForAddressChange(oldIP netip.Addr) error {
+	if e.firewall == nil {
+		return nil
+	}
+
+	newIP := e.wgInterface.Address().IP
+
+	// Restart SSH server if running - it needs to rebind to the new IP
+	if e.sshServer != nil && oldIP.IsValid() && newIP.IsValid() {
+		// Remove old SSH DNAT rule with old IP
+		if err := e.firewall.RemoveInboundDNAT(oldIP, firewallManager.ProtocolTCP, 22, 22022); err != nil {
+			log.Warnf("failed to remove old SSH port redirection for %s: %v", oldIP, err)
+		} else {
+			log.Debugf("removed old SSH port redirection: %s:22 -> %s:22022", oldIP, oldIP)
+		}
+
+		// Restart SSH server on new address
+		newListenAddr := netip.AddrPortFrom(newIP, 22022)
+		if err := e.sshServer.Restart(e.ctx, newListenAddr); err != nil {
+			log.Errorf("failed to restart SSH server on new address %s: %v", newIP, err)
+		} else {
+			log.Infof("SSH server restarted on new address %s:22022", newIP)
+		}
+
+		// Add new SSH DNAT rule with new IP
+		if err := e.firewall.AddInboundDNAT(newIP, firewallManager.ProtocolTCP, 22, 22022); err != nil {
+			log.Errorf("failed to add new SSH port redirection for %s: %v", newIP, err)
+		} else {
+			log.Infof("updated SSH port redirection: %s:22 -> %s:22022", newIP, newIP)
+		}
+	}
+
+	// Update local IP bitmap in userspace firewall
+	if localipfw, ok := e.firewall.(localIpUpdater); ok {
+		if err := localipfw.UpdateLocalIPs(); err != nil {
+			log.Warnf("failed to update local IPs after address change: %v", err)
+		}
+	}
 
 	return nil
 }

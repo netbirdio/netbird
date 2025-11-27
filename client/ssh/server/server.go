@@ -278,6 +278,18 @@ func (s *Server) Stop() error {
 	return nil
 }
 
+// Restart stops the SSH server and starts it again on a new address.
+// This is used when the WireGuard IP changes and the server needs to rebind.
+func (s *Server) Restart(ctx context.Context, newAddr netip.AddrPort) error {
+	if err := s.Stop(); err != nil {
+		return fmt.Errorf("stop server for restart: %w", err)
+	}
+
+	log.Infof("restarting SSH server on new address %s", newAddr)
+
+	return s.Start(ctx, newAddr)
+}
+
 // GetStatus returns the current status of the SSH server and active sessions
 func (s *Server) GetStatus() (enabled bool, sessions []SessionInfo) {
 	s.mu.RLock()
