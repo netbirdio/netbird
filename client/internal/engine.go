@@ -252,10 +252,9 @@ func NewEngine(
 		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
 	}
 
-	sm := profilemanager.NewServiceManager("")
-
-	path := sm.GetStatePath()
+	var path string
 	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
+		// On mobile, use the provided state file path directly
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
 			if err != nil {
@@ -263,8 +262,11 @@ func NewEngine(
 				// we are not exiting as we can run without the state manager
 			}
 		}
-
 		path = mobileDep.StateFilePath
+	} else {
+		// On desktop, use ServiceManager to get profile-aware state path
+		sm := profilemanager.NewServiceManager("")
+		path = sm.GetStatePath()
 	}
 	engine.stateManager = statemanager.New(path)
 	engine.stateManager.RegisterState(&sshconfig.ShutdownState{})
