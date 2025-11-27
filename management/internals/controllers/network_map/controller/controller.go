@@ -883,8 +883,9 @@ func (c *Controller) filterPeerAppliedZones(ctx context.Context, accountZones []
 
 		if len(simpleRecords) > 0 {
 			customZones = append(customZones, nbdns.CustomZone{
-				Domain:  dns.Fqdn(zone.Domain),
-				Records: simpleRecords,
+				Domain:               dns.Fqdn(zone.Domain),
+				Records:              simpleRecords,
+				SearchDomainDisabled: !zone.EnableSearchDomain,
 			})
 		}
 	}
