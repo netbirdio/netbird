@@ -3,6 +3,7 @@ package detection
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -19,8 +20,8 @@ const (
 	// JWTRequiredMarker is appended to responses when JWT is required
 	JWTRequiredMarker = "NetBird-JWT-Required"
 
-	// Timeout is the timeout for SSH server detection
-	Timeout = 5 * time.Second
+	// DefaultTimeout is the default timeout for SSH server detection
+	DefaultTimeout = 5 * time.Second
 )
 
 type ServerType string
@@ -61,21 +62,20 @@ func DetectSSHServerType(ctx context.Context, dialer Dialer, host string, port i
 
 	conn, err := dialer.DialContext(ctx, "tcp", targetAddr)
 	if err != nil {
-		log.Debugf("SSH connection failed for detection: %v", err)
-		return ServerTypeRegular, nil
+		return ServerTypeRegular, fmt.Errorf("connect to %s: %w", targetAddr, err)
 	}
 	defer conn.Close()
 
-	if err := conn.SetReadDeadline(time.Now().Add(Timeout)); err != nil {
-		log.Debugf("set read deadline: %v", err)
-		return ServerTypeRegular, nil
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetReadDeadline(deadline); err != nil {
+			return ServerTypeRegular, fmt.Errorf("set read deadline: %w", err)
+		}
 	}
 
 	reader := bufio.NewReader(conn)
 	serverBanner, err := reader.ReadString('\n')
 	if err != nil {
-		log.Debugf("read SSH banner: %v", err)
-		return ServerTypeRegular, nil
+		return ServerTypeRegular, fmt.Errorf("read SSH banner: %w", err)
 	}
 
 	serverBanner = strings.TrimSpace(serverBanner)
