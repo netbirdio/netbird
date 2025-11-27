@@ -903,10 +903,13 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		return errors.New("wireguard interface is not initialized")
 	}
 
-	// Cannot update the IP address without restarting the engine because
-	// the firewall, route manager, and other components cache the old address
-	if e.wgInterface.Address().String() != conf.Address {
-		log.Infof("peer IP address has changed from %s to %s", e.wgInterface.Address().String(), conf.Address)
+	// Check if IP address has changed and update the interface
+	currentAddr := e.wgInterface.Address().String()
+	if currentAddr != conf.Address {
+		if err := e.updateSelfPeerIP(currentAddr, conf.Address); err != nil {
+			log.Errorf("failed to update self peer IP: %v", err)
+			// Continue with the rest of the config update even if IP update fails
+		}
 	}
 
 	if conf.GetSshConfig() != nil {
@@ -922,6 +925,31 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state.FQDN = conf.GetFqdn()
 
 	e.statusRecorder.UpdateLocalPeerState(state)
+
+	return nil
+}
+
+// updateSelfPeerIP updates the local WireGuard interface IP address when the management
+// server changes the self peer's IP. This enables hot IP updates without requiring
+// a full engine restart (netbird down && netbird up).
+func (e *Engine) updateSelfPeerIP(oldAddr, newAddr string) error {
+	// Idempotency check: if addresses are the same, do nothing
+	if oldAddr == newAddr {
+		return nil
+	}
+
+	log.Infof("peer IP address has changed from %s to %s, updating local WireGuard interface", oldAddr, newAddr)
+
+	// Update the WireGuard interface with the new address
+	// The UpdateAddr method handles removing the old address and adding the new one
+	if err := e.wgInterface.UpdateAddr(newAddr); err != nil {
+		return fmt.Errorf("failed to update WireGuard interface address: %w", err)
+	}
+
+	// Update the engine config to reflect the new address
+	e.config.WgAddr = newAddr
+
+	log.Infof("successfully updated local WireGuard IP from %s to %s", oldAddr, newAddr)
 
 	return nil
 }

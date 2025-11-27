@@ -402,6 +402,64 @@ func TestEngine_SSHServerConsistency(t *testing.T) {
 	})
 }
 
+func TestEngine_UpdateSelfPeerIP(t *testing.T) {
+	t.Run("same address does nothing", func(t *testing.T) {
+		engine := &Engine{
+			config: &EngineConfig{
+				WgAddr: "100.64.0.1/24",
+			},
+		}
+
+		err := engine.updateSelfPeerIP("100.64.0.1/24", "100.64.0.1/24")
+		assert.NoError(t, err)
+		assert.Equal(t, "100.64.0.1/24", engine.config.WgAddr)
+	})
+
+	t.Run("updates address successfully", func(t *testing.T) {
+		updateAddrCalled := false
+		wgIface := &MockWGIface{
+			UpdateAddrFunc: func(newAddr string) error {
+				updateAddrCalled = true
+				assert.Equal(t, "100.64.0.2/24", newAddr)
+				return nil
+			},
+		}
+
+		engine := &Engine{
+			config: &EngineConfig{
+				WgAddr: "100.64.0.1/24",
+			},
+			wgInterface: wgIface,
+		}
+
+		err := engine.updateSelfPeerIP("100.64.0.1/24", "100.64.0.2/24")
+		assert.NoError(t, err)
+		assert.True(t, updateAddrCalled)
+		assert.Equal(t, "100.64.0.2/24", engine.config.WgAddr)
+	})
+
+	t.Run("returns error on interface update failure", func(t *testing.T) {
+		wgIface := &MockWGIface{
+			UpdateAddrFunc: func(newAddr string) error {
+				return fmt.Errorf("mock update error")
+			},
+		}
+
+		engine := &Engine{
+			config: &EngineConfig{
+				WgAddr: "100.64.0.1/24",
+			},
+			wgInterface: wgIface,
+		}
+
+		err := engine.updateSelfPeerIP("100.64.0.1/24", "100.64.0.2/24")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "mock update error")
+		// Config should not be updated on failure
+		assert.Equal(t, "100.64.0.1/24", engine.config.WgAddr)
+	})
+}
+
 func TestEngine_UpdateNetworkMap(t *testing.T) {
 	// test setup
 	key, err := wgtypes.GeneratePrivateKey()
