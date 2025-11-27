@@ -116,7 +116,7 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 			return fmt.Errorf("failed to get zone: %w", err)
 		}
 
-		record, err = m.store.GetDNSRecordByID(ctx, store.LockingStrengthUpdate, accountID, zoneID, updatedRecord.ID)
+		record, err = transaction.GetDNSRecordByID(ctx, store.LockingStrengthUpdate, accountID, zoneID, updatedRecord.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get record: %w", err)
 		}
@@ -175,7 +175,7 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 			return fmt.Errorf("failed to get zone: %w", err)
 		}
 
-		record, err = m.store.GetDNSRecordByID(ctx, store.LockingStrengthUpdate, accountID, zoneID, recordID)
+		record, err = transaction.GetDNSRecordByID(ctx, store.LockingStrengthUpdate, accountID, zoneID, recordID)
 		if err != nil {
 			return fmt.Errorf("failed to get record: %w", err)
 		}
