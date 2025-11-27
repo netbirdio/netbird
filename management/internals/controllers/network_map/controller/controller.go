@@ -836,7 +836,7 @@ func (c *Controller) filterPeerAppliedZones(ctx context.Context, accountZones []
 	}
 
 	for _, zone := range accountZones {
-		if !zone.Enabled {
+		if !zone.Enabled || len(zone.Records) == 0 {
 			continue
 		}
 
@@ -849,10 +849,6 @@ func (c *Controller) filterPeerAppliedZones(ctx context.Context, accountZones []
 		}
 
 		if !hasAccess {
-			continue
-		}
-
-		if len(zone.Records) == 0 {
 			continue
 		}
 
@@ -881,13 +877,11 @@ func (c *Controller) filterPeerAppliedZones(ctx context.Context, accountZones []
 			})
 		}
 
-		if len(simpleRecords) > 0 {
-			customZones = append(customZones, nbdns.CustomZone{
-				Domain:               dns.Fqdn(zone.Domain),
-				Records:              simpleRecords,
-				SearchDomainDisabled: !zone.EnableSearchDomain,
-			})
-		}
+		customZones = append(customZones, nbdns.CustomZone{
+			Domain:               dns.Fqdn(zone.Domain),
+			Records:              simpleRecords,
+			SearchDomainDisabled: !zone.EnableSearchDomain,
+		})
 	}
 
 	return customZones
