@@ -24,12 +24,13 @@ func (a *Account) InitNetworkMapBuilderIfNeeded(validatedPeers map[string]struct
 func (a *Account) GetPeerNetworkMapExp(
 	ctx context.Context,
 	peerID string,
-	peersCustomZone nbdns.CustomZone,
+	dnsDomain string,
+	customZones []nbdns.CustomZone,
 	validatedPeers map[string]struct{},
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	a.initNetworkMapBuilder(validatedPeers)
-	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
+	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, dnsDomain, customZones, validatedPeers, metrics)
 }
 
 func (a *Account) OnPeerAddedUpdNetworkMapCache(peerId string) error {
