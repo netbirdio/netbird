@@ -41,8 +41,9 @@ func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns
 	// or needs to go through the tunnel, and only use netstack when necessary.
 	// For now, only use netstack on JS platform where direct access is not possible.
 	if u.nsNet != nil && runtime.GOOS == "js" {
+		start := time.Now()
 		reply, err := ExchangeWithNetstack(ctx, u.nsNet, r, upstream)
-		return reply, 0, err
+		return reply, time.Since(start), err
 	}
 
 	client := &dns.Client{
