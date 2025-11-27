@@ -4189,7 +4189,7 @@ func (s *SqlStore) GetAccountZones(ctx context.Context, lockStrength LockingStre
 	}
 
 	var zones []*zones.Zone
-	result := tx.Find(&zones, accountIDCondition, accountID)
+	result := tx.Preload("Records").Find(&zones, accountIDCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to get zones from the store: %s", result.Error)
 		return nil, status.Errorf(status.Internal, "failed to get zones from store")

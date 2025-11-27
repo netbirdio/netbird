@@ -2,14 +2,13 @@ package zones
 
 import (
 	"errors"
-	"regexp"
 
 	"github.com/rs/xid"
 
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
-
-var DomainRegex = regexp.MustCompile(`^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 
 type Zone struct {
 	ID                 string `gorm:"primaryKey"`
@@ -18,7 +17,8 @@ type Zone struct {
 	Domain             string
 	Enabled            bool
 	EnableSearchDomain bool
-	DistributionGroups []string `gorm:"serializer:json"`
+	DistributionGroups []string          `gorm:"serializer:json"`
+	Records            []*records.Record `gorm:"foreignKey:ZoneID;references:ID"`
 }
 
 func NewZone(accountID, name, domain string, enabled, enableSearchDomain bool, distributionGroups []string) *Zone {
@@ -65,7 +65,7 @@ func (z *Zone) Validate() error {
 		return errors.New("zone name exceeds maximum length of 255 characters")
 	}
 
-	if !DomainRegex.MatchString(z.Domain) {
+	if !util.IsValidDomain(z.Domain) {
 		return errors.New("invalid zone domain format")
 	}
 

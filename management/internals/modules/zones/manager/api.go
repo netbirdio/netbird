@@ -2,7 +2,6 @@ package manager
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -94,7 +93,6 @@ func (h *handler) getZone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println(zoneID)
 	zone, err := h.manager.GetZone(r.Context(), userAuth.AccountId, userAuth.UserId, zoneID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)

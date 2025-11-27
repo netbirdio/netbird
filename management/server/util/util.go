@@ -1,5 +1,9 @@
 package util
 
+import "regexp"
+
+var domainRegex = regexp.MustCompile(`^(\*\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
+
 // Difference returns the elements in `a` that aren't in `b`.
 func Difference(a, b []string) []string {
 	mb := make(map[string]struct{}, len(b))
@@ -49,4 +53,11 @@ func contains[T comparableObject[T]](slice []T, element T) bool {
 		}
 	}
 	return false
+}
+
+func IsValidDomain(domain string) bool {
+	if domain == "" {
+		return false
+	}
+	return domainRegex.MatchString(domain)
 }

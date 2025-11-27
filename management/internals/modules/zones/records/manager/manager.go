@@ -92,7 +92,8 @@ func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneI
 		return nil, err
 	}
 
-	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordCreated, record.EventMeta(zone))
+	meta := record.EventMeta(zone.ID, zone.Name)
+	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordCreated, meta)
 
 	return record, nil
 }
@@ -148,7 +149,8 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 		return nil, err
 	}
 
-	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordUpdated, record.EventMeta(zone))
+	meta := record.EventMeta(zone.ID, zone.Name)
+	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordUpdated, meta)
 
 	go m.accountManager.UpdateAccountPeers(ctx, accountID)
 
@@ -194,7 +196,8 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 		return err
 	}
 
-	m.accountManager.StoreEvent(ctx, userID, recordID, accountID, activity.DNSRecordDeleted, record.EventMeta(zone))
+	meta := record.EventMeta(zone.ID, zone.Name)
+	m.accountManager.StoreEvent(ctx, userID, recordID, accountID, activity.DNSRecordDeleted, meta)
 
 	go m.accountManager.UpdateAccountPeers(ctx, accountID)
 

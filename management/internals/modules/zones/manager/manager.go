@@ -163,7 +163,8 @@ func (m *managerImpl) DeleteZone(ctx context.Context, accountID, userID, zoneID 
 
 		for _, record := range records {
 			eventsToStore = append(eventsToStore, func() {
-				m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordDeleted, record.EventMeta(zone))
+				meta := record.EventMeta(zone.ID, zone.Name)
+				m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordDeleted, meta)
 			})
 		}
 

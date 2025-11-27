@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
@@ -63,7 +63,7 @@ func (r *Record) Validate() error {
 		return errors.New("record name is required")
 	}
 
-	if !zones.DomainRegex.MatchString(r.Name) {
+	if !util.IsValidDomain(r.Name) {
 		return errors.New("invalid record name format")
 	}
 
@@ -81,7 +81,7 @@ func (r *Record) Validate() error {
 			return err
 		}
 	case RecordTypeCNAME:
-		if !zones.DomainRegex.MatchString(r.Content) {
+		if !util.IsValidDomain(r.Content) {
 			return errors.New("invalid CNAME record format")
 		}
 	default:
@@ -95,14 +95,14 @@ func (r *Record) Validate() error {
 	return nil
 }
 
-func (r *Record) EventMeta(zone *zones.Zone) map[string]any {
+func (r *Record) EventMeta(zoneID, zoneName string) map[string]any {
 	return map[string]any{
 		"name":      r.Name,
 		"type":      string(r.Type),
 		"content":   r.Content,
 		"ttl":       r.TTL,
-		"zone_id":   zone.ID,
-		"zone_name": zone.Name,
+		"zone_id":   zoneID,
+		"zone_name": zoneName,
 	}
 }
 
