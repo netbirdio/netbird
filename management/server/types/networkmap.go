@@ -33,7 +33,7 @@ func (a *Account) GetPeerNetworkMapExp(
 	a.initNetworkMapBuilder(validatedPeers)
 	nmap := a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
 	if len(nmap.Peers) > 0 && len(nmap.FirewallRules) == 0 {
-		log.Debugf("NetworkMapBuilder: generated network map for peer %s with peers but no firewall rules", peerID)
+		log.Debugf("NetworkMapBuilder: generated network map for peer %s with peers but no firewall rules, network serial %d", peerID, nmap.Network.Serial)
 		a.OnPeerDeletedUpdNetworkMapCache(peerID)
 		a.OnPeerAddedUpdNetworkMapCache(peerID)
 		nmap = a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
