@@ -224,6 +224,9 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 	}
 
 	allPotentialPeers, firewallRules := b.getPeerConnectionResources(account, peer, b.validatedPeers)
+	if len(allPotentialPeers) > 0 && len(firewallRules) == 0 {
+		log.Debugf("NetworkMapBuilder: peer %s - no fwrules was calculated for %d potential peers", peerID, len(allPotentialPeers))
+	}
 
 	isRouter, networkResourcesRoutes, sourcePeers := b.getNetworkResourcesForPeer(account, peer)
 
@@ -1013,6 +1016,8 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 	for _, ruleID := range aclView.FirewallRuleIDs {
 		if rule := b.cache.globalRules[ruleID]; rule != nil {
 			firewallRules = append(firewallRules, rule)
+		} else {
+			log.Debugf("NetworkMapBuilder: peer %s assembling network map has no fwrule %s in globalRules", peer.ID, ruleID)
 		}
 	}
 
@@ -1988,11 +1993,11 @@ func (b *NetworkMapBuilder) cleanupUnusedRules() {
 		}
 	}
 
-	for ruleID := range b.cache.globalRules {
-		if _, used := usedFirewallRules[ruleID]; !used {
-			delete(b.cache.globalRules, ruleID)
-		}
-	}
+	// for ruleID := range b.cache.globalRules {
+	// 	if _, used := usedFirewallRules[ruleID]; !used {
+	// 		delete(b.cache.globalRules, ruleID)
+	// 	}
+	// }
 
 	for ruleID := range b.cache.globalRouteRules {
 		if _, used := usedRouteRules[ruleID]; !used {

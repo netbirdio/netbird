@@ -3,6 +3,8 @@ package types
 import (
 	"context"
 
+	"gvisor.dev/gvisor/pkg/log"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -29,7 +31,17 @@ func (a *Account) GetPeerNetworkMapExp(
 	metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	a.initNetworkMapBuilder(validatedPeers)
-	return a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
+	nmap := a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
+	if len(nmap.Peers) > 0 && len(nmap.FirewallRules) == 0 {
+		log.Debugf("NetworkMapBuilder: generated network map for peer %s with peers but no firewall rules", peerID)
+		a.OnPeerDeletedUpdNetworkMapCache(peerID)
+		a.OnPeerAddedUpdNetworkMapCache(peerID)
+		nmap = a.NetworkMapCache.GetPeerNetworkMap(ctx, peerID, peersCustomZone, validatedPeers, metrics)
+		if len(nmap.Peers) > 0 && len(nmap.FirewallRules) == 0 {
+			log.Debugf("NetworkMapBuilder: regenerated network map for peer %s still has no firewall rules", peerID)
+		}
+	}
+	return nmap
 }
 
 func (a *Account) OnPeerAddedUpdNetworkMapCache(peerId string) error {
