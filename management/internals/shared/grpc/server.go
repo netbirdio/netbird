@@ -803,7 +803,7 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: key.String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
 }
