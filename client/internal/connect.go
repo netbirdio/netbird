@@ -306,31 +306,9 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Info("Engine requested restart, cancelling context")
 			cancel()
 		case sleeping := <-c.sleepChan:
-			if sleeping {
-				// System going to sleep - stop engine and block until wake
-				log.Info("System sleep detected, stopping engine and waiting for wake")
-				cancel()
-
-				// Block until wake event (false on channel)
-				// This prevents engine from restarting during sleep
-				for {
-					select {
-					case <-engineCtx.Done():
-						// Engine context cancelled, exit sleep wait
-						log.Info("Engine context cancelled during sleep wait")
-						return nil
-					case awake := <-c.sleepChan:
-						if !awake {
-							log.Info("System wake detected, will restart engine")
-							return nil
-						}
-						// Ignore additional sleep signals while already sleeping
-						log.Debug("Ignoring duplicate sleep signal")
-					}
-				}
+			if err := c.handleSleepWake(engineCtx, sleeping, cancel); err != nil {
+				return err
 			}
-			// If we received false (wake) without being asleep, ignore it
-			log.Debug("Received wake signal while not sleeping, ignoring")
 		}
 
 		c.engineMutex.Lock()
@@ -618,6 +596,29 @@ func freePort(initPort int) (int, error) {
 	}
 	closeConnWithLog(conn)
 	return udpAddr.Port, nil
+}
+
+func (c *ConnectClient) handleSleepWake(engineCtx context.Context, sleeping bool, cancel context.CancelFunc) error {
+	if sleeping {
+		log.Info("System sleep detected, stopping engine and waiting for wake")
+		cancel()
+
+		for {
+			select {
+			case <-engineCtx.Done():
+				log.Info("Engine context cancelled during sleep wait")
+				return nil
+			case awake := <-c.sleepChan:
+				if !awake {
+					log.Info("System wake detected, will restart engine")
+					return nil
+				}
+				log.Debug("Ignoring duplicate sleep signal")
+			}
+		}
+	}
+	log.Debug("Received wake signal while not sleeping, ignoring")
+	return nil
 }
 
 func closeConnWithLog(conn *net.UDPConn) {
