@@ -79,7 +79,7 @@ func (h *handler) createRecord(w http.ResponseWriter, r *http.Request) {
 	record.FromAPIRequest(&req)
 
 	if err = record.Validate(); err != nil {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, err.Error()), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
 
@@ -150,7 +150,7 @@ func (h *handler) updateRecord(w http.ResponseWriter, r *http.Request) {
 	record.ID = recordID
 
 	if err = record.Validate(); err != nil {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, err.Error()), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
 

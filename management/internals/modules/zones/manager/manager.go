@@ -66,7 +66,7 @@ func (m *managerImpl) CreateZone(ctx context.Context, accountID, userID string, 
 		for _, groupID := range zone.DistributionGroups {
 			_, err = transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 			if err != nil {
-				return status.Errorf(status.InvalidArgument, err.Error())
+				return status.Errorf(status.InvalidArgument, "%s", err.Error())
 			}
 		}
 
@@ -109,7 +109,7 @@ func (m *managerImpl) UpdateZone(ctx context.Context, accountID, userID string, 
 		for _, groupID := range zone.DistributionGroups {
 			_, err = transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 			if err != nil {
-				return status.Errorf(status.InvalidArgument, err.Error())
+				return status.Errorf(status.InvalidArgument, "%s", err.Error())
 			}
 		}
 

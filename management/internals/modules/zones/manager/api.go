@@ -67,7 +67,7 @@ func (h *handler) createZone(w http.ResponseWriter, r *http.Request) {
 	zone.FromAPIRequest(&req)
 
 	if err = zone.Validate(); err != nil {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, err.Error()), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
 
@@ -126,7 +126,7 @@ func (h *handler) updateZone(w http.ResponseWriter, r *http.Request) {
 	zone.ID = zoneID
 
 	if err = zone.Validate(); err != nil {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, err.Error()), w)
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "%s", err.Error()), w)
 		return
 	}
 
