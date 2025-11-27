@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
+	nbcontext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/shared/auth"
+
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
-	nbContext "github.com/netbirdio/netbird/management/server/context"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -175,9 +176,9 @@ func (am *DefaultAccountManager) GetUserByID(ctx context.Context, id string) (*t
 	return am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, id)
 }
 
-// GetUser looks up a user by provided nbContext.UserAuths.
+// GetUser looks up a user by provided auth.UserAuths.
 // Expects account to have been created already.
-func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth nbContext.UserAuth) (*types.User, error) {
+func (am *DefaultAccountManager) GetUserFromUserAuth(ctx context.Context, userAuth auth.UserAuth) (*types.User, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		return nil, err
@@ -595,7 +596,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 }
 
 // prepareUserUpdateEvents prepares a list user update events based on the changes between the old and new user data.
-func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool) []func() {
+func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, accountID string, initiatorUserID string, oldUser, newUser *types.User, transferredOwnerRole bool, removedGroupIDs, addedGroupIDs []string, tx store.Store) []func() {
 	var eventsToStore []func()
 
 	if oldUser.IsBlocked() != newUser.IsBlocked() {
@@ -618,6 +619,35 @@ func (am *DefaultAccountManager) prepareUserUpdateEvents(ctx context.Context, ac
 	case oldUser.Role != newUser.Role:
 		eventsToStore = append(eventsToStore, func() {
 			am.StoreEvent(ctx, initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
+		})
+	}
+
+	addedGroups, err := tx.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, addedGroupIDs)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get added groups for user %s update event: %v", oldUser.Id, err)
+	}
+
+	for _, group := range addedGroups {
+		meta := map[string]any{
+			"group": group.Name, "group_id": group.ID,
+			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
+		}
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupAddedToUser, meta)
+		})
+	}
+
+	removedGroups, err := tx.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, removedGroupIDs)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get removed groups for user %s update event: %v", oldUser.Id, err)
+	}
+	for _, group := range removedGroups {
+		meta := map[string]any{
+			"group": group.Name, "group_id": group.ID,
+			"is_service_user": oldUser.IsServiceUser, "user_name": oldUser.ServiceUserName,
+		}
+		eventsToStore = append(eventsToStore, func() {
+			am.StoreEvent(ctx, oldUser.Id, oldUser.Id, accountID, activity.GroupRemovedFromUser, meta)
 		})
 	}
 
@@ -667,9 +697,10 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		peersToExpire = userPeers
 	}
 
+	var removedGroups, addedGroups []string
 	if update.AutoGroups != nil && settings.GroupsPropagationEnabled {
-		removedGroups := util.Difference(oldUser.AutoGroups, update.AutoGroups)
-		addedGroups := util.Difference(update.AutoGroups, oldUser.AutoGroups)
+		removedGroups = util.Difference(oldUser.AutoGroups, update.AutoGroups)
+		addedGroups = util.Difference(update.AutoGroups, oldUser.AutoGroups)
 		for _, peer := range userPeers {
 			for _, groupID := range removedGroups {
 				if err := transaction.RemovePeerFromGroup(ctx, peer.ID, groupID); err != nil {
@@ -685,7 +716,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	}
 
 	updateAccountPeers := len(userPeers) > 0
-	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole)
+	userEventsToAdd := am.prepareUserUpdateEvents(ctx, updatedUser.AccountID, initiatorUserId, oldUser, updatedUser, transferredOwnerRole, removedGroups, addedGroups, transaction)
 
 	return updateAccountPeers, updatedUser, peersToExpire, userEventsToAdd, nil
 }
@@ -935,12 +966,12 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 	if err != nil {
 		return err
 	}
-	dnsDomain := am.GetDNSDomain(settings)
+	dnsDomain := am.networkMapController.GetDNSDomain(settings)
 
 	var peerIDs []string
 	for _, peer := range peers {
 		// nolint:staticcheck
-		ctx = context.WithValue(ctx, nbContext.PeerIDKey, peer.Key)
+		ctx = context.WithValue(ctx, nbcontext.PeerIDKey, peer.Key)
 
 		if peer.UserID == "" {
 			// we do not want to expire peers that are added via setup key
@@ -961,13 +992,14 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
 		)
+
+		am.networkMapController.OnPeerUpdated(accountID, peer)
 	}
 
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
-		am.peersUpdateManager.CloseChannels(ctx, peerIDs)
-		am.BufferUpdateAccountPeers(ctx, accountID)
+		am.networkMapController.DisconnectPeers(ctx, peerIDs)
 	}
 	return nil
 }
@@ -1081,6 +1113,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 	var addPeerRemovedEvents []func()
 	var updateAccountPeers bool
+	var userPeers []*nbpeer.Peer
 	var targetUser *types.User
 	var err error
 
@@ -1090,7 +1123,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			return fmt.Errorf("failed to get user to delete: %w", err)
 		}
 
-		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, targetUserInfo.ID)
+		userPeers, err = transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, targetUserInfo.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get user peers: %w", err)
 		}
@@ -1111,6 +1144,17 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	})
 	if err != nil {
 		return false, err
+	}
+
+	for _, peer := range userPeers {
+		err = am.networkMapController.DeletePeer(ctx, accountID, peer.ID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to delete peer %s from network map: %v", peer.ID, err)
+		}
+
+		if err := am.networkMapController.OnPeerDeleted(ctx, accountID, peer.ID); err != nil {
+			log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", peer.ID, err)
+		}
 	}
 
 	for _, addPeerRemovedEvent := range addPeerRemovedEvents {
@@ -1171,7 +1215,7 @@ func validateUserInvite(invite *types.UserInfo) error {
 }
 
 // GetCurrentUserInfo retrieves the account's current user info and permissions
-func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth nbcontext.UserAuth) (*users.UserInfoWithPermissions, error) {
+func (am *DefaultAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error) {
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)

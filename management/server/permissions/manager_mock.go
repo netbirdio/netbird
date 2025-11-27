@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	account "github.com/netbirdio/netbird/management/server/account"
 	modules "github.com/netbirdio/netbird/management/server/permissions/modules"
 	operations "github.com/netbirdio/netbird/management/server/permissions/operations"
 	roles "github.com/netbirdio/netbird/management/server/permissions/roles"
@@ -51,6 +52,18 @@ func (m *MockManager) GetPermissionsByRole(ctx context.Context, role types.UserR
 func (mr *MockManagerMockRecorder) GetPermissionsByRole(ctx, role interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPermissionsByRole", reflect.TypeOf((*MockManager)(nil).GetPermissionsByRole), ctx, role)
+}
+
+// SetAccountManager mocks base method.
+func (m *MockManager) SetAccountManager(accountManager account.Manager) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetAccountManager", accountManager)
+}
+
+// SetAccountManager indicates an expected call of SetAccountManager.
+func (mr *MockManagerMockRecorder) SetAccountManager(accountManager interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetAccountManager", reflect.TypeOf((*MockManager)(nil).SetAccountManager), accountManager)
 }
 
 // ValidateAccountAccess mocks base method.

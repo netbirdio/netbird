@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"runtime"
 	"time"
 
@@ -57,8 +58,7 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 		}),
 	)
 	if err != nil {
-		log.Printf("DialContext error: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("dial context: %w", err)
 	}
 
 	return conn, nil

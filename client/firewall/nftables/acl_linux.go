@@ -29,8 +29,6 @@ const (
 	chainNameForwardFilter     = "netbird-acl-forward-filter"
 	chainNameManglePrerouting  = "netbird-mangle-prerouting"
 	chainNameManglePostrouting = "netbird-mangle-postrouting"
-
-	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
 const flushError = "flush: %w"
@@ -195,25 +193,6 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 // createDefaultAllowRules creates default allow rules for the input and output chains
 func (m *AclManager) createDefaultAllowRules() error {
 	expIn := []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		// mask
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            4,
-			Mask:           []byte{0, 0, 0, 0},
-			Xor:            []byte{0, 0, 0, 0},
-		},
-		// net address
-		&expr.Cmp{
-			Register: 1,
-			Data:     []byte{0, 0, 0, 0},
-		},
 		&expr.Verdict{
 			Kind: expr.VerdictAccept,
 		},
@@ -258,7 +237,7 @@ func (m *AclManager) addIOFiltering(
 	action firewall.Action,
 	ipset *nftables.Set,
 ) (*Rule, error) {
-	ruleId := generatePeerRuleId(ip, sPort, dPort, action, ipset)
+	ruleId := generatePeerRuleId(ip, proto, sPort, dPort, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
 		return &Rule{
 			nftRule:    r.nftRule,
@@ -357,11 +336,12 @@ func (m *AclManager) addIOFiltering(
 	}
 
 	if err := m.rConn.Flush(); err != nil {
-		return nil, fmt.Errorf(flushError, err)
+		return nil, fmt.Errorf("flush input rule %s: %v", ruleId, err)
 	}
 
 	ruleStruct := &Rule{
-		nftRule:    nftRule,
+		nftRule: nftRule,
+		// best effort mangle rule
 		mangleRule: m.createPreroutingRule(expressions, userData),
 		nftSet:     ipset,
 		ruleID:     ruleId,
@@ -420,12 +400,19 @@ func (m *AclManager) createPreroutingRule(expressions []expr.Any, userData []byt
 		},
 	)
 
-	return m.rConn.AddRule(&nftables.Rule{
+	nfRule := m.rConn.AddRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    m.chainPrerouting,
 		Exprs:    preroutingExprs,
 		UserData: userData,
 	})
+
+	if err := m.rConn.Flush(); err != nil {
+		log.Errorf("failed to flush mangle rule %s: %v", string(userData), err)
+		return nil
+	}
+
+	return nfRule
 }
 
 func (m *AclManager) createDefaultChains() (err error) {
@@ -697,8 +684,8 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain, mangle bool) erro
 	return nil
 }
 
-func generatePeerRuleId(ip net.IP, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action, ipset *nftables.Set) string {
-	rulesetID := ":"
+func generatePeerRuleId(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action, ipset *nftables.Set) string {
+	rulesetID := ":" + string(proto) + ":"
 	if sPort != nil {
 		rulesetID += sPort.String()
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/skratchdot/open-golang/open"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	uptypes "github.com/netbirdio/netbird/upload-server/types"
@@ -426,6 +427,12 @@ func (s *serviceClient) collectDebugData(
 		return "", err
 	}
 
+	pm := profilemanager.NewProfileManager()
+	var profName string
+	if activeProf, err := pm.GetActiveProfile(); err == nil {
+		profName = activeProf.Name
+	}
+
 	postUpStatus, err := conn.Status(s.ctx, &proto.StatusRequest{GetFullPeerStatus: true})
 	if err != nil {
 		log.Warnf("Failed to get post-up status: %v", err)
@@ -433,7 +440,7 @@ func (s *serviceClient) collectDebugData(
 
 	var postUpStatusOutput string
 	if postUpStatus != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(postUpStatus, params.anonymize, "", nil, nil, nil, "", "")
+		overview := nbstatus.ConvertToStatusOutputOverview(postUpStatus, params.anonymize, "", nil, nil, nil, "", profName)
 		postUpStatusOutput = overview.FullDetailSummary()
 	}
 	headerPostUp := fmt.Sprintf("----- NetBird post-up - Timestamp: %s", time.Now().Format(time.RFC3339))
@@ -450,7 +457,7 @@ func (s *serviceClient) collectDebugData(
 
 	var preDownStatusOutput string
 	if preDownStatus != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(preDownStatus, params.anonymize, "", nil, nil, nil, "", "")
+		overview := nbstatus.ConvertToStatusOutputOverview(preDownStatus, params.anonymize, "", nil, nil, nil, "", profName)
 		preDownStatusOutput = overview.FullDetailSummary()
 	}
 	headerPreDown := fmt.Sprintf("----- NetBird pre-down - Timestamp: %s - Duration: %s",
@@ -493,7 +500,7 @@ func (s *serviceClient) createDebugBundleFromCollection(
 		if uploadFailureReason != "" {
 			showUploadFailedDialog(progress.window, localPath, uploadFailureReason)
 		} else {
-			showUploadSuccessDialog(progress.window, localPath, uploadedKey)
+			showUploadSuccessDialog(s.app, progress.window, localPath, uploadedKey)
 		}
 	} else {
 		showBundleCreatedDialog(progress.window, localPath)
@@ -558,7 +565,7 @@ func (s *serviceClient) handleDebugCreation(
 		if uploadFailureReason != "" {
 			showUploadFailedDialog(w, localPath, uploadFailureReason)
 		} else {
-			showUploadSuccessDialog(w, localPath, uploadedKey)
+			showUploadSuccessDialog(s.app, w, localPath, uploadedKey)
 		}
 	} else {
 		showBundleCreatedDialog(w, localPath)
@@ -574,6 +581,12 @@ func (s *serviceClient) createDebugBundle(anonymize bool, systemInfo bool, uploa
 		return nil, fmt.Errorf("get client: %v", err)
 	}
 
+	pm := profilemanager.NewProfileManager()
+	var profName string
+	if activeProf, err := pm.GetActiveProfile(); err == nil {
+		profName = activeProf.Name
+	}
+
 	statusResp, err := conn.Status(s.ctx, &proto.StatusRequest{GetFullPeerStatus: true})
 	if err != nil {
 		log.Warnf("failed to get status for debug bundle: %v", err)
@@ -581,7 +594,7 @@ func (s *serviceClient) createDebugBundle(anonymize bool, systemInfo bool, uploa
 
 	var statusOutput string
 	if statusResp != nil {
-		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anonymize, "", nil, nil, nil, "", "")
+		overview := nbstatus.ConvertToStatusOutputOverview(statusResp, anonymize, "", nil, nil, nil, "", profName)
 		statusOutput = overview.FullDetailSummary()
 	}
 
@@ -652,7 +665,7 @@ func showUploadFailedDialog(w fyne.Window, localPath, failureReason string) {
 }
 
 // showUploadSuccessDialog displays a dialog when upload succeeds
-func showUploadSuccessDialog(w fyne.Window, localPath, uploadedKey string) {
+func showUploadSuccessDialog(a fyne.App, w fyne.Window, localPath, uploadedKey string) {
 	log.Infof("Upload key: %s", uploadedKey)
 	keyEntry := widget.NewEntry()
 	keyEntry.SetText(uploadedKey)
@@ -670,7 +683,7 @@ func showUploadSuccessDialog(w fyne.Window, localPath, uploadedKey string) {
 	customDialog := dialog.NewCustom("Upload Successful", "OK", content, w)
 
 	copyBtn := createButtonWithAction("Copy key", func() {
-		w.Clipboard().SetContent(uploadedKey)
+		a.Clipboard().SetContent(uploadedKey)
 		log.Info("Upload key copied to clipboard")
 	})
 
