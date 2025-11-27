@@ -148,8 +148,14 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 	nanos := int32(now.Nanosecond())
 	expiresAt := &timestamp.Timestamp{Seconds: secs, Nanos: nanos}
 
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get wireguard key: %v", err)
+		return nil, errors.New("failed to get wireguard key")
+	}
+
 	return &proto.ServerKeyResponse{
-		Key:       s.secretsManager.GetWGKey().PublicKey().String(),
+		Key:       key.PublicKey().String(),
 		ExpiresAt: expiresAt,
 	}, nil
 }
@@ -312,13 +318,19 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
 func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer) error {
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.secretsManager.GetWGKey(), update.Update)
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		s.cancelPeerRoutines(ctx, accountID, peer)
+		return status.Errorf(codes.Internal, "failed processing update message")
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, update.Update)
 	if err != nil {
 		s.cancelPeerRoutines(ctx, accountID, peer)
 		return status.Errorf(codes.Internal, "failed processing update message")
 	}
 	err = srv.SendMsg(&proto.EncryptedMessage{
-		WgPubKey: s.secretsManager.GetWGKey().PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	})
 	if err != nil {
@@ -492,7 +504,12 @@ func (s *Server) parseRequest(ctx context.Context, req *proto.EncryptedMessage, 
 		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
 	}
 
-	err = encryption.DecryptMessage(peerKey, s.secretsManager.GetWGKey(), req.Body, parsed)
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return wgtypes.Key{}, status.Errorf(codes.Internal, "failed processing request")
+	}
+
+	err = encryption.DecryptMessage(peerKey, key, req.Body, parsed)
 	if err != nil {
 		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
@@ -597,14 +614,20 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 
 	log.WithContext(ctx).Debugf("Login: prepareLoginResponse since start %v", time.Since(reqStart))
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.secretsManager.GetWGKey(), loginResp)
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed getting server's WireGuard private key: %s", err)
+		return nil, status.Errorf(codes.Internal, "failed logging in peer")
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, loginResp)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.secretsManager.GetWGKey().PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
 }
@@ -697,14 +720,19 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 
 	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.secretsManager.GetWGKey(), plainResp)
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed getting server key")
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, plainResp)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 
 	sendStart := time.Now()
 	err = srv.Send(&proto.EncryptedMessage{
-		WgPubKey: s.secretsManager.GetWGKey().PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	})
 	log.WithContext(ctx).Debugf("sendInitialSync: sending response took %s", time.Since(sendStart))
@@ -734,7 +762,12 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	err = encryption.DecryptMessage(peerKey, s.secretsManager.GetWGKey(), req.Body, &proto.DeviceAuthorizationFlowRequest{})
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get server key")
+	}
+
+	err = encryption.DecryptMessage(peerKey, key, req.Body, &proto.DeviceAuthorizationFlowRequest{})
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
 		log.WithContext(ctx).Warn(errMSG)
@@ -764,13 +797,13 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Encr
 		},
 	}
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.secretsManager.GetWGKey(), flowInfoResp)
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to encrypt no device authorization flow information")
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.secretsManager.GetWGKey().PublicKey().String(),
+		WgPubKey: key.String(),
 		Body:     encryptedResp,
 	}, nil
 }
@@ -792,7 +825,12 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	err = encryption.DecryptMessage(peerKey, s.secretsManager.GetWGKey(), req.Body, &proto.PKCEAuthorizationFlowRequest{})
+	key, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get server key")
+	}
+
+	err = encryption.DecryptMessage(peerKey, key, req.Body, &proto.PKCEAuthorizationFlowRequest{})
 	if err != nil {
 		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
 		log.WithContext(ctx).Warn(errMSG)
@@ -820,13 +858,13 @@ func (s *Server) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.Encryp
 
 	flowInfoResp := s.integratedPeerValidator.ValidateFlowResponse(ctx, peerKey.String(), initInfoFlow)
 
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.secretsManager.GetWGKey(), flowInfoResp)
+	encryptedResp, err := encryption.EncryptMessage(peerKey, key, flowInfoResp)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to encrypt no pkce authorization flow information")
 	}
 
 	return &proto.EncryptedMessage{
-		WgPubKey: s.secretsManager.GetWGKey().PublicKey().String(),
+		WgPubKey: key.PublicKey().String(),
 		Body:     encryptedResp,
 	}, nil
 }

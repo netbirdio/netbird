@@ -30,7 +30,7 @@ type SecretsManager interface {
 	GenerateRelayToken() (*Token, error)
 	SetupRefresh(ctx context.Context, accountID, peerKey string)
 	CancelRefresh(peerKey string)
-	GetWGKey() wgtypes.Key
+	GetWGKey() (wgtypes.Key, error)
 }
 
 // TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
@@ -94,8 +94,8 @@ func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager
 }
 
 // GetWGKey returns WireGuard private key used to generate peer keys
-func (m *TimeBasedAuthSecretsManager) GetWGKey() wgtypes.Key {
-	return m.wgKey
+func (m *TimeBasedAuthSecretsManager) GetWGKey() (wgtypes.Key, error) {
+	return m.wgKey, nil
 }
 
 // GenerateTurnToken generates new time-based secret credentials for TURN

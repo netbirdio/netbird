@@ -549,7 +549,7 @@ func TestUser_InviteNewUser(t *testing.T) {
 		permissionsManager: permissionsManager,
 	}
 
-	cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
 	require.NoError(t, err)
 
 	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cs)
@@ -1073,7 +1073,7 @@ func TestDefaultAccountManager_ExternalCache(t *testing.T) {
 		permissionsManager: permissionsManager,
 	}
 
-	cacheStore, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval)
+	cacheStore, err := nbcache.NewStore(context.Background(), nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
 	assert.NoError(t, err)
 	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
 	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)

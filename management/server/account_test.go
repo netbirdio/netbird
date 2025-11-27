@@ -3373,7 +3373,7 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 
 	t.Run("memory cache", func(t *testing.T) {
 		t.Run("should always return true", func(t *testing.T) {
-			cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond)
+			cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
 			require.NoError(t, err)
 
 			cold, err := manager.isCacheCold(context.Background(), cacheStore)
@@ -3388,7 +3388,7 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 		t.Cleanup(cleanup)
 		t.Setenv(cache.RedisStoreEnvVar, redisURL)
 
-		cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond)
+		cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
 		require.NoError(t, err)
 
 		t.Run("should return true when no account exists", func(t *testing.T) {
