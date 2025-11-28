@@ -124,7 +124,7 @@ func (s *Server) getHealthStatus(ctx context.Context) (*HealthStatus, bool) {
 	status := &HealthStatus{
 		Timestamp:        time.Now(),
 		Status:           statusHealthy,
-		CertificateValid: false,
+		CertificateValid: true,
 	}
 
 	listeners, ok := s.validateListeners()
