@@ -6,14 +6,13 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/protocol"
-	"github.com/netbirdio/netbird/relay/server/listener/quic"
-	"github.com/netbirdio/netbird/relay/server/listener/ws"
 )
 
 const (
@@ -125,7 +124,7 @@ func (s *Server) getHealthStatus(ctx context.Context) (*HealthStatus, bool) {
 	status := &HealthStatus{
 		Timestamp:        time.Now(),
 		Status:           statusHealthy,
-		CertificateValid: true,
+		CertificateValid: false,
 	}
 
 	listeners, ok := s.validateListeners()
@@ -135,7 +134,11 @@ func (s *Server) getHealthStatus(ctx context.Context) (*HealthStatus, bool) {
 	}
 	status.Listeners = listeners
 
-	if ok := s.validateCertificate(ctx); !ok {
+	if !strings.HasPrefix(s.config.ServiceChecker.ExposedAddress(), "rels") {
+		status.CertificateValid = false
+	}
+
+	if ok := s.validateConnection(ctx); !ok {
 		status.Status = statusUnhealthy
 		status.CertificateValid = false
 		healthy = false
@@ -152,31 +155,18 @@ func (s *Server) validateListeners() ([]protocol.Protocol, bool) {
 	return listeners, true
 }
 
-func (s *Server) validateCertificate(ctx context.Context) bool {
-	// Use exposed address for certificate validation (where clients connect)
+func (s *Server) validateConnection(ctx context.Context) bool {
 	exposedAddress := s.config.ServiceChecker.ExposedAddress()
 	if exposedAddress == "" {
 		log.Error("exposed address is empty, cannot validate certificate")
 		return false
 	}
 
-	for _, proto := range s.config.ServiceChecker.ListenerProtocols() {
-		switch proto {
-		case ws.Proto:
-			if err := dialWS(ctx, exposedAddress); err != nil {
-				log.Errorf("failed to dial WebSocket listener at %s: %v", exposedAddress, err)
-				return false
-			}
-		case quic.Proto:
-			if err := dialQUIC(ctx, exposedAddress); err != nil {
-				log.Errorf("failed to dial QUIC listener at %s: %v", exposedAddress, err)
-				return false
-			}
-		default:
-			log.Warnf("unknown protocol for healthcheck: %s", proto)
-			return false
-		}
+	if err := dialWS(ctx, exposedAddress); err != nil {
+		log.Errorf("failed to dial WebSocket listener at %s: %v", exposedAddress, err)
+		return false
 	}
+
 	return true
 }
 

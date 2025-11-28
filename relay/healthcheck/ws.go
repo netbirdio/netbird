@@ -3,6 +3,7 @@ package healthcheck
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/coder/websocket"
 
@@ -10,12 +11,19 @@ import (
 )
 
 func dialWS(ctx context.Context, address string) error {
-	url := fmt.Sprintf("wss://%s%s", address, relay.WebSocketURLPath)
+	addressSplit := strings.Split(address, "/")
+	scheme := "ws"
+	if addressSplit[0] == "rels:" {
+		scheme = "wss"
+	}
+	url := fmt.Sprintf("%s://%s%s", scheme, addressSplit[2], relay.WebSocketURLPath)
 
 	conn, resp, err := websocket.Dial(ctx, url, nil)
 	if resp != nil {
 		defer func() {
-			_ = resp.Body.Close()
+			if resp.Body != nil {
+				_ = resp.Body.Close()
+			}
 		}()
 
 	}
