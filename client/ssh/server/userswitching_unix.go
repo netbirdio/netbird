@@ -59,8 +59,8 @@ func isFullyNumeric(username string) bool {
 	return true
 }
 
-// createPtyLoginCommand creates a Pty command using login for privileged processes
-func (s *Server) createPtyLoginCommand(localUser *user.User, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
+// createUserSwitchPtyCommand creates a Pty command using login for privileged processes
+func (s *Server) createUserSwitchPtyCommand(localUser *user.User, ptyReq ssh.Pty, session ssh.Session) (*exec.Cmd, error) {
 	loginPath, args, err := s.getLoginCmd(localUser.Username, session.RemoteAddr())
 	if err != nil {
 		return nil, fmt.Errorf("get login command: %w", err)
@@ -75,11 +75,6 @@ func (s *Server) createPtyLoginCommand(localUser *user.User, ptyReq ssh.Pty, ses
 
 // getLoginCmd returns the login command and args for privileged Pty user switching
 func (s *Server) getLoginCmd(username string, remoteAddr net.Addr) (string, []string, error) {
-	loginPath, err := exec.LookPath("login")
-	if err != nil {
-		return "", nil, fmt.Errorf("login command not available: %w", err)
-	}
-
 	addrPort, err := netip.ParseAddrPort(remoteAddr.String())
 	if err != nil {
 		return "", nil, fmt.Errorf("parse remote address: %w", err)
@@ -87,13 +82,28 @@ func (s *Server) getLoginCmd(username string, remoteAddr net.Addr) (string, []st
 
 	switch runtime.GOOS {
 	case "linux":
-		// Special handling for Arch Linux without /etc/pam.d/remote
-		if s.fileExists("/etc/arch-release") && !s.fileExists("/etc/pam.d/remote") {
-			return loginPath, []string{"-f", username, "-p"}, nil
+		// Try runuser first
+		runuserPath, err := exec.LookPath("runuser")
+		if err == nil {
+			return runuserPath, []string{"-l", username}, nil
 		}
-		return loginPath, []string{"-f", username, "-h", addrPort.Addr().String(), "-p"}, nil
+
+		// Fall back to login
+		loginPath, err := exec.LookPath("login")
+		if err == nil {
+			return loginPath, []string{"-f", username, "-h", addrPort.Addr().String(), "-p"}, nil
+		}
+
+		return "", nil, fmt.Errorf("neither runuser nor login commands available: %w", err)
+
 	case "darwin", "freebsd", "openbsd", "netbsd", "dragonfly":
-		return loginPath, []string{"-fp", "-h", addrPort.Addr().String(), username}, nil
+		loginPath, err := exec.LookPath("login")
+		if err == nil {
+			return loginPath, []string{"-fp", "-h", addrPort.Addr().String(), username}, nil
+		}
+
+		return "", nil, fmt.Errorf("login command not available: %w", err)
+
 	default:
 		return "", nil, fmt.Errorf("unsupported Unix platform for login command: %s", runtime.GOOS)
 	}
@@ -196,7 +206,7 @@ func (s *Server) createPtyCommand(privilegeResult PrivilegeCheckResult, ptyReq s
 		return s.createDirectPtyCommand(session, localUser, ptyReq), nil
 	}
 
-	return s.createPtyLoginCommand(localUser, ptyReq, session)
+	return s.createUserSwitchPtyCommand(localUser, ptyReq, session)
 }
 
 // createDirectPtyCommand creates a direct Pty command without privilege dropping
