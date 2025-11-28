@@ -439,3 +439,83 @@ func TestSSHServer_PortForwardingConfiguration(t *testing.T) {
 	assert.True(t, server2.allowLocalPortForwarding, "Local port forwarding should be enabled when explicitly set")
 	assert.True(t, server2.allowRemotePortForwarding, "Remote port forwarding should be enabled when explicitly set")
 }
+
+func TestSSHServer_Restart(t *testing.T) {
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
+
+	// Get a free port for initial start
+	ln1, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr1 := ln1.Addr().String()
+	addrPort1, err := netip.ParseAddrPort(addr1)
+	require.NoError(t, err)
+	require.NoError(t, ln1.Close())
+
+	// Start server on first address
+	err = server.Start(context.Background(), addrPort1)
+	require.NoError(t, err)
+
+	// Verify server is running
+	enabled, _ := server.GetStatus()
+	assert.True(t, enabled, "Server should be running after Start")
+
+	// Get a different free port for restart
+	ln2, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr2 := ln2.Addr().String()
+	addrPort2, err := netip.ParseAddrPort(addr2)
+	require.NoError(t, err)
+	require.NoError(t, ln2.Close())
+
+	// Restart server on new address
+	err = server.Restart(context.Background(), addrPort2)
+	require.NoError(t, err)
+
+	// Verify server is still running after restart
+	enabled, _ = server.GetStatus()
+	assert.True(t, enabled, "Server should be running after Restart")
+
+	// Stop server
+	err = server.Stop()
+	require.NoError(t, err)
+
+	enabled, _ = server.GetStatus()
+	assert.False(t, enabled, "Server should not be running after Stop")
+}
+
+func TestSSHServer_RestartNotRunning(t *testing.T) {
+	hostKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
+	require.NoError(t, err)
+
+	serverConfig := &Config{
+		HostKeyPEM: hostKey,
+		JWT:        nil,
+	}
+	server := New(serverConfig)
+
+	// Get a free port
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	addrPort, err := netip.ParseAddrPort(addr)
+	require.NoError(t, err)
+	require.NoError(t, ln.Close())
+
+	// Restart server that was never started (should work - Stop is idempotent)
+	err = server.Restart(context.Background(), addrPort)
+	require.NoError(t, err)
+
+	// Verify server is running after restart
+	enabled, _ := server.GetStatus()
+	assert.True(t, enabled, "Server should be running after Restart even if not previously started")
+
+	err = server.Stop()
+	require.NoError(t, err)
+}
