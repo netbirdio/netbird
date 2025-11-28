@@ -99,8 +99,11 @@ func (m *managerImpl) UpdateZone(ctx context.Context, accountID, userID string, 
 		return nil, fmt.Errorf("failed to get zone: %w", err)
 	}
 
+	if zone.Domain != updatedZone.Domain {
+		return nil, status.Errorf(status.InvalidArgument, "zone domain cannot be updated")
+	}
+
 	zone.Name = updatedZone.Name
-	zone.Domain = updatedZone.Domain
 	zone.Enabled = updatedZone.Enabled
 	zone.EnableSearchDomain = updatedZone.EnableSearchDomain
 	zone.DistributionGroups = updatedZone.DistributionGroups
@@ -124,6 +127,8 @@ func (m *managerImpl) UpdateZone(ctx context.Context, accountID, userID string, 
 	}
 
 	m.accountManager.StoreEvent(ctx, userID, zone.ID, accountID, activity.DNSZoneUpdated, zone.EventMeta())
+
+	go m.accountManager.UpdateAccountPeers(ctx, accountID)
 
 	return zone, nil
 }
