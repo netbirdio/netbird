@@ -31,6 +31,7 @@ import (
 	nbnet "github.com/netbirdio/netbird/client/net"
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ssh"
+	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -81,6 +82,7 @@ func (c *ConnectClient) RunOnAndroid(
 	networkChangeListener listener.NetworkChangeListener,
 	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
+	stateFilePath string,
 ) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
@@ -89,6 +91,7 @@ func (c *ConnectClient) RunOnAndroid(
 		NetworkChangeListener: networkChangeListener,
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
+		StateFilePath:         stateFilePath,
 	}
 	return c.run(mobileDependency, nil)
 }
@@ -170,7 +173,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 	sm := profilemanager.NewServiceManager("")
 
 	path := sm.GetStatePath()
-	if runtime.GOOS == "ios" {
+	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
 		if !fileExists(mobileDependency.StateFilePath) {
 			err := createFile(mobileDependency.StateFilePath)
 			if err != nil {
@@ -182,6 +185,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		path = mobileDependency.StateFilePath
 	}
 	stateManager := statemanager.New(path)
+	stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	updateManager := updatemanager.NewManager(c.statusRecorder, stateManager)
 	updateManager.CheckUpdateSuccess(c.ctx)
@@ -456,20 +460,25 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		nm = *config.NetworkMonitor
 	}
 	engineConf := &EngineConfig{
-		WgIfaceName:          config.WgIface,
-		WgAddr:               peerConfig.Address,
-		IFaceBlackList:       config.IFaceBlackList,
-		DisableIPv6Discovery: config.DisableIPv6Discovery,
-		WgPrivateKey:         key,
-		WgPort:               config.WgPort,
-		NetworkMonitor:       nm,
-		SSHKey:               []byte(config.SSHKey),
-		NATExternalIPs:       config.NATExternalIPs,
-		CustomDNSAddress:     config.CustomDNSAddress,
-		RosenpassEnabled:     config.RosenpassEnabled,
-		RosenpassPermissive:  config.RosenpassPermissive,
-		ServerSSHAllowed:     util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
-		DNSRouteInterval:     config.DNSRouteInterval,
+		WgIfaceName:                   config.WgIface,
+		WgAddr:                        peerConfig.Address,
+		IFaceBlackList:                config.IFaceBlackList,
+		DisableIPv6Discovery:          config.DisableIPv6Discovery,
+		WgPrivateKey:                  key,
+		WgPort:                        config.WgPort,
+		NetworkMonitor:                nm,
+		SSHKey:                        []byte(config.SSHKey),
+		NATExternalIPs:                config.NATExternalIPs,
+		CustomDNSAddress:              config.CustomDNSAddress,
+		RosenpassEnabled:              config.RosenpassEnabled,
+		RosenpassPermissive:           config.RosenpassPermissive,
+		ServerSSHAllowed:              util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
+		EnableSSHRoot:                 config.EnableSSHRoot,
+		EnableSSHSFTP:                 config.EnableSSHSFTP,
+		EnableSSHLocalPortForwarding:  config.EnableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding: config.EnableSSHRemotePortForwarding,
+		DisableSSHAuth:                config.DisableSSHAuth,
+		DNSRouteInterval:              config.DNSRouteInterval,
 
 		DisableClientRoutes: config.DisableClientRoutes,
 		DisableServerRoutes: config.DisableServerRoutes || config.BlockInbound,
@@ -555,6 +564,11 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.BlockLANAccess,
 		config.BlockInbound,
 		config.LazyConnectionEnabled,
+		config.EnableSSHRoot,
+		config.EnableSSHSFTP,
+		config.EnableSSHLocalPortForwarding,
+		config.EnableSSHRemotePortForwarding,
+		config.DisableSSHAuth,
 	)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
 	if err != nil {

@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/user"
 	"runtime"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/skratchdot/open-golang/open"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
@@ -332,7 +330,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 		hint = profileState.Email
 	}
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop(), hint)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isUnixRunningDesktop(), false, hint)
 	if err != nil {
 		return nil, err
 	}
@@ -373,19 +371,11 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 	cmd.Println("")
 
 	if !noBrowser {
-		if err := openBrowser(verificationURIComplete); err != nil {
+		if err := util.OpenBrowser(verificationURIComplete); err != nil {
 			cmd.Println("\nAlternatively, you may want to use a setup key, see:\n\n" +
 				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 		}
 	}
-}
-
-// openBrowser opens the URL in a browser, respecting the BROWSER environment variable.
-func openBrowser(url string) error {
-	if browser := os.Getenv("BROWSER"); browser != "" {
-		return exec.Command(browser, url).Start()
-	}
-	return open.Run(url)
 }
 
 // isUnixRunningDesktop checks if a Linux OS is running desktop environment

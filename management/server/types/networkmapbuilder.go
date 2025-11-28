@@ -22,10 +22,11 @@ import (
 )
 
 const (
-	allPeers = "0.0.0.0"
-	fw       = "fw:"
-	rfw      = "route-fw:"
-	nr       = "network-resource-"
+	allPeers      = "0.0.0.0"
+	allWildcard   = "0.0.0.0/0"
+	v6AllWildcard = "::/0"
+	fw            = "fw:"
+	rfw           = "route-fw:"
 )
 
 type NetworkMapCache struct {
@@ -257,8 +258,6 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *nbpeer.Peer,
 	validatedPeersMap map[string]struct{},
 ) ([]*nbpeer.Peer, []*FirewallRule) {
-	ctx := context.Background()
-
 	peerID := peer.ID
 
 	peerGroups := b.cache.peerToGroups[peerID]
@@ -275,9 +274,6 @@ func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *n
 	for _, group := range peerGroups {
 		policies := b.cache.groupToPolicies[group]
 		for _, policy := range policies {
-			if isValid := account.validatePostureChecksOnPeer(ctx, policy.SourcePostureChecks, peerID); !isValid {
-				continue
-			}
 			rules := b.cache.policyToRules[policy.ID]
 			for _, rule := range rules {
 				var sourcePeers, destinationPeers []*nbpeer.Peer
@@ -862,6 +858,14 @@ func (b *NetworkMapBuilder) getRulePeers(
 		}
 	}
 
+	if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+		_, distPeer := distributionPeers[rule.SourceResource.ID]
+		_, valid := validatedPeersMap[rule.SourceResource.ID]
+		if distPeer && valid && account.validatePostureChecksOnPeer(context.Background(), postureChecks, rule.SourceResource.ID) {
+			distPeersWithPolicy[rule.SourceResource.ID] = struct{}{}
+		}
+	}
+
 	distributionGroupPeers := make([]*nbpeer.Peer, 0, len(distPeersWithPolicy))
 	for pID := range distPeersWithPolicy {
 		peer := b.cache.globalPeers[pID]
@@ -1291,24 +1295,54 @@ func (b *NetworkMapBuilder) calculateIncrementalUpdates(account *Account, newPee
 			if !rule.Enabled {
 				continue
 			}
+			var peerInSources, peerInDestinations bool
 
-			peerInSources := b.isPeerInGroups(rule.Sources, peerGroups)
-			peerInDestinations := b.isPeerInGroups(rule.Destinations, peerGroups)
+			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID == newPeerID {
+				peerInSources = true
+			} else {
+				peerInSources = b.isPeerInGroups(rule.Sources, peerGroups)
+			}
+
+			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID == newPeerID {
+				peerInDestinations = true
+			} else {
+				peerInDestinations = b.isPeerInGroups(rule.Destinations, peerGroups)
+			}
 
 			if peerInSources {
-				b.addUpdateForPeersInGroups(updates, rule.Destinations, newPeerID, rule, FirewallRuleDirectionIN, groupAllLn)
+				if len(rule.Destinations) > 0 {
+					b.addUpdateForPeersInGroups(updates, rule.Destinations, newPeerID, rule, FirewallRuleDirectionIN, groupAllLn)
+				}
+				if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+					b.addUpdateForDirectPeerResource(updates, rule.DestinationResource.ID, newPeerID, rule, FirewallRuleDirectionIN)
+				}
 			}
 
 			if peerInDestinations {
-				b.addUpdateForPeersInGroups(updates, rule.Sources, newPeerID, rule, FirewallRuleDirectionOUT, groupAllLn)
+				if len(rule.Sources) > 0 {
+					b.addUpdateForPeersInGroups(updates, rule.Sources, newPeerID, rule, FirewallRuleDirectionOUT, groupAllLn)
+				}
+				if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+					b.addUpdateForDirectPeerResource(updates, rule.SourceResource.ID, newPeerID, rule, FirewallRuleDirectionOUT)
+				}
 			}
 
 			if rule.Bidirectional {
 				if peerInSources {
-					b.addUpdateForPeersInGroups(updates, rule.Destinations, newPeerID, rule, FirewallRuleDirectionOUT, groupAllLn)
+					if len(rule.Destinations) > 0 {
+						b.addUpdateForPeersInGroups(updates, rule.Destinations, newPeerID, rule, FirewallRuleDirectionOUT, groupAllLn)
+					}
+					if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
+						b.addUpdateForDirectPeerResource(updates, rule.DestinationResource.ID, newPeerID, rule, FirewallRuleDirectionOUT)
+					}
 				}
 				if peerInDestinations {
-					b.addUpdateForPeersInGroups(updates, rule.Sources, newPeerID, rule, FirewallRuleDirectionIN, groupAllLn)
+					if len(rule.Sources) > 0 {
+						b.addUpdateForPeersInGroups(updates, rule.Sources, newPeerID, rule, FirewallRuleDirectionIN, groupAllLn)
+					}
+					if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
+						b.addUpdateForDirectPeerResource(updates, rule.SourceResource.ID, newPeerID, rule, FirewallRuleDirectionIN)
+					}
 				}
 			}
 		}
@@ -1570,39 +1604,87 @@ func (b *NetworkMapBuilder) addUpdateForPeersInGroups(
 			if _, ok := b.validatedPeers[peerID]; !ok {
 				continue
 			}
-			delta := updates[peerID]
-			if delta == nil {
-				delta = &PeerUpdateDelta{
-					PeerID:           peerID,
-					AddConnectedPeer: newPeerID,
-					AddFirewallRules: make([]*FirewallRuleDelta, 0),
-				}
-				updates[peerID] = delta
+			targetPeer := b.cache.globalPeers[peerID]
+			if targetPeer == nil {
+				continue
 			}
 
+			peerIPForRule := fr.PeerIP
 			if all {
-				fr.PeerIP = allPeers
+				peerIPForRule = allPeers
 			}
 
-			if len(rule.Ports) > 0 || len(rule.PortRanges) > 0 {
-				expandedRules := expandPortsAndRanges(*fr, rule, b.cache.globalPeers[peerID])
-				for _, expandedRule := range expandedRules {
-					ruleID := b.generateFirewallRuleID(expandedRule)
-					delta.AddFirewallRules = append(delta.AddFirewallRules, &FirewallRuleDelta{
-						Rule:      expandedRule,
-						RuleID:    ruleID,
-						Direction: direction,
-					})
-				}
-			} else {
-				ruleID := b.generateFirewallRuleID(fr)
-				delta.AddFirewallRules = append(delta.AddFirewallRules, &FirewallRuleDelta{
-					Rule:      fr,
-					RuleID:    ruleID,
-					Direction: direction,
-				})
-			}
+			b.addOrUpdateFirewallRuleInDelta(updates, peerID, newPeerID, rule, direction, fr, peerIPForRule, targetPeer)
 		}
+	}
+}
+
+func (b *NetworkMapBuilder) addUpdateForDirectPeerResource(
+	updates map[string]*PeerUpdateDelta, targetPeerID string, newPeerID string,
+	rule *PolicyRule, direction int,
+) {
+	if targetPeerID == newPeerID {
+		return
+	}
+
+	if _, ok := b.validatedPeers[targetPeerID]; !ok {
+		return
+	}
+
+	newPeer := b.cache.globalPeers[newPeerID]
+	if newPeer == nil {
+		return
+	}
+
+	targetPeer := b.cache.globalPeers[targetPeerID]
+	if targetPeer == nil {
+		return
+	}
+
+	fr := &FirewallRule{
+		PolicyID:  rule.ID,
+		PeerIP:    newPeer.IP.String(),
+		Direction: direction,
+		Action:    string(rule.Action),
+		Protocol:  string(rule.Protocol),
+	}
+
+	b.addOrUpdateFirewallRuleInDelta(updates, targetPeerID, newPeerID, rule, direction, fr, fr.PeerIP, targetPeer)
+}
+
+func (b *NetworkMapBuilder) addOrUpdateFirewallRuleInDelta(
+	updates map[string]*PeerUpdateDelta, targetPeerID string, newPeerID string,
+	rule *PolicyRule, direction int, baseRule *FirewallRule, peerIP string, targetPeer *nbpeer.Peer,
+) {
+	delta := updates[targetPeerID]
+	if delta == nil {
+		delta = &PeerUpdateDelta{
+			PeerID:           targetPeerID,
+			AddConnectedPeer: newPeerID,
+			AddFirewallRules: make([]*FirewallRuleDelta, 0),
+		}
+		updates[targetPeerID] = delta
+	}
+
+	baseRule.PeerIP = peerIP
+
+	if len(rule.Ports) > 0 || len(rule.PortRanges) > 0 {
+		expandedRules := expandPortsAndRanges(*baseRule, rule, targetPeer)
+		for _, expandedRule := range expandedRules {
+			ruleID := b.generateFirewallRuleID(expandedRule)
+			delta.AddFirewallRules = append(delta.AddFirewallRules, &FirewallRuleDelta{
+				Rule:      expandedRule,
+				RuleID:    ruleID,
+				Direction: direction,
+			})
+		}
+	} else {
+		ruleID := b.generateFirewallRuleID(baseRule)
+		delta.AddFirewallRules = append(delta.AddFirewallRules, &FirewallRuleDelta{
+			Rule:      baseRule,
+			RuleID:    ruleID,
+			Direction: direction,
+		})
 	}
 }
 
@@ -1645,6 +1727,10 @@ func (b *NetworkMapBuilder) updateRouteFirewallRules(routesView *PeerRoutesView,
 			}
 
 			if string(rule.RouteID) == update.RuleID {
+				if hasWildcard := slices.Contains(rule.SourceRanges, allWildcard) || slices.Contains(rule.SourceRanges, v6AllWildcard); hasWildcard {
+					break
+				}
+
 				sourceIP := update.AddSourceIP
 
 				if strings.Contains(sourceIP, ":") {
