@@ -6,14 +6,13 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/protocol"
-	"github.com/netbirdio/netbird/relay/server/listener/quic"
-	"github.com/netbirdio/netbird/relay/server/listener/ws"
 )
 
 const (
@@ -27,7 +26,7 @@ const (
 
 type ServiceChecker interface {
 	ListenerProtocols() []protocol.Protocol
-	ListenAddress() string
+	ExposedAddress() string
 }
 
 type HealthStatus struct {
@@ -135,7 +134,11 @@ func (s *Server) getHealthStatus(ctx context.Context) (*HealthStatus, bool) {
 	}
 	status.Listeners = listeners
 
-	if ok := s.validateCertificate(ctx); !ok {
+	if !strings.HasPrefix(s.config.ServiceChecker.ExposedAddress(), "rels") {
+		status.CertificateValid = false
+	}
+
+	if ok := s.validateConnection(ctx); !ok {
 		status.Status = statusUnhealthy
 		status.CertificateValid = false
 		healthy = false
@@ -152,32 +155,18 @@ func (s *Server) validateListeners() ([]protocol.Protocol, bool) {
 	return listeners, true
 }
 
-func (s *Server) validateCertificate(ctx context.Context) bool {
-	listenAddress := s.config.ServiceChecker.ListenAddress()
-	if listenAddress == "" {
-		log.Warn("listen address is empty")
+func (s *Server) validateConnection(ctx context.Context) bool {
+	exposedAddress := s.config.ServiceChecker.ExposedAddress()
+	if exposedAddress == "" {
+		log.Error("exposed address is empty, cannot validate certificate")
 		return false
 	}
 
-	dAddr := dialAddress(listenAddress)
-
-	for _, proto := range s.config.ServiceChecker.ListenerProtocols() {
-		switch proto {
-		case ws.Proto:
-			if err := dialWS(ctx, dAddr); err != nil {
-				log.Errorf("failed to dial WebSocket listener: %v", err)
-				return false
-			}
-		case quic.Proto:
-			if err := dialQUIC(ctx, dAddr); err != nil {
-				log.Errorf("failed to dial QUIC listener: %v", err)
-				return false
-			}
-		default:
-			log.Warnf("unknown protocol for healthcheck: %s", proto)
-			return false
-		}
+	if err := dialWS(ctx, exposedAddress); err != nil {
+		log.Errorf("failed to dial WebSocket listener at %s: %v", exposedAddress, err)
+		return false
 	}
+
 	return true
 }
 
@@ -187,8 +176,9 @@ func dialAddress(listenAddress string) string {
 		return listenAddress // fallback, might be invalid for dialing
 	}
 
+	// When listening on all interfaces, show localhost for better readability
 	if host == "" || host == "::" || host == "0.0.0.0" {
-		host = "0.0.0.0"
+		host = "localhost"
 	}
 
 	return net.JoinHostPort(host, port)
