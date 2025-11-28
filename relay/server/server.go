@@ -142,3 +142,7 @@ func (r *Server) ListenerProtocols() []protocol.Protocol {
 func (r *Server) ListenAddress() string {
 	return r.listenAddr
 }
+
+func (r *Server) ExposedAddress() string {
+	return r.relay.ExposedAddress()
+}

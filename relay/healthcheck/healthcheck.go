@@ -28,6 +28,7 @@ const (
 type ServiceChecker interface {
 	ListenerProtocols() []protocol.Protocol
 	ListenAddress() string
+	ExposedAddress() string
 }
 
 type HealthStatus struct {
@@ -153,23 +154,22 @@ func (s *Server) validateListeners() ([]protocol.Protocol, bool) {
 }
 
 func (s *Server) validateCertificate(ctx context.Context) bool {
-	listenAddress := s.config.ServiceChecker.ListenAddress()
-	if listenAddress == "" {
-		log.Warn("listen address is empty")
+	// Use exposed address for certificate validation (where clients connect)
+	exposedAddress := s.config.ServiceChecker.ExposedAddress()
+	if exposedAddress == "" {
+		log.Warn("exposed address is empty")
 		return false
 	}
-
-	dAddr := dialAddress(listenAddress)
 
 	for _, proto := range s.config.ServiceChecker.ListenerProtocols() {
 		switch proto {
 		case ws.Proto:
-			if err := dialWS(ctx, dAddr); err != nil {
+			if err := dialWS(ctx, exposedAddress); err != nil {
 				log.Errorf("failed to dial WebSocket listener: %v", err)
 				return false
 			}
 		case quic.Proto:
-			if err := dialQUIC(ctx, dAddr); err != nil {
+			if err := dialQUIC(ctx, exposedAddress); err != nil {
 				log.Errorf("failed to dial QUIC listener: %v", err)
 				return false
 			}
@@ -187,8 +187,9 @@ func dialAddress(listenAddress string) string {
 		return listenAddress // fallback, might be invalid for dialing
 	}
 
+	// When listening on all interfaces, show localhost for better readability
 	if host == "" || host == "::" || host == "0.0.0.0" {
-		host = "0.0.0.0"
+		host = "localhost"
 	}
 
 	return net.JoinHostPort(host, port)

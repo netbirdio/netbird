@@ -178,3 +178,9 @@ func (r *Relay) Shutdown(ctx context.Context) {
 func (r *Relay) InstanceURL() string {
 	return r.instanceURL
 }
+
+// ExposedAddress returns the host:port of the exposed address
+// by parsing the instanceURL (e.g., "rels://relay.example.com:443" -> "relay.example.com:443")
+func (r *Relay) ExposedAddress() string {
+	return parseHostPort(r.instanceURL)
+}
