@@ -161,10 +161,9 @@ func (u *Installer) installPkgFile(ctx context.Context, path string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("error running pkg file: %w", err)
 	}
-	res, err := cmd.CombinedOutput()
-	// todo write out log result to file too
-	if err != nil {
-		return fmt.Errorf("error running pkg file: %w, output: %s", err, string(res))
+	log.Infof("installer started with PID %d", cmd.Process.Pid)
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("error running pkg file: %w", err)
 	}
 	log.Infof("pkg file installed successfully")
 	return nil
