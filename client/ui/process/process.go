@@ -28,7 +28,8 @@ func IsAnotherProcessRunning() (int32, bool, error) {
 			continue
 		}
 
-		if strings.Contains(strings.ToLower(runningProcessPath), processName) && isProcessOwnedByCurrentUser(p) {
+		runningProcessName := strings.ToLower(filepath.Base(runningProcessPath))
+		if runningProcessName == processName && isProcessOwnedByCurrentUser(p) {
 			return p.Pid, true, nil
 		}
 	}
