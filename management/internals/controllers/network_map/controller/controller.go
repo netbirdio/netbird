@@ -201,7 +201,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			start = time.Now()
 
 			peerGroups := account.GetPeerGroups(p.ID)
-			customZones := c.filterPeerAppliedZones(ctx, accountZones, peerGroups)
+			customZones := filterPeerAppliedZones(ctx, accountZones, peerGroups)
 			customZones = append(customZones, peersCustomZone)
 
 			var remotePeerNetworkMap *types.NetworkMap
@@ -323,7 +323,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 		return err
 	}
 
-	customZones := c.filterPeerAppliedZones(ctx, accountZones, peerGroups)
+	customZones := filterPeerAppliedZones(ctx, accountZones, peerGroups)
 	customZones = append(customZones, peersCustomZone)
 
 	var remotePeerNetworkMap *types.NetworkMap
@@ -465,7 +465,7 @@ func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresAppr
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
 
-	customZones := c.filterPeerAppliedZones(ctx, accountZones, account.GetPeerGroups(peer.ID))
+	customZones := filterPeerAppliedZones(ctx, accountZones, account.GetPeerGroups(peer.ID))
 	customZones = append(customZones, peersCustomZone)
 
 	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peer.ID, account.Peers)
@@ -795,7 +795,7 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 
 	dnsDomain := c.GetDNSDomain(account.Settings)
 	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
-	customZones := c.filterPeerAppliedZones(ctx, accountZones, account.GetPeerGroups(peerID))
+	customZones := filterPeerAppliedZones(ctx, accountZones, account.GetPeerGroups(peerID))
 	customZones = append(customZones, peersCustomZone)
 
 	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMaps(ctx, account.Id, peerID, account.Peers)
@@ -828,7 +828,7 @@ func (c *Controller) IsConnected(peerID string) bool {
 	return c.peersUpdateManager.HasChannel(peerID)
 }
 
-func (c *Controller) filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, peerGroups types.LookupMap) []nbdns.CustomZone {
+func filterPeerAppliedZones(ctx context.Context, accountZones []*zones.Zone, peerGroups types.LookupMap) []nbdns.CustomZone {
 	var customZones []nbdns.CustomZone
 
 	if len(peerGroups) == 0 {
