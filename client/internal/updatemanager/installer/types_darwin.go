@@ -6,8 +6,8 @@ import (
 )
 
 var (
-	TypeHomebrew = Type{name: "Homebrew", downloadable: true}
-	TypePKG      = Type{name: "pkg", downloadable: false}
+	TypeHomebrew = Type{name: "Homebrew", downloadable: false}
+	TypePKG      = Type{name: "pkg", downloadable: true}
 )
 
 func typeOfInstaller(ctx context.Context) Type {
