@@ -148,14 +148,8 @@ func (u *Installer) startUIAsUser() error {
 }
 
 func (u *Installer) installPkgFile(ctx context.Context, path string) error {
-	log.Infof("installing pkg file")
+	log.Infof("installing pkg file: %s", path)
 	volume := "/"
-	for _, v := range strings.Split(path, "\n") {
-		trimmed := strings.TrimSpace(v)
-		if strings.HasPrefix(trimmed, "volume: ") {
-			volume = strings.Split(trimmed, ": ")[1]
-		}
-	}
 
 	cmd := exec.CommandContext(ctx, "installer", "-pkg", path, "-target", volume)
 	if err := cmd.Start(); err != nil {
