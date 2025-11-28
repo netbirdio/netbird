@@ -1798,7 +1798,6 @@ components:
               example: ch8i4ug6lnn4g9hqv7m0
           required:
             - id
-            - enabled
         - $ref: '#/components/schemas/DNSRecordRequest'
     Event:
       type: object

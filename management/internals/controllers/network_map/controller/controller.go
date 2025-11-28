@@ -200,7 +200,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			c.metrics.CountCalcPostureChecksDuration(time.Since(start))
 			start = time.Now()
 
-			peerGroups := account.GetPeerGroups(peer.ID)
+			peerGroups := account.GetPeerGroups(p.ID)
 			customZones := c.filterPeerAppliedZones(ctx, accountZones, peerGroups)
 			customZones = append(customZones, peersCustomZone)
 

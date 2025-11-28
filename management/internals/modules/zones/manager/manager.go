@@ -119,6 +119,9 @@ func (m *managerImpl) UpdateZone(ctx context.Context, accountID, userID string, 
 
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	m.accountManager.StoreEvent(ctx, userID, zone.ID, accountID, activity.DNSZoneUpdated, zone.EventMeta())
 

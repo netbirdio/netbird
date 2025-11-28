@@ -122,7 +122,7 @@ func validateIPv6(content string) error {
 		return errors.New("AAAA record is required")
 	}
 	ip := net.ParseIP(content)
-	if ip == nil || ip.To16() == nil {
+	if ip == nil || ip.To4() != nil {
 		return errors.New("AAAA record must be a valid IPv6 address")
 	}
 	return nil

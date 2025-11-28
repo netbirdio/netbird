@@ -95,6 +95,8 @@ func (m *managerImpl) CreateRecord(ctx context.Context, accountID, userID, zoneI
 	meta := record.EventMeta(zone.ID, zone.Name)
 	m.accountManager.StoreEvent(ctx, userID, record.ID, accountID, activity.DNSRecordCreated, meta)
 
+	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+
 	return record, nil
 }
 
@@ -206,7 +208,7 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 
 // validateRecordConflicts checks for duplicate records and CNAME conflicts
 func validateRecordConflicts(ctx context.Context, transaction store.Store, zone *zones.Zone, record *records.Record) error {
-	if !strings.HasSuffix(record.Name, zone.Domain) {
+	if record.Name != zone.Domain && !strings.HasSuffix(record.Name, "."+zone.Domain) {
 		return status.Errorf(status.InvalidArgument, "record name does not belong to zone")
 	}
 
