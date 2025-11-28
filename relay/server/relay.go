@@ -51,10 +51,11 @@ type Relay struct {
 	metricsCancel context.CancelFunc
 	validator     Validator
 
-	store       *store.Store
-	notifier    *store.PeerNotifier
-	instanceURL string
-	preparedMsg *preparedMsg
+	store          *store.Store
+	notifier       *store.PeerNotifier
+	instanceURL    string
+	exposedAddress string
+	preparedMsg    *preparedMsg
 
 	closed  bool
 	closeMu sync.RWMutex
@@ -87,12 +88,13 @@ func NewRelay(config Config) (*Relay, error) {
 	}
 
 	r := &Relay{
-		metrics:       m,
-		metricsCancel: metricsCancel,
-		validator:     config.AuthValidator,
-		instanceURL:   config.instanceURL,
-		store:         store.NewStore(),
-		notifier:      store.NewPeerNotifier(),
+		metrics:        m,
+		metricsCancel:  metricsCancel,
+		validator:      config.AuthValidator,
+		instanceURL:    config.instanceURL,
+		exposedAddress: config.ExposedAddress,
+		store:          store.NewStore(),
+		notifier:       store.NewPeerNotifier(),
 	}
 
 	r.preparedMsg, err = newPreparedMsg(r.instanceURL)
@@ -179,8 +181,7 @@ func (r *Relay) InstanceURL() string {
 	return r.instanceURL
 }
 
-// ExposedAddress returns the host:port of the exposed address
-// by parsing the instanceURL (e.g., "rels://relay.example.com:443" -> "relay.example.com:443")
+// ExposedAddress returns the exposed address (domain:port) where clients connect
 func (r *Relay) ExposedAddress() string {
-	return parseHostPort(r.instanceURL)
+	return r.exposedAddress
 }

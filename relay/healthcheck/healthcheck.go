@@ -27,7 +27,6 @@ const (
 
 type ServiceChecker interface {
 	ListenerProtocols() []protocol.Protocol
-	ListenAddress() string
 	ExposedAddress() string
 }
 
@@ -157,7 +156,7 @@ func (s *Server) validateCertificate(ctx context.Context) bool {
 	// Use exposed address for certificate validation (where clients connect)
 	exposedAddress := s.config.ServiceChecker.ExposedAddress()
 	if exposedAddress == "" {
-		log.Warn("exposed address is empty")
+		log.Error("exposed address is empty, cannot validate certificate")
 		return false
 	}
 
@@ -165,12 +164,12 @@ func (s *Server) validateCertificate(ctx context.Context) bool {
 		switch proto {
 		case ws.Proto:
 			if err := dialWS(ctx, exposedAddress); err != nil {
-				log.Errorf("failed to dial WebSocket listener: %v", err)
+				log.Errorf("failed to dial WebSocket listener at %s: %v", exposedAddress, err)
 				return false
 			}
 		case quic.Proto:
 			if err := dialQUIC(ctx, exposedAddress); err != nil {
-				log.Errorf("failed to dial QUIC listener: %v", err)
+				log.Errorf("failed to dial QUIC listener at %s: %v", exposedAddress, err)
 				return false
 			}
 		default:

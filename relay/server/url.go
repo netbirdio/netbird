@@ -6,16 +6,6 @@ import (
 	"strings"
 )
 
-// parseHostPort extracts the host:port from an instance URL
-// e.g., "rels://relay.example.com:443" -> "relay.example.com:443"
-func parseHostPort(instanceURL string) string {
-	u, err := url.Parse(instanceURL)
-	if err != nil {
-		return ""
-	}
-	return u.Host
-}
-
 // getInstanceURL checks if user supplied a URL scheme otherwise adds to the
 // provided address according to TLS definition and parses the address before returning it
 func getInstanceURL(exposedAddress string, tlsSupported bool) (string, error) {
