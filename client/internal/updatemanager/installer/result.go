@@ -122,6 +122,13 @@ func (rh *ResultHandler) watchForResultFile(ctx context.Context, dir string) (Re
 		return Result{}, fmt.Errorf("failed to watch directory: %v", err)
 	}
 
+	// Check again after setting up watcher to avoid race condition
+	// (file could have been created between initial check and watcher setup)
+	if result, err := rh.tryReadResult(); err == nil {
+		log.Infof("installer result: %v", result)
+		return result, nil
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
