@@ -285,6 +285,32 @@ ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 DetailPrint "Removing autostart registry entry if exists..."
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
+; Cleanup leftover DNS and NRPT entries
+DetailPrint "Cleaning NRPT DNS keys..."
+StrCpy $0 0
+NRPT_Loop:
+    EnumRegKey $1 HKLM "SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig" $0
+    IfErrors NRPT_Done
+
+    ; Check if key starts with "netbird"
+    StrCpy $2 $1 7
+    StrCmp $2 "netbird" 0 NRPT_Next
+
+    DetailPrint "Deleting NRPT key: $1"
+    DeleteRegKey HKLM "SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig\$1"
+    Goto NRPT_Loop
+
+NRPT_Next:
+    IntOp $0 $0 + 1
+    Goto NRPT_Loop
+
+NRPT_Done: ;
+DetailPrint "NRPT cleanup completed."
+DetailPrint "Restarting DNS Client service..."
+nsExec::ExecToLog "sc stop Dnscache"
+Sleep 2000
+nsExec::ExecToLog "sc start Dnscache"
+
 ; Handle data deletion based on checkbox
 DetailPrint "Checking if user requested data deletion..."
 ${If} $DeleteDataEnabled == "1"
