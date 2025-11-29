@@ -67,9 +67,7 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 					{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI},
 				}
 
-				for _, group := range initGroups {
-					groups = append(groups, group)
-				}
+				groups = append(groups, initGroups...)
 
 				return groups, nil
 			},

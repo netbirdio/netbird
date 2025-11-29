@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
+
+// ErrGroupNotFound is returned when a group is not found
+var ErrGroupNotFound = errors.New("group not found")
 
 // GroupsAPI APIs for Groups, do not use directly
 type GroupsAPI struct {
@@ -43,7 +47,7 @@ func (a *GroupsAPI) GetByName(ctx context.Context, groupName string) (*api.Group
 		return nil, err
 	}
 	if len(ret) == 0 {
-		return nil, nil
+		return nil, ErrGroupNotFound
 	}
 	return &ret[0], nil
 }
