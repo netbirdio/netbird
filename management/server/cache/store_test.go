@@ -15,7 +15,7 @@ import (
 )
 
 func TestMemoryStore(t *testing.T) {
-	memStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond)
+	memStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
 	if err != nil {
 		t.Fatalf("couldn't create memory store: %s", err)
 	}
@@ -42,7 +42,7 @@ func TestMemoryStore(t *testing.T) {
 
 func TestRedisStoreConnectionFailure(t *testing.T) {
 	t.Setenv(cache.RedisStoreEnvVar, "redis://127.0.0.1:6379")
-	_, err := cache.NewStore(context.Background(), 10*time.Millisecond, 30*time.Millisecond)
+	_, err := cache.NewStore(context.Background(), 10*time.Millisecond, 30*time.Millisecond, 100)
 	if err == nil {
 		t.Fatal("getting redis cache store should return error")
 	}
@@ -65,7 +65,7 @@ func TestRedisStoreConnectionSuccess(t *testing.T) {
 	}
 
 	t.Setenv(cache.RedisStoreEnvVar, redisURL)
-	redisStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond)
+	redisStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
 	if err != nil {
 		t.Fatalf("couldn't create redis store: %s", err)
 	}

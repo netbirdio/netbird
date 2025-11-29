@@ -10,6 +10,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -29,6 +30,7 @@ type SecretsManager interface {
 	GenerateRelayToken() (*Token, error)
 	SetupRefresh(ctx context.Context, accountID, peerKey string)
 	CancelRefresh(peerKey string)
+	GetWGKey() (wgtypes.Key, error)
 }
 
 // TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
@@ -43,11 +45,17 @@ type TimeBasedAuthSecretsManager struct {
 	groupsManager   groups.Manager
 	turnCancelMap   map[string]chan struct{}
 	relayCancelMap  map[string]chan struct{}
+	wgKey           wgtypes.Key
 }
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager) (*TimeBasedAuthSecretsManager, error) {
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		return nil, err
+	}
+
 	mgr := &TimeBasedAuthSecretsManager{
 		updateManager:   updateManager,
 		turnCfg:         turnCfg,
@@ -56,6 +64,7 @@ func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager
 		relayCancelMap:  make(map[string]chan struct{}),
 		settingsManager: settingsManager,
 		groupsManager:   groupsManager,
+		wgKey:           key,
 	}
 
 	if turnCfg != nil {
@@ -81,7 +90,12 @@ func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager
 		}
 	}
 
-	return mgr
+	return mgr, nil
+}
+
+// GetWGKey returns WireGuard private key used to generate peer keys
+func (m *TimeBasedAuthSecretsManager) GetWGKey() (wgtypes.Key, error) {
+	return m.wgKey, nil
 }
 
 // GenerateTurnToken generates new time-based secret credentials for TURN
