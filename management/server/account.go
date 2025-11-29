@@ -305,6 +305,17 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			return err
 		}
 
+		if oldSettings.Extra.PeerApprovalEnabled && !newSettings.Extra.PeerApprovalEnabled {
+			approvedCount, err := transaction.ApproveAccountPeers(ctx, accountID)
+			if err != nil {
+				return fmt.Errorf("failed to approve pending peers: %w", err)
+			}
+
+			if approvedCount > 0 {
+				log.WithContext(ctx).Debugf("approved %d pending peers in account %s", approvedCount, accountID)
+			}
+		}
+
 		if oldSettings.NetworkRange != newSettings.NetworkRange {
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
