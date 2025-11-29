@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 
+	"github.com/shirou/gopsutil/v3/process"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
@@ -122,6 +125,10 @@ func (s *systemConfigurator) string() string {
 }
 
 func (s *systemConfigurator) restoreHostDNS() error {
+	return s.restoreHostDNSWithKill(false)
+}
+
+func (s *systemConfigurator) restoreHostDNSWithKill(forceKill bool) error {
 	keys := s.getRemovableKeysWithDefaults()
 	for _, key := range keys {
 		keyType := "search"
@@ -135,7 +142,7 @@ func (s *systemConfigurator) restoreHostDNS() error {
 		}
 	}
 
-	if err := s.flushDNSCache(); err != nil {
+	if err := s.flushDNSCacheWithKill(forceKill); err != nil {
 		log.Errorf("failed to flush DNS cache: %v", err)
 	}
 
@@ -336,18 +343,71 @@ func (s *systemConfigurator) getPrimaryService() (string, string, error) {
 }
 
 func (s *systemConfigurator) flushDNSCache() error {
+	return s.flushDNSCacheWithKill(false)
+}
+
+func (s *systemConfigurator) flushDNSCacheWithKill(forceKill bool) error {
 	cmd := exec.Command(dscacheutilPath, "-flushcache")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("flush DNS cache: %w, output: %s", err, out)
 	}
 
-	cmd = exec.Command("killall", "-HUP", "mDNSResponder")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("restart mDNSResponder: %w, output: %s", err, out)
+	if forceKill {
+		if err := s.killMDNSResponder(syscall.SIGKILL); err != nil {
+			return fmt.Errorf("force kill mDNSResponder: %w", err)
+		}
+		log.Info("force killed mDNSResponder to clear corrupted state")
+	} else {
+		if err := s.killMDNSResponder(syscall.SIGHUP); err != nil {
+			return fmt.Errorf("restart mDNSResponder: %w", err)
+		}
+		log.Info("flushed DNS cache")
 	}
 
-	log.Info("flushed DNS cache")
 	return nil
+}
+
+func (s *systemConfigurator) killMDNSResponder(sig syscall.Signal) error {
+	pid, err := findProcessByName("mDNSResponder")
+	if err != nil {
+		return err
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", pid, err)
+	}
+
+	if err := process.Signal(sig); err != nil {
+		return fmt.Errorf("send signal %v to process %d: %w", sig, pid, err)
+	}
+
+	return nil
+}
+
+func findProcessByName(name string) (int, error) {
+	processIDs, err := process.Pids()
+	if err != nil {
+		return 0, fmt.Errorf("get process list: %w", err)
+	}
+
+	for _, pid := range processIDs {
+		p, err := process.NewProcess(pid)
+		if err != nil {
+			continue
+		}
+
+		procName, err := p.Name()
+		if err != nil {
+			continue
+		}
+
+		if procName == name {
+			return int(pid), nil
+		}
+	}
+
+	return 0, fmt.Errorf("process %s not found", name)
 }
 
 func (s *systemConfigurator) restoreUncleanShutdownDNS() error {
