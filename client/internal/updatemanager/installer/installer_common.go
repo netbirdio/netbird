@@ -136,10 +136,14 @@ func (u *Installer) CleanUpInstallerFiles() error {
 	// Check if tempDir exists
 	info, err := os.Stat(u.tempDir)
 	if err != nil {
-		if os.IsNotExist(err) || !info.IsDir() {
+		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
+	}
+
+	if !info.IsDir() {
+		return nil
 	}
 
 	var merr *multierror.Error
@@ -169,7 +173,7 @@ func (u *Installer) CleanUpInstallerFiles() error {
 		}
 	}
 
-	return nil
+	return merr.ErrorOrNil()
 }
 
 func (u *Installer) downloadInstaller(ctx context.Context, installerType Type, targetVersion string) (string, error) {
