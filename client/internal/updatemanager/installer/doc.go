@@ -23,7 +23,8 @@
 //  1. Validates target version format (semver)
 //  2. Determines installer type (EXE, MSI, PKG, or Homebrew)
 //  3. Downloads installer file from GitHub releases (if applicable)
-//  4. Verifies installer signature using reposign package (cryptographic verification)
+//  4. Verifies installer signature using reposign package (cryptographic verification in service process before
+//     launching updater)
 //  5. Copies service binary to tempDir as "updater" (or "updater.exe" on Windows)
 //  6. Launches updater process with detached mode:
 //     - --temp-dir: Temporary directory path
