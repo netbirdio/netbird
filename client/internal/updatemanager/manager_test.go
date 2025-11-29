@@ -1,3 +1,5 @@
+//go:build windows || darwin
+
 package updatemanager
 
 import (
@@ -12,11 +14,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
-
-func (m *Manager) WithCustomVersionUpdate(versionUpdate UpdateInterface) *Manager {
-	m.update = versionUpdate
-	return m
-}
 
 type versionUpdateMock struct {
 	latestVersion *v.Version
@@ -69,7 +66,8 @@ func Test_LatestVersion(t *testing.T) {
 	for idx, c := range testMatrix {
 		mockUpdate := &versionUpdateMock{latestVersion: c.initialLatestVersion}
 		tmpFile := path.Join(t.TempDir(), fmt.Sprintf("update-test-%d.json", idx))
-		m := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(mockUpdate)
+		m, _ := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile))
+		m.update = mockUpdate
 
 		targetVersionChan := make(chan string, 1)
 
@@ -182,7 +180,8 @@ func Test_HandleUpdate(t *testing.T) {
 	}
 	for idx, c := range testMatrix {
 		tmpFile := path.Join(t.TempDir(), fmt.Sprintf("update-test-%d.json", idx))
-		m := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile)).WithCustomVersionUpdate(&versionUpdateMock{latestVersion: c.latestVersion})
+		m, _ := NewManager(peer.NewRecorder(""), statemanager.New(tmpFile))
+		m.update = &versionUpdateMock{latestVersion: c.latestVersion}
 		targetVersionChan := make(chan string, 1)
 
 		m.triggerUpdateFn = func(ctx context.Context, targetVersion string) error {
