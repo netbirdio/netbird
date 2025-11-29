@@ -36,14 +36,6 @@ func (u *Installer) Setup(ctx context.Context, dryRun bool, installerFile string
 
 	// Always ensure daemon and UI are restarted after setup
 	defer func() {
-		result := Result{
-			Success:    resultErr == nil,
-			ExecutedAt: time.Now(),
-		}
-		if resultErr != nil {
-			result.Error = resultErr.Error()
-		}
-
 		log.Infof("write out result")
 		var err error
 		if resultErr == nil {
