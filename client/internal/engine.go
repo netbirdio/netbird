@@ -763,8 +763,8 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 			return
 		}
 		e.updateManager = updateManager
+		e.updateManager.Start(e.ctx)
 	}
-	e.updateManager.Start(e.ctx)
 	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)
 	e.updateManager.SetVersion(autoUpdateSettings.Version)
 }
