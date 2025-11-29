@@ -23,6 +23,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -203,6 +205,20 @@ type Store interface {
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
 	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
+
+	CreateZone(ctx context.Context, zone *zones.Zone) error
+	UpdateZone(ctx context.Context, zone *zones.Zone) error
+	DeleteZone(ctx context.Context, accountID, zoneID string) error
+	GetZoneByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) (*zones.Zone, error)
+	GetAccountZones(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*zones.Zone, error)
+
+	CreateDNSRecord(ctx context.Context, record *records.Record) error
+	UpdateDNSRecord(ctx context.Context, record *records.Record) error
+	DeleteDNSRecord(ctx context.Context, accountID, recordID string) error
+	GetDNSRecordByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, recordID string) (*records.Record, error)
+	GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error)
+	GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error)
+	DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID string) error
 }
 
 const (

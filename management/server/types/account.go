@@ -270,7 +270,8 @@ func (a *Account) GetGroup(groupID string) *Group {
 func (a *Account) GetPeerNetworkMap(
 	ctx context.Context,
 	peerID string,
-	peersCustomZone nbdns.CustomZone,
+	dnsDomain string,
+	customZones []nbdns.CustomZone,
 	validatedPeersMap map[string]struct{},
 	resourcePolicies map[string][]*Policy,
 	routers map[string]map[string]*routerTypes.NetworkRouter,
@@ -318,15 +319,16 @@ func (a *Account) GetPeerNetworkMap(
 	}
 
 	if dnsManagementStatus {
-		var zones []nbdns.CustomZone
-		if peersCustomZone.Domain != "" {
-			records := filterZoneRecordsForPeers(peer, peersCustomZone, peersToConnectIncludingRouters, expiredPeers)
-			zones = append(zones, nbdns.CustomZone{
-				Domain:  peersCustomZone.Domain,
-				Records: records,
-			})
+		for i, customZone := range customZones {
+			if customZone.Domain == dns.Fqdn(dnsDomain) {
+				records := filterZoneRecordsForPeers(peer, customZone, peersToConnectIncludingRouters, expiredPeers)
+				customZones[i] = nbdns.CustomZone{
+					Domain:  customZone.Domain,
+					Records: records,
+				}
+			}
 		}
-		dnsUpdate.CustomZones = zones
+		dnsUpdate.CustomZones = customZones
 		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
 	}
 

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
@@ -936,7 +937,7 @@ func (b *NetworkMapBuilder) UpdateAccountPointer(account *Account) {
 }
 
 func (b *NetworkMapBuilder) GetPeerNetworkMap(
-	ctx context.Context, peerID string, peersCustomZone nbdns.CustomZone,
+	ctx context.Context, peerID, dnsDomain string, customZones []nbdns.CustomZone,
 	validatedPeers map[string]struct{}, metrics *telemetry.AccountManagerMetrics,
 ) *NetworkMap {
 	start := time.Now()
@@ -958,7 +959,7 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 		return &NetworkMap{Network: account.Network.Copy()}
 	}
 
-	nm := b.assembleNetworkMap(account, peer, aclView, routesView, dnsConfig, peersCustomZone, validatedPeers)
+	nm := b.assembleNetworkMap(account, peer, aclView, routesView, dnsConfig, customZones, validatedPeers, dnsDomain)
 
 	if metrics != nil {
 		objectCount := int64(len(nm.Peers) + len(nm.OfflinePeers) + len(nm.Routes) + len(nm.FirewallRules) + len(nm.RoutesFirewallRules))
@@ -976,7 +977,8 @@ func (b *NetworkMapBuilder) GetPeerNetworkMap(
 
 func (b *NetworkMapBuilder) assembleNetworkMap(
 	account *Account, peer *nbpeer.Peer, aclView *PeerACLView, routesView *PeerRoutesView,
-	dnsConfig *nbdns.Config, customZone nbdns.CustomZone, validatedPeers map[string]struct{},
+	dnsConfig *nbdns.Config, customZones []nbdns.CustomZone, validatedPeers map[string]struct{},
+	dnsDomain string,
 ) *NetworkMap {
 
 	var peersToConnect []*nbpeer.Peer
@@ -1024,14 +1026,17 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 	}
 
 	finalDNSConfig := *dnsConfig
-	if finalDNSConfig.ServiceEnable && customZone.Domain != "" {
-		var zones []nbdns.CustomZone
-		records := filterZoneRecordsForPeers(peer, customZone, peersToConnect, expiredPeers)
-		zones = append(zones, nbdns.CustomZone{
-			Domain:  customZone.Domain,
-			Records: records,
-		})
-		finalDNSConfig.CustomZones = zones
+	if finalDNSConfig.ServiceEnable {
+		for i, customZone := range customZones {
+			if customZone.Domain == dns.Fqdn(dnsDomain) {
+				records := filterZoneRecordsForPeers(peer, customZone, peersToConnect, expiredPeers)
+				customZones[i] = nbdns.CustomZone{
+					Domain:  customZone.Domain,
+					Records: records,
+				}
+			}
+		}
+		finalDNSConfig.CustomZones = customZones
 	}
 
 	return &NetworkMap{
