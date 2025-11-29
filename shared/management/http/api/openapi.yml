@@ -1719,8 +1719,6 @@ components:
         domain:
           description: Zone domain (FQDN)
           type: string
-          maxLength: 253
-          minLength: 1
           example: example.com
         enabled:
           description: Zone status
@@ -1765,11 +1763,9 @@ components:
       type: object
       properties:
         name:
-          description: DNS record name
+          description: FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
           type: string
-          maxLength: 255
-          minLength: 1
-          example: www
+          example: www.example.com
         type:
           $ref: '#/components/schemas/DNSRecordType'
         content:

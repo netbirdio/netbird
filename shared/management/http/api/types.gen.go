@@ -422,7 +422,7 @@ type DNSRecord struct {
 	// Id DNS record ID
 	Id string `json:"id"`
 
-	// Name DNS record name
+	// Name FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
 	Name string `json:"name"`
 
 	// Ttl Time to live in seconds
@@ -437,7 +437,7 @@ type DNSRecordRequest struct {
 	// Content DNS record content (IP address for A/AAAA, domain for CNAME)
 	Content string `json:"content"`
 
-	// Name DNS record name
+	// Name FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
 	Name string `json:"name"`
 
 	// Ttl Time to live in seconds
