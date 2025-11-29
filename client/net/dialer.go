@@ -13,7 +13,9 @@ type Dialer struct {
 // NewDialer returns a customized net.Dialer with overridden Control method
 func NewDialer() *Dialer {
 	dialer := &Dialer{
-		Dialer: &net.Dialer{},
+		Dialer: &net.Dialer{
+			Resolver: NewResolver(),
+		},
 	}
 	dialer.init()
 	return dialer

@@ -18,6 +18,7 @@ import (
 	"github.com/pion/transport/v3/stdnet"
 
 	"github.com/netbirdio/netbird/client/iface/netstack"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
@@ -42,6 +43,8 @@ type Net struct {
 
 	// ctx is the context for network operations that supports cancellation
 	ctx context.Context
+
+	resolver *net.Resolver
 }
 
 // NewNetWithDiscover creates a new StdNet instance.
@@ -52,6 +55,7 @@ func NewNetWithDiscover(ctx context.Context, iFaceDiscover ExternalIFaceDiscover
 	n := &Net{
 		interfaceFilter: InterfaceFilter(disallowList),
 		ctx:             ctx,
+		resolver:        nbnet.NewResolver(),
 	}
 	// current ExternalIFaceDiscover implement in android-client https://github.dev/netbirdio/android-client
 	// so in android cli use pionDiscover
@@ -72,6 +76,7 @@ func NewNet(ctx context.Context, disallowList []string) (*Net, error) {
 		iFaceDiscover:   pionDiscover{},
 		interfaceFilter: InterfaceFilter(disallowList),
 		ctx:             ctx,
+		resolver:        nbnet.NewResolver(),
 	}
 	return n, n.UpdateInterfaces()
 }
@@ -110,7 +115,7 @@ func (n *Net) resolveAddr(network, address string) (netip.AddrPort, error) {
 	ctx, cancel := context.WithTimeout(n.ctx, dnsResolveTimeout)
 	defer cancel()
 
-	addrs, err := net.DefaultResolver.LookupNetIP(ctx, ipNet, host)
+	addrs, err := n.resolver.LookupNetIP(ctx, ipNet, host)
 	if err != nil {
 		return netip.AddrPort{}, err
 	}
