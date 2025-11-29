@@ -377,6 +377,7 @@ func (c *Controller) DeletePeer(ctx context.Context, accountId string, peerId st
 		return err
 	}
 
+	// todo: add 				PeerConfig:           ToPeerConfig(peer, network, dnsDomain, settings),
 	dnsFwdPort := computeForwarderPort(peers, network_map.DnsForwarderPortMinVersion)
 	c.peersUpdateManager.SendUpdate(ctx, peerId, &network_map.UpdateMessage{
 		Update: &proto.SyncResponse{
