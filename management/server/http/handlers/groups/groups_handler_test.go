@@ -60,12 +60,23 @@ func initGroupTestData(initGroups ...*types.Group) *handler {
 
 				return group, nil
 			},
+			GetAllGroupsFunc: func(ctx context.Context, accountID, userID string) ([]*types.Group, error) {
+				groups := []*types.Group{
+					{ID: "id-jwt-group", Name: "From JWT", Issued: types.GroupIssuedJWT},
+					{ID: "id-existed", Name: "Existed", Peers: []string{"A", "B"}, Issued: types.GroupIssuedAPI},
+					{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI},
+				}
+
+				groups = append(groups, initGroups...)
+
+				return groups, nil
+			},
 			GetGroupByNameFunc: func(ctx context.Context, groupName, _ string) (*types.Group, error) {
 				if groupName == "All" {
 					return &types.Group{ID: "id-all", Name: "All", Issued: types.GroupIssuedAPI}, nil
 				}
 
-				return nil, fmt.Errorf("unknown group name")
+				return nil, status.Errorf(status.NotFound, "unknown group name")
 			},
 			GetPeersFunc: func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 				return maps.Values(TestPeers), nil
@@ -283,6 +294,84 @@ func TestWriteGroup(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 			assert.Equal(t, got, tc.expectedGroup)
+		})
+	}
+}
+
+func TestGetAllGroups(t *testing.T) {
+	tt := []struct {
+		name           string
+		expectedStatus int
+		expectedBody   bool
+		requestType    string
+		requestPath    string
+		expectedCount  int
+	}{
+		{
+			name:           "Get All Groups",
+			expectedBody:   true,
+			requestType:    http.MethodGet,
+			requestPath:    "/api/groups",
+			expectedStatus: http.StatusOK,
+			expectedCount:  3, // id-jwt-group, id-existed, id-all
+		},
+		{
+			name:           "Get Group By Name - Existing",
+			expectedBody:   true,
+			requestType:    http.MethodGet,
+			requestPath:    "/api/groups?name=All",
+			expectedStatus: http.StatusOK,
+			expectedCount:  1,
+		},
+		{
+			name:           "Get Group By Name - Not Found",
+			expectedBody:   false,
+			requestType:    http.MethodGet,
+			requestPath:    "/api/groups?name=NonExistent",
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	p := initGroupTestData()
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+				UserId:    "test_user",
+				Domain:    "hotmail.com",
+				AccountId: "test_id",
+			})
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/groups", p.getAllGroups).Methods("GET")
+			router.ServeHTTP(recorder, req)
+
+			res := recorder.Result()
+			defer res.Body.Close()
+
+			if status := recorder.Code; status != tc.expectedStatus {
+				t.Errorf("handler returned wrong status code: got %v want %v",
+					status, tc.expectedStatus)
+				return
+			}
+
+			if !tc.expectedBody {
+				return
+			}
+
+			content, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatalf("Failed to read response body: %v", err)
+			}
+
+			var groups []api.Group
+			if err = json.Unmarshal(content, &groups); err != nil {
+				t.Fatalf("Response is not in correct json format; %v", err)
+			}
+
+			assert.Equal(t, tc.expectedCount, len(groups))
 		})
 	}
 }
