@@ -17,7 +17,7 @@ type Installer struct {
 
 // New used by the service
 func New() *Installer {
-	return nil
+	return &Installer{}
 }
 
 // NewWithDir used by the updater process, get the tempDir from the service via cmd line

@@ -759,7 +759,11 @@ func (e *Engine) handleAutoUpdateVersion(autoUpdateSettings *mgmProto.AutoUpdate
 	// Start manager if needed
 	if e.updateManager == nil {
 		log.Infof("starting auto-update manager")
-		e.updateManager = updatemanager.NewManager(e.statusRecorder, e.stateManager)
+		updateManager, err := updatemanager.NewManager(e.statusRecorder, e.stateManager)
+		if err != nil {
+			return
+		}
+		e.updateManager = updateManager
 	}
 	e.updateManager.Start(e.ctx)
 	log.Infof("handling auto-update version: %s", autoUpdateSettings.Version)

@@ -1,3 +1,5 @@
+//go:build windows || darwin
+
 package updatemanager
 
 import (
@@ -24,14 +26,6 @@ const (
 )
 
 var errNoUpdateState = errors.New("no update state found")
-
-type UpdateInterface interface {
-	StopWatch()
-	SetDaemonVersion(newVersion string) bool
-	SetOnUpdateListener(updateFn func())
-	LatestVersion() *v.Version
-	StartFetcher()
-}
 
 type UpdateState struct {
 	PreUpdateVersion string
@@ -64,7 +58,7 @@ type Manager struct {
 	triggerUpdateFn func(context.Context, string) error
 }
 
-func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) *Manager {
+func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager) (*Manager, error) {
 	manager := &Manager{
 		statusRecorder: statusRecorder,
 		stateManager:   stateManager,
@@ -75,7 +69,7 @@ func NewManager(statusRecorder *peer.Status, stateManager *statemanager.Manager)
 	}
 	manager.triggerUpdateFn = manager.triggerUpdate
 
-	return manager
+	return manager, nil
 }
 
 // CheckUpdateSuccess checks if the update was successful and send a notification.
