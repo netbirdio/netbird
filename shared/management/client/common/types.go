@@ -34,10 +34,8 @@ type LoginFlag uint8
 
 const (
 	// LoginFlagPromptLogin adds prompt=login to the authorization request
-	// Legacy value: 0
 	LoginFlagPromptLogin LoginFlag = iota
 	// LoginFlagMaxAge0 adds max_age=0 to the authorization request
-	// Legacy value: 1
 	LoginFlagMaxAge0
 	// LoginFlagSelectAccount adds prompt=select_account to the authorization request
 	LoginFlagSelectAccount
