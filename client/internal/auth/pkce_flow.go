@@ -104,10 +104,13 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
 	}
 	if !p.providerConfig.DisablePromptLogin {
-		if p.providerConfig.LoginFlag.IsPromptLogin() {
+		if p.providerConfig.LoginFlag.HasPromptLogin() {
 			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
+		} else if p.providerConfig.LoginFlag.HasSelectAccount() {
+			params = append(params, oauth2.SetAuthURLParam("prompt", "select_account"))
 		}
-		if p.providerConfig.LoginFlag.IsMaxAge0Login() {
+
+		if p.providerConfig.LoginFlag.HasMaxAge0() {
 			params = append(params, oauth2.SetAuthURLParam("max_age", "0"))
 		}
 	}
