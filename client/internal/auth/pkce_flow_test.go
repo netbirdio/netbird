@@ -27,7 +27,7 @@ func TestPromptLogin(t *testing.T) {
 	}{
 		{
 			name:      "Prompt login",
-			loginFlag: mgm.LoginFlagPrompt,
+			loginFlag: mgm.LoginFlagPromptLogin,
 			expect:    promptLogin,
 		},
 		{
@@ -37,7 +37,7 @@ func TestPromptLogin(t *testing.T) {
 		},
 		{
 			name:               "Disable prompt login",
-			loginFlag:          mgm.LoginFlagPrompt,
+			loginFlag:          mgm.LoginFlagPromptLogin,
 			disablePromptLogin: true,
 		},
 	}
