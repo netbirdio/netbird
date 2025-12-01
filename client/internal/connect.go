@@ -302,11 +302,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		if engine.wgInterface != nil {
 			log.Infof("ensuring %s is removed, Netbird engine context cancelled", engine.wgInterface.Name())
 
-			// Create shutdown context with timeout
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer shutdownCancel()
-
-			if err := engine.Stop(shutdownCtx); err != nil {
+			if err := engine.Stop(); err != nil {
 				log.Errorf("Failed to stop engine: %v", err)
 			}
 		}
@@ -396,11 +392,7 @@ func (c *ConnectClient) Status() StatusType {
 func (c *ConnectClient) Stop() error {
 	engine := c.Engine()
 	if engine != nil {
-		// Create shutdown context with timeout
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := engine.Stop(shutdownCtx); err != nil {
+		if err := engine.Stop(); err != nil {
 			return fmt.Errorf("stop engine: %w", err)
 		}
 	}

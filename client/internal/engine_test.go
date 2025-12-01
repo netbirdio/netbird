@@ -263,9 +263,7 @@ func TestEngine_SSH(t *testing.T) {
 	require.NoError(t, err)
 
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		err := engine.Stop(ctx)
+		err := engine.Stop()
 		if err != nil {
 			return
 		}
@@ -657,9 +655,7 @@ func TestEngine_Sync(t *testing.T) {
 	}
 
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		err := engine.Stop(ctx)
+		err := engine.Stop()
 		if err != nil {
 			return
 		}
@@ -865,9 +861,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			engine.connMgr.Start(ctx)
 
 			defer func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				exitErr := engine.Stop(ctx)
+				exitErr := engine.Stop()
 				if exitErr != nil {
 					return
 				}
@@ -1066,9 +1060,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			engine.connMgr.Start(ctx)
 
 			defer func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				exitErr := engine.Stop(ctx)
+				exitErr := engine.Stop()
 				if exitErr != nil {
 					return
 				}
@@ -1176,9 +1168,7 @@ loop:
 		if errStop != nil {
 			log.Infoln("got error trying to close management clients from engine: ", errStop)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		errStop = peerEngine.Stop(ctx)
-		cancel()
+		errStop = peerEngine.Stop()
 		if errStop != nil {
 			log.Infoln("got error trying to close testing peers engine: ", errStop)
 		}

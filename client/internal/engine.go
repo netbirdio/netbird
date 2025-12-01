@@ -275,7 +275,7 @@ func NewEngine(
 
 // Stop cancels the engine context and waits for shutdown to complete.
 // The ctx parameter controls the timeout for waiting on goroutines to finish.
-func (e *Engine) Stop(ctx context.Context) error {
+func (e *Engine) Stop() error {
 	if e == nil {
 		// this seems to be a very odd case but there was the possibility if the netbird down command comes before the engine is fully started
 		log.Debugf("tried stopping engine that is nil")
@@ -350,10 +350,13 @@ func (e *Engine) Stop(ctx context.Context) error {
 
 	e.syncMsgMux.Unlock()
 
-	// Wait for all goroutines to finish with the provided timeout context
-	log.Debugf("waiting for goroutines to finish")
-	if err := waitWithContext(ctx, &e.shutdownWg); err != nil {
-		log.Warnf("engine shutdown timeout exceeded, some goroutines may still be running: %v", err)
+	timeout := e.calculateShutdownTimeout()
+	log.Debugf("waiting for goroutines to finish with timeout: %v", timeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := waitWithContext(shutdownCtx, &e.shutdownWg); err != nil {
+		log.Warnf("shutdown timeout exceeded after %v, some goroutines may still be running", timeout)
 	}
 
 	log.Infof("stopped Netbird Engine")
