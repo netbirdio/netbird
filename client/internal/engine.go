@@ -273,14 +273,15 @@ func NewEngine(
 	return engine
 }
 
-func (e *Engine) Stop() error {
+// Stop cancels the engine context and waits for shutdown to complete.
+// The ctx parameter controls the timeout for waiting on goroutines to finish.
+func (e *Engine) Stop(ctx context.Context) error {
 	if e == nil {
 		// this seems to be a very odd case but there was the possibility if the netbird down command comes before the engine is fully started
 		log.Debugf("tried stopping engine that is nil")
 		return nil
 	}
 	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
 
 	if e.connMgr != nil {
 		e.connMgr.Close()
@@ -323,7 +324,7 @@ func (e *Engine) Stop() error {
 	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
 
 	if err := e.removeAllPeers(); err != nil {
-		return fmt.Errorf("failed to remove all peers: %s", err)
+		log.Errorf("failed to remove all peers: %s", err)
 	}
 
 	if e.cancel != nil {
@@ -337,23 +338,22 @@ func (e *Engine) Stop() error {
 		e.flowManager.Close()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	stateCtx, stateCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer stateCancel()
 
-	if err := e.stateManager.Stop(ctx); err != nil {
-		return fmt.Errorf("failed to stop state manager: %w", err)
+	if err := e.stateManager.Stop(stateCtx); err != nil {
+		log.Errorf("failed to stop state manager: %w", err)
 	}
 	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
 	}
 
-	timeout := e.calculateShutdownTimeout()
-	log.Debugf("waiting for goroutines to finish with timeout: %v", timeout)
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	e.syncMsgMux.Unlock()
 
-	if err := waitWithContext(shutdownCtx, &e.shutdownWg); err != nil {
-		log.Warnf("shutdown timeout exceeded after %v, some goroutines may still be running", timeout)
+	// Wait for all goroutines to finish with the provided timeout context
+	log.Debugf("waiting for goroutines to finish")
+	if err := waitWithContext(ctx, &e.shutdownWg); err != nil {
+		log.Warnf("engine shutdown timeout exceeded, some goroutines may still be running: %v", err)
 	}
 
 	log.Infof("stopped Netbird Engine")
@@ -432,8 +432,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		if err != nil {
 			return fmt.Errorf("create rosenpass manager: %w", err)
 		}
-		err := e.rpManager.Run()
-		if err != nil {
+		if err := e.rpManager.Run(); err != nil {
 			return fmt.Errorf("run rosenpass manager: %w", err)
 		}
 	}
@@ -485,6 +484,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	}
 
 	if err := e.createFirewall(); err != nil {
+		e.close()
 		return err
 	}
 
@@ -749,6 +749,11 @@ func (e *Engine) PopulateNetbirdConfig(netbirdConfig *mgmProto.NetbirdConfig, mg
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
+
+	// Check context INSIDE lock to ensure atomicity with shutdown
+	if e.ctx.Err() != nil {
+		return e.ctx.Err()
+	}
 
 	if update.GetNetbirdConfig() != nil {
 		wCfg := update.GetNetbirdConfig()
@@ -1368,6 +1373,11 @@ func (e *Engine) receiveSignalEvents() {
 		err := e.signal.Receive(e.ctx, func(msg *sProto.Message) error {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
+
+			// Check context INSIDE lock to ensure atomicity with shutdown
+			if e.ctx.Err() != nil {
+				return e.ctx.Err()
+			}
 
 			conn, ok := e.peerStore.PeerConn(msg.Key)
 			if !ok {
