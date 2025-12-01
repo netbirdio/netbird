@@ -28,8 +28,6 @@ type ListenerConfig struct {
 // It is the gate between the WebSocket listener and the Relay server logic.
 // In a new HTTP connection, the server will accept the connection and pass it to the Relay server via the Accept method.
 type Server struct {
-	listenAddr string
-
 	relay       *Relay
 	listeners   []listener.Listener
 	listenerMux sync.Mutex
@@ -62,8 +60,6 @@ func NewServer(config Config) (*Server, error) {
 
 // Listen starts the relay server.
 func (r *Server) Listen(cfg ListenerConfig) error {
-	r.listenAddr = cfg.Address
-
 	wSListener := &ws.Listener{
 		Address:   cfg.Address,
 		TLSConfig: cfg.TLSConfig,
@@ -139,6 +135,6 @@ func (r *Server) ListenerProtocols() []protocol.Protocol {
 	return result
 }
 
-func (r *Server) ListenAddress() string {
-	return r.listenAddr
+func (r *Server) ExposedAddress() string {
+	return r.relay.ExposedAddress()
 }
