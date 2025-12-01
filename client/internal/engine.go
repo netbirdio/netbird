@@ -342,7 +342,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 	defer stateCancel()
 
 	if err := e.stateManager.Stop(stateCtx); err != nil {
-		log.Errorf("failed to stop state manager: %w", err)
+		log.Errorf("failed to stop state manager: %v", err)
 	}
 	if err := e.stateManager.PersistState(context.Background()); err != nil {
 		log.Errorf("failed to persist state: %v", err)
