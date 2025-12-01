@@ -104,9 +104,14 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
 	}
 	if !p.providerConfig.DisablePromptLogin {
-		if p.providerConfig.LoginFlag.HasPromptLogin() {
+		hasPromptLogin := p.providerConfig.LoginFlag.HasPromptLogin()
+		hasSelectAccount := p.providerConfig.LoginFlag.HasSelectAccount()
+
+		if hasPromptLogin && hasSelectAccount {
+			params = append(params, oauth2.SetAuthURLParam("prompt", "login select_account"))
+		} else if hasPromptLogin {
 			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
-		} else if p.providerConfig.LoginFlag.HasSelectAccount() {
+		} else if hasSelectAccount {
 			params = append(params, oauth2.SetAuthURLParam("prompt", "select_account"))
 		}
 

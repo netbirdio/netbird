@@ -10,7 +10,8 @@ package common
 //	| 1     | LoginFlagMaxAge0              | max_age=0                         |
 //	| 2     | LoginFlagSelectAccount        | prompt=select_account             |
 //	| 3     | LoginFlagSelectAccountMaxAge0 | prompt=select_account & max_age=0 |
-//	| 4     | LoginFlagNone                 | (none)                            |
+//	| 4     | LoginFlagLoginSelectAccount   | prompt=login select_account       |
+//	| 5     | LoginFlagNone                 | (none)                            |
 //
 // # Behavior
 //
@@ -26,7 +27,7 @@ package common
 //
 //	| Use Case                       | Recommended Flag          |
 //	|--------------------------------|---------------------------|
-//	| Default SSO behavior           | LoginFlagNone (4)         |
+//	| Default SSO behavior           | LoginFlagNone (5)         |
 //	| Multi-account environment      | LoginFlagSelectAccount (2)|
 //	| Security-sensitive operations  | LoginFlagPromptLogin (0)  |
 //	| Multi-account + force reauth   | LoginFlagSelectAccountMaxAge0 (3) |
@@ -41,13 +42,15 @@ const (
 	LoginFlagSelectAccount
 	// LoginFlagSelectAccountMaxAge0 adds prompt=select_account and max_age=0
 	LoginFlagSelectAccountMaxAge0
+	// LoginFlagLoginSelectAccount adds prompt=login select_account to the authorization request
+	LoginFlagLoginSelectAccount
 	// LoginFlagNone disables all login flags
 	LoginFlagNone
 )
 
 // HasPromptLogin returns true if prompt=login should be added
 func (f LoginFlag) HasPromptLogin() bool {
-	return f == LoginFlagPromptLogin
+	return f == LoginFlagPromptLogin || f == LoginFlagLoginSelectAccount
 }
 
 // HasMaxAge0 returns true if max_age=0 should be added
@@ -57,5 +60,5 @@ func (f LoginFlag) HasMaxAge0() bool {
 
 // HasSelectAccount returns true if prompt=select_account should be added
 func (f LoginFlag) HasSelectAccount() bool {
-	return f == LoginFlagSelectAccount || f == LoginFlagSelectAccountMaxAge0
+	return f == LoginFlagSelectAccount || f == LoginFlagSelectAccountMaxAge0 || f == LoginFlagLoginSelectAccount
 }

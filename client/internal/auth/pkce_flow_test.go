@@ -15,8 +15,10 @@ import (
 
 func TestPromptLogin(t *testing.T) {
 	const (
-		promptLogin = "prompt=login"
-		maxAge0     = "max_age=0"
+		promptLogin              = "prompt=login"
+		promptSelectAccount      = "prompt=select_account"
+		promptLoginSelectAccount = "prompt=login+select_account"
+		maxAge0                  = "max_age=0"
 	)
 
 	tt := []struct {
@@ -34,6 +36,16 @@ func TestPromptLogin(t *testing.T) {
 			name:      "Max age 0 login",
 			loginFlag: mgm.LoginFlagMaxAge0,
 			expect:    maxAge0,
+		},
+		{
+			name:      "Prompt select account",
+			loginFlag: mgm.LoginFlagSelectAccount,
+			expect:    promptSelectAccount,
+		},
+		{
+			name:      "Prompt login and select account",
+			loginFlag: mgm.LoginFlagLoginSelectAccount,
+			expect:    promptLoginSelectAccount,
 		},
 		{
 			name:               "Disable prompt login",
