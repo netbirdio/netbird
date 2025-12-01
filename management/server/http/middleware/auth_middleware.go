@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 
 	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -24,6 +26,15 @@ type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth) err
 
 type GetUserFromUserAuthFunc func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 
+// PATUsageTracker tracks PAT usage metrics
+type PATUsageTracker struct {
+	usageCounters map[string]int64
+	mu            sync.Mutex
+	stopChan      chan struct{}
+	ctx           context.Context
+	histogram     metric.Int64Histogram
+}
+
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
 	authManager         serverauth.Manager
@@ -31,6 +42,7 @@ type AuthMiddleware struct {
 	getUserFromUserAuth GetUserFromUserAuthFunc
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
 	rateLimiter         *APIRateLimiter
+	patUsageTracker     *PATUsageTracker
 }
 
 // NewAuthMiddleware instance constructor
@@ -40,10 +52,20 @@ func NewAuthMiddleware(
 	syncUserJWTGroups SyncUserJWTGroupsFunc,
 	getUserFromUserAuth GetUserFromUserAuthFunc,
 	rateLimiterConfig *RateLimiterConfig,
+	meter metric.Meter,
 ) *AuthMiddleware {
 	var rateLimiter *APIRateLimiter
 	if rateLimiterConfig != nil {
 		rateLimiter = NewAPIRateLimiter(rateLimiterConfig)
+	}
+
+	var patUsageTracker *PATUsageTracker
+	if meter != nil {
+		var err error
+		patUsageTracker, err = NewPATUsageTracker(context.Background(), meter)
+		if err != nil {
+			log.Errorf("Failed to create PAT usage tracker: %s", err)
+		}
 	}
 
 	return &AuthMiddleware{
@@ -52,6 +74,7 @@ func NewAuthMiddleware(
 		syncUserJWTGroups:   syncUserJWTGroups,
 		getUserFromUserAuth: getUserFromUserAuth,
 		rateLimiter:         rateLimiter,
+		patUsageTracker:     patUsageTracker,
 	}
 }
 
@@ -158,6 +181,10 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		return r, fmt.Errorf("error extracting token: %w", err)
 	}
 
+	if m.patUsageTracker != nil {
+		m.patUsageTracker.IncrementUsage(token)
+	}
+
 	if m.rateLimiter != nil {
 		if !m.rateLimiter.Allow(token) {
 			return r, status.Errorf(status.TooManyRequests, "too many requests")
@@ -212,4 +239,74 @@ func getTokenFromPATRequest(authHeaderParts []string) (string, error) {
 	}
 
 	return authHeaderParts[1], nil
+}
+
+// NewPATUsageTracker creates a new PAT usage tracker with metrics
+func NewPATUsageTracker(ctx context.Context, meter metric.Meter) (*PATUsageTracker, error) {
+	histogram, err := meter.Int64Histogram(
+		"management.pat.usage_distribution",
+		metric.WithUnit("1"),
+		metric.WithDescription("Distribution of PAT token usage counts per minute for heatmap visualization"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tracker := &PATUsageTracker{
+		usageCounters: make(map[string]int64),
+		stopChan:      make(chan struct{}),
+		ctx:           ctx,
+		histogram:     histogram,
+	}
+
+	go tracker.reportLoop()
+
+	return tracker, nil
+}
+
+// IncrementUsage increments the usage counter for a given token
+func (t *PATUsageTracker) IncrementUsage(token string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.usageCounters[token]++
+}
+
+// reportLoop reports the usage buckets every minute
+func (t *PATUsageTracker) reportLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			t.reportUsageBuckets()
+		case <-t.stopChan:
+			return
+		}
+	}
+}
+
+// reportUsageBuckets reports all token usage counts and resets counters
+func (t *PATUsageTracker) reportUsageBuckets() {
+	t.mu.Lock()
+	snapshot := make(map[string]int64, len(t.usageCounters))
+	for token, count := range t.usageCounters {
+		snapshot[token] = count
+	}
+
+	t.usageCounters = make(map[string]int64)
+	t.mu.Unlock()
+
+	totalTokens := len(snapshot)
+	if totalTokens > 0 {
+		for _, count := range snapshot {
+			t.histogram.Record(t.ctx, count)
+		}
+		log.Debugf("PAT usage in last minute: %d unique tokens used", totalTokens)
+	}
+}
+
+// Stop stops the reporting goroutine
+func (t *PATUsageTracker) Stop() {
+	close(t.stopChan)
 }
