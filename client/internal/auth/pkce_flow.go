@@ -22,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/templates"
+	"github.com/netbirdio/netbird/shared/management/client/common"
 )
 
 var _ OAuthFlow = &PKCEAuthorizationFlow{}
@@ -104,20 +105,12 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 		oauth2.SetAuthURLParam("audience", p.providerConfig.Audience),
 	}
 	if !p.providerConfig.DisablePromptLogin {
-		hasPromptLogin := p.providerConfig.LoginFlag.HasPromptLogin()
-		hasSelectAccount := p.providerConfig.LoginFlag.HasSelectAccount()
-
-		switch {
-		case hasPromptLogin && hasSelectAccount:
+		switch p.providerConfig.LoginFlag {
+		case common.LoginFlagPromptLogin:
 			params = append(params, oauth2.SetAuthURLParam("prompt", "login select_account"))
-		case hasPromptLogin:
-			params = append(params, oauth2.SetAuthURLParam("prompt", "login"))
-		case hasSelectAccount:
-			params = append(params, oauth2.SetAuthURLParam("prompt", "select_account"))
-		}
-
-		if p.providerConfig.LoginFlag.HasMaxAge0() {
+		case common.LoginFlagMaxAge0:
 			params = append(params, oauth2.SetAuthURLParam("max_age", "0"))
+			params = append(params, oauth2.SetAuthURLParam("prompt", "select_account"))
 		}
 	}
 	if p.providerConfig.LoginHint != "" {

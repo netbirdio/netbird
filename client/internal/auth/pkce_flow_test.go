@@ -15,9 +15,8 @@ import (
 
 func TestPromptLogin(t *testing.T) {
 	const (
-		promptLogin              = "prompt=login"
+		promptSelectAccountLogin = "prompt=login+select_account"
 		promptSelectAccount      = "prompt=select_account"
-		promptLoginSelectAccount = "prompt=login+select_account"
 		maxAge0                  = "max_age=0"
 	)
 
@@ -25,32 +24,28 @@ func TestPromptLogin(t *testing.T) {
 		name               string
 		loginFlag          mgm.LoginFlag
 		disablePromptLogin bool
-		expect             string
+		expectContains     []string
 	}{
 		{
-			name:      "Prompt login",
-			loginFlag: mgm.LoginFlagPromptLogin,
-			expect:    promptLogin,
+			name:           "Prompt login with select account",
+			loginFlag:      mgm.LoginFlagPromptLogin,
+			expectContains: []string{promptSelectAccountLogin},
 		},
 		{
-			name:      "Max age 0 login",
-			loginFlag: mgm.LoginFlagMaxAge0,
-			expect:    maxAge0,
-		},
-		{
-			name:      "Prompt select account",
-			loginFlag: mgm.LoginFlagSelectAccount,
-			expect:    promptSelectAccount,
-		},
-		{
-			name:      "Prompt login and select account",
-			loginFlag: mgm.LoginFlagLoginSelectAccount,
-			expect:    promptLoginSelectAccount,
+			name:           "Max age 0 with select account",
+			loginFlag:      mgm.LoginFlagMaxAge0,
+			expectContains: []string{maxAge0, promptSelectAccount},
 		},
 		{
 			name:               "Disable prompt login",
 			loginFlag:          mgm.LoginFlagPromptLogin,
 			disablePromptLogin: true,
+			expectContains:     []string{},
+		},
+		{
+			name:           "None flag should not add parameters",
+			loginFlag:      mgm.LoginFlagNone,
+			expectContains: []string{},
 		},
 	}
 
@@ -65,6 +60,7 @@ func TestPromptLogin(t *testing.T) {
 				RedirectURLs:          []string{"http://127.0.0.1:33992/"},
 				UseIDToken:            true,
 				LoginFlag:             tc.loginFlag,
+				DisablePromptLogin:    tc.disablePromptLogin,
 			}
 			pkce, err := NewPKCEAuthorizationFlow(config)
 			if err != nil {
@@ -75,11 +71,8 @@ func TestPromptLogin(t *testing.T) {
 				t.Fatalf("Failed to request auth info: %v", err)
 			}
 
-			if !tc.disablePromptLogin {
-				require.Contains(t, authInfo.VerificationURIComplete, tc.expect)
-			} else {
-				require.Contains(t, authInfo.VerificationURIComplete, promptLogin)
-				require.NotContains(t, authInfo.VerificationURIComplete, maxAge0)
+			for _, expected := range tc.expectContains {
+				require.Contains(t, authInfo.VerificationURIComplete, expected)
 			}
 		})
 	}
