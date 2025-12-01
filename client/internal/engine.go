@@ -1717,11 +1717,10 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 // triggerClientRestart triggers a full client restart by cancelling the client context.
 // Note: This does NOT just restart the engine - it cancels the entire client context,
 // which causes the connect client's retry loop to create a completely new engine.
+// This function does NOT hold syncMsgMux to avoid deadlock with engine.Stop().
 func (e *Engine) triggerClientRestart() {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-
 	if e.ctx.Err() != nil {
+		log.Debugf("engine context already cancelled, skipping restart trigger")
 		return
 	}
 
@@ -1729,7 +1728,11 @@ func (e *Engine) triggerClientRestart() {
 	CtxGetState(e.ctx).Set(StatusConnecting)
 	_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
 	log.Infof("cancelling client context, engine will be recreated")
-	e.clientCancel()
+
+	// Call clientCancel in a goroutine to avoid blocking the caller
+	// Context cancellation is thread-safe and idempotent
+	// This prevents potential blocking if the shutdown cascade takes time
+	go e.clientCancel()
 }
 
 func (e *Engine) startNetworkMonitor() {
