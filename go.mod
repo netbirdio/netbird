@@ -64,7 +64,7 @@ require (
 	github.com/mdlayher/socket v0.5.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
-	github.com/netbirdio/management-integrations/integrations v0.0.0-20251114143509-4eff2374da63
+	github.com/netbirdio/management-integrations/integrations v0.0.0-20251202114414-534cf891e0ba
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/oschwald/maxminddb-golang v1.12.0
@@ -216,7 +216,6 @@ require (
 	github.com/moby/term v0.5.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/netbirdio/management-integrations v0.0.0-20251202114414-534cf891e0ba // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/nicksnyder/go-i18n/v2 v2.5.1 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
