@@ -1,8 +1,9 @@
 package sleep
 
 var (
-	EventTypeSleep  EventType = 0
-	EventTypeWakeUp EventType = 1
+	EventTypeUnknown EventType = 0
+	EventTypeSleep   EventType = 1
+	EventTypeWakeUp  EventType = 2
 )
 
 type EventType int

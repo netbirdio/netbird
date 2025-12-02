@@ -21,17 +21,11 @@ service DaemonService {
   // Up starts engine work in the daemon.
   rpc Up(UpRequest) returns (UpResponse) {}
 
-  // WakeUP starts engine work in the daemon after computers wake up from sleep.
-  rpc WakeUp(WakeUpRequest) returns (WakeUpResponse) {}
-
   // Status of the service.
   rpc Status(StatusRequest) returns (StatusResponse) {}
 
   // Down stops engine work in the daemon.
   rpc Down(DownRequest) returns (DownResponse) {}
-
-  // SleepDown stops engine work in the daemon after computers goes to sleep.
-  rpc SleepDown(SleepDownRequest) returns (SleepDownResponse) {}
 
   // GetConfig of the daemon.
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
@@ -99,7 +93,24 @@ service DaemonService {
 
   // WaitJWTToken waits for JWT authentication completion
   rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
+
+  rpc NotifyOSLifecycle(OSLifecycleRequest) returns(OSLifecycleResponse) {}
 }
+
+
+
+message OSLifecycleRequest {
+  // avoid collision with loglevel enum
+  enum CycleType {
+    UNKNOWN = 0;
+    SLEEP = 1;
+    WAKEUP = 2;
+  }
+
+  CycleType type = 1;
+}
+
+message OSLifecycleResponse {}
 
 
 message LoginRequest {
@@ -208,11 +219,6 @@ message UpRequest {
 
 message UpResponse {}
 
-message WakeUpRequest {}
-
-message WakeUpResponse {}
-
-
 message StatusRequest{
   bool getFullPeerStatus = 1;
   bool shouldRunProbes = 2;
@@ -231,10 +237,6 @@ message StatusResponse{
 message DownRequest {}
 
 message DownResponse {}
-
-message SleepDownRequest {}
-
-message SleepDownResponse {}
 
 message GetConfigRequest {
   string profileName = 1;

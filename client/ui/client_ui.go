@@ -1196,26 +1196,23 @@ func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
 		return
 	}
 
+	req := &proto.OSLifecycleRequest{}
+
 	switch event {
 	case sleep.EventTypeWakeUp:
 		log.Infof("handle wakeup event: %v", event)
-		_, err = conn.WakeUp(s.ctx, &proto.WakeUpRequest{})
-		if err != nil {
-			log.Errorf("up service: %v", err)
-			return
-		}
-		log.Info("successfully notified daemon about wakeup event")
-		return
+		req.Type = proto.OSLifecycleRequest_WAKEUP
 	case sleep.EventTypeSleep:
 		log.Infof("handle sleep event: %v", event)
-		_, err = conn.SleepDown(s.ctx, &proto.SleepDownRequest{})
-		if err != nil {
-			log.Errorf("down service: %v", err)
-			return
-		}
+		req.Type = proto.OSLifecycleRequest_SLEEP
 	}
 
-	log.Info("successfully notified daemon about sleep")
+	_, err = conn.NotifyOSLifecycle(s.ctx, req)
+	if err != nil {
+		log.Errorf("failed to notify daemon about os lifecycle notification: %v", err)
+	}
+
+	log.Info("successfully notified daemon about os lifecycle")
 }
 
 // setSettingsEnabled enables or disables the settings menu based on the provided state

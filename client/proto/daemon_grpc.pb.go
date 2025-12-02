@@ -25,14 +25,10 @@ type DaemonServiceClient interface {
 	WaitSSOLogin(ctx context.Context, in *WaitSSOLoginRequest, opts ...grpc.CallOption) (*WaitSSOLoginResponse, error)
 	// Up starts engine work in the daemon.
 	Up(ctx context.Context, in *UpRequest, opts ...grpc.CallOption) (*UpResponse, error)
-	// WakeUP starts engine work in the daemon after computers wake up from sleep.
-	WakeUp(ctx context.Context, in *WakeUpRequest, opts ...grpc.CallOption) (*WakeUpResponse, error)
 	// Status of the service.
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
 	// Down stops engine work in the daemon.
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error)
-	// SleepDown stops engine work in the daemon after computers goes to sleep.
-	SleepDown(ctx context.Context, in *SleepDownRequest, opts ...grpc.CallOption) (*SleepDownResponse, error)
 	// GetConfig of the daemon.
 	GetConfig(ctx context.Context, in *GetConfigRequest, opts ...grpc.CallOption) (*GetConfigResponse, error)
 	// List available networks
@@ -74,6 +70,7 @@ type DaemonServiceClient interface {
 	RequestJWTAuth(ctx context.Context, in *RequestJWTAuthRequest, opts ...grpc.CallOption) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(ctx context.Context, in *WaitJWTTokenRequest, opts ...grpc.CallOption) (*WaitJWTTokenResponse, error)
+	NotifyOSLifecycle(ctx context.Context, in *OSLifecycleRequest, opts ...grpc.CallOption) (*OSLifecycleResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -111,15 +108,6 @@ func (c *daemonServiceClient) Up(ctx context.Context, in *UpRequest, opts ...grp
 	return out, nil
 }
 
-func (c *daemonServiceClient) WakeUp(ctx context.Context, in *WakeUpRequest, opts ...grpc.CallOption) (*WakeUpResponse, error) {
-	out := new(WakeUpResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/WakeUp", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *daemonServiceClient) Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error) {
 	out := new(StatusResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/Status", in, out, opts...)
@@ -132,15 +120,6 @@ func (c *daemonServiceClient) Status(ctx context.Context, in *StatusRequest, opt
 func (c *daemonServiceClient) Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error) {
 	out := new(DownResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/Down", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *daemonServiceClient) SleepDown(ctx context.Context, in *SleepDownRequest, opts ...grpc.CallOption) (*SleepDownResponse, error) {
-	out := new(SleepDownResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SleepDown", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -404,6 +383,15 @@ func (c *daemonServiceClient) WaitJWTToken(ctx context.Context, in *WaitJWTToken
 	return out, nil
 }
 
+func (c *daemonServiceClient) NotifyOSLifecycle(ctx context.Context, in *OSLifecycleRequest, opts ...grpc.CallOption) (*OSLifecycleResponse, error) {
+	out := new(OSLifecycleResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/NotifyOSLifecycle", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -415,14 +403,10 @@ type DaemonServiceServer interface {
 	WaitSSOLogin(context.Context, *WaitSSOLoginRequest) (*WaitSSOLoginResponse, error)
 	// Up starts engine work in the daemon.
 	Up(context.Context, *UpRequest) (*UpResponse, error)
-	// WakeUP starts engine work in the daemon after computers wake up from sleep.
-	WakeUp(context.Context, *WakeUpRequest) (*WakeUpResponse, error)
 	// Status of the service.
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
 	// Down stops engine work in the daemon.
 	Down(context.Context, *DownRequest) (*DownResponse, error)
-	// SleepDown stops engine work in the daemon after computers goes to sleep.
-	SleepDown(context.Context, *SleepDownRequest) (*SleepDownResponse, error)
 	// GetConfig of the daemon.
 	GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error)
 	// List available networks
@@ -464,6 +448,7 @@ type DaemonServiceServer interface {
 	RequestJWTAuth(context.Context, *RequestJWTAuthRequest) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error)
+	NotifyOSLifecycle(context.Context, *OSLifecycleRequest) (*OSLifecycleResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -480,17 +465,11 @@ func (UnimplementedDaemonServiceServer) WaitSSOLogin(context.Context, *WaitSSOLo
 func (UnimplementedDaemonServiceServer) Up(context.Context, *UpRequest) (*UpResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Up not implemented")
 }
-func (UnimplementedDaemonServiceServer) WakeUp(context.Context, *WakeUpRequest) (*WakeUpResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method WakeUp not implemented")
-}
 func (UnimplementedDaemonServiceServer) Status(context.Context, *StatusRequest) (*StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
 func (UnimplementedDaemonServiceServer) Down(context.Context, *DownRequest) (*DownResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Down not implemented")
-}
-func (UnimplementedDaemonServiceServer) SleepDown(context.Context, *SleepDownRequest) (*SleepDownResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SleepDown not implemented")
 }
 func (UnimplementedDaemonServiceServer) GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConfig not implemented")
@@ -570,6 +549,9 @@ func (UnimplementedDaemonServiceServer) RequestJWTAuth(context.Context, *Request
 func (UnimplementedDaemonServiceServer) WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WaitJWTToken not implemented")
 }
+func (UnimplementedDaemonServiceServer) NotifyOSLifecycle(context.Context, *OSLifecycleRequest) (*OSLifecycleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NotifyOSLifecycle not implemented")
+}
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
 // UnsafeDaemonServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -637,24 +619,6 @@ func _DaemonService_Up_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DaemonService_WakeUp_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(WakeUpRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DaemonServiceServer).WakeUp(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/daemon.DaemonService/WakeUp",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).WakeUp(ctx, req.(*WakeUpRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _DaemonService_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StatusRequest)
 	if err := dec(in); err != nil {
@@ -687,24 +651,6 @@ func _DaemonService_Down_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).Down(ctx, req.(*DownRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _DaemonService_SleepDown_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SleepDownRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DaemonServiceServer).SleepDown(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/daemon.DaemonService/SleepDown",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).SleepDown(ctx, req.(*SleepDownRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1180,6 +1126,24 @@ func _DaemonService_WaitJWTToken_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_NotifyOSLifecycle_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OSLifecycleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).NotifyOSLifecycle(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/NotifyOSLifecycle",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).NotifyOSLifecycle(ctx, req.(*OSLifecycleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1200,20 +1164,12 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_Up_Handler,
 		},
 		{
-			MethodName: "WakeUp",
-			Handler:    _DaemonService_WakeUp_Handler,
-		},
-		{
 			MethodName: "Status",
 			Handler:    _DaemonService_Status_Handler,
 		},
 		{
 			MethodName: "Down",
 			Handler:    _DaemonService_Down_Handler,
-		},
-		{
-			MethodName: "SleepDown",
-			Handler:    _DaemonService_SleepDown_Handler,
 		},
 		{
 			MethodName: "GetConfig",
@@ -1314,6 +1270,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "WaitJWTToken",
 			Handler:    _DaemonService_WaitJWTToken_Handler,
+		},
+		{
+			MethodName: "NotifyOSLifecycle",
+			Handler:    _DaemonService_NotifyOSLifecycle_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
