@@ -4112,7 +4112,7 @@ paths:
     post:
       summary: Create a Temporary Access Peer
       description: Creates a temporary access peer that can be used to access this resource and this resource only. The temporary access peer and its access policies will be automatically deleted after it disconnects.
-      tags: [ Peers ]
+      tags: [ Networks ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
