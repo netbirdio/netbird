@@ -1925,6 +1925,9 @@ type Zone struct {
 
 	// Name Zone name identifier
 	Name string `json:"name"`
+
+	// Records DNS records associated with this zone
+	Records []DNSRecord `json:"records"`
 }
 
 // ZoneRequest defines model for ZoneRequest.

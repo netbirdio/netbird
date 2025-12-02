@@ -4169,7 +4169,7 @@ func (s *SqlStore) GetZoneByID(ctx context.Context, lockStrength LockingStrength
 	}
 
 	var zone *zones.Zone
-	result := tx.Take(&zone, accountAndIDQueryCondition, accountID, zoneID)
+	result := tx.Preload("Records").Take(&zone, accountAndIDQueryCondition, accountID, zoneID)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, status.NewZoneNotFoundError(zoneID)

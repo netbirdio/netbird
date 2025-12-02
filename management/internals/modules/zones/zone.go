@@ -34,6 +34,13 @@ func NewZone(accountID, name, domain string, enabled, enableSearchDomain bool, d
 }
 
 func (z *Zone) ToAPIResponse() *api.Zone {
+	apiRecords := make([]api.DNSRecord, 0, len(z.Records))
+	for _, record := range z.Records {
+		if apiRecord := record.ToAPIResponse(); apiRecord != nil {
+			apiRecords = append(apiRecords, *apiRecord)
+		}
+	}
+
 	return &api.Zone{
 		DistributionGroups: z.DistributionGroups,
 		Domain:             z.Domain,
@@ -41,6 +48,7 @@ func (z *Zone) ToAPIResponse() *api.Zone {
 		Enabled:            z.Enabled,
 		Id:                 z.ID,
 		Name:               z.Name,
+		Records:            apiRecords,
 	}
 }
 

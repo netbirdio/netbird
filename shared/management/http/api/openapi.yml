@@ -1747,9 +1747,15 @@ components:
               description: Zone ID
               type: string
               example: ch8i4ug6lnn4g9hqv7m0
+            records:
+              description: DNS records associated with this zone
+              type: array
+              items:
+                $ref: '#/components/schemas/DNSRecord'
           required:
             - id
             - enabled
+            - records
         - $ref: '#/components/schemas/ZoneRequest'
     DNSRecordType:
       type: string
