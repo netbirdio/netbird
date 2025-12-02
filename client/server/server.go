@@ -640,6 +640,8 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
+	log.Info("up request received")
+	defer log.Info("up request completed")
 	s.mutex.Lock()
 	if s.clientRunning {
 		state := internal.CtxGetState(s.rootCtx)
@@ -815,6 +817,8 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 
 // Down engine work in the daemon.
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
+	log.Info("down request received")
+	defer log.Info("down request completed")
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 

@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -321,6 +322,8 @@ type serviceClient struct {
 	wLoginURL            fyne.Window
 
 	connectCancel context.CancelFunc
+	// sleepDown holds a state indicated if the sleep handler triggered the last client down
+	sleepDown atomic.Bool
 }
 
 type menuHandler struct {
@@ -1198,12 +1201,19 @@ func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
 
 	switch event {
 	case sleep.EventTypeWakeUp:
+		if !s.sleepDown.Load() {
+			log.Info("skipping up because wasn't sleep down")
+			return
+		}
+		// set false early to avoid other calls
+		s.sleepDown.Store(false)
 		log.Infof("handle wakeup event: %v", event)
 		_, err = conn.Up(s.ctx, &proto.UpRequest{})
 		if err != nil {
 			log.Errorf("up service: %v", err)
 			return
 		}
+		log.Info("successfully notified daemon about wakeup event")
 		return
 	case sleep.EventTypeSleep:
 		log.Infof("handle sleep event: %v", event)
@@ -1212,9 +1222,10 @@ func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
 			log.Errorf("down service: %v", err)
 			return
 		}
+		s.sleepDown.Store(true)
 	}
 
-	log.Info("successfully notified daemon about sleep/wakeup event")
+	log.Info("successfully notified daemon about sleep")
 }
 
 // setSettingsEnabled enables or disables the settings menu based on the provided state
