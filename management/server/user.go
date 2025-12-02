@@ -263,13 +263,9 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 		return err
 	}
 
-	updateAccountPeers, err := am.deleteRegularUser(ctx, accountID, initiatorUserID, userInfo)
+	_, err = am.deleteRegularUser(ctx, accountID, initiatorUserID, userInfo)
 	if err != nil {
 		return err
-	}
-
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return nil
@@ -998,14 +994,17 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 			peer.UserID, peer.ID, accountID,
 			activity.PeerLoginExpired, peer.EventMeta(dnsDomain),
 		)
+	}
 
-		am.networkMapController.OnPeerUpdated(accountID, peer)
+	err = am.networkMapController.OnPeersUpdated(ctx, accountID, peerIDs)
+	if err != nil {
+		return fmt.Errorf("notify network map controller of peer update: %w", err)
 	}
 
 	if len(peerIDs) != 0 {
 		// this will trigger peer disconnect from the management service
 		log.Debugf("Expiring %d peers for account %s", len(peerIDs), accountID)
-		am.networkMapController.DisconnectPeers(ctx, peerIDs)
+		am.networkMapController.DisconnectPeers(ctx, accountID, peerIDs)
 	}
 	return nil
 }
@@ -1051,7 +1050,6 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 	}
 
 	var allErrors error
-	var updateAccountPeers bool
 
 	for _, targetUserID := range targetUserIDs {
 		if initiatorUserID == targetUserID {
@@ -1082,19 +1080,11 @@ func (am *DefaultAccountManager) DeleteRegularUsers(ctx context.Context, account
 			continue
 		}
 
-		userHadPeers, err := am.deleteRegularUser(ctx, accountID, initiatorUserID, userInfo)
+		_, err = am.deleteRegularUser(ctx, accountID, initiatorUserID, userInfo)
 		if err != nil {
 			allErrors = errors.Join(allErrors, err)
 			continue
 		}
-
-		if userHadPeers {
-			updateAccountPeers = true
-		}
-	}
-
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
 	}
 
 	return allErrors
@@ -1152,15 +1142,12 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 		return false, err
 	}
 
+	var peerIDs []string
 	for _, peer := range userPeers {
-		err = am.networkMapController.DeletePeer(ctx, accountID, peer.ID)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to delete peer %s from network map: %v", peer.ID, err)
-		}
-
-		if err := am.networkMapController.OnPeerDeleted(ctx, accountID, peer.ID); err != nil {
-			log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", peer.ID, err)
-		}
+		peerIDs = append(peerIDs, peer.ID)
+	}
+	if err := am.networkMapController.OnPeersDeleted(ctx, accountID, peerIDs); err != nil {
+		log.WithContext(ctx).Errorf("failed to delete peers %s from network map: %v", peerIDs, err)
 	}
 
 	for _, addPeerRemovedEvent := range addPeerRemovedEvents {
