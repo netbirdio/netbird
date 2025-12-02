@@ -844,15 +844,15 @@ func (s *Server) SleepDown(callerCtx context.Context, msg *proto.SleepDownReques
 	s.mutex.Lock()
 
 	state := internal.CtxGetState(s.rootCtx)
-	state.Set(internal.StatusIdle)
-
 	status, err := state.Status()
 	if err != nil {
+		s.mutex.Unlock()
 		return nil, err
 	}
 
 	if status != internal.StatusConnecting && status != internal.StatusConnected {
 		log.Infof("skipping setting the agent down because status is %s", status)
+		s.mutex.Unlock()
 		return &proto.SleepDownResponse{}, nil
 	}
 	s.mutex.Unlock()
