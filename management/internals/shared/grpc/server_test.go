@@ -73,15 +73,17 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			mgmtServer := &Server{
-				wgKey: testingServerKey,
+				secretsManager: &TimeBasedAuthSecretsManager{wgKey: testingServerKey},
 				config: &config.Config{
 					DeviceAuthorizationFlow: testCase.inputFlow,
 				},
 			}
 
 			message := &mgmtProto.DeviceAuthorizationFlowRequest{}
+			key, err := mgmtServer.secretsManager.GetWGKey()
+			require.NoError(t, err, "should be able to get server key")
 
-			encryptedMSG, err := encryption.EncryptMessage(testingClientKey.PublicKey(), mgmtServer.wgKey, message)
+			encryptedMSG, err := encryption.EncryptMessage(testingClientKey.PublicKey(), key, message)
 			require.NoError(t, err, "should be able to encrypt message")
 
 			resp, err := mgmtServer.GetDeviceAuthorizationFlow(
@@ -95,7 +97,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 			if testCase.expectedComparisonFunc != nil {
 				flowInfoResp := &mgmtProto.DeviceAuthorizationFlow{}
 
-				err = encryption.DecryptMessage(mgmtServer.wgKey.PublicKey(), testingClientKey, resp.Body, flowInfoResp)
+				err = encryption.DecryptMessage(key.PublicKey(), testingClientKey, resp.Body, flowInfoResp)
 				require.NoError(t, err, "should be able to decrypt")
 
 				testCase.expectedComparisonFunc(t, testCase.expectedFlow.Provider, flowInfoResp.Provider, testCase.expectedComparisonMSG)
