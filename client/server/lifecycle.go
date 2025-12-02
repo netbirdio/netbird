@@ -37,7 +37,7 @@ func (s *Server) handleWakeUp(callerCtx context.Context) (*proto.OSLifecycleResp
 	_, err := s.Up(callerCtx, &proto.UpRequest{})
 	if err != nil {
 		log.Errorf("running up failed: %v", err)
-		return nil, err
+		return &proto.OSLifecycleResponse{}, err
 	}
 
 	log.Info("running up command executed successfully")
@@ -52,7 +52,7 @@ func (s *Server) handleSleep(callerCtx context.Context) (*proto.OSLifecycleRespo
 	status, err := state.Status()
 	if err != nil {
 		s.mutex.Unlock()
-		return nil, err
+		return &proto.OSLifecycleResponse{}, err
 	}
 
 	if status != internal.StatusConnecting && status != internal.StatusConnected {
@@ -73,5 +73,5 @@ func (s *Server) handleSleep(callerCtx context.Context) (*proto.OSLifecycleRespo
 	s.sleepTriggeredDown.Store(true)
 
 	log.Info("running down executed successfully")
-	return nil, nil
+	return &proto.OSLifecycleResponse{}, nil
 }

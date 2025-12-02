@@ -1205,11 +1205,15 @@ func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
 	case sleep.EventTypeSleep:
 		log.Infof("handle sleep event: %v", event)
 		req.Type = proto.OSLifecycleRequest_SLEEP
+	default:
+		log.Infof("unknown event: %v", event)
+		return
 	}
 
 	_, err = conn.NotifyOSLifecycle(s.ctx, req)
 	if err != nil {
 		log.Errorf("failed to notify daemon about os lifecycle notification: %v", err)
+		return
 	}
 
 	log.Info("successfully notified daemon about os lifecycle")
