@@ -609,9 +609,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
-		s.wgInterface.Name(),
-		s.wgInterface.Address().IP,
-		s.wgInterface.Address().Network,
+		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
 		nbdns.RootZone,
@@ -718,9 +716,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		log.Debugf("creating handler for domain=%s with priority=%d", domainGroup.domain, priority)
 		handler, err := newUpstreamResolver(
 			s.ctx,
-			s.wgInterface.Name(),
-			s.wgInterface.Address().IP,
-			s.wgInterface.Address().Network,
+			s.wgInterface,
 			s.statusRecorder,
 			s.hostsDNSHolder,
 			domainGroup.domain,
@@ -901,9 +897,7 @@ func (s *DefaultServer) addHostRootZone() {
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
-		s.wgInterface.Name(),
-		s.wgInterface.Address().IP,
-		s.wgInterface.Address().Network,
+		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
 		nbdns.RootZone,
