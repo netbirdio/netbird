@@ -273,8 +273,6 @@ func NewEngine(
 	return engine
 }
 
-// Stop cancels the engine context and waits for shutdown to complete.
-// The ctx parameter controls the timeout for waiting on goroutines to finish.
 func (e *Engine) Stop() error {
 	if e == nil {
 		// this seems to be a very odd case but there was the possibility if the netbird down command comes before the engine is fully started
