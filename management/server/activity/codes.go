@@ -179,14 +179,15 @@ const (
 	PeerIPUpdated              Activity = 88
 	UserApproved               Activity = 89
 	UserRejected               Activity = 90
+	UserCreated                Activity = 91
 
-	DNSZoneCreated Activity = 91
-	DNSZoneUpdated Activity = 92
-	DNSZoneDeleted Activity = 93
+	DNSZoneCreated Activity = 92
+	DNSZoneUpdated Activity = 93
+	DNSZoneDeleted Activity = 94
 
-	DNSRecordCreated Activity = 94
-	DNSRecordUpdated Activity = 95
-	DNSRecordDeleted Activity = 96
+	DNSRecordCreated Activity = 95
+	DNSRecordUpdated Activity = 96
+	DNSRecordDeleted Activity = 97
 
 	AccountDeleted Activity = 99999
 )
@@ -296,6 +297,7 @@ var activityMap = map[Activity]Code{
 	PeerIPUpdated: {"Peer IP updated", "peer.ip.update"},
 	UserApproved:  {"User approved", "user.approve"},
 	UserRejected:  {"User rejected", "user.reject"},
+	UserCreated:   {"User created", "user.create"},
 
 	DNSZoneCreated: {"DNS zone created", "dns.zone.create"},
 	DNSZoneUpdated: {"DNS zone updated", "dns.zone.update"},
