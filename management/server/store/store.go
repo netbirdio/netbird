@@ -214,7 +214,7 @@ type Store interface {
 
 	CreateDNSRecord(ctx context.Context, record *records.Record) error
 	UpdateDNSRecord(ctx context.Context, record *records.Record) error
-	DeleteDNSRecord(ctx context.Context, accountID, recordID string) error
+	DeleteDNSRecord(ctx context.Context, accountID, zoneID, recordID string) error
 	GetDNSRecordByID(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, recordID string) (*records.Record, error)
 	GetZoneDNSRecords(ctx context.Context, lockStrength LockingStrength, accountID, zoneID string) ([]*records.Record, error)
 	GetZoneDNSRecordsByName(ctx context.Context, lockStrength LockingStrength, accountID, zoneID, name string) ([]*records.Record, error)

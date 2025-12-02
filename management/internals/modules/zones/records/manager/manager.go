@@ -182,7 +182,7 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 			return fmt.Errorf("failed to get record: %w", err)
 		}
 
-		err = transaction.DeleteDNSRecord(ctx, accountID, recordID)
+		err = transaction.DeleteDNSRecord(ctx, accountID, zoneID, recordID)
 		if err != nil {
 			return fmt.Errorf("failed to delete dns record: %w", err)
 		}

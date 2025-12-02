@@ -4083,7 +4083,7 @@ func TestSqlStore_DeleteDNSRecord(t *testing.T) {
 	err = store.CreateDNSRecord(context.Background(), record)
 	require.NoError(t, err)
 
-	err = store.DeleteDNSRecord(context.Background(), accountID, record.ID)
+	err = store.DeleteDNSRecord(context.Background(), accountID, zone.ID, record.ID)
 	require.NoError(t, err)
 
 	deletedRecord, err := store.GetDNSRecordByID(context.Background(), LockingStrengthNone, accountID, zone.ID, record.ID)

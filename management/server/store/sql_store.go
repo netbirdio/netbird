@@ -4131,7 +4131,7 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 func (s *SqlStore) CreateZone(ctx context.Context, zone *zones.Zone) error {
 	result := s.db.Create(zone)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to create to store: %v", result.Error)
+		log.WithContext(ctx).Errorf("failed to create zone to store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to create zone to store")
 	}
 
@@ -4218,8 +4218,8 @@ func (s *SqlStore) UpdateDNSRecord(ctx context.Context, record *records.Record) 
 	return nil
 }
 
-func (s *SqlStore) DeleteDNSRecord(ctx context.Context, accountID, recordID string) error {
-	result := s.db.Delete(&records.Record{}, accountAndIDQueryCondition, accountID, recordID)
+func (s *SqlStore) DeleteDNSRecord(ctx context.Context, accountID, zoneID, recordID string) error {
+	result := s.db.Delete(&records.Record{}, "account_id = ? AND zone_id = ? AND id = ?", accountID, zoneID, recordID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete dns record from store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to delete dns record from store")
