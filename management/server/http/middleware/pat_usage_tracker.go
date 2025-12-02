@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 
@@ -66,12 +67,9 @@ func (t *PATUsageTracker) reportLoop() {
 // reportUsageBuckets reports all token usage counts and resets counters
 func (t *PATUsageTracker) reportUsageBuckets() {
 	t.mu.Lock()
-	snapshot := make(map[string]int64, len(t.usageCounters))
-	for token, count := range t.usageCounters {
-		snapshot[token] = count
-	}
+	snapshot := maps.Clone(t.usageCounters)
 
-	t.usageCounters = make(map[string]int64)
+	clear(t.usageCounters)
 	t.mu.Unlock()
 
 	totalTokens := len(snapshot)
