@@ -25,10 +25,14 @@ type DaemonServiceClient interface {
 	WaitSSOLogin(ctx context.Context, in *WaitSSOLoginRequest, opts ...grpc.CallOption) (*WaitSSOLoginResponse, error)
 	// Up starts engine work in the daemon.
 	Up(ctx context.Context, in *UpRequest, opts ...grpc.CallOption) (*UpResponse, error)
+	// WakeUP starts engine work in the daemon after computers wake up from sleep.
+	WakeUp(ctx context.Context, in *WakeUpRequest, opts ...grpc.CallOption) (*WakeUpResponse, error)
 	// Status of the service.
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
-	// Down engine work in the daemon.
+	// Down stops engine work in the daemon.
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error)
+	// SleepDown stops engine work in the daemon after computers goes to sleep.
+	SleepDown(ctx context.Context, in *SleepDownRequest, opts ...grpc.CallOption) (*SleepDownResponse, error)
 	// GetConfig of the daemon.
 	GetConfig(ctx context.Context, in *GetConfigRequest, opts ...grpc.CallOption) (*GetConfigResponse, error)
 	// List available networks
@@ -107,6 +111,15 @@ func (c *daemonServiceClient) Up(ctx context.Context, in *UpRequest, opts ...grp
 	return out, nil
 }
 
+func (c *daemonServiceClient) WakeUp(ctx context.Context, in *WakeUpRequest, opts ...grpc.CallOption) (*WakeUpResponse, error) {
+	out := new(WakeUpResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/WakeUp", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error) {
 	out := new(StatusResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/Status", in, out, opts...)
@@ -119,6 +132,15 @@ func (c *daemonServiceClient) Status(ctx context.Context, in *StatusRequest, opt
 func (c *daemonServiceClient) Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error) {
 	out := new(DownResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/Down", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) SleepDown(ctx context.Context, in *SleepDownRequest, opts ...grpc.CallOption) (*SleepDownResponse, error) {
+	out := new(SleepDownResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SleepDown", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -393,10 +415,14 @@ type DaemonServiceServer interface {
 	WaitSSOLogin(context.Context, *WaitSSOLoginRequest) (*WaitSSOLoginResponse, error)
 	// Up starts engine work in the daemon.
 	Up(context.Context, *UpRequest) (*UpResponse, error)
+	// WakeUP starts engine work in the daemon after computers wake up from sleep.
+	WakeUp(context.Context, *WakeUpRequest) (*WakeUpResponse, error)
 	// Status of the service.
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
-	// Down engine work in the daemon.
+	// Down stops engine work in the daemon.
 	Down(context.Context, *DownRequest) (*DownResponse, error)
+	// SleepDown stops engine work in the daemon after computers goes to sleep.
+	SleepDown(context.Context, *SleepDownRequest) (*SleepDownResponse, error)
 	// GetConfig of the daemon.
 	GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error)
 	// List available networks
@@ -454,11 +480,17 @@ func (UnimplementedDaemonServiceServer) WaitSSOLogin(context.Context, *WaitSSOLo
 func (UnimplementedDaemonServiceServer) Up(context.Context, *UpRequest) (*UpResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Up not implemented")
 }
+func (UnimplementedDaemonServiceServer) WakeUp(context.Context, *WakeUpRequest) (*WakeUpResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WakeUp not implemented")
+}
 func (UnimplementedDaemonServiceServer) Status(context.Context, *StatusRequest) (*StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
 func (UnimplementedDaemonServiceServer) Down(context.Context, *DownRequest) (*DownResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Down not implemented")
+}
+func (UnimplementedDaemonServiceServer) SleepDown(context.Context, *SleepDownRequest) (*SleepDownResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SleepDown not implemented")
 }
 func (UnimplementedDaemonServiceServer) GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConfig not implemented")
@@ -605,6 +637,24 @@ func _DaemonService_Up_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_WakeUp_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WakeUpRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).WakeUp(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/WakeUp",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).WakeUp(ctx, req.(*WakeUpRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StatusRequest)
 	if err := dec(in); err != nil {
@@ -637,6 +687,24 @@ func _DaemonService_Down_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).Down(ctx, req.(*DownRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_SleepDown_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SleepDownRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).SleepDown(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/SleepDown",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).SleepDown(ctx, req.(*SleepDownRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1132,12 +1200,20 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_Up_Handler,
 		},
 		{
+			MethodName: "WakeUp",
+			Handler:    _DaemonService_WakeUp_Handler,
+		},
+		{
 			MethodName: "Status",
 			Handler:    _DaemonService_Status_Handler,
 		},
 		{
 			MethodName: "Down",
 			Handler:    _DaemonService_Down_Handler,
+		},
+		{
+			MethodName: "SleepDown",
+			Handler:    _DaemonService_SleepDown_Handler,
 		},
 		{
 			MethodName: "GetConfig",

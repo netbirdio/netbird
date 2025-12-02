@@ -85,6 +85,9 @@ type Server struct {
 	profilesDisabled       bool
 	updateSettingsDisabled bool
 
+	// sleepTriggeredDown holds a state indicated if the sleep handler triggered the last client down
+	sleepTriggeredDown atomic.Bool
+
 	jwtCache *jwtCache
 }
 
@@ -638,10 +641,29 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	}, nil
 }
 
+// WakeUp handles the transition of the server from a sleep state to an active state, ensuring proper recovery operations.
+func (s *Server) WakeUp(callerCtx context.Context, _ *proto.WakeUpRequest) (*proto.WakeUpResponse, error) {
+	if !s.sleepTriggeredDown.Load() {
+		log.Info("skipping up because wasn't sleep down")
+		return &proto.WakeUpResponse{}, nil
+	}
+
+	// avoid other wakeup runs if sleep didn't make the computer sleep
+	s.sleepTriggeredDown.Store(false)
+
+	log.Info("running up after wake up")
+	_, err := s.Up(callerCtx, &proto.UpRequest{})
+	if err != nil {
+		log.Errorf("running up failed: %v", err)
+		return nil, err
+	}
+
+	log.Info("running up command executed successfully")
+	return &proto.WakeUpResponse{}, nil
+}
+
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
-	log.Info("up request received")
-	defer log.Info("up request completed")
 	s.mutex.Lock()
 	if s.clientRunning {
 		state := internal.CtxGetState(s.rootCtx)
@@ -815,10 +837,43 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 	return &proto.SwitchProfileResponse{}, nil
 }
 
+// SleepDown triggers the server to perform a "down" operation when the system enters a sleep state.
+// It ensures specific internal states are updated and handles errors during the process.
+// Returns a SleepDownResponse indicating the outcome or an error if the operation fails.
+func (s *Server) SleepDown(callerCtx context.Context, msg *proto.SleepDownRequest) (*proto.SleepDownResponse, error) {
+	s.mutex.Lock()
+
+	state := internal.CtxGetState(s.rootCtx)
+	state.Set(internal.StatusIdle)
+
+	status, err := state.Status()
+	if err != nil {
+		return nil, err
+	}
+
+	if status != internal.StatusConnecting && status != internal.StatusConnected {
+		log.Infof("skipping setting the agent down because status is %s", status)
+		return &proto.SleepDownResponse{}, nil
+	}
+	s.mutex.Unlock()
+
+	log.Info("running down after system started sleeping")
+
+	_, err = s.Down(callerCtx, &proto.DownRequest{})
+	if err != nil {
+		log.Errorf("running down failed: %v", err)
+		return &proto.SleepDownResponse{}, err
+	}
+
+	s.sleepTriggeredDown.Store(true)
+
+	log.Info("running down executed successfully")
+
+	return &proto.SleepDownResponse{}, nil
+}
+
 // Down engine work in the daemon.
 func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
-	log.Info("down request received")
-	defer log.Info("down request completed")
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 

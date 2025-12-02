@@ -21,11 +21,17 @@ service DaemonService {
   // Up starts engine work in the daemon.
   rpc Up(UpRequest) returns (UpResponse) {}
 
+  // WakeUP starts engine work in the daemon after computers wake up from sleep.
+  rpc WakeUp(WakeUpRequest) returns (WakeUpResponse) {}
+
   // Status of the service.
   rpc Status(StatusRequest) returns (StatusResponse) {}
 
-  // Down engine work in the daemon.
+  // Down stops engine work in the daemon.
   rpc Down(DownRequest) returns (DownResponse) {}
+
+  // SleepDown stops engine work in the daemon after computers goes to sleep.
+  rpc SleepDown(SleepDownRequest) returns (SleepDownResponse) {}
 
   // GetConfig of the daemon.
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
@@ -202,6 +208,11 @@ message UpRequest {
 
 message UpResponse {}
 
+message WakeUpRequest {}
+
+message WakeUpResponse {}
+
+
 message StatusRequest{
   bool getFullPeerStatus = 1;
   bool shouldRunProbes = 2;
@@ -220,6 +231,10 @@ message StatusResponse{
 message DownRequest {}
 
 message DownResponse {}
+
+message SleepDownRequest {}
+
+message SleepDownResponse {}
 
 message GetConfigRequest {
   string profileName = 1;
