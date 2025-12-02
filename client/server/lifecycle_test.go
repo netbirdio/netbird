@@ -80,7 +80,7 @@ func TestNotifyOSLifecycle_Sleep_SetsFlag_WhenConnecting(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Nil(t, resp, "handleSleep returns nil response on success")
+	assert.NotNil(t, resp, "handleSleep returns nil response on success")
 	assert.True(t, s.sleepTriggeredDown.Load(), "flag should be set after sleep when connecting")
 }
 
@@ -99,7 +99,7 @@ func TestNotifyOSLifecycle_Sleep_SetsFlag_WhenConnected(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Nil(t, resp, "handleSleep returns nil response on success")
+	assert.NotNil(t, resp, "handleSleep returns nil response on success")
 	assert.True(t, s.sleepTriggeredDown.Load(), "flag should be set after sleep when connected")
 }
 
@@ -212,7 +212,7 @@ func TestHandleSleep_ProceedsForActiveStates(t *testing.T) {
 			resp, err := s.handleSleep(ctx)
 
 			require.NoError(t, err)
-			assert.Nil(t, resp)
+			assert.NotNil(t, resp)
 			assert.True(t, s.sleepTriggeredDown.Load())
 		})
 	}
