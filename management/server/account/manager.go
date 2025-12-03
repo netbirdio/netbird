@@ -13,7 +13,6 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -127,5 +126,4 @@ type Manager interface {
 	CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error
 	GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error)
 	GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error)
-	SetEphemeralManager(em ephemeral.Manager)
 }

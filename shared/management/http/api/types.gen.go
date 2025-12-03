@@ -1998,6 +1998,12 @@ type GetApiEventsNetworkTrafficParamsConnectionType string
 // GetApiEventsNetworkTrafficParamsDirection defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParamsDirection string
 
+// GetApiGroupsParams defines parameters for GetApiGroups.
+type GetApiGroupsParams struct {
+	// Name Filter groups by name (exact match)
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+}
+
 // GetApiPeersParams defines parameters for GetApiPeers.
 type GetApiPeersParams struct {
 	// Name Filter peers by name

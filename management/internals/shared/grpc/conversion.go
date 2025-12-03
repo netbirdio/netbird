@@ -369,7 +369,7 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 	}
 
 	issuer := strings.TrimSpace(config.AuthIssuer)
-	if issuer == "" || deviceFlowConfig != nil {
+	if issuer == "" && deviceFlowConfig != nil {
 		if d := deriveIssuerFromTokenEndpoint(deviceFlowConfig.ProviderConfig.TokenEndpoint); d != "" {
 			issuer = d
 		}

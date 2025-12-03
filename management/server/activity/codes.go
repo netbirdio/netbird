@@ -177,10 +177,10 @@ const (
 
 	AccountNetworkRangeUpdated Activity = 87
 	PeerIPUpdated              Activity = 88
-
-	UserApproved     Activity = 89
-	UserRejected     Activity = 90
-	JobCreatedByUser Activity = 91
+	UserApproved               Activity = 89
+	UserRejected               Activity = 90
+	UserCreated                Activity = 91
+	JobCreatedByUser           Activity = 92
 
 	AccountDeleted Activity = 99999
 )
@@ -290,6 +290,7 @@ var activityMap = map[Activity]Code{
 	PeerIPUpdated: {"Peer IP updated", "peer.ip.update"},
 	UserApproved:  {"User approved", "user.approve"},
 	UserRejected:  {"User rejected", "user.reject"},
+	UserCreated:   {"User created", "user.create"},
 
 	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
 }

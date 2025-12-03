@@ -25,6 +25,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -2960,8 +2962,8 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), &config.Config{})
-	manager, err := BuildManager(ctx, nil, store, networkMapController, job.NewJobManager(nil, store), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
+	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3372,7 +3374,7 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 
 	t.Run("memory cache", func(t *testing.T) {
 		t.Run("should always return true", func(t *testing.T) {
-			cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond)
+			cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
 			require.NoError(t, err)
 
 			cold, err := manager.isCacheCold(context.Background(), cacheStore)
@@ -3387,7 +3389,7 @@ func TestDefaultAccountManager_IsCacheCold(t *testing.T) {
 		t.Cleanup(cleanup)
 		t.Setenv(cache.RedisStoreEnvVar, redisURL)
 
-		cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond)
+		cacheStore, err := cache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
 		require.NoError(t, err)
 
 		t.Run("should return true when no account exists", func(t *testing.T) {

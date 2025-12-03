@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 
+	nbpeers "github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroups "github.com/netbirdio/netbird/management/server/groups"
@@ -39,7 +40,6 @@ import (
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
-	nbpeers "github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
@@ -105,6 +105,7 @@ func NewAPIHandler(
 		accountManager.SyncUserJWTGroups,
 		accountManager.GetUserFromUserAuth,
 		rateLimitingConfig,
+		appMetrics.GetMeter(),
 	)
 
 	corsMiddleware := cors.AllowAll()

@@ -38,6 +38,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/sleep"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
@@ -209,10 +210,11 @@ var iconConnectedDot []byte
 var iconDisconnectedDot []byte
 
 type serviceClient struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	addr   string
-	conn   proto.DaemonServiceClient
+	ctx      context.Context
+	cancel   context.CancelFunc
+	addr     string
+	conn     proto.DaemonServiceClient
+	connLock sync.Mutex
 
 	eventHandler *eventHandler
 
@@ -1098,6 +1100,9 @@ func (s *serviceClient) onTrayReady() {
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
+
+	// Start sleep detection listener
+	go s.startSleepListener()
 }
 
 func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
@@ -1134,6 +1139,8 @@ func (s *serviceClient) onTrayExit() {
 
 // getSrvClient connection to the service.
 func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {
+	s.connLock.Lock()
+	defer s.connLock.Unlock()
 	if s.conn != nil {
 		return s.conn, nil
 	}
@@ -1154,6 +1161,62 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
+}
+
+// startSleepListener initializes the sleep detection service and listens for sleep events
+func (s *serviceClient) startSleepListener() {
+	sleepService, err := sleep.New()
+	if err != nil {
+		log.Warnf("%v", err)
+		return
+	}
+
+	if err := sleepService.Register(s.handleSleepEvents); err != nil {
+		log.Errorf("failed to start sleep detection: %v", err)
+		return
+	}
+
+	log.Info("sleep detection service initialized")
+
+	// Cleanup on context cancellation
+	go func() {
+		<-s.ctx.Done()
+		log.Info("stopping sleep event listener")
+		if err := sleepService.Deregister(); err != nil {
+			log.Errorf("failed to deregister sleep detection: %v", err)
+		}
+	}()
+}
+
+// handleSleepEvents sends a sleep notification to the daemon via gRPC
+func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
+	conn, err := s.getSrvClient(0)
+	if err != nil {
+		log.Errorf("failed to get daemon client for sleep notification: %v", err)
+		return
+	}
+
+	req := &proto.OSLifecycleRequest{}
+
+	switch event {
+	case sleep.EventTypeWakeUp:
+		log.Infof("handle wakeup event: %v", event)
+		req.Type = proto.OSLifecycleRequest_WAKEUP
+	case sleep.EventTypeSleep:
+		log.Infof("handle sleep event: %v", event)
+		req.Type = proto.OSLifecycleRequest_SLEEP
+	default:
+		log.Infof("unknown event: %v", event)
+		return
+	}
+
+	_, err = conn.NotifyOSLifecycle(s.ctx, req)
+	if err != nil {
+		log.Errorf("failed to notify daemon about os lifecycle notification: %v", err)
+		return
+	}
+
+	log.Info("successfully notified daemon about os lifecycle")
 }
 
 // setSettingsEnabled enables or disables the settings menu based on the provided state
