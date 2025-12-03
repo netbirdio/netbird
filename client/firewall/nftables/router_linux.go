@@ -1068,6 +1068,11 @@ func (r *router) acceptExternalChainsRules() error {
 	intf := ifname(r.wgIface.Name())
 
 	for _, chain := range chains {
+		if chain.Hooknum == nil {
+			log.Debugf("skipping external chain %s/%s: hooknum is nil", chain.Table.Name, chain.Name)
+			continue
+		}
+
 		log.Debugf("adding accept rules to external %s chain: %s %s/%s",
 			hookName(chain.Hooknum), familyName(chain.Table.Family), chain.Table.Name, chain.Name)
 
