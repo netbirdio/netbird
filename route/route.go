@@ -109,6 +109,9 @@ type Route struct {
 	AccessControlGroups []string `gorm:"serializer:json"`
 	// SkipAutoApply indicates if this exit node route (0.0.0.0/0) should skip auto-application for client routing
 	SkipAutoApply bool
+	// ApplicablePeerIDs is used in compact network maps to indicate which peers this route applies to
+	// When populated, client should use these IDs to reference peers from the Peers array instead of using Peer/PeerID/Groups
+	ApplicablePeerIDs []string `gorm:"-"`
 }
 
 // EventMeta returns activity event meta related to the route
@@ -133,6 +136,30 @@ func (r *Route) Copy() *Route {
 		NetworkType:         r.NetworkType,
 		Peer:                r.Peer,
 		PeerID:              r.PeerID,
+		PeerGroups:          slices.Clone(r.PeerGroups),
+		Metric:              r.Metric,
+		Masquerade:          r.Masquerade,
+		Enabled:             r.Enabled,
+		Groups:              slices.Clone(r.Groups),
+		AccessControlGroups: slices.Clone(r.AccessControlGroups),
+		SkipAutoApply:       r.SkipAutoApply,
+	}
+	return route
+}
+
+// CopyClean copies a route object without the peer-specific part of the ID
+// and peer data
+func (r *Route) CopyClean() *Route {
+	cleanId := strings.Split(string(r.ID), ":")[0]
+	route := &Route{
+		ID:                  ID(cleanId),
+		AccountID:           r.AccountID,
+		Description:         r.Description,
+		NetID:               r.NetID,
+		Network:             r.Network,
+		Domains:             slices.Clone(r.Domains),
+		KeepRoute:           r.KeepRoute,
+		NetworkType:         r.NetworkType,
 		PeerGroups:          slices.Clone(r.PeerGroups),
 		Metric:              r.Metric,
 		Masquerade:          r.Masquerade,

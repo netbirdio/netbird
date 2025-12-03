@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/rand"
 	"net"
 	"sync"
@@ -47,6 +48,83 @@ func (nm *NetworkMap) Merge(other *NetworkMap) {
 	nm.FirewallRules = util.MergeUnique(nm.FirewallRules, other.FirewallRules)
 	nm.RoutesFirewallRules = util.MergeUnique(nm.RoutesFirewallRules, other.RoutesFirewallRules)
 	nm.ForwardingRules = util.MergeUnique(nm.ForwardingRules, other.ForwardingRules)
+}
+
+func (nm *NetworkMap) UncompactRoutes() {
+	peers := make(map[string]*nbpeer.Peer, len(nm.Peers)+len(nm.OfflinePeers))
+	for _, p := range nm.Peers {
+		peers[p.ID] = p
+	}
+	uncompactedRoutes := make([]*route.Route, 0)
+	for _, compactRoute := range nm.Routes {
+		if len(compactRoute.ApplicablePeerIDs) == 0 {
+			uncompactedRoutes = append(uncompactedRoutes, compactRoute.Copy())
+			continue
+		}
+
+		for _, peerID := range compactRoute.ApplicablePeerIDs {
+			expandedRoute := compactRoute.Copy()
+			expandedRoute.ID = route.ID(string(compactRoute.ID) + ":" + peerID)
+			peer := peers[peerID]
+			if peer == nil {
+				continue
+			}
+			expandedRoute.Peer = peer.Key
+			expandedRoute.PeerID = peerID
+			uncompactedRoutes = append(uncompactedRoutes, expandedRoute)
+		}
+	}
+
+	nm.Routes = uncompactedRoutes
+}
+
+func (nm *NetworkMap) ValidateApplicablePeerIDs(compactNm *NetworkMap, expectedPermsMap map[string]map[string]bool) error {
+	if compactNm == nil {
+		return fmt.Errorf("compact network map is nil")
+	}
+
+	peerIDSet := make(map[string]struct{})
+	for _, peer := range nm.Peers {
+		peerIDSet[peer.ID] = struct{}{}
+	}
+
+	for _, route := range compactNm.Routes {
+		if len(route.ApplicablePeerIDs) == 0 {
+			continue
+		}
+
+		for _, peerID := range route.ApplicablePeerIDs {
+			if _, exists := peerIDSet[peerID]; !exists {
+				return fmt.Errorf("route %s has applicable peer ID %s that doesn't exist in peer list", route.ID, peerID)
+			}
+		}
+
+		if expectedPermsMap != nil {
+			expected, hasExpected := expectedPermsMap[string(route.ID)]
+			if hasExpected {
+				expectedPeerIDs := make(map[string]struct{})
+				for peerID, shouldAccess := range expected {
+					if shouldAccess {
+						expectedPeerIDs[peerID] = struct{}{}
+					}
+				}
+
+				if len(route.ApplicablePeerIDs) != len(expectedPeerIDs) {
+					return fmt.Errorf("route %s: expected %d applicable peers, got %d",
+						route.ID, len(expectedPeerIDs), len(route.ApplicablePeerIDs))
+				}
+
+				for _, peerID := range route.ApplicablePeerIDs {
+					if _, expected := expectedPeerIDs[peerID]; !expected {
+						return fmt.Errorf("route %s: peer %s should not have access but is in ApplicablePeerIDs",
+							route.ID, peerID)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func mergeUniquePeersByID(peers1, peers2 []*nbpeer.Peer) []*nbpeer.Peer {

@@ -1067,3 +1067,72 @@ func createTestAccountWithEntities() *types.Account {
 
 	return account
 }
+
+func createAccountFromFile() (*types.Account, error) {
+	accraw := filepath.Join("testdata", "account_cnlf3j3l0ubs738o5d4g.json")
+	data, err := os.ReadFile(accraw)
+	if err != nil {
+		return nil, err
+	}
+	var account types.Account
+	err = json.Unmarshal(data, &account)
+	if err != nil {
+		return nil, err
+	}
+	return &account, nil
+}
+
+func TestGetPeerNetworkMapCompact(t *testing.T) {
+	account, err := createAccountFromFile()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	validatedPeersMap := make(map[string]struct{}, len(account.Peers))
+	for _, peer := range account.Peers {
+		validatedPeersMap[peer.ID] = struct{}{}
+	}
+	dnsDomain := account.Settings.DNSDomain
+	customZone := account.GetPeersCustomZone(ctx, dnsDomain)
+
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
+
+	testingPeerID := "d3knp53l0ubs738a3n6g"
+
+	regularNm := builder.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+	compactNm := builder.GetPeerNetworkMapCompact(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+
+	compactedJSON, err := json.MarshalIndent(compactNm, "", "  ")
+	require.NoError(t, err)
+
+	compactNm.UncompactRoutes()
+
+	normalizeAndSortNetworkMap(regularNm)
+	normalizeAndSortNetworkMap(compactNm)
+
+	regularJSON, err := json.MarshalIndent(regularNm, "", "  ")
+	require.NoError(t, err)
+
+	regularLn := len(regularJSON)
+	compactLn := len(compactedJSON)
+
+	t.Logf("compacted less on %d percents", 100-int32((float32(compactLn)/float32(regularLn))*100))
+
+	regular := filepath.Join("testdata", "regular_nmap.json")
+
+	err = os.MkdirAll(filepath.Dir(regular), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(regular, regularJSON, 0644)
+	require.NoError(t, err)
+
+	uncompactedJSON, err := json.MarshalIndent(compactNm, "", "  ")
+	require.NoError(t, err)
+
+	uncompacted := filepath.Join("testdata", "compacted_nmap.json")
+
+	err = os.MkdirAll(filepath.Dir(regular), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(uncompacted, uncompactedJSON, 0644)
+	require.NoError(t, err)
+
+	require.JSONEq(t, string(regularJSON), string(uncompactedJSON), "regular and uncompacted network maps should be equal")
+}
