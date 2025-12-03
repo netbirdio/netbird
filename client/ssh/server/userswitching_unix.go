@@ -87,7 +87,8 @@ func (s *Server) getLoginCmd(username string, remoteAddr net.Addr) (string, []st
 
 	switch runtime.GOOS {
 	case "linux":
-		return s.getLinuxLoginCmd(loginPath, username, addrPort.Addr().String())
+		p, a := s.getLinuxLoginCmd(loginPath, username, addrPort.Addr().String())
+		return p, a, nil
 	case "darwin", "freebsd", "openbsd", "netbsd", "dragonfly":
 		return loginPath, []string{"-fp", "-h", addrPort.Addr().String(), username}, nil
 	default:
@@ -97,7 +98,7 @@ func (s *Server) getLoginCmd(username string, remoteAddr net.Addr) (string, []st
 
 // getLinuxLoginCmd returns the login command for Linux systems.
 // Handles differences between util-linux and shadow-utils login implementations.
-func (s *Server) getLinuxLoginCmd(loginPath, username, remoteIP string) (string, []string, error) {
+func (s *Server) getLinuxLoginCmd(loginPath, username, remoteIP string) (string, []string) {
 	// Special handling for Arch Linux without /etc/pam.d/remote
 	var loginArgs []string
 	if s.fileExists("/etc/arch-release") && !s.fileExists("/etc/pam.d/remote") {
@@ -112,17 +113,17 @@ func (s *Server) getLinuxLoginCmd(loginPath, username, remoteIP string) (string,
 	// TODO: handle this via the executor using syscall.Setsid() + TIOCSCTTY + syscall.Exec()
 	// to avoid external setsid dependency.
 	if !s.loginIsUtilLinux {
-		return loginPath, loginArgs, nil
+		return loginPath, loginArgs
 	}
 
 	setsidPath, err := exec.LookPath("setsid")
 	if err != nil {
 		log.Warnf("setsid not available but util-linux login detected, login may fail: %v", err)
-		return loginPath, loginArgs, nil
+		return loginPath, loginArgs
 	}
 
 	args := append([]string{"-w", "-c", loginPath}, loginArgs...)
-	return setsidPath, args, nil
+	return setsidPath, args
 }
 
 // fileExists checks if a file exists
