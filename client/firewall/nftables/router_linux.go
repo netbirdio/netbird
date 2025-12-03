@@ -27,7 +27,11 @@ import (
 )
 
 const (
-	tableNat               = "nat"
+	tableNat      = "nat"
+	tableMangle   = "mangle"
+	tableRaw      = "raw"
+	tableSecurity = "security"
+
 	chainNameNatPrerouting = "PREROUTING"
 	chainNameRoutingFw     = "netbird-rt-fwd"
 	chainNameRoutingNat    = "netbird-rt-postrouting"
@@ -1252,7 +1256,8 @@ func (r *router) isExternalChain(chain *nftables.Chain) bool {
 		return false
 	}
 
-	if r.filterTable != nil && chain.Table.Name == r.filterTable.Name && chain.Table.Family == r.filterTable.Family {
+	// Skip all iptables-managed tables in the ip family
+	if chain.Table.Family == nftables.TableFamilyIPv4 && isIptablesTable(chain.Table.Name) {
 		return false
 	}
 
@@ -1265,6 +1270,14 @@ func (r *router) isExternalChain(chain *nftables.Chain) bool {
 	}
 
 	return *chain.Hooknum == *nftables.ChainHookForward || *chain.Hooknum == *nftables.ChainHookInput
+}
+
+func isIptablesTable(name string) bool {
+	switch name {
+	case tableNameFilter, tableNat, tableMangle, tableRaw, tableSecurity:
+		return true
+	}
+	return false
 }
 
 func (r *router) removeAcceptFilterRulesIptables(ipt *iptables.IPTables) error {
