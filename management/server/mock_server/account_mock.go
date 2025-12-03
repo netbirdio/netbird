@@ -15,7 +15,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/peers/ephemeral"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -974,11 +973,6 @@ func (am *MockAccountManager) GetCurrentUserInfo(ctx context.Context, userAuth a
 		return am.GetCurrentUserInfoFunc(ctx, userAuth)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUserInfo is not implemented")
-}
-
-// SetEphemeralManager mocks SetEphemeralManager of the AccountManager interface
-func (am *MockAccountManager) SetEphemeralManager(em ephemeral.Manager) {
-	// Mock implementation - does nothing
 }
 
 func (am *MockAccountManager) AllowSync(key string, hash uint64) bool {

@@ -4,9 +4,12 @@ package android
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"slices"
 	"sync"
+
+	"golang.org/x/exp/maps"
 
 	log "github.com/sirupsen/logrus"
 
@@ -16,10 +19,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
+	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -62,17 +68,18 @@ type Client struct {
 	deviceName            string
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
+	stateFile             string
 
 	connectClient *internal.ConnectClient
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile string, androidSDKVersion int, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
+func NewClient(platformFiles PlatformFiles, androidSDKVersion int, deviceName string, uiVersion string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, networkChangeListener NetworkChangeListener) *Client {
 	execWorkaround(androidSDKVersion)
 
 	net.SetAndroidProtectSocketFn(tunAdapter.ProtectSocket)
 	return &Client{
-		cfgFile:               cfgFile,
+		cfgFile:               platformFiles.ConfigurationFilePath(),
 		deviceName:            deviceName,
 		uiVersion:             uiVersion,
 		tunAdapter:            tunAdapter,
@@ -80,11 +87,12 @@ func NewClient(cfgFile string, androidSDKVersion int, deviceName string, uiVersi
 		recorder:              peer.NewRecorder(""),
 		ctxCancelLock:         &sync.Mutex{},
 		networkChangeListener: networkChangeListener,
+		stateFile:             platformFiles.StateFilePath(),
 	}
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
+func (c *Client) Run(urlOpener URLOpener, isAndroidTV bool, dns *DNSList, dnsReadyListener DnsReadyListener, envList *EnvList) error {
 	exportEnvList(envList)
 	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
@@ -107,7 +115,7 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 	c.ctxCancelLock.Unlock()
 
 	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.login(urlOpener)
+	err = auth.login(urlOpener, isAndroidTV)
 	if err != nil {
 		return err
 	}
@@ -115,7 +123,7 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, c.stateFile)
 }
 
 // RunWithoutLogin we apply this type of run function when the backed has been started without UI (i.e. after reboot).
@@ -142,7 +150,7 @@ func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, c.stateFile)
 }
 
 // Stop the internal client and free the resources
@@ -154,6 +162,19 @@ func (c *Client) Stop() {
 	}
 
 	c.ctxCancel()
+}
+
+func (c *Client) RenewTun(fd int) error {
+	if c.connectClient == nil {
+		return fmt.Errorf("engine not running")
+	}
+
+	e := c.connectClient.Engine()
+	if e == nil {
+		return fmt.Errorf("engine not initialized")
+	}
+
+	return e.RenewTun(fd)
 }
 
 // SetTraceLogLevel configure the logger to trace level
@@ -177,6 +198,7 @@ func (c *Client) PeersList() *PeerInfoArray {
 			p.IP,
 			p.FQDN,
 			p.ConnStatus.String(),
+			PeerRoutes{routes: maps.Keys(p.GetRoutes())},
 		}
 		peerInfos[n] = pi
 	}
@@ -201,9 +223,17 @@ func (c *Client) Networks() *NetworkArray {
 		return nil
 	}
 
+	routeSelector := routeManager.GetRouteSelector()
+	if routeSelector == nil {
+		log.Error("could not get route selector")
+		return nil
+	}
+
 	networkArray := &NetworkArray{
 		items: make([]Network, 0),
 	}
+
+	resolvedDomains := c.recorder.GetResolvedDomainsStates()
 
 	for id, routes := range routeManager.GetClientRoutesWithNetID() {
 		if len(routes) == 0 {
@@ -211,21 +241,25 @@ func (c *Client) Networks() *NetworkArray {
 		}
 
 		r := routes[0]
+		domains := c.getNetworkDomainsFromRoute(r, resolvedDomains)
 		netStr := r.Network.String()
+
 		if r.IsDynamic() {
 			netStr = r.Domains.SafeString()
 		}
 
-		peer, err := c.recorder.GetPeer(routes[0].Peer)
+		routePeer, err := c.recorder.GetPeer(routes[0].Peer)
 		if err != nil {
 			log.Errorf("could not get peer info for %s: %v", routes[0].Peer, err)
 			continue
 		}
 		network := Network{
-			Name:    string(id),
-			Network: netStr,
-			Peer:    peer.FQDN,
-			Status:  peer.ConnStatus.String(),
+			Name:       string(id),
+			Network:    netStr,
+			Peer:       routePeer.FQDN,
+			Status:     routePeer.ConnStatus.String(),
+			IsSelected: routeSelector.IsSelected(id),
+			Domains:    domains,
 		}
 		networkArray.Add(network)
 	}
@@ -251,6 +285,69 @@ func (c *Client) SetConnectionListener(listener ConnectionListener) {
 // RemoveConnectionListener remove connection listener
 func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
+}
+
+func (c *Client) toggleRoute(command routeCommand) error {
+	return command.toggleRoute()
+}
+
+func (c *Client) getRouteManager() (routemanager.Manager, error) {
+	client := c.connectClient
+	if client == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	engine := client.Engine()
+	if engine == nil {
+		return nil, fmt.Errorf("engine is not running")
+	}
+
+	manager := engine.GetRouteManager()
+	if manager == nil {
+		return nil, fmt.Errorf("could not get route manager")
+	}
+
+	return manager, nil
+}
+
+func (c *Client) SelectRoute(route string) error {
+	manager, err := c.getRouteManager()
+	if err != nil {
+		return err
+	}
+
+	return c.toggleRoute(selectRouteCommand{route: route, manager: manager})
+}
+
+func (c *Client) DeselectRoute(route string) error {
+	manager, err := c.getRouteManager()
+	if err != nil {
+		return err
+	}
+
+	return c.toggleRoute(deselectRouteCommand{route: route, manager: manager})
+}
+
+// getNetworkDomainsFromRoute extracts domains from a route and enriches each domain
+// with its resolved IP addresses from the provided resolvedDomains map.
+func (c *Client) getNetworkDomainsFromRoute(route *route.Route, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo) NetworkDomains {
+	domains := NetworkDomains{}
+
+	for _, d := range route.Domains {
+		networkDomain := NetworkDomain{
+			Address: d.SafeString(),
+		}
+
+		if info, exists := resolvedDomains[d]; exists {
+			for _, prefix := range info.Prefixes {
+				networkDomain.addResolvedIP(prefix.Addr().String())
+			}
+		}
+
+		domains.Add(&networkDomain)
+	}
+
+	return domains
 }
 
 func exportEnvList(list *EnvList) {

@@ -67,8 +67,31 @@ func (d *DaemonHostKeyVerifier) VerifySSHHostKey(peerAddress string, presentedKe
 	return VerifyHostKey(storedKeyData, presentedKey, peerAddress)
 }
 
+// printAuthInstructions prints authentication instructions to stderr
+func printAuthInstructions(stderr io.Writer, authResponse *proto.RequestJWTAuthResponse, browserWillOpen bool) {
+	_, _ = fmt.Fprintln(stderr, "SSH authentication required.")
+
+	if browserWillOpen {
+		_, _ = fmt.Fprintln(stderr, "Please do the SSO login in your browser.")
+		_, _ = fmt.Fprintln(stderr, "If your browser didn't open automatically, use this URL to log in:")
+		_, _ = fmt.Fprintln(stderr)
+	}
+
+	_, _ = fmt.Fprintf(stderr, "%s\n", authResponse.VerificationURIComplete)
+
+	if authResponse.UserCode != "" {
+		_, _ = fmt.Fprintf(stderr, "Or visit: %s and enter code: %s\n", authResponse.VerificationURI, authResponse.UserCode)
+	}
+
+	if browserWillOpen {
+		_, _ = fmt.Fprintln(stderr)
+	}
+
+	_, _ = fmt.Fprintln(stderr, "Waiting for authentication...")
+}
+
 // RequestJWTToken requests or retrieves a JWT token for SSH authentication
-func RequestJWTToken(ctx context.Context, client proto.DaemonServiceClient, stdout, stderr io.Writer, useCache bool, hint string) (string, error) {
+func RequestJWTToken(ctx context.Context, client proto.DaemonServiceClient, stdout, stderr io.Writer, useCache bool, hint string, openBrowser func(string) error) (string, error) {
 	req := &proto.RequestJWTAuthRequest{}
 	if hint != "" {
 		req.Hint = &hint
@@ -84,12 +107,13 @@ func RequestJWTToken(ctx context.Context, client proto.DaemonServiceClient, stdo
 	}
 
 	if stderr != nil {
-		_, _ = fmt.Fprintln(stderr, "SSH authentication required.")
-		_, _ = fmt.Fprintf(stderr, "Please visit: %s\n", authResponse.VerificationURIComplete)
-		if authResponse.UserCode != "" {
-			_, _ = fmt.Fprintf(stderr, "Or visit: %s and enter code: %s\n", authResponse.VerificationURI, authResponse.UserCode)
+		printAuthInstructions(stderr, authResponse, openBrowser != nil)
+	}
+
+	if openBrowser != nil {
+		if err := openBrowser(authResponse.VerificationURIComplete); err != nil {
+			log.Debugf("open browser: %v", err)
 		}
-		_, _ = fmt.Fprintln(stderr, "Waiting for authentication...")
 	}
 
 	tokenResponse, err := client.WaitJWTToken(ctx, &proto.WaitJWTTokenRequest{

@@ -19,6 +19,8 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
+	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral"
+	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
@@ -41,12 +43,14 @@ type Controller struct {
 	accountManagerMetrics *telemetry.AccountManagerMetrics
 	peersUpdateManager    network_map.PeersUpdateManager
 	settingsManager       settings.Manager
+	EphemeralPeersManager ephemeral.Manager
 
 	accountUpdateLocks               sync.Map
 	sendAccountUpdateLocks           sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
 	dnsDomain string
+	config    *config.Config
 
 	requestBuffer account.RequestBuffer
 
@@ -68,7 +72,7 @@ type bufferUpdate struct {
 
 var _ network_map.Controller = (*Controller)(nil)
 
-func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string, proxyController port_forwarding.Controller) *Controller {
+func NewController(ctx context.Context, store store.Store, metrics telemetry.AppMetrics, peersUpdateManager network_map.PeersUpdateManager, requestBuffer account.RequestBuffer, integratedPeerValidator integrated_validator.IntegratedValidator, settingsManager settings.Manager, dnsDomain string, proxyController port_forwarding.Controller, ephemeralPeersManager ephemeral.Manager, config *config.Config) *Controller {
 	nMetrics, err := newMetrics(metrics.UpdateChannelMetrics())
 	if err != nil {
 		log.Fatal(fmt.Errorf("error creating metrics: %w", err))
@@ -95,13 +99,40 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		integratedPeerValidator: integratedPeerValidator,
 		settingsManager:         settingsManager,
 		dnsDomain:               dnsDomain,
+		config:                  config,
 
-		proxyController: proxyController,
+		proxyController:       proxyController,
+		EphemeralPeersManager: ephemeralPeersManager,
 
 		holder:               types.NewHolder(),
 		expNewNetworkMap:     newNetworkMapBuilder,
 		expNewNetworkMapAIDs: expIDs,
 	}
+}
+
+func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *network_map.UpdateMessage, error) {
+	peer, err := c.repo.GetPeerByID(ctx, accountID, peerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get peer %s: %v", peerID, err)
+	}
+
+	c.EphemeralPeersManager.OnPeerConnected(ctx, peer)
+
+	return c.peersUpdateManager.CreateChannel(ctx, peerID), nil
+}
+
+func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, peerID string) {
+	c.peersUpdateManager.CloseChannel(ctx, peerID)
+	peer, err := c.repo.GetPeerByID(ctx, accountID, peerID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get peer %s: %v", peerID, err)
+		return
+	}
+	c.EphemeralPeersManager.OnPeerDisconnected(ctx, peer)
+}
+
+func (c *Controller) CountStreams() int {
+	return c.peersUpdateManager.CountStreams()
 }
 
 func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID string) error {
@@ -205,7 +236,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := grpc.ToSyncResponse(ctx, nil, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
 			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{Update: update})
@@ -323,7 +354,7 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	peerGroups := account.GetPeerGroups(peerId)
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
 
-	update := grpc.ToSyncResponse(ctx, nil, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+	update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
 	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{Update: update})
 
 	return nil
@@ -360,38 +391,6 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 		b.next.Reset(time.Duration(c.updateAccountPeersBufferInterval.Load()))
 	}()
 
-	return nil
-}
-
-func (c *Controller) DeletePeer(ctx context.Context, accountId string, peerId string) error {
-	network, err := c.repo.GetAccountNetwork(ctx, accountId)
-	if err != nil {
-		return err
-	}
-
-	peers, err := c.repo.GetAccountPeers(ctx, accountId)
-	if err != nil {
-		return err
-	}
-
-	dnsFwdPort := computeForwarderPort(peers, network_map.DnsForwarderPortMinVersion)
-	c.peersUpdateManager.SendUpdate(ctx, peerId, &network_map.UpdateMessage{
-		Update: &proto.SyncResponse{
-			RemotePeers:        []*proto.RemotePeerConfig{},
-			RemotePeersIsEmpty: true,
-			NetworkMap: &proto.NetworkMap{
-				Serial:               network.CurrentSerial(),
-				RemotePeers:          []*proto.RemotePeerConfig{},
-				RemotePeersIsEmpty:   true,
-				FirewallRules:        []*proto.FirewallRule{},
-				FirewallRulesIsEmpty: true,
-				DNSConfig: &proto.DNSConfig{
-					ForwarderPort: dnsFwdPort,
-				},
-			},
-		},
-	})
-	c.peersUpdateManager.CloseChannel(ctx, peerId)
 	return nil
 }
 
@@ -695,35 +694,83 @@ func isPeerInPolicySourceGroups(account *types.Account, peerID string, policy *t
 	return false, nil
 }
 
-func (c *Controller) OnPeerUpdated(accountId string, peer *nbpeer.Peer) {
-	c.UpdatePeerInNetworkMapCache(accountId, peer)
-	_ = c.bufferSendUpdateAccountPeers(context.Background(), accountId)
+func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerIDs []string) error {
+	peers, err := c.repo.GetPeersByIDs(ctx, accountID, peerIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get peers by ids: %w", err)
+	}
+
+	for _, peer := range peers {
+		c.UpdatePeerInNetworkMapCache(accountID, peer)
+	}
+
+	err = c.bufferSendUpdateAccountPeers(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to buffer update account peers for peer update in account %s: %v", accountID, err)
+	}
+
+	return nil
 }
 
-func (c *Controller) OnPeerAdded(ctx context.Context, accountID string, peerID string) error {
-	if c.experimentalNetworkMap(accountID) {
-		account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return err
-		}
+func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error {
+	for _, peerID := range peerIDs {
+		if c.experimentalNetworkMap(accountID) {
+			account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+			if err != nil {
+				return err
+			}
 
-		err = c.onPeerAddedUpdNetworkMapCache(account, peerID)
-		if err != nil {
-			return err
+			err = c.onPeerAddedUpdNetworkMapCache(account, peerID)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return c.bufferSendUpdateAccountPeers(ctx, accountID)
 }
 
-func (c *Controller) OnPeerDeleted(ctx context.Context, accountID string, peerID string) error {
-	if c.experimentalNetworkMap(accountID) {
-		account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-		if err != nil {
-			return err
-		}
-		err = c.onPeerDeletedUpdNetworkMapCache(account, peerID)
-		if err != nil {
-			return err
+func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error {
+	network, err := c.repo.GetAccountNetwork(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
+	peers, err := c.repo.GetAccountPeers(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
+	dnsFwdPort := computeForwarderPort(peers, network_map.DnsForwarderPortMinVersion)
+	for _, peerID := range peerIDs {
+		c.peersUpdateManager.SendUpdate(ctx, peerID, &network_map.UpdateMessage{
+			Update: &proto.SyncResponse{
+				RemotePeers:        []*proto.RemotePeerConfig{},
+				RemotePeersIsEmpty: true,
+				NetworkMap: &proto.NetworkMap{
+					Serial:               network.CurrentSerial(),
+					RemotePeers:          []*proto.RemotePeerConfig{},
+					RemotePeersIsEmpty:   true,
+					FirewallRules:        []*proto.FirewallRule{},
+					FirewallRulesIsEmpty: true,
+					DNSConfig: &proto.DNSConfig{
+						ForwarderPort: dnsFwdPort,
+					},
+				},
+			},
+		})
+		c.peersUpdateManager.CloseChannel(ctx, peerID)
+
+		if c.experimentalNetworkMap(accountID) {
+			account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+			if err != nil {
+				log.WithContext(ctx).Errorf("failed to get account %s: %v", accountID, err)
+				continue
+			}
+			err = c.onPeerDeletedUpdNetworkMapCache(account, peerID)
+			if err != nil {
+				log.WithContext(ctx).Errorf("failed to update network map cache for deleted peer %s in account %s: %v", peerID, accountID, err)
+				continue
+			}
 		}
 	}
 
@@ -775,10 +822,6 @@ func (c *Controller) GetNetworkMap(ctx context.Context, peerID string) (*types.N
 	return networkMap, nil
 }
 
-func (c *Controller) DisconnectPeers(ctx context.Context, peerIDs []string) {
+func (c *Controller) DisconnectPeers(ctx context.Context, accountId string, peerIDs []string) {
 	c.peersUpdateManager.CloseChannels(ctx, peerIDs)
-}
-
-func (c *Controller) IsConnected(peerID string) bool {
-	return c.peersUpdateManager.HasChannel(peerID)
 }

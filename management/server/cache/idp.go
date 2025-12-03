@@ -18,6 +18,7 @@ const (
 	DefaultIDPCacheExpirationMax   = 7 * 24 * time.Hour // 7 days
 	DefaultIDPCacheExpirationMin   = 3 * 24 * time.Hour // 3 days
 	DefaultIDPCacheCleanupInterval = 30 * time.Minute
+	DefaultIDPCacheOpenConn        = 100
 )
 
 // UserDataCache is an interface that wraps the basic Get, Set and Delete methods for idp.UserData objects.

@@ -255,7 +255,7 @@ func NewEngine(
 	sm := profilemanager.NewServiceManager("")
 
 	path := sm.GetStatePath()
-	if runtime.GOOS == "ios" {
+	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
 			if err != nil {
@@ -292,6 +292,12 @@ func (e *Engine) Stop() error {
 	}
 	log.Info("Network monitor: stopped")
 
+	if os.Getenv("NB_REMOVE_BEFORE_DNS") == "true" && os.Getenv("NB_REMOVE_BEFORE_ROUTES") != "true" {
+		log.Info("removing peers before dns")
+		if err := e.removeAllPeers(); err != nil {
+			return fmt.Errorf("failed to remove all peers: %s", err)
+		}
+	}
 	if err := e.stopSSHServer(); err != nil {
 		log.Warnf("failed to stop SSH server: %v", err)
 	}
@@ -310,6 +316,13 @@ func (e *Engine) Stop() error {
 
 	e.stopDNSForwarder()
 
+	if os.Getenv("NB_REMOVE_BEFORE_ROUTES") == "true" && os.Getenv("NB_REMOVE_BEFORE_DNS") != "true" {
+		log.Info("removing peers before routes")
+		if err := e.removeAllPeers(); err != nil {
+			return fmt.Errorf("failed to remove all peers: %s", err)
+		}
+	}
+
 	if e.routeManager != nil {
 		e.routeManager.Stop(e.stateManager)
 	}
@@ -317,13 +330,16 @@ func (e *Engine) Stop() error {
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
 	}
-
+	log.Info("cleaning up status recorder states")
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
 	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
 	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
 
-	if err := e.removeAllPeers(); err != nil {
-		return fmt.Errorf("failed to remove all peers: %s", err)
+	if os.Getenv("NB_REMOVE_BEFORE_DNS") != "true" && os.Getenv("NB_REMOVE_BEFORE_ROUTES") != "true" {
+		log.Info("removing peers after dns and routes")
+		if err := e.removeAllPeers(); err != nil {
+			return fmt.Errorf("failed to remove all peers: %s", err)
+		}
 	}
 
 	if e.cancel != nil {
@@ -1192,6 +1208,7 @@ func toRouteDomains(myPubKey string, routes []*route.Route) []*dnsfwd.ForwarderE
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns.Config {
+	//nolint
 	forwarderPort := uint16(protoDNSConfig.GetForwarderPort())
 	if forwarderPort == 0 {
 		forwarderPort = nbdns.ForwarderClientPort
@@ -1206,7 +1223,9 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns
 
 	for _, zone := range protoDNSConfig.GetCustomZones() {
 		dnsZone := nbdns.CustomZone{
-			Domain: zone.GetDomain(),
+			Domain:               zone.GetDomain(),
+			SearchDomainDisabled: zone.GetSearchDomainDisabled(),
+			SkipPTRProcess:       zone.GetSkipPTRProcess(),
 		}
 		for _, record := range zone.Records {
 			dnsRecord := nbdns.SimpleRecord{
@@ -1828,6 +1847,18 @@ func (e *Engine) GetWgAddr() netip.Addr {
 		return netip.Addr{}
 	}
 	return e.wgInterface.Address().IP
+}
+
+func (e *Engine) RenewTun(fd int) error {
+	e.syncMsgMux.Lock()
+	wgInterface := e.wgInterface
+	e.syncMsgMux.Unlock()
+
+	if wgInterface == nil {
+		return fmt.Errorf("wireguard interface not initialized")
+	}
+
+	return wgInterface.RenewTun(fd)
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag

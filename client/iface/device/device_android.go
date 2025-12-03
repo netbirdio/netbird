@@ -3,6 +3,7 @@
 package device
 
 import (
+	"fmt"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -19,11 +20,12 @@ import (
 
 // WGTunDevice ignore the WGTunDevice interface on Android because the creation of the tun device is different on this platform
 type WGTunDevice struct {
-	address    wgaddr.Address
-	port       int
-	key        string
-	mtu        uint16
-	iceBind    *bind.ICEBind
+	address wgaddr.Address
+	port    int
+	key     string
+	mtu     uint16
+	iceBind *bind.ICEBind
+	// todo: review if we can eliminate the TunAdapter
 	tunAdapter TunAdapter
 	disableDNS bool
 
@@ -32,17 +34,19 @@ type WGTunDevice struct {
 	filteredDevice *FilteredDevice
 	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
+	renewableTun   *RenewableTUN
 }
 
 func NewTunDevice(address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind, tunAdapter TunAdapter, disableDNS bool) *WGTunDevice {
 	return &WGTunDevice{
-		address:    address,
-		port:       port,
-		key:        key,
-		mtu:        mtu,
-		iceBind:    iceBind,
-		tunAdapter: tunAdapter,
-		disableDNS: disableDNS,
+		address:      address,
+		port:         port,
+		key:          key,
+		mtu:          mtu,
+		iceBind:      iceBind,
+		tunAdapter:   tunAdapter,
+		disableDNS:   disableDNS,
+		renewableTun: NewRenewableTUN(),
 	}
 }
 
@@ -65,14 +69,17 @@ func (t *WGTunDevice) Create(routes []string, dns string, searchDomains []string
 		return nil, err
 	}
 
-	tunDevice, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
+	unmonitoredTUN, name, err := tun.CreateUnmonitoredTUNFromFD(fd)
 	if err != nil {
 		_ = unix.Close(fd)
 		log.Errorf("failed to create Android interface: %s", err)
 		return nil, err
 	}
+
+	t.renewableTun.AddDevice(unmonitoredTUN)
+
 	t.name = name
-	t.filteredDevice = newDeviceFilter(tunDevice)
+	t.filteredDevice = newDeviceFilter(t.renewableTun)
 
 	log.Debugf("attaching to interface %v", name)
 	t.device = device.NewDevice(t.filteredDevice, t.iceBind, device.NewLogger(wgLogLevel(), "[netbird] "))
@@ -102,6 +109,23 @@ func (t *WGTunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	t.udpMux = udpMux
 	log.Debugf("device is ready to use: %s", t.name)
 	return udpMux, nil
+}
+
+func (t *WGTunDevice) RenewTun(fd int) error {
+	if t.device == nil {
+		return fmt.Errorf("device not initialized")
+	}
+
+	unmonitoredTUN, _, err := tun.CreateUnmonitoredTUNFromFD(fd)
+	if err != nil {
+		_ = unix.Close(fd)
+		log.Errorf("failed to renew Android interface: %s", err)
+		return err
+	}
+
+	t.renewableTun.AddDevice(unmonitoredTUN)
+
+	return nil
 }
 
 func (t *WGTunDevice) UpdateAddr(addr wgaddr.Address) error {
