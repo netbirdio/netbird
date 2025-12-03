@@ -85,6 +85,9 @@ type Server struct {
 	profilesDisabled       bool
 	updateSettingsDisabled bool
 
+	// sleepTriggeredDown holds a state indicated if the sleep handler triggered the last client down
+	sleepTriggeredDown atomic.Bool
+
 	jwtCache *jwtCache
 }
 
