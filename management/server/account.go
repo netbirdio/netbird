@@ -313,6 +313,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 
 			if approvedCount > 0 {
 				log.WithContext(ctx).Debugf("approved %d pending peers in account %s", approvedCount, accountID)
+				updateAccountPeers = true
 			}
 		}
 
