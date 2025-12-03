@@ -1144,12 +1144,13 @@ func (b *NetworkMapBuilder) assembleNetworkMapCompact(
 		routes = append(routes, crt.route)
 	}
 
-	var firewallRules []*FirewallRule
+	var expandedFirewallRules []*FirewallRule
 	for _, ruleID := range aclView.FirewallRuleIDs {
 		if rule := b.cache.globalRules[ruleID]; rule != nil {
-			firewallRules = append(firewallRules, rule)
+			expandedFirewallRules = append(expandedFirewallRules, rule)
 		}
 	}
+	firewallRules := compactFirewallRules(expandedFirewallRules)
 
 	var routesFirewallRules []*RouteFirewallRule
 	for _, ruleID := range routesView.RouteFirewallRuleIDs {
@@ -1186,6 +1187,97 @@ func splitRouteAndPeer(r *route.Route) (string, string) {
 		return string(r.ID), ""
 	}
 	return parts[0], parts[1]
+}
+
+func compactFirewallRules(expandedRules []*FirewallRule) []*FirewallRule {
+	type peerKey struct {
+		PolicyID  string
+		PeerIP    string
+		Direction int
+		Action    string
+		Protocol  string
+	}
+
+	peerGroups := make(map[peerKey]struct {
+		ports      []string
+		portRanges []RulePortRange
+	})
+
+	for _, rule := range expandedRules {
+		key := peerKey{
+			PolicyID:  rule.PolicyID,
+			PeerIP:    rule.PeerIP,
+			Direction: rule.Direction,
+			Action:    rule.Action,
+			Protocol:  rule.Protocol,
+		}
+
+		group := peerGroups[key]
+		if rule.Port != "" {
+			group.ports = append(group.ports, rule.Port)
+		}
+		if rule.PortRange.Start != 0 || rule.PortRange.End != 0 {
+			group.portRanges = append(group.portRanges, rule.PortRange)
+		}
+		peerGroups[key] = group
+	}
+
+	type ruleKey struct {
+		PolicyID  string
+		Direction int
+		Action    string
+		Protocol  string
+		PortsSig  string
+		RangesSig string
+	}
+
+	ruleGroups := make(map[ruleKey]struct {
+		peerIPs    []string
+		ports      []string
+		portRanges []RulePortRange
+	})
+
+	for pKey, pGroup := range peerGroups {
+		portsSig := strings.Join(pGroup.ports, ",")
+		rangesSig := fmt.Sprintf("%v", pGroup.portRanges)
+
+		rKey := ruleKey{
+			PolicyID:  pKey.PolicyID,
+			Direction: pKey.Direction,
+			Action:    pKey.Action,
+			Protocol:  pKey.Protocol,
+			PortsSig:  portsSig,
+			RangesSig: rangesSig,
+		}
+
+		group := ruleGroups[rKey]
+		group.peerIPs = append(group.peerIPs, pKey.PeerIP)
+		if len(group.ports) == 0 {
+			group.ports = pGroup.ports
+		}
+		if len(group.portRanges) == 0 {
+			group.portRanges = pGroup.portRanges
+		}
+		ruleGroups[rKey] = group
+	}
+
+	compactRules := make([]*FirewallRule, 0, len(ruleGroups))
+
+	for rKey, group := range ruleGroups {
+		compactRule := &FirewallRule{
+			PolicyID:   rKey.PolicyID,
+			Direction:  rKey.Direction,
+			Action:     rKey.Action,
+			Protocol:   rKey.Protocol,
+			PeerIPs:    group.peerIPs,
+			Ports:      group.ports,
+			PortRanges: group.portRanges,
+		}
+
+		compactRules = append(compactRules, compactRule)
+	}
+
+	return compactRules
 }
 
 func (b *NetworkMapBuilder) generateFirewallRuleID(rule *FirewallRule) string {

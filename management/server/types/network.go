@@ -78,6 +78,58 @@ func (nm *NetworkMap) UncompactRoutes() {
 	nm.Routes = uncompactedRoutes
 }
 
+func (nm *NetworkMap) UncompactFirewallRules() {
+	uncompactedRules := make([]*FirewallRule, 0, len(nm.FirewallRules)*2)
+
+	for _, compactRule := range nm.FirewallRules {
+		if len(compactRule.PeerIPs) == 0 {
+			uncompactedRules = append(uncompactedRules, compactRule)
+			continue
+		}
+
+		for _, peerIP := range compactRule.PeerIPs {
+			if len(compactRule.Ports) > 0 {
+				for _, port := range compactRule.Ports {
+					expandedRule := &FirewallRule{
+						PolicyID:  compactRule.PolicyID,
+						PeerIP:    peerIP,
+						Direction: compactRule.Direction,
+						Action:    compactRule.Action,
+						Protocol:  compactRule.Protocol,
+						Port:      port,
+					}
+					uncompactedRules = append(uncompactedRules, expandedRule)
+				}
+			} else if len(compactRule.PortRanges) > 0 {
+				for _, portRange := range compactRule.PortRanges {
+					expandedRule := &FirewallRule{
+						PolicyID:  compactRule.PolicyID,
+						PeerIP:    peerIP,
+						Direction: compactRule.Direction,
+						Action:    compactRule.Action,
+						Protocol:  compactRule.Protocol,
+						PortRange: portRange,
+					}
+					uncompactedRules = append(uncompactedRules, expandedRule)
+				}
+			} else {
+				expandedRule := &FirewallRule{
+					PolicyID:  compactRule.PolicyID,
+					PeerIP:    peerIP,
+					Direction: compactRule.Direction,
+					Action:    compactRule.Action,
+					Protocol:  compactRule.Protocol,
+					Port:      compactRule.Port,
+					PortRange: compactRule.PortRange,
+				}
+				uncompactedRules = append(uncompactedRules, expandedRule)
+			}
+		}
+	}
+
+	nm.FirewallRules = uncompactedRules
+}
+
 func (nm *NetworkMap) ValidateApplicablePeerIDs(compactNm *NetworkMap, expectedPermsMap map[string]map[string]bool) error {
 	if compactNm == nil {
 		return fmt.Errorf("compact network map is nil")

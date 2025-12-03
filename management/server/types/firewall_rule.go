@@ -40,6 +40,10 @@ type FirewallRule struct {
 
 	// PortRange represents the range of ports for a firewall rule
 	PortRange RulePortRange
+
+	PeerIPs []string
+	Ports []string
+	PortRanges []RulePortRange
 }
 
 // Equal checks if two firewall rules are equal.

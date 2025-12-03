@@ -886,6 +886,9 @@ func normalizeAndSortNetworkMap(networkMap *types.NetworkMap) {
 		if r1.PeerIP != r2.PeerIP {
 			return r1.PeerIP < r2.PeerIP
 		}
+		if r1.PolicyID != r2.PolicyID {
+			return r1.PolicyID < r2.PolicyID
+		}
 		if r1.Protocol != r2.Protocol {
 			return r1.Protocol < r2.Protocol
 		}
@@ -1104,7 +1107,14 @@ func TestGetPeerNetworkMapCompact(t *testing.T) {
 	compactedJSON, err := json.MarshalIndent(compactNm, "", "  ")
 	require.NoError(t, err)
 
+	compactedBeforeUncompact := filepath.Join("testdata", "compact_before_uncompact.json")
+	err = os.MkdirAll(filepath.Dir(compactedBeforeUncompact), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(compactedBeforeUncompact, compactedJSON, 0644)
+	require.NoError(t, err)
+
 	compactNm.UncompactRoutes()
+	compactNm.UncompactFirewallRules()
 
 	normalizeAndSortNetworkMap(regularNm)
 	normalizeAndSortNetworkMap(compactNm)
