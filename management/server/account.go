@@ -299,7 +299,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			return err
 		}
 
-		if oldSettings.Extra.PeerApprovalEnabled && !newSettings.Extra.PeerApprovalEnabled {
+		if oldSettings.Extra != nil && newSettings.Extra != nil &&
+			oldSettings.Extra.PeerApprovalEnabled && !newSettings.Extra.PeerApprovalEnabled {
 			approvedCount, err := transaction.ApproveAccountPeers(ctx, accountID)
 			if err != nil {
 				return fmt.Errorf("failed to approve pending peers: %w", err)
