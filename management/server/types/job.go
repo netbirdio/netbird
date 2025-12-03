@@ -108,7 +108,7 @@ func (j *Job) BuildWorkloadResponse() (*api.WorkloadResponse, error) {
 	switch j.Workload.Type {
 	case JobTypeBundle:
 		if err := j.buildBundleResponse(&wl); err != nil {
-			return nil, status.Errorf(status.InvalidArgument, err.Error())
+			return nil, status.Errorf(status.Internal, "failed to process job: %v", err.Error())
 		}
 		return &wl, nil
 
