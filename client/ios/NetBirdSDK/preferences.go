@@ -1,6 +1,11 @@
 package NetBirdSDK
 
 import (
+	"os"
+	"strconv"
+
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -112,4 +117,19 @@ func (p *Preferences) GetRosenpassPermissive() (bool, error) {
 func (p *Preferences) Commit() error {
 	_, err := profilemanager.UpdateOrCreateConfig(p.configInput)
 	return err
+}
+
+var myBogusKey = "MY_BOGUS_KEY"
+
+func (p *Preferences) SetBogusVariable(value bool) {
+	err := os.Setenv(myBogusKey, strconv.FormatBool(value))
+	if err != nil {
+		log.Errorf("failed to set bogus variable: %s", err)
+	}
+}
+
+func (p *Preferences) GetBogusVariable() string {
+	bogusValue := os.Getenv(myBogusKey)
+	log.Debugf("bogus value: %s", bogusValue)
+	return bogusValue
 }
