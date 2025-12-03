@@ -130,7 +130,7 @@ func (jm *Manager) CloseChannel(ctx context.Context, accountID, peerID string) {
 		if ev.PeerID == peerID {
 			// if the client disconnect and there is pending job then marke it as failed
 			if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, peerID, "Time out peer disconnected"); err != nil {
-				log.WithContext(ctx).Errorf(err.Error())
+				log.WithContext(ctx).Errorf("failed to mark pending jobs as failed: %v", err)
 			}
 			delete(jm.pending, jobID)
 		}
@@ -144,7 +144,7 @@ func (jm *Manager) cleanup(ctx context.Context, accountID, jobID string, reason 
 
 	if ev, ok := jm.pending[jobID]; ok {
 		if err := jm.Store.MarkPendingJobsAsFailed(ctx, accountID, ev.PeerID, reason); err != nil {
-			log.WithContext(ctx).Errorf(err.Error())
+			log.WithContext(ctx).Errorf("failed to mark pending jobs as failed: %v", err)
 		}
 		delete(jm.pending, jobID)
 	}
