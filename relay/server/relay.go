@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"sync"
 	"time"
 
@@ -22,7 +23,7 @@ type Config struct {
 	TLSSupport     bool
 	AuthValidator  Validator
 
-	instanceURL string
+	instanceURL url.URL
 }
 
 func (c *Config) validate() error {
@@ -37,7 +38,7 @@ func (c *Config) validate() error {
 	if err != nil {
 		return fmt.Errorf("invalid url: %v", err)
 	}
-	c.instanceURL = instanceURL
+	c.instanceURL = *instanceURL
 
 	if c.AuthValidator == nil {
 		return fmt.Errorf("auth validator is required")
@@ -53,7 +54,7 @@ type Relay struct {
 
 	store          *store.Store
 	notifier       *store.PeerNotifier
-	instanceURL    string
+	instanceURL    url.URL
 	exposedAddress string
 	preparedMsg    *preparedMsg
 
@@ -97,7 +98,7 @@ func NewRelay(config Config) (*Relay, error) {
 		notifier:       store.NewPeerNotifier(),
 	}
 
-	r.preparedMsg, err = newPreparedMsg(r.instanceURL)
+	r.preparedMsg, err = newPreparedMsg(r.instanceURL.String())
 	if err != nil {
 		metricsCancel()
 		return nil, fmt.Errorf("prepare message: %v", err)
@@ -177,11 +178,6 @@ func (r *Relay) Shutdown(ctx context.Context) {
 }
 
 // InstanceURL returns the instance URL of the relay server
-func (r *Relay) InstanceURL() string {
+func (r *Relay) InstanceURL() url.URL {
 	return r.instanceURL
-}
-
-// ExposedAddress returns the exposed address (domain:port) where clients connect
-func (r *Relay) ExposedAddress() string {
-	return r.exposedAddress
 }

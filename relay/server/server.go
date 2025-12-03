@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"net/url"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
@@ -39,7 +40,7 @@ type Server struct {
 //
 //	config: A Config struct containing the necessary configuration:
 //	  - Meter: An OpenTelemetry metric.Meter used for recording metrics. If nil, a default no-op meter is used.
-//	  - ExposedAddress: The public address (in domain:port format) used as the server's instance URL. Required.
+//	  - InstanceURL: The public address (in domain:port format) used as the server's instance URL. Required.
 //	  - TLSSupport: A boolean indicating whether TLS is enabled for the server.
 //	  - AuthValidator: A Validator used to authenticate peers. Required.
 //
@@ -119,11 +120,6 @@ func (r *Server) Shutdown(ctx context.Context) error {
 	return nberrors.FormatErrorOrNil(multiErr)
 }
 
-// InstanceURL returns the instance URL of the relay server.
-func (r *Server) InstanceURL() string {
-	return r.relay.instanceURL
-}
-
 func (r *Server) ListenerProtocols() []protocol.Protocol {
 	result := make([]protocol.Protocol, 0)
 
@@ -135,6 +131,6 @@ func (r *Server) ListenerProtocols() []protocol.Protocol {
 	return result
 }
 
-func (r *Server) ExposedAddress() string {
-	return r.relay.ExposedAddress()
+func (r *Server) InstanceURL() url.URL {
+	return r.relay.InstanceURL()
 }
