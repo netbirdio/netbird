@@ -180,6 +180,7 @@ const (
 	UserApproved               Activity = 89
 	UserRejected               Activity = 90
 	UserCreated                Activity = 91
+	JobCreatedByUser           Activity = 92
 
 	AccountDeleted Activity = 99999
 )
@@ -290,6 +291,8 @@ var activityMap = map[Activity]Code{
 	UserApproved:  {"User approved", "user.approve"},
 	UserRejected:  {"User rejected", "user.reject"},
 	UserCreated:   {"User created", "user.create"},
+
+	JobCreatedByUser: {"Create Job for peer", "peer.job.create"},
 }
 
 // StringCode returns a string code of the activity

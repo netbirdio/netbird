@@ -27,8 +27,10 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -218,10 +220,9 @@ type BundleGenerator struct {
 	internalConfig *profilemanager.Config
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
-	logFile        string
+	logPath        string
 
 	anonymize         bool
-	clientStatus      string
 	includeSystemInfo bool
 	logFileCount      uint32
 
@@ -230,7 +231,6 @@ type BundleGenerator struct {
 
 type BundleConfig struct {
 	Anonymize         bool
-	ClientStatus      string
 	IncludeSystemInfo bool
 	LogFileCount      uint32
 }
@@ -239,7 +239,7 @@ type GeneratorDependencies struct {
 	InternalConfig *profilemanager.Config
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
-	LogFile        string
+	LogPath        string
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -255,10 +255,9 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		internalConfig: deps.InternalConfig,
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
-		logFile:        deps.LogFile,
+		logPath:        deps.LogPath,
 
 		anonymize:         cfg.Anonymize,
-		clientStatus:      cfg.ClientStatus,
 		includeSystemInfo: cfg.IncludeSystemInfo,
 		logFileCount:      logFileCount,
 	}
@@ -304,13 +303,6 @@ func (g *BundleGenerator) createArchive() error {
 		return fmt.Errorf("add status: %w", err)
 	}
 
-	if g.statusRecorder != nil {
-		status := g.statusRecorder.GetFullStatus()
-		seedFromStatus(g.anonymizer, &status)
-	} else {
-		log.Debugf("no status recorder available for seeding")
-	}
-
 	if err := g.addConfig(); err != nil {
 		log.Errorf("failed to add config to debug bundle: %v", err)
 	}
@@ -343,7 +335,7 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add wg show output: %v", err)
 	}
 
-	if g.logFile != "" && !slices.Contains(util.SpecialLogs, g.logFile) {
+	if g.logPath != "" && !slices.Contains(util.SpecialLogs, g.logPath) {
 		if err := g.addLogfile(); err != nil {
 			log.Errorf("failed to add log file to debug bundle: %v", err)
 			if err := g.trySystemdLogFallback(); err != nil {
@@ -388,11 +380,26 @@ func (g *BundleGenerator) addReadme() error {
 }
 
 func (g *BundleGenerator) addStatus() error {
-	if status := g.clientStatus; status != "" {
-		statusReader := strings.NewReader(status)
+	if g.statusRecorder != nil {
+		pm := profilemanager.NewProfileManager()
+		var profName string
+		if activeProf, err := pm.GetActiveProfile(); err == nil {
+			profName = activeProf.Name
+		}
+
+		fullStatus := g.statusRecorder.GetFullStatus()
+		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
+		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
+		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, g.anonymize, version.NetbirdVersion(), "", nil, nil, nil, "", profName)
+		statusOutput := nbstatus.ParseToFullDetailSummary(overview)
+
+		statusReader := strings.NewReader(statusOutput)
 		if err := g.addFileToZip(statusReader, "status.txt"); err != nil {
 			return fmt.Errorf("add status file to zip: %w", err)
 		}
+		seedFromStatus(g.anonymizer, &fullStatus)
+	} else {
+		log.Debugf("no status recorder available for seeding")
 	}
 	return nil
 }
@@ -662,14 +669,14 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 }
 
 func (g *BundleGenerator) addLogfile() error {
-	if g.logFile == "" {
+	if g.logPath == "" {
 		log.Debugf("skipping empty log file in debug bundle")
 		return nil
 	}
 
-	logDir := filepath.Dir(g.logFile)
+	logDir := filepath.Dir(g.logPath)
 
-	if err := g.addSingleLogfile(g.logFile, clientLogFile); err != nil {
+	if err := g.addSingleLogfile(g.logPath, clientLogFile); err != nil {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 
