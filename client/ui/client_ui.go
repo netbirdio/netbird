@@ -631,7 +631,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	if sshJWTCacheTTLText != "" {
 		sshJWTCacheTTL, err := strconv.ParseInt(sshJWTCacheTTLText, 10, 32)
 		if err != nil {
-			return nil, errors.New("Invalid SSH JWT Cache TTL value")
+			return nil, errors.New("invalid SSH JWT Cache TTL value")
 		}
 		if sshJWTCacheTTL < 0 || sshJWTCacheTTL > maxSSHJWTCacheTTL {
 			return nil, fmt.Errorf("SSH JWT Cache TTL must be between 0 and %d seconds", maxSSHJWTCacheTTL)
