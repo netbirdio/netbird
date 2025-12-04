@@ -318,7 +318,7 @@ func (e *Engine) Stop() error {
 	if os.Getenv("NB_REMOVE_BEFORE_ROUTES") == "true" && os.Getenv("NB_REMOVE_BEFORE_DNS") != "true" {
 		log.Info("removing peers before routes")
 		if err := e.removeAllPeers(); err != nil {
-			fmt.Errorf("failed to remove all peers: %s", err)
+			log.Errorf("failed to remove all peers: %s", err)
 		}
 	}
 
@@ -337,7 +337,7 @@ func (e *Engine) Stop() error {
 	if os.Getenv("NB_REMOVE_BEFORE_DNS") != "true" && os.Getenv("NB_REMOVE_BEFORE_ROUTES") != "true" {
 		log.Info("removing peers after dns and routes")
 		if err := e.removeAllPeers(); err != nil {
-			fmt.Errorf("failed to remove all peers: %s", err)
+			log.Errorf("failed to remove all peers: %s", err)
 		}
 	}
 
