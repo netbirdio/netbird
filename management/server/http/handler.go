@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -20,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 
+	nbpeers "github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	nbgroups "github.com/netbirdio/netbird/management/server/groups"
@@ -38,7 +40,6 @@ import (
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
-	nbpeers "github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
@@ -65,6 +66,7 @@ func NewAPIHandler(
 	permissionsManager permissions.Manager,
 	peersManager nbpeers.Manager,
 	settingsManager settings.Manager,
+	networkMapController network_map.Controller,
 ) (http.Handler, error) {
 
 	var rateLimitingConfig *middleware.RateLimiterConfig
@@ -103,6 +105,7 @@ func NewAPIHandler(
 		accountManager.SyncUserJWTGroups,
 		accountManager.GetUserFromUserAuth,
 		rateLimitingConfig,
+		appMetrics.GetMeter(),
 	)
 
 	corsMiddleware := cors.AllowAll()
@@ -120,7 +123,7 @@ func NewAPIHandler(
 	}
 
 	accounts.AddEndpoints(accountManager, settingsManager, router)
-	peers.AddEndpoints(accountManager, router)
+	peers.AddEndpoints(accountManager, router, networkMapController)
 	users.AddEndpoints(accountManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)

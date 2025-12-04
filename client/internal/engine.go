@@ -9,7 +9,6 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"reflect"
 	"runtime"
 	"slices"
 	"sort"
@@ -30,7 +29,6 @@ import (
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
-	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
@@ -51,10 +49,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	cProto "github.com/netbirdio/netbird/client/proto"
+	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 
-	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
@@ -115,7 +113,12 @@ type EngineConfig struct {
 	RosenpassEnabled    bool
 	RosenpassPermissive bool
 
-	ServerSSHAllowed bool
+	ServerSSHAllowed              bool
+	EnableSSHRoot                 *bool
+	EnableSSHSFTP                 *bool
+	EnableSSHLocalPortForwarding  *bool
+	EnableSSHRemotePortForwarding *bool
+	DisableSSHAuth                *bool
 
 	DNSRouteInterval time.Duration
 
@@ -148,8 +151,6 @@ type Engine struct {
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
-	// sshMux protects sshServer field access
-	sshMux sync.Mutex
 
 	config    *EngineConfig
 	mobileDep MobileDependency
@@ -175,8 +176,7 @@ type Engine struct {
 
 	networkMonitor *networkmonitor.NetworkMonitor
 
-	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
-	sshServer     nbssh.Server
+	sshServer sshServer
 
 	statusRecorder *peer.Status
 
@@ -246,7 +246,6 @@ func NewEngine(
 		STUNs:          []*stun.URI{},
 		TURNs:          []*stun.URI{},
 		networkSerial:  0,
-		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
 		checks:         checks,
 		connSemaphore:  semaphoregroup.NewSemaphoreGroup(connInitLimit),
@@ -256,7 +255,7 @@ func NewEngine(
 	sm := profilemanager.NewServiceManager("")
 
 	path := sm.GetStatePath()
-	if runtime.GOOS == "ios" {
+	if runtime.GOOS == "ios" || runtime.GOOS == "android" {
 		if !fileExists(mobileDep.StateFilePath) {
 			err := createFile(mobileDep.StateFilePath)
 			if err != nil {
@@ -268,6 +267,7 @@ func NewEngine(
 		path = mobileDep.StateFilePath
 	}
 	engine.stateManager = statemanager.New(path)
+	engine.stateManager.RegisterState(&sshconfig.ShutdownState{})
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
@@ -292,6 +292,18 @@ func (e *Engine) Stop() error {
 	}
 	log.Info("Network monitor: stopped")
 
+	if os.Getenv("NB_REMOVE_BEFORE_DNS") == "true" && os.Getenv("NB_REMOVE_BEFORE_ROUTES") != "true" {
+		log.Info("removing peers before dns")
+		if err := e.removeAllPeers(); err != nil {
+			return fmt.Errorf("failed to remove all peers: %s", err)
+		}
+	}
+	if err := e.stopSSHServer(); err != nil {
+		log.Warnf("failed to stop SSH server: %v", err)
+	}
+
+	e.cleanupSSHConfig()
+
 	// stop/restore DNS first so dbus and friends don't complain because of a missing interface
 	e.stopDNSServer()
 
@@ -304,6 +316,13 @@ func (e *Engine) Stop() error {
 
 	e.stopDNSForwarder()
 
+	if os.Getenv("NB_REMOVE_BEFORE_ROUTES") == "true" && os.Getenv("NB_REMOVE_BEFORE_DNS") != "true" {
+		log.Info("removing peers before routes")
+		if err := e.removeAllPeers(); err != nil {
+			return fmt.Errorf("failed to remove all peers: %s", err)
+		}
+	}
+
 	if e.routeManager != nil {
 		e.routeManager.Stop(e.stateManager)
 	}
@@ -311,13 +330,16 @@ func (e *Engine) Stop() error {
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
 	}
-
+	log.Info("cleaning up status recorder states")
 	e.statusRecorder.ReplaceOfflinePeers([]peer.State{})
 	e.statusRecorder.UpdateDNSStates([]peer.NSGroupState{})
 	e.statusRecorder.UpdateRelayStates([]relay.ProbeResult{})
 
-	if err := e.removeAllPeers(); err != nil {
-		return fmt.Errorf("failed to remove all peers: %s", err)
+	if os.Getenv("NB_REMOVE_BEFORE_DNS") != "true" && os.Getenv("NB_REMOVE_BEFORE_ROUTES") != "true" {
+		log.Info("removing peers after dns and routes")
+		if err := e.removeAllPeers(); err != nil {
+			return fmt.Errorf("failed to remove all peers: %s", err)
+		}
 	}
 
 	if e.cancel != nil {
@@ -703,15 +725,9 @@ func (e *Engine) removeAllPeers() error {
 	return nil
 }
 
-// removePeer closes an existing peer connection, removes a peer, and clears authorized key of the SSH server
+// removePeer closes an existing peer connection and removes a peer
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
-
-	e.sshMux.Lock()
-	if !isNil(e.sshServer) {
-		e.sshServer.RemoveAuthorizedKey(peerKey)
-	}
-	e.sshMux.Unlock()
 
 	e.connMgr.RemovePeerConn(peerKey)
 
@@ -884,79 +900,16 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.LazyConnectionEnabled,
+		e.config.EnableSSHRoot,
+		e.config.EnableSSHSFTP,
+		e.config.EnableSSHLocalPortForwarding,
+		e.config.EnableSSHRemotePortForwarding,
+		e.config.DisableSSHAuth,
 	)
 
 	if err := e.mgmClient.SyncMeta(info); err != nil {
 		log.Errorf("could not sync meta: error %s", err)
 		return err
-	}
-	return nil
-}
-
-func isNil(server nbssh.Server) bool {
-	return server == nil || reflect.ValueOf(server).IsNil()
-}
-
-func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
-	if e.config.BlockInbound {
-		log.Infof("SSH server is disabled because inbound connections are blocked")
-		return nil
-	}
-
-	if !e.config.ServerSSHAllowed {
-		log.Info("SSH server is not enabled")
-		return nil
-	}
-
-	if sshConf.GetSshEnabled() {
-		if runtime.GOOS == "windows" {
-			log.Warnf("running SSH server on %s is not supported", runtime.GOOS)
-			return nil
-		}
-		e.sshMux.Lock()
-		// start SSH server if it wasn't running
-		if isNil(e.sshServer) {
-			listenAddr := fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort)
-			if nbnetstack.IsEnabled() {
-				listenAddr = fmt.Sprintf("127.0.0.1:%d", nbssh.DefaultSSHPort)
-			}
-			// nil sshServer means it has not yet been started
-			server, err := e.sshServerFunc(e.config.SSHKey, listenAddr)
-			if err != nil {
-				e.sshMux.Unlock()
-				return fmt.Errorf("create ssh server: %w", err)
-			}
-
-			e.sshServer = server
-			e.sshMux.Unlock()
-
-			go func() {
-				// blocking
-				err = server.Start()
-				if err != nil {
-					// will throw error when we stop it even if it is a graceful stop
-					log.Debugf("stopped SSH server with error %v", err)
-				}
-				e.sshMux.Lock()
-				e.sshServer = nil
-				e.sshMux.Unlock()
-				log.Infof("stopped SSH server")
-			}()
-		} else {
-			e.sshMux.Unlock()
-			log.Debugf("SSH server is already running")
-		}
-	} else {
-		e.sshMux.Lock()
-		if !isNil(e.sshServer) {
-			// Disable SSH server request, so stop it if it was running
-			err := e.sshServer.Stop()
-			if err != nil {
-				log.Warnf("failed to stop SSH server %v", err)
-			}
-			e.sshServer = nil
-		}
-		e.sshMux.Unlock()
 	}
 	return nil
 }
@@ -973,8 +926,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	}
 
 	if conf.GetSshConfig() != nil {
-		err := e.updateSSH(conf.GetSshConfig())
-		if err != nil {
+		if err := e.updateSSH(conf.GetSshConfig()); err != nil {
 			log.Warnf("failed handling SSH server setup: %v", err)
 		}
 	}
@@ -1012,6 +964,11 @@ func (e *Engine) receiveManagementEvents() {
 			e.config.BlockLANAccess,
 			e.config.BlockInbound,
 			e.config.LazyConnectionEnabled,
+			e.config.EnableSSHRoot,
+			e.config.EnableSSHSFTP,
+			e.config.EnableSSHLocalPortForwarding,
+			e.config.EnableSSHRemotePortForwarding,
+			e.config.DisableSSHAuth,
 		)
 
 		err = e.mgmClient.Sync(e.ctx, info, e.handleSync)
@@ -1170,19 +1127,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 		e.statusRecorder.FinishPeerListModifications()
 
-		// update SSHServer by adding remote peer SSH keys
-		e.sshMux.Lock()
-		if !isNil(e.sshServer) {
-			for _, config := range networkMap.GetRemotePeers() {
-				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
-					err := e.sshServer.AddAuthorizedKey(config.WgPubKey, string(config.GetSshConfig().GetSshPubKey()))
-					if err != nil {
-						log.Warnf("failed adding authorized key to SSH DefaultServer %v", err)
-					}
-				}
-			}
+		e.updatePeerSSHHostKeys(networkMap.GetRemotePeers())
+
+		if err := e.updateSSHClientConfig(networkMap.GetRemotePeers()); err != nil {
+			log.Warnf("failed to update SSH client config: %v", err)
 		}
-		e.sshMux.Unlock()
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
@@ -1259,6 +1208,7 @@ func toRouteDomains(myPubKey string, routes []*route.Route) []*dnsfwd.ForwarderE
 }
 
 func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns.Config {
+	//nolint
 	forwarderPort := uint16(protoDNSConfig.GetForwarderPort())
 	if forwarderPort == 0 {
 		forwarderPort = nbdns.ForwarderClientPort
@@ -1273,7 +1223,9 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig, network netip.Prefix) nbdns
 
 	for _, zone := range protoDNSConfig.GetCustomZones() {
 		dnsZone := nbdns.CustomZone{
-			Domain: zone.GetDomain(),
+			Domain:               zone.GetDomain(),
+			SearchDomainDisabled: zone.GetSearchDomainDisabled(),
+			SkipPTRProcess:       zone.GetSkipPTRProcess(),
 		}
 		for _, record := range zone.Records {
 			dnsRecord := nbdns.SimpleRecord{
@@ -1544,15 +1496,6 @@ func (e *Engine) close() {
 		e.statusRecorder.SetWgIface(nil)
 	}
 
-	e.sshMux.Lock()
-	if !isNil(e.sshServer) {
-		err := e.sshServer.Stop()
-		if err != nil {
-			log.Warnf("failed stopping the SSH server: %v", err)
-		}
-	}
-	e.sshMux.Unlock()
-
 	if e.firewall != nil {
 		err := e.firewall.Close(e.stateManager)
 		if err != nil {
@@ -1583,6 +1526,11 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		e.config.BlockLANAccess,
 		e.config.BlockInbound,
 		e.config.LazyConnectionEnabled,
+		e.config.EnableSSHRoot,
+		e.config.EnableSSHSFTP,
+		e.config.EnableSSHLocalPortForwarding,
+		e.config.EnableSSHRemotePortForwarding,
+		e.config.DisableSSHAuth,
 	)
 
 	netMap, err := e.mgmClient.GetNetworkMap(info)
@@ -1899,6 +1847,18 @@ func (e *Engine) GetWgAddr() netip.Addr {
 		return netip.Addr{}
 	}
 	return e.wgInterface.Address().IP
+}
+
+func (e *Engine) RenewTun(fd int) error {
+	e.syncMsgMux.Lock()
+	wgInterface := e.wgInterface
+	e.syncMsgMux.Unlock()
+
+	if wgInterface == nil {
+		return fmt.Errorf("wireguard interface not initialized")
+	}
+
+	return wgInterface.RenewTun(fd)
 }
 
 // updateDNSForwarder start or stop the DNS forwarder based on the domains and the feature flag

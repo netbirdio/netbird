@@ -32,7 +32,7 @@ type ErrListener interface {
 // URLOpener it is a callback interface. The Open function will be triggered if
 // the backend want to show an url for the user
 type URLOpener interface {
-	Open(string)
+	Open(url string, userCode string)
 	OnLoginSuccess()
 }
 
@@ -148,9 +148,9 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 }
 
 // Login try register the client on the server
-func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener) {
+func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener, isAndroidTV bool) {
 	go func() {
-		err := a.login(urlOpener)
+		err := a.login(urlOpener, isAndroidTV)
 		if err != nil {
 			resultListener.OnError(err)
 		} else {
@@ -159,7 +159,7 @@ func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener) {
 	}()
 }
 
-func (a *Auth) login(urlOpener URLOpener) error {
+func (a *Auth) login(urlOpener URLOpener, isAndroidTV bool) error {
 	var needsLogin bool
 
 	// check if we need to generate JWT token
@@ -173,7 +173,7 @@ func (a *Auth) login(urlOpener URLOpener) error {
 
 	jwtToken := ""
 	if needsLogin {
-		tokenInfo, err := a.foregroundGetTokenInfo(urlOpener)
+		tokenInfo, err := a.foregroundGetTokenInfo(urlOpener, isAndroidTV)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
@@ -199,8 +199,8 @@ func (a *Auth) login(urlOpener URLOpener) error {
 	return nil
 }
 
-func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*auth.TokenInfo, error) {
-	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false, "")
+func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener, isAndroidTV bool) (*auth.TokenInfo, error) {
+	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config, false, isAndroidTV, "")
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*auth.TokenInfo, err
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
-	go urlOpener.Open(flowInfo.VerificationURIComplete)
+	go urlOpener.Open(flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
 	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout)

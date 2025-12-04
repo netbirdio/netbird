@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -175,7 +176,7 @@ func TestGetPostureCheck(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/api/posture-checks/"+tc.id, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				Domain:    "hotmail.com",
 				AccountId: "test_id",
@@ -828,7 +829,7 @@ func TestPostureCheckUpdate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = nbcontext.SetUserAuthInRequest(req, nbcontext.UserAuth{
+			req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
 				UserId:    "test_user",
 				Domain:    "hotmail.com",
 				AccountId: "test_id",

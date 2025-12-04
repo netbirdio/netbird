@@ -12,11 +12,12 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/auth"
-	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
+	nbauth "github.com/netbirdio/netbird/shared/auth"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 const (
@@ -75,9 +76,9 @@ func mockGetAccountInfoFromPAT(_ context.Context, token string) (user *types.Use
 	return nil, nil, "", "", fmt.Errorf("PAT invalid")
 }
 
-func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserAuth, *jwt.Token, error) {
+func mockValidateAndParseToken(_ context.Context, token string) (nbauth.UserAuth, *jwt.Token, error) {
 	if token == JWT {
-		return nbcontext.UserAuth{
+		return nbauth.UserAuth{
 				UserId:         userID,
 				AccountId:      accountID,
 				Domain:         testAccount.Domain,
@@ -91,7 +92,7 @@ func mockValidateAndParseToken(_ context.Context, token string) (nbcontext.UserA
 				Valid: true,
 			}, nil
 	}
-	return nbcontext.UserAuth{}, nil, fmt.Errorf("JWT invalid")
+	return nbauth.UserAuth{}, nil, fmt.Errorf("JWT invalid")
 }
 
 func mockMarkPATUsed(_ context.Context, token string) error {
@@ -101,7 +102,7 @@ func mockMarkPATUsed(_ context.Context, token string) error {
 	return fmt.Errorf("Should never get reached")
 }
 
-func mockEnsureUserAccessByJWTGroups(_ context.Context, userAuth nbcontext.UserAuth, token *jwt.Token) (nbcontext.UserAuth, error) {
+func mockEnsureUserAccessByJWTGroups(_ context.Context, userAuth nbauth.UserAuth, token *jwt.Token) (nbauth.UserAuth, error) {
 	if userAuth.IsChild || userAuth.IsPAT {
 		return userAuth, nil
 	}
@@ -197,15 +198,16 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
-		func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 			return userAuth.AccountId, userAuth.UserId, nil
 		},
-		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+		func(ctx context.Context, userAuth nbauth.UserAuth) error {
 			return nil
 		},
-		func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 			return &types.User{}, nil
 		},
+		nil,
 		nil,
 	)
 
@@ -255,16 +257,17 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -306,16 +309,17 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -348,16 +352,17 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -391,16 +396,17 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -454,16 +460,17 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 
 		authMiddleware := NewAuthMiddleware(
 			mockAuth,
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 				return userAuth.AccountId, userAuth.UserId, nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
 				return nil
 			},
-			func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
 			rateLimitConfig,
+			nil,
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -508,13 +515,13 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		name             string
 		path             string
 		authHeader       string
-		expectedUserAuth *nbcontext.UserAuth // nil expects 401 response status
+		expectedUserAuth *nbauth.UserAuth // nil expects 401 response status
 	}{
 		{
 			name:       "Valid PAT Token",
 			path:       "/test",
 			authHeader: "Token " + PAT,
-			expectedUserAuth: &nbcontext.UserAuth{
+			expectedUserAuth: &nbauth.UserAuth{
 				AccountId:      accountID,
 				UserId:         userID,
 				Domain:         testAccount.Domain,
@@ -526,7 +533,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			name:       "Valid PAT Token accesses child",
 			path:       "/test?account=xyz",
 			authHeader: "Token " + PAT,
-			expectedUserAuth: &nbcontext.UserAuth{
+			expectedUserAuth: &nbauth.UserAuth{
 				AccountId:      "xyz",
 				UserId:         userID,
 				Domain:         testAccount.Domain,
@@ -539,7 +546,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			name:       "Valid JWT Token",
 			path:       "/test",
 			authHeader: "Bearer " + JWT,
-			expectedUserAuth: &nbcontext.UserAuth{
+			expectedUserAuth: &nbauth.UserAuth{
 				AccountId:      accountID,
 				UserId:         userID,
 				Domain:         testAccount.Domain,
@@ -551,7 +558,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			name:       "Valid JWT Token with child",
 			path:       "/test?account=xyz",
 			authHeader: "Bearer " + JWT,
-			expectedUserAuth: &nbcontext.UserAuth{
+			expectedUserAuth: &nbauth.UserAuth{
 				AccountId:      "xyz",
 				UserId:         userID,
 				Domain:         testAccount.Domain,
@@ -570,15 +577,16 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
-		func(ctx context.Context, userAuth nbcontext.UserAuth) (string, string, error) {
+		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
 			return userAuth.AccountId, userAuth.UserId, nil
 		},
-		func(ctx context.Context, userAuth nbcontext.UserAuth) error {
+		func(ctx context.Context, userAuth nbauth.UserAuth) error {
 			return nil
 		},
-		func(ctx context.Context, userAuth nbcontext.UserAuth) (*types.User, error) {
+		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 			return &types.User{}, nil
 		},
+		nil,
 		nil,
 	)
 
