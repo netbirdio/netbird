@@ -1198,3 +1198,130 @@ func BenchmarkGetPeerNetworkMapCompact(b *testing.B) {
 		}
 	})
 }
+
+func TestGetPeerNetworkMapCompactCached(t *testing.T) {
+	account, err := createAccountFromFile()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	validatedPeersMap := make(map[string]struct{}, len(account.Peers))
+	for _, peer := range account.Peers {
+		validatedPeersMap[peer.ID] = struct{}{}
+	}
+	dnsDomain := account.Settings.DNSDomain
+	customZone := account.GetPeersCustomZone(ctx, dnsDomain)
+
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
+
+	testingPeerID := "d3knp53l0ubs738a3n6g"
+
+	regularNm := builder.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+	compactCachedNm := builder.GetPeerNetworkMapCompactCached(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+
+	compactedJSON, err := json.MarshalIndent(compactCachedNm, "", "  ")
+	require.NoError(t, err)
+
+	compactedBeforeUncompact := filepath.Join("testdata", "compact_cached_before_uncompact.json")
+	err = os.MkdirAll(filepath.Dir(compactedBeforeUncompact), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(compactedBeforeUncompact, compactedJSON, 0644)
+	require.NoError(t, err)
+
+	compactCachedNm.UncompactRoutes()
+	compactCachedNm.UncompactFirewallRules()
+
+	normalizeAndSortNetworkMap(regularNm)
+	normalizeAndSortNetworkMap(compactCachedNm)
+
+	regularJSON, err := json.MarshalIndent(regularNm, "", "  ")
+	require.NoError(t, err)
+
+	regularLn := len(regularJSON)
+	compactLn := len(compactedJSON)
+
+	t.Logf("compacted less on %d percents", 100-int32((float32(compactLn)/float32(regularLn))*100))
+
+	regular := filepath.Join("testdata", "regular_nmap_cached.json")
+
+	err = os.MkdirAll(filepath.Dir(regular), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(regular, regularJSON, 0644)
+	require.NoError(t, err)
+
+	uncompactedJSON, err := json.MarshalIndent(compactCachedNm, "", "  ")
+	require.NoError(t, err)
+
+	uncompacted := filepath.Join("testdata", "compacted_cached_nmap.json")
+
+	err = os.MkdirAll(filepath.Dir(regular), 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(uncompacted, uncompactedJSON, 0644)
+	require.NoError(t, err)
+
+	require.JSONEq(t, string(regularJSON), string(uncompactedJSON), "regular and uncompacted network maps should be equal")
+}
+
+func BenchmarkGetPeerNetworkMapCompactCached(b *testing.B) {
+	account, err := createAccountFromFile()
+	require.NoError(b, err)
+
+	ctx := context.Background()
+	validatedPeersMap := make(map[string]struct{}, len(account.Peers))
+	for _, peer := range account.Peers {
+		validatedPeersMap[peer.ID] = struct{}{}
+	}
+	dnsDomain := account.Settings.DNSDomain
+	customZone := account.GetPeersCustomZone(ctx, dnsDomain)
+
+	builder := types.NewNetworkMapBuilder(account, validatedPeersMap)
+
+	testingPeerID := "d3knp53l0ubs738a3n6g"
+
+	regularNm := builder.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+	compactNm := builder.GetPeerNetworkMapCompact(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+	compactCachedNm := builder.GetPeerNetworkMapCompactCached(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+
+	regularJSON, err := json.Marshal(regularNm)
+	require.NoError(b, err)
+
+	compactJSON, err := json.Marshal(compactNm)
+	require.NoError(b, err)
+
+	compactCachedJSON, err := json.Marshal(compactCachedNm)
+	require.NoError(b, err)
+
+	regularSize := len(regularJSON)
+	compactSize := len(compactJSON)
+	compactCachedSize := len(compactCachedJSON)
+	savingsPercent := 100 - int(float64(compactCachedSize)/float64(regularSize)*100)
+
+	b.ReportMetric(float64(regularSize), "regular_bytes")
+	b.ReportMetric(float64(compactCachedSize), "compact_cached_bytes")
+	b.ReportMetric(float64(savingsPercent), "savings_%")
+
+	b.Logf("Regular network map: %d bytes", regularSize)
+	b.Logf("Compact network map: %d bytes", compactSize)
+	b.Logf("Compact cached network map: %d bytes", compactCachedSize)
+	b.Logf("Data savings: %d%% (%d bytes saved)", savingsPercent, regularSize-compactCachedSize)
+
+	b.Run("Regular", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = builder.GetPeerNetworkMap(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+		}
+	})
+
+	b.Run("CompactOnDemand", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = builder.GetPeerNetworkMapCompact(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+		}
+	})
+
+	b.Run("CompactCached", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = builder.GetPeerNetworkMapCompactCached(ctx, testingPeerID, customZone, validatedPeersMap, nil)
+		}
+	})
+}

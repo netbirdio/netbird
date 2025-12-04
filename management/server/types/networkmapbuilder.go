@@ -42,9 +42,11 @@ type NetworkMapCache struct {
 	groupToRoutes   map[string][]*route.Route
 	peerToRoutes    map[string][]*route.Route
 
-	peerACLs   map[string]*PeerACLView
-	peerRoutes map[string]*PeerRoutesView
-	peerDNS    map[string]*nbdns.Config
+	peerACLs                 map[string]*PeerACLView
+	peerRoutes               map[string]*PeerRoutesView
+	peerDNS                  map[string]*nbdns.Config
+	peerFirewallRulesCompact map[string][]*FirewallRule
+	peerRoutesCompact        map[string][]*route.Route
 
 	resourceRouters  map[string]map[string]*routerTypes.NetworkRouter
 	resourcePolicies map[string][]*Policy
@@ -93,10 +95,12 @@ func NewNetworkMapBuilder(account *Account, validatedPeers map[string]struct{}) 
 			groupToPolicies:  make(map[string][]*Policy),
 			groupToRoutes:    make(map[string][]*route.Route),
 			peerToRoutes:     make(map[string][]*route.Route),
-			peerACLs:         make(map[string]*PeerACLView),
-			peerRoutes:       make(map[string]*PeerRoutesView),
-			peerDNS:          make(map[string]*nbdns.Config),
-			globalResources:  make(map[string]*resourceTypes.NetworkResource),
+			peerACLs:                 make(map[string]*PeerACLView),
+			peerRoutes:               make(map[string]*PeerRoutesView),
+			peerDNS:                  make(map[string]*nbdns.Config),
+			peerFirewallRulesCompact: make(map[string][]*FirewallRule),
+			peerRoutesCompact:        make(map[string][]*route.Route),
+			globalResources:          make(map[string]*resourceTypes.NetworkResource),
 			acgToRoutes:      make(map[string]map[route.ID]*RouteOwnerInfo),
 			noACGRoutes:      make(map[route.ID]*RouteOwnerInfo),
 		},
@@ -253,6 +257,9 @@ func (b *NetworkMapBuilder) buildPeerACLView(account *Account, peerID string) {
 	}
 
 	b.cache.peerACLs[peerID] = view
+
+	compactedRules := compactFirewallRules(firewallRules)
+	b.cache.peerFirewallRulesCompact[peerID] = compactedRules
 }
 
 func (b *NetworkMapBuilder) getPeerConnectionResources(account *Account, peer *nbpeer.Peer,
@@ -659,6 +666,10 @@ func (b *NetworkMapBuilder) buildPeerRoutesView(account *Account, peerID string)
 		}
 	}
 
+	otherRouteIDs := slices.Concat(view.NetworkResourceIDs, view.InheritedRouteIDs)
+	compactedRoutes := b.compactRoutesForPeer(peerID, view.OwnRouteIDs, otherRouteIDs)
+	b.cache.peerRoutesCompact[peerID] = compactedRoutes
+
 	b.cache.peerRoutes[peerID] = view
 }
 
@@ -1045,6 +1056,45 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 	}
 }
 
+func (b *NetworkMapBuilder) GetPeerNetworkMapCompactCached(
+	ctx context.Context, peerID string, peersCustomZone nbdns.CustomZone,
+	validatedPeers map[string]struct{}, metrics *telemetry.AccountManagerMetrics,
+) *NetworkMap {
+	start := time.Now()
+	account := b.account.Load()
+
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return &NetworkMap{Network: account.Network.Copy()}
+	}
+
+	b.cache.mu.RLock()
+	defer b.cache.mu.RUnlock()
+
+	aclView := b.cache.peerACLs[peerID]
+	routesView := b.cache.peerRoutes[peerID]
+	dnsConfig := b.cache.peerDNS[peerID]
+
+	if aclView == nil || routesView == nil || dnsConfig == nil {
+		return &NetworkMap{Network: account.Network.Copy()}
+	}
+
+	nm := b.assembleNetworkMapCompactCached(account, peer, aclView, routesView, dnsConfig, peersCustomZone, validatedPeers)
+
+	if metrics != nil {
+		objectCount := int64(len(nm.Peers) + len(nm.OfflinePeers) + len(nm.Routes) + len(nm.FirewallRules) + len(nm.RoutesFirewallRules))
+		metrics.CountNetworkMapObjects(objectCount)
+		metrics.CountGetPeerNetworkMapDuration(time.Since(start))
+
+		if objectCount > 5000 {
+			log.WithContext(ctx).Tracef("account: %s has a total resource count of %d objects from cache",
+				account.Id, objectCount)
+		}
+	}
+
+	return nm
+}
+
 func (b *NetworkMapBuilder) GetPeerNetworkMapCompact(
 	ctx context.Context, peerID string, peersCustomZone nbdns.CustomZone,
 	validatedPeers map[string]struct{}, metrics *telemetry.AccountManagerMetrics,
@@ -1082,6 +1132,65 @@ func (b *NetworkMapBuilder) GetPeerNetworkMapCompact(
 	}
 
 	return nm
+}
+
+func (b *NetworkMapBuilder) assembleNetworkMapCompactCached(
+	account *Account, peer *nbpeer.Peer, aclView *PeerACLView, routesView *PeerRoutesView,
+	dnsConfig *nbdns.Config, customZone nbdns.CustomZone, validatedPeers map[string]struct{},
+) *NetworkMap {
+
+	var peersToConnect []*nbpeer.Peer
+	var expiredPeers []*nbpeer.Peer
+
+	for _, peerID := range aclView.ConnectedPeerIDs {
+		if _, ok := validatedPeers[peerID]; !ok {
+			continue
+		}
+
+		peerItem := b.cache.globalPeers[peerID]
+		if peerItem == nil {
+			continue
+		}
+
+		expired, _ := peerItem.LoginExpired(account.Settings.PeerLoginExpiration)
+		if account.Settings.PeerLoginExpirationEnabled && expired {
+			expiredPeers = append(expiredPeers, peerItem)
+		} else {
+			peersToConnect = append(peersToConnect, peerItem)
+		}
+	}
+
+	routes := b.cache.peerRoutesCompact[peer.ID]
+
+	firewallRules := b.cache.peerFirewallRulesCompact[peer.ID]
+
+	var routesFirewallRules []*RouteFirewallRule
+	for _, ruleID := range routesView.RouteFirewallRuleIDs {
+		if rule := b.cache.globalRouteRules[ruleID]; rule != nil {
+			routesFirewallRules = append(routesFirewallRules, rule)
+		}
+	}
+
+	finalDNSConfig := *dnsConfig
+	if finalDNSConfig.ServiceEnable && customZone.Domain != "" {
+		var zones []nbdns.CustomZone
+		records := filterZoneRecordsForPeers(peer, customZone, peersToConnect, expiredPeers)
+		zones = append(zones, nbdns.CustomZone{
+			Domain:  customZone.Domain,
+			Records: records,
+		})
+		finalDNSConfig.CustomZones = zones
+	}
+
+	return &NetworkMap{
+		Peers:               peersToConnect,
+		Network:             account.Network.Copy(),
+		Routes:              routes,
+		DNSConfig:           finalDNSConfig,
+		OfflinePeers:        expiredPeers,
+		FirewallRules:       firewallRules,
+		RoutesFirewallRules: routesFirewallRules,
+	}
 }
 
 func (b *NetworkMapBuilder) assembleNetworkMapCompact(
@@ -1187,6 +1296,44 @@ func splitRouteAndPeer(r *route.Route) (string, string) {
 		return string(r.ID), ""
 	}
 	return parts[0], parts[1]
+}
+
+func (b *NetworkMapBuilder) compactRoutesForPeer(peerID string, ownRouteIDs []route.ID, otherRouteIDs []route.ID) []*route.Route {
+	var routes []*route.Route
+
+	for _, routeID := range ownRouteIDs {
+		if rt := b.cache.globalRoutes[routeID]; rt != nil {
+			routes = append(routes, rt)
+		}
+	}
+
+	type crt struct {
+		route   *route.Route
+		peerIds []string
+	}
+	rtfilter := make(map[string]crt)
+
+	for _, routeID := range otherRouteIDs {
+		if rt := b.cache.globalRoutes[routeID]; rt != nil {
+			rid, pid := splitRouteAndPeer(rt)
+			if pid == peerID || len(pid) == 0 {
+				routes = append(routes, rt)
+				continue
+			}
+			crt := rtfilter[rid]
+			crt.peerIds = append(crt.peerIds, pid)
+			crt.route = rt.CopyClean()
+			rtfilter[rid] = crt
+		}
+	}
+
+	for rid, crt := range rtfilter {
+		crt.route.ApplicablePeerIDs = crt.peerIds
+		crt.route.ID = route.ID(rid)
+		routes = append(routes, crt.route)
+	}
+
+	return routes
 }
 
 func compactFirewallRules(expandedRules []*FirewallRule) []*FirewallRule {
